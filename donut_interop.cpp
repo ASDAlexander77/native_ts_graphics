@@ -57,8 +57,13 @@ using namespace donut::math;
 
 #include <GLFW/glfw3.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <queue>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -87,7 +92,9 @@ namespace
     {
         nvrhi::ICommandList* commandList;
         nvrhi::IFramebuffer* framebuffer;
-        // Built up by Donut_BeginDraw / Donut_Draw* and used by Donut_DrawIndexed.
+        // What executeCommandList returned for this pass's previous frame (0 before the first).
+        uint64_t previousSubmission;
+        // Built up by Donut_BeginDraw / Donut_Draw* and used by Donut_DrawIndexed / Donut_DrawVertices.
         nvrhi::GraphicsState draw;
     };
 
@@ -106,12 +113,12 @@ namespace
 
             if (m_Render)
             {
-                FrameContext frame{ m_CommandList, framebuffer };
+                FrameContext frame{ m_CommandList, framebuffer, m_LastSubmission };
                 m_Render.method(m_Render.thisVal, &frame);
             }
 
             m_CommandList->close();
-            GetDevice()->executeCommandList(m_CommandList);
+            m_LastSubmission = GetDevice()->executeCommandList(m_CommandList);
         }
 
         void Animate(float elapsedTimeSeconds) override
@@ -154,6 +161,7 @@ namespace
 
     private:
         nvrhi::CommandListHandle m_CommandList;
+        uint64_t m_LastSubmission = 0;
     };
 
     struct App
@@ -381,6 +389,113 @@ namespace
         std::shared_ptr<donut::engine::FramebufferFactory> framebuffer;
     };
 
+    // Textures passed between the render thread and the async compute thread, each with the
+    // submission (on the other queue) that last used it.
+    class TextureQueue
+    {
+    public:
+        void Push(nvrhi::TextureHandle texture, uint64_t lastUse)
+        {
+            std::lock_guard lock(m_Mutex);
+            m_Queue.emplace(std::move(texture), lastUse);
+        }
+
+        bool TryPop(nvrhi::TextureHandle& outTexture, uint64_t& outLastUse)
+        {
+            std::lock_guard lock(m_Mutex);
+            if (m_Queue.empty())
+                return false;
+
+            outTexture = std::move(m_Queue.front().first);
+            outLastUse = m_Queue.front().second;
+            m_Queue.pop();
+            return true;
+        }
+
+    private:
+        std::queue<std::pair<nvrhi::TextureHandle, uint64_t>> m_Queue;
+        std::mutex m_Mutex;
+    };
+
+    // A C++ worker thread that, at a fixed rate, takes a free texture, runs a compute shader over
+    // it on the compute queue, and hands it to the render thread; the render thread hands back the
+    // texture it stops showing. Cross-queue waits keep each texture used by one queue at a time.
+    // Only C++ runs on the worker: tslang code can't run on threads its GC doesn't know about.
+    struct AsyncComputeLoop
+    {
+        nvrhi::DeviceHandle device;
+        nvrhi::ComputePipelineHandle pipeline;
+        nvrhi::BindingLayoutHandle bindingLayout;
+        uint32_t groupsX = 0;
+        uint32_t groupsY = 0;
+        std::chrono::microseconds interval{};
+
+        nvrhi::CommandListLifetimeTrackerHandle lifetimeTracker;
+        nvrhi::CommandListHandle commandList;
+        std::unique_ptr<donut::engine::BindingCache> bindings;
+
+        TextureQueue renderToCompute;
+        TextureQueue computeToRender;
+        // Only touched by the render thread.
+        nvrhi::TextureHandle current;
+
+        std::thread thread;
+        std::atomic_bool terminate = false;
+
+        ~AsyncComputeLoop() { Stop(); }
+
+        void Stop()
+        {
+            terminate = true;
+            if (thread.joinable())
+                thread.join();
+        }
+
+        void ThreadProc()
+        {
+            uint32_t counter = 0;
+
+            while (!terminate)
+            {
+                const auto nextTimePoint = std::chrono::steady_clock::now() + interval;
+                lifetimeTracker->runGarbageCollection();
+
+                nvrhi::TextureHandle texture;
+                uint64_t textureLastUse = 0;
+                while (!terminate && !renderToCompute.TryPop(texture, textureLastUse))
+                {}
+
+                if (terminate)
+                    break;
+
+                commandList->open();
+
+                nvrhi::BindingSetDesc bindingDesc;
+                bindingDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(0, texture));
+                bindingDesc.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(uint32_t)));
+                nvrhi::BindingSetHandle bindingSet = bindings->GetOrCreateBindingSet(bindingDesc, bindingLayout);
+
+                nvrhi::ComputeState state;
+                state.pipeline = pipeline;
+                state.bindings = { bindingSet };
+                commandList->setComputeState(state);
+                commandList->setPushConstants(&counter, sizeof(counter));
+                commandList->dispatch(groupsX, groupsY);
+
+                commandList->close();
+
+                if (textureLastUse > 0)
+                    device->queueWaitForCommandList(nvrhi::CommandQueue::Compute, nvrhi::CommandQueue::Graphics, textureLastUse);
+                textureLastUse = device->executeCommandList(commandList, nvrhi::CommandQueue::Compute);
+
+                computeToRender.Push(std::move(texture), textureLastUse);
+
+                counter++;
+                std::this_thread::sleep_until(nextTimePoint);
+            }
+        }
+    };
+
     // A top-level acceleration structure over a scene's mesh instances, and the bottom-level ones
     // (one per mesh) it instantiates. Only NVRHI's D3D12 backend keeps a BLAS alive from a TLAS,
     // so they're held here.
@@ -450,6 +565,7 @@ static_assert(int(nvrhi::Feature::Meshlets) == 9 && int(nvrhi::Feature::RayTraci
 static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Pixel) == 0x10
     && int(nvrhi::ShaderType::Compute) == 0x20 && int(nvrhi::ShaderType::Amplification) == 0x40
     && int(nvrhi::ShaderType::Mesh) == 0x80 && int(nvrhi::ShaderType::All) == 0x3FFF);
+static_assert(int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::PrimitiveType::TriangleStrip) == 4);
 static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RG32_FLOAT) == 43
     && int(nvrhi::Format::RGB32_FLOAT) == 46);
 static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
@@ -466,6 +582,7 @@ extern "C"
     enum AppOptions
     {
         AppOption_RayTracing = 1, // enables the Vulkan ray tracing extensions (D3D12 has them built in)
+        AppOption_ComputeQueue = 2, // creates a separate compute queue (nvrhi::CommandQueue::Compute)
     };
 
     // Creates the device and window for graphicsApi (an nvrhi::GraphicsAPI value), with the
@@ -485,6 +602,7 @@ extern "C"
         params.backBufferHeight = static_cast<uint32_t>(height);
         params.vsyncEnabled = true;
         params.enableRayTracingExtensions = (options & AppOption_RayTracing) != 0;
+        params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
 
         if (!deviceManager->CreateWindowDeviceAndSwapChain(params, title))
         {
@@ -989,6 +1107,19 @@ extern "C"
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(slot)));
     }
 
+    void Donut_LayoutSampler(void* bindingLayoutDesc, int slot)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::Sampler(static_cast<uint32_t>(slot)));
+    }
+
+    // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
+    void Donut_LayoutPushConstants(void* bindingLayoutDesc, int slot, int byteSize)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::PushConstants(static_cast<uint32_t>(slot), static_cast<uint32_t>(byteSize)));
+    }
+
     // For a buffer from Donut_CreateVolatileConstantBuffer.
     void Donut_LayoutVolatileConstantBuffer(void* bindingLayoutDesc, int slot)
     {
@@ -1004,6 +1135,17 @@ extern "C"
         desc->visibility = static_cast<nvrhi::ShaderType>(shaderType);
         App* a = AsApp(app);
         return a->Own(a->device()->createBindingLayout(*desc));
+    }
+
+    // Compute pipeline with one binding layout (Donut_CreateBindingLayout). Returns null on failure.
+    void* Donut_CreateComputePipelineWithLayout(void* app, void* computeShader, void* bindingLayout)
+    {
+        auto desc = nvrhi::ComputePipelineDesc()
+            .setComputeShader(static_cast<nvrhi::IShader*>(computeShader))
+            .addBindingLayout(static_cast<nvrhi::IBindingLayout*>(bindingLayout));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createComputePipeline(desc));
     }
 
     // Compute pipeline using the layout of bindingSet. Returns null on failure.
@@ -1176,6 +1318,124 @@ extern "C"
 
         App* a = AsApp(app);
         return a->Own(a->device()->createGraphicsPipeline(desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
+    }
+
+    // Pipeline without depth test for the frame's framebuffer layout, drawing primitiveType (an
+    // nvrhi::PrimitiveType value), with an optional input layout and an optional binding layout
+    // (null for either means none). Returns null on failure.
+    void* Donut_CreateGraphicsPipelineWithTopology(void* app, void* frame, void* vertexShader, void* pixelShader,
+        void* inputLayout, void* bindingLayout, int primitiveType)
+    {
+        nvrhi::GraphicsPipelineDesc desc;
+        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
+        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc.inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        if (bindingLayout)
+            desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+        desc.primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
+        desc.renderState.depthStencilState.depthTestEnable = false;
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createGraphicsPipeline(desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
+    }
+
+    // RGBA8_UNORM texture of width x height that compute shaders write as RWTexture2D<float4> and
+    // pixel shaders read; NVRHI tracks its state, which rests at NonPixelShaderResource. Returns
+    // null on failure.
+    void* Donut_CreateUAVTexture(void* app, int width, int height, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(nvrhi::Format::RGBA8_UNORM)
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setIsUAV(true)
+            .setDebugName(debugName)
+            .enableAutomaticStateTracking(nvrhi::ResourceStates::NonPixelShaderResource);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // A binding set for a description (which it frees) from the app's binding cache: created on
+    // the first request, reused for identical ones after. Valid until Donut_ClearBindingCache.
+    void* Donut_GetCachedBindingSet(void* app, void* bindingSetDesc, void* bindingLayout)
+    {
+        std::unique_ptr<nvrhi::BindingSetDesc> desc(static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc));
+        return AsApp(app)->bindingCache()->GetOrCreateBindingSet(*desc, static_cast<nvrhi::IBindingLayout*>(bindingLayout)).Get();
+    }
+
+    // --- Async compute -----------------------------------------------------------------------
+
+    // A loop that, every intervalMicroseconds, dispatches groupsX x groupsY groups of a compute
+    // pipeline on the compute queue (the app needs AppOptions.ComputeQueue), on a C++ worker thread.
+    // Each run writes one texture, bound as RWTexture2D at u0, with the run's index (a uint,
+    // counting from 0) as push constants at b0; the binding layout must hold exactly those two.
+    // Give it textures with Donut_AddAsyncComputeTexture, then start it. Returns null if the
+    // device has no compute queue.
+    void* Donut_CreateAsyncComputeLoop(void* app, void* computePipeline, void* bindingLayout,
+        int groupsX, int groupsY, int intervalMicroseconds)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        if (!device->queryFeatureSupport(nvrhi::Feature::ComputeQueue))
+            return nullptr;
+
+        auto loop = std::make_shared<AsyncComputeLoop>();
+        loop->device = device;
+        loop->pipeline = static_cast<nvrhi::IComputePipeline*>(computePipeline);
+        loop->bindingLayout = static_cast<nvrhi::IBindingLayout*>(bindingLayout);
+        loop->groupsX = static_cast<uint32_t>(groupsX);
+        loop->groupsY = static_cast<uint32_t>(groupsY);
+        loop->interval = std::chrono::microseconds(intervalMicroseconds);
+        loop->bindings = std::make_unique<donut::engine::BindingCache>(device);
+        loop->lifetimeTracker = device->createCommandListLifetimeTracker(nvrhi::CommandQueue::Compute);
+        loop->commandList = device->createCommandList(nvrhi::CommandListParameters()
+            .setEnableImmediateExecution(false)
+            .setQueueType(nvrhi::CommandQueue::Compute)
+            .setLifetimeTracker(loop->lifetimeTracker));
+
+        return a->OwnObject(loop);
+    }
+
+    // Adds a texture (e.g. from Donut_CreateUAVTexture) for the loop to write; call before starting it.
+    void Donut_AddAsyncComputeTexture(void* asyncComputeLoop, void* texture)
+    {
+        static_cast<AsyncComputeLoop*>(asyncComputeLoop)->renderToCompute.Push(static_cast<nvrhi::ITexture*>(texture), 0);
+    }
+
+    void Donut_StartAsyncComputeLoop(void* asyncComputeLoop)
+    {
+        auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
+        loop->thread = std::thread([loop]() { loop->ThreadProc(); });
+    }
+
+    // Stops and joins the worker thread; call it before Donut_DestroyApp (releasing or destroying
+    // the loop also does).
+    void Donut_StopAsyncComputeLoop(void* asyncComputeLoop)
+    {
+        static_cast<AsyncComputeLoop*>(asyncComputeLoop)->Stop();
+    }
+
+    // Inside a render callback: if the loop finished a texture, switches to it (making the frame's
+    // command list wait for the compute queue) and returns the texture shown until then to the
+    // loop. Returns the texture to show this frame, null until the first one is ready.
+    void* Donut_AcquireAsyncComputeTexture(void* asyncComputeLoop, void* frame)
+    {
+        auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
+
+        nvrhi::TextureHandle newTexture;
+        uint64_t newTextureLastUse = 0;
+        if (loop->computeToRender.TryPop(newTexture, newTextureLastUse))
+        {
+            loop->current.Swap(newTexture);
+            // The previous frame was the last to use the texture shown until now.
+            if (newTexture)
+                loop->renderToCompute.Push(std::move(newTexture), AsFrame(frame)->previousSubmission);
+
+            loop->device->queueWaitForCommandList(nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, newTextureLastUse);
+        }
+
+        return loop->current.Get();
     }
 
     // --- Command lists (for work outside render passes, e.g. in a headless app) --------------
@@ -2280,6 +2540,19 @@ extern "C"
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(indexCount);
         ctx->commandList->drawIndexed(args);
+    }
+
+    // Same as Donut_DrawIndexed, without an index buffer: vertexCount vertices.
+    void Donut_DrawVertices(void* frame, int vertexCount)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(vertexCount);
+        ctx->commandList->draw(args);
     }
 
     int Donut_GetFrameWidth(void* frame)

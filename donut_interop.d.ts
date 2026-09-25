@@ -45,7 +45,15 @@ enum TemporalTexture {
 enum AppOptions {
     None = 0,
     // Enables the Vulkan ray tracing extensions (D3D12 has them built in).
-    RayTracing = 1
+    RayTracing = 1,
+    // Creates a separate compute queue, for Donut_CreateAsyncComputeLoop.
+    ComputeQueue = 2
+}
+
+// nvrhi::PrimitiveType values (only the ones used so far).
+enum PrimitiveType {
+    TriangleList = 3,
+    TriangleStrip = 4
 }
 
 // donut::log::Severity values.
@@ -133,6 +141,9 @@ declare function Donut_CreateShaderLibrary(app: Opaque, fileName: string): Opaqu
 declare function Donut_CreateGraphicsPipeline(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque): Opaque;
 // Same, with an input layout and one binding layout.
 declare function Donut_CreateGraphicsPipelineWithLayouts(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque;
+// Same, drawing primitiveType, with each layout optional (null for none).
+declare function Donut_CreateGraphicsPipelineWithTopology(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque,
+    inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque;
 // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
 declare function Donut_CreateMeshletPipeline(app: Opaque, frame: Opaque, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque;
 // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
@@ -151,6 +162,9 @@ declare function Donut_CreateConstantBuffer(app: Opaque, byteSize: int, debugNam
 // For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
 // it with Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer.
 declare function Donut_CreateVolatileConstantBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+// RGBA8_UNORM texture that compute shaders write (RWTexture2D<float4>) and pixel shaders read;
+// NVRHI tracks its state.
+declare function Donut_CreateUAVTexture(app: Opaque, width: int, height: int, debugName: string): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
 declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
@@ -217,10 +231,33 @@ declare function Donut_LayoutTextureUAV(bindingLayoutDesc: Opaque, slot: int): v
 declare function Donut_LayoutAccelStruct(bindingLayoutDesc: Opaque, slot: int): void;
 declare function Donut_LayoutTextureSRV(bindingLayoutDesc: Opaque, slot: int): void;
 declare function Donut_LayoutVolatileConstantBuffer(bindingLayoutDesc: Opaque, slot: int): void;
+declare function Donut_LayoutSampler(bindingLayoutDesc: Opaque, slot: int): void;
+// byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
+declare function Donut_LayoutPushConstants(bindingLayoutDesc: Opaque, slot: int, byteSize: int): void;
 // Register space 0, visible to shaderType's stages.
 declare function Donut_CreateBindingLayout(app: Opaque, bindingLayoutDesc: Opaque, shaderType: ShaderType): Opaque;
 // Uses the layout of bindingSet.
 declare function Donut_CreateComputePipeline(app: Opaque, computeShader: Opaque, bindingSet: Opaque): Opaque;
+// Same, from a binding layout.
+declare function Donut_CreateComputePipelineWithLayout(app: Opaque, computeShader: Opaque, bindingLayout: Opaque): Opaque;
+// A binding set from the app's binding cache (the description is freed): created once, reused for
+// identical descriptions. Valid until Donut_ClearBindingCache.
+declare function Donut_GetCachedBindingSet(app: Opaque, bindingSetDesc: Opaque, bindingLayout: Opaque): Opaque;
+
+// Async compute: every intervalMicroseconds, a C++ worker thread dispatches groupsX x groupsY
+// groups of a compute pipeline on the compute queue (needs AppOptions.ComputeQueue) into one of
+// its textures (RWTexture2D at u0, the run index as a uint push constant at b0; the layout must
+// hold exactly those), and hands it to the render thread. Null if there's no compute queue.
+declare function Donut_CreateAsyncComputeLoop(app: Opaque, computePipeline: Opaque, bindingLayout: Opaque,
+    groupsX: int, groupsY: int, intervalMicroseconds: int): Opaque;
+// Before starting it.
+declare function Donut_AddAsyncComputeTexture(asyncComputeLoop: Opaque, texture: Opaque): void;
+declare function Donut_StartAsyncComputeLoop(asyncComputeLoop: Opaque): void;
+// Joins the worker thread; call before Donut_DestroyApp.
+declare function Donut_StopAsyncComputeLoop(asyncComputeLoop: Opaque): void;
+// In a render callback: switches to the newest finished texture, if any (the frame waits for the
+// compute queue), handing the previous one back. The texture to show; null until the first.
+declare function Donut_AcquireAsyncComputeTexture(asyncComputeLoop: Opaque, frame: Opaque): Opaque | null;
 
 // Command lists, for work outside render passes (e.g. in a headless app).
 declare function Donut_CreateCommandList(app: Opaque): Opaque;
@@ -416,5 +453,7 @@ declare function Donut_DrawAddVertexBuffer(frame: Opaque, vertexBuffer: Opaque, 
 // Draws into this rectangle of the framebuffer (pixels) instead of all of it.
 declare function Donut_DrawSetViewport(frame: Opaque, left: number, top: number, width: number, height: number): void;
 declare function Donut_DrawIndexed(frame: Opaque, indexCount: int): void;
+// Same, without an index buffer.
+declare function Donut_DrawVertices(frame: Opaque, vertexCount: int): void;
 declare function Donut_GetFrameWidth(frame: Opaque): int;
 declare function Donut_GetFrameHeight(frame: Opaque): int;

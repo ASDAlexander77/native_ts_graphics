@@ -237,3 +237,14 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/variable_shading/spirv
 )
 add_tslang_example(variable_shading)
+
+# Port of Donut-Samples' async_compute: a compute-queue worker thread animates textures that the
+# render thread shows.
+donut_compile_shaders_all_platforms(
+    TARGET async_compute_shaders
+    PROJECT_NAME "Async Compute"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/async_compute
+)
+add_tslang_example(async_compute)
