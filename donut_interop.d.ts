@@ -6,6 +6,8 @@ type VoidCallback = () => void;
 type RenderCallback = (frame: Opaque) => void;
 type AnimateCallback = (elapsedSeconds: number) => void;
 type KeyboardCallback = (key: int, scancode: int, action: int, mods: int) => int;
+type MousePosCallback = (x: number, y: number) => int;
+type MouseButtonCallback = (button: int, action: int, mods: int) => int;
 
 // nvrhi::GraphicsAPI values.
 enum GraphicsAPI {
@@ -71,6 +73,8 @@ declare function Donut_GetRendererString(app: Opaque): string;
 declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".
 declare function Donut_SetInformativeWindowTitle(app: Opaque, title: string): void;
+// Same, with extraInfo appended.
+declare function Donut_SetInformativeWindowTitleWithInfo(app: Opaque, title: string, extraInfo: string): void;
 declare function Donut_CloseWindow(app: Opaque): void;
 
 // nvrhi::Format values (only the ones used so far).
@@ -213,6 +217,43 @@ declare function Donut_SetAnimateCallback(pass: Opaque, handler: AnimateCallback
 // Called before the swap chain is resized; release framebuffer-dependent resources here.
 declare function Donut_SetBackBufferResizingCallback(pass: Opaque, handler: VoidCallback): void;
 declare function Donut_SetKeyboardCallback(pass: Opaque, handler: KeyboardCallback): void;
+// Window pixels; same return convention as the keyboard callback.
+declare function Donut_SetMousePosCallback(pass: Opaque, handler: MousePosCallback): void;
+// GLFW button / action values; same return convention as the keyboard callback.
+declare function Donut_SetMouseButtonCallback(pass: Opaque, handler: MouseButtonCallback): void;
+
+// C++ objects (scenes, cameras, ...) are owned by the app until released or the app is destroyed.
+declare function Donut_ReleaseObject(app: Opaque, object: Opaque): void;
+
+// glTF or .scene.json, path relative to the executable's directory or absolute; loaded on the
+// app's thread pool, textures uploaded. Null (after logging why) on failure.
+declare function Donut_LoadScene(app: Opaque, path: string): Opaque;
+// numConstantBufferVersions bounds how many views it can render per frame.
+declare function Donut_CreateForwardShadingPass(app: Opaque, numConstantBufferVersions: int): Opaque;
+// Cube map render target, resolution x resolution faces: SRGBA8 color, D32 depth.
+declare function Donut_CreateCubemapTarget(app: Opaque, resolution: int): Opaque;
+// One array slice per face; valid as long as the target.
+declare function Donut_GetCubemapColorTexture(cubemapTarget: Opaque): Opaque;
+declare function Donut_SetCubemapViewFromCamera(cubemapTarget: Opaque, camera: Opaque, zNear: number, cullDistance: number): void;
+// Records the scene as seen by one cube face (0..5) into commandList, opening and closing it.
+declare function Donut_RenderCubemapFace(cubemapTarget: Opaque, face: int, commandList: Opaque, scene: Opaque, forwardShadingPass: Opaque): void;
+// Same, on the app's worker threads (it runs C++ only); each concurrent task needs its own
+// command list from Donut_CreateDeferredCommandList. Wait with Donut_WaitForTasks.
+declare function Donut_RenderCubemapFaceAsync(app: Opaque, cubemapTarget: Opaque, face: int, commandList: Opaque, scene: Opaque, forwardShadingPass: Opaque): void;
+declare function Donut_WaitForTasks(app: Opaque): void;
+// For recording on another thread and executing later.
+declare function Donut_CreateDeferredCommandList(app: Opaque): Opaque;
+
+// Donut's first person camera: WASD / arrows move, dragging with the left button looks around.
+declare function Donut_CreateFirstPersonCamera(app: Opaque): Opaque;
+declare function Donut_CameraLookAt(camera: Opaque, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
+// Units per second.
+declare function Donut_CameraSetMoveSpeed(camera: Opaque, speed: number): void;
+// Forward the pass input callbacks' arguments to these.
+declare function Donut_CameraKeyboardUpdate(camera: Opaque, key: int, scancode: int, action: int, mods: int): void;
+declare function Donut_CameraMousePosUpdate(camera: Opaque, x: number, y: number): void;
+declare function Donut_CameraMouseButtonUpdate(camera: Opaque, button: int, action: int, mods: int): void;
+declare function Donut_CameraAnimate(camera: Opaque, elapsedSeconds: number): void;
 
 // Valid only inside a render callback.
 declare function Donut_ClearColor(frame: Opaque, r: number, g: number, b: number, a: number): void;
@@ -226,6 +267,8 @@ declare function Donut_DispatchRays(frame: Opaque, shaderTable: Opaque, bindingS
 // textures blitted before.
 declare function Donut_BlitTexture(app: Opaque, frame: Opaque, texture: Opaque): void;
 declare function Donut_ClearBindingCache(app: Opaque): void;
+// One array slice of a texture, stretched into a rectangle of the framebuffer (pixels).
+declare function Donut_BlitTextureSlice(app: Opaque, frame: Opaque, texture: Opaque, arraySlice: int, left: number, top: number, width: number, height: number): void;
 // The frame's open command list, for the command list functions (e.g. Donut_WriteBuffer). Don't
 // open, close or execute it.
 declare function Donut_GetFrameCommandList(frame: Opaque): Opaque;

@@ -119,9 +119,9 @@ if(NOT WIN32)
     list(APPEND TSLANG_LINK_LIBS "stdc++" "m" "pthread" "dl" "rt")
 endif()
 
-# One executable per example, built from <name>.ts. Its shaders (the <name>_shaders target)
-# must be compiled into bin/shaders/<name>/<dxbc|dxil|spirv>: donut_interop loads them from
-# the folder named after the executable.
+# One executable per example, built from <name>.ts. Its shaders, if any (the <name>_shaders
+# target), must be compiled into bin/shaders/<name>/<dxbc|dxil|spirv>: donut_interop loads them
+# from the folder named after the executable.
 function(add_tslang_example name)
     # .ts files compile with the TSLANG command. The target has no .cpp, so link with the C++
     # rule explicitly: the C++ link flags (debug info, CRT) apply and the tslang compile flags
@@ -129,7 +129,9 @@ function(add_tslang_example name)
     add_executable(${name} ${name}.ts)
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop)
-    add_dependencies(${name} ${name}_shaders)
+    if (TARGET ${name}_shaders)
+        add_dependencies(${name} ${name}_shaders)
+    endif()
 endfunction()
 
 include(external/Donut/compileshaders.cmake)
@@ -197,3 +199,13 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(vertex_buffer)
 configure_file(media/nvidia-logo.png ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/nvidia-logo.png COPYONLY)
+
+# Port of Donut-Samples' threaded_rendering: no shaders of its own (Donut's forward shading).
+# It renders Sponza from Khronos' glTF-Sample-Assets (52 MB, not in this repo); point this at a
+# Donut-Samples media folder to have it copied next to the executables, or pass --scene <path>.
+set(DONUT_SAMPLES_MEDIA_DIR "" CACHE PATH "Donut-Samples media folder, with glTF-Sample-Assets")
+if (DONUT_SAMPLES_MEDIA_DIR)
+    file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/glTF-Sample-Assets/Models/Sponza/glTF"
+        DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/glTF-Sample-Assets/Models/Sponza")
+endif()
+add_tslang_example(threaded_rendering)

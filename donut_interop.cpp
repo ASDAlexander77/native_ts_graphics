@@ -23,6 +23,7 @@
 #endif
 
 #include <donut/app/ApplicationBase.h>
+#include <donut/app/Camera.h>
 #include <donut/app/DeviceManager.h>
 #include <donut/core/log.h>
 #include <donut/core/vfs/VFS.h>
@@ -30,6 +31,13 @@
 #include <donut/engine/CommonRenderPasses.h>
 #include <donut/engine/ShaderFactory.h>
 #include <donut/engine/TextureCache.h>
+#include <donut/engine/FramebufferFactory.h>
+#include <donut/engine/Scene.h>
+#include <donut/engine/ThreadPool.h>
+#include <donut/engine/View.h>
+#include <donut/render/DrawStrategy.h>
+#include <donut/render/ForwardShadingPass.h>
+#include <donut/render/GeometryPasses.h>
 #include <nvrhi/utils.h>
 
 #include <GLFW/glfw3.h>
@@ -56,6 +64,8 @@ namespace
     using RenderFn = void (*)(void* thisVal, void* frame);
     using AnimateFn = void (*)(void* thisVal, double elapsedSeconds);
     using KeyboardFn = int (*)(void* thisVal, int key, int scancode, int action, int mods);
+    using MousePosFn = int (*)(void* thisVal, double x, double y);
+    using MouseButtonFn = int (*)(void* thisVal, int button, int action, int mods);
 
     // Passed to the TypeScript render callback; only valid for the duration of that call.
     struct FrameContext
@@ -106,6 +116,16 @@ namespace
             return m_Keyboard && m_Keyboard.method(m_Keyboard.thisVal, key, scancode, action, mods) != 0;
         }
 
+        bool MousePosUpdate(double x, double y) override
+        {
+            return m_MousePos && m_MousePos.method(m_MousePos.thisVal, x, y) != 0;
+        }
+
+        bool MouseButtonUpdate(int button, int action, int mods) override
+        {
+            return m_MouseButton && m_MouseButton.method(m_MouseButton.thisVal, button, action, mods) != 0;
+        }
+
         bool ShouldAnimateUnfocused() override { return m_RunWhenUnfocused; }
         bool ShouldRenderUnfocused() override { return m_RunWhenUnfocused; }
 
@@ -114,6 +134,8 @@ namespace
         Callback<AnimateFn> m_Animate;
         Callback<VoidFn> m_BackBufferResizing;
         Callback<KeyboardFn> m_Keyboard;
+        Callback<MousePosFn> m_MousePos;
+        Callback<MouseButtonFn> m_MouseButton;
 
     private:
         nvrhi::CommandListHandle m_CommandList;
@@ -127,24 +149,48 @@ namespace
         std::vector<std::unique_ptr<TsRenderPass>> passes;
         // GPU resources handed to TypeScript as raw pointers; the app holds the reference.
         std::unordered_map<nvrhi::IResource*, nvrhi::RefCountPtr<nvrhi::IResource>> resources;
+        // Other C++ objects handed to TypeScript as raw pointers (scenes, cameras, ...).
+        std::unordered_map<void*, std::shared_ptr<void>> objects;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
+
+        template <typename T>
+        T* OwnObject(std::shared_ptr<T> object)
+        {
+            T* raw = object.get();
+            if (raw)
+                objects.emplace(raw, std::move(object));
+            return raw;
+        }
+
+        // Worker threads for C++ tasks; tslang code must not run on them (the GC doesn't know them).
+        donut::engine::ThreadPool* threadPool()
+        {
+            if (!m_ThreadPool)
+                m_ThreadPool = std::make_unique<donut::engine::ThreadPool>();
+            return m_ThreadPool.get();
+        }
 
         // Created on first use: they load Donut's framework shaders, which most examples don't need.
         donut::engine::CommonRenderPasses* commonPasses()
         {
+            return sharedCommonPasses().get();
+        }
+
+        const std::shared_ptr<donut::engine::CommonRenderPasses>& sharedCommonPasses()
+        {
             if (!m_CommonPasses)
                 m_CommonPasses = std::make_shared<donut::engine::CommonRenderPasses>(device(), shaderFactory);
-            return m_CommonPasses.get();
+            return m_CommonPasses;
         }
 
         // Loads files relative to the executable's directory.
-        donut::engine::TextureCache* textureCache()
+        const std::shared_ptr<donut::engine::TextureCache>& textureCache()
         {
             if (!m_TextureCache)
-                m_TextureCache = std::make_unique<donut::engine::TextureCache>(
+                m_TextureCache = std::make_shared<donut::engine::TextureCache>(
                     device(), std::make_shared<donut::vfs::NativeFileSystem>(), nullptr);
-            return m_TextureCache.get();
+            return m_TextureCache;
         }
 
         donut::engine::BindingCache* bindingCache()
@@ -164,12 +210,18 @@ namespace
 
         ~App()
         {
+            // Tasks may still be recording commands with the objects below.
+            if (m_ThreadPool)
+                m_ThreadPool->WaitForTasks();
+            m_ThreadPool.reset();
+
             // Everything created on the device goes before the device itself.
             device()->waitForIdle();
 
             for (auto& pass : passes)
                 deviceManager->RemoveRenderPass(pass.get());
             passes.clear();
+            objects.clear();
             resources.clear();
             m_BindingCache.reset();
             m_TextureCache.reset();
@@ -182,7 +234,8 @@ namespace
     private:
         std::shared_ptr<donut::engine::CommonRenderPasses> m_CommonPasses;
         std::unique_ptr<donut::engine::BindingCache> m_BindingCache;
-        std::unique_ptr<donut::engine::TextureCache> m_TextureCache;
+        std::shared_ptr<donut::engine::TextureCache> m_TextureCache;
+        std::unique_ptr<donut::engine::ThreadPool> m_ThreadPool;
     };
 
     std::filesystem::path GetExecutablePath()
@@ -228,6 +281,44 @@ namespace
     AdapterList* AsAdapterList(void* list) { return static_cast<AdapterList*>(list); }
     nvrhi::ICommandList* AsCommandList(void* commandList) { return static_cast<nvrhi::ICommandList*>(commandList); }
     nvrhi::IBuffer* AsBuffer(void* buffer) { return static_cast<nvrhi::IBuffer*>(buffer); }
+
+    // A cube map render target (color + depth, one array slice per face) and the view that
+    // renders into it.
+    struct CubemapTarget
+    {
+        nvrhi::TextureHandle colorBuffer;
+        nvrhi::TextureHandle depthBuffer;
+        std::unique_ptr<donut::engine::FramebufferFactory> framebuffer;
+        donut::engine::CubemapView view;
+    };
+
+    // Records the scene, as seen by one face of the cube map view, into a command list (opens
+    // and closes it). Only touches C++ objects, so it can run on worker threads.
+    void RenderCubemapFace(CubemapTarget* target, int face, nvrhi::ICommandList* commandList,
+        donut::engine::Scene* scene, donut::render::ForwardShadingPass* forwardPass)
+    {
+        const donut::engine::IView* faceView = target->view.GetChildView(donut::engine::ViewType::PLANAR, face);
+
+        commandList->open();
+        commandList->clearDepthStencilTexture(target->depthBuffer, faceView->GetSubresources(), true, 0.f, false, 0);
+        commandList->clearTextureFloat(target->colorBuffer, faceView->GetSubresources(), nvrhi::Color(0.f));
+
+        donut::render::ForwardShadingPass::Context context;
+        forwardPass->PrepareLights(context, commandList, {}, 1.0f, 0.3f, {});
+
+        commandList->setEnableAutomaticBarriers(false);
+        commandList->setResourceStatesForFramebuffer(target->framebuffer->GetFramebuffer(*faceView));
+        commandList->commitBarriers();
+
+        donut::render::InstancedOpaqueDrawStrategy strategy;
+
+        donut::render::RenderCompositeView(commandList, faceView, faceView, *target->framebuffer,
+            scene->GetSceneGraph()->GetRootNode(), strategy, *forwardPass, context);
+
+        commandList->setEnableAutomaticBarriers(true);
+
+        commandList->close();
+    }
 
     // Buffer uploaded once by an open command list, then kept in permanentState.
     void* CreateStaticBuffer(App* a, nvrhi::ICommandList* commandList, nvrhi::BufferDesc desc,
@@ -429,6 +520,12 @@ extern "C"
     void Donut_SetInformativeWindowTitle(void* app, const char* title)
     {
         AsApp(app)->deviceManager->SetInformativeWindowTitle(title);
+    }
+
+    // Same, with extraInfo appended.
+    void Donut_SetInformativeWindowTitleWithInfo(void* app, const char* title, const char* extraInfo)
+    {
+        AsApp(app)->deviceManager->SetInformativeWindowTitle(title, true, extraInfo);
     }
 
     // Makes Donut_RunApp return after the current frame.
@@ -1033,6 +1130,178 @@ extern "C"
         AsPass(pass)->m_Keyboard = { method, thisVal };
     }
 
+    // Mouse position in window pixels; same return convention as the keyboard callback.
+    void Donut_SetMousePosCallback(void* pass, MousePosFn method, void* thisVal)
+    {
+        AsPass(pass)->m_MousePos = { method, thisVal };
+    }
+
+    // GLFW mouse button and action values; same return convention as the keyboard callback.
+    void Donut_SetMouseButtonCallback(void* pass, MouseButtonFn method, void* thisVal)
+    {
+        AsPass(pass)->m_MouseButton = { method, thisVal };
+    }
+
+    // --- C++ objects (owned by the app until released or the app is destroyed) -------------
+
+    void Donut_ReleaseObject(void* app, void* object)
+    {
+        AsApp(app)->objects.erase(object);
+    }
+
+    // Loads a scene (glTF or Donut's .scene.json; path relative to the executable's directory,
+    // or absolute) on the app's thread pool, then finishes uploading its textures. Returns null
+    // (after logging why) on failure.
+    void* Donut_LoadScene(void* app, const char* path)
+    {
+        App* a = AsApp(app);
+        auto nativeFS = std::make_shared<donut::vfs::NativeFileSystem>();
+        auto scene = std::make_shared<donut::engine::Scene>(a->device(), *a->shaderFactory, nativeFS,
+            a->textureCache(), nullptr, nullptr);
+
+        if (!scene->LoadWithThreadPool(GetExecutablePath().parent_path() / path, a->threadPool()))
+            return nullptr;
+
+        // What ApplicationBase::SceneLoaded does after a synchronous load.
+        a->textureCache()->ProcessRenderingThreadCommands(*a->commonPasses(), 0.f);
+        a->textureCache()->LoadingFinished();
+
+        scene->FinishedLoading(a->deviceManager->GetFrameIndex());
+        return a->OwnObject(scene);
+    }
+
+    // Donut's forward shading pass; numConstantBufferVersions bounds how many views it can
+    // render per frame.
+    void* Donut_CreateForwardShadingPass(void* app, int numConstantBufferVersions)
+    {
+        App* a = AsApp(app);
+        auto pass = std::make_shared<donut::render::ForwardShadingPass>(a->device(), a->sharedCommonPasses());
+        donut::render::ForwardShadingPass::CreateParameters params;
+        params.numConstantBufferVersions = static_cast<uint32_t>(numConstantBufferVersions);
+        pass->Init(*a->shaderFactory, params);
+        return a->OwnObject(pass);
+    }
+
+    // Cube map render target of resolution x resolution faces: SRGBA8 color, D32 depth.
+    void* Donut_CreateCubemapTarget(void* app, int resolution)
+    {
+        App* a = AsApp(app);
+        auto target = std::make_shared<CubemapTarget>();
+
+        auto textureDesc = nvrhi::TextureDesc()
+            .setDimension(nvrhi::TextureDimension::TextureCube)
+            .setArraySize(6)
+            .setWidth(static_cast<uint32_t>(resolution))
+            .setHeight(static_cast<uint32_t>(resolution))
+            .setClearValue(nvrhi::Color(0.f))
+            .setIsRenderTarget(true)
+            .setKeepInitialState(true);
+
+        target->colorBuffer = a->device()->createTexture(textureDesc
+            .setDebugName("ColorBuffer")
+            .setFormat(nvrhi::Format::SRGBA8_UNORM)
+            .setInitialState(nvrhi::ResourceStates::RenderTarget));
+
+        target->depthBuffer = a->device()->createTexture(textureDesc
+            .setDebugName("DepthBuffer")
+            .setFormat(nvrhi::Format::D32)
+            .setInitialState(nvrhi::ResourceStates::DepthWrite));
+
+        target->view.SetArrayViewports(resolution, 0);
+
+        target->framebuffer = std::make_unique<donut::engine::FramebufferFactory>(a->device());
+        target->framebuffer->RenderTargets.push_back(target->colorBuffer);
+        target->framebuffer->DepthTarget = target->depthBuffer;
+
+        return a->OwnObject(target);
+    }
+
+    // The color texture, one array slice per face; valid as long as the target.
+    void* Donut_GetCubemapColorTexture(void* cubemapTarget)
+    {
+        return static_cast<CubemapTarget*>(cubemapTarget)->colorBuffer.Get();
+    }
+
+    // Places the cube map view at the camera, looking along its axes.
+    void Donut_SetCubemapViewFromCamera(void* cubemapTarget, void* camera, double zNear, double cullDistance)
+    {
+        auto* target = static_cast<CubemapTarget*>(cubemapTarget);
+        target->view.SetTransform(static_cast<donut::app::FirstPersonCamera*>(camera)->GetWorldToViewMatrix(),
+            float(zNear), float(cullDistance));
+        target->view.UpdateCache();
+    }
+
+    // Command list for recording on another thread and executing later; see Donut_RenderCubemapFaceAsync.
+    void* Donut_CreateDeferredCommandList(void* app)
+    {
+        App* a = AsApp(app);
+        return a->Own(a->device()->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false)));
+    }
+
+    // Records the scene as seen by one cube map face (0..5) into commandList (opening and closing
+    // it), with the forward shading pass and ambient lighting only.
+    void Donut_RenderCubemapFace(void* cubemapTarget, int face, void* commandList, void* scene, void* forwardShadingPass)
+    {
+        RenderCubemapFace(static_cast<CubemapTarget*>(cubemapTarget), face, AsCommandList(commandList),
+            static_cast<donut::engine::Scene*>(scene), static_cast<donut::render::ForwardShadingPass*>(forwardShadingPass));
+    }
+
+    // Same, as a task on the app's thread pool; call Donut_WaitForTasks before executing the
+    // command list. Each concurrent task needs its own command list.
+    void Donut_RenderCubemapFaceAsync(void* app, void* cubemapTarget, int face, void* commandList, void* scene, void* forwardShadingPass)
+    {
+        auto* target = static_cast<CubemapTarget*>(cubemapTarget);
+        auto* cl = AsCommandList(commandList);
+        auto* sc = static_cast<donut::engine::Scene*>(scene);
+        auto* fwd = static_cast<donut::render::ForwardShadingPass*>(forwardShadingPass);
+        AsApp(app)->threadPool()->AddTask([=]() { RenderCubemapFace(target, face, cl, sc, fwd); });
+    }
+
+    // Blocks until all tasks queued on the app's thread pool have finished.
+    void Donut_WaitForTasks(void* app)
+    {
+        AsApp(app)->threadPool()->WaitForTasks();
+    }
+
+    // Donut's first person camera: WASD/arrow keys move, dragging with the left button looks around.
+    void* Donut_CreateFirstPersonCamera(void* app)
+    {
+        return AsApp(app)->OwnObject(std::make_shared<donut::app::FirstPersonCamera>());
+    }
+
+    void Donut_CameraLookAt(void* camera, double posX, double posY, double posZ, double targetX, double targetY, double targetZ)
+    {
+        static_cast<donut::app::FirstPersonCamera*>(camera)->LookAt(
+            dm::float3(float(posX), float(posY), float(posZ)), dm::float3(float(targetX), float(targetY), float(targetZ)));
+    }
+
+    // In units per second.
+    void Donut_CameraSetMoveSpeed(void* camera, double speed)
+    {
+        static_cast<donut::app::FirstPersonCamera*>(camera)->SetMoveSpeed(float(speed));
+    }
+
+    // Forward the pass input callbacks' arguments to these.
+    void Donut_CameraKeyboardUpdate(void* camera, int key, int scancode, int action, int mods)
+    {
+        static_cast<donut::app::FirstPersonCamera*>(camera)->KeyboardUpdate(key, scancode, action, mods);
+    }
+
+    void Donut_CameraMousePosUpdate(void* camera, double x, double y)
+    {
+        static_cast<donut::app::FirstPersonCamera*>(camera)->MousePosUpdate(x, y);
+    }
+
+    void Donut_CameraMouseButtonUpdate(void* camera, int button, int action, int mods)
+    {
+        static_cast<donut::app::FirstPersonCamera*>(camera)->MouseButtonUpdate(button, action, mods);
+    }
+
+    void Donut_CameraAnimate(void* camera, double elapsedSeconds)
+    {
+        static_cast<donut::app::FirstPersonCamera*>(camera)->Animate(float(elapsedSeconds));
+    }
+
     // --- Frame commands (valid only inside the render callback) ----------------------------
 
     void Donut_ClearColor(void* frame, double r, double g, double b, double a)
@@ -1096,6 +1365,21 @@ extern "C"
         FrameContext* ctx = AsFrame(frame);
         a->commonPasses()->BlitTexture(ctx->commandList, ctx->framebuffer,
             static_cast<nvrhi::ITexture*>(texture), a->bindingCache());
+    }
+
+    // Copies one array slice of a texture, stretched, into a rectangle of the framebuffer (pixels).
+    void Donut_BlitTextureSlice(void* app, void* frame, void* texture, int arraySlice,
+        double left, double top, double width, double height)
+    {
+        App* a = AsApp(app);
+        FrameContext* ctx = AsFrame(frame);
+
+        donut::engine::BlitParameters params;
+        params.targetFramebuffer = ctx->framebuffer;
+        params.targetViewport = nvrhi::Viewport(float(left), float(left + width), float(top), float(top + height), 0.f, 1.f);
+        params.sourceTexture = static_cast<nvrhi::ITexture*>(texture);
+        params.sourceArraySlice = static_cast<uint32_t>(arraySlice);
+        a->commonPasses()->BlitTexture(ctx->commandList, params, a->bindingCache());
     }
 
     // Drops the binding sets Donut_BlitTexture cached, and with them their references to the
