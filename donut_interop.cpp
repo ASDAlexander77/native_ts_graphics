@@ -5,11 +5,14 @@
 // TypeScript side needs goes through the extern "C" functions below, using opaque handles
 // and plain scalars.
 //
+// C++ owns the application (device manager, window, message loop, teardown order);
+// TypeScript only supplies render passes, as objects whose methods are the callbacks.
+//
 // Callbacks: a TypeScript method passed as a callback (`this.onRender`) arrives here as
 // two arguments: a function pointer taking `this` first, then the `this` value itself
 // (the same lowering tslang's Win32 sample relies on). The TypeScript object is referenced
 // only from C++ heap memory here, which the GC does not scan, so the TypeScript side must
-// keep it alive (e.g. in a module-level variable) for as long as the pass exists.
+// keep it alive (e.g. in a module-level variable) until Donut_RunApp returns.
 
 #include <donut/app/ApplicationBase.h>
 #include <donut/app/DeviceManager.h>
@@ -17,6 +20,9 @@
 #include <nvrhi/utils.h>
 
 #include <GLFW/glfw3.h>
+
+#include <memory>
+#include <vector>
 
 using donut::app::DeviceManager;
 
@@ -34,8 +40,6 @@ namespace
     using RenderFn = void (*)(void* thisVal, void* frame);
     using AnimateFn = void (*)(void* thisVal, double elapsedSeconds);
     using KeyboardFn = int (*)(void* thisVal, int key, int scancode, int action, int mods);
-
-    class TsRenderPass;
 
     // Passed to the TypeScript render callback; only valid for the duration of that call.
     struct FrameContext
@@ -89,24 +93,40 @@ namespace
     private:
         nvrhi::CommandListHandle m_CommandList;
     };
+
+    struct App
+    {
+        std::unique_ptr<DeviceManager> deviceManager;
+        std::vector<std::unique_ptr<TsRenderPass>> passes;
+
+        ~App()
+        {
+            // Passes hold GPU resources owned by the device, so they go first.
+            for (auto& pass : passes)
+                deviceManager->RemoveRenderPass(pass.get());
+            passes.clear();
+
+            deviceManager->Shutdown();
+        }
+    };
+
+    App* AsApp(void* app) { return static_cast<App*>(app); }
+    TsRenderPass* AsPass(void* pass) { return static_cast<TsRenderPass*>(pass); }
 }
 
 extern "C"
 {
-    int Donut_GetGraphicsAPIFromCommandLine(int argc, const char* const* argv)
-    {
-        return static_cast<int>(donut::app::GetGraphicsAPIFromCommandLine(argc, argv));
-    }
+    // --- Application -----------------------------------------------------------------------
 
-    // --- Device manager / window ---------------------------------------------------------
-
-    // Returns null on failure (unsupported API, no adapter, window creation failed).
-    void* Donut_CreateDeviceManager(int graphicsApi, int width, int height, const char* title)
+    // Picks the graphics API from the command line (-d3d11, -d3d12, -vk; D3D12 by default on
+    // Windows) and creates the device and window. Returns null on failure.
+    void* Donut_CreateApp(int argc, const char* const* argv, const char* title, int width, int height)
     {
         // Console app: log to the console instead of Donut's default modal MessageBox on errors.
         donut::log::ConsoleApplicationMode();
 
-        DeviceManager* deviceManager = DeviceManager::Create(static_cast<nvrhi::GraphicsAPI>(graphicsApi));
+        const nvrhi::GraphicsAPI api = donut::app::GetGraphicsAPIFromCommandLine(argc, argv);
+        std::unique_ptr<DeviceManager> deviceManager(DeviceManager::Create(api));
         if (!deviceManager)
             return nullptr;
 
@@ -117,81 +137,73 @@ extern "C"
 
         if (!deviceManager->CreateWindowDeviceAndSwapChain(params, title))
         {
-            donut::log::error("Donut_CreateDeviceManager: cannot initialize the graphics device");
-            delete deviceManager;
+            donut::log::error("Donut_CreateApp: cannot initialize the graphics device");
             return nullptr;
         }
 
-        return deviceManager;
+        auto* app = new App();
+        app->deviceManager = std::move(deviceManager);
+        return app;
     }
 
-    const char* Donut_GetRendererString(void* deviceManager)
+    // Blocks until the window is closed, then destroys the app and all its passes; the app
+    // and pass handles are invalid afterwards.
+    void Donut_RunApp(void* app)
     {
-        return static_cast<DeviceManager*>(deviceManager)->GetRendererString();
+        AsApp(app)->deviceManager->RunMessageLoop();
+        delete AsApp(app);
     }
 
-    void Donut_SetWindowTitle(void* deviceManager, const char* title)
+    const char* Donut_GetRendererString(void* app)
     {
-        static_cast<DeviceManager*>(deviceManager)->SetWindowTitle(title);
+        return AsApp(app)->deviceManager->GetRendererString();
     }
 
-    void Donut_CloseWindow(void* deviceManager)
+    void Donut_SetWindowTitle(void* app, const char* title)
     {
-        glfwSetWindowShouldClose(static_cast<DeviceManager*>(deviceManager)->GetWindow(), GLFW_TRUE);
+        AsApp(app)->deviceManager->SetWindowTitle(title);
     }
 
-    // Blocks until the window is closed.
-    void Donut_RunMessageLoop(void* deviceManager)
+    // Makes Donut_RunApp return after the current frame.
+    void Donut_CloseWindow(void* app)
     {
-        static_cast<DeviceManager*>(deviceManager)->RunMessageLoop();
+        glfwSetWindowShouldClose(AsApp(app)->deviceManager->GetWindow(), GLFW_TRUE);
     }
 
-    // Destroy all render passes first: they hold GPU resources owned by this device.
-    void Donut_DestroyDeviceManager(void* deviceManager)
-    {
-        auto* dm = static_cast<DeviceManager*>(deviceManager);
-        dm->Shutdown();
-        delete dm;
-    }
+    // --- Render passes -----------------------------------------------------------------------
 
-    // --- Render pass ---------------------------------------------------------------------
-
-    // Created and registered with the device manager (drawn after previously added passes).
-    void* Donut_CreateRenderPass(void* deviceManager)
+    // Adds a pass drawn after the previously added ones. The app owns it; set its callbacks
+    // with the functions below.
+    void* Donut_AddPass(void* app)
     {
-        auto* dm = static_cast<DeviceManager*>(deviceManager);
-        auto* pass = new TsRenderPass(dm);
-        dm->AddRenderPassToBack(pass);
+        App* a = AsApp(app);
+        a->passes.push_back(std::make_unique<TsRenderPass>(a->deviceManager.get()));
+        TsRenderPass* pass = a->passes.back().get();
+        a->deviceManager->AddRenderPassToBack(pass);
         return pass;
-    }
-
-    void Donut_DestroyRenderPass(void* deviceManager, void* pass)
-    {
-        auto* renderPass = static_cast<TsRenderPass*>(pass);
-        static_cast<DeviceManager*>(deviceManager)->RemoveRenderPass(renderPass);
-        delete renderPass;
     }
 
     // By default (as in Donut) animation and rendering pause while the window is unfocused.
     void Donut_SetRunWhenUnfocused(void* pass, int enabled)
     {
-        static_cast<TsRenderPass*>(pass)->m_RunWhenUnfocused = enabled != 0;
+        AsPass(pass)->m_RunWhenUnfocused = enabled != 0;
     }
 
     void Donut_SetRenderCallback(void* pass, RenderFn method, void* thisVal)
     {
-        static_cast<TsRenderPass*>(pass)->m_Render = { method, thisVal };
+        AsPass(pass)->m_Render = { method, thisVal };
     }
 
     void Donut_SetAnimateCallback(void* pass, AnimateFn method, void* thisVal)
     {
-        static_cast<TsRenderPass*>(pass)->m_Animate = { method, thisVal };
+        AsPass(pass)->m_Animate = { method, thisVal };
     }
 
-    // The callback returns non-zero if it handled the key.
+    // Keys go to the most recently added pass first; the callback returns non-zero if it
+    // handled the key, and then passes added before it don't see it.
     void Donut_SetKeyboardCallback(void* pass, KeyboardFn method, void* thisVal)
     {
-        static_cast<TsRenderPass*>(pass)->m_Keyboard = { method, thisVal };
+        AsPass(pass)->m_Keyboard = { method, thisVal };
     }
 
     // --- Frame commands (valid only inside the render callback) ----------------------------

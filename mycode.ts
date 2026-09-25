@@ -1,28 +1,21 @@
 // --- Donut interop (implemented in donut_interop.cpp) ---------------------------------------
 
-enum GraphicsAPI {
-    D3D11 = 0,
-    D3D12,
-    VULKAN
-}
-
 // A method passed as one of these (e.g. `this.onRender`) reaches C++ as a function pointer
 // plus its `this` value.
 type RenderCallback = (frame: Opaque) => void;
 type AnimateCallback = (elapsedSeconds: number) => void;
 type KeyboardCallback = (key: int, scancode: int, action: int, mods: int) => int;
 
-declare function Donut_GetGraphicsAPIFromCommandLine(argc: int, argv: Opaque): GraphicsAPI;
+// Picks the graphics API from the command line (-d3d11, -d3d12, -vk). Returns null on failure.
+declare function Donut_CreateApp(argc: int, argv: Opaque, title: string, width: int, height: int): Opaque;
+// Blocks until the window is closed, then destroys the app and its passes.
+declare function Donut_RunApp(app: Opaque): void;
+declare function Donut_GetRendererString(app: Opaque): string;
+declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
+declare function Donut_CloseWindow(app: Opaque): void;
 
-declare function Donut_CreateDeviceManager(api: GraphicsAPI, width: int, height: int, title: string): Opaque;
-declare function Donut_GetRendererString(deviceManager: Opaque): string;
-declare function Donut_SetWindowTitle(deviceManager: Opaque, title: string): void;
-declare function Donut_CloseWindow(deviceManager: Opaque): void;
-declare function Donut_RunMessageLoop(deviceManager: Opaque): void;
-declare function Donut_DestroyDeviceManager(deviceManager: Opaque): void;
-
-declare function Donut_CreateRenderPass(deviceManager: Opaque): Opaque;
-declare function Donut_DestroyRenderPass(deviceManager: Opaque, pass: Opaque): void;
+// Passes are owned by the app; later passes draw on top and get input first.
+declare function Donut_AddPass(app: Opaque): Opaque;
 declare function Donut_SetRunWhenUnfocused(pass: Opaque, enabled: int): void;
 declare function Donut_SetRenderCallback(pass: Opaque, handler: RenderCallback): void;
 declare function Donut_SetAnimateCallback(pass: Opaque, handler: AnimateCallback): void;
@@ -37,19 +30,17 @@ declare function Donut_GetFrameHeight(frame: Opaque): int;
 const KEY_ESCAPE = 256;
 const ACTION_PRESS = 1;
 
-// --- Game -----------------------------------------------------------------------------------
+// --- Passes ---------------------------------------------------------------------------------
 
-class Game {
-    private deviceManager: Opaque;
+class BackgroundPass {
     private time: number;
 
-    constructor(deviceManager: Opaque, pass: Opaque) {
-        this.deviceManager = deviceManager;
+    constructor(app: Opaque) {
         this.time = 0.0;
 
-        Donut_SetRenderCallback(pass, this.onRender);
+        const pass = Donut_AddPass(app);
         Donut_SetAnimateCallback(pass, this.onAnimate);
-        Donut_SetKeyboardCallback(pass, this.onKey);
+        Donut_SetRenderCallback(pass, this.onRender);
     }
 
     onAnimate(elapsedSeconds: number): void {
@@ -60,10 +51,21 @@ class Game {
         const t = this.time;
         Donut_ClearColor(frame, 0.5 + 0.5 * Math.sin(t), 0.2, 0.5 + 0.5 * Math.cos(t), 1.0);
     }
+}
+
+class InputPass {
+    private app: Opaque;
+
+    constructor(app: Opaque) {
+        this.app = app;
+
+        const pass = Donut_AddPass(app);
+        Donut_SetKeyboardCallback(pass, this.onKey);
+    }
 
     onKey(key: int, scancode: int, action: int, mods: int): int {
         if (key == KEY_ESCAPE && action == ACTION_PRESS) {
-            Donut_CloseWindow(this.deviceManager);
+            Donut_CloseWindow(this.app);
             return 1;
         }
 
@@ -71,27 +73,23 @@ class Game {
     }
 }
 
-// Module-level so the GC keeps it alive: C++ only holds it from memory the GC doesn't scan.
-let game: Game;
+// Module-level so the GC keeps them alive: C++ only holds them from memory the GC doesn't scan.
+let background: BackgroundPass;
+let input: InputPass;
 
 function main(argc: int, argv: Opaque): int {
 
-    const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-
-    const deviceManager = Donut_CreateDeviceManager(api, 1280, 720, "Powder Toy");
-    if (!deviceManager) {
+    const app = Donut_CreateApp(argc, argv, "Powder Toy", 1280, 720);
+    if (!app) {
         console.log("Cannot create the graphics device");
         return 1;
     }
 
-    console.log(`Renderer: ${Donut_GetRendererString(deviceManager)}`);
+    console.log(`Renderer: ${Donut_GetRendererString(app)}`);
 
-    const pass = Donut_CreateRenderPass(deviceManager);
-    game = new Game(deviceManager, pass);
+    background = new BackgroundPass(app);
+    input = new InputPass(app);
 
-    Donut_RunMessageLoop(deviceManager);
-
-    Donut_DestroyRenderPass(deviceManager, pass);
-    Donut_DestroyDeviceManager(deviceManager);
+    Donut_RunApp(app);
     return 0;
 }
