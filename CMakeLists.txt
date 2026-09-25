@@ -207,6 +207,11 @@ set(DONUT_SAMPLES_MEDIA_DIR "" CACHE PATH "Donut-Samples media folder, with glTF
 if (DONUT_SAMPLES_MEDIA_DIR)
     file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/glTF-Sample-Assets/Models/Sponza/glTF"
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/glTF-Sample-Assets/Models/Sponza")
+    # rt_bindless: Sponza plus two animated BrainStem robots.
+    file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/glTF-Sample-Assets/Models/BrainStem/glTF"
+        DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/glTF-Sample-Assets/Models/BrainStem")
+    file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/sponza-plus.scene.json"
+        DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
 endif()
 add_tslang_example(threaded_rendering)
 
@@ -248,3 +253,16 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/async_compute
 )
 add_tslang_example(async_compute)
+
+# Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
+# DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
+# queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET rt_bindless_shaders
+    PROJECT_NAME "Bindless Ray Tracing"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_bindless.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_bindless.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_bindless/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_bindless/spirv
+)
+add_tslang_example(rt_bindless)
