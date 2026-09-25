@@ -225,3 +225,15 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_shadows/spirv
 )
 add_tslang_example(rt_shadows)
+
+# Port of Donut-Samples' variable_shading: variable rate shading of Sponza (see
+# DONUT_SAMPLES_MEDIA_DIR above) from a compute-generated shading rate surface. D3D12 or Vulkan.
+donut_compile_shaders(
+    TARGET variable_shading_shaders
+    PROJECT_NAME "Variable Shading"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/variable_shading.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/variable_shading.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/variable_shading/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/variable_shading/spirv
+)
+add_tslang_example(variable_shading)

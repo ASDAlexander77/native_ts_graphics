@@ -41,7 +41,12 @@
 #include <donut/render/GBuffer.h>
 #include <donut/render/GBufferFillPass.h>
 #include <donut/render/GeometryPasses.h>
+#include <donut/render/TemporalAntiAliasingPass.h>
 #include <nvrhi/utils.h>
+
+#if DONUT_WITH_DX12
+#include <d3d12.h>
+#endif
 
 // Shared with HLSL, so they use the math types unqualified (as Donut's own sources include them).
 using namespace donut::math;
@@ -362,6 +367,20 @@ namespace
         }
     };
 
+    // Forward rendering targets with what temporal anti-aliasing needs: HDR color and depth
+    // (rendered to through `framebuffer`), motion vectors, the resolved color and two feedback
+    // textures.
+    struct TemporalTargets
+    {
+        nvrhi::TextureHandle depth;
+        nvrhi::TextureHandle hdrColor;
+        nvrhi::TextureHandle resolvedColor;
+        nvrhi::TextureHandle feedback1;
+        nvrhi::TextureHandle feedback2;
+        nvrhi::TextureHandle motionVectors;
+        std::shared_ptr<donut::engine::FramebufferFactory> framebuffer;
+    };
+
     // A top-level acceleration structure over a scene's mesh instances, and the bottom-level ones
     // (one per mesh) it instantiates. Only NVRHI's D3D12 backend keeps a BLAS alive from a TLAS,
     // so they're held here.
@@ -427,7 +446,7 @@ namespace
 // donut_interop.d.ts mirrors these enum values as plain numbers.
 static_assert(int(nvrhi::GraphicsAPI::D3D11) == 0 && int(nvrhi::GraphicsAPI::D3D12) == 1 && int(nvrhi::GraphicsAPI::VULKAN) == 2);
 static_assert(int(nvrhi::Feature::Meshlets) == 9 && int(nvrhi::Feature::RayTracingPipeline) == 14
-    && int(nvrhi::Feature::ShaderSpecializations) == 18);
+    && int(nvrhi::Feature::ShaderSpecializations) == 18 && int(nvrhi::Feature::VariableRateShading) == 21);
 static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Pixel) == 0x10
     && int(nvrhi::ShaderType::Compute) == 0x20 && int(nvrhi::ShaderType::Amplification) == 0x40
     && int(nvrhi::ShaderType::Mesh) == 0x80 && int(nvrhi::ShaderType::All) == 0x3FFF);
@@ -1845,6 +1864,281 @@ extern "C"
 
         static_cast<donut::render::DeferredLightingPass*>(deferredLightingPass)->Render(
             AsFrame(frame)->commandList, *static_cast<donut::engine::PlanarView*>(view), inputs);
+    }
+
+    // Copies a view's viewport, matrices and derived state, e.g. to keep the previous frame's view.
+    void Donut_CopyPlanarView(void* dstView, void* srcView)
+    {
+        *static_cast<donut::engine::PlanarView*>(dstView) = *static_cast<donut::engine::PlanarView*>(srcView);
+    }
+
+    // --- Forward shading with temporal anti-aliasing ----------------------------------------
+
+    // Targets of width x height pixels: RGBA16_FLOAT HDR color and D24S8 depth (cleared for reverse Z)
+    // to render into, RG16_FLOAT motion vectors, and the TAA resolved color and feedback textures.
+    // Create new ones when the frame size changes.
+    void* Donut_CreateTemporalTargets(void* app, int width, int height)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        auto targets = std::make_shared<TemporalTargets>();
+
+        nvrhi::TextureDesc desc;
+        desc.width = static_cast<uint32_t>(width);
+        desc.height = static_cast<uint32_t>(height);
+        desc.isRenderTarget = true;
+        desc.useClearValue = true;
+        desc.clearValue = nvrhi::Color(0.f);
+        desc.keepInitialState = true;
+
+        desc.isTypeless = true;
+        desc.format = nvrhi::Format::D24S8;
+        desc.initialState = nvrhi::ResourceStates::DepthWrite;
+        desc.debugName = "DepthBuffer";
+        targets->depth = device->createTexture(desc);
+
+        desc.isTypeless = false;
+        desc.format = nvrhi::Format::RGBA16_FLOAT;
+        desc.initialState = nvrhi::ResourceStates::RenderTarget;
+        desc.isUAV = true;
+        desc.debugName = "HdrColor";
+        targets->hdrColor = device->createTexture(desc);
+        desc.debugName = "ResolvedColor";
+        targets->resolvedColor = device->createTexture(desc);
+
+        desc.format = nvrhi::Format::RGBA16_SNORM;
+        desc.debugName = "TemporalFeedback1";
+        targets->feedback1 = device->createTexture(desc);
+        desc.debugName = "TemporalFeedback2";
+        targets->feedback2 = device->createTexture(desc);
+
+        desc.format = nvrhi::Format::RG16_FLOAT;
+        desc.debugName = "MotionVectors";
+        targets->motionVectors = device->createTexture(desc);
+
+        targets->framebuffer = std::make_shared<donut::engine::FramebufferFactory>(device);
+        targets->framebuffer->RenderTargets = { targets->hdrColor };
+        targets->framebuffer->DepthTarget = targets->depth;
+
+        return a->OwnObject(targets);
+    }
+
+    // Values of `which` for Donut_GetTemporalTargetsTexture.
+    enum TemporalTexture
+    {
+        TemporalTexture_Depth = 0,
+        TemporalTexture_HdrColor = 1,
+        TemporalTexture_ResolvedColor = 2,
+        TemporalTexture_MotionVectors = 3,
+    };
+
+    // One of the targets' textures; valid as long as the targets.
+    void* Donut_GetTemporalTargetsTexture(void* temporalTargets, int which)
+    {
+        auto* targets = static_cast<TemporalTargets*>(temporalTargets);
+        switch (which)
+        {
+        case TemporalTexture_Depth: return targets->depth.Get();
+        case TemporalTexture_HdrColor: return targets->hdrColor.Get();
+        case TemporalTexture_ResolvedColor: return targets->resolvedColor.Get();
+        case TemporalTexture_MotionVectors: return targets->motionVectors.Get();
+        default: return nullptr;
+        }
+    }
+
+    // Makes rendering into the targets use a shading rate surface (Donut_CreateShadingRateSurface)
+    // whenever the view enables variable rate shading. Call it before the first draw into them.
+    void Donut_SetTemporalTargetsShadingRateSurface(void* temporalTargets, void* shadingRateSurface)
+    {
+        static_cast<TemporalTargets*>(temporalTargets)->framebuffer->ShadingRateSurface =
+            static_cast<nvrhi::ITexture*>(shadingRateSurface);
+    }
+
+    // Clears depth (to 0, for reverse Z) and HDR color.
+    void Donut_ClearTemporalTargets(void* frame, void* temporalTargets)
+    {
+        auto* targets = static_cast<TemporalTargets*>(temporalTargets);
+        nvrhi::ICommandList* cl = AsFrame(frame)->commandList;
+        cl->clearDepthStencilTexture(targets->depth, nvrhi::AllSubresources, true, 0.f, true, 0);
+        cl->clearTextureFloat(targets->hdrColor, nvrhi::AllSubresources, nvrhi::Color(0.f));
+    }
+
+    // Draws a loaded scene, opaque then transparent meshes, into the targets' HDR color and depth
+    // with a forward shading pass (Donut_CreateForwardShadingPass), lit by the scene graph's
+    // lights plus a top / bottom ambient term.
+    void Donut_RenderSceneForward(void* frame, void* forwardShadingPass, void* view, void* temporalTargets, void* scene,
+        double topR, double topG, double topB, double bottomR, double bottomG, double bottomB)
+    {
+        nvrhi::ICommandList* cl = AsFrame(frame)->commandList;
+        auto* forwardPass = static_cast<donut::render::ForwardShadingPass*>(forwardShadingPass);
+        auto* planarView = static_cast<donut::engine::PlanarView*>(view);
+        auto* framebuffer = static_cast<TemporalTargets*>(temporalTargets)->framebuffer.get();
+        const auto& sceneGraph = static_cast<donut::engine::Scene*>(scene)->GetSceneGraph();
+
+        donut::render::ForwardShadingPass::Context context;
+        forwardPass->PrepareLights(context, cl, sceneGraph->GetLights(),
+            dm::float3(float(topR), float(topG), float(topB)), dm::float3(float(bottomR), float(bottomG), float(bottomB)), {});
+
+        donut::render::InstancedOpaqueDrawStrategy opaqueStrategy;
+        donut::render::RenderCompositeView(cl, planarView, planarView, *framebuffer, sceneGraph->GetRootNode(),
+            opaqueStrategy, *forwardPass, context);
+
+        donut::render::TransparentDrawStrategy transparentStrategy;
+        donut::render::RenderCompositeView(cl, planarView, planarView, *framebuffer, sceneGraph->GetRootNode(),
+            transparentStrategy, *forwardPass, context);
+    }
+
+    // Donut's TAA pass over the targets (Catmull-Rom filter, motion vectors where the stencil has
+    // bit 0 set), for views like `view`; create a new one with new targets.
+    void* Donut_CreateTemporalAntiAliasingPass(void* app, void* view, void* temporalTargets)
+    {
+        App* a = AsApp(app);
+        auto* targets = static_cast<TemporalTargets*>(temporalTargets);
+
+        donut::render::TemporalAntiAliasingPass::CreateParameters params;
+        params.sourceDepth = targets->depth;
+        params.motionVectors = targets->motionVectors;
+        params.unresolvedColor = targets->hdrColor;
+        params.resolvedColor = targets->resolvedColor;
+        params.feedback1 = targets->feedback1;
+        params.feedback2 = targets->feedback2;
+        params.motionVectorStencilMask = 0x01;
+        params.useCatmullRomFilter = true;
+
+        return a->OwnObject(std::make_shared<donut::render::TemporalAntiAliasingPass>(a->device(), a->shaderFactory,
+            a->sharedCommonPasses(), *static_cast<donut::engine::PlanarView*>(view), params));
+    }
+
+    // Writes the targets' motion vectors, from the camera's movement between the two views.
+    void Donut_RenderMotionVectors(void* frame, void* temporalAntiAliasingPass, void* view, void* previousView)
+    {
+        static_cast<donut::render::TemporalAntiAliasingPass*>(temporalAntiAliasingPass)->RenderMotionVectors(
+            AsFrame(frame)->commandList, *static_cast<donut::engine::PlanarView*>(view),
+            *static_cast<donut::engine::PlanarView*>(previousView));
+    }
+
+    // Resolves the HDR color into the resolved color with default TAA parameters;
+    // feedbackIsValid == 0 on the first frame, when there's no history yet.
+    void Donut_TemporalResolve(void* frame, void* temporalAntiAliasingPass, void* view, int feedbackIsValid)
+    {
+        auto* planarView = static_cast<donut::engine::PlanarView*>(view);
+        static_cast<donut::render::TemporalAntiAliasingPass*>(temporalAntiAliasingPass)->TemporalResolve(
+            AsFrame(frame)->commandList, donut::render::TemporalAntiAliasingParameters(), feedbackIsValid != 0,
+            *planarView, *planarView);
+    }
+
+    // --- Variable rate shading ----------------------------------------------------------------
+
+    // Pixels per shading rate surface texel in each dimension, as NVRHI reports it (0 without
+    // nvrhi::Feature::VariableRateShading).
+    int Donut_GetShadingRateTileSize(void* app)
+    {
+        nvrhi::VariableRateShadingFeatureInfo info = {};
+        AsApp(app)->device()->queryFeatureSupport(nvrhi::Feature::VariableRateShading, &info, sizeof(info));
+        return static_cast<int>(info.shadingRateImageTileSize);
+    }
+
+    // Same, straight from D3D12 (D3D12_FEATURE_D3D12_OPTIONS6); 0 on other graphics APIs.
+    int Donut_GetD3D12ShadingRateTileSize(void* app)
+    {
+#if DONUT_WITH_DX12
+        nvrhi::IDevice* device = AsApp(app)->device();
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS6 options = {};
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            if (SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS6, &options, sizeof(options))))
+                return static_cast<int>(options.ShadingRateImageTileSize);
+        }
+#endif
+        return 0;
+    }
+
+    // R8_UINT shading rate surface of width x height tiles, written by compute shaders as
+    // RWTexture2D<uint> (D3D12_SHADING_RATE values). Returns null on failure.
+    void* Donut_CreateShadingRateSurface(void* app, int width, int height)
+    {
+        nvrhi::TextureDesc desc;
+        desc.debugName = "ShadingRateTexture";
+        desc.width = static_cast<uint32_t>(width);
+        desc.height = static_cast<uint32_t>(height);
+        desc.dimension = nvrhi::TextureDimension::Texture2D;
+        desc.keepInitialState = true;
+        desc.isUAV = true;
+        desc.isShadingRateSurface = true;
+        desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        desc.format = nvrhi::Format::R8_UINT;
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // enabled != 0: draws with the view use its framebuffer's shading rate surface alone (1x1
+    // per-draw rate, the surface overriding it); 0: full rate.
+    void Donut_SetViewVariableRateShading(void* view, int enabled)
+    {
+        static_cast<donut::engine::PlanarView*>(view)->SetVariableRateShadingState(enabled
+            ? nvrhi::VariableRateShadingState().setEnabled(true).setShadingRate(nvrhi::VariableShadingRate::e1x1)
+                .setImageCombiner(nvrhi::ShadingRateCombiner::Override)
+            : nvrhi::VariableRateShadingState().setEnabled(false));
+    }
+
+    // The same through the D3D12 API directly (D3D12 only), bypassing NVRHI: transitions the
+    // surface to D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE and binds it, with every combiner at
+    // MAX and a 1x1 per-draw rate. Use it instead of Donut_SetTemporalTargetsShadingRateSurface
+    // and Donut_SetViewVariableRateShading, and pair it with Donut_EndD3D12ShadingRateImage.
+    void Donut_BeginD3D12ShadingRateImage(void* frame, void* shadingRateSurface)
+    {
+#if DONUT_WITH_DX12
+        ID3D12GraphicsCommandList* d3dCommandList = AsFrame(frame)->commandList->getNativeObject(
+            nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+        ID3D12GraphicsCommandList5* vrsCommandList = nullptr;
+        if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&vrsCommandList))))
+            return;
+        ID3D12Resource* vrsResource = static_cast<nvrhi::ITexture*>(shadingRateSurface)->getNativeObject(
+            nvrhi::ObjectTypes::D3D12_Resource);
+
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = vrsResource;
+        barrier.Transition.Subresource = 0;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+        vrsCommandList->ResourceBarrier(1, &barrier);
+
+        vrsCommandList->RSSetShadingRateImage(vrsResource);
+        D3D12_SHADING_RATE_COMBINER combiners[D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT];
+        for (auto& combiner : combiners)
+            combiner = D3D12_SHADING_RATE_COMBINER_MAX;
+        vrsCommandList->RSSetShadingRate(D3D12_SHADING_RATE_1X1, combiners);
+        vrsCommandList->Release();
+#endif
+    }
+
+    // Undoes Donut_BeginD3D12ShadingRateImage: full rate, no surface, surface back to UAV state.
+    void Donut_EndD3D12ShadingRateImage(void* frame, void* shadingRateSurface)
+    {
+#if DONUT_WITH_DX12
+        ID3D12GraphicsCommandList* d3dCommandList = AsFrame(frame)->commandList->getNativeObject(
+            nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+        ID3D12GraphicsCommandList5* vrsCommandList = nullptr;
+        if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&vrsCommandList))))
+            return;
+        ID3D12Resource* vrsResource = static_cast<nvrhi::ITexture*>(shadingRateSurface)->getNativeObject(
+            nvrhi::ObjectTypes::D3D12_Resource);
+
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = vrsResource;
+        barrier.Transition.Subresource = 0;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        vrsCommandList->ResourceBarrier(1, &barrier);
+
+        vrsCommandList->RSSetShadingRate(D3D12_SHADING_RATE_1X1, nullptr);
+        vrsCommandList->RSSetShadingRateImage(nullptr);
+        vrsCommandList->Release();
+#endif
     }
 
     // --- Frame commands (valid only inside the render callback) ----------------------------

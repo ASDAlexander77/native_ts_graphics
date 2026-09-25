@@ -20,7 +20,8 @@ enum GraphicsAPI {
 enum Feature {
     Meshlets = 9,
     RayTracingPipeline = 14,
-    ShaderSpecializations = 18
+    ShaderSpecializations = 18,
+    VariableRateShading = 21
 }
 
 // Textures of Donut_GetGBufferTexture.
@@ -30,6 +31,14 @@ enum GBufferTexture {
     Specular = 2,
     Normals = 3,
     Emissive = 4
+}
+
+// Textures of Donut_GetTemporalTargetsTexture.
+enum TemporalTexture {
+    Depth = 0,
+    HdrColor = 1,
+    ResolvedColor = 2,
+    MotionVectors = 3
 }
 
 // Bits of Donut_CreateAppWithOptions' options.
@@ -341,6 +350,44 @@ declare function Donut_RenderSceneToGBuffer(frame: Opaque, gbufferFillPass: Opaq
 // targets' shaded color texture.
 declare function Donut_RenderDeferredLighting(frame: Opaque, deferredLightingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
     sceneGraph: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
+// Viewport, matrices and derived state, e.g. to keep the previous frame's view.
+declare function Donut_CopyPlanarView(dstView: Opaque, srcView: Opaque): void;
+
+// Forward shading with TAA. Targets of width x height pixels: RGBA16_FLOAT HDR color and D24S8
+// depth (cleared for reverse Z) to render into, motion vectors, and the TAA resolved color and
+// feedback; create new ones when the frame size changes.
+declare function Donut_CreateTemporalTargets(app: Opaque, width: int, height: int): Opaque;
+// Valid as long as the targets.
+declare function Donut_GetTemporalTargetsTexture(temporalTargets: Opaque, which: TemporalTexture): Opaque;
+// Rendering into the targets uses this surface whenever the view enables variable rate shading;
+// set it before the first draw into them.
+declare function Donut_SetTemporalTargetsShadingRateSurface(temporalTargets: Opaque, shadingRateSurface: Opaque): void;
+// TAA over the targets (Catmull-Rom filter, stencil mask 0x01), for views like `view`; create a
+// new one with new targets.
+declare function Donut_CreateTemporalAntiAliasingPass(app: Opaque, view: Opaque, temporalTargets: Opaque): Opaque;
+// These four are valid only inside a render callback.
+// Depth to 0 (reverse Z), HDR color to black.
+declare function Donut_ClearTemporalTargets(frame: Opaque, temporalTargets: Opaque): void;
+// A loaded scene, opaque then transparent meshes, with a Donut_CreateForwardShadingPass pass, lit
+// by the scene graph's lights plus a top / bottom ambient term.
+declare function Donut_RenderSceneForward(frame: Opaque, forwardShadingPass: Opaque, view: Opaque, temporalTargets: Opaque, scene: Opaque,
+    topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
+declare function Donut_RenderMotionVectors(frame: Opaque, temporalAntiAliasingPass: Opaque, view: Opaque, previousView: Opaque): void;
+// HDR color into the resolved color; feedbackIsValid 0 when there's no history yet.
+declare function Donut_TemporalResolve(frame: Opaque, temporalAntiAliasingPass: Opaque, view: Opaque, feedbackIsValid: int): void;
+
+// Variable rate shading. Pixels per shading rate surface texel, as NVRHI reports it, or (the
+// second one) straight from D3D12, 0 on other APIs.
+declare function Donut_GetShadingRateTileSize(app: Opaque): int;
+declare function Donut_GetD3D12ShadingRateTileSize(app: Opaque): int;
+// R8_UINT surface of width x height tiles, written by compute shaders as RWTexture2D<uint>.
+declare function Donut_CreateShadingRateSurface(app: Opaque, width: int, height: int): Opaque;
+// enabled != 0: the view's draws use the framebuffer's shading rate surface alone; 0: full rate.
+declare function Donut_SetViewVariableRateShading(view: Opaque, enabled: int): void;
+// The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
+// inside a render callback, Begin and End around the draws.
+declare function Donut_BeginD3D12ShadingRateImage(frame: Opaque, shadingRateSurface: Opaque): void;
+declare function Donut_EndD3D12ShadingRateImage(frame: Opaque, shadingRateSurface: Opaque): void;
 
 // Valid only inside a render callback.
 declare function Donut_ClearColor(frame: Opaque, r: number, g: number, b: number, a: number): void;
