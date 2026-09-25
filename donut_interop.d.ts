@@ -73,6 +73,21 @@ declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
 declare function Donut_SetInformativeWindowTitle(app: Opaque, title: string): void;
 declare function Donut_CloseWindow(app: Opaque): void;
 
+// nvrhi::Format values (only the ones used so far).
+enum Format {
+    R32_UINT = 33,
+    RG32_FLOAT = 43,
+    RGB32_FLOAT = 46
+}
+
+// Samplers shared through Donut's CommonRenderPasses.
+enum CommonSampler {
+    PointClamp = 0,
+    LinearClamp = 1,
+    LinearWrap = 2,
+    AnisotropicWrap = 3
+}
+
 // nvrhi::ShaderType values.
 enum ShaderType {
     Vertex = 0x0001,
@@ -94,6 +109,8 @@ declare function Donut_SpecializeShaderUInt(app: Opaque, shader: Opaque, constan
 declare function Donut_CreateShaderLibrary(app: Opaque, fileName: string): Opaque;
 // Triangle list, no depth test, for the frame's framebuffer layout.
 declare function Donut_CreateGraphicsPipeline(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque): Opaque;
+// Same, with an input layout and one binding layout.
+declare function Donut_CreateGraphicsPipelineWithLayouts(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque;
 // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
 declare function Donut_CreateMeshletPipeline(app: Opaque, frame: Opaque, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque;
 // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
@@ -107,6 +124,23 @@ declare function Donut_CreateReadbackBuffer(app: Opaque, byteSize: int, debugNam
 // Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
 // Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int[] / f32[] array. Returns 0 on failure.
 declare function Donut_ReadBuffer(app: Opaque, readbackBuffer: Opaque, dst: Opaque, byteSize: int): int;
+// For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
+declare function Donut_CreateConstantBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+// Vertex / index buffers uploaded once by an open command list (data copied during the call).
+declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+// Image file, path relative to the executable's directory, uploaded by an open command list.
+// sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
+declare function Donut_LoadTexture(app: Opaque, commandList: Opaque, path: string, sRGB: int): Opaque;
+declare function Donut_GetCommonSampler(app: Opaque, which: CommonSampler): Opaque;
+
+// Built up with Donut_AddVertexAttribute, then consumed (freed) by Donut_CreateInputLayout.
+declare function Donut_CreateInputLayoutDesc(): Opaque;
+// Vertex shader input `name` (its semantic), read from vertex buffer slot bufferIndex at byte
+// offset `offset` of each elementStride-byte element.
+declare function Donut_AddVertexAttribute(inputLayoutDesc: Opaque, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
+declare function Donut_CreateInputLayout(app: Opaque, inputLayoutDesc: Opaque, vertexShader: Opaque): Opaque;
+
 // Input for acceleration structure builds (index or vertex data).
 declare function Donut_CreateAccelStructInputBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
 // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
@@ -131,6 +165,12 @@ declare function Donut_CreateBindingSetDesc(): Opaque;
 declare function Donut_BindTypedBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
 // RWBuffer<uint> at u<slot>; the buffer must be writable.
 declare function Donut_BindTypedBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+// cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
+declare function Donut_BindConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: Opaque, byteOffset: int, byteSize: int): void;
+// Texture2D at t<slot>.
+declare function Donut_BindTextureSRV(bindingSetDesc: Opaque, slot: int, texture: Opaque): void;
+// SamplerState at s<slot>.
+declare function Donut_BindSampler(bindingSetDesc: Opaque, slot: int, sampler: Opaque): void;
 // RWTexture2D<float4> at u<slot>.
 declare function Donut_BindTextureUAV(bindingSetDesc: Opaque, slot: int, texture: Opaque): void;
 // RaytracingAccelerationStructure at t<slot>.
@@ -139,6 +179,8 @@ declare function Donut_BindAccelStruct(bindingSetDesc: Opaque, slot: int, accelS
 declare function Donut_CreateBindingSet(app: Opaque, bindingSetDesc: Opaque, shaderType: ShaderType): Opaque;
 // Binding set for an existing layout.
 declare function Donut_CreateBindingSetForLayout(app: Opaque, bindingSetDesc: Opaque, bindingLayout: Opaque): Opaque;
+// The layout a binding set was created with; valid as long as the binding set.
+declare function Donut_GetBindingLayout(bindingSet: Opaque): Opaque;
 
 // For a layout needed before its resources exist (e.g. by a pipeline): built up with
 // Donut_Layout*, then consumed (freed) by Donut_CreateBindingLayout.
@@ -184,5 +226,18 @@ declare function Donut_DispatchRays(frame: Opaque, shaderTable: Opaque, bindingS
 // textures blitted before.
 declare function Donut_BlitTexture(app: Opaque, frame: Opaque, texture: Opaque): void;
 declare function Donut_ClearBindingCache(app: Opaque): void;
+// The frame's open command list, for the command list functions (e.g. Donut_WriteBuffer). Don't
+// open, close or execute it.
+declare function Donut_GetFrameCommandList(frame: Opaque): Opaque;
+// A draw: begin with a pipeline (whole framebuffer by default), add state, then issue it.
+declare function Donut_BeginDraw(frame: Opaque, pipeline: Opaque): void;
+declare function Donut_DrawAddBindingSet(frame: Opaque, bindingSet: Opaque): void;
+// R32_UINT indices.
+declare function Donut_DrawSetIndexBuffer(frame: Opaque, indexBuffer: Opaque): void;
+// Binds a vertex buffer, from byteOffset, to an input layout slot.
+declare function Donut_DrawAddVertexBuffer(frame: Opaque, vertexBuffer: Opaque, slot: int, byteOffset: int): void;
+// Draws into this rectangle of the framebuffer (pixels) instead of all of it.
+declare function Donut_DrawSetViewport(frame: Opaque, left: number, top: number, width: number, height: number): void;
+declare function Donut_DrawIndexed(frame: Opaque, indexCount: int): void;
 declare function Donut_GetFrameWidth(frame: Opaque): int;
 declare function Donut_GetFrameHeight(frame: Opaque): int;

@@ -186,3 +186,14 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_triangle/spirv
 )
 add_tslang_example(rt_triangle)
+
+# Port of Donut-Samples' vertex_buffer.
+donut_compile_shaders_all_platforms(
+    TARGET vertex_buffer_shaders
+    PROJECT_NAME "Vertex Buffer"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_buffer.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_buffer.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/vertex_buffer
+)
+add_tslang_example(vertex_buffer)
+configure_file(media/nvidia-logo.png ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/nvidia-logo.png COPYONLY)

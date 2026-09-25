@@ -29,6 +29,7 @@
 #include <donut/engine/BindingCache.h>
 #include <donut/engine/CommonRenderPasses.h>
 #include <donut/engine/ShaderFactory.h>
+#include <donut/engine/TextureCache.h>
 #include <nvrhi/utils.h>
 
 #include <GLFW/glfw3.h>
@@ -61,6 +62,8 @@ namespace
     {
         nvrhi::ICommandList* commandList;
         nvrhi::IFramebuffer* framebuffer;
+        // Built up by Donut_BeginDraw / Donut_Draw* and used by Donut_DrawIndexed.
+        nvrhi::GraphicsState draw;
     };
 
     class TsRenderPass : public donut::app::IRenderPass
@@ -135,6 +138,15 @@ namespace
             return m_CommonPasses.get();
         }
 
+        // Loads files relative to the executable's directory.
+        donut::engine::TextureCache* textureCache()
+        {
+            if (!m_TextureCache)
+                m_TextureCache = std::make_unique<donut::engine::TextureCache>(
+                    device(), std::make_shared<donut::vfs::NativeFileSystem>(), nullptr);
+            return m_TextureCache.get();
+        }
+
         donut::engine::BindingCache* bindingCache()
         {
             if (!m_BindingCache)
@@ -160,6 +172,7 @@ namespace
             passes.clear();
             resources.clear();
             m_BindingCache.reset();
+            m_TextureCache.reset();
             m_CommonPasses.reset();
             shaderFactory.reset();
 
@@ -169,6 +182,7 @@ namespace
     private:
         std::shared_ptr<donut::engine::CommonRenderPasses> m_CommonPasses;
         std::unique_ptr<donut::engine::BindingCache> m_BindingCache;
+        std::unique_ptr<donut::engine::TextureCache> m_TextureCache;
     };
 
     std::filesystem::path GetExecutablePath()
@@ -214,7 +228,34 @@ namespace
     AdapterList* AsAdapterList(void* list) { return static_cast<AdapterList*>(list); }
     nvrhi::ICommandList* AsCommandList(void* commandList) { return static_cast<nvrhi::ICommandList*>(commandList); }
     nvrhi::IBuffer* AsBuffer(void* buffer) { return static_cast<nvrhi::IBuffer*>(buffer); }
+
+    // Buffer uploaded once by an open command list, then kept in permanentState.
+    void* CreateStaticBuffer(App* a, nvrhi::ICommandList* commandList, nvrhi::BufferDesc desc,
+        nvrhi::ResourceStates permanentState, const void* data, int byteSize)
+    {
+        desc.byteSize = static_cast<uint64_t>(byteSize);
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+        nvrhi::BufferHandle buffer = a->device()->createBuffer(desc);
+        if (!buffer)
+            return nullptr;
+
+        commandList->beginTrackingBufferState(buffer, nvrhi::ResourceStates::CopyDest);
+        commandList->writeBuffer(buffer, data, static_cast<size_t>(byteSize));
+        commandList->setPermanentBufferState(buffer, permanentState);
+        return a->Own(buffer);
+    }
 }
+
+// donut_interop.d.ts mirrors these enum values as plain numbers.
+static_assert(int(nvrhi::GraphicsAPI::D3D11) == 0 && int(nvrhi::GraphicsAPI::D3D12) == 1 && int(nvrhi::GraphicsAPI::VULKAN) == 2);
+static_assert(int(nvrhi::Feature::Meshlets) == 9 && int(nvrhi::Feature::RayTracingPipeline) == 14
+    && int(nvrhi::Feature::ShaderSpecializations) == 18);
+static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Pixel) == 0x10
+    && int(nvrhi::ShaderType::Compute) == 0x20 && int(nvrhi::ShaderType::Amplification) == 0x40
+    && int(nvrhi::ShaderType::Mesh) == 0x80 && int(nvrhi::ShaderType::All) == 0x3FFF);
+static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RG32_FLOAT) == 43
+    && int(nvrhi::Format::RGB32_FLOAT) == 46);
+static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
 
 extern "C"
 {
@@ -754,6 +795,150 @@ extern "C"
         return a->Own(a->device()->createComputePipeline(desc));
     }
 
+    // Constant buffer for cbuffers, written with Donut_WriteBuffer. Bind slices of it (offsets
+    // and sizes in multiples of 256 bytes) with Donut_BindConstantBuffer. Returns null on failure.
+    void* Donut_CreateConstantBuffer(void* app, int byteSize, const char* debugName)
+    {
+        auto desc = nvrhi::utils::CreateStaticConstantBufferDesc(static_cast<uint32_t>(byteSize), debugName)
+            .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // Vertex buffer with byteSize bytes of data (copied during the call), uploaded by an open
+    // command list; the contents can't change afterwards. Returns null on failure.
+    void* Donut_CreateStaticVertexBuffer(void* app, void* commandList, const void* data, int byteSize, const char* debugName)
+    {
+        return CreateStaticBuffer(AsApp(app), AsCommandList(commandList),
+            nvrhi::BufferDesc().setIsVertexBuffer(true).setDebugName(debugName),
+            nvrhi::ResourceStates::VertexBuffer, data, byteSize);
+    }
+
+    // Same, for an index buffer.
+    void* Donut_CreateStaticIndexBuffer(void* app, void* commandList, const void* data, int byteSize, const char* debugName)
+    {
+        return CreateStaticBuffer(AsApp(app), AsCommandList(commandList),
+            nvrhi::BufferDesc().setIsIndexBuffer(true).setDebugName(debugName),
+            nvrhi::ResourceStates::IndexBuffer, data, byteSize);
+    }
+
+    // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
+    // (freed) by Donut_CreateInputLayout.
+    void* Donut_CreateInputLayoutDesc()
+    {
+        return new std::vector<nvrhi::VertexAttributeDesc>();
+    }
+
+    // A vertex shader input with semantic `name`, read from vertex buffer slot bufferIndex at
+    // byte offset `offset` of each elementStride-byte element. format is an nvrhi::Format value.
+    void Donut_AddVertexAttribute(void* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
+    {
+        static_cast<std::vector<nvrhi::VertexAttributeDesc>*>(inputLayoutDesc)->push_back(nvrhi::VertexAttributeDesc()
+            .setName(name)
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setOffset(static_cast<uint32_t>(offset))
+            .setBufferIndex(static_cast<uint32_t>(bufferIndex))
+            .setElementStride(static_cast<uint32_t>(elementStride)));
+    }
+
+    // Returns null on failure.
+    void* Donut_CreateInputLayout(void* app, void* inputLayoutDesc, void* vertexShader)
+    {
+        std::unique_ptr<std::vector<nvrhi::VertexAttributeDesc>> attributes(
+            static_cast<std::vector<nvrhi::VertexAttributeDesc>*>(inputLayoutDesc));
+        App* a = AsApp(app);
+        return a->Own(a->device()->createInputLayout(attributes->data(), static_cast<uint32_t>(attributes->size()),
+            static_cast<nvrhi::IShader*>(vertexShader)));
+    }
+
+    // Loads an image file (path relative to the executable's directory) and records its upload
+    // into an open command list; sRGB != 0 treats the data as sRGB. Returns null (after logging
+    // why) if the file can't be loaded.
+    void* Donut_LoadTexture(void* app, void* commandList, const char* path, int sRGB)
+    {
+        App* a = AsApp(app);
+        donut::engine::TextureLoadOptions options;
+        options.sRGBMode = donut::engine::SRGBModeFromBool(sRGB != 0);
+
+        std::shared_ptr<donut::engine::LoadedTexture> texture = a->textureCache()->LoadTextureFromFile(
+            GetExecutablePath().parent_path() / path, options, nullptr, AsCommandList(commandList));
+        if (!texture || !texture->texture)
+            return nullptr;
+        return a->Own(texture->texture);
+    }
+
+    // Samplers shared through Donut's CommonRenderPasses (values of `which`).
+    enum CommonSampler
+    {
+        CommonSampler_PointClamp = 0,
+        CommonSampler_LinearClamp = 1,
+        CommonSampler_LinearWrap = 2,
+        CommonSampler_AnisotropicWrap = 3,
+    };
+
+    void* Donut_GetCommonSampler(void* app, int which)
+    {
+        App* a = AsApp(app);
+        donut::engine::CommonRenderPasses* passes = a->commonPasses();
+        switch (which)
+        {
+        case CommonSampler_PointClamp: return a->Own(passes->m_PointClampSampler);
+        case CommonSampler_LinearClamp: return a->Own(passes->m_LinearClampSampler);
+        case CommonSampler_LinearWrap: return a->Own(passes->m_LinearWrapSampler);
+        case CommonSampler_AnisotropicWrap: return a->Own(passes->m_AnisotropicWrapSampler);
+        default: return nullptr;
+        }
+    }
+
+    // cbuffer at b<slot>: byteSize bytes of a constant buffer starting at byteOffset (both
+    // multiples of 256).
+    void Donut_BindConstantBuffer(void* bindingSetDesc, int slot, void* constantBuffer, int byteOffset, int byteSize)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::ConstantBuffer(
+            static_cast<uint32_t>(slot), AsBuffer(constantBuffer),
+            nvrhi::BufferRange(static_cast<uint64_t>(byteOffset), static_cast<uint64_t>(byteSize))));
+    }
+
+    // Texture2D at t<slot>.
+    void Donut_BindTextureSRV(void* bindingSetDesc, int slot, void* texture)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture)));
+    }
+
+    // SamplerState at s<slot>.
+    void Donut_BindSampler(void* bindingSetDesc, int slot, void* sampler)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::Sampler(static_cast<uint32_t>(slot), static_cast<nvrhi::ISampler*>(sampler)));
+    }
+
+    // The layout a binding set was created with; valid as long as the binding set. Use it for
+    // more binding sets (Donut_CreateBindingSetForLayout) and pipelines.
+    void* Donut_GetBindingLayout(void* bindingSet)
+    {
+        return static_cast<nvrhi::IBindingSet*>(bindingSet)->getLayout();
+    }
+
+    // Triangle list, no depth test, for the frame's framebuffer layout, with an input layout
+    // and one binding layout. Returns null on failure.
+    void* Donut_CreateGraphicsPipelineWithLayouts(void* app, void* frame, void* vertexShader, void* pixelShader,
+        void* inputLayout, void* bindingLayout)
+    {
+        nvrhi::GraphicsPipelineDesc desc;
+        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
+        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc.inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+        desc.primType = nvrhi::PrimitiveType::TriangleList;
+        desc.renderState.depthStencilState.depthTestEnable = false;
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createGraphicsPipeline(desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
+    }
+
     // --- Command lists (for work outside render passes, e.g. in a headless app) --------------
 
     void* Donut_CreateCommandList(void* app)
@@ -918,6 +1103,60 @@ extern "C"
     void Donut_ClearBindingCache(void* app)
     {
         AsApp(app)->bindingCache()->Clear();
+    }
+
+    // The frame's open command list, for the command list functions (e.g. Donut_WriteBuffer).
+    // Don't open, close or execute it: the pass does.
+    void* Donut_GetFrameCommandList(void* frame)
+    {
+        return AsFrame(frame)->commandList;
+    }
+
+    // Starts describing a draw with a graphics pipeline, over the whole framebuffer; add to it
+    // with the Donut_Draw* functions, then issue it with Donut_DrawIndexed.
+    void Donut_BeginDraw(void* frame, void* pipeline)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        ctx->draw = nvrhi::GraphicsState();
+        ctx->draw.pipeline = static_cast<nvrhi::IGraphicsPipeline*>(pipeline);
+        ctx->draw.framebuffer = ctx->framebuffer;
+    }
+
+    void Donut_DrawAddBindingSet(void* frame, void* bindingSet)
+    {
+        AsFrame(frame)->draw.bindings.push_back(static_cast<nvrhi::IBindingSet*>(bindingSet));
+    }
+
+    // R32_UINT indices.
+    void Donut_DrawSetIndexBuffer(void* frame, void* indexBuffer)
+    {
+        AsFrame(frame)->draw.indexBuffer = { AsBuffer(indexBuffer), nvrhi::Format::R32_UINT, 0 };
+    }
+
+    // Binds a vertex buffer, starting at byteOffset, to the input layout's slot.
+    void Donut_DrawAddVertexBuffer(void* frame, void* vertexBuffer, int slot, int byteOffset)
+    {
+        AsFrame(frame)->draw.vertexBuffers.push_back(
+            { AsBuffer(vertexBuffer), static_cast<uint32_t>(slot), static_cast<uint64_t>(byteOffset) });
+    }
+
+    // Draws into this rectangle of the framebuffer (in pixels) instead of all of it.
+    void Donut_DrawSetViewport(void* frame, double left, double top, double width, double height)
+    {
+        const nvrhi::Viewport viewport(float(left), float(left + width), float(top), float(top + height), 0.f, 1.f);
+        AsFrame(frame)->draw.viewport = nvrhi::ViewportState().addViewportAndScissorRect(viewport);
+    }
+
+    void Donut_DrawIndexed(void* frame, int indexCount)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(indexCount);
+        ctx->commandList->drawIndexed(args);
     }
 
     int Donut_GetFrameWidth(void* frame)
