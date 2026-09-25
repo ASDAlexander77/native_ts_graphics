@@ -23,6 +23,15 @@ enum Feature {
     ShaderSpecializations = 18
 }
 
+// Textures of Donut_GetGBufferTexture.
+enum GBufferTexture {
+    Depth = 0,
+    Diffuse = 1,
+    Specular = 2,
+    Normals = 3,
+    Emissive = 4
+}
+
 // Bits of Donut_CreateAppWithOptions' options.
 enum AppOptions {
     None = 0,
@@ -130,6 +139,9 @@ declare function Donut_CreateReadbackBuffer(app: Opaque, byteSize: int, debugNam
 declare function Donut_ReadBuffer(app: Opaque, readbackBuffer: Opaque, dst: Opaque, byteSize: int): int;
 // For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
 declare function Donut_CreateConstantBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+// For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
+// it with Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer.
+declare function Donut_CreateVolatileConstantBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
 declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
@@ -156,8 +168,9 @@ declare function Donut_BuildTriangleBLAS(app: Opaque, commandList: Opaque, index
 // One instance of bottomLevelAS: identity transform, mask 1, counter-clockwise front faces.
 declare function Donut_BuildSingleInstanceTLAS(app: Opaque, commandList: Opaque, bottomLevelAS: Opaque): Opaque;
 
-// One ray generation shader, one miss shader and one triangle hit group (closest hit only),
-// taken from shaderLibrary by entry name, plus one global binding layout.
+// One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
+// no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
+// global binding layout.
 declare function Donut_CreateRayTracingPipeline(app: Opaque, shaderLibrary: Opaque, bindingLayout: Opaque,
     rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque;
 // One ray generation shader, hit group and miss shader, by export name; keeps the pipeline alive.
@@ -171,6 +184,8 @@ declare function Donut_BindTypedBufferSRV(bindingSetDesc: Opaque, slot: int, buf
 declare function Donut_BindTypedBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
 // cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
 declare function Donut_BindConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: Opaque, byteOffset: int, byteSize: int): void;
+// cbuffer at b<slot>: all of a constant buffer (required for volatile ones).
+declare function Donut_BindEntireConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: Opaque): void;
 // Texture2D at t<slot>.
 declare function Donut_BindTextureSRV(bindingSetDesc: Opaque, slot: int, texture: Opaque): void;
 // SamplerState at s<slot>.
@@ -191,6 +206,8 @@ declare function Donut_GetBindingLayout(bindingSet: Opaque): Opaque;
 declare function Donut_CreateBindingLayoutDesc(): Opaque;
 declare function Donut_LayoutTextureUAV(bindingLayoutDesc: Opaque, slot: int): void;
 declare function Donut_LayoutAccelStruct(bindingLayoutDesc: Opaque, slot: int): void;
+declare function Donut_LayoutTextureSRV(bindingLayoutDesc: Opaque, slot: int): void;
+declare function Donut_LayoutVolatileConstantBuffer(bindingLayoutDesc: Opaque, slot: int): void;
 // Register space 0, visible to shaderType's stages.
 declare function Donut_CreateBindingLayout(app: Opaque, bindingLayoutDesc: Opaque, shaderType: ShaderType): Opaque;
 // Uses the layout of bindingSet.
@@ -254,6 +271,18 @@ declare function Donut_CameraKeyboardUpdate(camera: Opaque, key: int, scancode: 
 declare function Donut_CameraMousePosUpdate(camera: Opaque, x: number, y: number): void;
 declare function Donut_CameraMouseButtonUpdate(camera: Opaque, button: int, action: int, mods: int): void;
 declare function Donut_CameraAnimate(camera: Opaque, elapsedSeconds: number): void;
+// World-to-view matrix into dst: Ref(arr[0]) of a `let` f32[16] array, row-major, row-vector
+// convention (as Donut_SetPlanarView takes it).
+declare function Donut_GetCameraWorldToView(camera: Opaque, dst: Opaque): void;
+
+// Loaded scenes. Both valid as long as the scene.
+declare function Donut_GetSceneGraph(scene: Opaque): Opaque;
+declare function Donut_GetRootNode(sceneGraph: Opaque): Opaque;
+// One BLAS per mesh of a loaded scene and a TLAS over its instances, builds recorded into an
+// open command list.
+declare function Donut_BuildSceneAccelStructs(app: Opaque, commandList: Opaque, scene: Opaque): Opaque;
+// For Donut_BindAccelStruct; valid as long as the acceleration structures.
+declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: Opaque): Opaque;
 
 // Scenes built in code. Material with a diffuse texture (relative to the executable's directory,
 // sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
@@ -270,17 +299,26 @@ declare function Donut_CreateSceneGraph(app: Opaque): Opaque;
 // null. Returns the node, valid as long as the scene graph.
 declare function Donut_AddMeshNode(app: Opaque, sceneGraph: Opaque, parentNode: Opaque | null, mesh: Opaque, name: string): Opaque;
 // Directional light in a new node under parentNode, shining along dir; angularSize in degrees.
+// Returns the light, valid as long as the scene graph; refresh the graph before using it.
 declare function Donut_AddDirectionalLight(sceneGraph: Opaque, parentNode: Opaque, name: string,
-    dirX: number, dirY: number, dirZ: number, angularSize: number, irradiance: number): void;
+    dirX: number, dirY: number, dirZ: number, angularSize: number, irradiance: number): Opaque;
+// For constant buffers that embed a LightConstants (donut/shaders/light_cb.h): its size in
+// bytes (a multiple of 16), and a light's constants written to dst (Ref of a `let` array element).
+declare function Donut_GetLightConstantsSize(): int;
+declare function Donut_FillLightConstants(light: Opaque, dst: Opaque): void;
 // After adding or changing nodes.
 declare function Donut_RefreshSceneGraph(app: Opaque, sceneGraph: Opaque): void;
 declare function Donut_PrintSceneGraph(sceneGraph: Opaque): void;
 
 // Deferred shading. G-buffer of width x height pixels plus an RGBA16_FLOAT texture for the lit
-// result; create new ones when the frame size changes.
-declare function Donut_CreateGBufferTargets(app: Opaque, width: int, height: int): Opaque;
-// For Donut_BlitTexture; valid as long as the targets.
+// result; create new ones when the frame size changes. reverseDepth != 0 clears depth to 0, for
+// reverse-Z projections.
+declare function Donut_CreateGBufferTargets(app: Opaque, width: int, height: int, reverseDepth: int): Opaque;
+// For Donut_BlitTexture, or as a UAV; valid as long as the targets.
 declare function Donut_GetGBufferShadedColor(gbufferTargets: Opaque): Opaque;
+// One of the G-buffer textures, e.g. to bind to a shader decoding the G-buffer; valid as long as
+// the targets.
+declare function Donut_GetGBufferTexture(gbufferTargets: Opaque, which: GBufferTexture): Opaque;
 declare function Donut_CreateGBufferFillPass(app: Opaque): Opaque;
 declare function Donut_CreateDeferredLightingPass(app: Opaque): Opaque;
 // Drops the pass's cached references to G-buffer textures.
@@ -289,10 +327,16 @@ declare function Donut_CreatePlanarView(app: Opaque): Opaque;
 // Matrices: Ref(arr[0]) of `let` f32[16] arrays, row-major, row-vector convention (as the math
 // functions in the examples build them); viewport of width x height pixels.
 declare function Donut_SetPlanarView(view: Opaque, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int): void;
-// These three are valid only inside a render callback.
+// For constant buffers that embed a PlanarViewConstants (donut/shaders/view_cb.h): its size in
+// bytes (a multiple of 16), and the view's constants written to dst (Ref of a `let` array element).
+declare function Donut_GetPlanarViewConstantsSize(): int;
+declare function Donut_FillPlanarViewConstants(view: Opaque, dst: Opaque): void;
+// These four are valid only inside a render callback.
 declare function Donut_ClearGBuffer(frame: Opaque, gbufferTargets: Opaque): void;
 // Draws the mesh instance of a Donut_AddMeshNode node into the G-buffer, back faces culled.
 declare function Donut_RenderMeshNodeToGBuffer(frame: Opaque, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, meshNode: Opaque): void;
+// Draws the opaque meshes of a loaded scene into the G-buffer.
+declare function Donut_RenderSceneToGBuffer(frame: Opaque, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, scene: Opaque): void;
 // Lights the G-buffer with the scene graph's lights plus a top / bottom ambient term, into the
 // targets' shaded color texture.
 declare function Donut_RenderDeferredLighting(frame: Opaque, deferredLightingPass: Opaque, view: Opaque, gbufferTargets: Opaque,

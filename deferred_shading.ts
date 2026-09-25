@@ -298,7 +298,7 @@ class DeferredShadingPass {
             this.gbufferPass = null;
         }
 
-        const targets = Donut_CreateGBufferTargets(this.app, width, height);
+        const targets = Donut_CreateGBufferTargets(this.app, width, height, 0);
         this.renderTargets = targets;
         this.renderTargetsWidth = width;
         this.renderTargetsHeight = height;

@@ -46,7 +46,9 @@
 // Shared with HLSL, so they use the math types unqualified (as Donut's own sources include them).
 using namespace donut::math;
 #include <donut/shaders/bindless.h>
+#include <donut/shaders/light_cb.h>
 #include <donut/shaders/material_cb.h>
+#include <donut/shaders/view_cb.h>
 
 #include <GLFW/glfw3.h>
 
@@ -360,6 +362,15 @@ namespace
         }
     };
 
+    // A top-level acceleration structure over a scene's mesh instances, and the bottom-level ones
+    // (one per mesh) it instantiates. Only NVRHI's D3D12 backend keeps a BLAS alive from a TLAS,
+    // so they're held here.
+    struct SceneAccelStructs
+    {
+        std::unordered_map<std::shared_ptr<donut::engine::MeshInfo>, nvrhi::rt::AccelStructHandle> meshes;
+        nvrhi::rt::AccelStructHandle topLevel;
+    };
+
     // Buffer of a mesh's BufferGroup, with data (if any) uploaded by an open command list.
     nvrhi::BufferHandle CreateGeometryBuffer(nvrhi::IDevice* device, nvrhi::ICommandList* commandList,
         const char* debugName, const void* data, uint64_t dataSize, bool isVertexBuffer, bool isInstanceBuffer)
@@ -425,6 +436,8 @@ static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RG32_FLOA
 static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
 // LoadMatrix copies 16 floats from TypeScript straight into these.
 static_assert(sizeof(dm::float4x4) == 16 * sizeof(float));
+// TypeScript lays these out in its own constant buffers, which only works if HLSL doesn't pad them.
+static_assert(sizeof(LightConstants) % 16 == 0 && sizeof(PlanarViewConstants) % 16 == 0);
 
 extern "C"
 {
@@ -635,8 +648,8 @@ extern "C"
     }
 
     // Ray tracing pipeline with one ray generation shader, one miss shader and one triangle hit
-    // group made of a closest-hit shader, all exported from shaderLibrary by entry name, and one
-    // global binding layout. Returns null on failure.
+    // group made of a closest-hit shader (none if closestHitEntry is empty), all exported from
+    // shaderLibrary by entry name, and one global binding layout. Returns null on failure.
     void* Donut_CreateRayTracingPipeline(void* app, void* shaderLibrary, void* bindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         int maxPayloadSize)
@@ -651,7 +664,9 @@ extern "C"
         };
         desc.hitGroups = { nvrhi::rt::PipelineHitGroupDesc()
             .setExportName(hitGroupName)
-            .setClosestHitShader(library->getShader(closestHitEntry, nvrhi::ShaderType::ClosestHit)) };
+            .setClosestHitShader(closestHitEntry && *closestHitEntry
+                ? library->getShader(closestHitEntry, nvrhi::ShaderType::ClosestHit)
+                : nullptr) };
         desc.maxPayloadSize = static_cast<uint32_t>(maxPayloadSize);
 
         App* a = AsApp(app);
@@ -949,6 +964,19 @@ extern "C"
             nvrhi::BindingLayoutItem::RayTracingAccelStruct(static_cast<uint32_t>(slot)));
     }
 
+    void Donut_LayoutTextureSRV(void* bindingLayoutDesc, int slot)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(slot)));
+    }
+
+    // For a buffer from Donut_CreateVolatileConstantBuffer.
+    void Donut_LayoutVolatileConstantBuffer(void* bindingLayoutDesc, int slot)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::VolatileConstantBuffer(static_cast<uint32_t>(slot)));
+    }
+
     // Layout (register space 0) visible to the stages in shaderType (nvrhi::ShaderType bits).
     // Returns null on failure.
     void* Donut_CreateBindingLayout(void* app, void* bindingLayoutDesc, int shaderType)
@@ -980,6 +1008,16 @@ extern "C"
 
         App* a = AsApp(app);
         return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // Constant buffer rewritten (with Donut_WriteBuffer) every time it's used, up to
+    // c_MaxRenderPassConstantBufferVersions times per frame; bind it with
+    // Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer. Returns null on failure.
+    void* Donut_CreateVolatileConstantBuffer(void* app, int byteSize, const char* debugName)
+    {
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
+            static_cast<uint32_t>(byteSize), debugName, donut::engine::c_MaxRenderPassConstantBufferVersions)));
     }
 
     // Vertex buffer with byteSize bytes of data (copied during the call), uploaded by an open
@@ -1074,6 +1112,13 @@ extern "C"
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::ConstantBuffer(
             static_cast<uint32_t>(slot), AsBuffer(constantBuffer),
             nvrhi::BufferRange(static_cast<uint64_t>(byteOffset), static_cast<uint64_t>(byteSize))));
+    }
+
+    // cbuffer at b<slot>: the whole of a constant buffer (required for volatile ones).
+    void Donut_BindEntireConstantBuffer(void* bindingSetDesc, int slot, void* constantBuffer)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::ConstantBuffer(static_cast<uint32_t>(slot), AsBuffer(constantBuffer)));
     }
 
     // Texture2D at t<slot>.
@@ -1380,6 +1425,88 @@ extern "C"
         static_cast<donut::app::FirstPersonCamera*>(camera)->Animate(float(elapsedSeconds));
     }
 
+    // Writes the camera's world-to-view matrix to dst: 16 floats, row-major, row-vector convention.
+    void Donut_GetCameraWorldToView(void* camera, void* dst)
+    {
+        const dm::float4x4 m = dm::affineToHomogeneous(static_cast<donut::app::FirstPersonCamera*>(camera)->GetWorldToViewMatrix());
+        memcpy(dst, &m, sizeof(m));
+    }
+
+    // The scene graph of a scene from Donut_LoadScene; valid as long as the scene.
+    void* Donut_GetSceneGraph(void* scene)
+    {
+        return static_cast<donut::engine::Scene*>(scene)->GetSceneGraph().get();
+    }
+
+    void* Donut_GetRootNode(void* sceneGraph)
+    {
+        return static_cast<donut::engine::SceneGraph*>(sceneGraph)->GetRootNode().get();
+    }
+
+    // Builds one bottom-level acceleration structure per mesh of a scene from Donut_LoadScene (its
+    // opaque triangles), and a top-level one over its mesh instances, recording the builds into an
+    // open command list. Get the top-level one with Donut_GetSceneTopLevelAS.
+    void* Donut_BuildSceneAccelStructs(void* app, void* commandList, void* scene)
+    {
+        App* a = AsApp(app);
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+        const auto& sceneGraph = static_cast<donut::engine::Scene*>(scene)->GetSceneGraph();
+        auto accelStructs = std::make_shared<SceneAccelStructs>();
+
+        for (const auto& mesh : sceneGraph->GetMeshes())
+        {
+            nvrhi::rt::AccelStructDesc blasDesc;
+            blasDesc.isTopLevel = false;
+
+            for (const auto& geometry : mesh->geometries)
+            {
+                nvrhi::rt::GeometryDesc geometryDesc;
+                auto& triangles = geometryDesc.geometryData.triangles;
+                triangles.indexBuffer = mesh->buffers->indexBuffer;
+                triangles.indexOffset = (mesh->indexOffset + geometry->indexOffsetInMesh) * sizeof(uint32_t);
+                triangles.indexFormat = nvrhi::Format::R32_UINT;
+                triangles.indexCount = geometry->numIndices;
+                triangles.vertexBuffer = mesh->buffers->vertexBuffer;
+                triangles.vertexOffset = (mesh->vertexOffset + geometry->vertexOffsetInMesh) * sizeof(dm::float3)
+                    + mesh->buffers->getVertexBufferRange(donut::engine::VertexAttribute::Position).byteOffset;
+                triangles.vertexFormat = nvrhi::Format::RGB32_FLOAT;
+                triangles.vertexStride = sizeof(dm::float3);
+                triangles.vertexCount = geometry->numVertices;
+                geometryDesc.geometryType = nvrhi::rt::GeometryType::Triangles;
+                geometryDesc.flags = nvrhi::rt::GeometryFlags::Opaque;
+                blasDesc.bottomLevelGeometries.push_back(geometryDesc);
+            }
+
+            nvrhi::rt::AccelStructHandle blas = a->device()->createAccelStruct(blasDesc);
+            nvrhi::utils::BuildBottomLevelAccelStruct(cl, blas, blasDesc);
+            accelStructs->meshes[mesh] = blas;
+        }
+
+        std::vector<nvrhi::rt::InstanceDesc> instances;
+        for (const auto& instance : sceneGraph->GetMeshInstances())
+        {
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc.bottomLevelAS = accelStructs->meshes[instance->GetMesh()];
+            instanceDesc.instanceMask = 1;
+            dm::affineToColumnMajor(instance->GetNode()->GetLocalToWorldTransformFloat(), instanceDesc.transform);
+            instances.push_back(instanceDesc);
+        }
+
+        nvrhi::rt::AccelStructDesc tlasDesc;
+        tlasDesc.isTopLevel = true;
+        tlasDesc.topLevelMaxInstances = instances.size();
+        accelStructs->topLevel = a->device()->createAccelStruct(tlasDesc);
+        cl->buildTopLevelAccelStruct(accelStructs->topLevel, instances.data(), instances.size());
+
+        return a->OwnObject(accelStructs);
+    }
+
+    // For Donut_BindAccelStruct; valid as long as the acceleration structures.
+    void* Donut_GetSceneTopLevelAS(void* sceneAccelStructs)
+    {
+        return static_cast<SceneAccelStructs*>(sceneAccelStructs)->topLevel.Get();
+    }
+
     // --- Scenes built in code ----------------------------------------------------------------
 
     // Material with a diffuse texture (path relative to the executable's directory, sRGB);
@@ -1508,8 +1635,9 @@ extern "C"
     }
 
     // Adds a directional light in a new node under parentNode, shining along (dirX, dirY, dirZ);
-    // angularSize is in degrees.
-    void Donut_AddDirectionalLight(void* sceneGraph, void* parentNode, const char* name,
+    // angularSize is in degrees. Returns the light, valid as long as the scene graph; call
+    // Donut_RefreshSceneGraph before using it.
+    void* Donut_AddDirectionalLight(void* sceneGraph, void* parentNode, const char* name,
         double dirX, double dirY, double dirZ, double angularSize, double irradiance)
     {
         auto light = std::make_shared<donut::engine::DirectionalLight>();
@@ -1521,6 +1649,21 @@ extern "C"
         light->angularSize = float(angularSize);
         light->irradiance = float(irradiance);
         light->SetName(name);
+        return static_cast<donut::engine::Light*>(light.get());
+    }
+
+    // sizeof(LightConstants) (donut/shaders/light_cb.h), a multiple of 16.
+    int Donut_GetLightConstantsSize()
+    {
+        return static_cast<int>(sizeof(LightConstants));
+    }
+
+    // Writes a light's LightConstants to dst.
+    void Donut_FillLightConstants(void* light, void* dst)
+    {
+        LightConstants constants = {};
+        static_cast<donut::engine::Light*>(light)->FillLightConstants(constants);
+        memcpy(dst, &constants, sizeof(constants));
     }
 
     // Updates the transforms, bounds and instance indices after nodes were added or changed.
@@ -1539,12 +1682,39 @@ extern "C"
 
     // G-buffer (depth, diffuse, specular, normals, emissive) of width x height pixels, plus an
     // RGBA16_FLOAT texture for the lit result; create a new one when the frame size changes.
-    void* Donut_CreateGBufferTargets(void* app, int width, int height)
+    // reverseDepth != 0: depth is cleared to 0, for reverse-Z projections.
+    void* Donut_CreateGBufferTargets(void* app, int width, int height, int reverseDepth)
     {
         App* a = AsApp(app);
         auto targets = std::make_shared<GBufferTargets>();
-        targets->Init(a->device(), dm::uint2(uint32_t(width), uint32_t(height)), 1, false, false);
+        targets->Init(a->device(), dm::uint2(uint32_t(width), uint32_t(height)), 1, false, reverseDepth != 0);
         return a->OwnObject(targets);
+    }
+
+    // Values of `which` for Donut_GetGBufferTexture.
+    enum GBufferTexture
+    {
+        GBufferTexture_Depth = 0,
+        GBufferTexture_Diffuse = 1,
+        GBufferTexture_Specular = 2,
+        GBufferTexture_Normals = 3,
+        GBufferTexture_Emissive = 4,
+    };
+
+    // One of the G-buffer textures, e.g. for binding to a shader that decodes the G-buffer;
+    // valid as long as the targets.
+    void* Donut_GetGBufferTexture(void* gbufferTargets, int which)
+    {
+        auto* targets = static_cast<GBufferTargets*>(gbufferTargets);
+        switch (which)
+        {
+        case GBufferTexture_Depth: return targets->Depth.Get();
+        case GBufferTexture_Diffuse: return targets->GBufferDiffuse.Get();
+        case GBufferTexture_Specular: return targets->GBufferSpecular.Get();
+        case GBufferTexture_Normals: return targets->GBufferNormals.Get();
+        case GBufferTexture_Emissive: return targets->GBufferEmissive.Get();
+        default: return nullptr;
+        }
     }
 
     // The lit result, for Donut_BlitTexture; valid as long as the targets.
@@ -1594,6 +1764,20 @@ extern "C"
         planarView->UpdateCache();
     }
 
+    // sizeof(PlanarViewConstants) (donut/shaders/view_cb.h), a multiple of 16.
+    int Donut_GetPlanarViewConstantsSize()
+    {
+        return static_cast<int>(sizeof(PlanarViewConstants));
+    }
+
+    // Writes the view's PlanarViewConstants (as of its last Donut_SetPlanarView) to dst.
+    void Donut_FillPlanarViewConstants(void* view, void* dst)
+    {
+        PlanarViewConstants constants = {};
+        static_cast<donut::engine::PlanarView*>(view)->FillPlanarViewConstants(constants);
+        memcpy(dst, &constants, sizeof(constants));
+    }
+
     // Clears all the G-buffer textures.
     void Donut_ClearGBuffer(void* frame, void* gbufferTargets)
     {
@@ -1631,6 +1815,18 @@ extern "C"
         donut::render::RenderView(AsFrame(frame)->commandList, planarView, planarView,
             static_cast<GBufferTargets*>(gbufferTargets)->GBufferFramebuffer->GetFramebuffer(*planarView),
             drawStrategy, *static_cast<donut::render::GBufferFillPass*>(gbufferFillPass), context, false);
+    }
+
+    // Draws the opaque meshes of a scene from Donut_LoadScene into the G-buffer, as seen by view.
+    void Donut_RenderSceneToGBuffer(void* frame, void* gbufferFillPass, void* view, void* gbufferTargets, void* scene)
+    {
+        auto* planarView = static_cast<donut::engine::PlanarView*>(view);
+        donut::render::InstancedOpaqueDrawStrategy drawStrategy;
+        donut::render::GBufferFillPass::Context context;
+        donut::render::RenderCompositeView(AsFrame(frame)->commandList, planarView, planarView,
+            *static_cast<GBufferTargets*>(gbufferTargets)->GBufferFramebuffer,
+            static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->GetRootNode(),
+            drawStrategy, *static_cast<donut::render::GBufferFillPass*>(gbufferFillPass), context);
     }
 
     // Lights the G-buffer with the scene graph's lights plus a hemispherical ambient term (top

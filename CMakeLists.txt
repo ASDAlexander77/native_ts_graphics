@@ -213,3 +213,15 @@ add_tslang_example(threaded_rendering)
 # Port of Donut-Samples' deferred_shading: no shaders of its own (Donut's G-buffer fill and
 # deferred lighting passes); uses media/nvidia-logo.png, copied above.
 add_tslang_example(deferred_shading)
+
+# Port of Donut-Samples' rt_shadows: ray traced sun shadows on Sponza (see DONUT_SAMPLES_MEDIA_DIR
+# above). Ray tracing needs D3D12 or Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET rt_shadows_shaders
+    PROJECT_NAME "Ray Traced Shadows"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_shadows.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_shadows.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_shadows/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_shadows/spirv
+)
+add_tslang_example(rt_shadows)
