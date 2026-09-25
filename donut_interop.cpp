@@ -5,23 +5,27 @@
 // TypeScript side needs goes through the extern "C" functions below, using opaque handles
 // and plain scalars.
 //
-// C++ owns the application (device manager, window, message loop, teardown order);
-// TypeScript only supplies render passes, as objects whose methods are the callbacks.
+// C++ owns the application (device manager, window, message loop, teardown order) and every
+// GPU resource handed to TypeScript; TypeScript supplies render passes, as objects whose
+// methods are the callbacks.
 //
 // Callbacks: a TypeScript method passed as a callback (`this.onRender`) arrives here as
 // two arguments: a function pointer taking `this` first, then the `this` value itself
 // (the same lowering tslang's Win32 sample relies on). The TypeScript object is referenced
 // only from C++ heap memory here, which the GC does not scan, so the TypeScript side must
-// keep it alive (e.g. in a module-level variable) until Donut_RunApp returns.
+// keep it alive (e.g. in a module-level variable) until Donut_DestroyApp.
 
 #include <donut/app/ApplicationBase.h>
 #include <donut/app/DeviceManager.h>
 #include <donut/core/log.h>
+#include <donut/core/vfs/VFS.h>
+#include <donut/engine/ShaderFactory.h>
 #include <nvrhi/utils.h>
 
 #include <GLFW/glfw3.h>
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 using donut::app::DeviceManager;
@@ -37,6 +41,7 @@ namespace
         explicit operator bool() const { return method != nullptr; }
     };
 
+    using VoidFn = void (*)(void* thisVal);
     using RenderFn = void (*)(void* thisVal, void* frame);
     using AnimateFn = void (*)(void* thisVal, double elapsedSeconds);
     using KeyboardFn = int (*)(void* thisVal, int key, int scancode, int action, int mods);
@@ -77,6 +82,12 @@ namespace
                 m_Animate.method(m_Animate.thisVal, elapsedTimeSeconds);
         }
 
+        void BackBufferResizing() override
+        {
+            if (m_BackBufferResizing)
+                m_BackBufferResizing.method(m_BackBufferResizing.thisVal);
+        }
+
         bool KeyboardUpdate(int key, int scancode, int action, int mods) override
         {
             return m_Keyboard && m_Keyboard.method(m_Keyboard.thisVal, key, scancode, action, mods) != 0;
@@ -88,6 +99,7 @@ namespace
         bool m_RunWhenUnfocused = false;
         Callback<RenderFn> m_Render;
         Callback<AnimateFn> m_Animate;
+        Callback<VoidFn> m_BackBufferResizing;
         Callback<KeyboardFn> m_Keyboard;
 
     private:
@@ -97,14 +109,31 @@ namespace
     struct App
     {
         std::unique_ptr<DeviceManager> deviceManager;
+        std::unique_ptr<donut::engine::ShaderFactory> shaderFactory;
         std::vector<std::unique_ptr<TsRenderPass>> passes;
+        // GPU resources handed to TypeScript as raw pointers; the app holds the reference.
+        std::unordered_map<nvrhi::IResource*, nvrhi::RefCountPtr<nvrhi::IResource>> resources;
+
+        nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
+
+        void* Own(nvrhi::IResource* resource)
+        {
+            if (!resource)
+                return nullptr;
+            resources.emplace(resource, resource);
+            return resource;
+        }
 
         ~App()
         {
-            // Passes hold GPU resources owned by the device, so they go first.
+            // Everything created on the device goes before the device itself.
+            device()->waitForIdle();
+
             for (auto& pass : passes)
                 deviceManager->RemoveRenderPass(pass.get());
             passes.clear();
+            resources.clear();
+            shaderFactory.reset();
 
             deviceManager->Shutdown();
         }
@@ -112,6 +141,7 @@ namespace
 
     App* AsApp(void* app) { return static_cast<App*>(app); }
     TsRenderPass* AsPass(void* pass) { return static_cast<TsRenderPass*>(pass); }
+    FrameContext* AsFrame(void* frame) { return static_cast<FrameContext*>(frame); }
 }
 
 extern "C"
@@ -143,14 +173,24 @@ extern "C"
 
         auto* app = new App();
         app->deviceManager = std::move(deviceManager);
+
+        const std::filesystem::path shaderPath = donut::app::GetDirectoryWithExecutable() / "shaders"
+            / APP_SHADERS_SUBDIR / donut::app::GetShaderTypeName(api);
+        app->shaderFactory = std::make_unique<donut::engine::ShaderFactory>(
+            app->device(), std::make_shared<donut::vfs::NativeFileSystem>(), shaderPath);
+
         return app;
     }
 
-    // Blocks until the window is closed, then destroys the app and all its passes; the app
-    // and pass handles are invalid afterwards.
+    // Blocks until the window is closed.
     void Donut_RunApp(void* app)
     {
         AsApp(app)->deviceManager->RunMessageLoop();
+    }
+
+    // Destroys the app with all its passes and resources; their handles are invalid afterwards.
+    void Donut_DestroyApp(void* app)
+    {
         delete AsApp(app);
     }
 
@@ -164,10 +204,50 @@ extern "C"
         AsApp(app)->deviceManager->SetWindowTitle(title);
     }
 
+    // Sets "<title> (<graphics API>, <fps> FPS)"; cheap enough to call every frame.
+    void Donut_SetInformativeWindowTitle(void* app, const char* title)
+    {
+        AsApp(app)->deviceManager->SetInformativeWindowTitle(title);
+    }
+
     // Makes Donut_RunApp return after the current frame.
     void Donut_CloseWindow(void* app)
     {
         glfwSetWindowShouldClose(AsApp(app)->deviceManager->GetWindow(), GLFW_TRUE);
+    }
+
+    // --- Resources (owned by the app until released or the app is destroyed) ---------------
+
+    // Loads a shader compiled from shaders/shaders.cfg. shaderType is an nvrhi::ShaderType
+    // value. Returns null on failure.
+    void* Donut_CreateShader(void* app, const char* fileName, const char* entryName, int shaderType)
+    {
+        App* a = AsApp(app);
+        nvrhi::ShaderHandle shader = a->shaderFactory->CreateShader(
+            fileName, entryName, nullptr, static_cast<nvrhi::ShaderType>(shaderType));
+        return a->Own(shader);
+    }
+
+    // Triangle-list pipeline without depth test, for the frame's framebuffer layout; recreate it
+    // after the back buffer is resized. Returns null on failure.
+    void* Donut_CreateGraphicsPipeline(void* app, void* frame, void* vertexShader, void* pixelShader)
+    {
+        nvrhi::GraphicsPipelineDesc desc;
+        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
+        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc.primType = nvrhi::PrimitiveType::TriangleList;
+        desc.renderState.depthStencilState.depthTestEnable = false;
+
+        App* a = AsApp(app);
+        nvrhi::GraphicsPipelineHandle pipeline = a->device()->createGraphicsPipeline(
+            desc, AsFrame(frame)->framebuffer->getFramebufferInfo());
+        return a->Own(pipeline);
+    }
+
+    // Safe to call while the GPU may still use the resource: NVRHI defers the actual destruction.
+    void Donut_ReleaseResource(void* app, void* resource)
+    {
+        AsApp(app)->resources.erase(static_cast<nvrhi::IResource*>(resource));
     }
 
     // --- Render passes -----------------------------------------------------------------------
@@ -199,6 +279,12 @@ extern "C"
         AsPass(pass)->m_Animate = { method, thisVal };
     }
 
+    // Called before the swap chain is resized; release framebuffer-dependent resources here.
+    void Donut_SetBackBufferResizingCallback(void* pass, VoidFn method, void* thisVal)
+    {
+        AsPass(pass)->m_BackBufferResizing = { method, thisVal };
+    }
+
     // Keys go to the most recently added pass first; the callback returns non-zero if it
     // handled the key, and then passes added before it don't see it.
     void Donut_SetKeyboardCallback(void* pass, KeyboardFn method, void* thisVal)
@@ -210,18 +296,34 @@ extern "C"
 
     void Donut_ClearColor(void* frame, double r, double g, double b, double a)
     {
-        auto* ctx = static_cast<FrameContext*>(frame);
+        FrameContext* ctx = AsFrame(frame);
         nvrhi::utils::ClearColorAttachment(ctx->commandList, ctx->framebuffer, 0,
             nvrhi::Color(float(r), float(g), float(b), float(a)));
     }
 
+    // Draws vertexCount vertices with no vertex buffers, over the whole framebuffer.
+    void Donut_Draw(void* frame, void* pipeline, int vertexCount)
+    {
+        FrameContext* ctx = AsFrame(frame);
+
+        nvrhi::GraphicsState state;
+        state.pipeline = static_cast<nvrhi::IGraphicsPipeline*>(pipeline);
+        state.framebuffer = ctx->framebuffer;
+        state.viewport.addViewportAndScissorRect(ctx->framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(state);
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(vertexCount);
+        ctx->commandList->draw(args);
+    }
+
     int Donut_GetFrameWidth(void* frame)
     {
-        return static_cast<int>(static_cast<FrameContext*>(frame)->framebuffer->getFramebufferInfo().width);
+        return static_cast<int>(AsFrame(frame)->framebuffer->getFramebufferInfo().width);
     }
 
     int Donut_GetFrameHeight(void* frame)
     {
-        return static_cast<int>(static_cast<FrameContext*>(frame)->framebuffer->getFramebufferInfo().height);
+        return static_cast<int>(AsFrame(frame)->framebuffer->getFramebufferInfo().height);
     }
 }

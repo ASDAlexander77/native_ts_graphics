@@ -87,7 +87,7 @@ endif()
 
 # .ts files compile with TSLANG command; .cpp with the C++ compiler.
 add_executable(${PROJECT_NAME}
-    mycode.ts
+    basic_triangle.ts
     donut_interop.cpp
 )
 
@@ -117,6 +117,19 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     donut_app
     donut_engine
 )
+
+# App shaders, compiled by ShaderMake into bin/shaders/<project>/<dxbc|dxil|spirv>; the C++
+# side loads them from the subfolder named by APP_SHADERS_SUBDIR.
+include(external/Donut/compileshaders.cmake)
+donut_compile_shaders_all_platforms(
+    TARGET ${PROJECT_NAME}_shaders
+    PROJECT_NAME "Powder Toy"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shaders.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/basic_triangle.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/${PROJECT_NAME}
+)
+add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_shaders)
+target_compile_definitions(${PROJECT_NAME} PRIVATE APP_SHADERS_SUBDIR="${PROJECT_NAME}")
 
 if (NVRHI_WITH_DX12)
     # Forwards the CMake option as a C++ preprocessor macro so _pydonut.cpp can guard its
