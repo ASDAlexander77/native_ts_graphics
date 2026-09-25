@@ -7,13 +7,23 @@ type RenderCallback = (frame: Opaque) => void;
 type AnimateCallback = (elapsedSeconds: number) => void;
 type KeyboardCallback = (key: int, scancode: int, action: int, mods: int) => int;
 
+// nvrhi::GraphicsAPI values.
+enum GraphicsAPI {
+    D3D11 = 0,
+    D3D12 = 1,
+    VULKAN = 2
+}
+
 // nvrhi::Feature values (only the ones used so far).
 enum Feature {
-    Meshlets = 9
+    Meshlets = 9,
+    ShaderSpecializations = 18
 }
 
 // Picks the graphics API from the command line (-d3d11, -d3d12, -vk). Returns null on failure.
 declare function Donut_CreateApp(argc: int, argv: Opaque, title: string, width: int, height: int): Opaque;
+// Same, for a fixed graphics API.
+declare function Donut_CreateAppForAPI(api: GraphicsAPI, title: string, width: int, height: int): Opaque;
 // Blocks until the window is closed.
 declare function Donut_RunApp(app: Opaque): void;
 // Destroys the app with all its passes and resources.
@@ -37,10 +47,15 @@ enum ShaderType {
 // Resources are owned by the app until released or the app is destroyed; null on failure.
 // Shaders come from the example's shaders/<example>.cfg, compiled at build time.
 declare function Donut_CreateShader(app: Opaque, fileName: string, entryName: string, shaderType: ShaderType): Opaque;
+// Specializes one constant ([[vk::constant_id(constantId)]] in HLSL) of a SPIR-V shader;
+// requires Feature.ShaderSpecializations (Vulkan only). The UInt variant uses value's bits as-is.
+declare function Donut_SpecializeShaderFloat(app: Opaque, shader: Opaque, constantId: int, value: number): Opaque;
+declare function Donut_SpecializeShaderUInt(app: Opaque, shader: Opaque, constantId: int, value: int): Opaque;
 // Triangle list, no depth test, for the frame's framebuffer layout.
 declare function Donut_CreateGraphicsPipeline(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque): Opaque;
 // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
 declare function Donut_CreateMeshletPipeline(app: Opaque, frame: Opaque, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque;
+// A pipeline keeps its own reference to its shaders, so they can be released once it exists.
 declare function Donut_ReleaseResource(app: Opaque, resource: Opaque): void;
 
 // Passes are owned by the app; later passes draw on top and get input first.

@@ -155,3 +155,13 @@ donut_compile_shaders(
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
 add_tslang_example(meshlets)
+
+# Port of Donut-Samples' shader_specializations. Specialization constants are Vulkan-only.
+donut_compile_shaders(
+    TARGET shader_specializations_shaders
+    PROJECT_NAME "Shader Specializations"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_specializations.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_specializations.hlsl
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_specializations/spirv
+)
+add_tslang_example(shader_specializations)

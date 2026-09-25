@@ -168,14 +168,14 @@ extern "C"
 {
     // --- Application -----------------------------------------------------------------------
 
-    // Picks the graphics API from the command line (-d3d11, -d3d12, -vk; D3D12 by default on
-    // Windows) and creates the device and window. Returns null on failure.
-    void* Donut_CreateApp(int argc, const char* const* argv, const char* title, int width, int height)
+    // Creates the device and window for graphicsApi (an nvrhi::GraphicsAPI value). Returns null
+    // on failure.
+    void* Donut_CreateAppForAPI(int graphicsApi, const char* title, int width, int height)
     {
         // Console app: log to the console instead of Donut's default modal MessageBox on errors.
         donut::log::ConsoleApplicationMode();
 
-        const nvrhi::GraphicsAPI api = donut::app::GetGraphicsAPIFromCommandLine(argc, argv);
+        const auto api = static_cast<nvrhi::GraphicsAPI>(graphicsApi);
         std::unique_ptr<DeviceManager> deviceManager(DeviceManager::Create(api));
         if (!deviceManager)
             return nullptr;
@@ -187,7 +187,7 @@ extern "C"
 
         if (!deviceManager->CreateWindowDeviceAndSwapChain(params, title))
         {
-            donut::log::error("Donut_CreateApp: cannot initialize the graphics device");
+            donut::log::error("cannot initialize the graphics device");
             return nullptr;
         }
 
@@ -198,6 +198,14 @@ extern "C"
             app->device(), std::make_shared<donut::vfs::NativeFileSystem>(), GetShaderPath(api));
 
         return app;
+    }
+
+    // Same, with the graphics API picked from the command line (-d3d11, -d3d12, -vk; D3D12 by
+    // default on Windows).
+    void* Donut_CreateApp(int argc, const char* const* argv, const char* title, int width, int height)
+    {
+        const nvrhi::GraphicsAPI api = donut::app::GetGraphicsAPIFromCommandLine(argc, argv);
+        return Donut_CreateAppForAPI(static_cast<int>(api), title, width, height);
     }
 
     // Blocks until the window is closed.
@@ -266,6 +274,29 @@ extern "C"
         nvrhi::GraphicsPipelineHandle pipeline = a->device()->createGraphicsPipeline(
             desc, AsFrame(frame)->framebuffer->getFramebufferInfo());
         return a->Own(pipeline);
+    }
+
+    // Specializes one constant ([[vk::constant_id(constantId)]] in HLSL) of a SPIR-V shader;
+    // requires nvrhi::Feature::ShaderSpecializations (Vulkan only). Returns null on failure.
+    void* Donut_SpecializeShaderFloat(void* app, void* shader, int constantId, double value)
+    {
+        const nvrhi::ShaderSpecialization constant =
+            nvrhi::ShaderSpecialization::Float(static_cast<uint32_t>(constantId), float(value));
+        App* a = AsApp(app);
+        nvrhi::ShaderHandle specialized = a->device()->createShaderSpecialization(
+            static_cast<nvrhi::IShader*>(shader), &constant, 1);
+        return a->Own(specialized);
+    }
+
+    // As above, for a uint constant; value's bits are used as-is.
+    void* Donut_SpecializeShaderUInt(void* app, void* shader, int constantId, int value)
+    {
+        const nvrhi::ShaderSpecialization constant =
+            nvrhi::ShaderSpecialization::UInt32(static_cast<uint32_t>(constantId), static_cast<uint32_t>(value));
+        App* a = AsApp(app);
+        nvrhi::ShaderHandle specialized = a->device()->createShaderSpecialization(
+            static_cast<nvrhi::IShader*>(shader), &constant, 1);
+        return a->Own(specialized);
     }
 
     // Amplification + mesh + pixel shader pipeline (triangle list, no depth test) for the frame's
