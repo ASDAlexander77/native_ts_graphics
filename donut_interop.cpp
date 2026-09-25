@@ -35,10 +35,18 @@
 #include <donut/engine/Scene.h>
 #include <donut/engine/ThreadPool.h>
 #include <donut/engine/View.h>
+#include <donut/render/DeferredLightingPass.h>
 #include <donut/render/DrawStrategy.h>
 #include <donut/render/ForwardShadingPass.h>
+#include <donut/render/GBuffer.h>
+#include <donut/render/GBufferFillPass.h>
 #include <donut/render/GeometryPasses.h>
 #include <nvrhi/utils.h>
+
+// Shared with HLSL, so they use the math types unqualified (as Donut's own sources include them).
+using namespace donut::math;
+#include <donut/shaders/bindless.h>
+#include <donut/shaders/material_cb.h>
 
 #include <GLFW/glfw3.h>
 
@@ -161,6 +169,14 @@ namespace
             if (raw)
                 objects.emplace(raw, std::move(object));
             return raw;
+        }
+
+        // The shared_ptr of an object handed out by OwnObject, for C++ objects that reference it.
+        template <typename T>
+        std::shared_ptr<T> SharedObject(void* object) const
+        {
+            auto it = objects.find(object);
+            return it != objects.end() ? std::static_pointer_cast<T>(it->second) : nullptr;
         }
 
         // Worker threads for C++ tasks; tslang code must not run on them (the GC doesn't know them).
@@ -320,6 +336,66 @@ namespace
         commandList->close();
     }
 
+    // G-buffer plus the texture the deferred lighting pass writes the shaded image to.
+    struct GBufferTargets : donut::render::GBufferRenderTargets
+    {
+        nvrhi::TextureHandle ShadedColor;
+
+        void Init(nvrhi::IDevice* device, dm::uint2 size, dm::uint sampleCount,
+            bool enableMotionVectors, bool useReverseProjection) override
+        {
+            GBufferRenderTargets::Init(device, size, sampleCount, enableMotionVectors, useReverseProjection);
+
+            nvrhi::TextureDesc textureDesc;
+            textureDesc.dimension = nvrhi::TextureDimension::Texture2D;
+            textureDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+            textureDesc.keepInitialState = true;
+            textureDesc.debugName = "ShadedColor";
+            textureDesc.isUAV = true;
+            textureDesc.format = nvrhi::Format::RGBA16_FLOAT;
+            textureDesc.width = size.x;
+            textureDesc.height = size.y;
+            textureDesc.sampleCount = sampleCount;
+            ShadedColor = device->createTexture(textureDesc);
+        }
+    };
+
+    // Buffer of a mesh's BufferGroup, with data (if any) uploaded by an open command list.
+    nvrhi::BufferHandle CreateGeometryBuffer(nvrhi::IDevice* device, nvrhi::ICommandList* commandList,
+        const char* debugName, const void* data, uint64_t dataSize, bool isVertexBuffer, bool isInstanceBuffer)
+    {
+        // The G-buffer fill pass accesses instance buffers as structured on DX12 and Vulkan, and as raw on DX11.
+        const bool needStructuredBuffer = isInstanceBuffer && device->getGraphicsAPI() != nvrhi::GraphicsAPI::D3D11;
+
+        nvrhi::BufferDesc desc;
+        desc.byteSize = dataSize;
+        desc.isIndexBuffer = !isVertexBuffer && !isInstanceBuffer;
+        desc.canHaveRawViews = isVertexBuffer || isInstanceBuffer;
+        desc.structStride = needStructuredBuffer ? sizeof(InstanceData) : 0;
+        desc.debugName = debugName;
+        desc.initialState = nvrhi::ResourceStates::CopyDest;
+        nvrhi::BufferHandle buffer = device->createBuffer(desc);
+
+        if (data)
+        {
+            commandList->beginTrackingBufferState(buffer, nvrhi::ResourceStates::CopyDest);
+            commandList->writeBuffer(buffer, data, dataSize);
+            commandList->setPermanentBufferState(buffer, (isVertexBuffer || isInstanceBuffer)
+                ? nvrhi::ResourceStates::ShaderResource
+                : nvrhi::ResourceStates::IndexBuffer);
+        }
+
+        return buffer;
+    }
+
+    // A 4x4 row-major float matrix from TypeScript (16 floats, row-vector convention).
+    dm::float4x4 LoadMatrix(const float* m)
+    {
+        dm::float4x4 result;
+        memcpy(&result, m, sizeof(result));
+        return result;
+    }
+
     // Buffer uploaded once by an open command list, then kept in permanentState.
     void* CreateStaticBuffer(App* a, nvrhi::ICommandList* commandList, nvrhi::BufferDesc desc,
         nvrhi::ResourceStates permanentState, const void* data, int byteSize)
@@ -347,6 +423,8 @@ static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Pi
 static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RG32_FLOAT) == 43
     && int(nvrhi::Format::RGB32_FLOAT) == 46);
 static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
+// LoadMatrix copies 16 floats from TypeScript straight into these.
+static_assert(sizeof(dm::float4x4) == 16 * sizeof(float));
 
 extern "C"
 {
@@ -1300,6 +1378,277 @@ extern "C"
     void Donut_CameraAnimate(void* camera, double elapsedSeconds)
     {
         static_cast<donut::app::FirstPersonCamera*>(camera)->Animate(float(elapsedSeconds));
+    }
+
+    // --- Scenes built in code ----------------------------------------------------------------
+
+    // Material with a diffuse texture (path relative to the executable's directory, sRGB);
+    // records the texture and constant buffer uploads into an open command list. specularGloss
+    // != 0 selects the specular-glossiness model. Returns null (after logging why) if the
+    // texture can't be loaded.
+    void* Donut_CreateTexturedMaterial(void* app, void* commandList, const char* name, const char* diffuseTexturePath,
+        int specularGloss)
+    {
+        App* a = AsApp(app);
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+
+        auto material = std::make_shared<donut::engine::Material>();
+        material->name = name;
+        material->useSpecularGlossModel = specularGloss != 0;
+        material->enableBaseOrDiffuseTexture = true;
+        material->baseOrDiffuseTexture = a->textureCache()->LoadTextureFromFile(
+            GetExecutablePath().parent_path() / diffuseTexturePath, true, nullptr, cl);
+        if (!material->baseOrDiffuseTexture || !material->baseOrDiffuseTexture->texture)
+            return nullptr;
+
+        nvrhi::BufferDesc bufferDesc;
+        bufferDesc.byteSize = sizeof(MaterialConstants);
+        bufferDesc.debugName = material->name;
+        bufferDesc.isConstantBuffer = true;
+        bufferDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+        bufferDesc.keepInitialState = true;
+        material->materialConstants = a->device()->createBuffer(bufferDesc);
+
+        MaterialConstants constants;
+        material->FillConstantBuffer(constants);
+        cl->writeBuffer(material->materialConstants, &constants, sizeof(constants));
+
+        return a->OwnObject(material);
+    }
+
+    // Mesh of one geometry with a material from Donut_CreateTexturedMaterial, and an identity
+    // instance transform. Per vertex: a position (3 floats), texture coordinates (2 floats), and
+    // a normal and a tangent (uint each, snorm8-packed as by donut::math::vectorToSnorm8); then
+    // indexCount uint indices. Records the uploads into an open command list.
+    void* Donut_CreateMesh(void* app, void* commandList, const char* name, void* material,
+        const void* positions, const void* texCoords, const void* normals, const void* tangents, int vertexCount,
+        const void* indices, int indexCount)
+    {
+        using namespace donut::engine;
+
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+
+        auto buffers = std::make_shared<BufferGroup>();
+        buffers->indexBuffer = CreateGeometryBuffer(device, cl, "IndexBuffer", indices,
+            sizeof(uint32_t) * uint64_t(indexCount), false, false);
+
+        const struct { VertexAttribute attribute; const void* data; uint64_t size; } streams[] = {
+            { VertexAttribute::Position, positions, sizeof(dm::float3) * uint64_t(vertexCount) },
+            { VertexAttribute::TexCoord1, texCoords, sizeof(dm::float2) * uint64_t(vertexCount) },
+            { VertexAttribute::Normal, normals, sizeof(uint32_t) * uint64_t(vertexCount) },
+            { VertexAttribute::Tangent, tangents, sizeof(uint32_t) * uint64_t(vertexCount) },
+        };
+
+        uint64_t vertexBufferSize = 0;
+        for (const auto& stream : streams)
+        {
+            buffers->getVertexBufferRange(stream.attribute).setByteOffset(vertexBufferSize).setByteSize(stream.size);
+            vertexBufferSize += stream.size;
+        }
+        buffers->vertexBuffer = CreateGeometryBuffer(device, cl, "VertexBuffer", nullptr, vertexBufferSize, true, false);
+
+        cl->beginTrackingBufferState(buffers->vertexBuffer, nvrhi::ResourceStates::CopyDest);
+        for (const auto& stream : streams)
+            cl->writeBuffer(buffers->vertexBuffer, stream.data, stream.size,
+                buffers->getVertexBufferRange(stream.attribute).byteOffset);
+        cl->setPermanentBufferState(buffers->vertexBuffer, nvrhi::ResourceStates::ShaderResource);
+
+        InstanceData instance{};
+        instance.transform = dm::float3x4(transpose(dm::affineToHomogeneous(dm::affine3::identity())));
+        instance.prevTransform = instance.transform;
+        buffers->instanceBuffer = CreateGeometryBuffer(device, cl, "VertexBufferTransform", &instance,
+            sizeof(instance), false, true);
+
+        auto geometry = std::make_shared<MeshGeometry>();
+        geometry->material = a->SharedObject<Material>(material);
+        geometry->numIndices = static_cast<uint32_t>(indexCount);
+        geometry->numVertices = static_cast<uint32_t>(vertexCount);
+
+        dm::box3 bounds = dm::box3::empty();
+        const auto* vertexPositions = static_cast<const dm::float3*>(positions);
+        for (int i = 0; i < vertexCount; i++)
+            bounds |= vertexPositions[i];
+
+        auto mesh = std::make_shared<MeshInfo>();
+        mesh->name = name;
+        mesh->buffers = buffers;
+        mesh->objectSpaceBounds = bounds;
+        mesh->totalIndices = geometry->numIndices;
+        mesh->totalVertices = geometry->numVertices;
+        mesh->geometries.push_back(geometry);
+
+        return a->OwnObject(mesh);
+    }
+
+    // An empty scene graph; add nodes with the functions below.
+    void* Donut_CreateSceneGraph(void* app)
+    {
+        return AsApp(app)->OwnObject(std::make_shared<donut::engine::SceneGraph>());
+    }
+
+    // Adds a node holding an instance of a mesh from Donut_CreateMesh, under parentNode, or as the
+    // root node if parentNode is null. Returns the node, valid as long as the scene graph.
+    void* Donut_AddMeshNode(void* app, void* sceneGraph, void* parentNode, void* mesh, const char* name)
+    {
+        App* a = AsApp(app);
+        auto* graph = static_cast<donut::engine::SceneGraph*>(sceneGraph);
+
+        auto node = std::make_shared<donut::engine::SceneGraphNode>();
+        node->SetLeaf(std::make_shared<donut::engine::MeshInstance>(a->SharedObject<donut::engine::MeshInfo>(mesh)));
+        node->SetName(name);
+
+        if (parentNode)
+            graph->Attach(static_cast<donut::engine::SceneGraphNode*>(parentNode)->shared_from_this(), node);
+        else
+            graph->SetRootNode(node);
+
+        return node.get();
+    }
+
+    // Adds a directional light in a new node under parentNode, shining along (dirX, dirY, dirZ);
+    // angularSize is in degrees.
+    void Donut_AddDirectionalLight(void* sceneGraph, void* parentNode, const char* name,
+        double dirX, double dirY, double dirZ, double angularSize, double irradiance)
+    {
+        auto light = std::make_shared<donut::engine::DirectionalLight>();
+        static_cast<donut::engine::SceneGraph*>(sceneGraph)->AttachLeafNode(
+            static_cast<donut::engine::SceneGraphNode*>(parentNode)->shared_from_this(), light);
+
+        // After attaching: the direction is stored in the light's node.
+        light->SetDirection(dm::double3(dirX, dirY, dirZ));
+        light->angularSize = float(angularSize);
+        light->irradiance = float(irradiance);
+        light->SetName(name);
+    }
+
+    // Updates the transforms, bounds and instance indices after nodes were added or changed.
+    void Donut_RefreshSceneGraph(void* app, void* sceneGraph)
+    {
+        static_cast<donut::engine::SceneGraph*>(sceneGraph)->Refresh(AsApp(app)->deviceManager->GetFrameIndex());
+    }
+
+    // Logs the node tree.
+    void Donut_PrintSceneGraph(void* sceneGraph)
+    {
+        donut::engine::PrintSceneGraph(static_cast<donut::engine::SceneGraph*>(sceneGraph)->GetRootNode());
+    }
+
+    // --- Deferred shading --------------------------------------------------------------------
+
+    // G-buffer (depth, diffuse, specular, normals, emissive) of width x height pixels, plus an
+    // RGBA16_FLOAT texture for the lit result; create a new one when the frame size changes.
+    void* Donut_CreateGBufferTargets(void* app, int width, int height)
+    {
+        App* a = AsApp(app);
+        auto targets = std::make_shared<GBufferTargets>();
+        targets->Init(a->device(), dm::uint2(uint32_t(width), uint32_t(height)), 1, false, false);
+        return a->OwnObject(targets);
+    }
+
+    // The lit result, for Donut_BlitTexture; valid as long as the targets.
+    void* Donut_GetGBufferShadedColor(void* gbufferTargets)
+    {
+        return static_cast<GBufferTargets*>(gbufferTargets)->ShadedColor.Get();
+    }
+
+    // Donut's G-buffer fill pass; its pipelines depend on the targets' formats and sample count.
+    void* Donut_CreateGBufferFillPass(void* app)
+    {
+        App* a = AsApp(app);
+        auto pass = std::make_shared<donut::render::GBufferFillPass>(a->device(), a->sharedCommonPasses());
+        pass->Init(*a->shaderFactory, donut::render::GBufferFillPass::CreateParameters());
+        return a->OwnObject(pass);
+    }
+
+    // Donut's deferred lighting pass (a compute shader reading the G-buffer).
+    void* Donut_CreateDeferredLightingPass(void* app)
+    {
+        App* a = AsApp(app);
+        auto pass = std::make_shared<donut::render::DeferredLightingPass>(a->device(), a->sharedCommonPasses());
+        pass->Init(a->shaderFactory);
+        return a->OwnObject(pass);
+    }
+
+    // Drops the binding sets the pass cached, and with them their references to G-buffer textures.
+    void Donut_ResetDeferredLightingBindingCache(void* deferredLightingPass)
+    {
+        static_cast<donut::render::DeferredLightingPass*>(deferredLightingPass)->ResetBindingCache();
+    }
+
+    // A single view (camera) for the passes above.
+    void* Donut_CreatePlanarView(void* app)
+    {
+        return AsApp(app)->OwnObject(std::make_shared<donut::engine::PlanarView>());
+    }
+
+    // Sets the view's world-to-view and projection matrices (16 floats each, row-major, row-vector
+    // convention, as donut::math builds them) and its viewport of width x height pixels.
+    void Donut_SetPlanarView(void* view, const void* viewMatrix, const void* projMatrix, int width, int height)
+    {
+        auto* planarView = static_cast<donut::engine::PlanarView*>(view);
+        planarView->SetViewport(nvrhi::Viewport(float(width), float(height)));
+        planarView->SetMatrices(dm::homogeneousToAffine(LoadMatrix(static_cast<const float*>(viewMatrix))),
+            LoadMatrix(static_cast<const float*>(projMatrix)));
+        planarView->UpdateCache();
+    }
+
+    // Clears all the G-buffer textures.
+    void Donut_ClearGBuffer(void* frame, void* gbufferTargets)
+    {
+        static_cast<GBufferTargets*>(gbufferTargets)->Clear(AsFrame(frame)->commandList);
+    }
+
+    // Draws the mesh instance of a node from Donut_AddMeshNode (all its geometries, back faces
+    // culled) into the G-buffer, as seen by view.
+    void Donut_RenderMeshNodeToGBuffer(void* frame, void* gbufferFillPass, void* view, void* gbufferTargets, void* meshNode)
+    {
+        auto* node = static_cast<donut::engine::SceneGraphNode*>(meshNode);
+        auto* instance = dynamic_cast<donut::engine::MeshInstance*>(node->GetLeaf().get());
+        if (!instance)
+            return;
+
+        const donut::engine::MeshInfo* mesh = instance->GetMesh().get();
+        std::vector<donut::render::DrawItem> drawItems;
+        for (const auto& geometry : mesh->geometries)
+        {
+            donut::render::DrawItem& item = drawItems.emplace_back();
+            item.instance = instance;
+            item.mesh = mesh;
+            item.geometry = geometry.get();
+            item.material = geometry->material.get();
+            item.buffers = mesh->buffers.get();
+            item.distanceToCamera = 0;
+            item.cullMode = nvrhi::RasterCullMode::Back;
+        }
+
+        donut::render::PassthroughDrawStrategy drawStrategy;
+        drawStrategy.SetData(drawItems.data(), drawItems.size());
+
+        auto* planarView = static_cast<donut::engine::PlanarView*>(view);
+        donut::render::GBufferFillPass::Context context;
+        donut::render::RenderView(AsFrame(frame)->commandList, planarView, planarView,
+            static_cast<GBufferTargets*>(gbufferTargets)->GBufferFramebuffer->GetFramebuffer(*planarView),
+            drawStrategy, *static_cast<donut::render::GBufferFillPass*>(gbufferFillPass), context, false);
+    }
+
+    // Lights the G-buffer with the scene graph's lights plus a hemispherical ambient term (top
+    // and bottom colors), writing the result into the targets' shaded color texture.
+    void Donut_RenderDeferredLighting(void* frame, void* deferredLightingPass, void* view, void* gbufferTargets,
+        void* sceneGraph, double topR, double topG, double topB, double bottomR, double bottomG, double bottomB)
+    {
+        auto* targets = static_cast<GBufferTargets*>(gbufferTargets);
+
+        donut::render::DeferredLightingPass::Inputs inputs;
+        inputs.SetGBuffer(*targets);
+        inputs.ambientColorTop = dm::float3(float(topR), float(topG), float(topB));
+        inputs.ambientColorBottom = dm::float3(float(bottomR), float(bottomG), float(bottomB));
+        inputs.lights = &static_cast<donut::engine::SceneGraph*>(sceneGraph)->GetLights();
+        inputs.output = targets->ShadedColor;
+
+        static_cast<donut::render::DeferredLightingPass*>(deferredLightingPass)->Render(
+            AsFrame(frame)->commandList, *static_cast<donut::engine::PlanarView*>(view), inputs);
     }
 
     // --- Frame commands (valid only inside the render callback) ----------------------------

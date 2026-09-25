@@ -255,6 +255,49 @@ declare function Donut_CameraMousePosUpdate(camera: Opaque, x: number, y: number
 declare function Donut_CameraMouseButtonUpdate(camera: Opaque, button: int, action: int, mods: int): void;
 declare function Donut_CameraAnimate(camera: Opaque, elapsedSeconds: number): void;
 
+// Scenes built in code. Material with a diffuse texture (relative to the executable's directory,
+// sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
+// specular-glossiness model. Null (after logging why) if the texture can't be loaded.
+declare function Donut_CreateTexturedMaterial(app: Opaque, commandList: Opaque, name: string, diffuseTexturePath: string, specularGloss: int): Opaque;
+// One geometry, identity instance transform, uploads recorded into an open command list. Per
+// vertex: position (3 x f32), texture coordinates (2 x f32), normal and tangent (int each,
+// packed as by vectorToSnorm8); then indexCount int indices. Arrays: Ref(arr[0]) of `let` arrays.
+declare function Donut_CreateMesh(app: Opaque, commandList: Opaque, name: string, material: Opaque,
+    positions: Opaque, texCoords: Opaque, normals: Opaque, tangents: Opaque, vertexCount: int,
+    indices: Opaque, indexCount: int): Opaque;
+declare function Donut_CreateSceneGraph(app: Opaque): Opaque;
+// Adds a node holding an instance of mesh under parentNode, or as the root if parentNode is
+// null. Returns the node, valid as long as the scene graph.
+declare function Donut_AddMeshNode(app: Opaque, sceneGraph: Opaque, parentNode: Opaque | null, mesh: Opaque, name: string): Opaque;
+// Directional light in a new node under parentNode, shining along dir; angularSize in degrees.
+declare function Donut_AddDirectionalLight(sceneGraph: Opaque, parentNode: Opaque, name: string,
+    dirX: number, dirY: number, dirZ: number, angularSize: number, irradiance: number): void;
+// After adding or changing nodes.
+declare function Donut_RefreshSceneGraph(app: Opaque, sceneGraph: Opaque): void;
+declare function Donut_PrintSceneGraph(sceneGraph: Opaque): void;
+
+// Deferred shading. G-buffer of width x height pixels plus an RGBA16_FLOAT texture for the lit
+// result; create new ones when the frame size changes.
+declare function Donut_CreateGBufferTargets(app: Opaque, width: int, height: int): Opaque;
+// For Donut_BlitTexture; valid as long as the targets.
+declare function Donut_GetGBufferShadedColor(gbufferTargets: Opaque): Opaque;
+declare function Donut_CreateGBufferFillPass(app: Opaque): Opaque;
+declare function Donut_CreateDeferredLightingPass(app: Opaque): Opaque;
+// Drops the pass's cached references to G-buffer textures.
+declare function Donut_ResetDeferredLightingBindingCache(deferredLightingPass: Opaque): void;
+declare function Donut_CreatePlanarView(app: Opaque): Opaque;
+// Matrices: Ref(arr[0]) of `let` f32[16] arrays, row-major, row-vector convention (as the math
+// functions in the examples build them); viewport of width x height pixels.
+declare function Donut_SetPlanarView(view: Opaque, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int): void;
+// These three are valid only inside a render callback.
+declare function Donut_ClearGBuffer(frame: Opaque, gbufferTargets: Opaque): void;
+// Draws the mesh instance of a Donut_AddMeshNode node into the G-buffer, back faces culled.
+declare function Donut_RenderMeshNodeToGBuffer(frame: Opaque, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, meshNode: Opaque): void;
+// Lights the G-buffer with the scene graph's lights plus a top / bottom ambient term, into the
+// targets' shaded color texture.
+declare function Donut_RenderDeferredLighting(frame: Opaque, deferredLightingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
+    sceneGraph: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
+
 // Valid only inside a render callback.
 declare function Donut_ClearColor(frame: Opaque, r: number, g: number, b: number, a: number): void;
 // Draws vertexCount vertices with no vertex buffers, over the whole framebuffer.

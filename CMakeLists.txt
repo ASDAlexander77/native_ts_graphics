@@ -209,3 +209,7 @@ if (DONUT_SAMPLES_MEDIA_DIR)
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/glTF-Sample-Assets/Models/Sponza")
 endif()
 add_tslang_example(threaded_rendering)
+
+# Port of Donut-Samples' deferred_shading: no shaders of its own (Donut's G-buffer fill and
+# deferred lighting passes); uses media/nvidia-logo.png, copied above.
+add_tslang_example(deferred_shading)
