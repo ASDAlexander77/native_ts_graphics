@@ -14,6 +14,10 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # .cpp source is needed in the target.
 project(powdertoy_game CXX TSLANG)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)
+
 # Include folders
 include_directories(${CMAKE_TSLANG_DIR}/defaultlib)
 
@@ -47,6 +51,16 @@ set(CMAKE_TSLANG_FLAGS "${CMAKE_TSLANG_FLAGS} -mm=${TSLANG_MEMORY_MODEL}") # glo
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Donut
+# TypeScriptDefaultLib and TypeScriptAsyncRuntime are built against the release static CRT
+# (/MT) even in their debug folder; everything linked with them, Donut included, has to use
+# the same CRT, or the linker reports RuntimeLibrary/_ITERATOR_DEBUG_LEVEL mismatches.
+if (MSVC)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+	# Donut unconditionally adds -D_DEBUG to Debug flags, which makes the headers reference the
+	# debug CRT (_malloc_dbg, libcpmtd) that /MT doesn't provide; cancel it.
+	add_compile_options($<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:/U_DEBUG>)
+endif()
+
 # Keyed off CMAKE_BINARY_DIR (not CMAKE_SOURCE_DIR) so each config's own build folder
 # (build/ for Debug, build-release/ for Release) gets its own output instead of sharing one.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -74,11 +88,14 @@ endif()
 # .ts files compile with TSLANG command; .cpp with the C++ compiler.
 add_executable(${PROJECT_NAME}
     mycode.ts
+    donut_interop.cpp
 )
 
 # Link with the C++ rule, the same one a .cpp source in the target would select, so the
 # C++ link flags (debug info, CRT) apply and the tslang compile flags stay off the link line.
-set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
+# C++17 is required to match Donut's own targets (donut_interop.cpp uses std::filesystem
+# transitively via Donut headers); MSVC defaults to an older standard without it.
+set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
 # required libs
 set(TSLANG_LINK_LIBS "TypeScriptDefaultLib" "TypeScriptAsyncRuntime")
@@ -100,3 +117,12 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     donut_app
     donut_engine
 )
+
+if (NVRHI_WITH_DX12)
+    # Forwards the CMake option as a C++ preprocessor macro so _pydonut.cpp can guard its
+    # D3D12 Work Graphs interop code the same way it already guards DXC via PYDONUT_HAVE_DXC.
+    target_compile_definitions(${PROJECT_NAME} PRIVATE NVRHI_WITH_DX12=1)
+    # d3dx12/d3dx12.h (CD3DX12_STATE_OBJECT_DESC, CD3DX12_WORK_GRAPH_SUBOBJECT, ...) ships in the
+    # Agility SDK package fetched above by FetchAgilitySDK.cmake, not on any include path yet.
+    target_include_directories(${PROJECT_NAME} PRIVATE "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/include")
+endif()
