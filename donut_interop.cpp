@@ -15,6 +15,13 @@
 // only from C++ heap memory here, which the GC does not scan, so the TypeScript side must
 // keep it alive (e.g. in a module-level variable) until Donut_DestroyApp.
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <donut/app/ApplicationBase.h>
 #include <donut/app/DeviceManager.h>
 #include <donut/core/log.h>
@@ -139,6 +146,19 @@ namespace
         }
     };
 
+    // Each example executable loads its shaders from bin/shaders/<executable name>/<api>.
+    std::filesystem::path GetShaderPath(nvrhi::GraphicsAPI api)
+    {
+#ifdef _WIN32
+        wchar_t path[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, path, MAX_PATH);
+        const std::filesystem::path exe(path);
+#else
+        const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe");
+#endif
+        return exe.parent_path() / "shaders" / exe.stem() / donut::app::GetShaderTypeName(api);
+    }
+
     App* AsApp(void* app) { return static_cast<App*>(app); }
     TsRenderPass* AsPass(void* pass) { return static_cast<TsRenderPass*>(pass); }
     FrameContext* AsFrame(void* frame) { return static_cast<FrameContext*>(frame); }
@@ -174,10 +194,8 @@ extern "C"
         auto* app = new App();
         app->deviceManager = std::move(deviceManager);
 
-        const std::filesystem::path shaderPath = donut::app::GetDirectoryWithExecutable() / "shaders"
-            / APP_SHADERS_SUBDIR / donut::app::GetShaderTypeName(api);
         app->shaderFactory = std::make_unique<donut::engine::ShaderFactory>(
-            app->device(), std::make_shared<donut::vfs::NativeFileSystem>(), shaderPath);
+            app->device(), std::make_shared<donut::vfs::NativeFileSystem>(), GetShaderPath(api));
 
         return app;
     }
@@ -192,6 +210,12 @@ extern "C"
     void Donut_DestroyApp(void* app)
     {
         delete AsApp(app);
+    }
+
+    // feature is an nvrhi::Feature value.
+    int Donut_IsFeatureSupported(void* app, int feature)
+    {
+        return AsApp(app)->device()->queryFeatureSupport(static_cast<nvrhi::Feature>(feature)) ? 1 : 0;
     }
 
     const char* Donut_GetRendererString(void* app)
@@ -218,8 +242,8 @@ extern "C"
 
     // --- Resources (owned by the app until released or the app is destroyed) ---------------
 
-    // Loads a shader compiled from shaders/shaders.cfg. shaderType is an nvrhi::ShaderType
-    // value. Returns null on failure.
+    // Loads a shader compiled from the example's shaders/<example>.cfg. shaderType is an
+    // nvrhi::ShaderType value. Returns null on failure.
     void* Donut_CreateShader(void* app, const char* fileName, const char* entryName, int shaderType)
     {
         App* a = AsApp(app);
@@ -240,6 +264,24 @@ extern "C"
 
         App* a = AsApp(app);
         nvrhi::GraphicsPipelineHandle pipeline = a->device()->createGraphicsPipeline(
+            desc, AsFrame(frame)->framebuffer->getFramebufferInfo());
+        return a->Own(pipeline);
+    }
+
+    // Amplification + mesh + pixel shader pipeline (triangle list, no depth test) for the frame's
+    // framebuffer layout; recreate it after the back buffer is resized. Requires
+    // nvrhi::Feature::Meshlets. Returns null on failure.
+    void* Donut_CreateMeshletPipeline(void* app, void* frame, void* amplificationShader, void* meshShader, void* pixelShader)
+    {
+        nvrhi::MeshletPipelineDesc desc;
+        desc.AS = static_cast<nvrhi::IShader*>(amplificationShader);
+        desc.MS = static_cast<nvrhi::IShader*>(meshShader);
+        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc.primType = nvrhi::PrimitiveType::TriangleList;
+        desc.renderState.depthStencilState.depthTestEnable = false;
+
+        App* a = AsApp(app);
+        nvrhi::MeshletPipelineHandle pipeline = a->device()->createMeshletPipeline(
             desc, AsFrame(frame)->framebuffer->getFramebufferInfo());
         return a->Own(pipeline);
     }
@@ -315,6 +357,20 @@ extern "C"
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(vertexCount);
         ctx->commandList->draw(args);
+    }
+
+    // Launches groupsX amplification-shader groups of a meshlet pipeline, over the whole framebuffer.
+    void Donut_DispatchMesh(void* frame, void* meshletPipeline, int groupsX)
+    {
+        FrameContext* ctx = AsFrame(frame);
+
+        nvrhi::MeshletState state;
+        state.pipeline = static_cast<nvrhi::IMeshletPipeline*>(meshletPipeline);
+        state.framebuffer = ctx->framebuffer;
+        state.viewport.addViewportAndScissorRect(ctx->framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setMeshletState(state);
+
+        ctx->commandList->dispatchMesh(static_cast<uint32_t>(groupsX));
     }
 
     int Donut_GetFrameWidth(void* frame)

@@ -85,17 +85,26 @@ endif()
 
 # end of Donut
 
-# .ts files compile with TSLANG command; .cpp with the C++ compiler.
-add_executable(${PROJECT_NAME}
-    basic_triangle.ts
-    donut_interop.cpp
+# Flat C API over Donut, shared by the TypeScript examples.
+# C++17 is required to match Donut's own targets (Donut headers use std::filesystem); MSVC
+# defaults to an older standard without it.
+add_library(donut_interop STATIC donut_interop.cpp)
+set_target_properties(donut_interop PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_link_libraries(donut_interop PUBLIC
+    donut_core
+    donut_render
+    donut_app
+    donut_engine
 )
 
-# Link with the C++ rule, the same one a .cpp source in the target would select, so the
-# C++ link flags (debug info, CRT) apply and the tslang compile flags stay off the link line.
-# C++17 is required to match Donut's own targets (donut_interop.cpp uses std::filesystem
-# transitively via Donut headers); MSVC defaults to an older standard without it.
-set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+if (NVRHI_WITH_DX12)
+    # Forwards the CMake option as a C++ preprocessor macro so _pydonut.cpp can guard its
+    # D3D12 Work Graphs interop code the same way it already guards DXC via PYDONUT_HAVE_DXC.
+    target_compile_definitions(donut_interop PRIVATE NVRHI_WITH_DX12=1)
+    # d3dx12/d3dx12.h (CD3DX12_STATE_OBJECT_DESC, CD3DX12_WORK_GRAPH_SUBOBJECT, ...) ships in the
+    # Agility SDK package fetched above by FetchAgilitySDK.cmake, not on any include path yet.
+    target_include_directories(donut_interop PRIVATE "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/include")
+endif()
 
 # required libs
 set(TSLANG_LINK_LIBS "TypeScriptDefaultLib" "TypeScriptAsyncRuntime")
@@ -110,32 +119,39 @@ if(NOT WIN32)
     list(APPEND TSLANG_LINK_LIBS "stdc++" "m" "pthread" "dl" "rt")
 endif()
 
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    ${TSLANG_LINK_LIBS}
-    donut_core
-    donut_render
-    donut_app
-    donut_engine
-)
+# One executable per example, built from <name>.ts. Its shaders (the <name>_shaders target)
+# must be compiled into bin/shaders/<name>/<dxbc|dxil|spirv>: donut_interop loads them from
+# the folder named after the executable.
+function(add_tslang_example name)
+    # .ts files compile with the TSLANG command. The target has no .cpp, so link with the C++
+    # rule explicitly: the C++ link flags (debug info, CRT) apply and the tslang compile flags
+    # stay off the link line.
+    add_executable(${name} ${name}.ts)
+    set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
+    target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop)
+    add_dependencies(${name} ${name}_shaders)
+endfunction()
 
-# App shaders, compiled by ShaderMake into bin/shaders/<project>/<dxbc|dxil|spirv>; the C++
-# side loads them from the subfolder named by APP_SHADERS_SUBDIR.
 include(external/Donut/compileshaders.cmake)
-donut_compile_shaders_all_platforms(
-    TARGET ${PROJECT_NAME}_shaders
-    PROJECT_NAME "Powder Toy"
-    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shaders.cfg
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/basic_triangle.hlsl
-    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/${PROJECT_NAME}
-)
-add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_shaders)
-target_compile_definitions(${PROJECT_NAME} PRIVATE APP_SHADERS_SUBDIR="${PROJECT_NAME}")
 
-if (NVRHI_WITH_DX12)
-    # Forwards the CMake option as a C++ preprocessor macro so _pydonut.cpp can guard its
-    # D3D12 Work Graphs interop code the same way it already guards DXC via PYDONUT_HAVE_DXC.
-    target_compile_definitions(${PROJECT_NAME} PRIVATE NVRHI_WITH_DX12=1)
-    # d3dx12/d3dx12.h (CD3DX12_STATE_OBJECT_DESC, CD3DX12_WORK_GRAPH_SUBOBJECT, ...) ships in the
-    # Agility SDK package fetched above by FetchAgilitySDK.cmake, not on any include path yet.
-    target_include_directories(${PROJECT_NAME} PRIVATE "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/include")
-endif()
+# Port of Donut-Samples' basic_triangle.
+donut_compile_shaders_all_platforms(
+    TARGET basic_triangle_shaders
+    PROJECT_NAME "Basic Triangle"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/basic_triangle.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/basic_triangle.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/basic_triangle
+)
+add_tslang_example(basic_triangle)
+
+# Port of Donut-Samples' meshlets. D3D11 has no mesh shaders, so no DXBC.
+donut_compile_shaders(
+    TARGET meshlets_shaders
+    PROJECT_NAME "Meshlets"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlets.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlets.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlets/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlets/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+add_tslang_example(meshlets)
