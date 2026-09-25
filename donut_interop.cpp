@@ -31,6 +31,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include <cstring>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -159,9 +160,29 @@ namespace
         return exe.parent_path() / "shaders" / exe.stem() / donut::app::GetShaderTypeName(api);
     }
 
+    App* MakeApp(std::unique_ptr<DeviceManager> deviceManager, nvrhi::GraphicsAPI api)
+    {
+        auto* app = new App();
+        app->deviceManager = std::move(deviceManager);
+        app->shaderFactory = std::make_unique<donut::engine::ShaderFactory>(
+            app->device(), std::make_shared<donut::vfs::NativeFileSystem>(), GetShaderPath(api));
+        return app;
+    }
+
+    // Adapters of one graphics API. Holds the device manager whose instance enumerated them;
+    // no device is ever created on it.
+    struct AdapterList
+    {
+        std::unique_ptr<DeviceManager> deviceManager;
+        std::vector<donut::app::AdapterInfo> adapters;
+    };
+
     App* AsApp(void* app) { return static_cast<App*>(app); }
     TsRenderPass* AsPass(void* pass) { return static_cast<TsRenderPass*>(pass); }
     FrameContext* AsFrame(void* frame) { return static_cast<FrameContext*>(frame); }
+    AdapterList* AsAdapterList(void* list) { return static_cast<AdapterList*>(list); }
+    nvrhi::ICommandList* AsCommandList(void* commandList) { return static_cast<nvrhi::ICommandList*>(commandList); }
+    nvrhi::IBuffer* AsBuffer(void* buffer) { return static_cast<nvrhi::IBuffer*>(buffer); }
 }
 
 extern "C"
@@ -191,13 +212,7 @@ extern "C"
             return nullptr;
         }
 
-        auto* app = new App();
-        app->deviceManager = std::move(deviceManager);
-
-        app->shaderFactory = std::make_unique<donut::engine::ShaderFactory>(
-            app->device(), std::make_shared<donut::vfs::NativeFileSystem>(), GetShaderPath(api));
-
-        return app;
+        return MakeApp(std::move(deviceManager), api);
     }
 
     // Same, with the graphics API picked from the command line (-d3d11, -d3d12, -vk; D3D12 by
@@ -206,6 +221,95 @@ extern "C"
     {
         const nvrhi::GraphicsAPI api = donut::app::GetGraphicsAPIFromCommandLine(argc, argv);
         return Donut_CreateAppForAPI(static_cast<int>(api), title, width, height);
+    }
+
+    // Creates a device without a window or swap chain, for compute work; adapterIndex -1 picks
+    // the default adapter. Such an app has no passes: run work with Donut_*CommandList. Returns
+    // null on failure.
+    void* Donut_CreateHeadlessApp(int graphicsApi, int adapterIndex)
+    {
+        donut::log::ConsoleApplicationMode();
+
+        const auto api = static_cast<nvrhi::GraphicsAPI>(graphicsApi);
+        std::unique_ptr<DeviceManager> deviceManager(DeviceManager::Create(api));
+        if (!deviceManager)
+            return nullptr;
+
+        donut::app::DeviceCreationParameters params;
+        params.adapterIndex = adapterIndex;
+
+        if (!deviceManager->CreateHeadlessDevice(params))
+            return nullptr;
+
+        return MakeApp(std::move(deviceManager), api);
+    }
+
+    // Lists the adapters for graphicsApi. Returns null (after logging why) on failure.
+    void* Donut_EnumerateAdapters(int graphicsApi)
+    {
+        donut::log::ConsoleApplicationMode();
+
+        const auto api = static_cast<nvrhi::GraphicsAPI>(graphicsApi);
+        auto list = std::make_unique<AdapterList>();
+        list->deviceManager.reset(DeviceManager::Create(api));
+
+        donut::app::DeviceCreationParameters params;
+        if (!list->deviceManager || !list->deviceManager->CreateInstance(params))
+        {
+            donut::log::error("Cannot initialize a %s subsystem.", nvrhi::utils::GraphicsAPIToString(api));
+            return nullptr;
+        }
+
+        if (!list->deviceManager->EnumerateAdapters(list->adapters))
+        {
+            donut::log::error("Cannot enumerate graphics adapters.");
+            return nullptr;
+        }
+
+        return list.release();
+    }
+
+    int Donut_GetAdapterCount(void* list)
+    {
+        return static_cast<int>(AsAdapterList(list)->adapters.size());
+    }
+
+    const char* Donut_GetAdapterName(void* list, int index)
+    {
+        return AsAdapterList(list)->adapters[index].name.c_str();
+    }
+
+    int Donut_GetAdapterMemoryMB(void* list, int index)
+    {
+        return static_cast<int>(AsAdapterList(list)->adapters[index].dedicatedVideoMemory / (1024 * 1024));
+    }
+
+    // Names returned by Donut_GetAdapterName are invalid afterwards.
+    void Donut_DestroyAdapterList(void* list)
+    {
+        delete AsAdapterList(list);
+    }
+
+    const char* Donut_GraphicsAPIToString(int graphicsApi)
+    {
+        return nvrhi::utils::GraphicsAPIToString(static_cast<nvrhi::GraphicsAPI>(graphicsApi));
+    }
+
+    int Donut_GetGraphicsAPIFromCommandLine(int argc, const char* const* argv)
+    {
+        return static_cast<int>(donut::app::GetGraphicsAPIFromCommandLine(argc, argv));
+    }
+
+    // argv[index] of the argv passed to main.
+    const char* Donut_GetArg(const char* const* argv, int index)
+    {
+        return argv[index];
+    }
+
+    // severity is a donut::log::Severity value; messages below it are dropped.
+    void Donut_SetLogMinSeverity(int severity)
+    {
+        donut::log::SetMinSeverity(static_cast<donut::log::Severity>(severity));
     }
 
     // Blocks until the window is closed.
@@ -321,6 +425,154 @@ extern "C"
     void Donut_ReleaseResource(void* app, void* resource)
     {
         AsApp(app)->resources.erase(static_cast<nvrhi::IResource*>(resource));
+    }
+
+    // Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
+    // otherwise shader-readable only, filled with Donut_WriteBuffer. Returns null on failure.
+    void* Donut_CreateUIntBuffer(void* app, int elementCount, int writable, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(sizeof(uint32_t) * static_cast<uint64_t>(elementCount))
+            .setCanHaveTypedViews(true)
+            .setCanHaveUAVs(writable != 0)
+            .setFormat(nvrhi::Format::R32_UINT)
+            .setDebugName(debugName)
+            .setInitialState(writable ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::CopyDest)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // CPU-readable buffer to copy GPU results into; read it with Donut_ReadBuffer. Returns null
+    // on failure.
+    void* Donut_CreateReadbackBuffer(void* app, int byteSize, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(static_cast<uint64_t>(byteSize))
+            .setCpuAccess(nvrhi::CpuAccessMode::Read)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::CopyDest)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // Copies byteSize bytes of a readback buffer to dst, after the GPU work writing it has
+    // finished (see Donut_WaitForIdle). Returns 0 if the buffer can't be mapped.
+    int Donut_ReadBuffer(void* app, void* readbackBuffer, void* dst, int byteSize)
+    {
+        nvrhi::IDevice* device = AsApp(app)->device();
+        const void* data = device->mapBuffer(AsBuffer(readbackBuffer), nvrhi::CpuAccessMode::Read);
+        if (!data)
+            return 0;
+        memcpy(dst, data, static_cast<size_t>(byteSize));
+        device->unmapBuffer(AsBuffer(readbackBuffer));
+        return 1;
+    }
+
+    // Binding set descriptions are built up with the Donut_Bind* functions below and then
+    // consumed (freed) by Donut_CreateBindingSet.
+    void* Donut_CreateBindingSetDesc()
+    {
+        return new nvrhi::BindingSetDesc();
+    }
+
+    // Buffer created by Donut_CreateUIntBuffer, read by the shader as Buffer<uint> at t<slot>.
+    void Donut_BindTypedBufferSRV(void* bindingSetDesc, int slot, void* buffer)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::TypedBuffer_SRV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+    }
+
+    // Writable buffer created by Donut_CreateUIntBuffer, written by the shader as RWBuffer<uint>
+    // at u<slot>.
+    void Donut_BindTypedBufferUAV(void* bindingSetDesc, int slot, void* buffer)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+    }
+
+    // Creates a binding set, and a matching layout (in register space 0) visible to the stages
+    // in shaderType (nvrhi::ShaderType bits), from a description, which it frees. Returns null
+    // on failure.
+    void* Donut_CreateBindingSet(void* app, void* bindingSetDesc, int shaderType)
+    {
+        std::unique_ptr<nvrhi::BindingSetDesc> desc(static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc));
+
+        nvrhi::BindingLayoutHandle layout;
+        nvrhi::BindingSetHandle bindingSet;
+        App* a = AsApp(app);
+        if (!nvrhi::utils::CreateBindingSetAndLayout(a->device(), static_cast<nvrhi::ShaderType>(shaderType),
+                0, *desc, layout, bindingSet))
+            return nullptr;
+
+        // The binding set keeps its layout alive; pipelines get it from the set.
+        return a->Own(bindingSet);
+    }
+
+    // Compute pipeline using the layout of bindingSet. Returns null on failure.
+    void* Donut_CreateComputePipeline(void* app, void* computeShader, void* bindingSet)
+    {
+        auto desc = nvrhi::ComputePipelineDesc()
+            .setComputeShader(static_cast<nvrhi::IShader*>(computeShader))
+            .addBindingLayout(static_cast<nvrhi::IBindingSet*>(bindingSet)->getLayout());
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createComputePipeline(desc));
+    }
+
+    // --- Command lists (for work outside render passes, e.g. in a headless app) --------------
+
+    void* Donut_CreateCommandList(void* app)
+    {
+        App* a = AsApp(app);
+        return a->Own(a->device()->createCommandList());
+    }
+
+    void Donut_OpenCommandList(void* commandList)
+    {
+        AsCommandList(commandList)->open();
+    }
+
+    void Donut_CloseCommandList(void* commandList)
+    {
+        AsCommandList(commandList)->close();
+    }
+
+    void Donut_ExecuteCommandList(void* app, void* commandList)
+    {
+        AsApp(app)->device()->executeCommandList(AsCommandList(commandList));
+    }
+
+    // Blocks the CPU until the GPU has finished all submitted work.
+    void Donut_WaitForIdle(void* app)
+    {
+        AsApp(app)->device()->waitForIdle();
+    }
+
+    // Uploads byteSize bytes from data (copied during the call) into buffer.
+    void Donut_WriteBuffer(void* commandList, void* buffer, const void* data, int byteSize)
+    {
+        AsCommandList(commandList)->writeBuffer(AsBuffer(buffer), data, static_cast<size_t>(byteSize));
+    }
+
+    void Donut_CopyBuffer(void* commandList, void* dst, int dstOffset, void* src, int srcOffset, int byteSize)
+    {
+        AsCommandList(commandList)->copyBuffer(AsBuffer(dst), static_cast<uint64_t>(dstOffset),
+            AsBuffer(src), static_cast<uint64_t>(srcOffset), static_cast<uint64_t>(byteSize));
+    }
+
+    void Donut_Dispatch(void* commandList, void* computePipeline, void* bindingSet, int groupsX, int groupsY, int groupsZ)
+    {
+        auto state = nvrhi::ComputeState()
+            .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
+            .addBindingSet(static_cast<nvrhi::IBindingSet*>(bindingSet));
+
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+        cl->setComputeState(state);
+        cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
     }
 
     // --- Render passes -----------------------------------------------------------------------

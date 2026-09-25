@@ -20,10 +20,38 @@ enum Feature {
     ShaderSpecializations = 18
 }
 
+// donut::log::Severity values.
+enum LogSeverity {
+    None = 0,
+    Debug = 1,
+    Info = 2,
+    Warning = 3,
+    Error = 4,
+    Fatal = 5
+}
+
+// Command line helpers: argv is main's argv.
+declare function Donut_GetArg(argv: Opaque, index: int): string;
+// -d3d11 / -dx11, -d3d12 / -dx12, -vk / -vulkan; D3D12 by default on Windows.
+declare function Donut_GetGraphicsAPIFromCommandLine(argc: int, argv: Opaque): GraphicsAPI;
+declare function Donut_GraphicsAPIToString(api: GraphicsAPI): string;
+// Messages below the severity are dropped.
+declare function Donut_SetLogMinSeverity(severity: LogSeverity): void;
+
 // Picks the graphics API from the command line (-d3d11, -d3d12, -vk). Returns null on failure.
 declare function Donut_CreateApp(argc: int, argv: Opaque, title: string, width: int, height: int): Opaque;
 // Same, for a fixed graphics API.
 declare function Donut_CreateAppForAPI(api: GraphicsAPI, title: string, width: int, height: int): Opaque;
+// Device without a window, for compute work; adapterIndex -1 picks the default adapter. It has
+// no passes: run work with the command list functions. Returns null on failure.
+declare function Donut_CreateHeadlessApp(api: GraphicsAPI, adapterIndex: int): Opaque;
+
+// Adapters of one graphics API; null (after logging why) on failure.
+declare function Donut_EnumerateAdapters(api: GraphicsAPI): Opaque;
+declare function Donut_GetAdapterCount(adapterList: Opaque): int;
+declare function Donut_GetAdapterName(adapterList: Opaque, index: int): string;
+declare function Donut_GetAdapterMemoryMB(adapterList: Opaque, index: int): int;
+declare function Donut_DestroyAdapterList(adapterList: Opaque): void;
 // Blocks until the window is closed.
 declare function Donut_RunApp(app: Opaque): void;
 // Destroys the app with all its passes and resources.
@@ -57,6 +85,39 @@ declare function Donut_CreateGraphicsPipeline(app: Opaque, frame: Opaque, vertex
 declare function Donut_CreateMeshletPipeline(app: Opaque, frame: Opaque, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque;
 // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
 declare function Donut_ReleaseResource(app: Opaque, resource: Opaque): void;
+
+// Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
+// otherwise shader-readable only, filled with Donut_WriteBuffer.
+declare function Donut_CreateUIntBuffer(app: Opaque, elementCount: int, writable: int, debugName: string): Opaque;
+// CPU-readable buffer to copy GPU results into.
+declare function Donut_CreateReadbackBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+// Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
+// Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int array. Returns 0 on failure.
+declare function Donut_ReadBuffer(app: Opaque, readbackBuffer: Opaque, dst: Ref<int>, byteSize: int): int;
+
+// Built up with Donut_Bind*, then consumed (freed) by Donut_CreateBindingSet.
+declare function Donut_CreateBindingSetDesc(): Opaque;
+// Buffer<uint> at t<slot>.
+declare function Donut_BindTypedBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+// RWBuffer<uint> at u<slot>; the buffer must be writable.
+declare function Donut_BindTypedBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+// Binding set plus matching layout (register space 0) visible to shaderType's stages.
+declare function Donut_CreateBindingSet(app: Opaque, bindingSetDesc: Opaque, shaderType: ShaderType): Opaque;
+// Uses the layout of bindingSet.
+declare function Donut_CreateComputePipeline(app: Opaque, computeShader: Opaque, bindingSet: Opaque): Opaque;
+
+// Command lists, for work outside render passes (e.g. in a headless app).
+declare function Donut_CreateCommandList(app: Opaque): Opaque;
+declare function Donut_OpenCommandList(commandList: Opaque): void;
+declare function Donut_CloseCommandList(commandList: Opaque): void;
+declare function Donut_ExecuteCommandList(app: Opaque, commandList: Opaque): void;
+// Blocks until the GPU has finished all submitted work.
+declare function Donut_WaitForIdle(app: Opaque): void;
+// Uploads byteSize bytes from data, copied during the call. Pass `Ref(array[0])` of a `let`
+// int array.
+declare function Donut_WriteBuffer(commandList: Opaque, buffer: Opaque, data: Ref<int>, byteSize: int): void;
+declare function Donut_CopyBuffer(commandList: Opaque, dst: Opaque, dstOffset: int, src: Opaque, srcOffset: int, byteSize: int): void;
+declare function Donut_Dispatch(commandList: Opaque, computePipeline: Opaque, bindingSet: Opaque, groupsX: int, groupsY: int, groupsZ: int): void;
 
 // Passes are owned by the app; later passes draw on top and get input first.
 declare function Donut_AddPass(app: Opaque): Opaque;

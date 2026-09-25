@@ -165,3 +165,13 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_specializations/spirv
 )
 add_tslang_example(shader_specializations)
+
+# Port of Donut-Samples' headless: compute only, no window.
+donut_compile_shaders_all_platforms(
+    TARGET headless_shaders
+    PROJECT_NAME "Headless"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/headless.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/headless.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/headless
+)
+add_tslang_example(headless)
