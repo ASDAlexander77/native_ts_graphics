@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 
+# Ninja is a single-config generator, so CMAKE_BUILD_TYPE must be set at configure time
+# (there's no per-build --config switch like with multi-config generators).
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+endif()
+
 # Make CMake find ts-language modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -37,9 +44,32 @@ endif()
 # program is compiled for one model and linked against another model's default lib.
 set(CMAKE_TSLANG_FLAGS "${CMAKE_TSLANG_FLAGS} -mm=${TSLANG_MEMORY_MODEL}") # global
 
-if(NOT WIN32)
-    set(CMAKE_TSLANG_FLAGS "${CMAKE_TSLANG_FLAGS} -relocation-model=pic") # global
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Donut
+# Keyed off CMAKE_BINARY_DIR (not CMAKE_SOURCE_DIR) so each config's own build folder
+# (build/ for Debug, build-release/ for Release) gets its own output instead of sharing one.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set(DONUT_SHADERS_OUTPUT_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/framework")
+
+add_subdirectory(external/Donut)
+
+if (NVRHI_WITH_DX12)
+    set(DONUT_D3D_AGILITY_SDK_URL "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/1.616.1")
+    set(DONUT_D3D_AGILITY_SDK_FETCH_DIR "" CACHE STRING "" FORCE)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/cmake/FetchAgilitySDK.cmake")
+
+    file(COPY
+        "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/bin/x64/D3D12Core.dll"
+        "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/bin/x64/D3D12SDKLayers.dll"
+        DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/D3D12/")
 endif()
+
+# end of Donut
 
 # .ts files compile with TSLANG command; .cpp with the C++ compiler.
 add_executable(${PROJECT_NAME}
@@ -63,4 +93,10 @@ if(NOT WIN32)
     list(APPEND TSLANG_LINK_LIBS "stdc++" "m" "pthread" "dl" "rt")
 endif()
 
-target_link_libraries(${PROJECT_NAME} ${TSLANG_LINK_LIBS})
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    ${TSLANG_LINK_LIBS}
+    donut_core
+    donut_render
+    donut_app
+    donut_engine
+)
