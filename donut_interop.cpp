@@ -359,10 +359,13 @@ namespace
         commandList->close();
     }
 
-    // G-buffer plus the texture the deferred lighting pass writes the shaded image to.
+    // G-buffer plus the texture the deferred lighting pass (or a compute / ray tracing shader)
+    // writes the shaded image to, which forward passes can then draw over, depth-tested against
+    // the G-buffer depth, through ShadedFramebuffer.
     struct GBufferTargets : donut::render::GBufferRenderTargets
     {
         nvrhi::TextureHandle ShadedColor;
+        std::shared_ptr<donut::engine::FramebufferFactory> ShadedFramebuffer;
 
         void Init(nvrhi::IDevice* device, dm::uint2 size, dm::uint sampleCount,
             bool enableMotionVectors, bool useReverseProjection) override
@@ -375,11 +378,16 @@ namespace
             textureDesc.keepInitialState = true;
             textureDesc.debugName = "ShadedColor";
             textureDesc.isUAV = true;
+            textureDesc.isRenderTarget = true;
             textureDesc.format = nvrhi::Format::RGBA16_FLOAT;
             textureDesc.width = size.x;
             textureDesc.height = size.y;
             textureDesc.sampleCount = sampleCount;
             ShadedColor = device->createTexture(textureDesc);
+
+            ShadedFramebuffer = std::make_shared<donut::engine::FramebufferFactory>(device);
+            ShadedFramebuffer->RenderTargets = { ShadedColor };
+            ShadedFramebuffer->DepthTarget = Depth;
         }
     };
 
@@ -546,6 +554,50 @@ namespace
             ? nvrhi::rt::AccelStructBuildFlags::PreferFastTrace
             : nvrhi::rt::AccelStructBuildFlags::PreferFastTrace | nvrhi::rt::AccelStructBuildFlags::AllowCompaction;
         return blasDesc;
+    }
+
+    // A scene geometry and the mesh it belongs to.
+    struct SceneGeometry
+    {
+        donut::engine::MeshInfo* mesh = nullptr;
+        donut::engine::MeshGeometry* geometry = nullptr;
+    };
+
+    // The geometry of a loaded scene with this globalGeometryIndex (null members if none).
+    SceneGeometry FindSceneGeometry(void* scene, int globalGeometryIndex)
+    {
+        for (const auto& mesh : static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->GetMeshes())
+            for (const auto& geometry : mesh->geometries)
+                if (geometry->globalGeometryIndex == globalGeometryIndex)
+                    return { mesh.get(), geometry.get() };
+        return {};
+    }
+
+    // Builds a TLAS over a scene's mesh instances, whose meshes have their BLAS in accelStruct,
+    // into an open command list. Each instance's hit group index starts at the global index of
+    // its mesh's first geometry times hitGroupStride (0: all instances use the same entries).
+    nvrhi::rt::AccelStructHandle BuildSceneTLAS(nvrhi::IDevice* device, nvrhi::ICommandList* commandList,
+        const donut::engine::SceneGraph& sceneGraph, uint32_t hitGroupStride)
+    {
+        std::vector<nvrhi::rt::InstanceDesc> instances;
+        for (const auto& instance : sceneGraph.GetMeshInstances())
+        {
+            const auto& mesh = instance->GetMesh();
+
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc.bottomLevelAS = mesh->accelStruct;
+            instanceDesc.instanceMask = 1;
+            instanceDesc.instanceContributionToHitGroupIndex = mesh->geometries[0]->globalGeometryIndex * hitGroupStride;
+            dm::affineToColumnMajor(instance->GetNode()->GetLocalToWorldTransformFloat(), instanceDesc.transform);
+            instances.push_back(instanceDesc);
+        }
+
+        nvrhi::rt::AccelStructDesc tlasDesc;
+        tlasDesc.isTopLevel = true;
+        tlasDesc.topLevelMaxInstances = instances.size();
+        nvrhi::rt::AccelStructHandle tlas = device->createAccelStruct(tlasDesc);
+        commandList->buildTopLevelAccelStruct(tlas, instances.data(), instances.size());
+        return tlas;
     }
 
     // Buffer of a mesh's BufferGroup, with data (if any) uploaded by an open command list.
@@ -927,6 +979,83 @@ extern "C"
         return a->Own(a->device()->createRayTracingPipeline(desc));
     }
 
+    // Ray tracing pipelines of any shape: a description built up with the Donut_RtPipeline*
+    // functions below, then consumed (freed) by Donut_CreateRayTracingPipelineFromDesc.
+    // maxRecursionDepth: how deeply hit shaders may trace further rays (1 = no recursion).
+    void* Donut_CreateRayTracingPipelineDesc(int maxPayloadSize, int maxRecursionDepth)
+    {
+        auto* desc = new nvrhi::rt::PipelineDesc();
+        desc->maxPayloadSize = static_cast<uint32_t>(maxPayloadSize);
+        desc->maxRecursionDepth = static_cast<uint32_t>(maxRecursionDepth);
+        return desc;
+    }
+
+    void Donut_RtPipelineAddGlobalBindingLayout(void* pipelineDesc, void* bindingLayout)
+    {
+        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->globalBindingLayouts.push_back(
+            static_cast<nvrhi::IBindingLayout*>(bindingLayout));
+    }
+
+    // A ray generation, miss or callable shader (shaderType), exported by its entry name.
+    void Donut_RtPipelineAddShader(void* pipelineDesc, void* shaderLibrary, const char* entryName, int shaderType)
+    {
+        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->shaders.push_back({ "",
+            static_cast<nvrhi::IShaderLibrary*>(shaderLibrary)->getShader(entryName, static_cast<nvrhi::ShaderType>(shaderType)),
+            nullptr });
+    }
+
+    // A triangle hit group: closest-hit and any-hit shaders by entry name ("" for none), and an
+    // optional local binding layout (D3D12 only; null for none) whose binding sets are given per
+    // shader table entry.
+    void Donut_RtPipelineAddHitGroup(void* pipelineDesc, void* shaderLibrary, const char* exportName,
+        const char* closestHitEntry, const char* anyHitEntry, void* localBindingLayout)
+    {
+        auto* library = static_cast<nvrhi::IShaderLibrary*>(shaderLibrary);
+        auto entryShader = [library](const char* entry, nvrhi::ShaderType type) -> nvrhi::ShaderHandle {
+            return entry && *entry ? library->getShader(entry, type) : nullptr;
+        };
+
+        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->hitGroups.push_back(nvrhi::rt::PipelineHitGroupDesc()
+            .setExportName(exportName)
+            .setClosestHitShader(entryShader(closestHitEntry, nvrhi::ShaderType::ClosestHit))
+            .setAnyHitShader(entryShader(anyHitEntry, nvrhi::ShaderType::AnyHit))
+            .setBindingLayout(static_cast<nvrhi::IBindingLayout*>(localBindingLayout)));
+    }
+
+    // Returns null on failure.
+    void* Donut_CreateRayTracingPipelineFromDesc(void* app, void* pipelineDesc)
+    {
+        std::unique_ptr<nvrhi::rt::PipelineDesc> desc(static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc));
+        App* a = AsApp(app);
+        return a->Own(a->device()->createRayTracingPipeline(*desc));
+    }
+
+    // An empty shader table of a pipeline, filled with the Donut_ShaderTable* functions below.
+    // It keeps the pipeline alive. Returns null on failure.
+    void* Donut_CreateEmptyShaderTable(void* app, void* rayTracingPipeline)
+    {
+        return AsApp(app)->Own(static_cast<nvrhi::rt::IPipeline*>(rayTracingPipeline)->createShaderTable());
+    }
+
+    void Donut_ShaderTableSetRayGeneration(void* shaderTable, const char* exportName)
+    {
+        static_cast<nvrhi::rt::IShaderTable*>(shaderTable)->setRayGenerationShader(exportName);
+    }
+
+    // Returns the miss shader's index (TraceRay's MissShaderIndex).
+    int Donut_ShaderTableAddMiss(void* shaderTable, const char* exportName)
+    {
+        return static_cast<nvrhi::rt::IShaderTable*>(shaderTable)->addMissShader(exportName);
+    }
+
+    // Adds an entry for a hit group, with a binding set for its local binding layout (null for
+    // none). Returns the entry's index.
+    int Donut_ShaderTableAddHitGroup(void* shaderTable, const char* exportName, void* localBindingSet)
+    {
+        return static_cast<nvrhi::rt::IShaderTable*>(shaderTable)->addHitGroup(exportName,
+            static_cast<nvrhi::IBindingSet*>(localBindingSet));
+    }
+
     // Same as Donut_CreateShaderTable, with caching: NVRHI keeps up to maxCachedVersions copies
     // of the table in GPU memory, instead of re-uploading it every time it's used.
     void* Donut_CreateCachedShaderTable(void* app, void* rayTracingPipeline, const char* rayGenExport,
@@ -1273,8 +1402,28 @@ extern "C"
             nvrhi::BindingLayoutItem::VolatileConstantBuffer(static_cast<uint32_t>(slot)));
     }
 
-    // Layout (register space 0) visible to the stages in shaderType (nvrhi::ShaderType bits).
-    // Returns null on failure.
+    // Register space of the layout's items (D3D12 only; 0 by default).
+    void Donut_SetBindingLayoutRegisterSpace(void* bindingLayoutDesc, int space)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->registerSpace = static_cast<uint32_t>(space);
+    }
+
+    // Buffer<T> at t<slot>.
+    void Donut_LayoutTypedBufferSRV(void* bindingLayoutDesc, int slot)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::TypedBuffer_SRV(static_cast<uint32_t>(slot)));
+    }
+
+    // A non-volatile cbuffer at b<slot>.
+    void Donut_LayoutConstantBuffer(void* bindingLayoutDesc, int slot)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::ConstantBuffer(static_cast<uint32_t>(slot)));
+    }
+
+    // Layout visible to the stages in shaderType (nvrhi::ShaderType bits), in register space 0
+    // unless set with Donut_SetBindingLayoutRegisterSpace. Returns null on failure.
     void* Donut_CreateBindingLayout(void* app, void* bindingLayoutDesc, int shaderType)
     {
         std::unique_ptr<nvrhi::BindingLayoutDesc> desc(static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc));
@@ -1827,6 +1976,133 @@ extern "C"
         case SceneBuffer_Materials: return s->GetMaterialBuffer();
         default: return nullptr;
         }
+    }
+
+    // Geometries of a loaded scene, addressed by globalGeometryIndex (0 .. count - 1), e.g. to
+    // lay out one shader table entry per geometry in that order.
+    int Donut_GetSceneGeometryCount(void* scene)
+    {
+        int count = 0;
+        for (const auto& mesh : static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->GetMeshes())
+            count += static_cast<int>(mesh->geometries.size());
+        return count;
+    }
+
+    // Buffer<uint> at t<slot>: the geometry's indices (relative to its first vertex).
+    void Donut_BindGeometryIndexBuffer(void* bindingSetDesc, int slot, void* scene, int globalGeometryIndex)
+    {
+        const SceneGeometry g = FindSceneGeometry(scene, globalGeometryIndex);
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::TypedBuffer_SRV(
+            static_cast<uint32_t>(slot), g.mesh->buffers->indexBuffer, nvrhi::Format::R32_UINT,
+            nvrhi::BufferRange((g.mesh->indexOffset + g.geometry->indexOffsetInMesh) * sizeof(uint32_t),
+                g.geometry->numIndices * sizeof(uint32_t))));
+    }
+
+    // Values of `attribute` for Donut_BindGeometryVertexAttribute, with the buffer element types.
+    enum GeometryAttribute
+    {
+        GeometryAttribute_Position = 0,  // Buffer<float3>
+        GeometryAttribute_TexCoord1 = 1, // Buffer<float2>
+        GeometryAttribute_Normal = 2,    // Buffer<float4> (RGBA8_SNORM)
+        GeometryAttribute_Tangent = 3,   // Buffer<float4> (RGBA8_SNORM)
+    };
+
+    // Buffer<...> at t<slot>: one vertex attribute of the geometry's vertices.
+    void Donut_BindGeometryVertexAttribute(void* bindingSetDesc, int slot, void* scene, int globalGeometryIndex, int attribute)
+    {
+        using donut::engine::VertexAttribute;
+        VertexAttribute vertexAttribute = VertexAttribute::Position;
+        nvrhi::Format format = nvrhi::Format::RGB32_FLOAT;
+        uint32_t elementSize = sizeof(dm::float3);
+        switch (attribute)
+        {
+        case GeometryAttribute_TexCoord1:
+            vertexAttribute = VertexAttribute::TexCoord1; format = nvrhi::Format::RG32_FLOAT; elementSize = sizeof(dm::float2); break;
+        case GeometryAttribute_Normal:
+            vertexAttribute = VertexAttribute::Normal; format = nvrhi::Format::RGBA8_SNORM; elementSize = sizeof(uint32_t); break;
+        case GeometryAttribute_Tangent:
+            vertexAttribute = VertexAttribute::Tangent; format = nvrhi::Format::RGBA8_SNORM; elementSize = sizeof(uint32_t); break;
+        default:
+            break;
+        }
+
+        const SceneGeometry g = FindSceneGeometry(scene, globalGeometryIndex);
+        const uint64_t firstVertex = g.mesh->vertexOffset + g.geometry->vertexOffsetInMesh;
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::TypedBuffer_SRV(
+            static_cast<uint32_t>(slot), g.mesh->buffers->vertexBuffer, format,
+            nvrhi::BufferRange(firstVertex * elementSize + g.mesh->buffers->getVertexBufferRange(vertexAttribute).byteOffset,
+                g.geometry->numVertices * elementSize)));
+    }
+
+    // Values of `which` and `fallback` for Donut_BindGeometryMaterialTexture.
+    enum MaterialTexture
+    {
+        MaterialTexture_BaseOrDiffuse = 0,
+        MaterialTexture_MetalRoughOrSpecular = 1,
+        MaterialTexture_Normal = 2,
+        MaterialTexture_Emissive = 3,
+        MaterialTexture_Occlusion = 4,
+        MaterialTexture_Transmission = 5,
+        MaterialTexture_Opacity = 6,
+    };
+
+    enum FallbackTexture
+    {
+        FallbackTexture_White = 0,
+        FallbackTexture_Black = 1,
+    };
+
+    // Texture2D at t<slot>: one of the geometry's material textures, or Donut's white or black
+    // texture if the material has none.
+    void Donut_BindGeometryMaterialTexture(void* app, void* bindingSetDesc, int slot, void* scene, int globalGeometryIndex,
+        int which, int fallback)
+    {
+        const donut::engine::Material& material = *FindSceneGeometry(scene, globalGeometryIndex).geometry->material;
+        const std::shared_ptr<donut::engine::LoadedTexture>* textures[] = {
+            &material.baseOrDiffuseTexture, &material.metalRoughOrSpecularTexture, &material.normalTexture,
+            &material.emissiveTexture, &material.occlusionTexture, &material.transmissionTexture, &material.opacityTexture,
+        };
+        const std::shared_ptr<donut::engine::LoadedTexture>& texture = *textures[which];
+
+        donut::engine::CommonRenderPasses* passes = AsApp(app)->commonPasses();
+        nvrhi::ITexture* bound = texture && texture->texture ? texture->texture.Get()
+            : fallback == FallbackTexture_Black ? passes->m_BlackTexture.Get() : passes->m_WhiteTexture.Get();
+
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), bound));
+    }
+
+    // cbuffer at b<slot>: the geometry's MaterialConstants (donut/shaders/material_cb.h).
+    void Donut_BindGeometryMaterialConstants(void* bindingSetDesc, int slot, void* scene, int globalGeometryIndex)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::ConstantBuffer(
+            static_cast<uint32_t>(slot), FindSceneGeometry(scene, globalGeometryIndex).geometry->material->materialConstants));
+    }
+
+    // Like Donut_BuildSceneAccelStructs (opaque triangles; BLASes kept in the meshes), for shader
+    // tables with hitGroupStride entries per geometry, laid out by globalGeometryIndex: each
+    // instance's hit groups start at its mesh's first geometry index times hitGroupStride.
+    void* Donut_BuildSceneAccelStructsWithHitGroupStride(void* app, void* commandList, void* scene, int hitGroupStride)
+    {
+        App* a = AsApp(app);
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+        const auto& sceneGraph = static_cast<donut::engine::Scene*>(scene)->GetSceneGraph();
+
+        for (const auto& mesh : sceneGraph->GetMeshes())
+        {
+            nvrhi::rt::AccelStructDesc blasDesc = GetMeshBlasDesc(*mesh);
+            blasDesc.buildFlags = nvrhi::rt::AccelStructBuildFlags::None;
+            for (auto& geometryDesc : blasDesc.bottomLevelGeometries)
+                geometryDesc.flags = nvrhi::rt::GeometryFlags::Opaque;
+
+            nvrhi::rt::AccelStructHandle blas = a->device()->createAccelStruct(blasDesc);
+            nvrhi::utils::BuildBottomLevelAccelStruct(cl, blas, blasDesc);
+            mesh->accelStruct = blas;
+        }
+
+        auto accelStructs = std::make_shared<SceneAccelStructs>();
+        accelStructs->topLevel = BuildSceneTLAS(a->device(), cl, *sceneGraph, static_cast<uint32_t>(hitGroupStride));
+        return a->OwnObject(accelStructs);
     }
 
     // Scene animations (e.g. glTF skeletal animations), in the scene graph's order.
@@ -2479,6 +2755,27 @@ extern "C"
             *static_cast<GBufferTargets*>(gbufferTargets)->GBufferFramebuffer,
             static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->GetRootNode(),
             drawStrategy, *static_cast<donut::render::GBufferFillPass*>(gbufferFillPass), context);
+    }
+
+    // Draws the transparent meshes of a loaded scene with a forward shading pass
+    // (Donut_CreateForwardShadingPass) over the targets' shaded color, depth-tested against the
+    // G-buffer depth, lit by the scene graph's lights plus a top / bottom ambient term.
+    void Donut_RenderSceneTransparentOverGBuffer(void* frame, void* forwardShadingPass, void* view, void* gbufferTargets,
+        void* scene, double topR, double topG, double topB, double bottomR, double bottomG, double bottomB)
+    {
+        nvrhi::ICommandList* cl = AsFrame(frame)->commandList;
+        auto* forwardPass = static_cast<donut::render::ForwardShadingPass*>(forwardShadingPass);
+        auto* planarView = static_cast<donut::engine::PlanarView*>(view);
+        const auto& sceneGraph = static_cast<donut::engine::Scene*>(scene)->GetSceneGraph();
+
+        donut::render::ForwardShadingPass::Context context;
+        forwardPass->PrepareLights(context, cl, sceneGraph->GetLights(),
+            dm::float3(float(topR), float(topG), float(topB)), dm::float3(float(bottomR), float(bottomG), float(bottomB)), {});
+
+        donut::render::TransparentDrawStrategy transparentStrategy;
+        donut::render::RenderCompositeView(cl, planarView, planarView,
+            *static_cast<GBufferTargets*>(gbufferTargets)->ShadedFramebuffer, sceneGraph->GetRootNode(),
+            transparentStrategy, *forwardPass, context);
     }
 
     // Lights the G-buffer with the scene graph's lights plus a hemispherical ambient term (top

@@ -26,6 +26,30 @@ enum Feature {
     VariableRateShading = 21
 }
 
+// Vertex attributes of Donut_BindGeometryVertexAttribute, with their Buffer<...> element types.
+enum GeometryAttribute {
+    Position = 0,  // float3
+    TexCoord1 = 1, // float2
+    Normal = 2,    // float4 (RGBA8_SNORM)
+    Tangent = 3    // float4 (RGBA8_SNORM)
+}
+
+// Material textures of Donut_BindGeometryMaterialTexture, and what to bind if there's none.
+enum MaterialTexture {
+    BaseOrDiffuse = 0,
+    MetalRoughOrSpecular = 1,
+    Normal = 2,
+    Emissive = 3,
+    Occlusion = 4,
+    Transmission = 5,
+    Opacity = 6
+}
+
+enum FallbackTexture {
+    White = 0,
+    Black = 1
+}
+
 // Buffers of Donut_GetSceneBuffer.
 enum SceneBuffer {
     Instances = 0,
@@ -137,6 +161,10 @@ enum ShaderType {
     Compute = 0x0020,
     Amplification = 0x0040,
     Mesh = 0x0080,
+    RayGeneration = 0x0100,
+    AnyHit = 0x0200,
+    ClosestHit = 0x0400,
+    Miss = 0x0800,
     All = 0x3FFF
 }
 
@@ -261,6 +289,29 @@ declare function Donut_LayoutTextureSRV(bindingLayoutDesc: Opaque, slot: int): v
 declare function Donut_LayoutVolatileConstantBuffer(bindingLayoutDesc: Opaque, slot: int): void;
 declare function Donut_LayoutSampler(bindingLayoutDesc: Opaque, slot: int): void;
 declare function Donut_LayoutStructuredBufferSRV(bindingLayoutDesc: Opaque, slot: int): void;
+declare function Donut_LayoutTypedBufferSRV(bindingLayoutDesc: Opaque, slot: int): void;
+// A non-volatile cbuffer.
+declare function Donut_LayoutConstantBuffer(bindingLayoutDesc: Opaque, slot: int): void;
+// Register space of the layout's items (D3D12 only; 0 by default).
+declare function Donut_SetBindingLayoutRegisterSpace(bindingLayoutDesc: Opaque, space: int): void;
+
+// Ray tracing pipelines of any shape: a description built with the Donut_RtPipeline* functions,
+// freed by Donut_CreateRayTracingPipelineFromDesc. maxRecursionDepth 1 = no rays from hit shaders.
+declare function Donut_CreateRayTracingPipelineDesc(maxPayloadSize: int, maxRecursionDepth: int): Opaque;
+declare function Donut_RtPipelineAddGlobalBindingLayout(pipelineDesc: Opaque, bindingLayout: Opaque): void;
+// A ray generation or miss shader, exported by its entry name.
+declare function Donut_RtPipelineAddShader(pipelineDesc: Opaque, shaderLibrary: Opaque, entryName: string, shaderType: ShaderType): void;
+// Triangle hit group; "" for no closest-hit / any-hit shader; an optional local binding layout
+// (D3D12 only), whose binding sets come with each shader table entry.
+declare function Donut_RtPipelineAddHitGroup(pipelineDesc: Opaque, shaderLibrary: Opaque, exportName: string,
+    closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void;
+declare function Donut_CreateRayTracingPipelineFromDesc(app: Opaque, pipelineDesc: Opaque): Opaque;
+// Shader tables of any shape, filled with the Donut_ShaderTable* functions; they keep the
+// pipeline alive. The Add functions return the new entry's index.
+declare function Donut_CreateEmptyShaderTable(app: Opaque, rayTracingPipeline: Opaque): Opaque;
+declare function Donut_ShaderTableSetRayGeneration(shaderTable: Opaque, exportName: string): void;
+declare function Donut_ShaderTableAddMiss(shaderTable: Opaque, exportName: string): int;
+declare function Donut_ShaderTableAddHitGroup(shaderTable: Opaque, exportName: string, localBindingSet: Opaque | null): int;
 
 // Bindless: a layout of unbounded resource arrays, one register space each (visible to
 // shaderType's stages), freed by Donut_CreateBindlessLayout.
@@ -385,6 +436,21 @@ declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: Opaque): Opaque;
 declare function Donut_LoadSceneWithDescriptorTable(app: Opaque, path: string, descriptorTableManager: Opaque): Opaque;
 // InstanceData / GeometryData / MaterialConstants structured buffers; valid as long as the scene.
 declare function Donut_GetSceneBuffer(scene: Opaque, which: SceneBuffer): Opaque;
+// Geometries of a loaded scene, addressed by global geometry index (0 .. count - 1).
+declare function Donut_GetSceneGeometryCount(scene: Opaque): int;
+// Per-geometry bindings, e.g. for local binding sets: Buffer<uint> of the geometry's indices;
+// Buffer<...> of one vertex attribute; a material texture (or Donut's white / black texture if the
+// material has none); the MaterialConstants cbuffer.
+declare function Donut_BindGeometryIndexBuffer(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int): void;
+declare function Donut_BindGeometryVertexAttribute(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int,
+    attribute: GeometryAttribute): void;
+declare function Donut_BindGeometryMaterialTexture(app: Opaque, bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int,
+    which: MaterialTexture, fallback: FallbackTexture): void;
+declare function Donut_BindGeometryMaterialConstants(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int): void;
+// Like Donut_BuildSceneAccelStructs, for shader tables with hitGroupStride entries per geometry in
+// global geometry index order.
+declare function Donut_BuildSceneAccelStructsWithHitGroupStride(app: Opaque, commandList: Opaque, scene: Opaque,
+    hitGroupStride: int): Opaque;
 // Animations, e.g. glTF skeletal ones. Durations in seconds; apply poses the nodes at `time`.
 declare function Donut_GetSceneAnimationCount(scene: Opaque): int;
 declare function Donut_GetSceneAnimationDuration(scene: Opaque, index: int): number;
@@ -457,6 +523,10 @@ declare function Donut_RenderSceneToGBuffer(frame: Opaque, gbufferFillPass: Opaq
 // targets' shaded color texture.
 declare function Donut_RenderDeferredLighting(frame: Opaque, deferredLightingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
     sceneGraph: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
+// Valid only inside a render callback: the transparent meshes of a loaded scene, forward-shaded
+// over the targets' shaded color, depth-tested against the G-buffer depth.
+declare function Donut_RenderSceneTransparentOverGBuffer(frame: Opaque, forwardShadingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
+    scene: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
 // Viewport, matrices and derived state, e.g. to keep the previous frame's view.
 declare function Donut_CopyPlanarView(dstView: Opaque, srcView: Opaque): void;
 

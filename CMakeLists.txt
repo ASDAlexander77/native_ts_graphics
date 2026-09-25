@@ -266,3 +266,15 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_bindless/spirv
 )
 add_tslang_example(rt_bindless)
+
+# Port of Donut-Samples' rt_reflections: ray traced shadows and reflections on Sponza (see
+# DONUT_SAMPLES_MEDIA_DIR above). D3D12 only, as in the sample: its hit groups use local
+# binding layouts (local root signatures), so no SPIR-V.
+donut_compile_shaders(
+    TARGET rt_reflections_shaders
+    PROJECT_NAME "Ray Traced Reflections"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_reflections.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_reflections.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections/dxil
+)
+add_tslang_example(rt_reflections)
