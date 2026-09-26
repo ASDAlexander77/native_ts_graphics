@@ -289,6 +289,10 @@ if (DONUT_SAMPLES_MEDIA_DIR)
     # rt_particles: its scene, environment map and smoke texture.
     file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/rt_particles"
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
+    # feature_demo: its UI fonts. It lists the scenes under media/glTF-Sample-Assets/Models, so
+    # only the models copied above (Sponza, BrainStem); pass any other scene file on its command line.
+    file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/fonts"
+        DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
 endif()
 add_tslang_example(threaded_rendering)
 
@@ -398,3 +402,9 @@ if (NVRHI_WITH_DX12)
         COMPILE_DEFINITIONS DONUT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
     add_tslang_example(work_graphs d3d12_agility_sdk.cpp)
 endif()
+
+# Port of Donut-Samples' feature_demo: Donut's full renderer (deferred or forward shading, cascaded
+# shadows, SSAO, procedural sky, TAA or MSAA, bloom, tone mapping, light probes, material picking)
+# over a loaded scene, with an ImGui settings window and material editor. No shaders of its own;
+# needs the scenes and fonts of DONUT_SAMPLES_MEDIA_DIR above.
+add_tslang_example(feature_demo)

@@ -25,6 +25,7 @@
 #include <donut/app/ApplicationBase.h>
 #include <donut/app/Camera.h>
 #include <donut/app/DeviceManager.h>
+#include <donut/app/UserInterfaceUtils.h>
 #include <donut/app/imgui_renderer.h>
 #include <imgui.h>
 #include <donut/core/log.h>
@@ -38,13 +39,23 @@
 #include <donut/engine/Scene.h>
 #include <donut/engine/ThreadPool.h>
 #include <donut/engine/View.h>
+#include <donut/render/BloomPass.h>
+#include <donut/render/CascadedShadowMap.h>
 #include <donut/render/DeferredLightingPass.h>
+#include <donut/render/DepthPass.h>
 #include <donut/render/DrawStrategy.h>
 #include <donut/render/ForwardShadingPass.h>
 #include <donut/render/GBuffer.h>
 #include <donut/render/GBufferFillPass.h>
 #include <donut/render/GeometryPasses.h>
+#include <donut/render/LightProbeProcessingPass.h>
+#include <donut/render/MipMapGenPass.h>
+#include <donut/render/PixelReadbackPass.h>
+#include <donut/render/SkyPass.h>
+#include <donut/render/SsaoPass.h>
 #include <donut/render/TemporalAntiAliasingPass.h>
+#include <donut/render/ToneMappingPasses.h>
+#include <nvrhi/common/misc.h>
 #include <nvrhi/utils.h>
 
 #if DONUT_WITH_DX12
@@ -189,6 +200,11 @@ namespace
         }
 
         Callback<VoidFn> m_BuildUI;
+
+        // For the Donut_ImGui* functions; the base class keeps these protected.
+        using ImGui_Renderer::BeginFullScreenWindow;
+        using ImGui_Renderer::DrawScreenCenteredText;
+        using ImGui_Renderer::EndFullScreenWindow;
 
     protected:
         void buildUI() override
@@ -454,6 +470,226 @@ namespace
         nvrhi::TextureHandle motionVectors;
         std::shared_ptr<donut::engine::FramebufferFactory> framebuffer;
     };
+
+    // Render targets of Donut's full renderer (Donut-Samples' feature_demo RenderTargets): the
+    // G-buffer (with motion vectors, reverse-Z depth), HDR color and material IDs (all with the
+    // sample count), then single-sample resolved color (with mips, to test MipMapGenPass), TAA
+    // feedback, LDR color and ambient occlusion; placed in one heap where virtual resources are
+    // supported.
+    struct SceneRenderTargets : donut::render::GBufferRenderTargets
+    {
+        nvrhi::TextureHandle HdrColor;
+        nvrhi::TextureHandle LdrColor;
+        nvrhi::TextureHandle MaterialIDs;
+        nvrhi::TextureHandle ResolvedColor;
+        nvrhi::TextureHandle TemporalFeedback1;
+        nvrhi::TextureHandle TemporalFeedback2;
+        nvrhi::TextureHandle AmbientOcclusion;
+
+        nvrhi::HeapHandle Heap;
+
+        std::shared_ptr<donut::engine::FramebufferFactory> ForwardFramebuffer;
+        std::shared_ptr<donut::engine::FramebufferFactory> HdrFramebuffer;
+        std::shared_ptr<donut::engine::FramebufferFactory> LdrFramebuffer;
+        std::shared_ptr<donut::engine::FramebufferFactory> ResolvedFramebuffer;
+        std::shared_ptr<donut::engine::FramebufferFactory> MaterialIDFramebuffer;
+
+        void Init(nvrhi::IDevice* device, dm::uint2 size, dm::uint sampleCount,
+            bool enableMotionVectors, bool useReverseProjection) override
+        {
+            GBufferRenderTargets::Init(device, size, sampleCount, enableMotionVectors, useReverseProjection);
+
+            nvrhi::TextureDesc desc;
+            desc.width = size.x;
+            desc.height = size.y;
+            desc.isRenderTarget = true;
+            desc.useClearValue = true;
+            desc.clearValue = nvrhi::Color(1.f);
+            desc.sampleCount = sampleCount;
+            desc.dimension = sampleCount > 1 ? nvrhi::TextureDimension::Texture2DMS : nvrhi::TextureDimension::Texture2D;
+            desc.keepInitialState = true;
+            desc.isVirtual = device->queryFeatureSupport(nvrhi::Feature::VirtualResources);
+
+            desc.clearValue = nvrhi::Color(0.f);
+            desc.isTypeless = false;
+            desc.isUAV = sampleCount == 1;
+            desc.format = nvrhi::Format::RGBA16_FLOAT;
+            desc.initialState = nvrhi::ResourceStates::RenderTarget;
+            desc.debugName = "HdrColor";
+            HdrColor = device->createTexture(desc);
+
+            desc.format = nvrhi::Format::RG16_UINT;
+            desc.isUAV = false;
+            desc.debugName = "MaterialIDs";
+            MaterialIDs = device->createTexture(desc);
+
+            // The render targets below this point are non-MSAA
+            desc.sampleCount = 1;
+            desc.dimension = nvrhi::TextureDimension::Texture2D;
+
+            desc.format = nvrhi::Format::RGBA16_FLOAT;
+            desc.isUAV = true;
+            desc.mipLevels = uint32_t(floorf(::log2f(float(std::max(desc.width, desc.height)))) + 1.f);
+            desc.debugName = "ResolvedColor";
+            ResolvedColor = device->createTexture(desc);
+
+            desc.format = nvrhi::Format::RGBA16_SNORM;
+            desc.mipLevels = 1;
+            desc.debugName = "TemporalFeedback1";
+            TemporalFeedback1 = device->createTexture(desc);
+            desc.debugName = "TemporalFeedback2";
+            TemporalFeedback2 = device->createTexture(desc);
+
+            desc.format = nvrhi::Format::SRGBA8_UNORM;
+            desc.isUAV = false;
+            desc.debugName = "LdrColor";
+            LdrColor = device->createTexture(desc);
+
+            desc.format = nvrhi::Format::R8_UNORM;
+            desc.isUAV = true;
+            desc.debugName = "AmbientOcclusion";
+            AmbientOcclusion = device->createTexture(desc);
+
+            if (desc.isVirtual)
+            {
+                uint64_t heapSize = 0;
+                nvrhi::ITexture* const textures[] = {
+                    HdrColor, MaterialIDs, ResolvedColor, TemporalFeedback1, TemporalFeedback2, LdrColor, AmbientOcclusion
+                };
+
+                for (auto texture : textures)
+                {
+                    nvrhi::MemoryRequirements memReq = device->getTextureMemoryRequirements(texture);
+                    heapSize = nvrhi::align(heapSize, memReq.alignment);
+                    heapSize += memReq.size;
+                }
+
+                nvrhi::HeapDesc heapDesc;
+                heapDesc.type = nvrhi::HeapType::DeviceLocal;
+                heapDesc.capacity = heapSize;
+                heapDesc.debugName = "RenderTargetHeap";
+
+                Heap = device->createHeap(heapDesc);
+
+                uint64_t offset = 0;
+                for (auto texture : textures)
+                {
+                    nvrhi::MemoryRequirements memReq = device->getTextureMemoryRequirements(texture);
+                    offset = nvrhi::align(offset, memReq.alignment);
+
+                    device->bindTextureMemory(texture, Heap, offset);
+
+                    offset += memReq.size;
+                }
+            }
+
+            ForwardFramebuffer = std::make_shared<donut::engine::FramebufferFactory>(device);
+            ForwardFramebuffer->RenderTargets = { HdrColor };
+            ForwardFramebuffer->DepthTarget = Depth;
+
+            HdrFramebuffer = std::make_shared<donut::engine::FramebufferFactory>(device);
+            HdrFramebuffer->RenderTargets = { HdrColor };
+
+            LdrFramebuffer = std::make_shared<donut::engine::FramebufferFactory>(device);
+            LdrFramebuffer->RenderTargets = { LdrColor };
+
+            ResolvedFramebuffer = std::make_shared<donut::engine::FramebufferFactory>(device);
+            ResolvedFramebuffer->RenderTargets = { ResolvedColor };
+
+            MaterialIDFramebuffer = std::make_shared<donut::engine::FramebufferFactory>(device);
+            MaterialIDFramebuffer->RenderTargets = { MaterialIDs };
+            MaterialIDFramebuffer->DepthTarget = Depth;
+        }
+
+        void Clear(nvrhi::ICommandList* commandList) override
+        {
+            GBufferRenderTargets::Clear(commandList);
+
+            commandList->clearTextureFloat(HdrColor, nvrhi::AllSubresources, nvrhi::Color(0.f));
+            commandList->clearTextureFloat(LdrColor, nvrhi::AllSubresources, nvrhi::Color(0.f));
+            commandList->clearTextureFloat(ResolvedColor, nvrhi::AllSubresources, nvrhi::Color(0.f));
+        }
+    };
+
+    // A cascaded shadow map and the framebuffer its depth pass renders into.
+    struct ShadowMapTarget
+    {
+        std::shared_ptr<donut::render::CascadedShadowMap> shadowMap;
+        std::shared_ptr<donut::engine::FramebufferFactory> framebuffer;
+    };
+
+    // Light probes sharing one diffuse and one specular cube map array (a cube per probe).
+    struct LightProbeSet
+    {
+        nvrhi::TextureHandle diffuseTexture;
+        nvrhi::TextureHandle specularTexture;
+        std::vector<std::shared_ptr<donut::engine::LightProbe>> probes;
+
+        std::vector<std::shared_ptr<donut::engine::LightProbe>> EnabledProbes() const
+        {
+            std::vector<std::shared_ptr<donut::engine::LightProbe>> enabled;
+            for (const auto& probe : probes)
+                if (probe->enabled)
+                    enabled.push_back(probe);
+            return enabled;
+        }
+    };
+
+    // The environment cube map (color with mips, depth) a light probe is rendered from, and the
+    // cube map view that renders it.
+    struct LightProbeCapture
+    {
+        nvrhi::TextureHandle colorTexture;
+        nvrhi::TextureHandle depthTexture;
+        std::shared_ptr<donut::engine::FramebufferFactory> framebuffer;
+        donut::engine::CubemapView view;
+        uint32_t mipLevels = 1;
+    };
+
+    // Loads scenes on a thread and finishes them on the render thread, as
+    // donut::app::ApplicationBase does with asynchronous loading enabled.
+    struct SceneLoader
+    {
+        App* app = nullptr;
+        // The scene last loaded, if any.
+        std::shared_ptr<donut::engine::Scene> scene;
+        // Written by the loading thread; picked up once it has finished.
+        std::shared_ptr<donut::engine::Scene> loadedScene;
+        std::unique_ptr<std::thread> thread;
+        std::atomic<bool> sceneLoaded = false;
+        bool allTexturesFinalized = false;
+
+        ~SceneLoader()
+        {
+            if (thread)
+                thread->join();
+        }
+    };
+
+    donut::engine::IView* AsView(void* view) { return static_cast<donut::engine::IView*>(view); }
+    donut::engine::SceneGraph* AsSceneGraph(void* sceneGraph) { return static_cast<donut::engine::SceneGraph*>(sceneGraph); }
+    SceneRenderTargets* AsSceneRenderTargets(void* targets) { return static_cast<SceneRenderTargets*>(targets); }
+    const std::shared_ptr<donut::engine::FramebufferFactory>& AsFramebufferFactory(void* framebuffer)
+    {
+        return *static_cast<std::shared_ptr<donut::engine::FramebufferFactory>*>(framebuffer);
+    }
+
+    // Returned strings that aren't stored in a Donut object stay valid until the next call of the
+    // same function.
+    const char* ReturnString(std::string& storage, std::string value)
+    {
+        storage = std::move(value);
+        return storage.c_str();
+    }
+
+    // Depth formats usable for shadow maps and light probe depth, in order of preference.
+    nvrhi::Format ChooseDepthFormat(nvrhi::IDevice* device)
+    {
+        const nvrhi::Format formats[] = { nvrhi::Format::D24S8, nvrhi::Format::D32, nvrhi::Format::D16, nvrhi::Format::D32S8 };
+        const nvrhi::FormatSupport features = nvrhi::FormatSupport::Texture | nvrhi::FormatSupport::DepthStencil
+            | nvrhi::FormatSupport::ShaderLoad;
+        return nvrhi::utils::ChooseFormat(device, features, formats, std::size(formats));
+    }
 
     // Textures passed between the render thread and the async compute thread, each with the
     // submission (on the other queue) that last used it.
@@ -788,6 +1024,9 @@ extern "C"
         AppOption_RayTracing = 1, // enables the Vulkan ray tracing extensions (D3D12 has them built in)
         AppOption_ComputeQueue = 2, // creates a separate compute queue (nvrhi::CommandQueue::Compute)
         AppOption_DebugRuntime = 4, // enables the graphics API's debug layer and NVRHI's validation layer
+        AppOption_Fullscreen = 8, // starts in fullscreen at the monitor's native resolution
+        AppOption_NoVsync = 16, // starts with vertical sync off
+        AppOption_PerMonitorDpi = 32, // DPI aware, with ImGui scaled explicitly (as Donut's feature demo)
     };
 
     // Creates the device and window for graphicsApi (an nvrhi::GraphicsAPI value), with the
@@ -805,7 +1044,10 @@ extern "C"
         donut::app::DeviceCreationParameters params;
         params.backBufferWidth = static_cast<uint32_t>(width);
         params.backBufferHeight = static_cast<uint32_t>(height);
-        params.vsyncEnabled = true;
+        params.vsyncEnabled = (options & AppOption_NoVsync) == 0;
+        params.startFullscreen = (options & AppOption_Fullscreen) != 0;
+        params.enablePerMonitorDPI = (options & AppOption_PerMonitorDpi) != 0;
+        params.supportExplicitDisplayScaling = (options & AppOption_PerMonitorDpi) != 0;
         params.enableRayTracingExtensions = (options & AppOption_RayTracing) != 0;
         params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
         params.enableDebugRuntime = (options & AppOption_DebugRuntime) != 0;
@@ -2293,6 +2535,122 @@ extern "C"
     int Donut_ImGuiDragFloat3(const char* label, void* values, double speed)
     {
         return ImGui::DragFloat3(label, static_cast<float*>(values), float(speed)) ? 1 : 0;
+    }
+
+    // Places the next window with its pivot (0..1 of its size; 1, 0 = top right corner) at x, y.
+    void Donut_ImGuiSetNextWindowPosPivot(double x, double y, double pivotX, double pivotY)
+    {
+        ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), 0, ImVec2(float(pivotX), float(pivotY)));
+    }
+
+    // A slider; returns the new value (value, unless it was moved).
+    double Donut_ImGuiSliderFloat(const char* label, double value, double min, double max)
+    {
+        float v = float(value);
+        ImGui::SliderFloat(label, &v, float(min), float(max));
+        return v;
+    }
+
+    // A value edited by dragging (speed per pixel), clamped to min .. max; returns the new value.
+    double Donut_ImGuiDragFloat(const char* label, double value, double speed, double min, double max)
+    {
+        float v = float(value);
+        ImGui::DragFloat(label, &v, float(speed), float(min), float(max));
+        return v;
+    }
+
+    // Returns non-zero while the header is expanded (show its contents then).
+    int Donut_ImGuiCollapsingHeader(const char* label)
+    {
+        return ImGui::CollapsingHeader(label) ? 1 : 0;
+    }
+
+    // The next item goes on the same line as the previous one.
+    void Donut_ImGuiSameLine()
+    {
+        ImGui::SameLine();
+    }
+
+    // Inside a combo box: scrolls to the last item when the list opens.
+    void Donut_ImGuiSetItemDefaultFocus()
+    {
+        ImGui::SetItemDefaultFocus();
+    }
+
+    // Height of the current font in pixels.
+    double Donut_ImGuiGetFontSize()
+    {
+        return ImGui::GetFontSize();
+    }
+
+    // Loads a TrueType font (path relative to the executable's directory) at a size in pixels,
+    // for Donut_ImGuiPushFont. Call right after Donut_AddImGuiPass, before the first frame.
+    // Returns null if the file can't be read.
+    void* Donut_ImGuiCreateFont(void* imguiPass, const char* path, double size)
+    {
+        donut::vfs::NativeFileSystem fs;
+        auto font = static_cast<TsImGuiPass*>(imguiPass)->CreateFontFromFile(fs, GetExecutablePath().parent_path() / path, float(size));
+        return font.get();
+    }
+
+    // Draws with a font from Donut_ImGuiCreateFont until Donut_ImGuiPopFont.
+    void Donut_ImGuiPushFont(void* font)
+    {
+        ImGui::PushFont(static_cast<donut::app::RegisteredFont*>(font)->GetScaledFont());
+    }
+
+    void Donut_ImGuiPopFont()
+    {
+        ImGui::PopFont();
+    }
+
+    // A borderless window covering the screen, e.g. for a loading message; pair with
+    // Donut_ImGuiEndFullScreenWindow.
+    void Donut_ImGuiBeginFullScreenWindow(void* imguiPass)
+    {
+        static_cast<TsImGuiPass*>(imguiPass)->BeginFullScreenWindow();
+    }
+
+    // Text (may span lines) centered on the screen, inside the full-screen window.
+    void Donut_ImGuiDrawScreenCenteredText(void* imguiPass, const char* text)
+    {
+        static_cast<TsImGuiPass*>(imguiPass)->DrawScreenCenteredText(text);
+    }
+
+    void Donut_ImGuiEndFullScreenWindow(void* imguiPass)
+    {
+        static_cast<TsImGuiPass*>(imguiPass)->EndFullScreenWindow();
+    }
+
+    // Donut's material editor widgets, for a scene material; allowDomainChanges != 0 lets it
+    // change the domain (opaque, alpha tested, ...). Returns non-zero if the material changed.
+    int Donut_ImGuiMaterialEditor(void* material, int allowDomainChanges)
+    {
+        return donut::app::MaterialEditor(static_cast<donut::engine::Material*>(material), allowDomainChanges != 0) ? 1 : 0;
+    }
+
+    // Donut's light editor widgets, for a scene light. Returns non-zero if the light changed.
+    int Donut_ImGuiLightEditor(void* light)
+    {
+        return donut::app::LightEditor(*static_cast<donut::engine::Light*>(light)) ? 1 : 0;
+    }
+
+    // The system's open (open != 0) or save file dialog, with '|'-separated filter pairs like
+    // "BMP files|*.bmp|All files|*.*". Returns the chosen path, or "" if cancelled; valid until
+    // the next call.
+    const char* Donut_FileDialog(int open, const char* filters)
+    {
+        // Windows wants the pairs separated by NULs, with an extra NUL at the end.
+        std::string zeroSeparated(filters);
+        for (char& c : zeroSeparated)
+            if (c == '|')
+                c = '\0';
+        zeroSeparated.push_back('\0');
+        zeroSeparated.push_back('\0');
+
+        static std::string storage;
+        std::string fileName;
+        return ReturnString(storage, donut::app::FileDialog(open != 0, zeroSeparated.c_str(), fileName) ? fileName : std::string());
     }
 
     // --- C++ objects (owned by the app until released or the app is destroyed) -------------
@@ -3958,7 +4316,1187 @@ extern "C"
 #endif
     }
 
+    // --- Full renderer (Donut-Samples' feature_demo) ------------------------------------------
+    //
+    // The pieces of Donut's renderer that feature_demo drives. Functions taking a `view` accept a
+    // planar view (Donut_CreatePlanarView) or a stereo one (Donut_CreateStereoView) alike: both
+    // derive from donut::engine::IView alone, so their handles are IView pointers too. They
+    // record into `commandList`: the frame's (Donut_GetFrameCommandList) or one opened with
+    // Donut_OpenCommandList. Framebuffer handles (Donut_GetSceneRenderTargetsFramebuffer,
+    // Donut_GetLightProbeCaptureFramebuffer) are valid as long as the object they came from.
+
+    // The directory of the executable (of donut_interop.dll under the JIT), '/'-separated, where
+    // the media folder is.
+    const char* Donut_GetExecutableDirectory()
+    {
+        static std::string storage;
+        return ReturnString(storage, GetExecutablePath().parent_path().generic_string());
+    }
+
+    // Seconds per frame averaged over the last half second or so; 0 until measured.
+    double Donut_GetAverageFrameTime(void* app)
+    {
+        return AsApp(app)->deviceManager->GetAverageFrameTimeSeconds();
+    }
+
+    // Window size in pixels, e.g. for placing ImGui windows.
+    int Donut_GetWindowWidth(void* app)
+    {
+        int width = 0, height = 0;
+        AsApp(app)->deviceManager->GetWindowDimensions(width, height);
+        return width;
+    }
+
+    int Donut_GetWindowHeight(void* app)
+    {
+        int width = 0, height = 0;
+        AsApp(app)->deviceManager->GetWindowDimensions(width, height);
+        return height;
+    }
+
+    // Drops the compiled shaders the app's shader factory cached, so that passes created after
+    // this load them from disk again (e.g. after recompiling them).
+    void Donut_ClearShaderCache(void* app)
+    {
+        AsApp(app)->shaderFactory->ClearCache();
+    }
+
+    // Destroys resources released since the GPU last finished with them; after Donut_WaitForIdle.
+    void Donut_RunGarbageCollection(void* app)
+    {
+        AsApp(app)->device()->runGarbageCollection();
+    }
+
+    // nvrhi::Format values 0 .. count-1, with their names and nvrhi::FormatSupport bits.
+    int Donut_GetFormatCount()
+    {
+        return static_cast<int>(nvrhi::Format::COUNT);
+    }
+
+    const char* Donut_GetFormatName(int format)
+    {
+        return nvrhi::getFormatInfo(static_cast<nvrhi::Format>(format)).name;
+    }
+
+    int Donut_QueryFormatSupport(void* app, int format)
+    {
+        return static_cast<int>(AsApp(app)->device()->queryFormatSupport(static_cast<nvrhi::Format>(format)));
+    }
+
+    // --- Scene loading ------------------------------------------------------------------------
+
+    // A scene loader: loads one scene at a time on a thread (Donut_BeginLoadingScene); poll it
+    // with Donut_UpdateSceneLoader every frame. Its scenes use the app's texture cache.
+    void* Donut_CreateSceneLoader(void* app)
+    {
+        auto loader = std::make_shared<SceneLoader>();
+        loader->app = AsApp(app);
+        return AsApp(app)->OwnObject(loader);
+    }
+
+    // Non-zero once a scene has loaded, until the next Donut_BeginLoadingScene; unload what
+    // references it (the passes' binding caches) before starting another load.
+    int Donut_IsSceneLoaded(void* sceneLoader)
+    {
+        return static_cast<SceneLoader*>(sceneLoader)->sceneLoaded ? 1 : 0;
+    }
+
+    // Non-zero while the loading thread runs (until Donut_UpdateSceneLoader returns 1).
+    int Donut_IsSceneLoading(void* sceneLoader)
+    {
+        return static_cast<SceneLoader*>(sceneLoader)->thread ? 1 : 0;
+    }
+
+    // Starts loading a scene file (glTF or .scene.json; absolute, or relative to the executable's
+    // directory) on a thread, dropping the current scene: its handle is invalid afterwards.
+    void Donut_BeginLoadingScene(void* sceneLoader, const char* path)
+    {
+        auto* loader = static_cast<SceneLoader*>(sceneLoader);
+        App* a = loader->app;
+
+        if (loader->thread)
+        {
+            loader->thread->join();
+            loader->thread.reset();
+        }
+
+        loader->sceneLoaded = false;
+        loader->allTexturesFinalized = false;
+
+        a->textureCache()->Reset();
+        a->device()->waitForIdle();
+        loader->scene.reset();
+        loader->loadedScene.reset();
+        a->device()->runGarbageCollection();
+
+        const std::filesystem::path fileName = GetExecutablePath().parent_path() / path;
+        loader->thread = std::make_unique<std::thread>([loader, a, fileName]() {
+            auto scene = std::make_shared<donut::engine::Scene>(a->device(), *a->shaderFactory,
+                std::make_shared<donut::vfs::NativeFileSystem>(), a->textureCache(), nullptr, nullptr);
+
+            const auto startTime = std::chrono::high_resolution_clock::now();
+            if (scene->Load(fileName))
+            {
+                const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::high_resolution_clock::now() - startTime).count();
+                donut::log::info("Scene loading time: %llu ms", static_cast<unsigned long long>(duration));
+
+                loader->loadedScene = std::move(scene);
+                loader->sceneLoaded = true;
+            }
+        });
+    }
+
+    // Values returned by Donut_UpdateSceneLoader.
+    enum SceneLoaderState
+    {
+        SceneLoaderState_Loading = 0, // no scene to render yet: draw a splash screen
+        SceneLoaderState_Loaded = 1, // the scene has just finished loading, this frame
+        SceneLoaderState_Ready = 2,
+    };
+
+    // Inside a render callback, every frame, first thing: uploads the textures loaded so far, and
+    // finishes the scene once it and all its textures have loaded. A scene that fails to load
+    // stays Loading. The uploads use their own command list, so this submits what the frame has
+    // recorded so far (NVRHI allows one open immediate command list at a time).
+    int Donut_UpdateSceneLoader(void* sceneLoader, void* frame)
+    {
+        auto* loader = static_cast<SceneLoader*>(sceneLoader);
+        App* a = loader->app;
+        FrameContext* ctx = AsFrame(frame);
+        ctx->commandList->close();
+        a->device()->executeCommandList(ctx->commandList);
+        struct Reopen { nvrhi::ICommandList* cl; ~Reopen() { cl->open(); } } reopen{ ctx->commandList };
+
+        const bool anyTexturesProcessed = a->textureCache()->ProcessRenderingThreadCommands(*a->commonPasses(), 20.f);
+        if (loader->sceneLoaded && !anyTexturesProcessed)
+            loader->allTexturesFinalized = true;
+
+        if (!loader->sceneLoaded || !loader->allTexturesFinalized)
+            return SceneLoaderState_Loading;
+
+        if (loader->thread)
+        {
+            loader->thread->join();
+            loader->thread.reset();
+
+            a->textureCache()->ProcessRenderingThreadCommands(*a->commonPasses(), 0.f);
+            a->textureCache()->LoadingFinished();
+
+            loader->scene = std::move(loader->loadedScene);
+            loader->scene->FinishedLoading(a->deviceManager->GetFrameIndex());
+            return SceneLoaderState_Loaded;
+        }
+
+        return SceneLoaderState_Ready;
+    }
+
+    // The loaded scene (for the Donut_*Scene* functions), or null; valid until the next
+    // Donut_BeginLoadingScene.
+    void* Donut_GetLoadedScene(void* sceneLoader)
+    {
+        return static_cast<SceneLoader*>(sceneLoader)->scene.get();
+    }
+
+    // Loading progress as 4 ints into dst: objects loaded, objects total, textures loaded,
+    // textures requested.
+    void Donut_GetSceneLoadingStats(void* sceneLoader, void* dst)
+    {
+        App* a = static_cast<SceneLoader*>(sceneLoader)->app;
+        const auto& stats = donut::engine::Scene::GetLoadingStats();
+        const int values[4] = {
+            int(stats.ObjectsLoaded.load()), int(stats.ObjectsTotal.load()),
+            int(a->textureCache()->GetNumberOfLoadedTextures()), int(a->textureCache()->GetNumberOfRequestedTextures())
+        };
+        memcpy(dst, values, sizeof(values));
+    }
+
+    // The scene files (glTF and .scene.json) under a directory, recursively, as a string list.
+    void* Donut_FindScenes(void* app, const char* directory)
+    {
+        donut::vfs::NativeFileSystem fs;
+        return AsApp(app)->OwnObject(std::make_shared<std::vector<std::string>>(donut::app::FindScenes(fs, directory)));
+    }
+
+    int Donut_GetStringListCount(void* stringList)
+    {
+        return static_cast<int>(static_cast<std::vector<std::string>*>(stringList)->size());
+    }
+
+    // Valid as long as the list.
+    const char* Donut_GetStringListItem(void* stringList, int index)
+    {
+        return (*static_cast<std::vector<std::string>*>(stringList))[index].c_str();
+    }
+
+    // --- Scene graph queries ------------------------------------------------------------------
+    // Handles to lights, cameras, materials and nodes are valid as long as their scene.
+
+    int Donut_GetSceneGraphLightCount(void* sceneGraph)
+    {
+        return static_cast<int>(AsSceneGraph(sceneGraph)->GetLights().size());
+    }
+
+    void* Donut_GetSceneGraphLight(void* sceneGraph, int index)
+    {
+        return AsSceneGraph(sceneGraph)->GetLights()[index].get();
+    }
+
+    // A LightType_* value (light_types.h): 1 directional, 2 spot, 3 point.
+    int Donut_GetLightType(void* light)
+    {
+        return static_cast<donut::engine::Light*>(light)->GetLightType();
+    }
+
+    const char* Donut_GetLightName(void* light)
+    {
+        return static_cast<donut::engine::Light*>(light)->GetName().c_str();
+    }
+
+    // Directional lights only.
+    double Donut_GetDirectionalLightIrradiance(void* light)
+    {
+        return static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light))->irradiance;
+    }
+
+    void Donut_SetDirectionalLightIrradiance(void* light, double irradiance)
+    {
+        static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light))->irradiance = float(irradiance);
+    }
+
+    // The shadow map the light casts shadows with in the forward and deferred passes, or none (null).
+    void Donut_SetLightShadowMap(void* light, void* shadowMapTarget)
+    {
+        static_cast<donut::engine::Light*>(light)->shadowMap = shadowMapTarget
+            ? static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap : nullptr;
+    }
+
+    // Cameras defined in the scene file.
+    int Donut_GetSceneGraphCameraCount(void* sceneGraph)
+    {
+        return static_cast<int>(AsSceneGraph(sceneGraph)->GetCameras().size());
+    }
+
+    void* Donut_GetSceneGraphCamera(void* sceneGraph, int index)
+    {
+        return AsSceneGraph(sceneGraph)->GetCameras()[index].get();
+    }
+
+    const char* Donut_GetSceneCameraName(void* sceneCamera)
+    {
+        return static_cast<donut::engine::SceneCamera*>(sceneCamera)->GetName().c_str();
+    }
+
+    // The camera's world-to-view / view-to-world matrix: 16 floats into dst (row-major,
+    // row-vector convention).
+    void Donut_GetSceneCameraWorldToView(void* sceneCamera, void* dst)
+    {
+        const dm::float4x4 m = dm::affineToHomogeneous(static_cast<donut::engine::SceneCamera*>(sceneCamera)->GetWorldToViewMatrix());
+        memcpy(dst, &m, sizeof(m));
+    }
+
+    void Donut_GetSceneCameraViewToWorld(void* sceneCamera, void* dst)
+    {
+        const dm::float4x4 m = dm::affineToHomogeneous(static_cast<donut::engine::SceneCamera*>(sceneCamera)->GetViewToWorldMatrix());
+        memcpy(dst, &m, sizeof(m));
+    }
+
+    // Vertical field of view in radians of a perspective camera, or a negative value for other cameras.
+    double Donut_GetSceneCameraVerticalFov(void* sceneCamera)
+    {
+        auto* perspective = dynamic_cast<donut::engine::PerspectiveCamera*>(static_cast<donut::engine::SceneCamera*>(sceneCamera));
+        return perspective ? perspective->verticalFov : -1.0;
+    }
+
+    // Near plane distance of a perspective camera, or a negative value for other cameras.
+    double Donut_GetSceneCameraZNear(void* sceneCamera)
+    {
+        auto* perspective = dynamic_cast<donut::engine::PerspectiveCamera*>(static_cast<donut::engine::SceneCamera*>(sceneCamera));
+        return perspective ? perspective->zNear : -1.0;
+    }
+
+    // World-space bounds of a node and its children, as 6 floats into dst: min x, y, z, max x, y, z.
+    void Donut_GetNodeBoundingBox(void* node, void* dst)
+    {
+        const dm::box3& bounds = static_cast<donut::engine::SceneGraphNode*>(node)->GetGlobalBoundingBox();
+        const float values[6] = { bounds.m_mins.x, bounds.m_mins.y, bounds.m_mins.z, bounds.m_maxs.x, bounds.m_maxs.y, bounds.m_maxs.z };
+        memcpy(dst, values, sizeof(values));
+    }
+
+    // Like "/Sponza/Mesh_12".
+    const char* Donut_GetNodePath(void* node)
+    {
+        static std::string storage;
+        return ReturnString(storage, static_cast<donut::engine::SceneGraphNode*>(node)->GetPath().generic_string());
+    }
+
+    // Makes the scene re-sort the node's content, e.g. after a material changes domain.
+    void Donut_InvalidateNodeContent(void* node)
+    {
+        static_cast<donut::engine::SceneGraphNode*>(node)->InvalidateContent();
+    }
+
+    int Donut_GetSceneGraphMaterialCount(void* sceneGraph)
+    {
+        // ResourceTracker's iterator is forward-only, without iterator_traits for std::distance.
+        int count = 0;
+        for (const auto& material : AsSceneGraph(sceneGraph)->GetMaterials())
+        {
+            (void)material;
+            count++;
+        }
+        return count;
+    }
+
+    void* Donut_GetSceneGraphMaterial(void* sceneGraph, int index)
+    {
+        for (const auto& material : AsSceneGraph(sceneGraph)->GetMaterials())
+        {
+            if (index-- == 0)
+                return material.get();
+        }
+        return nullptr;
+    }
+
+    int Donut_GetMaterialID(void* material)
+    {
+        return static_cast<donut::engine::Material*>(material)->materialID;
+    }
+
+    const char* Donut_GetMaterialName(void* material)
+    {
+        return static_cast<donut::engine::Material*>(material)->name.c_str();
+    }
+
+    // A donut::engine::MaterialDomain value.
+    int Donut_GetMaterialDomain(void* material)
+    {
+        return static_cast<int>(static_cast<donut::engine::Material*>(material)->domain);
+    }
+
+    // Marks the material for re-upload of its constants (what the material editor returns).
+    void Donut_SetMaterialDirty(void* material, int dirty)
+    {
+        static_cast<donut::engine::Material*>(material)->dirty = dirty != 0;
+    }
+
+    int Donut_GetSceneGraphMeshInstanceCount(void* sceneGraph)
+    {
+        return static_cast<int>(AsSceneGraph(sceneGraph)->GetMeshInstances().size());
+    }
+
+    // The instance index (what material ID passes write) of the index-th mesh instance.
+    int Donut_GetMeshInstanceIndex(void* sceneGraph, int index)
+    {
+        return AsSceneGraph(sceneGraph)->GetMeshInstances()[index]->GetInstanceIndex();
+    }
+
+    void* Donut_GetMeshInstanceNode(void* sceneGraph, int index)
+    {
+        return AsSceneGraph(sceneGraph)->GetMeshInstances()[index]->GetNode();
+    }
+
+    // --- Views ----------------------------------------------------------------------------------
+
+    // Two planar views side by side, left and right eye, rendered as one.
+    void* Donut_CreateStereoView(void* app)
+    {
+        donut::engine::IView* view = AsApp(app)->OwnObject(std::make_shared<donut::engine::StereoPlanarView>());
+        return view;
+    }
+
+    // Donut_SetPlanarView with the projection offset by a sub-pixel jitter (for temporal
+    // anti-aliasing), in pixels.
+    void Donut_SetPlanarViewJittered(void* view, const void* viewMatrix, const void* projMatrix, int width, int height,
+        double pixelOffsetX, double pixelOffsetY)
+    {
+        auto* planarView = static_cast<donut::engine::PlanarView*>(view);
+        planarView->SetViewport(nvrhi::Viewport(float(width), float(height)));
+        planarView->SetPixelOffset(dm::float2(float(pixelOffsetX), float(pixelOffsetY)));
+        planarView->SetMatrices(dm::homogeneousToAffine(LoadMatrix(static_cast<const float*>(viewMatrix))),
+            LoadMatrix(static_cast<const float*>(projMatrix)));
+        planarView->UpdateCache();
+    }
+
+    // Sets a stereo view over width x height pixels: the left eye in the left half, the right
+    // eye in the right half, sharing one projection (matrices as for Donut_SetPlanarView).
+    void Donut_SetStereoView(void* view, const void* leftViewMatrix, const void* rightViewMatrix, const void* projMatrix,
+        int width, int height, double pixelOffsetX, double pixelOffsetY)
+    {
+        auto* stereoView = static_cast<donut::engine::StereoPlanarView*>(AsView(view));
+        const float w = float(width);
+        const float h = float(height);
+        const dm::float2 pixelOffset = dm::float2(float(pixelOffsetX), float(pixelOffsetY));
+        const dm::float4x4 projection = LoadMatrix(static_cast<const float*>(projMatrix));
+
+        stereoView->LeftView.SetViewport(nvrhi::Viewport(w * 0.5f, h));
+        stereoView->LeftView.SetPixelOffset(pixelOffset);
+        stereoView->LeftView.SetMatrices(dm::homogeneousToAffine(LoadMatrix(static_cast<const float*>(leftViewMatrix))), projection);
+        stereoView->LeftView.UpdateCache();
+
+        stereoView->RightView.SetViewport(nvrhi::Viewport(w * 0.5f, w, 0.f, h, 0.f, 1.f));
+        stereoView->RightView.SetPixelOffset(pixelOffset);
+        stereoView->RightView.SetMatrices(dm::homogeneousToAffine(LoadMatrix(static_cast<const float*>(rightViewMatrix))), projection);
+        stereoView->RightView.UpdateCache();
+    }
+
+    void Donut_CopyStereoView(void* dstView, void* srcView)
+    {
+        *static_cast<donut::engine::StereoPlanarView*>(AsView(dstView)) = *static_cast<donut::engine::StereoPlanarView*>(AsView(srcView));
+    }
+
+    // The left eye's planar view, e.g. for Donut_ThirdPersonCameraSetView.
+    void* Donut_GetStereoLeftView(void* view)
+    {
+        return &static_cast<donut::engine::StereoPlanarView*>(AsView(view))->LeftView;
+    }
+
+    // First person cameras only: Donut_CameraLookAt with an up direction.
+    void Donut_CameraLookAtWithUp(void* camera, double posX, double posY, double posZ,
+        double targetX, double targetY, double targetZ, double upX, double upY, double upZ)
+    {
+        static_cast<donut::app::FirstPersonCamera*>(AsCamera(camera))->LookAt(
+            dm::float3(float(posX), float(posY), float(posZ)), dm::float3(float(targetX), float(targetY), float(targetZ)),
+            dm::float3(float(upX), float(upY), float(upZ)));
+    }
+
+    // The camera's position, as 3 floats into dst.
+    void Donut_GetCameraPosition(void* camera, void* dst)
+    {
+        memcpy(dst, &AsCamera(camera)->GetPosition(), sizeof(dm::float3));
+    }
+
+    // --- Render targets -------------------------------------------------------------------------
+
+    // Render targets of width x height pixels, multisampled with sampleCount > 1; create new ones
+    // when the size or sample count changes.
+    void* Donut_CreateSceneRenderTargets(void* app, int width, int height, int sampleCount)
+    {
+        App* a = AsApp(app);
+        auto targets = std::make_shared<SceneRenderTargets>();
+        targets->Init(a->device(), dm::uint2(uint32_t(width), uint32_t(height)), uint32_t(sampleCount), true, true);
+        return a->OwnObject(targets);
+    }
+
+    // Clears the G-buffer (depth to 0, for reverse Z), HDR, LDR and resolved color.
+    void Donut_ClearSceneRenderTargets(void* commandList, void* sceneRenderTargets)
+    {
+        AsSceneRenderTargets(sceneRenderTargets)->Clear(AsCommandList(commandList));
+    }
+
+    // Values of `which` for Donut_GetSceneRenderTargetsTexture.
+    enum SceneTexture
+    {
+        SceneTexture_Depth = 0,
+        SceneTexture_HdrColor = 1,
+        SceneTexture_LdrColor = 2,
+        SceneTexture_MaterialIDs = 3,
+        SceneTexture_ResolvedColor = 4,
+        SceneTexture_AmbientOcclusion = 5,
+        SceneTexture_MotionVectors = 6,
+    };
+
+    // Valid as long as the targets.
+    void* Donut_GetSceneRenderTargetsTexture(void* sceneRenderTargets, int which)
+    {
+        auto* targets = AsSceneRenderTargets(sceneRenderTargets);
+        switch (which)
+        {
+        case SceneTexture_Depth: return targets->Depth.Get();
+        case SceneTexture_HdrColor: return targets->HdrColor.Get();
+        case SceneTexture_LdrColor: return targets->LdrColor.Get();
+        case SceneTexture_MaterialIDs: return targets->MaterialIDs.Get();
+        case SceneTexture_ResolvedColor: return targets->ResolvedColor.Get();
+        case SceneTexture_AmbientOcclusion: return targets->AmbientOcclusion.Get();
+        case SceneTexture_MotionVectors: return targets->MotionVectors.Get();
+        default: return nullptr;
+        }
+    }
+
+    // Values of `which` for Donut_GetSceneRenderTargetsFramebuffer.
+    enum SceneFramebuffer
+    {
+        SceneFramebuffer_GBuffer = 0, // G-buffer textures and depth
+        SceneFramebuffer_Forward = 1, // HDR color and depth
+        SceneFramebuffer_Hdr = 2,
+        SceneFramebuffer_Ldr = 3,
+        SceneFramebuffer_Resolved = 4,
+        SceneFramebuffer_MaterialIDs = 5, // material IDs and depth
+    };
+
+    void* Donut_GetSceneRenderTargetsFramebuffer(void* sceneRenderTargets, int which)
+    {
+        auto* targets = AsSceneRenderTargets(sceneRenderTargets);
+        switch (which)
+        {
+        case SceneFramebuffer_GBuffer: return &targets->GBufferFramebuffer;
+        case SceneFramebuffer_Forward: return &targets->ForwardFramebuffer;
+        case SceneFramebuffer_Hdr: return &targets->HdrFramebuffer;
+        case SceneFramebuffer_Ldr: return &targets->LdrFramebuffer;
+        case SceneFramebuffer_Resolved: return &targets->ResolvedFramebuffer;
+        case SceneFramebuffer_MaterialIDs: return &targets->MaterialIDFramebuffer;
+        default: return nullptr;
+        }
+    }
+
+    // Resolves mip 0 / slice 0 of a multisampled texture into a single-sample one.
+    void Donut_ResolveTexture(void* commandList, void* dstTexture, void* srcTexture)
+    {
+        const auto subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+        AsCommandList(commandList)->resolveTexture(static_cast<nvrhi::ITexture*>(dstTexture), subresources,
+            static_cast<nvrhi::ITexture*>(srcTexture), subresources);
+    }
+
+    // Clears all of an integer texture to value.
+    void Donut_ClearTextureUInt(void* commandList, void* texture, int value)
+    {
+        AsCommandList(commandList)->clearTextureUInt(static_cast<nvrhi::ITexture*>(texture), nvrhi::AllSubresources,
+            static_cast<uint32_t>(value));
+    }
+
+    // --- Shadows ------------------------------------------------------------------------------
+
+    // A cascaded shadow map of numCascades resolution x resolution cascades.
+    void* Donut_CreateCascadedShadowMap(void* app, int resolution, int numCascades)
+    {
+        App* a = AsApp(app);
+        auto target = std::make_shared<ShadowMapTarget>();
+        target->shadowMap = std::make_shared<donut::render::CascadedShadowMap>(a->device(), resolution, numCascades, 0,
+            ChooseDepthFormat(a->device()));
+        target->shadowMap->SetupProxyViews();
+
+        target->framebuffer = std::make_shared<donut::engine::FramebufferFactory>(a->device());
+        target->framebuffer->DepthTarget = target->shadowMap->GetTexture();
+        return a->OwnObject(target);
+    }
+
+    // The depth texture, one array slice per cascade.
+    void* Donut_GetShadowMapTexture(void* shadowMapTarget)
+    {
+        return static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->GetTexture();
+    }
+
+    // Fits the cascades to a directional light and the first planar view of `view`, out to
+    // maxShadowDistance, with cascade split exponent `exponent` (stable: they don't shimmer
+    // when the camera moves).
+    void Donut_SetupShadowMapForView(void* shadowMapTarget, void* light, void* view, double maxShadowDistance,
+        double zRange, double exponent)
+    {
+        donut::engine::IView* v = AsView(view);
+        const dm::affine3 viewMatrixInv = v->GetChildView(donut::engine::ViewType::PLANAR, 0)->GetInverseViewMatrix();
+        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->SetupForPlanarViewStable(
+            *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light)),
+            v->GetProjectionFrustum(), viewMatrixInv, float(maxShadowDistance), float(zRange), float(zRange), float(exponent));
+    }
+
+    void Donut_ClearShadowMap(void* commandList, void* shadowMapTarget)
+    {
+        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->Clear(AsCommandList(commandList));
+    }
+
+    // Donut's depth-only pass, with depth biases for shadow maps.
+    void* Donut_CreateShadowDepthPass(void* app, int depthBias, double slopeScaledDepthBias)
+    {
+        App* a = AsApp(app);
+        donut::render::DepthPass::CreateParameters params;
+        params.depthBias = depthBias;
+        params.slopeScaledDepthBias = float(slopeScaledDepthBias);
+        auto pass = std::make_shared<donut::render::DepthPass>(a->device(), a->sharedCommonPasses());
+        pass->Init(*a->shaderFactory, params);
+        return a->OwnObject(pass);
+    }
+
+    void Donut_ResetDepthPassBindingCache(void* depthPass)
+    {
+        static_cast<donut::render::DepthPass*>(depthPass)->ResetBindingCache();
+    }
+
+    // Draws the opaque meshes of a scene graph into all the shadow map's cascades.
+    // materialEvents != 0: one GPU marker per material.
+    void Donut_RenderShadowDepth(void* commandList, void* depthPass, void* shadowMapTarget, void* sceneGraph, int materialEvents)
+    {
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        donut::render::InstancedOpaqueDrawStrategy strategy;
+        donut::render::DepthPass::Context context;
+        donut::render::RenderCompositeView(AsCommandList(commandList), &target->shadowMap->GetView(), nullptr,
+            *target->framebuffer, AsSceneGraph(sceneGraph)->GetRootNode(), strategy,
+            *static_cast<donut::render::DepthPass*>(depthPass), context, "ShadowMap", materialEvents != 0);
+    }
+
+    // --- Geometry passes ------------------------------------------------------------------------
+
+    // Donut_CreateForwardShadingPass with options: singlePassCubemap != 0 renders all six faces
+    // of a cube map view at once (needs nvrhi::Feature::FastGeometryShader); trackLiveness == 0
+    // skips resource liveness tracking.
+    void* Donut_CreateForwardShadingPassWithOptions(void* app, int singlePassCubemap, int trackLiveness)
+    {
+        App* a = AsApp(app);
+        donut::render::ForwardShadingPass::CreateParameters params;
+        params.singlePassCubemap = singlePassCubemap != 0;
+        params.trackLiveness = trackLiveness != 0;
+        auto pass = std::make_shared<donut::render::ForwardShadingPass>(a->device(), a->sharedCommonPasses());
+        pass->Init(*a->shaderFactory, params);
+        return a->OwnObject(pass);
+    }
+
+    void Donut_ResetForwardShadingBindingCache(void* forwardShadingPass)
+    {
+        static_cast<donut::render::ForwardShadingPass*>(forwardShadingPass)->ResetBindingCache();
+    }
+
+    // The lights a forward shading pass renders with (Donut_PrepareForwardLights), kept between
+    // its draws.
+    void* Donut_CreateForwardShadingContext(void* app)
+    {
+        return AsApp(app)->OwnObject(std::make_shared<donut::render::ForwardShadingPass::Context>());
+    }
+
+    // Uploads a scene graph's lights, a top / bottom ambient term and the enabled probes of a
+    // light probe set (or none: null) for Donut_RenderForward with the same context.
+    void Donut_PrepareForwardLights(void* commandList, void* forwardShadingPass, void* forwardShadingContext, void* sceneGraph,
+        double topR, double topG, double topB, double bottomR, double bottomG, double bottomB, void* lightProbeSet)
+    {
+        std::vector<std::shared_ptr<donut::engine::LightProbe>> lightProbes;
+        if (lightProbeSet)
+            lightProbes = static_cast<LightProbeSet*>(lightProbeSet)->EnabledProbes();
+
+        static_cast<donut::render::ForwardShadingPass*>(forwardShadingPass)->PrepareLights(
+            *static_cast<donut::render::ForwardShadingPass::Context*>(forwardShadingContext), AsCommandList(commandList),
+            AsSceneGraph(sceneGraph)->GetLights(), dm::float3(float(topR), float(topG), float(topB)),
+            dm::float3(float(bottomR), float(bottomG), float(bottomB)), lightProbes);
+    }
+
+    // Draws a scene graph's opaque (transparent == 0) or transparent meshes with a forward shading
+    // pass into a framebuffer, as seen by view; previousView (or null) is for motion vectors.
+    // `name` labels the GPU marker; materialEvents != 0 adds one per material.
+    void Donut_RenderForward(void* commandList, void* forwardShadingPass, void* forwardShadingContext, void* view,
+        void* previousView, void* framebuffer, void* sceneGraph, int transparent, const char* name, int materialEvents)
+    {
+        donut::render::InstancedOpaqueDrawStrategy opaqueStrategy;
+        donut::render::TransparentDrawStrategy transparentStrategy;
+        donut::render::IDrawStrategy& strategy = transparent
+            ? static_cast<donut::render::IDrawStrategy&>(transparentStrategy) : opaqueStrategy;
+
+        donut::render::RenderCompositeView(AsCommandList(commandList), AsView(view),
+            previousView ? AsView(previousView) : nullptr, *AsFramebufferFactory(framebuffer),
+            AsSceneGraph(sceneGraph)->GetRootNode(), strategy, *static_cast<donut::render::ForwardShadingPass*>(forwardShadingPass),
+            *static_cast<donut::render::ForwardShadingPass::Context*>(forwardShadingContext), name, materialEvents != 0);
+    }
+
+    // Donut_CreateGBufferFillPass with options: enableMotionVectors != 0 writes motion vectors
+    // (and stencilWriteMask into the stencil where it does, for TAA).
+    void* Donut_CreateGBufferFillPassWithOptions(void* app, int enableMotionVectors, int stencilWriteMask)
+    {
+        App* a = AsApp(app);
+        donut::render::GBufferFillPass::CreateParameters params;
+        params.enableMotionVectors = enableMotionVectors != 0;
+        params.stencilWriteMask = static_cast<uint8_t>(stencilWriteMask);
+        auto pass = std::make_shared<donut::render::GBufferFillPass>(a->device(), a->sharedCommonPasses());
+        pass->Init(*a->shaderFactory, params);
+        return a->OwnObject(pass);
+    }
+
+    void Donut_ResetGBufferFillBindingCache(void* gbufferFillPass)
+    {
+        static_cast<donut::render::GBufferFillPass*>(gbufferFillPass)->ResetBindingCache();
+    }
+
+    // Draws a scene graph's opaque meshes into the targets' G-buffer, as seen by view (and, for
+    // motion vectors, previousView).
+    void Donut_RenderGBufferFill(void* commandList, void* gbufferFillPass, void* view, void* previousView,
+        void* sceneRenderTargets, void* sceneGraph, int materialEvents)
+    {
+        donut::render::InstancedOpaqueDrawStrategy strategy;
+        donut::render::GBufferFillPass::Context context;
+        donut::render::RenderCompositeView(AsCommandList(commandList), AsView(view), AsView(previousView),
+            *AsSceneRenderTargets(sceneRenderTargets)->GBufferFramebuffer, AsSceneGraph(sceneGraph)->GetRootNode(), strategy,
+            *static_cast<donut::render::GBufferFillPass*>(gbufferFillPass), context, "GBufferFill", materialEvents != 0);
+    }
+
+    // Donut's material ID pass: writes each pixel's material ID and instance index (RG16_UINT).
+    void* Donut_CreateMaterialIDPass(void* app, int stencilWriteMask)
+    {
+        App* a = AsApp(app);
+        donut::render::GBufferFillPass::CreateParameters params;
+        params.enableMotionVectors = false;
+        params.stencilWriteMask = static_cast<uint8_t>(stencilWriteMask);
+        auto pass = std::make_shared<donut::render::MaterialIDPass>(a->device(), a->sharedCommonPasses());
+        pass->Init(*a->shaderFactory, params);
+        return a->OwnObject(pass);
+    }
+
+    // Draws a scene graph's opaque (transparent == 0) or transparent meshes into the targets'
+    // material IDs.
+    void Donut_RenderMaterialIDs(void* commandList, void* materialIdPass, void* view, void* previousView,
+        void* sceneRenderTargets, void* sceneGraph, int transparent)
+    {
+        donut::render::InstancedOpaqueDrawStrategy opaqueStrategy;
+        donut::render::TransparentDrawStrategy transparentStrategy;
+        donut::render::IDrawStrategy& strategy = transparent
+            ? static_cast<donut::render::IDrawStrategy&>(transparentStrategy) : opaqueStrategy;
+
+        donut::render::MaterialIDPass::Context context;
+        donut::render::RenderCompositeView(AsCommandList(commandList), AsView(view), AsView(previousView),
+            *AsSceneRenderTargets(sceneRenderTargets)->MaterialIDFramebuffer, AsSceneGraph(sceneGraph)->GetRootNode(), strategy,
+            *static_cast<donut::render::MaterialIDPass*>(materialIdPass), context,
+            transparent ? "MaterialID - Translucent" : "MaterialID");
+    }
+
+    // Lights the targets' G-buffer into their HDR color with a scene graph's lights, a top /
+    // bottom ambient term, the targets' ambient occlusion (useAmbientOcclusion != 0) and a light
+    // probe set (or none: null).
+    void Donut_RenderDeferredLightingToHdr(void* commandList, void* deferredLightingPass, void* view, void* sceneRenderTargets,
+        void* sceneGraph, int useAmbientOcclusion, double topR, double topG, double topB,
+        double bottomR, double bottomG, double bottomB, void* lightProbeSet)
+    {
+        auto* targets = AsSceneRenderTargets(sceneRenderTargets);
+
+        donut::render::DeferredLightingPass::Inputs inputs;
+        inputs.SetGBuffer(*targets);
+        inputs.ambientOcclusion = useAmbientOcclusion ? targets->AmbientOcclusion.Get() : nullptr;
+        inputs.ambientColorTop = dm::float3(float(topR), float(topG), float(topB));
+        inputs.ambientColorBottom = dm::float3(float(bottomR), float(bottomG), float(bottomB));
+        inputs.lights = &AsSceneGraph(sceneGraph)->GetLights();
+        inputs.lightProbes = lightProbeSet ? &static_cast<LightProbeSet*>(lightProbeSet)->probes : nullptr;
+        inputs.output = targets->HdrColor;
+
+        static_cast<donut::render::DeferredLightingPass*>(deferredLightingPass)->Render(
+            AsCommandList(commandList), *AsView(view), inputs);
+    }
+
+    // --- Post-processing and other passes -----------------------------------------------------
+
+    // Donut's SSAO over the targets' depth and G-buffer normals, into their ambient occlusion.
+    // Single-sample targets only.
+    void* Donut_CreateSsaoPass(void* app, void* sceneRenderTargets)
+    {
+        App* a = AsApp(app);
+        auto* targets = AsSceneRenderTargets(sceneRenderTargets);
+        return a->OwnObject(std::make_shared<donut::render::SsaoPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
+            targets->Depth, targets->GBufferNormals, targets->AmbientOcclusion));
+    }
+
+    // With default parameters.
+    void Donut_RenderSsao(void* commandList, void* ssaoPass, void* view)
+    {
+        static_cast<donut::render::SsaoPass*>(ssaoPass)->Render(AsCommandList(commandList),
+            donut::render::SsaoParameters(), *AsView(view));
+    }
+
+    // Donut's procedural sky, drawn where the framebuffer's depth is still clear.
+    void* Donut_CreateSkyPass(void* app, void* framebuffer, void* view)
+    {
+        App* a = AsApp(app);
+        return a->OwnObject(std::make_shared<donut::render::SkyPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
+            AsFramebufferFactory(framebuffer), *AsView(view)));
+    }
+
+    // Draws the sky around a directional light; the SkyParameters not given keep their defaults.
+    void Donut_RenderSky(void* commandList, void* skyPass, void* view, void* light, double brightness,
+        double glowSize, double glowSharpness, double glowIntensity, double horizonSize)
+    {
+        donut::render::SkyParameters params;
+        params.brightness = float(brightness);
+        params.glowSize = float(glowSize);
+        params.glowSharpness = float(glowSharpness);
+        params.glowIntensity = float(glowIntensity);
+        params.horizonSize = float(horizonSize);
+        static_cast<donut::render::SkyPass*>(skyPass)->Render(AsCommandList(commandList), *AsView(view),
+            *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light)), params);
+    }
+
+    // Donut's TAA over the targets: resolves HDR color into resolved color with Catmull-Rom
+    // filtering, using motion vectors where the stencil has motionVectorStencilMask set.
+    void* Donut_CreateSceneTemporalAntiAliasingPass(void* app, void* view, void* sceneRenderTargets, int motionVectorStencilMask)
+    {
+        App* a = AsApp(app);
+        auto* targets = AsSceneRenderTargets(sceneRenderTargets);
+
+        donut::render::TemporalAntiAliasingPass::CreateParameters params;
+        params.sourceDepth = targets->Depth;
+        params.motionVectors = targets->MotionVectors;
+        params.unresolvedColor = targets->HdrColor;
+        params.resolvedColor = targets->ResolvedColor;
+        params.feedback1 = targets->TemporalFeedback1;
+        params.feedback2 = targets->TemporalFeedback2;
+        params.motionVectorStencilMask = static_cast<uint32_t>(motionVectorStencilMask);
+        params.useCatmullRomFilter = true;
+
+        return a->OwnObject(std::make_shared<donut::render::TemporalAntiAliasingPass>(a->device(), a->shaderFactory,
+            a->sharedCommonPasses(), *AsView(view), params));
+    }
+
+    // A donut::render::TemporalAntiAliasingJitter value: 0 MSAA, 1 Halton, 2 R2, 3 white noise.
+    void Donut_SetTemporalJitter(void* temporalAntiAliasingPass, int jitter)
+    {
+        static_cast<donut::render::TemporalAntiAliasingPass*>(temporalAntiAliasingPass)->SetJitter(
+            static_cast<donut::render::TemporalAntiAliasingJitter>(jitter));
+    }
+
+    // This frame's sub-pixel jitter, as 2 floats into dst (for Donut_SetPlanarViewJittered).
+    void Donut_GetTemporalPixelOffset(void* temporalAntiAliasingPass, void* dst)
+    {
+        const dm::float2 offset = static_cast<donut::render::TemporalAntiAliasingPass*>(temporalAntiAliasingPass)->GetCurrentPixelOffset();
+        memcpy(dst, &offset, sizeof(offset));
+    }
+
+    // Donut_RenderMotionVectors for any view.
+    void Donut_RenderViewMotionVectors(void* commandList, void* temporalAntiAliasingPass, void* view, void* previousView)
+    {
+        static_cast<donut::render::TemporalAntiAliasingPass*>(temporalAntiAliasingPass)->RenderMotionVectors(
+            AsCommandList(commandList), *AsView(view), *AsView(previousView));
+    }
+
+    // Donut_TemporalResolve for any view, with history clamping on or off.
+    void Donut_TemporalResolveView(void* commandList, void* temporalAntiAliasingPass, void* view, int feedbackIsValid,
+        int enableHistoryClamping)
+    {
+        donut::render::TemporalAntiAliasingParameters params;
+        params.enableHistoryClamping = enableHistoryClamping != 0;
+        static_cast<donut::render::TemporalAntiAliasingPass*>(temporalAntiAliasingPass)->TemporalResolve(
+            AsCommandList(commandList), params, feedbackIsValid != 0, *AsView(view), *AsView(view));
+    }
+
+    // Moves on to the next jitter offset; once per frame.
+    void Donut_AdvanceTemporalFrame(void* temporalAntiAliasingPass)
+    {
+        static_cast<donut::render::TemporalAntiAliasingPass*>(temporalAntiAliasingPass)->AdvanceFrame();
+    }
+
+    // Donut's tone mapping with eye adaptation, into a framebuffer. Pass the tone mapping pass
+    // this one replaces (or null) to keep its adapted exposure.
+    void* Donut_CreateToneMappingPass(void* app, void* framebuffer, void* view, void* previousToneMappingPass)
+    {
+        App* a = AsApp(app);
+        donut::render::ToneMappingPass::CreateParameters params;
+        if (previousToneMappingPass)
+            params.exposureBufferOverride = static_cast<donut::render::ToneMappingPass*>(previousToneMappingPass)->GetExposureBuffer();
+        return a->OwnObject(std::make_shared<donut::render::ToneMappingPass>(a->device(), a->shaderFactory,
+            a->sharedCommonPasses(), AsFramebufferFactory(framebuffer), *AsView(view), params));
+    }
+
+    // Once per frame, with the frame time in seconds (for eye adaptation).
+    void Donut_AdvanceToneMappingFrame(void* toneMappingPass, double elapsedSeconds)
+    {
+        static_cast<donut::render::ToneMappingPass*>(toneMappingPass)->AdvanceFrame(float(elapsedSeconds));
+    }
+
+    void Donut_ResetExposure(void* commandList, void* toneMappingPass, double initialExposure)
+    {
+        static_cast<donut::render::ToneMappingPass*>(toneMappingPass)->ResetExposure(AsCommandList(commandList), float(initialExposure));
+    }
+
+    // Tone maps an HDR texture with default parameters; freezeEyeAdaptation != 0 keeps the
+    // current exposure (e.g. right after Donut_ResetExposure).
+    void Donut_RenderToneMapping(void* commandList, void* toneMappingPass, void* view, void* sourceTexture, int freezeEyeAdaptation)
+    {
+        donut::render::ToneMappingParameters params;
+        if (freezeEyeAdaptation)
+        {
+            params.eyeAdaptationSpeedUp = 0.f;
+            params.eyeAdaptationSpeedDown = 0.f;
+        }
+        static_cast<donut::render::ToneMappingPass*>(toneMappingPass)->SimpleRender(AsCommandList(commandList), params,
+            *AsView(view), static_cast<nvrhi::ITexture*>(sourceTexture));
+    }
+
+    // Donut's bloom, blended into a framebuffer's color.
+    void* Donut_CreateBloomPass(void* app, void* framebuffer, void* view)
+    {
+        App* a = AsApp(app);
+        return a->OwnObject(std::make_shared<donut::render::BloomPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
+            AsFramebufferFactory(framebuffer), *AsView(view)));
+    }
+
+    // Blurs sourceTexture (Gaussian sigma in pixels) and adds it to the framebuffer, weighted by alpha.
+    void Donut_RenderBloom(void* commandList, void* bloomPass, void* framebuffer, void* view, void* sourceTexture,
+        double sigma, double alpha)
+    {
+        static_cast<donut::render::BloomPass*>(bloomPass)->Render(AsCommandList(commandList), AsFramebufferFactory(framebuffer),
+            *AsView(view), static_cast<nvrhi::ITexture*>(sourceTexture), float(sigma), float(alpha));
+    }
+
+    // Reads back one pixel of a texture (as RGBA32_UINT): Donut_CapturePixel, execute the command
+    // list, then Donut_ReadPixelUInts.
+    void* Donut_CreatePixelReadbackPass(void* app, void* texture)
+    {
+        App* a = AsApp(app);
+        return a->OwnObject(std::make_shared<donut::render::PixelReadbackPass>(a->device(), a->shaderFactory,
+            static_cast<nvrhi::ITexture*>(texture), nvrhi::Format::RGBA32_UINT));
+    }
+
+    void Donut_CapturePixel(void* commandList, void* pixelReadbackPass, int x, int y)
+    {
+        static_cast<donut::render::PixelReadbackPass*>(pixelReadbackPass)->Capture(AsCommandList(commandList),
+            dm::uint2(uint32_t(x), uint32_t(y)));
+    }
+
+    // The captured pixel as 4 ints into dst; waits for the GPU if needed.
+    void Donut_ReadPixelUInts(void* pixelReadbackPass, void* dst)
+    {
+        const dm::uint4 value = static_cast<donut::render::PixelReadbackPass*>(pixelReadbackPass)->ReadUInts();
+        memcpy(dst, &value, sizeof(value));
+    }
+
+    // Donut's mip generation (compute) for a color texture with mips.
+    void* Donut_CreateMipMapGenPass(void* app, void* texture)
+    {
+        App* a = AsApp(app);
+        return a->OwnObject(std::make_shared<donut::render::MipMapGenPass>(a->device(), a->shaderFactory,
+            static_cast<nvrhi::ITexture*>(texture), donut::render::MipMapGenPass::MODE_COLOR));
+    }
+
+    void Donut_DispatchMipMapGen(void* commandList, void* mipMapGenPass)
+    {
+        static_cast<donut::render::MipMapGenPass*>(mipMapGenPass)->Dispatch(AsCommandList(commandList));
+    }
+
+    // Inside a render callback: draws the texture's mips over the frame.
+    void Donut_DisplayMipMapGen(void* app, void* frame, void* mipMapGenPass)
+    {
+        static_cast<donut::render::MipMapGenPass*>(mipMapGenPass)->Display(AsApp(app)->sharedCommonPasses(),
+            AsFrame(frame)->commandList, AsFrame(frame)->framebuffer);
+    }
+
+    // --- Light probes -------------------------------------------------------------------------
+
+    // numProbes light probes (named "1", "2", ...), disabled until rendered: 256x256 diffuse and
+    // 512x512 specular (8 mips) RGBA16_FLOAT cube maps.
+    void* Donut_CreateLightProbeSet(void* app, int numProbes)
+    {
+        App* a = AsApp(app);
+        auto set = std::make_shared<LightProbeSet>();
+
+        nvrhi::TextureDesc cubemapDesc;
+        cubemapDesc.arraySize = 6 * uint32_t(numProbes);
+        cubemapDesc.dimension = nvrhi::TextureDimension::TextureCubeArray;
+        cubemapDesc.isRenderTarget = true;
+        cubemapDesc.format = nvrhi::Format::RGBA16_FLOAT;
+        cubemapDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+        cubemapDesc.keepInitialState = true;
+
+        cubemapDesc.width = 256;
+        cubemapDesc.height = 256;
+        cubemapDesc.mipLevels = 1;
+        set->diffuseTexture = a->device()->createTexture(cubemapDesc);
+
+        cubemapDesc.width = 512;
+        cubemapDesc.height = 512;
+        cubemapDesc.mipLevels = 8;
+        set->specularTexture = a->device()->createTexture(cubemapDesc);
+
+        for (int i = 0; i < numProbes; i++)
+        {
+            auto probe = std::make_shared<donut::engine::LightProbe>();
+            probe->name = std::to_string(i + 1);
+            probe->diffuseMap = set->diffuseTexture;
+            probe->specularMap = set->specularTexture;
+            probe->diffuseArrayIndex = uint32_t(i);
+            probe->specularArrayIndex = uint32_t(i);
+            probe->bounds = dm::frustum::empty();
+            probe->enabled = false;
+            set->probes.push_back(probe);
+        }
+
+        return a->OwnObject(set);
+    }
+
+    int Donut_GetLightProbeCount(void* lightProbeSet)
+    {
+        return static_cast<int>(static_cast<LightProbeSet*>(lightProbeSet)->probes.size());
+    }
+
+    const char* Donut_GetLightProbeName(void* lightProbeSet, int index)
+    {
+        return static_cast<LightProbeSet*>(lightProbeSet)->probes[index]->name.c_str();
+    }
+
+    int Donut_IsLightProbeEnabled(void* lightProbeSet, int index)
+    {
+        return static_cast<LightProbeSet*>(lightProbeSet)->probes[index]->enabled ? 1 : 0;
+    }
+
+    void Donut_SetLightProbeEnabled(void* lightProbeSet, int index, int enabled)
+    {
+        static_cast<LightProbeSet*>(lightProbeSet)->probes[index]->enabled = enabled != 0;
+    }
+
+    void Donut_SetLightProbeScales(void* lightProbeSet, int index, double diffuseScale, double specularScale)
+    {
+        auto& probe = *static_cast<LightProbeSet*>(lightProbeSet)->probes[index];
+        probe.diffuseScale = float(diffuseScale);
+        probe.specularScale = float(specularScale);
+    }
+
+    // Mips of the probes' specular maps, one per roughness level.
+    int Donut_GetLightProbeSpecularMipLevels(void* lightProbeSet)
+    {
+        return static_cast<int>(static_cast<LightProbeSet*>(lightProbeSet)->specularTexture->getDesc().mipLevels);
+    }
+
+    // Donut's light probe processing: environment map mips, diffuse and specular maps, BRDF table.
+    void* Donut_CreateLightProbeProcessingPass(void* app)
+    {
+        App* a = AsApp(app);
+        return a->OwnObject(std::make_shared<donut::render::LightProbeProcessingPass>(a->device(), a->shaderFactory,
+            a->sharedCommonPasses()));
+    }
+
+    void Donut_ResetLightProbeProcessingCaches(void* lightProbeProcessingPass)
+    {
+        static_cast<donut::render::LightProbeProcessingPass*>(lightProbeProcessingPass)->ResetCaches();
+    }
+
+    // An environment cube map of size x size faces (RGBA16_FLOAT, mipLevels mips) with a depth
+    // buffer, and the cube map view that renders it. Place it with Donut_SetLightProbeCaptureTransform.
+    void* Donut_CreateLightProbeCapture(void* app, int size, int mipLevels)
+    {
+        App* a = AsApp(app);
+        auto capture = std::make_shared<LightProbeCapture>();
+        capture->mipLevels = uint32_t(mipLevels);
+
+        nvrhi::TextureDesc cubemapDesc;
+        cubemapDesc.arraySize = 6;
+        cubemapDesc.width = uint32_t(size);
+        cubemapDesc.height = uint32_t(size);
+        cubemapDesc.mipLevels = uint32_t(mipLevels);
+        cubemapDesc.dimension = nvrhi::TextureDimension::TextureCube;
+        cubemapDesc.isRenderTarget = true;
+        cubemapDesc.format = nvrhi::Format::RGBA16_FLOAT;
+        cubemapDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+        cubemapDesc.keepInitialState = true;
+        cubemapDesc.clearValue = nvrhi::Color(0.f);
+        cubemapDesc.useClearValue = true;
+        capture->colorTexture = a->device()->createTexture(cubemapDesc);
+
+        cubemapDesc.mipLevels = 1;
+        cubemapDesc.format = ChooseDepthFormat(a->device());
+        cubemapDesc.isTypeless = true;
+        cubemapDesc.initialState = nvrhi::ResourceStates::DepthWrite;
+        capture->depthTexture = a->device()->createTexture(cubemapDesc);
+
+        capture->framebuffer = std::make_shared<donut::engine::FramebufferFactory>(a->device());
+        capture->framebuffer->RenderTargets = { capture->colorTexture };
+        capture->framebuffer->DepthTarget = capture->depthTexture;
+
+        capture->view.SetArrayViewports(size, 0);
+        return a->OwnObject(capture);
+    }
+
+    // Centers the cube map view at a world position, rendering from zNear out to cullDistance.
+    void Donut_SetLightProbeCaptureTransform(void* lightProbeCapture, double x, double y, double z, double zNear, double cullDistance)
+    {
+        auto* capture = static_cast<LightProbeCapture*>(lightProbeCapture);
+        capture->view.SetTransform(dm::translation(-dm::float3(float(x), float(y), float(z))), float(zNear), float(cullDistance));
+        capture->view.UpdateCache();
+    }
+
+    // The cube map view (for the view functions) and framebuffer.
+    void* Donut_GetLightProbeCaptureView(void* lightProbeCapture)
+    {
+        donut::engine::IView* view = &static_cast<LightProbeCapture*>(lightProbeCapture)->view;
+        return view;
+    }
+
+    void* Donut_GetLightProbeCaptureFramebuffer(void* lightProbeCapture)
+    {
+        return &static_cast<LightProbeCapture*>(lightProbeCapture)->framebuffer;
+    }
+
+    // Clears color to black and depth to 0 (reverse Z).
+    void Donut_ClearLightProbeCapture(void* commandList, void* lightProbeCapture)
+    {
+        auto* capture = static_cast<LightProbeCapture*>(lightProbeCapture);
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+        cl->clearTextureFloat(capture->colorTexture, nvrhi::AllSubresources, nvrhi::Color(0.f));
+        const nvrhi::FormatInfo& depthFormatInfo = nvrhi::getFormatInfo(capture->depthTexture->getDesc().format);
+        cl->clearDepthStencilTexture(capture->depthTexture, nvrhi::AllSubresources, true, 0.f, depthFormatInfo.hasStencil, 0);
+    }
+
+    // Fits the shadow map's cascades to a directional light and the capture's cube map view.
+    void Donut_SetupShadowMapForLightProbeCapture(void* shadowMapTarget, void* light, void* lightProbeCapture,
+        double cullDistance, double zRange, double exponent)
+    {
+        auto* capture = static_cast<LightProbeCapture*>(lightProbeCapture);
+        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->SetupForCubemapView(
+            *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light)),
+            capture->view.GetViewOrigin(), float(cullDistance), float(zRange), float(zRange), float(exponent));
+    }
+
+    // Fills the capture's environment map mips from mip 0.
+    void Donut_GenerateLightProbeCaptureMips(void* commandList, void* lightProbeProcessingPass, void* lightProbeCapture)
+    {
+        auto* capture = static_cast<LightProbeCapture*>(lightProbeCapture);
+        static_cast<donut::render::LightProbeProcessingPass*>(lightProbeProcessingPass)->GenerateCubemapMips(
+            AsCommandList(commandList), capture->colorTexture, 0, 0, capture->mipLevels - 1);
+    }
+
+    // Convolves the capture into a probe's diffuse map.
+    void Donut_RenderLightProbeDiffuse(void* commandList, void* lightProbeProcessingPass, void* lightProbeCapture,
+        void* lightProbeSet, int index)
+    {
+        auto& probe = *static_cast<LightProbeSet*>(lightProbeSet)->probes[index];
+        static_cast<donut::render::LightProbeProcessingPass*>(lightProbeProcessingPass)->RenderDiffuseMap(
+            AsCommandList(commandList), static_cast<LightProbeCapture*>(lightProbeCapture)->colorTexture, nvrhi::AllSubresources,
+            probe.diffuseMap, probe.diffuseArrayIndex * 6, 0);
+    }
+
+    // Prefilters the capture for a roughness into one mip of a probe's specular map.
+    void Donut_RenderLightProbeSpecular(void* commandList, void* lightProbeProcessingPass, void* lightProbeCapture,
+        void* lightProbeSet, int index, double roughness, int mipLevel)
+    {
+        auto& probe = *static_cast<LightProbeSet*>(lightProbeSet)->probes[index];
+        static_cast<donut::render::LightProbeProcessingPass*>(lightProbeProcessingPass)->RenderSpecularMap(
+            AsCommandList(commandList), float(roughness), static_cast<LightProbeCapture*>(lightProbeCapture)->colorTexture,
+            nvrhi::AllSubresources, probe.specularMap, probe.specularArrayIndex * 6, uint32_t(mipLevel));
+    }
+
+    // Renders the environment BRDF lookup table the probes share (once is enough).
+    void Donut_RenderEnvironmentBrdf(void* commandList, void* lightProbeProcessingPass)
+    {
+        static_cast<donut::render::LightProbeProcessingPass*>(lightProbeProcessingPass)->RenderEnvironmentBrdfTexture(
+            AsCommandList(commandList));
+    }
+
+    // After its maps are rendered (and the GPU is done): enables a probe, affecting everything
+    // within 10 units of the position it was rendered from.
+    void Donut_FinishLightProbe(void* lightProbeSet, int index, void* lightProbeProcessingPass, double x, double y, double z)
+    {
+        auto& probe = *static_cast<LightProbeSet*>(lightProbeSet)->probes[index];
+        probe.environmentBrdf = static_cast<donut::render::LightProbeProcessingPass*>(lightProbeProcessingPass)->GetEnvironmentBrdfTexture();
+        const dm::float3 position = dm::float3(float(x), float(y), float(z));
+        probe.bounds = dm::frustum::fromBox(dm::box3(position, position).grow(10.f));
+        probe.enabled = true;
+    }
+
     // --- Frame commands (valid only inside the render callback) ----------------------------
+
+    // Submits what the frame has recorded so far, and goes on recording into the same command
+    // list: work after it (e.g. Donut_ReadPixelUInts) sees the GPU results.
+    void Donut_FlushFrameCommandList(void* app, void* frame)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        ctx->commandList->close();
+        AsApp(app)->device()->executeCommandList(ctx->commandList);
+        ctx->commandList->open();
+    }
+
+    // Saves the frame's color (as recorded so far, which it submits) to an image file: BMP, PNG,
+    // JPG or TGA, by the extension. Returns non-zero on success.
+    int Donut_SaveFrameToFile(void* app, void* frame, const char* path)
+    {
+        App* a = AsApp(app);
+        FrameContext* ctx = AsFrame(frame);
+        ctx->commandList->close();
+        a->device()->executeCommandList(ctx->commandList);
+
+        // No immediate command list may be open while it runs.
+        const bool saved = donut::engine::SaveTextureToFile(a->device(), a->commonPasses(),
+            ctx->framebuffer->getDesc().colorAttachments[0].texture, nvrhi::ResourceStates::RenderTarget, path);
+
+        ctx->commandList->open();
+        return saved ? 1 : 0;
+    }
 
     void Donut_ClearColor(void* frame, double r, double g, double b, double a)
     {
