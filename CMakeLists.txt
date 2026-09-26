@@ -140,7 +140,18 @@ if (MSVC AND DONUT_WITH_DLSS)
     set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG "Release;")
 endif()
 
+# Quiet two warnings from zstd (Donut's thirdparty/zstd) that don't affect the build:
+# - it enables ASM, which CMake 4.1+ no longer lets MSVC's cl.exe stand in for (CMP0194); its one
+#   assembly file is never compiled with MSVC (ZSTD_DISABLE_ASM), so keep the old behavior quietly
+#   (NEW would make configure look for a real assembler);
+# - it declares cmake_minimum_required(3.5), which CMake 4.x deprecates (below 3.10): take its
+#   policies as of 3.10 instead (it says it was validated with 3.13's).
+# Both only for the Donut subtree.
+set(CMAKE_POLICY_DEFAULT_CMP0194 OLD)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 add_subdirectory(external/Donut)
+unset(CMAKE_POLICY_VERSION_MINIMUM)
+unset(CMAKE_POLICY_DEFAULT_CMP0194)
 
 if (NVRHI_WITH_DX12)
     set(DONUT_D3D_AGILITY_SDK_URL "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/1.616.1")
