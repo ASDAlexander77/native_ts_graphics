@@ -212,6 +212,9 @@ if (DONUT_SAMPLES_MEDIA_DIR)
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/glTF-Sample-Assets/Models/BrainStem")
     file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/sponza-plus.scene.json"
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
+    # rt_particles: its scene, environment map and smoke texture.
+    file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/rt_particles"
+        DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
 endif()
 add_tslang_example(threaded_rendering)
 
@@ -278,3 +281,21 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections/dxil
 )
 add_tslang_example(rt_reflections)
+
+# Port of Donut-Samples' rt_particles: ray query rendering of billboard and intersection
+# particles with multi-layer alpha blending (see DONUT_SAMPLES_MEDIA_DIR above), with an ImGui
+# settings window. D3D12 or Vulkan.
+donut_compile_shaders(
+    TARGET rt_particles_shaders
+    PROJECT_NAME "Ray Traced Particles"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_particles.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_particles.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_particles_geometry.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_particles_mlab.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_particles_utils.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_particles_cb.h
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/spirv
+)
+add_tslang_example(rt_particles)

@@ -25,6 +25,8 @@
 #include <donut/app/ApplicationBase.h>
 #include <donut/app/Camera.h>
 #include <donut/app/DeviceManager.h>
+#include <donut/app/imgui_renderer.h>
+#include <imgui.h>
 #include <donut/core/log.h>
 #include <donut/core/vfs/VFS.h>
 #include <donut/engine/BindingCache.h>
@@ -172,6 +174,27 @@ namespace
         uint64_t m_LastSubmission = 0;
     };
 
+    // Donut's ImGui renderer, with the UI built by a TypeScript callback (using the Donut_ImGui*
+    // functions) every frame.
+    class TsImGuiPass : public donut::app::ImGui_Renderer
+    {
+    public:
+        explicit TsImGuiPass(DeviceManager* deviceManager)
+            : ImGui_Renderer(deviceManager)
+        {
+            ImGui::GetIO().IniFilename = nullptr;
+        }
+
+        Callback<VoidFn> m_BuildUI;
+
+    protected:
+        void buildUI() override
+        {
+            if (m_BuildUI)
+                m_BuildUI.method(m_BuildUI.thisVal);
+        }
+    };
+
     struct App
     {
         std::unique_ptr<DeviceManager> deviceManager;
@@ -182,6 +205,10 @@ namespace
         std::unordered_map<nvrhi::IResource*, nvrhi::RefCountPtr<nvrhi::IResource>> resources;
         // Other C++ objects handed to TypeScript as raw pointers (scenes, cameras, ...).
         std::unordered_map<void*, std::shared_ptr<void>> objects;
+        // Passes that aren't TsRenderPass (e.g. the ImGui one).
+        std::vector<std::unique_ptr<donut::app::IRenderPass>> otherPasses;
+        // Texture caches that register their textures in a descriptor table, by its manager.
+        std::unordered_map<void*, std::shared_ptr<donut::engine::TextureCache>> bindlessTextureCaches;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -257,9 +284,13 @@ namespace
             // Everything created on the device goes before the device itself.
             device()->waitForIdle();
 
+            for (auto& pass : otherPasses)
+                deviceManager->RemoveRenderPass(pass.get());
+            otherPasses.clear();
             for (auto& pass : passes)
                 deviceManager->RemoveRenderPass(pass.get());
             passes.clear();
+            bindlessTextureCaches.clear();
             objects.clear();
             resources.clear();
             m_BindingCache.reset();
@@ -320,6 +351,12 @@ namespace
     AdapterList* AsAdapterList(void* list) { return static_cast<AdapterList*>(list); }
     nvrhi::ICommandList* AsCommandList(void* commandList) { return static_cast<nvrhi::ICommandList*>(commandList); }
     nvrhi::IBuffer* AsBuffer(void* buffer) { return static_cast<nvrhi::IBuffer*>(buffer); }
+    // Cameras are handed to TypeScript as BaseCamera pointers, whatever their type.
+    donut::app::BaseCamera* AsCamera(void* camera) { return static_cast<donut::app::BaseCamera*>(camera); }
+    donut::app::ThirdPersonCamera* AsThirdPersonCamera(void* camera)
+    {
+        return static_cast<donut::app::ThirdPersonCamera*>(AsCamera(camera));
+    }
 
     // A cube map render target (color + depth, one array slice per face) and the view that
     // renders into it.
@@ -519,11 +556,26 @@ namespace
     {
         std::unordered_map<std::shared_ptr<donut::engine::MeshInfo>, nvrhi::rt::AccelStructHandle> meshes;
         nvrhi::rt::AccelStructHandle topLevel;
+        // Instances for the next Donut_BuildTopLevelAS (Donut_CreateTopLevelAS ones).
+        std::vector<nvrhi::rt::InstanceDesc> pendingInstances;
+    };
+
+    // A mesh of one geometry whose vertices and indices change every frame (e.g. particle
+    // billboards), with room for maxVertices / maxIndices; its BLAS is sized for those.
+    struct DynamicMesh
+    {
+        std::shared_ptr<donut::engine::BufferGroup> buffers;
+        std::shared_ptr<donut::engine::Material> material;
+        std::shared_ptr<donut::engine::MeshGeometry> geometry;
+        std::shared_ptr<donut::engine::MeshInfo> mesh;
+        std::shared_ptr<donut::engine::MeshInstance> instance;
     };
 
     // BLAS description of a scene mesh: opaque triangles, except alpha-tested geometries (for any-hit
     // shaders); compactable unless the mesh is skinned and rebuilt every frame.
-    nvrhi::rt::AccelStructDesc GetMeshBlasDesc(const donut::engine::MeshInfo& mesh)
+    // onlyOpaqueDomainIsOpaque: instead, every geometry whose material isn't in the Opaque domain
+    // is non-opaque (e.g. alpha-blended particles for ray queries), and nothing is compacted.
+    nvrhi::rt::AccelStructDesc GetMeshBlasDesc(const donut::engine::MeshInfo& mesh, bool onlyOpaqueDomainIsOpaque = false)
     {
         nvrhi::rt::AccelStructDesc blasDesc;
         blasDesc.isTopLevel = false;
@@ -544,15 +596,17 @@ namespace
             triangles.vertexStride = sizeof(dm::float3);
             triangles.vertexCount = geometry->numVertices;
             geometryDesc.geometryType = nvrhi::rt::GeometryType::Triangles;
-            geometryDesc.flags = (geometry->material->domain == donut::engine::MaterialDomain::AlphaTested)
-                ? nvrhi::rt::GeometryFlags::None
-                : nvrhi::rt::GeometryFlags::Opaque;
+            const bool opaque = onlyOpaqueDomainIsOpaque
+                ? geometry->material->domain == donut::engine::MaterialDomain::Opaque
+                : geometry->material->domain != donut::engine::MaterialDomain::AlphaTested;
+            geometryDesc.flags = opaque ? nvrhi::rt::GeometryFlags::Opaque : nvrhi::rt::GeometryFlags::None;
             blasDesc.bottomLevelGeometries.push_back(geometryDesc);
         }
 
-        blasDesc.buildFlags = mesh.skinPrototype
-            ? nvrhi::rt::AccelStructBuildFlags::PreferFastTrace
-            : nvrhi::rt::AccelStructBuildFlags::PreferFastTrace | nvrhi::rt::AccelStructBuildFlags::AllowCompaction;
+        const bool compact = !onlyOpaqueDomainIsOpaque && !mesh.skinPrototype;
+        blasDesc.buildFlags = compact
+            ? nvrhi::rt::AccelStructBuildFlags::PreferFastTrace | nvrhi::rt::AccelStructBuildFlags::AllowCompaction
+            : nvrhi::rt::AccelStructBuildFlags::PreferFastTrace;
         return blasDesc;
     }
 
@@ -1489,6 +1543,28 @@ extern "C"
             static_cast<uint32_t>(byteSize), debugName, donut::engine::c_MaxRenderPassConstantBufferVersions)));
     }
 
+    // StructuredBuffer of `count` elements of `stride` bytes, for shaders to read (t registers),
+    // filled with Donut_WriteBuffer. Returns null on failure.
+    void* Donut_CreateStructuredBuffer(void* app, int stride, int count, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(uint64_t(stride) * uint64_t(count))
+            .setStructStride(static_cast<uint32_t>(stride))
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // Stores an int's bits at dst (e.g. Ref of an f32 array element), for int / uint fields of
+    // structures that TypeScript lays out as f32 arrays.
+    void Donut_StoreInt32(void* dst, int value)
+    {
+        memcpy(dst, &value, sizeof(value));
+    }
+
     // Vertex buffer with byteSize bytes of data (copied during the call), uploaded by an open
     // command list; the contents can't change afterwards. Returns null on failure.
     void* Donut_CreateStaticVertexBuffer(void* app, void* commandList, const void* data, int byteSize, const char* debugName)
@@ -1880,6 +1956,120 @@ extern "C"
         AsPass(pass)->m_MouseScroll = { method, thisVal };
     }
 
+    // --- ImGui --------------------------------------------------------------------------------
+
+    // Adds Donut's ImGui renderer as a pass drawn after the previously added ones (on top), which
+    // sees input before them; buildUI is called every frame to build the UI with the Donut_ImGui*
+    // functions below. Returns null if the renderer can't be initialized.
+    void* Donut_AddImGuiPass(void* app, VoidFn buildUI, void* thisVal)
+    {
+        App* a = AsApp(app);
+        auto pass = std::make_unique<TsImGuiPass>(a->deviceManager.get());
+        if (!pass->Init(a->shaderFactory))
+            return nullptr;
+        pass->m_BuildUI = { buildUI, thisVal };
+
+        TsImGuiPass* raw = pass.get();
+        a->otherPasses.push_back(std::move(pass));
+        a->deviceManager->AddRenderPassToBack(raw);
+        return raw;
+    }
+
+    // Only inside the buildUI callback.
+    void Donut_ImGuiSetNextWindowPos(double x, double y)
+    {
+        ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), 0);
+    }
+
+    // autoResize != 0: the window fits its contents. Always pair with Donut_ImGuiEnd.
+    void Donut_ImGuiBegin(const char* title, int autoResize)
+    {
+        ImGui::Begin(title, nullptr, autoResize ? ImGuiWindowFlags_AlwaysAutoResize : 0);
+    }
+
+    void Donut_ImGuiEnd()
+    {
+        ImGui::End();
+    }
+
+    void Donut_ImGuiText(const char* text)
+    {
+        ImGui::TextUnformatted(text);
+    }
+
+    void Donut_ImGuiSeparator()
+    {
+        ImGui::Separator();
+    }
+
+    void Donut_ImGuiIndent()
+    {
+        ImGui::Indent();
+    }
+
+    void Donut_ImGuiUnindent()
+    {
+        ImGui::Unindent();
+    }
+
+    void Donut_ImGuiPushItemWidth(double width)
+    {
+        ImGui::PushItemWidth(float(width));
+    }
+
+    void Donut_ImGuiPopItemWidth()
+    {
+        ImGui::PopItemWidth();
+    }
+
+    // Returns the checkbox's new state (value, unless it was clicked).
+    int Donut_ImGuiCheckbox(const char* label, int value)
+    {
+        bool checked = value != 0;
+        ImGui::Checkbox(label, &checked);
+        return checked ? 1 : 0;
+    }
+
+    // A combo box of '|'-separated items; returns the new selection (current, unless changed).
+    int Donut_ImGuiCombo(const char* label, int current, const char* items)
+    {
+        // ImGui wants the items separated by NULs, with an extra NUL at the end.
+        std::string zeroSeparated(items);
+        for (char& c : zeroSeparated)
+            if (c == '|')
+                c = '\0';
+        zeroSeparated.push_back('\0');
+
+        int selection = current;
+        ImGui::Combo(label, &selection, zeroSeparated.c_str());
+        return selection;
+    }
+
+    // A combo box with custom items: returns non-zero while its list is open; then add
+    // Donut_ImGuiSelectable items and call Donut_ImGuiEndCombo.
+    int Donut_ImGuiBeginCombo(const char* label, const char* preview)
+    {
+        return ImGui::BeginCombo(label, preview) ? 1 : 0;
+    }
+
+    // Returns non-zero if the item was clicked.
+    int Donut_ImGuiSelectable(const char* label, int selected)
+    {
+        return ImGui::Selectable(label, selected != 0) ? 1 : 0;
+    }
+
+    void Donut_ImGuiEndCombo()
+    {
+        ImGui::EndCombo();
+    }
+
+    // Edits 3 floats at values (Ref of a `let` f32 array element) by dragging; returns non-zero
+    // if they changed.
+    int Donut_ImGuiDragFloat3(const char* label, void* values, double speed)
+    {
+        return ImGui::DragFloat3(label, static_cast<float*>(values), float(speed)) ? 1 : 0;
+    }
+
     // --- C++ objects (owned by the app until released or the app is destroyed) -------------
 
     void Donut_ReleaseObject(void* app, void* object)
@@ -2105,6 +2295,280 @@ extern "C"
         return a->OwnObject(accelStructs);
     }
 
+    // A texture file (relative to the executable's directory) loaded and uploaded (with mipmaps
+    // generated if the file has none), and registered in a descriptor table
+    // (Donut_CreateDescriptorTableManager) for bindless access. It submits its own command list,
+    // so call it while no other command list is open. Returns the texture object, or null (after
+    // logging why) on failure.
+    void* Donut_LoadBindlessTexture(void* app, void* descriptorTableManager, const char* path, int sRGB)
+    {
+        App* a = AsApp(app);
+        std::shared_ptr<donut::engine::TextureCache>& cache = a->bindlessTextureCaches[descriptorTableManager];
+        if (!cache)
+            cache = std::make_shared<donut::engine::TextureCache>(a->device(), std::make_shared<donut::vfs::NativeFileSystem>(),
+                a->SharedObject<donut::engine::DescriptorTableManager>(descriptorTableManager));
+
+        // Deferred, then finished right away, as the sample does: the upload and mipmap generation
+        // run on the cache's own command list. (The common passes are created first: creating them
+        // opens a command list of their own.)
+        donut::engine::CommonRenderPasses& passes = *a->commonPasses();
+        std::shared_ptr<donut::engine::LoadedTexture> texture = cache->LoadTextureFromFileDeferred(
+            GetExecutablePath().parent_path() / path, sRGB != 0);
+        cache->ProcessRenderingThreadCommands(passes, 0.f);
+        cache->LoadingFinished();
+
+        if (!texture || !texture->texture)
+            return nullptr;
+        return a->OwnObject(texture);
+    }
+
+    // Index of a Donut_LoadBindlessTexture texture in its descriptor table (the shaders' array index).
+    int Donut_GetTextureDescriptorIndex(void* loadedTexture)
+    {
+        return static_cast<donut::engine::LoadedTexture*>(loadedTexture)->bindlessDescriptor.Get();
+    }
+
+    // Loaded scene queries: the number of mesh instances (e.g. to size a TLAS), and a node's
+    // world-space position (3 floats into dst; path like "/Emitter"). The latter returns 0 if
+    // there's no such node.
+    int Donut_GetSceneInstanceCount(void* scene)
+    {
+        return static_cast<int>(static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->GetMeshInstances().size());
+    }
+
+    int Donut_GetSceneNodePosition(void* scene, const char* path, void* dst)
+    {
+        auto node = static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->FindNode(path);
+        if (!node)
+            return 0;
+        const dm::float3 position = node->GetLocalToWorldTransformFloat().m_translation;
+        memcpy(dst, &position, sizeof(position));
+        return 1;
+    }
+
+    // A mesh of one geometry whose vertices (positions + texture coordinates) and indices are
+    // replaced every frame with Donut_UpdateDynamicMesh, e.g. particle billboards; room for
+    // maxVertices / maxIndices. Its buffers are registered in a descriptor table (for bindless
+    // shaders), its material is alpha-blended, and its BLAS is created (not built) at full size.
+    // Add it to a scene with Donut_AttachDynamicMesh.
+    void* Donut_CreateDynamicMesh(void* app, void* descriptorTableManager, int maxVertices, int maxIndices, const char* name)
+    {
+        using namespace donut::engine;
+
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        auto descriptorTable = a->SharedObject<DescriptorTableManager>(descriptorTableManager);
+        auto dynamicMesh = std::make_shared<DynamicMesh>();
+
+        dynamicMesh->buffers = std::make_shared<BufferGroup>();
+        BufferGroup& buffers = *dynamicMesh->buffers;
+
+        auto& positionRange = buffers.getVertexBufferRange(VertexAttribute::Position);
+        auto& texcoordRange = buffers.getVertexBufferRange(VertexAttribute::TexCoord1);
+        positionRange.byteOffset = 0;
+        positionRange.byteSize = uint64_t(maxVertices) * sizeof(dm::float3);
+        texcoordRange.byteOffset = positionRange.byteOffset + positionRange.byteSize;
+        texcoordRange.byteSize = uint64_t(maxVertices) * sizeof(dm::float2);
+
+        nvrhi::BufferDesc bufferDesc;
+        bufferDesc.byteSize = uint64_t(maxIndices) * sizeof(uint32_t);
+        bufferDesc.debugName = std::string(name) + " Indices";
+        bufferDesc.canHaveRawViews = true;
+        bufferDesc.initialState = nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput;
+        bufferDesc.keepInitialState = true;
+        bufferDesc.isAccelStructBuildInput = true;
+        buffers.indexBuffer = device->createBuffer(bufferDesc);
+
+        bufferDesc.byteSize = texcoordRange.byteOffset + texcoordRange.byteSize;
+        bufferDesc.debugName = std::string(name) + " Vertices";
+        buffers.vertexBuffer = device->createBuffer(bufferDesc);
+
+        buffers.indexBufferDescriptor = std::make_shared<DescriptorHandle>(
+            descriptorTable->CreateDescriptorHandle(nvrhi::BindingSetItem::RawBuffer_SRV(0, buffers.indexBuffer)));
+        buffers.vertexBufferDescriptor = std::make_shared<DescriptorHandle>(
+            descriptorTable->CreateDescriptorHandle(nvrhi::BindingSetItem::RawBuffer_SRV(0, buffers.vertexBuffer)));
+
+        dynamicMesh->material = std::make_shared<Material>();
+        dynamicMesh->material->name = std::string(name) + " Material";
+        dynamicMesh->material->domain = MaterialDomain::AlphaBlended;
+
+        dynamicMesh->geometry = std::make_shared<MeshGeometry>();
+        dynamicMesh->geometry->material = dynamicMesh->material;
+        // Full size, so that the BLAS created below fits every later update.
+        dynamicMesh->geometry->numVertices = static_cast<uint32_t>(maxVertices);
+        dynamicMesh->geometry->numIndices = static_cast<uint32_t>(maxIndices);
+        // The scene sizes its own bookkeeping from these, as for loaded meshes.
+        buffers.indexData.resize(maxIndices);
+        buffers.positionData.resize(maxVertices);
+        buffers.texcoord1Data.resize(maxVertices);
+
+        dynamicMesh->mesh = std::make_shared<MeshInfo>();
+        dynamicMesh->mesh->name = name;
+        dynamicMesh->mesh->buffers = dynamicMesh->buffers;
+        dynamicMesh->mesh->geometries = { dynamicMesh->geometry };
+        dynamicMesh->mesh->accelStruct = device->createAccelStruct(GetMeshBlasDesc(*dynamicMesh->mesh, true));
+
+        dynamicMesh->instance = std::make_shared<MeshInstance>(dynamicMesh->mesh);
+
+        return a->OwnObject(dynamicMesh);
+    }
+
+    // Adds an instance of a dynamic mesh under a loaded scene's root and updates the scene's
+    // buffers for it (waiting for the GPU); do it before creating binding sets of those buffers.
+    void Donut_AttachDynamicMesh(void* app, void* scene, void* dynamicMesh)
+    {
+        App* a = AsApp(app);
+        auto* s = static_cast<donut::engine::Scene*>(scene);
+        s->GetSceneGraph()->AttachLeafNode(s->GetSceneGraph()->GetRootNode(), static_cast<DynamicMesh*>(dynamicMesh)->instance);
+
+        nvrhi::CommandListHandle commandList = a->device()->createCommandList();
+        commandList->open();
+        s->Refresh(commandList, a->deviceManager->GetFrameIndex());
+        commandList->close();
+        a->device()->executeCommandList(commandList);
+        a->device()->waitForIdle();
+    }
+
+    // The dynamic mesh's diffuse texture (a Donut_LoadBindlessTexture one); the scene's material
+    // buffer picks it up at the next Donut_RefreshScene.
+    void Donut_SetDynamicMeshTexture(void* app, void* dynamicMesh, void* loadedTexture)
+    {
+        auto* m = static_cast<DynamicMesh*>(dynamicMesh);
+        m->material->baseOrDiffuseTexture = AsApp(app)->SharedObject<donut::engine::LoadedTexture>(loadedTexture);
+        m->material->dirty = true;
+    }
+
+    // Inside a render callback: replaces the dynamic mesh's contents with vertexCount vertices
+    // (positions: 3 floats each, texCoords: 2 floats each) and indexCount uint indices (at most the
+    // sizes it was created with), and rebuilds its BLAS.
+    void Donut_UpdateDynamicMesh(void* frame, void* dynamicMesh, const void* positions, const void* texCoords, int vertexCount,
+        const void* indices, int indexCount)
+    {
+        using donut::engine::VertexAttribute;
+
+        auto* m = static_cast<DynamicMesh*>(dynamicMesh);
+        nvrhi::ICommandList* cl = AsFrame(frame)->commandList;
+        donut::engine::BufferGroup& buffers = *m->buffers;
+
+        m->geometry->numVertices = static_cast<uint32_t>(vertexCount);
+        m->geometry->numIndices = static_cast<uint32_t>(indexCount);
+
+        if (indexCount > 0)
+        {
+            cl->writeBuffer(buffers.indexBuffer, indices, size_t(indexCount) * sizeof(uint32_t));
+            cl->writeBuffer(buffers.vertexBuffer, positions, size_t(vertexCount) * sizeof(dm::float3),
+                buffers.getVertexBufferRange(VertexAttribute::Position).byteOffset);
+            cl->writeBuffer(buffers.vertexBuffer, texCoords, size_t(vertexCount) * sizeof(dm::float2),
+                buffers.getVertexBufferRange(VertexAttribute::TexCoord1).byteOffset);
+        }
+
+        nvrhi::utils::BuildBottomLevelAccelStruct(cl, m->mesh->accelStruct, GetMeshBlasDesc(*m->mesh, true));
+    }
+
+    // Builds a BLAS (kept in the mesh's accelStruct) for every mesh of a loaded scene that doesn't
+    // have one yet (e.g. not dynamic meshes), into an open command list: geometries not in the
+    // Opaque material domain are non-opaque, for ray queries to see as candidates.
+    void Donut_BuildSceneBLASes(void* app, void* commandList, void* scene)
+    {
+        App* a = AsApp(app);
+        for (const auto& mesh : static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->GetMeshes())
+        {
+            if (mesh->accelStruct)
+                continue;
+
+            const nvrhi::rt::AccelStructDesc blasDesc = GetMeshBlasDesc(*mesh, true);
+            mesh->accelStruct = a->device()->createAccelStruct(blasDesc);
+            nvrhi::utils::BuildBottomLevelAccelStruct(AsCommandList(commandList), mesh->accelStruct, blasDesc);
+        }
+    }
+
+    // A BLAS of one procedural AABB, (-1, -1, -1) .. (1, 1, 1), built into an open command list;
+    // instance it scaled and moved (Donut_AddTopLevelASInstance) for intersection-shader or ray
+    // query primitives.
+    void* Donut_CreateUnitAABBBlas(void* app, void* commandList, const char* debugName)
+    {
+        App* a = AsApp(app);
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+
+        nvrhi::BufferDesc aabbBufferDesc;
+        aabbBufferDesc.byteSize = sizeof(nvrhi::rt::GeometryAABB);
+        aabbBufferDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        aabbBufferDesc.keepInitialState = true;
+        aabbBufferDesc.isAccelStructBuildInput = true;
+        nvrhi::BufferHandle aabbBuffer = a->device()->createBuffer(aabbBufferDesc);
+
+        const nvrhi::rt::GeometryAABB aabb = { -1.f, -1.f, -1.f, 1.f, 1.f, 1.f };
+        cl->writeBuffer(aabbBuffer, &aabb, sizeof(aabb));
+
+        nvrhi::rt::AccelStructDesc blasDesc;
+        blasDesc.isTopLevel = false;
+        blasDesc.debugName = debugName;
+        blasDesc.addBottomLevelGeometry(nvrhi::rt::GeometryDesc().setAABBs(
+            nvrhi::rt::GeometryAABBs().setBuffer(aabbBuffer).setCount(1)));
+
+        nvrhi::rt::AccelStructHandle blas = a->device()->createAccelStruct(blasDesc);
+        nvrhi::utils::BuildBottomLevelAccelStruct(cl, blas, blasDesc);
+        return a->Own(blas);
+    }
+
+    // A TLAS of up to maxInstances instances, rebuilt from instances added with the functions
+    // below by Donut_BuildTopLevelAS. Get the TLAS with Donut_GetSceneTopLevelAS.
+    void* Donut_CreateTopLevelAS(void* app, int maxInstances)
+    {
+        App* a = AsApp(app);
+        auto accelStructs = std::make_shared<SceneAccelStructs>();
+        nvrhi::rt::AccelStructDesc tlasDesc;
+        tlasDesc.isTopLevel = true;
+        tlasDesc.topLevelMaxInstances = static_cast<size_t>(maxInstances);
+        accelStructs->topLevel = a->device()->createAccelStruct(tlasDesc);
+        return a->OwnObject(accelStructs);
+    }
+
+    // Adds all mesh instances of a loaded scene (instance ID = instance index; meshes' BLASes from
+    // Donut_BuildSceneBLASes), with instanceMask, except dynamicMesh's (if not null) with
+    // dynamicMeshMask.
+    void Donut_AddSceneTopLevelASInstances(void* sceneAccelStructs, void* scene, int instanceMask,
+        void* dynamicMesh, int dynamicMeshMask)
+    {
+        auto* accelStructs = static_cast<SceneAccelStructs*>(sceneAccelStructs);
+        const donut::engine::MeshInfo* special = dynamicMesh ? static_cast<DynamicMesh*>(dynamicMesh)->mesh.get() : nullptr;
+
+        for (const auto& instance : static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->GetMeshInstances())
+        {
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc.bottomLevelAS = instance->GetMesh()->accelStruct;
+            instanceDesc.instanceMask = static_cast<uint32_t>(instance->GetMesh().get() == special ? dynamicMeshMask : instanceMask);
+            instanceDesc.instanceID = instance->GetInstanceIndex();
+            dm::affineToColumnMajor(instance->GetNode()->GetLocalToWorldTransformFloat(), instanceDesc.transform);
+            accelStructs->pendingInstances.push_back(instanceDesc);
+        }
+    }
+
+    // Adds an instance of a BLAS, uniformly scaled by `scale`, then moved to (x, y, z).
+    void Donut_AddTopLevelASInstance(void* sceneAccelStructs, void* bottomLevelAS, int instanceMask, int instanceID,
+        double scale, double x, double y, double z)
+    {
+        nvrhi::rt::InstanceDesc instanceDesc;
+        instanceDesc.bottomLevelAS = static_cast<nvrhi::rt::IAccelStruct*>(bottomLevelAS);
+        instanceDesc.instanceMask = static_cast<uint32_t>(instanceMask);
+        instanceDesc.instanceID = static_cast<uint32_t>(instanceID);
+        const dm::affine3 transform = dm::scaling(dm::float3(float(scale))) * dm::translation(dm::float3(float(x), float(y), float(z)));
+        dm::affineToColumnMajor(transform, instanceDesc.transform);
+        static_cast<SceneAccelStructs*>(sceneAccelStructs)->pendingInstances.push_back(instanceDesc);
+    }
+
+    // Inside a render callback: builds the TLAS from the instances added since the last build.
+    void Donut_BuildTopLevelAS(void* frame, void* sceneAccelStructs)
+    {
+        auto* accelStructs = static_cast<SceneAccelStructs*>(sceneAccelStructs);
+        nvrhi::ICommandList* cl = AsFrame(frame)->commandList;
+        cl->beginMarker("TLAS Update");
+        cl->buildTopLevelAccelStruct(accelStructs->topLevel, accelStructs->pendingInstances.data(),
+            accelStructs->pendingInstances.size());
+        cl->endMarker();
+        accelStructs->pendingInstances.clear();
+    }
+
     // Scene animations (e.g. glTF skeletal animations), in the scene graph's order.
     int Donut_GetSceneAnimationCount(void* scene)
     {
@@ -2272,7 +2736,7 @@ extern "C"
     void Donut_SetCubemapViewFromCamera(void* cubemapTarget, void* camera, double zNear, double cullDistance)
     {
         auto* target = static_cast<CubemapTarget*>(cubemapTarget);
-        target->view.SetTransform(static_cast<donut::app::FirstPersonCamera*>(camera)->GetWorldToViewMatrix(),
+        target->view.SetTransform(AsCamera(camera)->GetWorldToViewMatrix(),
             float(zNear), float(cullDistance));
         target->view.UpdateCache();
     }
@@ -2312,51 +2776,94 @@ extern "C"
     // Donut's first person camera: WASD/arrow keys move, dragging with the left button looks around.
     void* Donut_CreateFirstPersonCamera(void* app)
     {
-        return AsApp(app)->OwnObject(std::make_shared<donut::app::FirstPersonCamera>());
+        donut::app::BaseCamera* camera = AsApp(app)->OwnObject(std::make_shared<donut::app::FirstPersonCamera>());
+        return camera;
     }
 
+    // Donut's third person (orbit) camera around a target: dragging with the left button orbits,
+    // the mouse wheel zooms, WASD / arrows move the target.
+    void* Donut_CreateThirdPersonCamera(void* app)
+    {
+        donut::app::BaseCamera* camera = AsApp(app)->OwnObject(std::make_shared<donut::app::ThirdPersonCamera>());
+        return camera;
+    }
+
+    void Donut_ThirdPersonCameraSetTarget(void* camera, double x, double y, double z)
+    {
+        AsThirdPersonCamera(camera)->SetTargetPosition(dm::float3(float(x), float(y), float(z)));
+    }
+
+    void Donut_ThirdPersonCameraSetDistance(void* camera, double distance)
+    {
+        AsThirdPersonCamera(camera)->SetDistance(float(distance));
+    }
+
+    // In radians.
+    void Donut_ThirdPersonCameraSetRotation(void* camera, double yaw, double pitch)
+    {
+        AsThirdPersonCamera(camera)->SetRotation(float(yaw), float(pitch));
+    }
+
+    // The camera needs the view it renders (after Donut_SetPlanarView), every frame.
+    void Donut_ThirdPersonCameraSetView(void* camera, void* view)
+    {
+        AsThirdPersonCamera(camera)->SetView(*static_cast<donut::engine::PlanarView*>(view));
+    }
+
+    // The camera's forward / up direction, as 3 floats into dst.
+    void Donut_GetCameraDirection(void* camera, void* dst)
+    {
+        memcpy(dst, &AsCamera(camera)->GetDir(), sizeof(dm::float3));
+    }
+
+    void Donut_GetCameraUp(void* camera, void* dst)
+    {
+        memcpy(dst, &AsCamera(camera)->GetUp(), sizeof(dm::float3));
+    }
+
+    // First person cameras only.
     void Donut_CameraLookAt(void* camera, double posX, double posY, double posZ, double targetX, double targetY, double targetZ)
     {
-        static_cast<donut::app::FirstPersonCamera*>(camera)->LookAt(
+        static_cast<donut::app::FirstPersonCamera*>(AsCamera(camera))->LookAt(
             dm::float3(float(posX), float(posY), float(posZ)), dm::float3(float(targetX), float(targetY), float(targetZ)));
     }
 
     // In units per second.
     void Donut_CameraSetMoveSpeed(void* camera, double speed)
     {
-        static_cast<donut::app::FirstPersonCamera*>(camera)->SetMoveSpeed(float(speed));
+        AsCamera(camera)->SetMoveSpeed(float(speed));
     }
 
     // Forward the pass input callbacks' arguments to these.
     void Donut_CameraKeyboardUpdate(void* camera, int key, int scancode, int action, int mods)
     {
-        static_cast<donut::app::FirstPersonCamera*>(camera)->KeyboardUpdate(key, scancode, action, mods);
+        AsCamera(camera)->KeyboardUpdate(key, scancode, action, mods);
     }
 
     void Donut_CameraMousePosUpdate(void* camera, double x, double y)
     {
-        static_cast<donut::app::FirstPersonCamera*>(camera)->MousePosUpdate(x, y);
+        AsCamera(camera)->MousePosUpdate(x, y);
     }
 
     void Donut_CameraMouseButtonUpdate(void* camera, int button, int action, int mods)
     {
-        static_cast<donut::app::FirstPersonCamera*>(camera)->MouseButtonUpdate(button, action, mods);
+        AsCamera(camera)->MouseButtonUpdate(button, action, mods);
     }
 
     void Donut_CameraMouseScrollUpdate(void* camera, double xOffset, double yOffset)
     {
-        static_cast<donut::app::FirstPersonCamera*>(camera)->MouseScrollUpdate(xOffset, yOffset);
+        AsCamera(camera)->MouseScrollUpdate(xOffset, yOffset);
     }
 
     void Donut_CameraAnimate(void* camera, double elapsedSeconds)
     {
-        static_cast<donut::app::FirstPersonCamera*>(camera)->Animate(float(elapsedSeconds));
+        AsCamera(camera)->Animate(float(elapsedSeconds));
     }
 
     // Writes the camera's world-to-view matrix to dst: 16 floats, row-major, row-vector convention.
     void Donut_GetCameraWorldToView(void* camera, void* dst)
     {
-        const dm::float4x4 m = dm::affineToHomogeneous(static_cast<donut::app::FirstPersonCamera*>(camera)->GetWorldToViewMatrix());
+        const dm::float4x4 m = dm::affineToHomogeneous(AsCamera(camera)->GetWorldToViewMatrix());
         memcpy(dst, &m, sizeof(m));
     }
 

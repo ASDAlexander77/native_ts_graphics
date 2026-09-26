@@ -206,6 +206,11 @@ declare function Donut_CreateConstantBuffer(app: Opaque, byteSize: int, debugNam
 // For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
 // it with Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer.
 declare function Donut_CreateVolatileConstantBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+// StructuredBuffer of count elements of stride bytes, filled with Donut_WriteBuffer.
+declare function Donut_CreateStructuredBuffer(app: Opaque, stride: int, count: int, debugName: string): Opaque;
+// Stores an int's bits at dst (Ref of an f32 array element), for int / uint fields of structures
+// laid out as f32 arrays.
+declare function Donut_StoreInt32(dst: Opaque, value: int): void;
 // RGBA8_UNORM texture that compute shaders write (RWTexture2D<float4>) and pixel shaders read;
 // NVRHI tracks its state.
 declare function Donut_CreateUAVTexture(app: Opaque, width: int, height: int, debugName: string): Opaque;
@@ -386,6 +391,32 @@ declare function Donut_SetMouseButtonCallback(pass: Opaque, handler: MouseButton
 // Scroll offsets; same return convention as the keyboard callback.
 declare function Donut_SetMouseScrollCallback(pass: Opaque, handler: MouseScrollCallback): void;
 
+// Donut's ImGui renderer as a pass drawn after the ones added before (on top) and seeing input
+// before them; buildUI builds the UI every frame with the Donut_ImGui* functions (only valid in
+// it). Null if the renderer can't be initialized.
+declare function Donut_AddImGuiPass(app: Opaque, buildUI: VoidCallback): Opaque | null;
+declare function Donut_ImGuiSetNextWindowPos(x: number, y: number): void;
+// autoResize != 0: the window fits its contents. Pair with Donut_ImGuiEnd.
+declare function Donut_ImGuiBegin(title: string, autoResize: int): void;
+declare function Donut_ImGuiEnd(): void;
+declare function Donut_ImGuiText(text: string): void;
+declare function Donut_ImGuiSeparator(): void;
+declare function Donut_ImGuiIndent(): void;
+declare function Donut_ImGuiUnindent(): void;
+declare function Donut_ImGuiPushItemWidth(width: number): void;
+declare function Donut_ImGuiPopItemWidth(): void;
+// Value in, new value out.
+declare function Donut_ImGuiCheckbox(label: string, value: int): int;
+// items separated by '|'; returns the new selection.
+declare function Donut_ImGuiCombo(label: string, current: int, items: string): int;
+// Non-zero while the list is open: then add Donut_ImGuiSelectable items and Donut_ImGuiEndCombo.
+declare function Donut_ImGuiBeginCombo(label: string, preview: string): int;
+// Non-zero if clicked.
+declare function Donut_ImGuiSelectable(label: string, selected: int): int;
+declare function Donut_ImGuiEndCombo(): void;
+// 3 floats at values (Ref of a `let` f32 array element); non-zero if changed.
+declare function Donut_ImGuiDragFloat3(label: string, values: Opaque, speed: number): int;
+
 // C++ objects (scenes, cameras, ...) are owned by the app until released or the app is destroyed.
 declare function Donut_ReleaseObject(app: Opaque, object: Opaque): void;
 
@@ -410,7 +441,20 @@ declare function Donut_CreateDeferredCommandList(app: Opaque): Opaque;
 
 // Donut's first person camera: WASD / arrows move, dragging with the left button looks around.
 declare function Donut_CreateFirstPersonCamera(app: Opaque): Opaque;
+// First person cameras only.
 declare function Donut_CameraLookAt(camera: Opaque, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
+// Donut's third person (orbit) camera: dragging with the left button orbits the target, the wheel
+// zooms, WASD / arrows move the target. The Donut_Camera* functions below work for both kinds.
+declare function Donut_CreateThirdPersonCamera(app: Opaque): Opaque;
+declare function Donut_ThirdPersonCameraSetTarget(camera: Opaque, x: number, y: number, z: number): void;
+declare function Donut_ThirdPersonCameraSetDistance(camera: Opaque, distance: number): void;
+// Radians.
+declare function Donut_ThirdPersonCameraSetRotation(camera: Opaque, yaw: number, pitch: number): void;
+// Every frame, after Donut_SetPlanarView of the view it renders.
+declare function Donut_ThirdPersonCameraSetView(camera: Opaque, view: Opaque): void;
+// Forward / up directions: 3 floats into dst (Ref of a `let` f32 array element).
+declare function Donut_GetCameraDirection(camera: Opaque, dst: Opaque): void;
+declare function Donut_GetCameraUp(camera: Opaque, dst: Opaque): void;
 // Units per second.
 declare function Donut_CameraSetMoveSpeed(camera: Opaque, speed: number): void;
 // Forward the pass input callbacks' arguments to these.
@@ -465,6 +509,45 @@ declare function Donut_RefreshScene(app: Opaque, frame: Opaque, scene: Opaque): 
 // Valid only inside a render callback, after Donut_RefreshScene: rebuilds the skinned BLASes,
 // compacts finished static ones and builds the TLAS (instance IDs = instance indices).
 declare function Donut_UpdateSceneAccelStructs(app: Opaque, frame: Opaque, sceneAccelStructs: Opaque, scene: Opaque): void;
+
+// A texture file (relative to the executable's directory) loaded and uploaded (mipmaps generated
+// if it has none), registered in a descriptor table for bindless access. It submits its own
+// command list: call it while no other one is open. Null (after logging why) on failure.
+declare function Donut_LoadBindlessTexture(app: Opaque, descriptorTableManager: Opaque, path: string, sRGB: int): Opaque;
+// Its index in the descriptor table (the shaders' array index).
+declare function Donut_GetTextureDescriptorIndex(loadedTexture: Opaque): int;
+declare function Donut_GetSceneInstanceCount(scene: Opaque): int;
+// A node's world-space position into dst (3 floats); 0 if there's no node at path ("/Emitter").
+declare function Donut_GetSceneNodePosition(scene: Opaque, path: string, dst: Opaque): int;
+
+// Dynamic meshes: one alpha-blended geometry whose vertices (positions, texture coordinates) and
+// indices are replaced every frame, with room for maxVertices / maxIndices, buffers registered in
+// a descriptor table. Attach to a loaded scene before creating binding sets of its buffers.
+declare function Donut_CreateDynamicMesh(app: Opaque, descriptorTableManager: Opaque, maxVertices: int, maxIndices: int, name: string): Opaque;
+declare function Donut_AttachDynamicMesh(app: Opaque, scene: Opaque, dynamicMesh: Opaque): void;
+// A Donut_LoadBindlessTexture texture; the scene picks it up at the next Donut_RefreshScene.
+declare function Donut_SetDynamicMeshTexture(app: Opaque, dynamicMesh: Opaque, loadedTexture: Opaque): void;
+// Valid only inside a render callback: positions (3 x f32 per vertex), texCoords (2 x f32), int
+// indices, as Ref of `let` array elements; rebuilds the mesh's BLAS.
+declare function Donut_UpdateDynamicMesh(frame: Opaque, dynamicMesh: Opaque, positions: Opaque, texCoords: Opaque, vertexCount: int,
+    indices: Opaque, indexCount: int): void;
+// A BLAS for every scene mesh without one (not dynamic meshes), into an open command list;
+// geometries not in the Opaque material domain are non-opaque.
+declare function Donut_BuildSceneBLASes(app: Opaque, commandList: Opaque, scene: Opaque): void;
+// A BLAS of one AABB (-1..1 on each axis), built into an open command list.
+declare function Donut_CreateUnitAABBBlas(app: Opaque, commandList: Opaque, debugName: string): Opaque;
+// A TLAS of up to maxInstances, rebuilt by Donut_BuildTopLevelAS from the instances added since
+// the last build. Get the TLAS with Donut_GetSceneTopLevelAS.
+declare function Donut_CreateTopLevelAS(app: Opaque, maxInstances: int): Opaque;
+// The scene's mesh instances (instance ID = instance index) with instanceMask, dynamicMesh's (if
+// not null) with dynamicMeshMask.
+declare function Donut_AddSceneTopLevelASInstances(sceneAccelStructs: Opaque, scene: Opaque, instanceMask: int,
+    dynamicMesh: Opaque | null, dynamicMeshMask: int): void;
+// A BLAS instance scaled by `scale`, then moved to (x, y, z).
+declare function Donut_AddTopLevelASInstance(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int, instanceID: int,
+    scale: number, x: number, y: number, z: number): void;
+// Valid only inside a render callback.
+declare function Donut_BuildTopLevelAS(frame: Opaque, sceneAccelStructs: Opaque): void;
 
 // Scenes built in code. Material with a diffuse texture (relative to the executable's directory,
 // sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
