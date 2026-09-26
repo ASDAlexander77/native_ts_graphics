@@ -1,6 +1,7 @@
 /// <reference path="donut_interop.d.ts" />
 
 // GLFW values, as passed to the keyboard callback.
+const KEY_V = 86;
 const KEY_ESCAPE = 256;
 const ACTION_PRESS = 1;
 
@@ -368,6 +369,11 @@ class InputPass {
     onKey(key: int, scancode: int, action: int, mods: int): int {
         if (key == KEY_ESCAPE && action == ACTION_PRESS) {
             Donut_CloseWindow(this.app);
+            return 1;
+        }
+
+        if (key == KEY_V && action == ACTION_PRESS) {
+            Donut_SetVsyncEnabled(this.app, Donut_IsVsyncEnabled(this.app) != 0 ? 0 : 1);
             return 1;
         }
 

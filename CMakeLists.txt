@@ -70,6 +70,62 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 set(DONUT_SHADERS_OUTPUT_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/framework")
 
+# Local patches to the external/Donut submodule, applied before add_subdirectory() picks up its
+# sources (same scheme as PyDonut). Idempotent and non-fatal: a patch already applied is detected
+# and skipped, and one that doesn't apply only warns, so a hand-edited submodule doesn't break
+# every configure.
+set(DONUT_PATCHES
+    # GLFW's joystick enumeration can stall startup for tens of seconds on Windows; none of the
+    # examples read joysticks.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/DeviceManager-skip-joystick-init-by-default.patch"
+)
+
+find_package(Git QUIET)
+if (GIT_EXECUTABLE)
+    # A clone without --recurse-submodules leaves external/Donut empty, which would otherwise fail
+    # later with a much less obvious error. A no-op when already up to date.
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" submodule update --init --recursive
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE DONUT_SUBMODULE_UPDATE_RESULT)
+    if (NOT DONUT_SUBMODULE_UPDATE_RESULT EQUAL 0)
+        message(FATAL_ERROR "'git submodule update --init --recursive' failed: "
+                            "cannot configure without external/Donut checked out.")
+    endif()
+
+    foreach(PATCH_FILE ${DONUT_PATCHES})
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --check "${PATCH_FILE}"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut"
+            RESULT_VARIABLE DONUT_PATCH_CHECK
+            OUTPUT_QUIET ERROR_QUIET)
+        if (DONUT_PATCH_CHECK EQUAL 0)
+            message(STATUS "Applying patch to external/Donut: ${PATCH_FILE}")
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply "${PATCH_FILE}"
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut"
+                RESULT_VARIABLE DONUT_PATCH_APPLY)
+            if (NOT DONUT_PATCH_APPLY EQUAL 0)
+                message(WARNING "Failed to apply patch: ${PATCH_FILE}")
+            endif()
+        else()
+            # Doesn't apply forward: it's already applied if it applies in reverse.
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply --check --reverse "${PATCH_FILE}"
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut"
+                RESULT_VARIABLE DONUT_PATCH_REVERSE_CHECK
+                OUTPUT_QUIET ERROR_QUIET)
+            if (DONUT_PATCH_REVERSE_CHECK EQUAL 0)
+                message(STATUS "Patch already applied to external/Donut: ${PATCH_FILE}")
+            else()
+                message(WARNING "Patch does not apply cleanly to external/Donut (skipped): ${PATCH_FILE}")
+            endif()
+        endif()
+    endforeach()
+else()
+    message(WARNING "git not found: skipping the external/Donut patches")
+endif()
+
 add_subdirectory(external/Donut)
 
 if (NVRHI_WITH_DX12)

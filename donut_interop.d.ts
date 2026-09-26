@@ -136,6 +136,11 @@ declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
 declare function Donut_SetInformativeWindowTitle(app: Opaque, title: string): void;
 // Same, with extraInfo appended.
 declare function Donut_SetInformativeWindowTitleWithInfo(app: Opaque, title: string, extraInfo: string): void;
+// Apps start with vsync on; the change takes effect at the start of the next frame (on Vulkan it
+// recreates the swap chain, so the passes get onBackBufferResizing).
+declare function Donut_SetVsyncEnabled(app: Opaque, enabled: int): void;
+// Lags Donut_SetVsyncEnabled by up to a frame.
+declare function Donut_IsVsyncEnabled(app: Opaque): int;
 declare function Donut_CloseWindow(app: Opaque): void;
 
 // nvrhi::Format values (only the ones used so far).

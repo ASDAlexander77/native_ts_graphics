@@ -953,6 +953,19 @@ extern "C"
         AsApp(app)->deviceManager->SetInformativeWindowTitle(title, true, extraInfo);
     }
 
+    // Apps start with vsync on. The change takes effect at the start of the next frame; on
+    // Vulkan it recreates the swap chain, so the passes get onBackBufferResizing.
+    void Donut_SetVsyncEnabled(void* app, int enabled)
+    {
+        AsApp(app)->deviceManager->SetVsyncEnabled(enabled != 0);
+    }
+
+    // Lags Donut_SetVsyncEnabled by up to a frame.
+    int Donut_IsVsyncEnabled(void* app)
+    {
+        return AsApp(app)->deviceManager->IsVsyncEnabled() ? 1 : 0;
+    }
+
     // Makes Donut_RunApp return after the current frame.
     void Donut_CloseWindow(void* app)
     {
