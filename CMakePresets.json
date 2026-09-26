@@ -25,6 +25,26 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "dlss",
+      "displayName": "Default with DLSS (Ninja)",
+      "description": "Debug with NVIDIA DLSS (DONUT_WITH_DLSS): Donut fetches the DLSS SDK from GitHub at configure time.",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-dlss",
+      "cacheVariables": {
+        "DONUT_WITH_DLSS": "ON"
+      }
+    },
+    {
+      "name": "release-dlss",
+      "displayName": "Release with DLSS (Ninja)",
+      "description": "Release with NVIDIA DLSS (DONUT_WITH_DLSS).",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-release-dlss",
+      "cacheVariables": {
+        "DONUT_WITH_DLSS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -35,6 +55,14 @@
     {
       "name": "release",
       "configurePreset": "release"
+    },
+    {
+      "name": "dlss",
+      "configurePreset": "dlss"
+    },
+    {
+      "name": "release-dlss",
+      "configurePreset": "release-dlss"
     }
   ]
 }

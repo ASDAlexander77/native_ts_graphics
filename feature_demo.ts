@@ -3,6 +3,7 @@
 // GLFW values, as passed to the input callbacks.
 const KEY_SPACE = 32;
 const KEY_T = 84;
+const KEY_V = 86;
 const KEY_GRAVE_ACCENT = 96;
 const KEY_ESCAPE = 256;
 const ACTION_PRESS = 1;
@@ -135,7 +136,7 @@ class UIData {
         this.shaderReloadRequested = false;
         this.enableProceduralSky = true;
         this.enableBloom = true;
-        // DONUT_WITH_DLSS is off in this build.
+        // Set once DLSS initializes (built with DONUT_WITH_DLSS=ON, on an RTX GPU).
         this.dlssAvailable = false;
         this.bloomSigma = 32.0;
         this.bloomAlpha = 0.05;
@@ -187,6 +188,8 @@ class FeatureDemo {
     private deferredLightingPass: Opaque | null;
     private skyPass: Opaque | null;
     private temporalAntiAliasingPass: Opaque | null;
+    // Null without DLSS support.
+    private dlss: Opaque | null;
     private bloomPass: Opaque | null;
     private toneMappingPass: Opaque | null;
     private ssaoPass: Opaque | null;
@@ -244,6 +247,7 @@ class FeatureDemo {
         this.deferredLightingPass = null;
         this.skyPass = null;
         this.temporalAntiAliasingPass = null;
+        this.dlss = null;
         this.bloomPass = null;
         this.toneMappingPass = null;
         this.ssaoPass = null;
@@ -586,6 +590,15 @@ class FeatureDemo {
 
         this.bloomPass = Donut_CreateBloomPass(app, Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Resolved), view);
 
+        const dlss = this.dlss;
+        if (dlss) {
+            const width = this.renderTargetsWidth;
+            const height = this.renderTargetsHeight;
+            Donut_InitDlss(dlss, width, height, width, height);
+
+            this.ui.dlssAvailable = Donut_IsDlssInitialized(dlss) != 0;
+        }
+
         this.previousViewsValid = false;
         return exposureResetRequired;
     }
@@ -787,7 +800,21 @@ class FeatureDemo {
                 Donut_RenderViewMotionVectors(commandList, temporalAntiAliasingPass, view, viewPrevious);
             }
 
-            // (DLSS: DONUT_WITH_DLSS is off in this build, so the mode is never selected.)
+            if (ui.antiAliasingMode == AntiAliasingMode.DLSS) {
+                let evaluated = false;
+                const dlss = this.dlss;
+                if (dlss) {
+                    if (Donut_IsDlssInitialized(dlss) != 0 && !ui.stereo) {
+                        Donut_EvaluateDlss(commandList, dlss, view, targets, toneMappingPass);
+                        evaluated = true;
+                    }
+                }
+
+                if (!evaluated) {
+                    // Fallback to TAA if DLSS is not available
+                    ui.antiAliasingMode = AntiAliasingMode.TEMPORAL;
+                }
+            }
 
             if (ui.antiAliasingMode == AntiAliasingMode.TEMPORAL) {
                 Donut_TemporalResolveView(commandList, temporalAntiAliasingPass, view, this.previousViewsValid ? 1 : 0,
@@ -962,6 +989,13 @@ class FeatureDemo {
             return 1;
         }
 
+        // As in the other examples (not in the C++ sample): V toggles vertical sync, like the
+        // VSync checkbox.
+        if (key == KEY_V && action == ACTION_PRESS) {
+            this.ui.enableVsync = !this.ui.enableVsync;
+            return 1;
+        }
+
         if (key == KEY_T && action == ACTION_PRESS) {
             this.copyActiveCameraToFirstPerson();
             if (this.ui.activeSceneCamera) {
@@ -1085,6 +1119,10 @@ class FeatureDemo {
         Donut_CameraSetMoveSpeed(this.thirdPersonCamera, 3.0);
 
         this.sceneLoader = Donut_CreateSceneLoader(app);
+
+        // DLSS doesn't need to be re-created when shaders reload, so it's created here and not in
+        // createRenderPasses().
+        this.dlss = Donut_CreateDlss(app);
 
         this.lightProbes = Donut_CreateLightProbeSet(app, 4);
 
@@ -1416,7 +1454,9 @@ function main(argc: int, argv: Ref<string>): int {
     // ProcessCommandLine
     let width = 1920;
     let height = 1080;
-    let options = AppOptions.PerMonitorDpi;
+    // Dlss: the Vulkan extensions DLSS needs, if built with it.
+    let options = AppOptions.PerMonitorDpi | AppOptions.Dlss;
+    let vsync = true;
     let sceneName = "";
     for (let i = 1; i < argc; i++) {
         const arg = Donut_GetArg(argv, i);
@@ -1432,6 +1472,7 @@ function main(argc: int, argv: Ref<string>): int {
             options = options | AppOptions.DebugRuntime;
         } else if (arg == "-no-vsync") {
             options = options | AppOptions.NoVsync;
+            vsync = false;
         } else if (arg == "-print-graph") {
             g_PrintSceneGraph = true;
         } else if (arg == "-print-formats") {
@@ -1458,6 +1499,8 @@ function main(argc: int, argv: Ref<string>): int {
     }
 
     const uiData = new UIData();
+    // The UI applies its VSync setting every frame; in the C++ sample that overrides -no-vsync.
+    uiData.enableVsync = vsync;
 
     const demo = new FeatureDemo(app, uiData);
     if (!demo.init(sceneName)) {

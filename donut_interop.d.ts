@@ -90,7 +90,9 @@ enum AppOptions {
     // Starts with vertical sync off.
     NoVsync = 16,
     // DPI aware, with ImGui scaled explicitly (as Donut's feature demo).
-    PerMonitorDpi = 32
+    PerMonitorDpi = 32,
+    // With Vulkan, enables the extensions DLSS needs (when built with DONUT_WITH_DLSS).
+    Dlss = 64
 }
 
 // nvrhi::PrimitiveType values (only the ones used so far).
@@ -1009,6 +1011,14 @@ declare function Donut_ResetExposure(commandList: Opaque, toneMappingPass: Opaqu
 declare function Donut_RenderToneMapping(commandList: Opaque, toneMappingPass: Opaque, view: Opaque, sourceTexture: Opaque, freezeEyeAdaptation: int): void;
 declare function Donut_CreateBloomPass(app: Opaque, framebuffer: Opaque, view: Opaque): Opaque;
 declare function Donut_RenderBloom(commandList: Opaque, bloomPass: Opaque, framebuffer: Opaque, view: Opaque, sourceTexture: Opaque, sigma: number, alpha: number): void;
+// NVIDIA DLSS (loads nvngx_dlss.dll from the executable's directory); null when built without
+// DONUT_WITH_DLSS or the device can't create it.
+declare function Donut_CreateDlss(app: Opaque): Opaque;
+// For inputWidth x inputHeight images upscaled to outputWidth x outputHeight; non-zero if ready.
+declare function Donut_InitDlss(dlss: Opaque, inputWidth: int, inputHeight: int, outputWidth: int, outputHeight: int): int;
+declare function Donut_IsDlssInitialized(dlss: Opaque): int;
+// HDR color into resolved color (instead of TAA), with the tone mapping pass's exposure. Planar views only.
+declare function Donut_EvaluateDlss(commandList: Opaque, dlss: Opaque, view: Opaque, sceneRenderTargets: Opaque, toneMappingPass: Opaque): void;
 // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
 declare function Donut_CreatePixelReadbackPass(app: Opaque, texture: Opaque): Opaque;
 declare function Donut_CapturePixel(commandList: Opaque, pixelReadbackPass: Opaque, x: int, y: int): void;

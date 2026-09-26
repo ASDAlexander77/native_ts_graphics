@@ -43,6 +43,7 @@
 #include <donut/render/CascadedShadowMap.h>
 #include <donut/render/DeferredLightingPass.h>
 #include <donut/render/DepthPass.h>
+#include <donut/render/DLSS.h>
 #include <donut/render/DrawStrategy.h>
 #include <donut/render/ForwardShadingPass.h>
 #include <donut/render/GBuffer.h>
@@ -1027,6 +1028,7 @@ extern "C"
         AppOption_Fullscreen = 8, // starts in fullscreen at the monitor's native resolution
         AppOption_NoVsync = 16, // starts with vertical sync off
         AppOption_PerMonitorDpi = 32, // DPI aware, with ImGui scaled explicitly (as Donut's feature demo)
+        AppOption_Dlss = 64, // with Vulkan, enables the extensions DLSS needs (when built with DONUT_WITH_DLSS)
     };
 
     // Creates the device and window for graphicsApi (an nvrhi::GraphicsAPI value), with the
@@ -1052,6 +1054,15 @@ extern "C"
         params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
         params.enableDebugRuntime = (options & AppOption_DebugRuntime) != 0;
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
+
+#if DONUT_WITH_DLSS && DONUT_WITH_VULKAN
+        if ((options & AppOption_Dlss) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            donut::render::DLSS::GetRequiredVulkanExtensions(
+                params.optionalVulkanInstanceExtensions,
+                params.optionalVulkanDeviceExtensions);
+        }
+#endif
 
         if (!deviceManager->CreateWindowDeviceAndSwapChain(params, title))
         {
@@ -5214,6 +5225,69 @@ extern "C"
     {
         static_cast<donut::render::BloomPass*>(bloomPass)->Render(AsCommandList(commandList), AsFramebufferFactory(framebuffer),
             *AsView(view), static_cast<nvrhi::ITexture*>(sourceTexture), float(sigma), float(alpha));
+    }
+
+    // NVIDIA DLSS, loading nvngx_dlss.dll from the executable's directory (donut_interop.dll's under
+    // the JIT). Null when Donut was built without DONUT_WITH_DLSS, or the device can't create it.
+    void* Donut_CreateDlss(void* app)
+    {
+#if DONUT_WITH_DLSS
+        App* a = AsApp(app);
+        std::shared_ptr<donut::render::DLSS> dlss = donut::render::DLSS::Create(a->device(), *a->shaderFactory,
+            GetExecutablePath().parent_path().generic_string());
+        return a->OwnObject(dlss);
+#else
+        (void)app;
+        return nullptr;
+#endif
+    }
+
+    // Sets DLSS up for inputWidth x inputHeight images upscaled to outputWidth x outputHeight
+    // (again whenever the sizes change). Returns non-zero if DLSS is ready to use.
+    int Donut_InitDlss(void* dlss, int inputWidth, int inputHeight, int outputWidth, int outputHeight)
+    {
+#if DONUT_WITH_DLSS
+        donut::render::DLSS::InitParameters params;
+        params.inputWidth = uint32_t(inputWidth);
+        params.inputHeight = uint32_t(inputHeight);
+        params.outputWidth = uint32_t(outputWidth);
+        params.outputHeight = uint32_t(outputHeight);
+        auto* d = static_cast<donut::render::DLSS*>(dlss);
+        d->Init(params);
+        return d->IsDlssInitialized() ? 1 : 0;
+#else
+        (void)dlss; (void)inputWidth; (void)inputHeight; (void)outputWidth; (void)outputHeight;
+        return 0;
+#endif
+    }
+
+    int Donut_IsDlssInitialized(void* dlss)
+    {
+#if DONUT_WITH_DLSS
+        return static_cast<donut::render::DLSS*>(dlss)->IsDlssInitialized() ? 1 : 0;
+#else
+        (void)dlss;
+        return 0;
+#endif
+    }
+
+    // Anti-aliases the targets' HDR color into their resolved color (instead of TAA), from their
+    // depth and motion vectors, with the tone mapping pass's exposure. Planar views only.
+    void Donut_EvaluateDlss(void* commandList, void* dlss, void* view, void* sceneRenderTargets, void* toneMappingPass)
+    {
+#if DONUT_WITH_DLSS
+        auto* targets = AsSceneRenderTargets(sceneRenderTargets);
+        donut::render::DLSS::EvaluateParameters params;
+        params.depthTexture = targets->Depth;
+        params.motionVectorsTexture = targets->MotionVectors;
+        params.inputColorTexture = targets->HdrColor;
+        params.outputColorTexture = targets->ResolvedColor;
+        params.exposureBuffer = static_cast<donut::render::ToneMappingPass*>(toneMappingPass)->GetExposureBuffer();
+        static_cast<donut::render::DLSS*>(dlss)->Evaluate(AsCommandList(commandList), params,
+            *static_cast<donut::engine::PlanarView*>(view));
+#else
+        (void)commandList; (void)dlss; (void)view; (void)sceneRenderTargets; (void)toneMappingPass;
+#endif
     }
 
     // Reads back one pixel of a texture (as RGBA32_UINT): Donut_CapturePixel, execute the command

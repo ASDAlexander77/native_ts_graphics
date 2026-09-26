@@ -126,6 +126,20 @@ else()
     message(WARNING "git not found: skipping the external/Donut patches")
 endif()
 
+# NVIDIA DLSS, for feature_demo's DLSS anti-aliasing mode (needs an RTX GPU at run time):
+#   cmake --preset dlss (or release-dlss), or -DDONUT_WITH_DLSS=ON
+# Donut then fetches the DLSS SDK from GitHub at configure time; into the build folder here rather
+# than into the external/Donut submodule (set DONUT_DLSS_FETCH_DIR to share one checkout).
+option(DONUT_WITH_DLSS "Enable the NGX DLSS integration (fetches the DLSS SDK)" OFF)
+set(DONUT_DLSS_FETCH_DIR "" CACHE STRING "Directory to fetch DLSS to, empty uses build directory default")
+if (MSVC AND DONUT_WITH_DLSS)
+    # The SDK's debug library (IMPORTED_IMPLIB_DEBUG of Donut's DLSS target) is built against the
+    # debug CRT (/MTd); everything here uses the release static CRT (/MT, see above), so Debug links
+    # its release library (the configuration-less IMPORTED_IMPLIB) too. This initializes the
+    # imported targets Donut creates; its DLSS target isn't GLOBAL, so it can't be changed after.
+    set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG "Release;")
+endif()
+
 add_subdirectory(external/Donut)
 
 if (NVRHI_WITH_DX12)
@@ -178,6 +192,16 @@ set_target_properties(donut_interop_shared PROPERTIES
     OUTPUT_NAME donut_interop
     ARCHIVE_OUTPUT_NAME donut_interop_shared
     WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+# With DONUT_WITH_DLSS, NGX loads nvngx_dlss.dll from the directory of the executable (of
+# donut_interop.dll under the JIT): bin/, where both are. Set by Donut's cmake/DLSS.cmake.
+function(copy_dlss_library target)
+    if (DLSS_SHARED_LIBRARY_PATH)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLSS_SHARED_LIBRARY_PATH}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
+    endif()
+endfunction()
+copy_dlss_library(donut_interop_shared)
 
 # required libs
 set(TSLANG_LINK_LIBS "TypeScriptDefaultLib" "TypeScriptAsyncRuntime")
@@ -405,6 +429,7 @@ endif()
 
 # Port of Donut-Samples' feature_demo: Donut's full renderer (deferred or forward shading, cascaded
 # shadows, SSAO, procedural sky, TAA or MSAA, bloom, tone mapping, light probes, material picking)
-# over a loaded scene, with an ImGui settings window and material editor. No shaders of its own;
-# needs the scenes and fonts of DONUT_SAMPLES_MEDIA_DIR above.
+# over a loaded scene, with an ImGui settings window and material editor; DLSS with
+# DONUT_WITH_DLSS=ON. No shaders of its own; needs the scenes and fonts of DONUT_SAMPLES_MEDIA_DIR above.
 add_tslang_example(feature_demo)
+copy_dlss_library(feature_demo)
