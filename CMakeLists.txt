@@ -216,6 +216,31 @@ if(NOT WIN32)
     list(APPEND TSLANG_LINK_LIBS "stdc++" "m" "pthread" "dl" "rt")
 endif()
 
+# TypeScript shared by the examples (InputPass). An example's `import { X } from "./input_pass"`
+# only reads the declarations; the code is compiled once here and linked into every example.
+# tslang resolves such an import to ./input_pass.dll instead when that exists in its working
+# directory, which for these compiles is the build folder: keep the DLL below out of it.
+set(TSLANG_SHARED_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/input_pass.ts")
+add_library(tslang_shared OBJECT ${TSLANG_SHARED_SOURCES})
+
+# The same code as bin/input_pass.dll, for running an example under the JIT: list it in
+# --shared-libs after donut_interop.dll (which it calls into, through its import library) and the
+# DLL build of the default library it links, copied next to it (see run_jit.bat). Run from a
+# directory without an input_pass.dll, so the import reads input_pass.ts as in the build above.
+set(TSLANG_DEFAULTLIB_DLL
+    "${CMAKE_TSLANG_DIR}/defaultlib/dll/${TSLANG_DEFAULTLIB_BUILD}/${TSLANG_MEMORY_MODEL}/TypeScriptDefaultLib.dll")
+separate_arguments(TSLANG_FLAGS_LIST NATIVE_COMMAND "${CMAKE_TSLANG_FLAGS}")
+add_custom_command(
+    OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll"
+    COMMAND "${CMAKE_TSLANG_COMPILER}" ${TSLANG_FLAGS_LIST} "--default-lib-path=${CMAKE_TSLANG_DIR}" --emit=dll
+        "--obj=$<TARGET_LINKER_FILE:donut_interop_shared>"
+        "-o=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll" "${CMAKE_CURRENT_SOURCE_DIR}/input_pass.ts"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TSLANG_DEFAULTLIB_DLL}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/input_pass.ts" donut_interop_shared
+    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+    COMMENT "Building input_pass.dll for the JIT")
+add_custom_target(tslang_shared_dll ALL DEPENDS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll")
+
 # One executable per example, built from <name>.ts, plus any further sources given after the name.
 # Its shaders, if any (the <name>_shaders target), must be compiled into
 # bin/shaders/<name>/<dxbc|dxil|spirv>: donut_interop loads them from the folder named after the
@@ -226,7 +251,9 @@ function(add_tslang_example name)
     # stay off the link line.
     add_executable(${name} ${name}.ts ${ARGN})
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
-    target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop)
+    target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop tslang_shared)
+    # The TSLANG rule doesn't report dependencies: recompile when the imported declarations change.
+    set_source_files_properties(${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_SHARED_SOURCES}")
     if (TARGET ${name}_shaders)
         add_dependencies(${name} ${name}_shaders)
     endif()
