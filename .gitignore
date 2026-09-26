@@ -3,3 +3,4 @@
 /bin
 /build-dlss
 /build-release-dlss
+__pycache__/
