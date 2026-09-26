@@ -340,8 +340,8 @@ if (DONUT_SAMPLES_MEDIA_DIR)
     # rt_particles: its scene, environment map and smoke texture.
     file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/rt_particles"
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
-    # feature_demo: its UI fonts. It lists the scenes under media/glTF-Sample-Assets/Models, so
-    # only the models copied above (Sponza, BrainStem); pass any other scene file on its command line.
+    # feature_demo: its UI fonts. It lists the scenes copied above (sponza-plus.scene.json, its
+    # default, Sponza, BrainStem, rt_particles'); pass any other scene file on its command line.
     file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/fonts"
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
 endif()

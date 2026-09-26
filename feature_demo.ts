@@ -19,6 +19,9 @@ namespace FeatureDemoExample {
     const GROUND_COLOR_G = 0.59;
     const GROUND_COLOR_B = 0.55;
 
+    // Loaded at startup unless a scene is given on the command line.
+    const DEFAULT_SCENE = "sponza-plus.scene.json";
+
     // Stencil bit the G-buffer pass sets where it writes motion vectors, for TAA.
     const MOTION_VECTOR_STENCIL_MASK = 0x01;
 
@@ -1099,7 +1102,9 @@ namespace FeatureDemoExample {
         init(sceneName: string): boolean {
             const app = this.app;
 
-            this.sceneDir = `${Donut_GetExecutableDirectory()}/media/glTF-Sample-Assets/Models/`;
+            // The whole media folder (the C++ sample lists media/glTF-Sample-Assets/Models only), so
+            // that the default scene, media/sponza-plus.scene.json, is in the list too.
+            this.sceneDir = `${Donut_GetExecutableDirectory()}/media/`;
             this.sceneFilesAvailable = Donut_FindScenes(app, this.sceneDir);
 
             const sceneCount = Donut_GetStringListCount(this.sceneFilesAvailable);
@@ -1128,11 +1133,12 @@ namespace FeatureDemoExample {
             this.lightProbes = Donut_CreateLightProbeSet(app, 4);
 
             if (sceneName == "") {
-                // app::FindPreferredScene(available, "Sponza.gltf")
+                // app::FindPreferredScene(available, DEFAULT_SCENE): Sponza with two dancing
+                // BrainStem robots, as in rt_bindless (the C++ sample prefers Sponza.gltf).
                 let preferred = Donut_GetStringListItem(this.sceneFilesAvailable, 0);
                 for (let i = 0; i < sceneCount; i++) {
                     const scene = Donut_GetStringListItem(this.sceneFilesAvailable, i);
-                    if (scene.indexOf("Sponza.gltf") >= 0) {
+                    if (scene.indexOf(DEFAULT_SCENE) >= 0) {
                         preferred = scene;
                         break;
                     }
