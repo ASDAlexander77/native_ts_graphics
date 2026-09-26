@@ -311,16 +311,25 @@ namespace
         std::unique_ptr<donut::engine::ThreadPool> m_ThreadPool;
     };
 
+    // The module this code is linked into: the example executable, or donut_interop.dll when a
+    // TypeScript file runs under tslang's JIT (where the process is tslang.exe, far from bin/).
+    // Shaders and media are looked up next to it.
     std::filesystem::path GetExecutablePath()
     {
 #ifdef _WIN32
+        HMODULE module = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&GetExecutablePath), &module);
         wchar_t path[MAX_PATH] = {};
-        GetModuleFileNameW(nullptr, path, MAX_PATH);
+        GetModuleFileNameW(module, path, MAX_PATH);
         return std::filesystem::path(path);
 #else
         return std::filesystem::read_symlink("/proc/self/exe");
 #endif
     }
+
+    // Set by Donut_SetAppName; empty means the executable's name.
+    std::string g_AppName;
 
     // Each example executable loads its shaders from bin/shaders/<executable name>/<api>, and
     // Donut's own from bin/shaders/framework/<api> (DONUT_SHADERS_OUTPUT_DIR in CMakeLists.txt).
@@ -329,10 +338,11 @@ namespace
         const std::filesystem::path exe = GetExecutablePath();
         const std::filesystem::path shaders = exe.parent_path() / "shaders";
         const char* shaderType = donut::app::GetShaderTypeName(api);
+        const std::filesystem::path appName = g_AppName.empty() ? exe.stem() : std::filesystem::path(g_AppName);
 
         auto rootFS = std::make_shared<donut::vfs::RootFileSystem>();
         rootFS->mount("/shaders/donut", shaders / "framework" / shaderType);
-        rootFS->mount("/shaders/app", shaders / exe.stem() / shaderType);
+        rootFS->mount("/shaders/app", shaders / appName / shaderType);
 
         auto* app = new App();
         app->deviceManager = std::move(deviceManager);
@@ -905,6 +915,13 @@ extern "C"
     const char* Donut_GetArg(const char* const* argv, int index)
     {
         return argv[index];
+    }
+
+    // Names the folder the next app loads its shaders from (bin/shaders/<name>/<api>) in place
+    // of the executable's name, which under the JIT is donut_interop. Call before creating the app.
+    void Donut_SetAppName(const char* name)
+    {
+        g_AppName = name ? name : "";
     }
 
     // severity is a donut::log::Severity value; messages below it are dropped.

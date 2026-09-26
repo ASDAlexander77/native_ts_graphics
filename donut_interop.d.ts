@@ -106,6 +106,9 @@ declare function Donut_GetArg(argv: Opaque, index: int): string;
 // -d3d11 / -dx11, -d3d12 / -dx12, -vk / -vulkan; D3D12 by default on Windows.
 declare function Donut_GetGraphicsAPIFromCommandLine(argc: int, argv: Opaque): GraphicsAPI;
 declare function Donut_GraphicsAPIToString(api: GraphicsAPI): string;
+// Shaders load from bin/shaders/<name>/<api>; the executable's name by default. Under the
+// JIT the executable is donut_interop.dll, so name the example before creating the app.
+declare function Donut_SetAppName(name: string): void;
 // Messages below the severity are dropped.
 declare function Donut_SetLogMinSeverity(severity: LogSeverity): void;
 

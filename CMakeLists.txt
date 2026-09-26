@@ -144,23 +144,40 @@ endif()
 # Flat C API over Donut, shared by the TypeScript examples.
 # C++17 is required to match Donut's own targets (Donut headers use std::filesystem); MSVC
 # defaults to an older standard without it.
-add_library(donut_interop STATIC donut_interop.cpp)
-set_target_properties(donut_interop PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-target_link_libraries(donut_interop PUBLIC
-    donut_core
-    donut_render
-    donut_app
-    donut_engine
-)
+function(configure_donut_interop target)
+    set_target_properties(${target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    target_link_libraries(${target} PUBLIC
+        donut_core
+        donut_render
+        donut_app
+        donut_engine
+    )
 
-if (NVRHI_WITH_DX12)
-    # Forwards the CMake option as a C++ preprocessor macro so _pydonut.cpp can guard its
-    # D3D12 Work Graphs interop code the same way it already guards DXC via PYDONUT_HAVE_DXC.
-    target_compile_definitions(donut_interop PRIVATE NVRHI_WITH_DX12=1)
-    # d3dx12/d3dx12.h (CD3DX12_STATE_OBJECT_DESC, CD3DX12_WORK_GRAPH_SUBOBJECT, ...) ships in the
-    # Agility SDK package fetched above by FetchAgilitySDK.cmake, not on any include path yet.
-    target_include_directories(donut_interop PRIVATE "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/include")
-endif()
+    if (NVRHI_WITH_DX12)
+        # Forwards the CMake option as a C++ preprocessor macro so _pydonut.cpp can guard its
+        # D3D12 Work Graphs interop code the same way it already guards DXC via PYDONUT_HAVE_DXC.
+        target_compile_definitions(${target} PRIVATE NVRHI_WITH_DX12=1)
+        # d3dx12/d3dx12.h (CD3DX12_STATE_OBJECT_DESC, CD3DX12_WORK_GRAPH_SUBOBJECT, ...) ships in the
+        # Agility SDK package fetched above by FetchAgilitySDK.cmake, not on any include path yet.
+        target_include_directories(${target} PRIVATE "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/include")
+    endif()
+endfunction()
+
+# Linked into every example executable.
+add_library(donut_interop STATIC donut_interop.cpp)
+configure_donut_interop(donut_interop)
+
+# The same API as bin/donut_interop.dll, for running the .ts files under tslang's JIT:
+#   tslang --emit=jit --shared-libs=build/bin/donut_interop.dll <example>.ts
+# It sits next to bin/shaders and bin/media, where it looks them up (see Donut_SetAppName).
+# The functions have no dllexport, so export all of donut_interop.cpp's symbols; its import library
+# is renamed so it doesn't overwrite the static donut_interop.lib.
+add_library(donut_interop_shared SHARED donut_interop.cpp)
+configure_donut_interop(donut_interop_shared)
+set_target_properties(donut_interop_shared PROPERTIES
+    OUTPUT_NAME donut_interop
+    ARCHIVE_OUTPUT_NAME donut_interop_shared
+    WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 # required libs
 set(TSLANG_LINK_LIBS "TypeScriptDefaultLib" "TypeScriptAsyncRuntime")
