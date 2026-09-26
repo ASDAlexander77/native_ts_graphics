@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace RtBindless {
@@ -43,24 +43,24 @@ namespace RtBindless {
     // resource arrays. Uses a ray tracing pipeline, or with -rayQuery, inline ray queries in a
     // compute shader. Space pauses the animations.
     class BindlessRayTracingPass {
-        private app: Opaque;
+        private app: App;
         private useRayQuery: boolean;
-        private scene: Opaque;
-        private sunLight: Opaque;
-        private camera: Opaque;
-        private view: Opaque;
+        private scene: Scene;
+        private sunLight: Light;
+        private camera: Camera;
+        private view: View;
         private bindlessLayout: Opaque;
         private bindingLayout: Opaque;
         private descriptorTable: Opaque;
         private constantBuffer: Opaque;
-        private accelStructs: Opaque;
+        private accelStructs: SceneAccelStructs;
         private shaderLibrary: Opaque;
         // One of these two, depending on useRayQuery.
-        private shaderTable: Opaque;
+        private shaderTable: ShaderTable;
         private computePipeline: Opaque;
         // Created on the first frame, dropped on resize.
         private colorBuffer: Opaque | null;
-        private bindingSet: Opaque | null;
+        private bindingSet: BindingSet;
         private enableAnimations: boolean;
         private wallclockTime: number;
         // The LightingConstants contents; `view` starts at viewOffset.
@@ -71,11 +71,11 @@ namespace RtBindless {
         private viewMatrix: f32[];
         private projMatrix: f32[];
 
-        constructor(app: Opaque, useRayQuery: boolean) {
+        constructor(app: App, useRayQuery: boolean) {
             this.app = app;
             this.useRayQuery = useRayQuery;
             this.colorBuffer = null;
-            this.bindingSet = null;
+            this.bindingSet = new BindingSet(null);
             this.enableAnimations = true;
             this.wallclockTime = 0.0;
             this.constants = [];
@@ -90,7 +90,7 @@ namespace RtBindless {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int): int {
-            Donut_CameraKeyboardUpdate(this.camera, key, scancode, action, mods);
+            this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
                 this.enableAnimations = !this.enableAnimations;
@@ -100,128 +100,129 @@ namespace RtBindless {
         }
 
         onMousePos(x: number, y: number): int {
-            Donut_CameraMousePosUpdate(this.camera, x, y);
+            this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
         onMouseButton(button: int, action: int, mods: int): int {
-            Donut_CameraMouseButtonUpdate(this.camera, button, action, mods);
+            this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
         onMouseScroll(xOffset: number, yOffset: number): int {
-            Donut_CameraMouseScrollUpdate(this.camera, xOffset, yOffset);
+            this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
         onAnimate(elapsedSeconds: number): void {
-            Donut_CameraAnimate(this.camera, elapsedSeconds);
+            this.camera.animate(elapsedSeconds);
 
             if (this.enableAnimations) {
                 this.wallclockTime += elapsedSeconds;
                 // Each animation starts a second after the previous one.
                 let offset = 0.0;
 
-                const animationCount = Donut_GetSceneAnimationCount(this.scene);
+                const animationCount = this.scene.getAnimationCount();
                 for (let i = 0; i < animationCount; i++) {
-                    const duration = Donut_GetSceneAnimationDuration(this.scene, i);
+                    const duration = this.scene.getAnimationDuration(i);
                     const cycles = (this.wallclockTime + offset) / duration;
                     const animationTime = (cycles - Math.floor(cycles)) * duration;
-                    Donut_ApplySceneAnimation(this.scene, i, animationTime);
+                    this.scene.applyAnimation(i, animationTime);
                     offset += 1.0;
                 }
             }
 
-            Donut_SetInformativeWindowTitleWithInfo(this.app, WINDOW_TITLE,
+            this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE,
                 this.useRayQuery ? "- using RayQuery" : "- using RayPipeline");
         }
 
         onBackBufferResizing(): void {
             const bindingSet = this.bindingSet;
-            if (bindingSet) {
-                Donut_ReleaseResource(this.app, bindingSet);
-                this.bindingSet = null;
+            if (!bindingSet.isNull()) {
+                this.app.releaseResource(bindingSet.handle);
+                this.bindingSet = new BindingSet(null);
             }
 
             const colorBuffer = this.colorBuffer;
             if (colorBuffer) {
-                Donut_ReleaseResource(this.app, colorBuffer);
+                this.app.releaseResource(colorBuffer);
                 this.colorBuffer = null;
             }
 
             // The blit's cached binding sets still reference the old color buffer.
-            Donut_ClearBindingCache(this.app);
+            this.app.clearBindingCache();
         }
 
-        onRender(frame: Opaque): void {
-            const width = Donut_GetFrameWidth(frame);
-            const height = Donut_GetFrameHeight(frame);
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
 
             let colorBuffer = this.colorBuffer;
             let bindingSet = this.bindingSet;
-            if (!colorBuffer || !bindingSet) {
-                colorBuffer = Donut_CreateUAVTextureForFrameWithFormat(this.app, frame, "ColorBuffer", Format.RGBA16_FLOAT);
+            if (!colorBuffer || bindingSet.isNull()) {
+                colorBuffer = this.app.createUAVTextureForFrameWithFormat(frame, "ColorBuffer", Format.RGBA16_FLOAT);
 
-                const bindingSetDesc = Donut_CreateBindingSetDesc();
-                Donut_BindEntireConstantBuffer(bindingSetDesc, 0, this.constantBuffer);
-                Donut_BindAccelStruct(bindingSetDesc, 0, Donut_GetSceneTopLevelAS(this.accelStructs));
-                Donut_BindStructuredBufferSRV(bindingSetDesc, 1, Donut_GetSceneBuffer(this.scene, SceneBuffer.Instances));
-                Donut_BindStructuredBufferSRV(bindingSetDesc, 2, Donut_GetSceneBuffer(this.scene, SceneBuffer.Geometries));
-                Donut_BindStructuredBufferSRV(bindingSetDesc, 3, Donut_GetSceneBuffer(this.scene, SceneBuffer.Materials));
-                Donut_BindSampler(bindingSetDesc, 0, Donut_GetCommonSampler(this.app, CommonSampler.AnisotropicWrap));
-                Donut_BindTextureUAV(bindingSetDesc, 0, colorBuffer);
-                bindingSet = Donut_CreateBindingSetForLayout(this.app, bindingSetDesc, this.bindingLayout);
+                const bindingSetDesc = BindingSetDesc.create();
+                bindingSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+                bindingSetDesc.bindAccelStruct(0, this.accelStructs.getTopLevelAS());
+                bindingSetDesc.bindStructuredBufferSRV(1, this.scene.getBuffer(SceneBuffer.Instances));
+                bindingSetDesc.bindStructuredBufferSRV(2, this.scene.getBuffer(SceneBuffer.Geometries));
+                bindingSetDesc.bindStructuredBufferSRV(3, this.scene.getBuffer(SceneBuffer.Materials));
+                bindingSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
+                bindingSetDesc.bindTextureUAV(0, colorBuffer);
+                bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
 
                 this.colorBuffer = colorBuffer;
                 this.bindingSet = bindingSet;
             }
 
-            Donut_GetCameraWorldToView(this.camera, Ref(this.viewMatrix[0]));
+            this.camera.getWorldToView(Ref(this.viewMatrix[0]));
             const projection = perspProjD3DStyleReverse(Math.PI * 0.25, width / height, 0.1);
             for (let i = 0; i < 16; i++) {
                 this.projMatrix[i] = projection[i];
             }
-            Donut_SetPlanarView(this.view, Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
+            this.view.setPlanarView(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
 
-            Donut_RefreshScene(this.app, frame, this.scene);
-            Donut_UpdateSceneAccelStructs(this.app, frame, this.accelStructs, this.scene);
+            this.app.refreshScene(frame, this.scene);
+            this.app.updateSceneAccelStructs(frame, this.accelStructs, this.scene);
 
             for (let i = 0; i < 4; i++) {
                 this.constants[AMBIENT_COLOR_OFFSET + i] = 0.05;
             }
-            Donut_FillPlanarViewConstants(this.view, Ref(this.constants[this.viewOffset]));
-            Donut_FillLightConstants(this.sunLight, Ref(this.constants[LIGHT_OFFSET]));
-            Donut_WriteBuffer(Donut_GetFrameCommandList(frame), this.constantBuffer, Ref(this.constants[0]), this.constantsSize);
+            this.view.fillPlanarViewConstants(Ref(this.constants[this.viewOffset]));
+            this.sunLight.fillConstants(Ref(this.constants[LIGHT_OFFSET]));
+            frame.getCommandList().writeBuffer(this.constantBuffer, Ref(this.constants[0]), this.constantsSize);
 
             if (this.useRayQuery) {
                 const groupsX: int = Math.floor((width + COMPUTE_GROUP_SIZE - 1) / COMPUTE_GROUP_SIZE);
                 const groupsY: int = Math.floor((height + COMPUTE_GROUP_SIZE - 1) / COMPUTE_GROUP_SIZE);
-                Donut_DispatchWithDescriptorTable(Donut_GetFrameCommandList(frame), this.computePipeline, bindingSet,
+                frame.getCommandList().dispatchWithDescriptorTable(this.computePipeline, bindingSet,
                     this.descriptorTable, groupsX, groupsY, 1);
             } else {
-                Donut_DispatchRaysWithDescriptorTable(frame, this.shaderTable, bindingSet, this.descriptorTable, width, height);
+                frame.dispatchRaysWithDescriptorTable(this.shaderTable, bindingSet, this.descriptorTable, width, height);
             }
 
-            Donut_BlitTexture(this.app, frame, colorBuffer);
+            this.app.blitTexture(frame, colorBuffer);
         }
 
         createRayTracingPipeline(): boolean {
-            const shaderLibrary = Donut_CreateShaderLibraryWithDefine(this.app, "rt_bindless.hlsl", "USE_RAY_QUERY", "0");
+            const shaderLibrary = this.app.createShaderLibraryWithDefine("rt_bindless.hlsl", "USE_RAY_QUERY", "0");
             if (!shaderLibrary) {
                 return false;
             }
             this.shaderLibrary = shaderLibrary;
 
-            const pipeline = Donut_CreateRayTracingPipelineWithLayouts(this.app, shaderLibrary, this.bindingLayout, this.bindlessLayout,
+            const pipeline = this.app.createRayTracingPipelineWithLayouts(shaderLibrary, this.bindingLayout, this.bindlessLayout,
                 "RayGen", "Miss", "HitGroup", "ClosestHit", "AnyHit", PAYLOAD_SIZE);
             if (!pipeline) {
                 return false;
             }
 
-            const shaderTable = Donut_CreateCachedShaderTable(this.app, pipeline, "RayGen", "HitGroup", "Miss", 3, "Shader Table");
+            const shaderTable = this.app.createCachedShaderTable(pipeline, "RayGen", "HitGroup", "Miss", 3, "Shader Table");
             // The shader table keeps the pipeline alive.
-            Donut_ReleaseResource(this.app, pipeline);
-            if (!shaderTable) {
+            this.app.releaseResource(pipeline);
+            if (shaderTable.isNull()) {
                 return false;
             }
             this.shaderTable = shaderTable;
@@ -229,13 +230,13 @@ namespace RtBindless {
         }
 
         createComputePipeline(): boolean {
-            const computeShader = Donut_CreateShaderWithDefine(this.app, "rt_bindless.hlsl", "main", ShaderType.Compute,
+            const computeShader = this.app.createShaderWithDefine("rt_bindless.hlsl", "main", ShaderType.Compute,
                 "USE_RAY_QUERY", "1");
             if (!computeShader) {
                 return false;
             }
 
-            const pipeline = Donut_CreateComputePipelineWithLayouts(this.app, computeShader, this.bindingLayout, this.bindlessLayout);
+            const pipeline = this.app.createComputePipelineWithLayouts(computeShader, this.bindingLayout, this.bindlessLayout);
             if (!pipeline) {
                 return false;
             }
@@ -245,71 +246,71 @@ namespace RtBindless {
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(scenePath: string): boolean {
-            const bindlessLayoutDesc = Donut_CreateBindlessLayoutDesc(0, 1024, ShaderType.All);
-            Donut_BindlessLayoutAddRawBuffers(bindlessLayoutDesc, 1);
-            Donut_BindlessLayoutAddTextures(bindlessLayoutDesc, 2);
-            this.bindlessLayout = Donut_CreateBindlessLayout(this.app, bindlessLayoutDesc);
+            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
+            bindlessLayoutDesc.addRawBuffers(1);
+            bindlessLayoutDesc.addTextures(2);
+            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
 
-            const layoutDesc = Donut_CreateBindingLayoutDesc();
-            Donut_LayoutVolatileConstantBuffer(layoutDesc, 0);
-            Donut_LayoutAccelStruct(layoutDesc, 0);
-            Donut_LayoutStructuredBufferSRV(layoutDesc, 1);
-            Donut_LayoutStructuredBufferSRV(layoutDesc, 2);
-            Donut_LayoutStructuredBufferSRV(layoutDesc, 3);
-            Donut_LayoutSampler(layoutDesc, 0);
-            Donut_LayoutTextureUAV(layoutDesc, 0);
-            this.bindingLayout = Donut_CreateBindingLayout(this.app, layoutDesc, ShaderType.All);
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutStructuredBufferSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            layoutDesc.layoutSampler(0);
+            layoutDesc.layoutTextureUAV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
 
-            const descriptorTableManager = Donut_CreateDescriptorTableManager(this.app, this.bindlessLayout);
-            this.descriptorTable = Donut_GetDescriptorTable(descriptorTableManager);
+            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
+            this.descriptorTable = descriptorTableManager.getDescriptorTable();
 
-            const scene = Donut_LoadSceneWithDescriptorTable(this.app, scenePath, descriptorTableManager);
-            if (!scene) {
+            const scene = this.app.loadSceneWithDescriptorTable(scenePath, descriptorTableManager);
+            if (scene.isNull()) {
                 console.log(`Cannot load the scene ${scenePath}`);
                 return false;
             }
             this.scene = scene;
 
-            const sceneGraph = Donut_GetSceneGraph(scene);
-            this.sunLight = Donut_AddDirectionalLight(sceneGraph, Donut_GetRootNode(sceneGraph), "Sun",
+            const sceneGraph = scene.getSceneGraph();
+            this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
                 0.1, -1.0, -0.15, 0.53, 5.0);
-            Donut_RefreshSceneGraph(this.app, sceneGraph);
+            this.app.refreshSceneGraph(sceneGraph);
 
-            this.camera = Donut_CreateFirstPersonCamera(this.app);
-            Donut_CameraLookAt(this.camera, 0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            Donut_CameraSetMoveSpeed(this.camera, 3.0);
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+            this.camera.setMoveSpeed(3.0);
 
-            this.view = Donut_CreatePlanarView(this.app);
+            this.view = this.app.createPlanarView();
 
             this.viewOffset = LIGHT_OFFSET + Donut_GetLightConstantsSize() / 4;
             this.constantsSize = this.viewOffset * 4 + Donut_GetPlanarViewConstantsSize();
             for (let i = 0; i < this.constantsSize / 4; i++) {
                 this.constants.push(0.0);
             }
-            this.constantBuffer = Donut_CreateVolatileConstantBuffer(this.app, this.constantsSize, "LightingConstants");
+            this.constantBuffer = this.app.createVolatileConstantBuffer(this.constantsSize, "LightingConstants");
 
             if (this.useRayQuery ? !this.createComputePipeline() : !this.createRayTracingPipeline()) {
                 return false;
             }
 
-            const commandList = Donut_CreateCommandList(this.app);
-            Donut_OpenCommandList(commandList);
+            const commandList = this.app.createCommandList();
+            commandList.open();
 
-            this.accelStructs = Donut_CreateAnimatedSceneAccelStructs(this.app, commandList, scene);
+            this.accelStructs = this.app.createAnimatedSceneAccelStructs(commandList, scene);
 
-            Donut_CloseCommandList(commandList);
-            Donut_ExecuteCommandList(this.app, commandList);
-            Donut_WaitForIdle(this.app);
-            Donut_ReleaseResource(this.app, commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetKeyboardCallback(pass, this.onKey);
-            Donut_SetMousePosCallback(pass, this.onMousePos);
-            Donut_SetMouseButtonCallback(pass, this.onMouseButton);
-            Donut_SetMouseScrollCallback(pass, this.onMouseScroll);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetBackBufferResizingCallback(pass, this.onBackBufferResizing);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
@@ -334,36 +335,36 @@ namespace RtBindless {
         }
 
         const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = Donut_CreateAppWithOptions(api, WINDOW_TITLE, 1280, 720, options);
-        if (!app) {
+        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        if (!useRayQuery && !Donut_IsFeatureSupported(app, Feature.RayTracingPipeline)) {
+        if (!useRayQuery && !app.isFeatureSupported(Feature.RayTracingPipeline)) {
             console.log("The graphics device does not support Ray Tracing Pipelines");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        if (useRayQuery && !Donut_IsFeatureSupported(app, Feature.RayQuery)) {
+        if (useRayQuery && !app.isFeatureSupported(Feature.RayQuery)) {
             console.log("The graphics device does not support Ray Queries");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}`);
+        console.log(`Renderer: ${app.getRendererString()}`);
 
         const rayTracing = new BindlessRayTracingPass(app, useRayQuery);
         if (!rayTracing.init(scenePath)) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

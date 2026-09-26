@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace ShaderSpecializations {
@@ -9,99 +9,100 @@ namespace ShaderSpecializations {
 
     // Port of Donut-Samples' shader_specializations.cpp.
     class ShaderSpecializationsPass {
-        private app: Opaque;
+        private app: App;
         private vertexShader: Opaque;
         private pixelShader: Opaque;
         // Created on the first frame (they depend on the framebuffer layout), dropped on resize.
         private pipelines: Opaque[];
 
-        constructor(app: Opaque) {
+        constructor(app: App) {
             this.app = app;
             this.pipelines = [];
         }
 
         onBackBufferResizing(): void {
             for (const pipeline of this.pipelines) {
-                Donut_ReleaseResource(this.app, pipeline);
+                this.app.releaseResource(pipeline);
             }
             this.pipelines = [];
         }
 
         onAnimate(elapsedSeconds: number): void {
-            Donut_SetInformativeWindowTitle(this.app, WINDOW_TITLE);
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frame: Opaque): void {
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
             if (this.pipelines.length == 0) {
                 // Create pipelines with shader specializations.
                 // The specializations could be created ahead of time, but they're cheap and it doesn't really matter.
                 const colors: int[] = [0x0000ff, 0x00ff00, 0xff0000, 0xff00ff];
 
                 for (let i = 0; i < 4; i++) {
-                    const vertexShader = Donut_SpecializeShaderFloat(this.app, this.vertexShader, 0, i * 0.5 - 0.75);
-                    const pixelShader = Donut_SpecializeShaderUInt(this.app, this.pixelShader, 1, colors[i]);
+                    const vertexShader = this.app.specializeShaderFloat(this.vertexShader, 0, i * 0.5 - 0.75);
+                    const pixelShader = this.app.specializeShaderUInt(this.pixelShader, 1, colors[i]);
 
-                    this.pipelines.push(Donut_CreateGraphicsPipeline(this.app, frame, vertexShader, pixelShader));
+                    this.pipelines.push(this.app.createGraphicsPipeline(frame, vertexShader, pixelShader));
 
                     // The pipeline holds its own references to the specialized shaders.
-                    Donut_ReleaseResource(this.app, vertexShader);
-                    Donut_ReleaseResource(this.app, pixelShader);
+                    this.app.releaseResource(vertexShader);
+                    this.app.releaseResource(pixelShader);
                 }
             }
 
-            Donut_ClearColor(frame, 0.0, 0.0, 0.0, 0.0);
+            frame.clearColor(0.0, 0.0, 0.0, 0.0);
 
             // Render triangles, one with each pipeline.
             // Expected output: 4 triangles side-by-side; red, green, blue, magenta.
             for (const pipeline of this.pipelines) {
-                Donut_Draw(frame, pipeline, 3);
+                frame.draw(pipeline, 3);
             }
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
-            this.vertexShader = Donut_CreateShader(this.app, "shader_specializations.hlsl", "main_vs", ShaderType.Vertex);
-            this.pixelShader = Donut_CreateShader(this.app, "shader_specializations.hlsl", "main_ps", ShaderType.Pixel);
+            this.vertexShader = this.app.createShader("shader_specializations.hlsl", "main_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("shader_specializations.hlsl", "main_ps", ShaderType.Pixel);
 
             if (!this.vertexShader || !this.pixelShader) {
                 return false;
             }
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetBackBufferResizingCallback(pass, this.onBackBufferResizing);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
 
     export function main(argc: int, argv: Ref<string>): int {
 
-        const app = Donut_CreateAppForAPI(GraphicsAPI.VULKAN, WINDOW_TITLE, 1280, 720);
-        if (!app) {
+        const app = App.createForAPI(GraphicsAPI.VULKAN, WINDOW_TITLE, 1280, 720);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        if (!Donut_IsFeatureSupported(app, Feature.ShaderSpecializations)) {
+        if (!app.isFeatureSupported(Feature.ShaderSpecializations)) {
             console.log("The graphics device does not support shader specializations");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}`);
+        console.log(`Renderer: ${app.getRendererString()}`);
 
         const specializations = new ShaderSpecializationsPass(app);
         if (!specializations.init()) {
             console.log("Cannot load the shader specialization shaders");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

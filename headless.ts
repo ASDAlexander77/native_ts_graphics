@@ -1,4 +1,7 @@
-/// <reference path="donut_interop.d.ts" />
+// Imported only for its declarations: input_pass.ts brings in donut.ts (the class wrappers over
+// donut_interop.d.ts), whose code every example links from its object. Referencing donut.ts here
+// would compile that code into this object too, defining its symbols twice.
+import { InputPass } from "./input_pass";
 
 namespace Headless {
     // Port of Donut-Samples' headless.cpp: runs a compute shader on a device without a window and
@@ -9,37 +12,37 @@ namespace Headless {
     const NUM_INPUT_VALUES = 256;
     const UINT_SIZE = 4;
 
-    function runTest(app: Opaque): boolean {
-        const computeShader = Donut_CreateShader(app, "headless.hlsl", "main", ShaderType.Compute);
+    function runTest(app: App): boolean {
+        const computeShader = app.createShader("headless.hlsl", "main", ShaderType.Compute);
         if (!computeShader) {
             return false;
         }
 
         // Create the input, output, and readback buffers...
 
-        const inputBuffer = Donut_CreateUIntBuffer(app, NUM_INPUT_VALUES, 0, "InputBuffer");
-        const outputBuffer = Donut_CreateUIntBuffer(app, 1, 1, "OutputBuffer");
-        const readbackBuffer = Donut_CreateReadbackBuffer(app, UINT_SIZE, "ReadbackBuffer");
+        const inputBuffer = app.createUIntBuffer(NUM_INPUT_VALUES, 0, "InputBuffer");
+        const outputBuffer = app.createUIntBuffer(1, 1, "OutputBuffer");
+        const readbackBuffer = app.createReadbackBuffer(UINT_SIZE, "ReadbackBuffer");
 
         // Create the binding layout and binding set...
 
-        const bindingSetDesc = Donut_CreateBindingSetDesc();
-        Donut_BindTypedBufferSRV(bindingSetDesc, 0, inputBuffer);
-        Donut_BindTypedBufferUAV(bindingSetDesc, 0, outputBuffer);
+        const bindingSetDesc = BindingSetDesc.create();
+        bindingSetDesc.bindTypedBufferSRV(0, inputBuffer);
+        bindingSetDesc.bindTypedBufferUAV(0, outputBuffer);
 
-        const bindingSet = Donut_CreateBindingSet(app, bindingSetDesc, ShaderType.Compute);
-        if (!bindingSet) {
+        const bindingSet = app.createBindingSet(bindingSetDesc, ShaderType.Compute);
+        if (bindingSet.isNull()) {
             return false;
         }
 
         // Create the compute pipeline...
 
-        const computePipeline = Donut_CreateComputePipeline(app, computeShader, bindingSet);
+        const computePipeline = app.createComputePipeline(computeShader, bindingSet);
 
         // Create a command list and begin recording
 
-        const commandList = Donut_CreateCommandList(app);
-        Donut_OpenCommandList(commandList);
+        const commandList = app.createCommandList();
+        commandList.open();
 
         // Fill the input buffer with some numbers and compute the expected result of shader operation.
         // `let`, not `const`: tslang takes the address of the array's storage only for non-const arrays.
@@ -50,26 +53,26 @@ namespace Headless {
             inputData.push(i + 1);
             expectedResult += i + 1;
         }
-        Donut_WriteBuffer(commandList, inputBuffer, Ref(inputData[0]), NUM_INPUT_VALUES * UINT_SIZE);
+        commandList.writeBuffer(inputBuffer, Ref(inputData[0]), NUM_INPUT_VALUES * UINT_SIZE);
 
         // Run the shader
 
-        Donut_Dispatch(commandList, computePipeline, bindingSet, 1, 1, 1);
+        commandList.dispatch(computePipeline, bindingSet, 1, 1, 1);
 
         // Copy the shader output into the staging buffer
 
-        Donut_CopyBuffer(commandList, readbackBuffer, 0, outputBuffer, 0, UINT_SIZE);
+        commandList.copyBuffer(readbackBuffer, 0, outputBuffer, 0, UINT_SIZE);
 
         // Close and execute the command list, wait on the CPU side for it to be finished
 
-        Donut_CloseCommandList(commandList);
-        Donut_ExecuteCommandList(app, commandList);
-        Donut_WaitForIdle(app);
+        commandList.close();
+        app.executeCommandList(commandList);
+        app.waitForIdle();
 
         // Read the shader output
 
         let outputData: int[] = [0];
-        if (!Donut_ReadBuffer(app, readbackBuffer, Ref(outputData[0]), UINT_SIZE)) {
+        if (!app.readBuffer(readbackBuffer, Ref(outputData[0]), UINT_SIZE)) {
             return false;
         }
         const computedResult = outputData[0];
@@ -87,17 +90,17 @@ namespace Headless {
     }
 
     function listAdapters(api: GraphicsAPI): int {
-        const adapters = Donut_EnumerateAdapters(api);
-        if (!adapters) {
+        const adapters = AdapterList.enumerate(api);
+        if (adapters.isNull()) {
             return 1;
         }
 
-        const count = Donut_GetAdapterCount(adapters);
+        const count = adapters.getCount();
         for (let adapterIndex = 0; adapterIndex < count; adapterIndex++) {
-            console.log(`Adapter ${adapterIndex}: ${Donut_GetAdapterName(adapters, adapterIndex)} (${Donut_GetAdapterMemoryMB(adapters, adapterIndex)} MB VRAM)`);
+            console.log(`Adapter ${adapterIndex}: ${adapters.getName(adapterIndex)} (${adapters.getMemoryMB(adapterIndex)} MB VRAM)`);
         }
 
-        Donut_DestroyAdapterList(adapters);
+        adapters.destroy();
         return 0;
     }
 
@@ -134,16 +137,16 @@ namespace Headless {
             }
         }
 
-        const app = Donut_CreateHeadlessApp(api, adapterIndex);
-        if (!app) {
+        const app = App.createHeadless(api, adapterIndex);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        console.log(`Using ${Donut_GraphicsAPIToString(api)} API with ${Donut_GetRendererString(app)}.`);
+        console.log(`Using ${Donut_GraphicsAPIToString(api)} API with ${app.getRendererString()}.`);
 
         const passed = runTest(app);
-        Donut_DestroyApp(app);
+        app.destroy();
         return passed ? 0 : 1;
     }
 }

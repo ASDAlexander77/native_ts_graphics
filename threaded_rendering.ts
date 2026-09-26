@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace ThreadedRendering {
@@ -32,22 +32,22 @@ namespace ThreadedRendering {
     // The per-face recording (Donut_RenderCubemapFace*) is C++: tslang code must not run on the
     // worker threads, which its garbage collector doesn't know about. This class drives it.
     class ThreadedRenderingPass {
-        private app: Opaque;
-        private scene: Opaque;
-        private camera: Opaque;
-        private forwardShadingPass: Opaque;
-        private cubemap: Opaque;
-        private faceCommandLists: Opaque[];
+        private app: App;
+        private scene: Scene;
+        private camera: Camera;
+        private forwardShadingPass: ForwardShadingPass;
+        private cubemap: CubemapTarget;
+        private faceCommandLists: CommandList[];
         private useThreads: boolean;
 
-        constructor(app: Opaque) {
+        constructor(app: App) {
             this.app = app;
             this.faceCommandLists = [];
             this.useThreads = true;
         }
 
         onKey(key: int, scancode: int, action: int, mods: int): int {
-            Donut_CameraKeyboardUpdate(this.camera, key, scancode, action, mods);
+            this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
                 this.useThreads = !this.useThreads;
@@ -57,82 +57,83 @@ namespace ThreadedRendering {
         }
 
         onMousePos(x: number, y: number): int {
-            Donut_CameraMousePosUpdate(this.camera, x, y);
+            this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
         onMouseButton(button: int, action: int, mods: int): int {
-            Donut_CameraMouseButtonUpdate(this.camera, button, action, mods);
+            this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
         onAnimate(elapsedSeconds: number): void {
-            Donut_CameraAnimate(this.camera, elapsedSeconds);
+            this.camera.animate(elapsedSeconds);
 
-            Donut_SetInformativeWindowTitleWithInfo(this.app, WINDOW_TITLE, this.useThreads ? "(With threads)" : "(No threads)");
+            this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, this.useThreads ? "(With threads)" : "(No threads)");
         }
 
         onBackBufferResizing(): void {
-            Donut_ClearBindingCache(this.app);
+            this.app.clearBindingCache();
         }
 
-        onRender(frame: Opaque): void {
-            Donut_SetCubemapViewFromCamera(this.cubemap, this.camera, 0.1, 100.0);
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
+            this.cubemap.setViewFromCamera(this.camera, 0.1, 100.0);
 
             for (let face = 0; face < NUM_FACES; face++) {
                 if (this.useThreads) {
-                    Donut_RenderCubemapFaceAsync(this.app, this.cubemap, face, this.faceCommandLists[face], this.scene, this.forwardShadingPass);
+                    this.app.renderCubemapFaceAsync(this.cubemap, face, this.faceCommandLists[face], this.scene, this.forwardShadingPass);
                 } else {
-                    Donut_RenderCubemapFace(this.cubemap, face, this.faceCommandLists[face], this.scene, this.forwardShadingPass);
+                    this.cubemap.renderFace(face, this.faceCommandLists[face], this.scene, this.forwardShadingPass);
                 }
             }
 
             // Meanwhile, record the blits of the faces into the frame's command list.
-            const faceSize = Math.min(Math.floor(Donut_GetFrameWidth(frame) / 4), Math.floor(Donut_GetFrameHeight(frame) / 3));
-            const colorBuffer = Donut_GetCubemapColorTexture(this.cubemap);
+            const faceSize = Math.min(Math.floor(frame.getWidth() / 4), Math.floor(frame.getHeight() / 3));
+            const colorBuffer = this.cubemap.getColorTexture();
 
             for (let face = 0; face < NUM_FACES; face++) {
-                Donut_BlitTextureSlice(this.app, frame, colorBuffer, face,
+                this.app.blitTextureSlice(frame, colorBuffer, face,
                     g_FaceLayout[face * 2] * faceSize, g_FaceLayout[face * 2 + 1] * faceSize, faceSize, faceSize);
             }
 
             if (this.useThreads) {
-                Donut_WaitForTasks(this.app);
+                this.app.waitForTasks();
             }
 
             // Before the frame's command list, which the pass executes after this callback returns.
             for (let face = 0; face < NUM_FACES; face++) {
-                Donut_ExecuteCommandList(this.app, this.faceCommandLists[face]);
+                this.app.executeCommandList(this.faceCommandLists[face]);
             }
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(scenePath: string): boolean {
-            const scene = Donut_LoadScene(this.app, scenePath);
-            if (!scene) {
+            const scene = this.app.loadScene(scenePath);
+            if (scene.isNull()) {
                 console.log(`Cannot load the scene ${scenePath}`);
                 return false;
             }
             this.scene = scene;
 
-            this.camera = Donut_CreateFirstPersonCamera(this.app);
-            Donut_CameraLookAt(this.camera, 0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            Donut_CameraSetMoveSpeed(this.camera, 3.0);
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+            this.camera.setMoveSpeed(3.0);
 
             for (let face = 0; face < NUM_FACES; face++) {
-                this.faceCommandLists.push(Donut_CreateDeferredCommandList(this.app));
+                this.faceCommandLists.push(this.app.createDeferredCommandList());
             }
 
-            this.forwardShadingPass = Donut_CreateForwardShadingPass(this.app, 128);
-            this.cubemap = Donut_CreateCubemapTarget(this.app, CUBEMAP_RESOLUTION);
+            this.forwardShadingPass = this.app.createForwardShadingPass(128);
+            this.cubemap = this.app.createCubemapTarget(CUBEMAP_RESOLUTION);
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetKeyboardCallback(pass, this.onKey);
-            Donut_SetMousePosCallback(pass, this.onMousePos);
-            Donut_SetMouseButtonCallback(pass, this.onMouseButton);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetBackBufferResizingCallback(pass, this.onBackBufferResizing);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
@@ -153,24 +154,24 @@ namespace ThreadedRendering {
         }
 
         // The window size matches the layout of the rendered cube faces.
-        const app = Donut_CreateApp(argc, argv, WINDOW_TITLE, 1024, 768);
-        if (!app) {
+        const app = App.create(argc, argv, WINDOW_TITLE, 1024, 768);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}`);
+        console.log(`Renderer: ${app.getRendererString()}`);
 
         const threadedRendering = new ThreadedRenderingPass(app);
         if (!threadedRendering.init(scenePath)) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

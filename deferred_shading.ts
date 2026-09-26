@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace DeferredShading {
@@ -193,39 +193,39 @@ namespace DeferredShading {
 
     // A textured cube lit by the sun, built in code: the sample's SimpleScene.
     class SimpleScene {
-        public sceneGraph: Opaque;
-        public meshNode: Opaque;
+        public sceneGraph: SceneGraph;
+        public meshNode: Node;
 
-        init(app: Opaque): boolean {
+        init(app: App): boolean {
             packFaceVectors();
 
-            const commandList = Donut_CreateCommandList(app);
-            Donut_OpenCommandList(commandList);
+            const commandList = app.createCommandList();
+            commandList.open();
 
-            const material = Donut_CreateTexturedMaterial(app, commandList, "CubeMaterial", "media/nvidia-logo.png", 1);
+            const material = app.createTexturedMaterial(commandList, "CubeMaterial", "media/nvidia-logo.png", 1);
             let mesh: Opaque | null = null;
-            if (material) {
-                mesh = Donut_CreateMesh(app, commandList, "CubeMesh", material,
+            if (!material.isNull()) {
+                mesh = app.createMesh(commandList, "CubeMesh", material,
                     Ref(g_Positions[0]), Ref(g_TexCoords[0]), Ref(g_Normals[0]), Ref(g_Tangents[0]), VERTEX_COUNT,
                     Ref(g_Indices[0]), INDEX_COUNT);
             }
 
-            Donut_CloseCommandList(commandList);
-            Donut_ExecuteCommandList(app, commandList);
-            Donut_ReleaseResource(app, commandList);
+            commandList.close();
+            app.executeCommandList(commandList);
+            app.releaseResource(commandList.handle);
 
             if (!mesh) {
                 console.log("Couldn't load the texture");
                 return false;
             }
 
-            this.sceneGraph = Donut_CreateSceneGraph(app);
-            this.meshNode = Donut_AddMeshNode(app, this.sceneGraph, null, mesh, "CubeNode");
-            Donut_AddDirectionalLight(this.sceneGraph, this.meshNode, "Sun", 0.1, -1.0, 0.2, 0.53, 1.0);
+            this.sceneGraph = app.createSceneGraph();
+            this.meshNode = app.addMeshNode(this.sceneGraph, null, mesh, "CubeNode");
+            this.sceneGraph.addDirectionalLight(this.meshNode, "Sun", 0.1, -1.0, 0.2, 0.53, 1.0);
 
-            Donut_RefreshSceneGraph(app, this.sceneGraph);
+            app.refreshSceneGraph(this.sceneGraph);
 
-            Donut_PrintSceneGraph(this.sceneGraph);
+            this.sceneGraph.print();
 
             return true;
         }
@@ -236,27 +236,27 @@ namespace DeferredShading {
     // Port of Donut-Samples' deferred_shading.cpp: draws the cube into a G-buffer, lights it with
     // Donut's deferred lighting pass and shows the result.
     class DeferredShadingPass {
-        private app: Opaque;
+        private app: App;
         private scene: SimpleScene;
-        private deferredLightingPass: Opaque;
-        private view: Opaque;
+        private deferredLightingPass: DeferredLightingPass;
+        private view: View;
         // Created on the first frame, and again when the frame size changes.
-        private renderTargets: Opaque | null;
+        private renderTargets: GBufferTargets;
         private renderTargetsWidth: int;
         private renderTargetsHeight: int;
-        private gbufferPass: Opaque | null;
+        private gbufferPass: GBufferFillPass;
         private rotation: number;
-        // Passed to Donut_SetPlanarView, 16 floats each.
+        // Passed to View.setPlanarView, 16 floats each.
         private viewMatrix: f32[];
         private projMatrix: f32[];
 
-        constructor(app: Opaque) {
+        constructor(app: App) {
             this.app = app;
             this.scene = new SimpleScene();
-            this.renderTargets = null;
+            this.renderTargets = new GBufferTargets(null);
             this.renderTargetsWidth = 0;
             this.renderTargetsHeight = 0;
-            this.gbufferPass = null;
+            this.gbufferPass = new GBufferFillPass(null);
             this.rotation = 0.0;
             this.viewMatrix = [];
             this.projMatrix = [];
@@ -279,25 +279,25 @@ namespace DeferredShading {
                 this.projMatrix[i] = projection[i];
             }
 
-            Donut_SetPlanarView(this.view, Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
+            this.view.setPlanarView(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
         }
 
-        createRenderTargets(width: int, height: int): Opaque {
+        createRenderTargets(width: int, height: int): GBufferTargets {
             const oldTargets = this.renderTargets;
-            if (oldTargets) {
-                Donut_ReleaseObject(this.app, oldTargets);
-                this.renderTargets = null;
+            if (!oldTargets.isNull()) {
+                this.app.releaseObject(oldTargets.handle);
+                this.renderTargets = new GBufferTargets(null);
             }
-            Donut_ClearBindingCache(this.app);
-            Donut_ResetDeferredLightingBindingCache(this.deferredLightingPass);
+            this.app.clearBindingCache();
+            this.deferredLightingPass.resetBindingCache();
 
             const gbufferPass = this.gbufferPass;
-            if (gbufferPass) {
-                Donut_ReleaseObject(this.app, gbufferPass);
-                this.gbufferPass = null;
+            if (!gbufferPass.isNull()) {
+                this.app.releaseObject(gbufferPass.handle);
+                this.gbufferPass = new GBufferFillPass(null);
             }
 
-            const targets = Donut_CreateGBufferTargets(this.app, width, height, 0);
+            const targets = this.app.createGBufferTargets(width, height, 0);
             this.renderTargets = targets;
             this.renderTargetsWidth = width;
             this.renderTargetsHeight = height;
@@ -306,74 +306,75 @@ namespace DeferredShading {
 
         onAnimate(seconds: number): void {
             this.rotation += seconds * 1.1;
-            Donut_SetInformativeWindowTitle(this.app, WINDOW_TITLE);
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frame: Opaque): void {
-            const width = Donut_GetFrameWidth(frame);
-            const height = Donut_GetFrameHeight(frame);
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
 
             let targets = this.renderTargets;
-            if (!targets || this.renderTargetsWidth != width || this.renderTargetsHeight != height) {
+            if (targets.isNull() || this.renderTargetsWidth != width || this.renderTargetsHeight != height) {
                 targets = this.createRenderTargets(width, height);
             }
 
             this.setupView(width, height);
 
             let gbufferPass = this.gbufferPass;
-            if (!gbufferPass) {
-                gbufferPass = Donut_CreateGBufferFillPass(this.app);
+            if (gbufferPass.isNull()) {
+                gbufferPass = this.app.createGBufferFillPass();
                 this.gbufferPass = gbufferPass;
             }
 
-            Donut_ClearGBuffer(frame, targets);
+            frame.clearGBuffer(targets);
 
-            Donut_RenderMeshNodeToGBuffer(frame, gbufferPass, this.view, targets, this.scene.meshNode);
+            frame.renderMeshNodeToGBuffer(gbufferPass, this.view, targets, this.scene.meshNode);
 
             const ambientColorTop = 0.2;
-            Donut_RenderDeferredLighting(frame, this.deferredLightingPass, this.view, targets, this.scene.sceneGraph,
+            frame.renderDeferredLighting(this.deferredLightingPass, this.view, targets, this.scene.sceneGraph,
                 ambientColorTop, ambientColorTop, ambientColorTop,
                 ambientColorTop * 0.3, ambientColorTop * 0.4, ambientColorTop * 0.3);
 
-            Donut_BlitTexture(this.app, frame, Donut_GetGBufferShadedColor(targets));
+            this.app.blitTexture(frame, targets.getShadedColor());
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
-            this.deferredLightingPass = Donut_CreateDeferredLightingPass(this.app);
-            this.view = Donut_CreatePlanarView(this.app);
+            this.deferredLightingPass = this.app.createDeferredLightingPass();
+            this.view = this.app.createPlanarView();
 
             if (!this.scene.init(this.app)) {
                 return false;
             }
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
 
     export function main(argc: int, argv: Ref<string>): int {
 
-        const app = Donut_CreateApp(argc, argv, WINDOW_TITLE, 1280, 720);
-        if (!app) {
+        const app = App.create(argc, argv, WINDOW_TITLE, 1280, 720);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}`);
+        console.log(`Renderer: ${app.getRendererString()}`);
 
         const deferredShading = new DeferredShadingPass(app);
         if (!deferredShading.init()) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

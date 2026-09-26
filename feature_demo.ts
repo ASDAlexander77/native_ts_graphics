@@ -1,4 +1,7 @@
-/// <reference path="donut_interop.d.ts" />
+// Imported only for its declarations: input_pass.ts brings in donut.ts (the class wrappers over
+// donut_interop.d.ts), whose code every example links from its object. Referencing donut.ts here
+// would compile that code into this object too, defining its symbols twice.
+import { InputPass } from "./input_pass";
 
 namespace FeatureDemoExample {
     // GLFW values, as passed to the input callbacks.
@@ -116,10 +119,10 @@ namespace FeatureDemoExample {
         public testMipMapGen: boolean;
         // Handles into the current scene; cleared when it unloads (the C++ sample's shared_ptrs keep
         // the old objects alive instead).
-        public selectedMaterial: Opaque | null;
-        public selectedNode: Opaque | null;
-        public selectedLight: Opaque | null;
-        public activeSceneCamera: Opaque | null;
+        public selectedMaterial: Material;
+        public selectedNode: Node;
+        public selectedLight: Light;
+        public activeSceneCamera: SceneCamera;
         public screenshotFileName: string;
 
         constructor() {
@@ -156,10 +159,10 @@ namespace FeatureDemoExample {
             this.useThirdPersonCamera = false;
             this.enableAnimations = false;
             this.testMipMapGen = false;
-            this.selectedMaterial = null;
-            this.selectedNode = null;
-            this.selectedLight = null;
-            this.activeSceneCamera = null;
+            this.selectedMaterial = new Material(null);
+            this.selectedNode = new Node(null);
+            this.selectedLight = new Light(null);
+            this.activeSceneCamera = new SceneCamera(null);
             this.screenshotFileName = "";
         }
     }
@@ -169,47 +172,47 @@ namespace FeatureDemoExample {
     // Port of Donut-Samples' FeatureDemo.cpp (the FeatureDemo class): loads a scene on a thread and
     // renders it with Donut's passes, as the UI configures them.
     class FeatureDemo {
-        private app: Opaque;
+        private app: App;
         private ui: UIData;
 
-        public sceneFilesAvailable: Opaque;
+        public sceneFilesAvailable: StringList;
         public currentSceneName: string;
         public sceneDir: string;
-        public sceneLoader: Opaque;
-        // The loaded scene and its graph; null until the first one has loaded.
-        public scene: Opaque | null;
-        public sceneGraph: Opaque | null;
-        private sunLight: Opaque | null;
-        private shadowMap: Opaque;
-        private shadowDepthPass: Opaque;
-        private renderTargets: Opaque | null;
+        public sceneLoader: SceneLoader;
+        // The loaded scene and its graph; null handles until the first one has loaded.
+        public scene: Scene;
+        public sceneGraph: SceneGraph;
+        private sunLight: Light;
+        private shadowMap: ShadowMap;
+        private shadowDepthPass: DepthPass;
+        private renderTargets: SceneRenderTargets;
         private renderTargetsWidth: int;
         private renderTargetsHeight: int;
         private renderTargetsSampleCount: int;
-        private forwardPass: Opaque | null;
+        private forwardPass: ForwardShadingPass;
         private forwardContext: Opaque;
-        private gbufferPass: Opaque | null;
-        private deferredLightingPass: Opaque | null;
+        private gbufferPass: GBufferFillPass;
+        private deferredLightingPass: DeferredLightingPass;
         private skyPass: Opaque | null;
-        private temporalAntiAliasingPass: Opaque | null;
-        // Null without DLSS support.
-        private dlss: Opaque | null;
+        private temporalAntiAliasingPass: TemporalAntiAliasingPass;
+        // A null handle without DLSS support.
+        private dlss: Dlss;
         private bloomPass: Opaque | null;
-        private toneMappingPass: Opaque | null;
+        private toneMappingPass: ToneMappingPass;
         private ssaoPass: Opaque | null;
-        private lightProbePass: Opaque | null;
+        private lightProbePass: LightProbeProcessingPass;
         private materialIdPass: Opaque | null;
-        private pixelReadbackPass: Opaque | null;
+        private pixelReadbackPass: PixelReadbackPass;
         private mipMapGenPass: Opaque | null;
 
         // The views of this frame and the previous one (swapped every frame), planar or stereo.
-        private view: Opaque | null;
-        private viewPrevious: Opaque | null;
+        private view: View;
+        private viewPrevious: View;
         private viewIsStereo: boolean;
 
         private previousViewsValid: boolean;
-        private firstPersonCamera: Opaque;
-        private thirdPersonCamera: Opaque;
+        private firstPersonCamera: Camera;
+        private thirdPersonCamera: Camera;
 
         private cameraVerticalFov: number;
         private ambientTop: number[];
@@ -218,7 +221,7 @@ namespace FeatureDemoExample {
         private pickY: int;
         private pick: boolean;
 
-        public lightProbes: Opaque;
+        public lightProbes: LightProbeSet;
 
         private wallclockTime: number;
         // Frames rendered with a loaded scene, for -screenshot.
@@ -234,33 +237,33 @@ namespace FeatureDemoExample {
         private bounds: f32[];
         private pixel: int[];
 
-        constructor(app: Opaque, ui: UIData) {
+        constructor(app: App, ui: UIData) {
             this.app = app;
             this.ui = ui;
             this.currentSceneName = "";
             this.sceneDir = "";
-            this.scene = null;
-            this.sceneGraph = null;
-            this.sunLight = null;
-            this.renderTargets = null;
+            this.scene = new Scene(null);
+            this.sceneGraph = new SceneGraph(null);
+            this.sunLight = new Light(null);
+            this.renderTargets = new SceneRenderTargets(null);
             this.renderTargetsWidth = 0;
             this.renderTargetsHeight = 0;
             this.renderTargetsSampleCount = 0;
-            this.forwardPass = null;
-            this.gbufferPass = null;
-            this.deferredLightingPass = null;
+            this.forwardPass = new ForwardShadingPass(null);
+            this.gbufferPass = new GBufferFillPass(null);
+            this.deferredLightingPass = new DeferredLightingPass(null);
             this.skyPass = null;
-            this.temporalAntiAliasingPass = null;
-            this.dlss = null;
+            this.temporalAntiAliasingPass = new TemporalAntiAliasingPass(null);
+            this.dlss = new Dlss(null);
             this.bloomPass = null;
-            this.toneMappingPass = null;
+            this.toneMappingPass = new ToneMappingPass(null);
             this.ssaoPass = null;
-            this.lightProbePass = null;
+            this.lightProbePass = new LightProbeProcessingPass(null);
             this.materialIdPass = null;
-            this.pixelReadbackPass = null;
+            this.pixelReadbackPass = new PixelReadbackPass(null);
             this.mipMapGenPass = null;
-            this.view = null;
-            this.viewPrevious = null;
+            this.view = new View(null);
+            this.viewPrevious = new View(null);
             this.viewIsStereo = false;
             this.previousViewsValid = false;
             this.cameraVerticalFov = 60.0;
@@ -298,13 +301,13 @@ namespace FeatureDemoExample {
             }
         }
 
-        getActiveCamera(): Opaque {
+        getActiveCamera(): Camera {
             return this.ui.useThirdPersonCamera ? this.thirdPersonCamera : this.firstPersonCamera;
         }
 
         // Loads the node's world-space bounds into this.bounds.
-        loadBounds(node: Opaque): void {
-            Donut_GetNodeBoundingBox(node, Ref(this.bounds[0]));
+        loadBounds(node: Node): void {
+            node.getBoundingBox(Ref(this.bounds[0]));
         }
 
         boundsDiagonalLength(): number {
@@ -316,32 +319,32 @@ namespace FeatureDemoExample {
 
         sceneUnloading(): void {
             const forwardPass = this.forwardPass;
-            if (forwardPass) {
-                Donut_ResetForwardShadingBindingCache(forwardPass);
+            if (!forwardPass.isNull()) {
+                forwardPass.resetBindingCache();
             }
             const deferredLightingPass = this.deferredLightingPass;
-            if (deferredLightingPass) {
-                Donut_ResetDeferredLightingBindingCache(deferredLightingPass);
+            if (!deferredLightingPass.isNull()) {
+                deferredLightingPass.resetBindingCache();
             }
             const gbufferPass = this.gbufferPass;
-            if (gbufferPass) {
-                Donut_ResetGBufferFillBindingCache(gbufferPass);
+            if (!gbufferPass.isNull()) {
+                gbufferPass.resetBindingCache();
             }
             const lightProbePass = this.lightProbePass;
-            if (lightProbePass) {
-                Donut_ResetLightProbeProcessingCaches(lightProbePass);
+            if (!lightProbePass.isNull()) {
+                lightProbePass.resetCaches();
             }
-            Donut_ResetDepthPassBindingCache(this.shadowDepthPass);
-            Donut_ClearBindingCache(this.app);
-            this.sunLight = null;
-            this.ui.selectedMaterial = null;
-            this.ui.selectedNode = null;
-            this.ui.selectedLight = null;
-            this.ui.activeSceneCamera = null;
+            this.shadowDepthPass.resetBindingCache();
+            this.app.clearBindingCache();
+            this.sunLight = new Light(null);
+            this.ui.selectedMaterial = new Material(null);
+            this.ui.selectedNode = new Node(null);
+            this.ui.selectedLight = new Light(null);
+            this.ui.activeSceneCamera = new SceneCamera(null);
 
-            const probeCount = Donut_GetLightProbeCount(this.lightProbes);
+            const probeCount = this.lightProbes.getCount();
             for (let i = 0; i < probeCount; i++) {
-                Donut_SetLightProbeEnabled(this.lightProbes, i, 0);
+                this.lightProbes.setEnabled(i, 0);
             }
         }
 
@@ -353,108 +356,108 @@ namespace FeatureDemoExample {
             this.currentSceneName = sceneName;
 
             // BeginLoadingScene
-            if (Donut_IsSceneLoaded(this.sceneLoader) != 0) {
+            if (this.sceneLoader.isSceneLoaded() != 0) {
                 this.sceneUnloading();
             }
-            this.scene = null;
-            this.sceneGraph = null;
-            Donut_BeginLoadingScene(this.sceneLoader, sceneName);
+            this.scene = new Scene(null);
+            this.sceneGraph = new SceneGraph(null);
+            this.sceneLoader.beginLoadingScene(sceneName);
         }
 
         copyActiveCameraToFirstPerson(): void {
             const sceneCamera = this.ui.activeSceneCamera;
-            if (sceneCamera) {
+            if (!sceneCamera.isNull()) {
                 // Rows of the view-to-world matrix: 1 = up, 2 = forward, 3 = the position.
-                Donut_GetSceneCameraViewToWorld(sceneCamera, Ref(this.viewMatrix[0]));
+                sceneCamera.getViewToWorld(Ref(this.viewMatrix[0]));
                 const m = this.viewMatrix;
-                Donut_CameraLookAtWithUp(this.firstPersonCamera, m[12], m[13], m[14],
+                this.firstPersonCamera.lookAtWithUp(m[12], m[13], m[14],
                     m[12] + m[8], m[13] + m[9], m[14] + m[10], m[4], m[5], m[6]);
             } else if (this.ui.useThirdPersonCamera) {
-                Donut_GetCameraPosition(this.thirdPersonCamera, Ref(this.vector1[0]));
-                Donut_GetCameraDirection(this.thirdPersonCamera, Ref(this.vector2[0]));
-                Donut_GetCameraUp(this.thirdPersonCamera, Ref(this.vector3[0]));
+                this.thirdPersonCamera.getPosition(Ref(this.vector1[0]));
+                this.thirdPersonCamera.getDirection(Ref(this.vector2[0]));
+                this.thirdPersonCamera.getUp(Ref(this.vector3[0]));
                 const p = this.vector1;
                 const d = this.vector2;
                 const u = this.vector3;
-                Donut_CameraLookAtWithUp(this.firstPersonCamera, p[0], p[1], p[2],
+                this.firstPersonCamera.lookAtWithUp(p[0], p[1], p[2],
                     p[0] + d[0], p[1] + d[1], p[2] + d[2], u[0], u[1], u[2]);
             }
         }
 
-        pointThirdPersonCameraAt(node: Opaque): void {
+        pointThirdPersonCameraAt(node: Node): void {
             this.loadBounds(node);
             const b = this.bounds;
-            Donut_ThirdPersonCameraSetTarget(this.thirdPersonCamera,
+            this.thirdPersonCamera.thirdPersonSetTarget(
                 (b[0] + b[3]) * 0.5, (b[1] + b[4]) * 0.5, (b[2] + b[5]) * 0.5);
             const radius = this.boundsDiagonalLength() * 0.5;
             const distance = radius / Math.sin(radians(this.cameraVerticalFov * 0.5));
-            Donut_ThirdPersonCameraSetDistance(this.thirdPersonCamera, distance);
-            Donut_CameraAnimate(this.thirdPersonCamera, 0.0);
+            this.thirdPersonCamera.thirdPersonSetDistance(distance);
+            this.thirdPersonCamera.animate(0.0);
         }
 
         sceneLoaded(): void {
-            const scene = Donut_GetLoadedScene(this.sceneLoader);
-            const sceneGraph = Donut_GetSceneGraph(scene);
+            const scene = this.sceneLoader.getLoadedScene();
+            const sceneGraph = scene.getSceneGraph();
             this.scene = scene;
             this.sceneGraph = sceneGraph;
 
             this.wallclockTime = 0.0;
             this.previousViewsValid = false;
 
-            const lightCount = Donut_GetSceneGraphLightCount(sceneGraph);
+            const lightCount = sceneGraph.getLightCount();
             for (let i = 0; i < lightCount; i++) {
-                const light = Donut_GetSceneGraphLight(sceneGraph, i);
-                if (Donut_GetLightType(light) == LightType.Directional) {
+                const light = sceneGraph.getLight(i);
+                if (light.getType() == LightType.Directional) {
                     this.sunLight = light;
-                    if (Donut_GetDirectionalLightIrradiance(light) <= 0.0) {
-                        Donut_SetDirectionalLightIrradiance(light, 1.0);
+                    if (light.getDirectionalIrradiance() <= 0.0) {
+                        light.setDirectionalIrradiance(1.0);
                     }
                     break;
                 }
             }
 
-            if (!this.sunLight) {
-                this.sunLight = Donut_AddDirectionalLight(sceneGraph, Donut_GetRootNode(sceneGraph), "Sun",
+            if (this.sunLight.isNull()) {
+                this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
                     0.1, -0.9, 0.1, 0.53, 1.0);
             }
 
-            if (Donut_GetSceneGraphCameraCount(sceneGraph) > 0) {
-                this.ui.activeSceneCamera = Donut_GetSceneGraphCamera(sceneGraph, 0);
+            if (sceneGraph.getCameraCount() > 0) {
+                this.ui.activeSceneCamera = sceneGraph.getCamera(0);
             } else {
-                this.ui.activeSceneCamera = null;
+                this.ui.activeSceneCamera = new SceneCamera(null);
 
-                Donut_CameraLookAt(this.firstPersonCamera, 0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+                this.firstPersonCamera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
                 this.cameraVerticalFov = 60.0;
             }
 
-            Donut_ThirdPersonCameraSetRotation(this.thirdPersonCamera, radians(135.0), radians(20.0));
-            this.pointThirdPersonCameraAt(Donut_GetRootNode(sceneGraph));
+            this.thirdPersonCamera.thirdPersonSetRotation(radians(135.0), radians(20.0));
+            this.pointThirdPersonCameraAt(sceneGraph.getRootNode());
 
             this.ui.useThirdPersonCamera = this.currentSceneName.endsWith(".gltf") || this.currentSceneName.endsWith(".glb");
 
             this.copyActiveCameraToFirstPerson();
 
             if (g_PrintSceneGraph) {
-                Donut_PrintSceneGraph(sceneGraph);
+                sceneGraph.print();
             }
         }
 
         releaseViews(): void {
             const view = this.view;
-            if (view) {
-                Donut_ReleaseObject(this.app, view);
-                this.view = null;
+            if (!view.isNull()) {
+                this.app.releaseObject(view.handle);
+                this.view = new View(null);
             }
             const viewPrevious = this.viewPrevious;
-            if (viewPrevious) {
-                Donut_ReleaseObject(this.app, viewPrevious);
-                this.viewPrevious = null;
+            if (!viewPrevious.isNull()) {
+                this.app.releaseObject(viewPrevious.handle);
+                this.viewPrevious = new View(null);
             }
         }
 
         releaseObject(object: Opaque | null): void {
             if (object) {
-                Donut_ReleaseObject(this.app, object);
+                this.app.releaseObject(object);
             }
         }
 
@@ -464,43 +467,41 @@ namespace FeatureDemoExample {
             const height = this.renderTargetsHeight;
 
             const temporalAntiAliasingPass = this.temporalAntiAliasingPass;
-            if (temporalAntiAliasingPass) {
-                Donut_SetTemporalJitter(temporalAntiAliasingPass, this.ui.temporalAntiAliasingJitter);
+            if (!temporalAntiAliasingPass.isNull()) {
+                temporalAntiAliasingPass.setJitter(this.ui.temporalAntiAliasingJitter);
             }
 
             let pixelOffsetX = 0.0;
             let pixelOffsetY = 0.0;
-            // (tslang can't mix a boolean and a handle in one condition, hence the nested ifs here.)
-            if (this.ui.antiAliasingMode == AntiAliasingMode.TEMPORAL || this.ui.antiAliasingMode == AntiAliasingMode.DLSS) {
-                if (temporalAntiAliasingPass) {
-                    Donut_GetTemporalPixelOffset(temporalAntiAliasingPass, Ref(this.vector1[0]));
-                    pixelOffsetX = this.vector1[0];
-                    pixelOffsetY = this.vector1[1];
-                }
+            if ((this.ui.antiAliasingMode == AntiAliasingMode.TEMPORAL || this.ui.antiAliasingMode == AntiAliasingMode.DLSS)
+                && !temporalAntiAliasingPass.isNull()) {
+                temporalAntiAliasingPass.getPixelOffset(Ref(this.vector1[0]));
+                pixelOffsetX = this.vector1[0];
+                pixelOffsetY = this.vector1[1];
             }
 
             let verticalFov = radians(this.cameraVerticalFov);
             let zNear = 0.01;
             const sceneCamera = this.ui.activeSceneCamera;
-            if (sceneCamera) {
-                const cameraFov = Donut_GetSceneCameraVerticalFov(sceneCamera);
+            if (!sceneCamera.isNull()) {
+                const cameraFov = sceneCamera.getVerticalFov();
                 if (cameraFov >= 0.0) {
-                    zNear = Donut_GetSceneCameraZNear(sceneCamera);
+                    zNear = sceneCamera.getZNear();
                     verticalFov = cameraFov;
                 }
 
-                Donut_GetSceneCameraWorldToView(sceneCamera, Ref(this.viewMatrix[0]));
+                sceneCamera.getWorldToView(Ref(this.viewMatrix[0]));
             } else {
-                Donut_GetCameraWorldToView(this.getActiveCamera(), Ref(this.viewMatrix[0]));
+                this.getActiveCamera().getWorldToView(Ref(this.viewMatrix[0]));
             }
 
             let topologyChanged = false;
 
             if (this.ui.stereo) {
-                if (!this.view || !this.viewIsStereo) {
+                if (this.view.isNull() || !this.viewIsStereo) {
                     this.releaseViews();
-                    this.view = Donut_CreateStereoView(this.app);
-                    this.viewPrevious = Donut_CreateStereoView(this.app);
+                    this.view = this.app.createStereoView();
+                    this.viewPrevious = this.app.createStereoView();
                     this.viewIsStereo = true;
                     topologyChanged = true;
                 }
@@ -513,19 +514,19 @@ namespace FeatureDemoExample {
                 }
                 this.rightViewMatrix[12] -= 0.2;
 
-                Donut_SetStereoView(view, Ref(this.viewMatrix[0]), Ref(this.rightViewMatrix[0]), Ref(this.projMatrix[0]),
+                view.setStereoView(Ref(this.viewMatrix[0]), Ref(this.rightViewMatrix[0]), Ref(this.projMatrix[0]),
                     width, height, pixelOffsetX, pixelOffsetY);
 
-                Donut_ThirdPersonCameraSetView(this.thirdPersonCamera, Donut_GetStereoLeftView(view));
+                this.thirdPersonCamera.thirdPersonSetView(view.getStereoLeftView());
 
                 if (topologyChanged) {
-                    Donut_CopyStereoView(this.viewPrevious, view);
+                    this.viewPrevious.copyStereoView(view);
                 }
             } else {
-                if (!this.view || this.viewIsStereo) {
+                if (this.view.isNull() || this.viewIsStereo) {
                     this.releaseViews();
-                    this.view = Donut_CreatePlanarView(this.app);
-                    this.viewPrevious = Donut_CreatePlanarView(this.app);
+                    this.view = this.app.createPlanarView();
+                    this.viewPrevious = this.app.createPlanarView();
                     this.viewIsStereo = false;
                     topologyChanged = true;
                 }
@@ -533,13 +534,13 @@ namespace FeatureDemoExample {
 
                 perspProjD3DStyleReverse(this.projMatrix, verticalFov, width / height, zNear);
 
-                Donut_SetPlanarViewJittered(view, Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height,
+                view.setPlanarViewJittered(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height,
                     pixelOffsetX, pixelOffsetY);
 
-                Donut_ThirdPersonCameraSetView(this.thirdPersonCamera, view);
+                this.thirdPersonCamera.thirdPersonSetView(view);
 
                 if (topologyChanged) {
-                    Donut_CopyPlanarView(this.viewPrevious, view);
+                    this.viewPrevious.copyPlanarView(view);
                 }
             }
 
@@ -553,108 +554,108 @@ namespace FeatureDemoExample {
             const view = this.view;
             let exposureResetRequired = false;
 
-            this.releaseObject(this.forwardPass);
-            this.releaseObject(this.gbufferPass);
+            this.releaseObject(this.forwardPass.handle);
+            this.releaseObject(this.gbufferPass.handle);
             this.releaseObject(this.materialIdPass);
-            this.releaseObject(this.pixelReadbackPass);
+            this.releaseObject(this.pixelReadbackPass.handle);
             this.releaseObject(this.mipMapGenPass);
-            this.releaseObject(this.deferredLightingPass);
+            this.releaseObject(this.deferredLightingPass.handle);
             this.releaseObject(this.skyPass);
-            this.releaseObject(this.temporalAntiAliasingPass);
+            this.releaseObject(this.temporalAntiAliasingPass.handle);
             this.releaseObject(this.ssaoPass);
-            this.releaseObject(this.lightProbePass);
+            this.releaseObject(this.lightProbePass.handle);
             this.releaseObject(this.bloomPass);
 
-            this.forwardPass = Donut_CreateForwardShadingPassWithOptions(app, 0, 0);
-            this.gbufferPass = Donut_CreateGBufferFillPassWithOptions(app, 1, MOTION_VECTOR_STENCIL_MASK);
-            this.materialIdPass = Donut_CreateMaterialIDPass(app, MOTION_VECTOR_STENCIL_MASK);
+            this.forwardPass = app.createForwardShadingPassWithOptions(0, 0);
+            this.gbufferPass = app.createGBufferFillPassWithOptions(1, MOTION_VECTOR_STENCIL_MASK);
+            this.materialIdPass = app.createMaterialIDPass(MOTION_VECTOR_STENCIL_MASK);
 
-            this.pixelReadbackPass = Donut_CreatePixelReadbackPass(app, Donut_GetSceneRenderTargetsTexture(targets, SceneTexture.MaterialIDs));
-            this.mipMapGenPass = Donut_CreateMipMapGenPass(app, Donut_GetSceneRenderTargetsTexture(targets, SceneTexture.ResolvedColor));
+            this.pixelReadbackPass = app.createPixelReadbackPass(targets.getTexture(SceneTexture.MaterialIDs));
+            this.mipMapGenPass = app.createMipMapGenPass(targets.getTexture(SceneTexture.ResolvedColor));
 
-            this.deferredLightingPass = Donut_CreateDeferredLightingPass(app);
+            this.deferredLightingPass = app.createDeferredLightingPass();
 
-            this.skyPass = Donut_CreateSkyPass(app, Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Forward), view);
+            this.skyPass = app.createSkyPass(targets.getFramebuffer(SceneFramebuffer.Forward), view);
 
-            this.temporalAntiAliasingPass = Donut_CreateSceneTemporalAntiAliasingPass(app, view, targets, MOTION_VECTOR_STENCIL_MASK);
+            this.temporalAntiAliasingPass = app.createSceneTemporalAntiAliasingPass(view, targets, MOTION_VECTOR_STENCIL_MASK);
 
             // Multisampled targets have no SSAO (nor deferred shading).
-            this.ssaoPass = this.renderTargetsSampleCount == 1 ? Donut_CreateSsaoPass(app, targets) : null;
+            this.ssaoPass = this.renderTargetsSampleCount == 1 ? app.createSsaoPass(targets) : null;
 
-            this.lightProbePass = Donut_CreateLightProbeProcessingPass(app);
+            this.lightProbePass = app.createLightProbeProcessingPass();
 
             // The new tone mapping pass takes over the old one's exposure buffer.
             const previousToneMappingPass = this.toneMappingPass;
-            if (!previousToneMappingPass) {
+            if (previousToneMappingPass.isNull()) {
                 exposureResetRequired = true;
             }
-            this.toneMappingPass = Donut_CreateToneMappingPass(app, Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Ldr),
+            this.toneMappingPass = app.createToneMappingPass(targets.getFramebuffer(SceneFramebuffer.Ldr),
                 view, previousToneMappingPass);
-            this.releaseObject(previousToneMappingPass);
+            this.releaseObject(previousToneMappingPass.handle);
 
-            this.bloomPass = Donut_CreateBloomPass(app, Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Resolved), view);
+            this.bloomPass = app.createBloomPass(targets.getFramebuffer(SceneFramebuffer.Resolved), view);
 
             const dlss = this.dlss;
-            if (dlss) {
+            if (!dlss.isNull()) {
                 const width = this.renderTargetsWidth;
                 const height = this.renderTargetsHeight;
-                Donut_InitDlss(dlss, width, height, width, height);
+                dlss.init(width, height, width, height);
 
-                this.ui.dlssAvailable = Donut_IsDlssInitialized(dlss) != 0;
+                this.ui.dlssAvailable = dlss.isInitialized() != 0;
             }
 
             this.previousViewsValid = false;
             return exposureResetRequired;
         }
 
-        renderSplashScreen(frame: Opaque): void {
-            Donut_ClearColor(frame, 0.0, 0.0, 0.0, 0.0);
-            Donut_SetVsyncEnabled(this.app, 1);
+        renderSplashScreen(frame: Frame): void {
+            frame.clearColor(0.0, 0.0, 0.0, 0.0);
+            this.app.setVsyncEnabled(1);
         }
 
         // After the frame's commands have been submitted: finds what the right mouse button clicked.
         finishPick(): void {
             const sceneGraph = this.sceneGraph;
-            Donut_ReadPixelUInts(this.pixelReadbackPass, Ref(this.pixel[0]));
-            this.ui.selectedMaterial = null;
-            this.ui.selectedNode = null;
+            this.pixelReadbackPass.readPixelUInts(Ref(this.pixel[0]));
+            this.ui.selectedMaterial = new Material(null);
+            this.ui.selectedNode = new Node(null);
 
-            const materialCount = Donut_GetSceneGraphMaterialCount(sceneGraph);
+            const materialCount = sceneGraph.getMaterialCount();
             for (let i = 0; i < materialCount; i++) {
-                const material = Donut_GetSceneGraphMaterial(sceneGraph, i);
-                if (Donut_GetMaterialID(material) == this.pixel[0]) {
+                const material = sceneGraph.getMaterial(i);
+                if (material.getID() == this.pixel[0]) {
                     this.ui.selectedMaterial = material;
                     break;
                 }
             }
 
-            const instanceCount = Donut_GetSceneGraphMeshInstanceCount(sceneGraph);
+            const instanceCount = sceneGraph.getMeshInstanceCount();
             for (let i = 0; i < instanceCount; i++) {
-                if (Donut_GetMeshInstanceIndex(sceneGraph, i) == this.pixel[1]) {
-                    this.ui.selectedNode = Donut_GetMeshInstanceNode(sceneGraph, i);
+                if (sceneGraph.getMeshInstanceIndex(i) == this.pixel[1]) {
+                    this.ui.selectedNode = sceneGraph.getMeshInstanceNode(i);
                     break;
                 }
             }
 
             const selectedNode = this.ui.selectedNode;
-            if (selectedNode) {
-                console.log(`Picked node: ${Donut_GetNodePath(selectedNode)}`);
+            if (!selectedNode.isNull()) {
+                console.log(`Picked node: ${selectedNode.getPath()}`);
                 this.pointThirdPersonCameraAt(selectedNode);
             } else {
-                this.pointThirdPersonCameraAt(Donut_GetRootNode(sceneGraph));
+                this.pointThirdPersonCameraAt(sceneGraph.getRootNode());
             }
         }
 
-        renderScene(frame: Opaque): void {
+        renderScene(frame: Frame): void {
             const app = this.app;
             const ui = this.ui;
             const scene = this.scene;
             const sceneGraph = this.sceneGraph;
-            const windowWidth = Donut_GetWindowWidth(app);
-            const windowHeight = Donut_GetWindowHeight(app);
+            const windowWidth = app.getWindowWidth();
+            const windowHeight = app.getWindowHeight();
 
             // RefreshSceneGraph and RefreshBuffers.
-            Donut_RefreshScene(app, frame, scene);
+            app.refreshScene(frame, scene);
 
             let exposureResetRequired = false;
 
@@ -670,12 +671,12 @@ namespace FeatureDemoExample {
 
                 let needNewPasses = false;
 
-                if (!this.renderTargets || this.renderTargetsWidth != windowWidth || this.renderTargetsHeight != windowHeight
+                if (this.renderTargets.isNull() || this.renderTargetsWidth != windowWidth || this.renderTargetsHeight != windowHeight
                     || this.renderTargetsSampleCount != sampleCount) {
-                    this.releaseObject(this.renderTargets);
-                    this.renderTargets = null;
-                    Donut_ClearBindingCache(app);
-                    this.renderTargets = Donut_CreateSceneRenderTargets(app, windowWidth, windowHeight, sampleCount);
+                    this.releaseObject(this.renderTargets.handle);
+                    this.renderTargets = new SceneRenderTargets(null);
+                    app.clearBindingCache();
+                    this.renderTargets = app.createSceneRenderTargets(windowWidth, windowHeight, sampleCount);
                     this.renderTargetsWidth = windowWidth;
                     this.renderTargetsHeight = windowHeight;
                     this.renderTargetsSampleCount = sampleCount;
@@ -688,7 +689,7 @@ namespace FeatureDemoExample {
                 }
 
                 if (ui.shaderReloadRequested) {
-                    Donut_ClearShaderCache(app);
+                    app.clearShaderCache();
                     needNewPasses = true;
                 }
 
@@ -699,7 +700,7 @@ namespace FeatureDemoExample {
                 ui.shaderReloadRequested = false;
             }
 
-            const commandList = Donut_GetFrameCommandList(frame);
+            const commandList = frame.getCommandList();
             const targets = this.renderTargets;
             const view = this.view;
             const viewPrevious = this.viewPrevious;
@@ -709,7 +710,7 @@ namespace FeatureDemoExample {
             const temporalAntiAliasingPass = this.temporalAntiAliasingPass;
             const materialEvents = ui.enableMaterialEvents ? 1 : 0;
 
-            Donut_ClearColor(frame, 0.0, 0.0, 0.0, 0.0);
+            frame.clearColor(0.0, 0.0, 0.0, 0.0);
 
             const ambientScale = ui.ambientIntensity * ui.skyBrightness;
             this.ambientTop[0] = ambientScale * SKY_COLOR_R;
@@ -722,94 +723,94 @@ namespace FeatureDemoExample {
             const bottom = this.ambientBottom;
 
             if (ui.enableShadows) {
-                Donut_SetLightShadowMap(sunLight, this.shadowMap);
-                this.loadBounds(Donut_GetRootNode(sceneGraph));
+                sunLight.setShadowMap(this.shadowMap);
+                this.loadBounds(sceneGraph.getRootNode());
 
                 const maxShadowDistance = 100.0;
                 const zRange = this.boundsDiagonalLength();
-                Donut_SetupShadowMapForView(this.shadowMap, sunLight, view, maxShadowDistance, zRange, ui.csmExponent);
+                this.shadowMap.setupForView(sunLight, view, maxShadowDistance, zRange, ui.csmExponent);
 
-                Donut_ClearShadowMap(commandList, this.shadowMap);
+                commandList.clearShadowMap(this.shadowMap);
 
-                Donut_RenderShadowDepth(commandList, this.shadowDepthPass, this.shadowMap, sceneGraph, materialEvents);
+                commandList.renderShadowDepth(this.shadowDepthPass, this.shadowMap, sceneGraph, materialEvents);
             } else {
-                Donut_SetLightShadowMap(sunLight, null);
+                sunLight.setShadowMap(null);
             }
 
             // The forward pass gets the enabled probes of the set.
             if (ui.enableLightProbe) {
-                const probeCount = Donut_GetLightProbeCount(this.lightProbes);
+                const probeCount = this.lightProbes.getCount();
                 for (let i = 0; i < probeCount; i++) {
-                    if (Donut_IsLightProbeEnabled(this.lightProbes, i) != 0) {
-                        Donut_SetLightProbeScales(this.lightProbes, i, ui.lightProbeDiffuseScale, ui.lightProbeSpecularScale);
+                    if (this.lightProbes.isEnabled(i) != 0) {
+                        this.lightProbes.setScales(i, ui.lightProbeDiffuseScale, ui.lightProbeSpecularScale);
                     }
                 }
             }
             const lightProbes = ui.enableLightProbe ? this.lightProbes : null;
 
-            Donut_ClearSceneRenderTargets(commandList, targets);
+            commandList.clearSceneRenderTargets(targets);
 
             if (exposureResetRequired) {
-                Donut_ResetExposure(commandList, toneMappingPass, 0.5);
+                commandList.resetExposure(toneMappingPass, 0.5);
             }
 
             if (!ui.useDeferredShading || ui.enableTranslucency) {
-                Donut_PrepareForwardLights(commandList, forwardPass, this.forwardContext, sceneGraph,
+                commandList.prepareForwardLights(forwardPass, this.forwardContext, sceneGraph,
                     top[0], top[1], top[2], bottom[0], bottom[1], bottom[2], lightProbes);
             }
 
             if (ui.useDeferredShading) {
-                Donut_RenderGBufferFill(commandList, this.gbufferPass, view, viewPrevious, targets, sceneGraph, materialEvents);
+                commandList.renderGBufferFill(this.gbufferPass, view, viewPrevious, targets, sceneGraph, materialEvents);
 
                 const ssaoPass = this.ssaoPass;
                 if (ui.enableSsao) {
                     if (ssaoPass) {
-                        Donut_RenderSsao(commandList, ssaoPass, view);
+                        commandList.renderSsao(ssaoPass, view);
                     }
                 }
 
-                Donut_RenderDeferredLightingToHdr(commandList, this.deferredLightingPass, view, targets, sceneGraph,
+                commandList.renderDeferredLightingToHdr(this.deferredLightingPass, view, targets, sceneGraph,
                     ui.enableSsao ? 1 : 0, top[0], top[1], top[2], bottom[0], bottom[1], bottom[2], lightProbes);
             } else {
-                Donut_RenderForward(commandList, forwardPass, this.forwardContext, view, viewPrevious,
-                    Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Forward), sceneGraph, 0, "ForwardOpaque", materialEvents);
+                commandList.renderForward(forwardPass, this.forwardContext, view, viewPrevious,
+                    targets.getFramebuffer(SceneFramebuffer.Forward), sceneGraph, 0, "ForwardOpaque", materialEvents);
             }
 
             if (this.pick) {
-                Donut_ClearTextureUInt(commandList, Donut_GetSceneRenderTargetsTexture(targets, SceneTexture.MaterialIDs), 0xffff);
+                commandList.clearTextureUInt(targets.getTexture(SceneTexture.MaterialIDs), 0xffff);
 
-                Donut_RenderMaterialIDs(commandList, this.materialIdPass, view, viewPrevious, targets, sceneGraph, 0);
+                commandList.renderMaterialIDs(this.materialIdPass, view, viewPrevious, targets, sceneGraph, 0);
 
                 if (ui.enableTranslucency) {
-                    Donut_RenderMaterialIDs(commandList, this.materialIdPass, view, viewPrevious, targets, sceneGraph, 1);
+                    commandList.renderMaterialIDs(this.materialIdPass, view, viewPrevious, targets, sceneGraph, 1);
                 }
 
-                Donut_CapturePixel(commandList, this.pixelReadbackPass, this.pickX, this.pickY);
+                commandList.capturePixel(this.pixelReadbackPass, this.pickX, this.pickY);
             }
 
             if (ui.enableProceduralSky) {
-                Donut_RenderSky(commandList, this.skyPass, view, sunLight, ui.skyBrightness, ui.skyGlowSize,
+                commandList.renderSky(this.skyPass, view, sunLight, ui.skyBrightness, ui.skyGlowSize,
                     ui.skyGlowSharpness, ui.skyGlowIntensity, ui.skyHorizonSize);
             }
 
             if (ui.enableTranslucency) {
-                Donut_RenderForward(commandList, forwardPass, this.forwardContext, view, viewPrevious,
-                    Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Forward), sceneGraph, 1, "ForwardTransparent", materialEvents);
+                commandList.renderForward(forwardPass, this.forwardContext, view, viewPrevious,
+                    targets.getFramebuffer(SceneFramebuffer.Forward), sceneGraph, 1, "ForwardTransparent", materialEvents);
             }
 
-            let finalHdrColor = Donut_GetSceneRenderTargetsTexture(targets, SceneTexture.HdrColor);
+            let finalHdrColor = targets.getTexture(SceneTexture.HdrColor);
 
             if (ui.antiAliasingMode == AntiAliasingMode.TEMPORAL || ui.antiAliasingMode == AntiAliasingMode.DLSS) {
                 if (this.previousViewsValid) {
-                    Donut_RenderViewMotionVectors(commandList, temporalAntiAliasingPass, view, viewPrevious);
+                    commandList.renderViewMotionVectors(temporalAntiAliasingPass, view, viewPrevious);
                 }
 
                 if (ui.antiAliasingMode == AntiAliasingMode.DLSS) {
                     let evaluated = false;
                     const dlss = this.dlss;
-                    if (dlss) {
-                        if (Donut_IsDlssInitialized(dlss) != 0 && !ui.stereo) {
-                            Donut_EvaluateDlss(commandList, dlss, view, targets, toneMappingPass);
+                    if (!dlss.isNull()) {
+                        if (dlss.isInitialized() != 0 && !ui.stereo) {
+                            commandList.evaluateDlss(dlss, view, targets, toneMappingPass);
                             evaluated = true;
                         }
                     }
@@ -821,47 +822,47 @@ namespace FeatureDemoExample {
                 }
 
                 if (ui.antiAliasingMode == AntiAliasingMode.TEMPORAL) {
-                    Donut_TemporalResolveView(commandList, temporalAntiAliasingPass, view, this.previousViewsValid ? 1 : 0,
+                    commandList.temporalResolveView(temporalAntiAliasingPass, view, this.previousViewsValid ? 1 : 0,
                         ui.enableHistoryClamping ? 1 : 0);
                 }
 
-                finalHdrColor = Donut_GetSceneRenderTargetsTexture(targets, SceneTexture.ResolvedColor);
+                finalHdrColor = targets.getTexture(SceneTexture.ResolvedColor);
 
                 if (ui.enableBloom) {
-                    Donut_RenderBloom(commandList, this.bloomPass, Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Resolved),
+                    commandList.renderBloom(this.bloomPass, targets.getFramebuffer(SceneFramebuffer.Resolved),
                         view, finalHdrColor, ui.bloomSigma, ui.bloomAlpha);
                 }
                 this.previousViewsValid = true;
             } else {
-                let finalHdrFramebuffer = Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Hdr);
+                let finalHdrFramebuffer = targets.getFramebuffer(SceneFramebuffer.Hdr);
 
                 if (this.renderTargetsSampleCount > 1) {
-                    const resolvedColor = Donut_GetSceneRenderTargetsTexture(targets, SceneTexture.ResolvedColor);
-                    Donut_ResolveTexture(commandList, resolvedColor, finalHdrColor);
+                    const resolvedColor = targets.getTexture(SceneTexture.ResolvedColor);
+                    commandList.resolveTexture(resolvedColor, finalHdrColor);
                     finalHdrColor = resolvedColor;
-                    finalHdrFramebuffer = Donut_GetSceneRenderTargetsFramebuffer(targets, SceneFramebuffer.Resolved);
+                    finalHdrFramebuffer = targets.getFramebuffer(SceneFramebuffer.Resolved);
                 }
 
                 if (ui.enableBloom) {
-                    Donut_RenderBloom(commandList, this.bloomPass, finalHdrFramebuffer, view, finalHdrColor, ui.bloomSigma, ui.bloomAlpha);
+                    commandList.renderBloom(this.bloomPass, finalHdrFramebuffer, view, finalHdrColor, ui.bloomSigma, ui.bloomAlpha);
                 }
 
                 this.previousViewsValid = false;
             }
 
-            Donut_RenderToneMapping(commandList, toneMappingPass, view, finalHdrColor, exposureResetRequired ? 1 : 0);
+            commandList.renderToneMapping(toneMappingPass, view, finalHdrColor, exposureResetRequired ? 1 : 0);
 
-            Donut_BlitTexture(app, frame, Donut_GetSceneRenderTargetsTexture(targets, SceneTexture.LdrColor));
+            app.blitTexture(frame, targets.getTexture(SceneTexture.LdrColor));
 
             if (ui.testMipMapGen) {
-                Donut_DispatchMipMapGen(commandList, this.mipMapGenPass);
-                Donut_DisplayMipMapGen(app, frame, this.mipMapGenPass);
+                commandList.dispatchMipMapGen(this.mipMapGenPass);
+                app.displayMipMapGen(frame, this.mipMapGenPass);
             }
 
             if (ui.displayShadowMap) {
-                const shadowMapTexture = Donut_GetShadowMapTexture(this.shadowMap);
+                const shadowMapTexture = this.shadowMap.getTexture();
                 for (let cascade = 0; cascade < 4; cascade++) {
-                    Donut_BlitTextureSlice(app, frame, shadowMapTexture, cascade,
+                    app.blitTextureSlice(frame, shadowMapTexture, cascade,
                         10.0 + 266.0 * cascade, windowHeight - 266.0, 256.0, 256.0);
                 }
             }
@@ -869,22 +870,22 @@ namespace FeatureDemoExample {
             // The C++ sample executes its command list here; the rest needs the results.
 
             if (ui.screenshotFileName != "") {
-                Donut_SaveFrameToFile(app, frame, ui.screenshotFileName);
+                app.saveFrameToFile(frame, ui.screenshotFileName);
                 ui.screenshotFileName = "";
             }
 
             if (this.pick) {
                 this.pick = false;
-                Donut_FlushFrameCommandList(app, frame);
+                app.flushFrameCommandList(frame);
                 this.finishPick();
             }
 
-            Donut_AdvanceTemporalFrame(temporalAntiAliasingPass);
+            temporalAntiAliasingPass.advanceFrame();
             const swappedView = this.view;
             this.view = this.viewPrevious;
             this.viewPrevious = swappedView;
 
-            Donut_SetVsyncEnabled(app, ui.enableVsync ? 1 : 0);
+            app.setVsyncEnabled(ui.enableVsync ? 1 : 0);
         }
 
         // Renders a light probe's cube maps from the camera position (the sample's RenderLightProbe).
@@ -893,86 +894,86 @@ namespace FeatureDemoExample {
             const sceneGraph = this.sceneGraph;
             const sunLight = this.sunLight;
             const lightProbePass = this.lightProbePass;
-            if (!sceneGraph || !lightProbePass) {
+            if (sceneGraph.isNull() || lightProbePass.isNull()) {
                 return;
             }
 
             const environmentMapSize = 1024;
             const environmentMapMipLevels = 8;
-            const capture = Donut_CreateLightProbeCapture(app, environmentMapSize, environmentMapMipLevels);
+            const capture = app.createLightProbeCapture(environmentMapSize, environmentMapMipLevels);
 
             const nearPlane = 0.1;
             const cullDistance = 100.0;
-            Donut_GetCameraPosition(this.getActiveCamera(), Ref(this.vector1[0]));
+            this.getActiveCamera().getPosition(Ref(this.vector1[0]));
             let probeX = this.vector1[0];
             let probeY = this.vector1[1];
             let probeZ = this.vector1[2];
             const sceneCamera = this.ui.activeSceneCamera;
-            if (sceneCamera) {
+            if (!sceneCamera.isNull()) {
                 // As in the sample: the translation of the world-to-view matrix.
-                Donut_GetSceneCameraWorldToView(sceneCamera, Ref(this.viewMatrix[0]));
+                sceneCamera.getWorldToView(Ref(this.viewMatrix[0]));
                 probeX = this.viewMatrix[12];
                 probeY = this.viewMatrix[13];
                 probeZ = this.viewMatrix[14];
             }
 
-            Donut_SetLightProbeCaptureTransform(capture, probeX, probeY, probeZ, nearPlane, cullDistance);
-            const view = Donut_GetLightProbeCaptureView(capture);
-            const framebuffer = Donut_GetLightProbeCaptureFramebuffer(capture);
+            capture.setTransform(probeX, probeY, probeZ, nearPlane, cullDistance);
+            const view = capture.getView();
+            const framebuffer = capture.getFramebuffer();
 
-            const skyPass = Donut_CreateSkyPass(app, framebuffer, view);
+            const skyPass = app.createSkyPass(framebuffer, view);
 
-            const forwardPass = Donut_CreateForwardShadingPassWithOptions(app,
-                Donut_IsFeatureSupported(app, Feature.FastGeometryShader) != 0 ? 1 : 0, 1);
-            const forwardContext = Donut_CreateForwardShadingContext(app);
+            const forwardPass = app.createForwardShadingPassWithOptions(
+                app.isFeatureSupported(Feature.FastGeometryShader) != 0 ? 1 : 0, 1);
+            const forwardContext = app.createForwardShadingContext();
 
-            const commandList = Donut_CreateCommandList(app);
-            Donut_OpenCommandList(commandList);
-            Donut_ClearLightProbeCapture(commandList, capture);
+            const commandList = app.createCommandList();
+            commandList.open();
+            commandList.clearLightProbeCapture(capture);
 
-            this.loadBounds(Donut_GetRootNode(sceneGraph));
+            this.loadBounds(sceneGraph.getRootNode());
             const zRange = this.boundsDiagonalLength() * 0.5;
-            Donut_SetupShadowMapForLightProbeCapture(this.shadowMap, sunLight, capture, cullDistance, zRange, this.ui.csmExponent);
-            Donut_ClearShadowMap(commandList, this.shadowMap);
+            this.shadowMap.setupForLightProbeCapture(sunLight, capture, cullDistance, zRange, this.ui.csmExponent);
+            commandList.clearShadowMap(this.shadowMap);
 
-            Donut_RenderShadowDepth(commandList, this.shadowDepthPass, this.shadowMap, sceneGraph, 0);
+            commandList.renderShadowDepth(this.shadowDepthPass, this.shadowMap, sceneGraph, 0);
 
             const top = this.ambientTop;
             const bottom = this.ambientBottom;
-            Donut_PrepareForwardLights(commandList, forwardPass, forwardContext, sceneGraph,
+            commandList.prepareForwardLights(forwardPass, forwardContext, sceneGraph,
                 top[0], top[1], top[2], bottom[0], bottom[1], bottom[2], null);
 
-            Donut_RenderForward(commandList, forwardPass, forwardContext, view, null, framebuffer, sceneGraph, 0, "ForwardOpaque", 0);
+            commandList.renderForward(forwardPass, forwardContext, view, null, framebuffer, sceneGraph, 0, "ForwardOpaque", 0);
 
-            Donut_RenderSky(commandList, skyPass, view, sunLight, this.ui.skyBrightness, this.ui.skyGlowSize,
+            commandList.renderSky(skyPass, view, sunLight, this.ui.skyBrightness, this.ui.skyGlowSize,
                 this.ui.skyGlowSharpness, this.ui.skyGlowIntensity, this.ui.skyHorizonSize);
 
-            Donut_RenderForward(commandList, forwardPass, forwardContext, view, null, framebuffer, sceneGraph, 1, "ForwardTransparent", 0);
+            commandList.renderForward(forwardPass, forwardContext, view, null, framebuffer, sceneGraph, 1, "ForwardTransparent", 0);
 
-            Donut_GenerateLightProbeCaptureMips(commandList, lightProbePass, capture);
+            commandList.generateLightProbeCaptureMips(lightProbePass, capture);
 
-            Donut_RenderLightProbeDiffuse(commandList, lightProbePass, capture, this.lightProbes, index);
+            commandList.renderLightProbeDiffuse(lightProbePass, capture, this.lightProbes, index);
 
-            const specularMapMipLevels = Donut_GetLightProbeSpecularMipLevels(this.lightProbes);
+            const specularMapMipLevels = this.lightProbes.getSpecularMipLevels();
             for (let mipLevel = 0; mipLevel < specularMapMipLevels; mipLevel++) {
                 const roughness = Math.pow(mipLevel / (specularMapMipLevels - 1), 2.0);
-                Donut_RenderLightProbeSpecular(commandList, lightProbePass, capture, this.lightProbes, index, roughness, mipLevel);
+                commandList.renderLightProbeSpecular(lightProbePass, capture, this.lightProbes, index, roughness, mipLevel);
             }
 
-            Donut_RenderEnvironmentBrdf(commandList, lightProbePass);
+            commandList.renderEnvironmentBrdf(lightProbePass);
 
-            Donut_CloseCommandList(commandList);
-            Donut_ExecuteCommandList(app, commandList);
-            Donut_WaitForIdle(app);
-            Donut_RunGarbageCollection(app);
+            commandList.close();
+            app.executeCommandList(commandList);
+            app.waitForIdle();
+            app.runGarbageCollection();
 
-            Donut_FinishLightProbe(this.lightProbes, index, lightProbePass, probeX, probeY, probeZ);
+            this.lightProbes.finish(index, lightProbePass, probeX, probeY, probeZ);
 
-            Donut_ReleaseResource(app, commandList);
-            Donut_ReleaseObject(app, forwardContext);
-            Donut_ReleaseObject(app, forwardPass);
-            Donut_ReleaseObject(app, skyPass);
-            Donut_ReleaseObject(app, capture);
+            app.releaseResource(commandList.handle);
+            app.releaseObject(forwardContext);
+            app.releaseObject(forwardPass.handle);
+            app.releaseObject(skyPass);
+            app.releaseObject(capture.handle);
         }
 
         // --- Pass callbacks ---
@@ -1002,24 +1003,24 @@ namespace FeatureDemoExample {
 
             if (key == KEY_T && action == ACTION_PRESS) {
                 this.copyActiveCameraToFirstPerson();
-                if (this.ui.activeSceneCamera) {
+                if (!this.ui.activeSceneCamera.isNull()) {
                     this.ui.useThirdPersonCamera = false;
-                    this.ui.activeSceneCamera = null;
+                    this.ui.activeSceneCamera = new SceneCamera(null);
                 } else {
                     this.ui.useThirdPersonCamera = !this.ui.useThirdPersonCamera;
                 }
                 return 1;
             }
 
-            if (!this.ui.activeSceneCamera) {
-                Donut_CameraKeyboardUpdate(this.getActiveCamera(), key, scancode, action, mods);
+            if (this.ui.activeSceneCamera.isNull()) {
+                this.getActiveCamera().keyboardUpdate(key, scancode, action, mods);
             }
             return 1;
         }
 
         onMousePos(x: number, y: number): int {
-            if (!this.ui.activeSceneCamera) {
-                Donut_CameraMousePosUpdate(this.getActiveCamera(), x, y);
+            if (this.ui.activeSceneCamera.isNull()) {
+                this.getActiveCamera().mousePosUpdate(x, y);
             }
 
             this.pickX = Math.trunc(x);
@@ -1029,8 +1030,8 @@ namespace FeatureDemoExample {
         }
 
         onMouseButton(button: int, action: int, mods: int): int {
-            if (!this.ui.activeSceneCamera) {
-                Donut_CameraMouseButtonUpdate(this.getActiveCamera(), button, action, mods);
+            if (this.ui.activeSceneCamera.isNull()) {
+                this.getActiveCamera().mouseButtonUpdate(button, action, mods);
             }
 
             if (action == ACTION_PRESS && button == MOUSE_BUTTON_2) {
@@ -1041,42 +1042,43 @@ namespace FeatureDemoExample {
         }
 
         onMouseScroll(xOffset: number, yOffset: number): int {
-            if (!this.ui.activeSceneCamera) {
-                Donut_CameraMouseScrollUpdate(this.getActiveCamera(), xOffset, yOffset);
+            if (this.ui.activeSceneCamera.isNull()) {
+                this.getActiveCamera().mouseScrollUpdate(xOffset, yOffset);
             }
 
             return 1;
         }
 
         onAnimate(elapsedSeconds: number): void {
-            if (!this.ui.activeSceneCamera) {
-                Donut_CameraAnimate(this.getActiveCamera(), elapsedSeconds);
+            if (this.ui.activeSceneCamera.isNull()) {
+                this.getActiveCamera().animate(elapsedSeconds);
             }
 
             const toneMappingPass = this.toneMappingPass;
-            if (toneMappingPass) {
-                Donut_AdvanceToneMappingFrame(toneMappingPass, elapsedSeconds);
+            if (!toneMappingPass.isNull()) {
+                toneMappingPass.advanceFrame(elapsedSeconds);
             }
 
             const scene = this.scene;
-            if (scene) {
+            if (!scene.isNull()) {
                 if (this.ui.enableAnimations) {
                     this.wallclockTime += elapsedSeconds;
 
-                    const animationCount = Donut_GetSceneAnimationCount(scene);
+                    const animationCount = scene.getAnimationCount();
                     for (let i = 0; i < animationCount; i++) {
-                        const duration = Donut_GetSceneAnimationDuration(scene, i);
+                        const duration = scene.getAnimationDuration(i);
                         const cycles = this.wallclockTime / duration;
                         const animationTime = (cycles - Math.floor(cycles)) * duration;
-                        Donut_ApplySceneAnimation(scene, i, animationTime);
+                        scene.applyAnimation(i, animationTime);
                     }
                 }
             }
         }
 
         // ApplicationBase::Render: a splash screen until the scene and its textures have loaded.
-        onRender(frame: Opaque): void {
-            const state = Donut_UpdateSceneLoader(this.sceneLoader, frame);
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
+            const state = this.sceneLoader.update(frame);
             if (state == SceneLoaderState.Loading) {
                 this.renderSplashScreen(frame);
                 return;
@@ -1093,7 +1095,7 @@ namespace FeatureDemoExample {
                 if (this.readyFrames == SCREENSHOT_FRAME) {
                     this.ui.screenshotFileName = g_ScreenshotPath;
                 } else if (this.readyFrames > SCREENSHOT_FRAME) {
-                    Donut_CloseWindow(this.app);
+                    this.app.closeWindow();
                 }
             }
         }
@@ -1105,39 +1107,39 @@ namespace FeatureDemoExample {
             // The whole media folder (the C++ sample lists media/glTF-Sample-Assets/Models only), so
             // that the default scene, media/sponza-plus.scene.json, is in the list too.
             this.sceneDir = `${Donut_GetExecutableDirectory()}/media/`;
-            this.sceneFilesAvailable = Donut_FindScenes(app, this.sceneDir);
+            this.sceneFilesAvailable = app.findScenes(this.sceneDir);
 
-            const sceneCount = Donut_GetStringListCount(this.sceneFilesAvailable);
+            const sceneCount = this.sceneFilesAvailable.getCount();
             if (sceneName == "" && sceneCount == 0) {
                 console.log(`No scene file found in media folder '${this.sceneDir}'`);
                 console.log("Please make sure that folder contains valid scene files.");
                 return false;
             }
 
-            this.shadowMap = Donut_CreateCascadedShadowMap(app, 2048, 4);
-            this.shadowDepthPass = Donut_CreateShadowDepthPass(app, 100, 4.0);
+            this.shadowMap = app.createCascadedShadowMap(2048, 4);
+            this.shadowDepthPass = app.createShadowDepthPass(100, 4.0);
 
-            this.forwardContext = Donut_CreateForwardShadingContext(app);
+            this.forwardContext = app.createForwardShadingContext();
 
-            this.firstPersonCamera = Donut_CreateFirstPersonCamera(app);
-            this.thirdPersonCamera = Donut_CreateThirdPersonCamera(app);
-            Donut_CameraSetMoveSpeed(this.firstPersonCamera, 3.0);
-            Donut_CameraSetMoveSpeed(this.thirdPersonCamera, 3.0);
+            this.firstPersonCamera = app.createFirstPersonCamera();
+            this.thirdPersonCamera = app.createThirdPersonCamera();
+            this.firstPersonCamera.setMoveSpeed(3.0);
+            this.thirdPersonCamera.setMoveSpeed(3.0);
 
-            this.sceneLoader = Donut_CreateSceneLoader(app);
+            this.sceneLoader = app.createSceneLoader();
 
             // DLSS doesn't need to be re-created when shaders reload, so it's created here and not in
             // createRenderPasses().
-            this.dlss = Donut_CreateDlss(app);
+            this.dlss = app.createDlss();
 
-            this.lightProbes = Donut_CreateLightProbeSet(app, 4);
+            this.lightProbes = app.createLightProbeSet(4);
 
             if (sceneName == "") {
                 // app::FindPreferredScene(available, DEFAULT_SCENE): Sponza with two dancing
                 // BrainStem robots, as in rt_bindless (the C++ sample prefers Sponza.gltf).
-                let preferred = Donut_GetStringListItem(this.sceneFilesAvailable, 0);
+                let preferred = this.sceneFilesAvailable.getItem(0);
                 for (let i = 0; i < sceneCount; i++) {
-                    const scene = Donut_GetStringListItem(this.sceneFilesAvailable, i);
+                    const scene = this.sceneFilesAvailable.getItem(i);
                     if (scene.indexOf(DEFAULT_SCENE) >= 0) {
                         preferred = scene;
                         break;
@@ -1148,13 +1150,13 @@ namespace FeatureDemoExample {
                 this.setCurrentSceneName(sceneName);
             }
 
-            const pass = Donut_AddPass(app);
-            Donut_SetKeyboardCallback(pass, this.onKeyboard);
-            Donut_SetMousePosCallback(pass, this.onMousePos);
-            Donut_SetMouseButtonCallback(pass, this.onMouseButton);
-            Donut_SetMouseScrollCallback(pass, this.onMouseScroll);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = app.addPass();
+            pass.setKeyboardCallback(this.onKeyboard);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
@@ -1164,15 +1166,15 @@ namespace FeatureDemoExample {
     // The sample's UIRenderer: the settings window, the material editor for the picked material, and
     // a loading message while a scene loads.
     class UserInterface {
-        private app: Opaque;
+        private app: App;
         private demo: FeatureDemo;
         private ui: UIData;
-        private imguiPass: Opaque;
-        private fontOpenSans: Opaque;
-        private fontDroidMono: Opaque;
+        private imguiPass: ImGuiPass;
+        private fontOpenSans: ImGuiFont;
+        private fontDroidMono: ImGuiFont;
         private loadingStats: int[];
 
-        constructor(app: Opaque, demo: FeatureDemo, ui: UIData) {
+        constructor(app: App, demo: FeatureDemo, ui: UIData) {
             this.app = app;
             this.demo = demo;
             this.ui = ui;
@@ -1201,25 +1203,25 @@ namespace FeatureDemoExample {
                 return;
             }
 
-            const width = Donut_GetWindowWidth(app);
+            const width = app.getWindowWidth();
 
             const sceneGraph = demo.sceneGraph;
-            if (Donut_IsSceneLoading(demo.sceneLoader) != 0 || !sceneGraph) {
-                Donut_ImGuiBeginFullScreenWindow(this.imguiPass);
-                Donut_ImGuiPushFont(this.fontOpenSans);
+            if (demo.sceneLoader.isSceneLoading() != 0 || sceneGraph.isNull()) {
+                this.imguiPass.beginFullScreenWindow();
+                this.fontOpenSans.push();
 
-                Donut_GetSceneLoadingStats(demo.sceneLoader, Ref(this.loadingStats[0]));
+                demo.sceneLoader.getSceneLoadingStats(Ref(this.loadingStats[0]));
                 const stats = this.loadingStats;
-                Donut_ImGuiDrawScreenCenteredText(this.imguiPass,
+                this.imguiPass.drawScreenCenteredText(
                     `Loading scene ${demo.currentSceneName}, please wait...\nObjects: ${stats[0]}/${stats[1]}, Textures: ${stats[2]}/${stats[3]}`);
 
                 Donut_ImGuiPopFont();
-                Donut_ImGuiEndFullScreenWindow(this.imguiPass);
+                this.imguiPass.endFullScreenWindow();
 
                 return;
             }
 
-            Donut_ImGuiPushFont(this.fontOpenSans);
+            this.fontOpenSans.push();
 
             // (The console is commented out in the sample too: `~` only toggles ui.showConsole.)
 
@@ -1227,17 +1229,17 @@ namespace FeatureDemoExample {
 
             Donut_ImGuiSetNextWindowPos(fontSize * 0.6, fontSize * 0.6);
             Donut_ImGuiBegin("Settings", 1);
-            Donut_ImGuiText(`Renderer: ${Donut_GetRendererString(app)}`);
-            const frameTime = Donut_GetAverageFrameTime(app);
+            Donut_ImGuiText(`Renderer: ${app.getRendererString()}`);
+            const frameTime = app.getAverageFrameTime();
             if (frameTime > 0.0) {
                 Donut_ImGuiText(`${formatFixed(frameTime * 1e3, 3)} ms/frame (${formatFixed(1.0 / frameTime, 1)} FPS)`);
             }
 
             const currentScene = demo.currentSceneName;
             if (Donut_ImGuiBeginCombo("Scene", this.getRelativePath(currentScene)) != 0) {
-                const sceneCount = Donut_GetStringListCount(demo.sceneFilesAvailable);
+                const sceneCount = demo.sceneFilesAvailable.getCount();
                 for (let i = 0; i < sceneCount; i++) {
-                    const scene = Donut_GetStringListItem(demo.sceneFilesAvailable, i);
+                    const scene = demo.sceneFilesAvailable.getItem(i);
                     const isSelected = scene == currentScene;
                     if (Donut_ImGuiSelectable(this.getRelativePath(scene), isSelected ? 1 : 0) != 0) {
                         demo.setCurrentSceneName(scene);
@@ -1263,22 +1265,23 @@ namespace FeatureDemoExample {
             ui.enableAnimations = this.checkbox("Animations", ui.enableAnimations);
 
             const activeSceneCamera = ui.activeSceneCamera;
-            const cameraPreview = activeSceneCamera ? Donut_GetSceneCameraName(activeSceneCamera)
+            const cameraPreview = !activeSceneCamera.isNull() ? activeSceneCamera.getName()
                 : ui.useThirdPersonCamera ? "Third-Person" : "First-Person";
             if (Donut_ImGuiBeginCombo("Camera (T)", cameraPreview) != 0) {
-                if (Donut_ImGuiSelectable("First-Person", !ui.activeSceneCamera && !ui.useThirdPersonCamera ? 1 : 0) != 0) {
-                    ui.activeSceneCamera = null;
+                if (Donut_ImGuiSelectable("First-Person", ui.activeSceneCamera.isNull() && !ui.useThirdPersonCamera ? 1 : 0) != 0) {
+                    ui.activeSceneCamera = new SceneCamera(null);
                     ui.useThirdPersonCamera = false;
                 }
-                if (Donut_ImGuiSelectable("Third-Person", !ui.activeSceneCamera && ui.useThirdPersonCamera ? 1 : 0) != 0) {
-                    ui.activeSceneCamera = null;
+                if (Donut_ImGuiSelectable("Third-Person", ui.activeSceneCamera.isNull() && ui.useThirdPersonCamera ? 1 : 0) != 0) {
+                    ui.activeSceneCamera = new SceneCamera(null);
                     ui.useThirdPersonCamera = true;
                     demo.copyActiveCameraToFirstPerson();
                 }
-                const cameraCount = Donut_GetSceneGraphCameraCount(sceneGraph);
+                const cameraCount = sceneGraph.getCameraCount();
                 for (let i = 0; i < cameraCount; i++) {
-                    const camera = Donut_GetSceneGraphCamera(sceneGraph, i);
-                    if (Donut_ImGuiSelectable(Donut_GetSceneCameraName(camera), ui.activeSceneCamera == camera ? 1 : 0) != 0) {
+                    const camera = sceneGraph.getCamera(i);
+                    // The handles: each call wraps the camera in a new object.
+                    if (Donut_ImGuiSelectable(camera.getName(), ui.activeSceneCamera.handle == camera.handle ? 1 : 0) != 0) {
                         ui.activeSceneCamera = camera;
                         demo.copyActiveCameraToFirstPerson();
                     }
@@ -1341,15 +1344,15 @@ namespace FeatureDemoExample {
             ui.enableMaterialEvents = this.checkbox("Material Events", ui.enableMaterialEvents);
             Donut_ImGuiSeparator();
 
-            const lightCount = Donut_GetSceneGraphLightCount(sceneGraph);
+            const lightCount = sceneGraph.getLightCount();
             if (lightCount > 0 && Donut_ImGuiCollapsingHeader("Lights") != 0) {
                 const selectedLight = ui.selectedLight;
-                if (Donut_ImGuiBeginCombo("Select Light", selectedLight ? Donut_GetLightName(selectedLight) : "(None)") != 0) {
+                if (Donut_ImGuiBeginCombo("Select Light", !selectedLight.isNull() ? selectedLight.getName() : "(None)") != 0) {
                     for (let i = 0; i < lightCount; i++) {
-                        const light = Donut_GetSceneGraphLight(sceneGraph, i);
+                        const light = sceneGraph.getLight(i);
                         // ImGui::Selectable(label, &selected): a click toggles `selected`.
-                        let selected = ui.selectedLight == light;
-                        if (Donut_ImGuiSelectable(Donut_GetLightName(light), selected ? 1 : 0) != 0) {
+                        let selected = ui.selectedLight.handle == light.handle;
+                        if (Donut_ImGuiSelectable(light.getName(), selected ? 1 : 0) != 0) {
                             selected = !selected;
                         }
                         if (selected) {
@@ -1361,16 +1364,16 @@ namespace FeatureDemoExample {
                 }
 
                 const light = ui.selectedLight;
-                if (light) {
-                    Donut_ImGuiLightEditor(light);
+                if (!light.isNull()) {
+                    light.imGuiEditor();
                 }
             }
 
             Donut_ImGuiText("Render Light Probe: ");
-            const probeCount = Donut_GetLightProbeCount(demo.lightProbes);
+            const probeCount = demo.lightProbes.getCount();
             for (let i = 0; i < probeCount; i++) {
                 Donut_ImGuiSameLine();
-                if (Donut_ImGuiButton(Donut_GetLightProbeName(demo.lightProbes, i)) != 0) {
+                if (Donut_ImGuiButton(demo.lightProbes.getName(i)) != 0) {
                     demo.renderLightProbe(i);
                 }
             }
@@ -1390,16 +1393,16 @@ namespace FeatureDemoExample {
             Donut_ImGuiEnd();
 
             const material = ui.selectedMaterial;
-            if (material) {
+            if (!material.isNull()) {
                 Donut_ImGuiSetNextWindowPosPivot(width - fontSize * 0.6, fontSize * 0.6, 1.0, 0.0);
                 Donut_ImGuiBegin("Material Editor", 0);
-                Donut_ImGuiText(`Material ${Donut_GetMaterialID(material)}: ${Donut_GetMaterialName(material)}`);
+                Donut_ImGuiText(`Material ${material.getID()}: ${material.getName()}`);
 
-                const previousDomain = Donut_GetMaterialDomain(material);
-                Donut_SetMaterialDirty(material, Donut_ImGuiMaterialEditor(material, 1));
+                const previousDomain = material.getDomain();
+                material.setDirty(material.imGuiEditor(1));
 
-                if (previousDomain != Donut_GetMaterialDomain(material)) {
-                    Donut_InvalidateNodeContent(Donut_GetRootNode(sceneGraph));
+                if (previousDomain != material.getDomain()) {
+                    sceneGraph.getRootNode().invalidateContent();
                 }
 
                 Donut_ImGuiEnd();
@@ -1420,24 +1423,24 @@ namespace FeatureDemoExample {
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
         init(): boolean {
-            const imguiPass = Donut_AddImGuiPass(this.app, this.buildUI);
-            if (!imguiPass) {
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
                 return false;
             }
             this.imguiPass = imguiPass;
 
-            this.fontOpenSans = Donut_ImGuiCreateFont(imguiPass, "media/fonts/OpenSans/OpenSans-Regular.ttf", 17.0);
-            this.fontDroidMono = Donut_ImGuiCreateFont(imguiPass, "media/fonts/DroidSans/DroidSans-Mono.ttf", 14.0);
-            return this.fontOpenSans && this.fontDroidMono ? true : false;
+            this.fontOpenSans = imguiPass.createFont("media/fonts/OpenSans/OpenSans-Regular.ttf", 17.0);
+            this.fontDroidMono = imguiPass.createFont("media/fonts/DroidSans/DroidSans-Mono.ttf", 14.0);
+            return !this.fontOpenSans.isNull() && !this.fontDroidMono.isNull();
         }
     }
 
     // --- Main -------------------------------------------------------------------------------
 
-    function printFormats(app: Opaque): void {
+    function printFormats(app: App): void {
         const formatCount = Donut_GetFormatCount();
         for (let format = 0; format < formatCount; format++) {
-            const support = Donut_QueryFormatSupport(app, format);
+            const support = app.queryFormatSupport(format);
             let name = Donut_GetFormatName(format);
             while (name.length < 17) {
                 name = " " + name;
@@ -1495,8 +1498,8 @@ namespace FeatureDemoExample {
         const apiString = Donut_GraphicsAPIToString(api);
         const windowTitle = `Donut Feature Demo (${apiString})`;
 
-        const app = Donut_CreateAppWithOptions(api, windowTitle, width, height, options);
-        if (!app) {
+        const app = App.createWithOptions(api, windowTitle, width, height, options);
+        if (app.isNull()) {
             console.log(`Cannot initialize a ${apiString} graphics device with the requested parameters`);
             return 1;
         }
@@ -1511,7 +1514,7 @@ namespace FeatureDemoExample {
 
         const demo = new FeatureDemo(app, uiData);
         if (!demo.init(sceneName)) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
@@ -1519,12 +1522,12 @@ namespace FeatureDemoExample {
         const gui = new UserInterface(app, demo, uiData);
         if (!gui.init()) {
             console.log("Cannot initialize the user interface");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

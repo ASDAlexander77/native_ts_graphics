@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace WorkGraphs {
@@ -497,7 +497,7 @@ namespace WorkGraphs {
         }
 
         // Generates the scene and records its upload into an open command list.
-        createAssets(app: Opaque, commandList: Opaque): void {
+        createAssets(app: App, commandList: CommandList): void {
             // Generate geometry data.
             const meshSet: MeshData[] = [new MeshData(), new MeshData(), new MeshData()];
             generatePlane(meshSet[MESH_PLANE]);
@@ -509,28 +509,28 @@ namespace WorkGraphs {
             // Create GPU buffers and record upload data commands.
             for (let i = 0; i < MESH_COUNT; i++) {
                 const mesh = meshSet[i];
-                this.vertexBuffers.push(Donut_CreateStaticVertexBuffer(app, commandList, Ref(mesh.vertices[0]),
+                this.vertexBuffers.push(app.createStaticVertexBuffer(commandList, Ref(mesh.vertices[0]),
                     mesh.vertexCount * VERTEX_STRIDE, "MeshVB"));
                 // Index buffer, 16-bit indices.
-                this.indexBuffers.push(Donut_CreateStaticIndexBuffer(app, commandList, Ref(mesh.indices[0]),
+                this.indexBuffers.push(app.createStaticIndexBuffer(commandList, Ref(mesh.indices[0]),
                     mesh.indices.length * 2, "MeshIB"));
                 this.indexCounts.push(mesh.indices.length);
             }
 
             this.packBuffers();
 
-            this.materialsBuffer = Donut_CreateStructuredBuffer(app, MATERIAL_FLOATS * 4, this.materials.length, "MaterialsData");
-            Donut_WriteBuffer(commandList, this.materialsBuffer, Ref(this.materialData[0]), this.materials.length * MATERIAL_FLOATS * 4);
+            this.materialsBuffer = app.createStructuredBuffer(MATERIAL_FLOATS * 4, this.materials.length, "MaterialsData");
+            commandList.writeBuffer(this.materialsBuffer, Ref(this.materialData[0]), this.materials.length * MATERIAL_FLOATS * 4);
 
-            this.worldObjectsBuffer = Donut_CreateStructuredBuffer(app, INSTANCE_FLOATS * 4, this.worldObjects.length, "InstancesData");
-            Donut_WriteBuffer(commandList, this.worldObjectsBuffer, Ref(this.instanceData[0]), this.worldObjects.length * INSTANCE_FLOATS * 4);
+            this.worldObjectsBuffer = app.createStructuredBuffer(INSTANCE_FLOATS * 4, this.worldObjects.length, "InstancesData");
+            commandList.writeBuffer(this.worldObjectsBuffer, Ref(this.instanceData[0]), this.worldObjects.length * INSTANCE_FLOATS * 4);
 
             // Animated by the GPU, hence writable.
-            this.lightsBuffer = Donut_CreateRWStructuredBuffer(app, LIGHT_FLOATS * 4, this.lights.length, "LightsData");
-            Donut_WriteBuffer(commandList, this.lightsBuffer, Ref(this.lightData[0]), this.lights.length * LIGHT_FLOATS * 4);
+            this.lightsBuffer = app.createRWStructuredBuffer(LIGHT_FLOATS * 4, this.lights.length, "LightsData");
+            commandList.writeBuffer(this.lightsBuffer, Ref(this.lightData[0]), this.lights.length * LIGHT_FLOATS * 4);
 
             // Initialized by the animation shader.
-            this.animStateBuffer = Donut_CreateRWStructuredBuffer(app, ANIM_STATE_FLOATS * 4, this.worldObjects.length, "AnimState");
+            this.animStateBuffer = app.createRWStructuredBuffer(ANIM_STATE_FLOATS * 4, this.worldObjects.length, "AnimState");
         }
 
         // Lays out the materials, instances and lights as the shaders' structures (all the elements
@@ -751,7 +751,7 @@ namespace WorkGraphs {
     // node per screen tile feeding per-material shading nodes, broadcasting launch) or by two compute
     // dispatches (tiled light culling, then an uber shader).
     class WorkGraphsPass {
-        private app: Opaque;
+        private app: App;
         private ui: UIData;
         private scene: Scene;
 
@@ -784,12 +784,12 @@ namespace WorkGraphs {
         private gbufferFramebuffer: Opaque | null;
         private gbufferFillPSO: Opaque | null;
         private culledLightsBuffer: Opaque | null;
-        private animateObjectsBindings: Opaque | null;
-        private animateLightsBindings: Opaque | null;
-        private gbufferFillBindings: Opaque | null;
-        private lightCullingBindings: Opaque | null;
-        private deferredShadingBindings: Opaque | null;
-        private workGraphBindings: Opaque | null;
+        private animateObjectsBindings: BindingSet;
+        private animateLightsBindings: BindingSet;
+        private gbufferFillBindings: BindingSet;
+        private lightCullingBindings: BindingSet;
+        private deferredShadingBindings: BindingSet;
+        private workGraphBindings: BindingSet;
         private workGraph: Opaque | null;
 
         // State.
@@ -811,7 +811,7 @@ namespace WorkGraphs {
         private animationConstants: f32[];
         private rootConstants: int[];
 
-        constructor(app: Opaque, ui: UIData) {
+        constructor(app: App, ui: UIData) {
             this.app = app;
             this.ui = ui;
             this.scene = new Scene();
@@ -824,12 +824,12 @@ namespace WorkGraphs {
             this.gbufferFramebuffer = null;
             this.gbufferFillPSO = null;
             this.culledLightsBuffer = null;
-            this.animateObjectsBindings = null;
-            this.animateLightsBindings = null;
-            this.gbufferFillBindings = null;
-            this.lightCullingBindings = null;
-            this.deferredShadingBindings = null;
-            this.workGraphBindings = null;
+            this.animateObjectsBindings = new BindingSet(null);
+            this.animateLightsBindings = new BindingSet(null);
+            this.gbufferFillBindings = new BindingSet(null);
+            this.lightCullingBindings = new BindingSet(null);
+            this.deferredShadingBindings = new BindingSet(null);
+            this.workGraphBindings = new BindingSet(null);
             this.workGraph = null;
 
             this.currentTechnique = TECHNIQUE_WORK_GRAPH_BROADCASTING_LAUNCH;
@@ -853,14 +853,14 @@ namespace WorkGraphs {
         // The newest GPU time (in ms) of a set of timers that the GPU has finished; -1 if none.
         getLastValidQueryTimer(timers: Opaque[]): number {
             for (let i = this.nextTimerToUse - 1; i >= 0; i--) {
-                if (Donut_PollTimerQuery(this.app, timers[i]) != 0) {
-                    return Donut_GetTimerQueryTime(this.app, timers[i]) * 1000.0;
+                if (this.app.pollTimerQuery(timers[i]) != 0) {
+                    return this.app.getTimerQueryTime(timers[i]) * 1000.0;
                 }
             }
 
             for (let i = QUEUED_FRAMES_COUNT - 1; i > this.nextTimerToUse; i--) {
-                if (Donut_PollTimerQuery(this.app, timers[i]) != 0) {
-                    return Donut_GetTimerQueryTime(this.app, timers[i]) * 1000.0;
+                if (this.app.pollTimerQuery(timers[i]) != 0) {
+                    return this.app.getTimerQueryTime(timers[i]) * 1000.0;
                 }
             }
             return -1.0;
@@ -889,12 +889,12 @@ namespace WorkGraphs {
             this.ui.gpuFrameTime = this.getLastValidQueryTimer(this.frameTimers);
             this.ui.gpuShadingTime = this.getLastValidQueryTimer(this.shadingTimers);
 
-            Donut_SetInformativeWindowTitle(this.app, WINDOW_TITLE);
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         releaseResource(resource: Opaque | null): void {
             if (resource) {
-                Donut_ReleaseResource(this.app, resource);
+                this.app.releaseResource(resource);
             }
         }
 
@@ -904,29 +904,29 @@ namespace WorkGraphs {
             if (workGraph) {
                 // The GPU reads the work graph and its backing memory without NVRHI knowing, so they
                 // can't go while frames using them are in flight.
-                Donut_WaitForIdle(this.app);
-                Donut_ReleaseObject(this.app, workGraph);
+                this.app.waitForIdle();
+                this.app.releaseObject(workGraph);
                 this.workGraph = null;
             }
 
-            this.releaseResource(this.workGraphBindings);
-            this.releaseResource(this.deferredShadingBindings);
-            this.releaseResource(this.lightCullingBindings);
-            this.releaseResource(this.gbufferFillBindings);
-            this.releaseResource(this.animateLightsBindings);
-            this.releaseResource(this.animateObjectsBindings);
+            this.releaseResource(this.workGraphBindings.handle);
+            this.releaseResource(this.deferredShadingBindings.handle);
+            this.releaseResource(this.lightCullingBindings.handle);
+            this.releaseResource(this.gbufferFillBindings.handle);
+            this.releaseResource(this.animateLightsBindings.handle);
+            this.releaseResource(this.animateObjectsBindings.handle);
             this.releaseResource(this.culledLightsBuffer);
             this.releaseResource(this.gbufferFillPSO);
             this.releaseResource(this.gbufferFramebuffer);
             this.releaseResource(this.ldrBuffer);
             this.releaseResource(this.gbuffer);
             this.releaseResource(this.depth);
-            this.workGraphBindings = null;
-            this.deferredShadingBindings = null;
-            this.lightCullingBindings = null;
-            this.gbufferFillBindings = null;
-            this.animateLightsBindings = null;
-            this.animateObjectsBindings = null;
+            this.workGraphBindings = new BindingSet(null);
+            this.deferredShadingBindings = new BindingSet(null);
+            this.lightCullingBindings = new BindingSet(null);
+            this.gbufferFillBindings = new BindingSet(null);
+            this.animateLightsBindings = new BindingSet(null);
+            this.animateObjectsBindings = new BindingSet(null);
             this.culledLightsBuffer = null;
             this.gbufferFillPSO = null;
             this.gbufferFramebuffer = null;
@@ -943,27 +943,27 @@ namespace WorkGraphs {
 
         // A binding set of the shared layout: every pass fills all its slots, unused ones with null
         // resources. The resource registers must match with assignments used in the shader files.
-        createBindingSet(t0: Opaque, t1: Opaque, t2: Opaque, t3: Opaque, t4: Opaque, u0: Opaque, u1: Opaque): Opaque {
-            const desc = Donut_CreateBindingSetDesc();
-            Donut_BindPushConstants(desc, 0, PUSH_CONSTANTS_SIZE);
-            Donut_BindEntireConstantBuffer(desc, 1, this.constantBuffer);
-            Donut_BindStructuredBufferSRV(desc, 0, t0);
-            Donut_BindTextureSRV(desc, 1, t1);
-            Donut_BindTextureSRV(desc, 2, t2);
-            Donut_BindStructuredBufferSRV(desc, 3, t3);
-            Donut_BindStructuredBufferSRV(desc, 4, t4);
-            Donut_BindStructuredBufferUAV(desc, 0, u0);
-            Donut_BindTextureUAV(desc, 1, u1);
-            return Donut_CreateBindingSetForLayout(this.app, desc, this.bindingLayout);
+        createBindingSet(t0: Opaque, t1: Opaque, t2: Opaque, t3: Opaque, t4: Opaque, u0: Opaque, u1: Opaque): BindingSet {
+            const desc = BindingSetDesc.create();
+            desc.bindPushConstants(0, PUSH_CONSTANTS_SIZE);
+            desc.bindEntireConstantBuffer(1, this.constantBuffer);
+            desc.bindStructuredBufferSRV(0, t0);
+            desc.bindTextureSRV(1, t1);
+            desc.bindTextureSRV(2, t2);
+            desc.bindStructuredBufferSRV(3, t3);
+            desc.bindStructuredBufferSRV(4, t4);
+            desc.bindStructuredBufferUAV(0, u0);
+            desc.bindTextureUAV(1, u1);
+            return this.app.createBindingSetForLayout(desc, this.bindingLayout);
         }
 
         // First frame or window resize: the render targets, the g-buffer pipeline, the culled lights
         // buffer, the binding sets, and the work graph (whose entry node's grid covers the screen tiles).
-        createRenderTargets(frame: Opaque, width: int, height: int): boolean {
-            const depth = Donut_CreateRenderTargetTexture(this.app, width, height, Format.D32, "DepthBuffer");
-            const gbuffer = Donut_CreateRenderTargetTexture(this.app, width, height, Format.RGBA16_UINT, "GBuffer");
-            const ldrBuffer = Donut_CreateUAVTextureForFrameWithFormat(this.app, frame, "LDRBuffer", Format.RGBA8_UNORM);
-            const gbufferFramebuffer = Donut_CreateFramebuffer(this.app, gbuffer, depth);
+        createRenderTargets(frame: Frame, width: int, height: int): boolean {
+            const depth = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
+            const gbuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA16_UINT, "GBuffer");
+            const ldrBuffer = this.app.createUAVTextureForFrameWithFormat(frame, "LDRBuffer", Format.RGBA8_UNORM);
+            const gbufferFramebuffer = this.app.createFramebuffer(gbuffer, depth);
             this.depth = depth;
             this.gbuffer = gbuffer;
             this.ldrBuffer = ldrBuffer;
@@ -971,7 +971,7 @@ namespace WorkGraphs {
             this.targetsWidth = width;
             this.targetsHeight = height;
 
-            const gbufferFillPSO = Donut_CreateGraphicsPipelineForFramebuffer(this.app, gbufferFramebuffer,
+            const gbufferFillPSO = this.app.createGraphicsPipelineForFramebuffer(gbufferFramebuffer,
                 this.gbufferVertexShader, this.gbufferPixelShader, this.inputLayout, this.bindingLayout);
             if (!gbufferFillPSO) {
                 return false;
@@ -979,7 +979,7 @@ namespace WorkGraphs {
             this.gbufferFillPSO = gbufferFillPSO;
 
             const tileCount = getLightTileCountX(width) * getLightTileCountY(height);
-            const culledLightsBuffer = Donut_CreateRWStructuredBuffer(this.app, 4, tileCount * DEFERRED_SHADING_MAX_LIGHTS_PER_TILE, "CulledLights");
+            const culledLightsBuffer = this.app.createRWStructuredBuffer(4, tileCount * DEFERRED_SHADING_MAX_LIGHTS_PER_TILE, "CulledLights");
             this.culledLightsBuffer = culledLightsBuffer;
 
             // Create the resource binding sets for each pass. Donut internally takes care of resource
@@ -1002,7 +1002,7 @@ namespace WorkGraphs {
             // the window size; overriding it in the state object costs less at launch than making the
             // root node use SV_DispatchGrid in its input record. The graph shares the root signature
             // of the application's other shaders (they all use the one binding layout).
-            const workGraph = Donut_CreateD3D12WorkGraph(this.app, this.workGraphLibrary, this.shadePSO, WORK_GRAPH_NAME,
+            const workGraph = this.app.createD3D12WorkGraph(this.workGraphLibrary, this.shadePSO, WORK_GRAPH_NAME,
                 "LightCull_Node", getLightTileCountX(width), getLightTileCountY(height), 1);
             if (!workGraph) {
                 return false;
@@ -1016,7 +1016,7 @@ namespace WorkGraphs {
             return true;
         }
 
-        updateSceneConstants(commandList: Opaque): void {
+        updateSceneConstants(commandList: CommandList): void {
             // Camera calculations.
             const sceneSize = Scene.getSceneSize();
             const sceneHeight = Scene.getSceneHeight();
@@ -1058,20 +1058,20 @@ namespace WorkGraphs {
             this.constants[SCENE_CONSTANTS_VIEWPORT_SIZE + 1] = this.targetsHeight;
 
             // Donut internally handles versioning of the buffer.
-            Donut_WriteBuffer(commandList, this.constantBuffer, Ref(this.constants[0]), SCENE_CONSTANTS_FLOATS * 4);
+            commandList.writeBuffer(this.constantBuffer, Ref(this.constants[0]), SCENE_CONSTANTS_FLOATS * 4);
         }
 
         // Enough thread groups of the animation shaders for `count` elements, laid out as the sample does.
-        dispatchAnimation(commandList: Opaque, pipeline: Opaque, bindingSet: Opaque, count: int): void {
+        dispatchAnimation(commandList: CommandList, pipeline: Opaque, bindingSet: BindingSet, count: int): void {
             const totalDispatchSize: int = Math.floor((count + ANIMATION_THREADS_X - 1) / ANIMATION_THREADS_X);
             const dispatchY: int = Math.max(Math.floor(totalDispatchSize / D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION), 1);
             const dispatchX: int = Math.max(totalDispatchSize % D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION, 1);
-            Donut_DispatchWithPushConstants(commandList, pipeline, bindingSet, Ref(this.animationConstants[0]),
+            commandList.dispatchWithPushConstants(pipeline, bindingSet, Ref(this.animationConstants[0]),
                 PUSH_CONSTANTS_SIZE, dispatchX, dispatchY, 1);
         }
 
-        populateAnimationPass(commandList: Opaque, objectsBindings: Opaque, lightsBindings: Opaque): void {
-            Donut_BeginMarker(commandList, "Animation");
+        populateAnimationPass(commandList: CommandList, objectsBindings: BindingSet, lightsBindings: BindingSet): void {
+            commandList.beginMarker("Animation");
 
             const resetAnim = this.forceResetAnimation || this.ui.resetAnim;
             this.animationConstants[0] = this.timeInSeconds;
@@ -1082,17 +1082,17 @@ namespace WorkGraphs {
             this.dispatchAnimation(commandList, this.animateObjectsPSO, objectsBindings, this.scene.worldObjects.length);
             this.dispatchAnimation(commandList, this.animateLightsPSO, lightsBindings, this.scene.lights.length);
 
-            Donut_EndMarker(commandList);
+            commandList.endMarker();
 
             this.forceResetAnimation = false; // Animation buffer initialized, no need to redo it again in subsequent frames.
         }
 
-        populateGBufferPass(frame: Opaque, commandList: Opaque, depth: Opaque, framebuffer: Opaque, pipeline: Opaque,
-            bindingSet: Opaque): void {
+        populateGBufferPass(frame: Frame, commandList: CommandList, depth: Opaque, framebuffer: Opaque, pipeline: Opaque,
+            bindingSet: BindingSet): void {
             // It is enough to clear the depth-buffer without the g-buffer. Depth buffer values of 1 mean "sky".
-            Donut_ClearDepth(commandList, depth, 1.0);
+            commandList.clearDepth(depth, 1.0);
 
-            Donut_BeginMarker(commandList, "Draw all meshes");
+            commandList.beginMarker("Draw all meshes");
 
             const scene = this.scene;
             let lastMeshType = MESH_COUNT;
@@ -1103,23 +1103,23 @@ namespace WorkGraphs {
                     lastMeshType = meshType;
 
                     indexCount = scene.indexCounts[meshType];
-                    Donut_BeginDrawToFramebuffer(frame, pipeline, framebuffer);
-                    Donut_DrawAddBindingSet(frame, bindingSet);
-                    Donut_DrawSetIndexBuffer16(frame, scene.indexBuffers[meshType]);
-                    Donut_DrawAddVertexBuffer(frame, scene.vertexBuffers[meshType], 0, 0);
+                    frame.beginDrawToFramebuffer(pipeline, framebuffer);
+                    frame.drawAddBindingSet(bindingSet);
+                    frame.drawSetIndexBuffer16(scene.indexBuffers[meshType]);
+                    frame.drawAddVertexBuffer(scene.vertexBuffers[meshType], 0, 0);
                 }
 
                 this.rootConstants[0] = objectIndex;
                 this.rootConstants[1] = 0;
                 this.rootConstants[2] = 0;
-                Donut_DrawIndexedWithPushConstants(frame, indexCount, Ref(this.rootConstants[0]), PUSH_CONSTANTS_SIZE);
+                frame.drawIndexedWithPushConstants(indexCount, Ref(this.rootConstants[0]), PUSH_CONSTANTS_SIZE);
             }
 
-            Donut_EndMarker(commandList);
+            commandList.endMarker();
         }
 
         // Tiled light culling, then deferred shading with an uber shader, as compute dispatches.
-        populateDeferredShadingDispatches(commandList: Opaque, lightCullingBindings: Opaque, deferredShadingBindings: Opaque): void {
+        populateDeferredShadingDispatches(commandList: CommandList, lightCullingBindings: BindingSet, deferredShadingBindings: BindingSet): void {
             const tilesX = getLightTileCountX(this.targetsWidth);
             const tilesY = getLightTileCountY(this.targetsHeight);
             this.rootConstants[0] = tilesX;
@@ -1127,24 +1127,24 @@ namespace WorkGraphs {
             this.rootConstants[2] = this.scene.lights.length;
 
             // Dispatch enough thread groups to cover all screen tiles.
-            Donut_BeginMarker(commandList, "Light Culling");
-            Donut_DispatchWithPushConstants(commandList, this.cullLightsPSO, lightCullingBindings,
+            commandList.beginMarker("Light Culling");
+            commandList.dispatchWithPushConstants(this.cullLightsPSO, lightCullingBindings,
                 Ref(this.rootConstants[0]), PUSH_CONSTANTS_SIZE, tilesX, tilesY, 1);
-            Donut_EndMarker(commandList);
+            commandList.endMarker();
 
             // Dispatch enough thread groups to cover the entire viewport.
             const threadsX = 8;
             const threadsY = 4;
             const groupsX: int = Math.floor((this.targetsWidth + threadsX - 1) / threadsX);
             const groupsY: int = Math.floor((this.targetsHeight + threadsY - 1) / threadsY);
-            Donut_BeginMarker(commandList, "Deferred Shading");
-            Donut_DispatchWithPushConstants(commandList, this.shadePSO, deferredShadingBindings,
+            commandList.beginMarker("Deferred Shading");
+            commandList.dispatchWithPushConstants(this.shadePSO, deferredShadingBindings,
                 Ref(this.rootConstants[0]), PUSH_CONSTANTS_SIZE, groupsX, groupsY, 1);
-            Donut_EndMarker(commandList);
+            commandList.endMarker();
         }
 
-        populateDeferredShadingWorkGraph(commandList: Opaque, workGraph: Opaque, bindingSet: Opaque): void {
-            Donut_BeginMarker(commandList, "Deferred Shading Work Graph");
+        populateDeferredShadingWorkGraph(commandList: CommandList, workGraph: Opaque, bindingSet: BindingSet): void {
+            commandList.beginMarker("Deferred Shading Work Graph");
 
             this.rootConstants[0] = this.scene.lights.length;
             this.rootConstants[1] = 0;
@@ -1152,23 +1152,24 @@ namespace WorkGraphs {
 
             // Initialize the work graph backing memory only when the backing memory was never used
             // before or if it was used by a different work graph.
-            Donut_DispatchD3D12WorkGraph(commandList, workGraph, this.shadePSO, bindingSet,
+            commandList.dispatchD3D12WorkGraph(workGraph, this.shadePSO, bindingSet,
                 Ref(this.rootConstants[0]), PUSH_CONSTANTS_SIZE, this.initWorkGraphBackingMemory ? 1 : 0);
             this.initWorkGraphBackingMemory = false; // Memory initialized, no need to redo it again in subsequent frames.
 
-            Donut_EndMarker(commandList);
+            commandList.endMarker();
         }
 
-        onRender(frame: Opaque): void {
-            const width = Donut_GetFrameWidth(frame);
-            const height = Donut_GetFrameHeight(frame);
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
 
             // First frame or window resize. This is where the bulk of the loading occurs.
             if (!this.workGraph || this.targetsWidth != width || this.targetsHeight != height) {
                 this.releaseRenderTargets();
                 if (!this.createRenderTargets(frame, width, height)) {
                     console.log("Cannot create the render targets, pipelines or work graph");
-                    Donut_CloseWindow(this.app);
+                    this.app.closeWindow();
                     return;
                 }
             }
@@ -1184,20 +1185,23 @@ namespace WorkGraphs {
             const deferredShadingBindings = this.deferredShadingBindings;
             const workGraphBindings = this.workGraphBindings;
             const workGraph = this.workGraph;
-            if (!depth || !ldrBuffer || !gbufferFramebuffer || !gbufferFillPSO || !animateObjectsBindings || !animateLightsBindings
-                || !gbufferFillBindings || !lightCullingBindings || !deferredShadingBindings || !workGraphBindings || !workGraph) {
+            if (!depth || !ldrBuffer || !gbufferFramebuffer || !gbufferFillPSO || !workGraph) {
+                return;
+            }
+            if (animateObjectsBindings.isNull() || animateLightsBindings.isNull() || gbufferFillBindings.isNull()
+                || lightCullingBindings.isNull() || deferredShadingBindings.isNull() || workGraphBindings.isNull()) {
                 return;
             }
 
-            const commandList = Donut_GetFrameCommandList(frame);
+            const commandList = frame.getCommandList();
             const frameTimer = this.frameTimers[this.nextTimerToUse];
             const shadingTimer = this.shadingTimers[this.nextTimerToUse];
 
             // Reset GPU timers.
-            Donut_ResetTimerQuery(this.app, frameTimer);
-            Donut_ResetTimerQuery(this.app, shadingTimer);
+            this.app.resetTimerQuery(frameTimer);
+            this.app.resetTimerQuery(shadingTimer);
 
-            Donut_BeginTimerQuery(commandList, frameTimer);
+            commandList.beginTimerQuery(frameTimer);
 
             // Update scene constants used by all the passes to follow in this frame.
             this.updateSceneConstants(commandList);
@@ -1208,7 +1212,7 @@ namespace WorkGraphs {
             // G-buffer fill pass.
             this.populateGBufferPass(frame, commandList, depth, gbufferFramebuffer, gbufferFillPSO, gbufferFillBindings);
 
-            Donut_BeginTimerQuery(commandList, shadingTimer);
+            commandList.beginTimerQuery(shadingTimer);
             if (this.currentTechnique == TECHNIQUE_DISPATCH) {
                 // Light culling and deferred shading passes.
                 this.populateDeferredShadingDispatches(commandList, lightCullingBindings, deferredShadingBindings);
@@ -1216,12 +1220,12 @@ namespace WorkGraphs {
                 // Deferred shading work graph pass.
                 this.populateDeferredShadingWorkGraph(commandList, workGraph, workGraphBindings);
             }
-            Donut_EndTimerQuery(commandList, shadingTimer);
+            commandList.endTimerQuery(shadingTimer);
 
             // Copy the final shaded results from the LDR buffer to the back buffer for display.
-            Donut_CopyTextureToFrame(frame, ldrBuffer);
+            frame.copyTextureToFrame(ldrBuffer);
 
-            Donut_EndTimerQuery(commandList, frameTimer);
+            commandList.endTimerQuery(frameTimer);
 
             this.nextTimerToUse = (this.nextTimerToUse + 1) % QUEUED_FRAMES_COUNT;
         }
@@ -1229,33 +1233,33 @@ namespace WorkGraphs {
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             // Resources used to fill unused shader binding slots (null resources).
-            this.nullSRVBuffer = Donut_CreateStructuredBuffer(this.app, 16, 32, "NullSRVBuffer");
-            this.nullUAVBuffer = Donut_CreateRWStructuredBuffer(this.app, 16, 32, "NullUAVBuffer");
-            this.nullSRVTexture = Donut_CreateUAVTexture(this.app, 1, 1, "NullSRVTexture");
-            this.nullUAVTexture = Donut_CreateUAVTexture(this.app, 1, 1, "NullUAVTexture");
+            this.nullSRVBuffer = this.app.createStructuredBuffer(16, 32, "NullSRVBuffer");
+            this.nullUAVBuffer = this.app.createRWStructuredBuffer(16, 32, "NullUAVBuffer");
+            this.nullSRVTexture = this.app.createUAVTexture(1, 1, "NullSRVTexture");
+            this.nullUAVTexture = this.app.createUAVTexture(1, 1, "NullUAVTexture");
 
             for (let i = 0; i < QUEUED_FRAMES_COUNT; i++) {
-                this.frameTimers.push(Donut_CreateTimerQuery(this.app));
-                this.shadingTimers.push(Donut_CreateTimerQuery(this.app));
+                this.frameTimers.push(this.app.createTimerQuery());
+                this.shadingTimers.push(this.app.createTimerQuery());
             }
 
             // Create the scene procedurally.
-            const commandList = Donut_CreateCommandList(this.app);
-            Donut_OpenCommandList(commandList);
+            const commandList = this.app.createCommandList();
+            commandList.open();
             this.scene.createAssets(this.app, commandList);
-            Donut_CloseCommandList(commandList);
-            Donut_ExecuteCommandList(this.app, commandList);
-            Donut_WaitForIdle(this.app);
-            Donut_ReleaseResource(this.app, commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
 
-            const animateObjectsShader = Donut_CreateShader(this.app, "work_graphs_animation.hlsl", "CSMainObjects", ShaderType.Compute);
-            const animateLightsShader = Donut_CreateShader(this.app, "work_graphs_animation.hlsl", "CSMainLights", ShaderType.Compute);
-            const gbufferVertexShader = Donut_CreateShader(this.app, "work_graphs_gbuffer_fill.hlsl", "VSMain", ShaderType.Vertex);
-            const gbufferPixelShader = Donut_CreateShader(this.app, "work_graphs_gbuffer_fill.hlsl", "PSMain", ShaderType.Pixel);
-            const lightCullingShader = Donut_CreateShader(this.app, "work_graphs_light_culling.hlsl", "CSMain", ShaderType.Compute);
-            const deferredShadingShader = Donut_CreateShader(this.app, "work_graphs_deferred_shading.hlsl", "CSMain", ShaderType.Compute);
+            const animateObjectsShader = this.app.createShader("work_graphs_animation.hlsl", "CSMainObjects", ShaderType.Compute);
+            const animateLightsShader = this.app.createShader("work_graphs_animation.hlsl", "CSMainLights", ShaderType.Compute);
+            const gbufferVertexShader = this.app.createShader("work_graphs_gbuffer_fill.hlsl", "VSMain", ShaderType.Vertex);
+            const gbufferPixelShader = this.app.createShader("work_graphs_gbuffer_fill.hlsl", "PSMain", ShaderType.Pixel);
+            const lightCullingShader = this.app.createShader("work_graphs_light_culling.hlsl", "CSMain", ShaderType.Compute);
+            const deferredShadingShader = this.app.createShader("work_graphs_deferred_shading.hlsl", "CSMain", ShaderType.Compute);
             // The work graph shader library represents a full work graph, and contains all node shaders for that graph.
-            const workGraphLibrary = Donut_CreateShaderLibrary(this.app, "work_graphs_broadcasting.hlsl");
+            const workGraphLibrary = this.app.createShaderLibrary("work_graphs_broadcasting.hlsl");
             if (!animateObjectsShader || !animateLightsShader || !gbufferVertexShader || !gbufferPixelShader
                 || !lightCullingShader || !deferredShadingShader || !workGraphLibrary) {
                 console.log("Cannot load the shaders");
@@ -1266,34 +1270,34 @@ namespace WorkGraphs {
             this.workGraphLibrary = workGraphLibrary;
 
             // One binding layout for every shader, the work graph included.
-            const layoutDesc = Donut_CreateBindingLayoutDesc();
-            Donut_LayoutPushConstants(layoutDesc, 0, PUSH_CONSTANTS_SIZE);
-            Donut_LayoutVolatileConstantBuffer(layoutDesc, 1);
-            Donut_LayoutStructuredBufferSRV(layoutDesc, 0);
-            Donut_LayoutTextureSRV(layoutDesc, 1);
-            Donut_LayoutTextureSRV(layoutDesc, 2);
-            Donut_LayoutStructuredBufferSRV(layoutDesc, 3);
-            Donut_LayoutStructuredBufferSRV(layoutDesc, 4);
-            Donut_LayoutStructuredBufferUAV(layoutDesc, 0);
-            Donut_LayoutTextureUAV(layoutDesc, 1);
-            this.bindingLayout = Donut_CreateBindingLayout(this.app, layoutDesc, ShaderType.All);
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutPushConstants(0, PUSH_CONSTANTS_SIZE);
+            layoutDesc.layoutVolatileConstantBuffer(1);
+            layoutDesc.layoutStructuredBufferSRV(0);
+            layoutDesc.layoutTextureSRV(1);
+            layoutDesc.layoutTextureSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            layoutDesc.layoutStructuredBufferSRV(4);
+            layoutDesc.layoutStructuredBufferUAV(0);
+            layoutDesc.layoutTextureUAV(1);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
 
-            const inputLayoutDesc = Donut_CreateInputLayoutDesc();
-            Donut_AddVertexAttribute(inputLayoutDesc, "POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            Donut_AddVertexAttribute(inputLayoutDesc, "NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_STRIDE);
-            this.inputLayout = Donut_CreateInputLayout(this.app, inputLayoutDesc, gbufferVertexShader);
+            const inputLayoutDesc = InputLayoutDesc.create();
+            inputLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            inputLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(inputLayoutDesc, gbufferVertexShader);
 
-            this.animateObjectsPSO = Donut_CreateComputePipelineWithLayout(this.app, animateObjectsShader, this.bindingLayout);
-            this.animateLightsPSO = Donut_CreateComputePipelineWithLayout(this.app, animateLightsShader, this.bindingLayout);
-            this.cullLightsPSO = Donut_CreateComputePipelineWithLayout(this.app, lightCullingShader, this.bindingLayout);
-            this.shadePSO = Donut_CreateComputePipelineWithLayout(this.app, deferredShadingShader, this.bindingLayout);
+            this.animateObjectsPSO = this.app.createComputePipelineWithLayout(animateObjectsShader, this.bindingLayout);
+            this.animateLightsPSO = this.app.createComputePipelineWithLayout(animateLightsShader, this.bindingLayout);
+            this.cullLightsPSO = this.app.createComputePipelineWithLayout(lightCullingShader, this.bindingLayout);
+            this.shadePSO = this.app.createComputePipelineWithLayout(deferredShadingShader, this.bindingLayout);
 
-            this.constantBuffer = Donut_CreateVolatileConstantBuffer(this.app, SCENE_CONSTANTS_FLOATS * 4, "SceneConstants");
+            this.constantBuffer = this.app.createVolatileConstantBuffer(SCENE_CONSTANTS_FLOATS * 4, "SceneConstants");
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetBackBufferResizingCallback(pass, this.onBackBufferResizing);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
@@ -1321,8 +1325,8 @@ namespace WorkGraphs {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: Opaque): boolean {
-            return Donut_AddImGuiPass(app, this.buildUI) != null;
+        init(app: App): boolean {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 
@@ -1342,27 +1346,27 @@ namespace WorkGraphs {
             return 1;
         }
 
-        const app = Donut_CreateAppWithOptions(api, WINDOW_TITLE, 1920, 1080, options);
-        if (!app) {
+        const app = App.createWithOptions(api, WINDOW_TITLE, 1920, 1080, options);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        const workGraphsTier = Donut_GetD3D12WorkGraphsTier(app);
+        const workGraphsTier = app.getD3D12WorkGraphsTier();
         if (workGraphsTier == 0) {
             console.log("D3D12 device reports it has no support for work graphs. This sample cannot run.\n"
                 + "Please make sure you download the latest graphics driver with support for work graphs, "
                 + "and that the hardware does support this feature.");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}, work graphs tier ${workGraphsTier / 10}`);
+        console.log(`Renderer: ${app.getRendererString()}, work graphs tier ${workGraphsTier / 10}`);
 
         const uiData = new UIData();
         const example = new WorkGraphsPass(app, uiData);
         if (!example.init()) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
@@ -1370,14 +1374,14 @@ namespace WorkGraphs {
         const gui = new UserInterface(uiData);
         if (!gui.init(app)) {
             console.log("Cannot initialize the user interface");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace VariableShading {
@@ -32,36 +32,36 @@ namespace VariableShading {
     // With -raw on D3D12, the shading rate surface is bound through the D3D12 API directly instead
     // of through NVRHI.
     class VariableRateShadingPass {
-        private app: Opaque;
+        private app: App;
         private useRawD3D12: boolean;
-        private scene: Opaque;
-        private camera: Opaque;
-        private view: Opaque;
-        private viewPrevious: Opaque;
+        private scene: Scene;
+        private camera: Camera;
+        private view: View;
+        private viewPrevious: View;
         private previousViewsValid: boolean;
         private shadingRateSurfaceShader: Opaque;
         private vrsTileSize: int;
         // Created on the first frame, dropped on resize.
-        private renderTargets: Opaque | null;
-        private forwardPass: Opaque | null;
-        private temporalPass: Opaque | null;
+        private renderTargets: TemporalTargets;
+        private forwardPass: ForwardShadingPass;
+        private temporalPass: TemporalAntiAliasingPass;
         private shadingRateSurface: Opaque | null;
-        private bindingSet: Opaque | null;
+        private bindingSet: BindingSet;
         private pipeline: Opaque | null;
-        // Passed to Donut_SetPlanarView, 16 floats each.
+        // Passed to View.setPlanarView, 16 floats each.
         private viewMatrix: f32[];
         private projMatrix: f32[];
 
-        constructor(app: Opaque, useRawD3D12: boolean) {
+        constructor(app: App, useRawD3D12: boolean) {
             this.app = app;
             this.useRawD3D12 = useRawD3D12;
             this.previousViewsValid = false;
             this.vrsTileSize = 0;
-            this.renderTargets = null;
-            this.forwardPass = null;
-            this.temporalPass = null;
+            this.renderTargets = new TemporalTargets(null);
+            this.forwardPass = new ForwardShadingPass(null);
+            this.temporalPass = new TemporalAntiAliasingPass(null);
             this.shadingRateSurface = null;
-            this.bindingSet = null;
+            this.bindingSet = new BindingSet(null);
             this.pipeline = null;
             this.viewMatrix = [];
             this.projMatrix = [];
@@ -72,81 +72,82 @@ namespace VariableShading {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int): int {
-            Donut_CameraKeyboardUpdate(this.camera, key, scancode, action, mods);
+            this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
         onMousePos(x: number, y: number): int {
-            Donut_CameraMousePosUpdate(this.camera, x, y);
+            this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
         onMouseButton(button: int, action: int, mods: int): int {
-            Donut_CameraMouseButtonUpdate(this.camera, button, action, mods);
+            this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
         onAnimate(elapsedSeconds: number): void {
-            Donut_CameraAnimate(this.camera, elapsedSeconds);
-            Donut_SetInformativeWindowTitle(this.app, WINDOW_TITLE);
+            this.camera.animate(elapsedSeconds);
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         onBackBufferResizing(): void {
             const renderTargets = this.renderTargets;
-            if (renderTargets) {
-                Donut_ReleaseObject(this.app, renderTargets);
-                this.renderTargets = null;
+            if (!renderTargets.isNull()) {
+                this.app.releaseObject(renderTargets.handle);
+                this.renderTargets = new TemporalTargets(null);
             }
 
-            Donut_ClearBindingCache(this.app);
+            this.app.clearBindingCache();
 
             const forwardPass = this.forwardPass;
-            if (forwardPass) {
-                Donut_ReleaseObject(this.app, forwardPass);
-                this.forwardPass = null;
+            if (!forwardPass.isNull()) {
+                this.app.releaseObject(forwardPass.handle);
+                this.forwardPass = new ForwardShadingPass(null);
             }
 
             const shadingRateSurface = this.shadingRateSurface;
             if (shadingRateSurface) {
-                Donut_ReleaseResource(this.app, shadingRateSurface);
+                this.app.releaseResource(shadingRateSurface);
                 this.shadingRateSurface = null;
             }
 
             const temporalPass = this.temporalPass;
-            if (temporalPass) {
-                Donut_ReleaseObject(this.app, temporalPass);
-                this.temporalPass = null;
+            if (!temporalPass.isNull()) {
+                this.app.releaseObject(temporalPass.handle);
+                this.temporalPass = new TemporalAntiAliasingPass(null);
             }
 
             const pipeline = this.pipeline;
             if (pipeline) {
-                Donut_ReleaseResource(this.app, pipeline);
+                this.app.releaseResource(pipeline);
                 this.pipeline = null;
             }
 
             const bindingSet = this.bindingSet;
-            if (bindingSet) {
-                Donut_ReleaseResource(this.app, bindingSet);
-                this.bindingSet = null;
+            if (!bindingSet.isNull()) {
+                this.app.releaseResource(bindingSet.handle);
+                this.bindingSet = new BindingSet(null);
             }
         }
 
-        onRender(frame: Opaque): void {
-            const width = Donut_GetFrameWidth(frame);
-            const height = Donut_GetFrameHeight(frame);
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
 
             let renderTargets = this.renderTargets;
-            if (!renderTargets) {
-                renderTargets = Donut_CreateTemporalTargets(this.app, width, height);
+            if (renderTargets.isNull()) {
+                renderTargets = this.app.createTemporalTargets(width, height);
                 this.renderTargets = renderTargets;
             }
 
-            Donut_GetCameraWorldToView(this.camera, Ref(this.viewMatrix[0]));
+            this.camera.getWorldToView(Ref(this.viewMatrix[0]));
             const projection = perspProjD3DStyleReverse(Math.PI * 0.25, width / height, 0.1);
             for (let i = 0; i < 16; i++) {
                 this.projMatrix[i] = projection[i];
             }
-            Donut_SetPlanarView(this.view, Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
+            this.view.setPlanarView(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
 
             // VRS-specific code starts here
             // Use the queried tile size to determine the size of the VRS surface; it will be
@@ -155,113 +156,113 @@ namespace VariableShading {
             const surfaceHeight: int = Math.floor((height + this.vrsTileSize - 1) / this.vrsTileSize);
             let shadingRateSurface = this.shadingRateSurface;
             if (!shadingRateSurface) {
-                shadingRateSurface = Donut_CreateShadingRateSurface(this.app, surfaceWidth, surfaceHeight);
+                shadingRateSurface = this.app.createShadingRateSurface(surfaceWidth, surfaceHeight);
                 this.shadingRateSurface = shadingRateSurface;
             }
 
             let forwardPass = this.forwardPass;
-            if (!forwardPass) {
-                forwardPass = Donut_CreateForwardShadingPass(this.app, 16);
+            if (forwardPass.isNull()) {
+                forwardPass = this.app.createForwardShadingPass(16);
                 this.forwardPass = forwardPass;
                 if (!this.useRawD3D12) {
-                    Donut_SetTemporalTargetsShadingRateSurface(renderTargets, shadingRateSurface);
+                    renderTargets.setShadingRateSurface(shadingRateSurface);
                 }
             }
 
             let temporalPass = this.temporalPass;
-            if (!temporalPass) {
-                temporalPass = Donut_CreateTemporalAntiAliasingPass(this.app, this.view, renderTargets);
+            if (temporalPass.isNull()) {
+                temporalPass = this.app.createTemporalAntiAliasingPass(this.view, renderTargets);
                 this.temporalPass = temporalPass;
             }
 
             // A pipeline state for the compute shader which will generate the VRS surface.
             let pipeline = this.pipeline;
             let bindingSet = this.bindingSet;
-            if (!pipeline || !bindingSet) {
-                const bindingSetDesc = Donut_CreateBindingSetDesc();
-                Donut_BindTextureUAV(bindingSetDesc, 0, shadingRateSurface);
-                Donut_BindTextureSRV(bindingSetDesc, 0, Donut_GetTemporalTargetsTexture(renderTargets, TemporalTexture.MotionVectors));
-                Donut_BindTextureSRV(bindingSetDesc, 1, Donut_GetTemporalTargetsTexture(renderTargets, TemporalTexture.HdrColor));
-                bindingSet = Donut_CreateBindingSet(this.app, bindingSetDesc, ShaderType.Compute);
-                pipeline = Donut_CreateComputePipeline(this.app, this.shadingRateSurfaceShader, bindingSet);
+            if (!pipeline || bindingSet.isNull()) {
+                const bindingSetDesc = BindingSetDesc.create();
+                bindingSetDesc.bindTextureUAV(0, shadingRateSurface);
+                bindingSetDesc.bindTextureSRV(0, renderTargets.getTexture(TemporalTexture.MotionVectors));
+                bindingSetDesc.bindTextureSRV(1, renderTargets.getTexture(TemporalTexture.HdrColor));
+                bindingSet = this.app.createBindingSet(bindingSetDesc, ShaderType.Compute);
+                pipeline = this.app.createComputePipeline(this.shadingRateSurfaceShader, bindingSet);
 
                 this.bindingSet = bindingSet;
                 this.pipeline = pipeline;
             }
 
             if (this.previousViewsValid) {
-                Donut_RenderMotionVectors(frame, temporalPass, this.view, this.viewPrevious);
+                frame.renderMotionVectors(temporalPass, this.view, this.viewPrevious);
             }
 
             // Dispatch call to generate the VRS surface.
-            Donut_Dispatch(Donut_GetFrameCommandList(frame), pipeline, bindingSet, surfaceWidth, surfaceHeight, 1);
+            frame.getCommandList().dispatch(pipeline, bindingSet, surfaceWidth, surfaceHeight, 1);
 
-            Donut_ClearTemporalTargets(frame, renderTargets);
+            frame.clearTemporalTargets(renderTargets);
 
             if (this.useRawD3D12) {
-                Donut_BeginD3D12ShadingRateImage(frame, shadingRateSurface);
+                frame.beginD3D12ShadingRateImage(shadingRateSurface);
             } else {
                 // Enable VRS, with a per-draw shading rate of 1x1, and make the shading rate image
                 // result always override all others.
-                Donut_SetViewVariableRateShading(this.view, 1);
+                this.view.setVariableRateShading(1);
             }
 
             // Forward pass to draw the scene with the VRS surface set above.
-            Donut_RenderSceneForward(frame, forwardPass, this.view, renderTargets, this.scene,
+            frame.renderSceneForward(forwardPass, this.view, renderTargets, this.scene,
                 AMBIENT_COLOR, AMBIENT_COLOR, AMBIENT_COLOR, AMBIENT_COLOR, AMBIENT_COLOR, AMBIENT_COLOR);
 
             if (this.useRawD3D12) {
-                Donut_EndD3D12ShadingRateImage(frame, shadingRateSurface);
+                frame.endD3D12ShadingRateImage(shadingRateSurface);
             } else {
-                Donut_SetViewVariableRateShading(this.view, 0);
+                this.view.setVariableRateShading(0);
             }
             // VRS-specific code ends here
 
             // TAA pass (runs at full rate).
-            Donut_TemporalResolve(frame, temporalPass, this.view, this.previousViewsValid ? 1 : 0);
-            Donut_CopyPlanarView(this.viewPrevious, this.view);
+            frame.temporalResolve(temporalPass, this.view, this.previousViewsValid ? 1 : 0);
+            this.viewPrevious.copyPlanarView(this.view);
             this.previousViewsValid = true;
 
-            Donut_BlitTexture(this.app, frame, Donut_GetTemporalTargetsTexture(renderTargets, TemporalTexture.ResolvedColor));
+            this.app.blitTexture(frame, renderTargets.getTexture(TemporalTexture.ResolvedColor));
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(scenePath: string): boolean {
-            this.shadingRateSurfaceShader = Donut_CreateShader(this.app, "variable_shading.hlsl", "main_cs", ShaderType.Compute);
+            this.shadingRateSurfaceShader = this.app.createShader("variable_shading.hlsl", "main_cs", ShaderType.Compute);
             if (!this.shadingRateSurfaceShader) {
                 return false;
             }
 
-            const scene = Donut_LoadScene(this.app, scenePath);
-            if (!scene) {
+            const scene = this.app.loadScene(scenePath);
+            if (scene.isNull()) {
                 console.log(`Cannot load the scene ${scenePath}`);
                 return false;
             }
             this.scene = scene;
 
-            const sceneGraph = Donut_GetSceneGraph(scene);
-            Donut_AddDirectionalLight(sceneGraph, Donut_GetRootNode(sceneGraph), "Sun", 0.1, -1.0, 0.15, 0.53, 2.0);
-            Donut_RefreshSceneGraph(this.app, sceneGraph);
+            const sceneGraph = scene.getSceneGraph();
+            sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun", 0.1, -1.0, 0.15, 0.53, 2.0);
+            this.app.refreshSceneGraph(sceneGraph);
 
-            this.camera = Donut_CreateFirstPersonCamera(this.app);
-            Donut_CameraLookAt(this.camera, 0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            Donut_CameraSetMoveSpeed(this.camera, 3.0);
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+            this.camera.setMoveSpeed(3.0);
 
-            this.view = Donut_CreatePlanarView(this.app);
-            this.viewPrevious = Donut_CreatePlanarView(this.app);
+            this.view = this.app.createPlanarView();
+            this.viewPrevious = this.app.createPlanarView();
 
             // Query VRS tile size (it can vary depending on hardware).
             this.vrsTileSize = this.useRawD3D12
-                ? Donut_GetD3D12ShadingRateTileSize(this.app)
-                : Donut_GetShadingRateTileSize(this.app);
+                ? this.app.getD3D12ShadingRateTileSize()
+                : this.app.getShadingRateTileSize();
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetKeyboardCallback(pass, this.onKey);
-            Donut_SetMousePosCallback(pass, this.onMousePos);
-            Donut_SetMouseButtonCallback(pass, this.onMouseButton);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetBackBufferResizingCallback(pass, this.onBackBufferResizing);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
@@ -287,30 +288,30 @@ namespace VariableShading {
             }
         }
 
-        const app = Donut_CreateAppForAPI(api, WINDOW_TITLE, 1280, 720);
-        if (!app) {
+        const app = App.createForAPI(api, WINDOW_TITLE, 1280, 720);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        if (!Donut_IsFeatureSupported(app, Feature.VariableRateShading)) {
+        if (!app.isFeatureSupported(Feature.VariableRateShading)) {
             console.log("The device does not support Variable Rate Shading");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}`);
+        console.log(`Renderer: ${app.getRendererString()}`);
 
         const variableRateShading = new VariableRateShadingPass(app, rawD3D12);
         if (!variableRateShading.init(scenePath)) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

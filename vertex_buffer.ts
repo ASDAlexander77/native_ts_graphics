@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace VertexBuffer {
@@ -153,7 +153,7 @@ namespace VertexBuffer {
 
     // Port of Donut-Samples' vertex_buffer.cpp.
     class VertexBufferPass {
-        private app: Opaque;
+        private app: App;
         private vertexShader: Opaque;
         private pixelShader: Opaque;
         private constantBuffer: Opaque;
@@ -162,14 +162,14 @@ namespace VertexBuffer {
         private texture: Opaque;
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
-        private bindingSets: Opaque[];
+        private bindingSets: BindingSet[];
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private pipeline: Opaque | null;
         private rotation: number;
         // The constant buffer contents, NUM_VIEWS entries of CONSTANT_BUFFER_ENTRY_FLOATS floats.
         private constants: f32[];
 
-        constructor(app: Opaque) {
+        constructor(app: App) {
             this.app = app;
             this.bindingSets = [];
             this.pipeline = null;
@@ -182,29 +182,30 @@ namespace VertexBuffer {
 
         onAnimate(seconds: number): void {
             this.rotation += seconds * 1.1;
-            Donut_SetInformativeWindowTitle(this.app, WINDOW_TITLE);
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         onBackBufferResizing(): void {
             const pipeline = this.pipeline;
             if (pipeline) {
-                Donut_ReleaseResource(this.app, pipeline);
+                this.app.releaseResource(pipeline);
                 this.pipeline = null;
             }
         }
 
-        onRender(frame: Opaque): void {
-            const width = Donut_GetFrameWidth(frame);
-            const height = Donut_GetFrameHeight(frame);
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
 
             let pipeline = this.pipeline;
             if (!pipeline) {
-                pipeline = Donut_CreateGraphicsPipelineWithLayouts(this.app, frame, this.vertexShader, this.pixelShader,
+                pipeline = this.app.createGraphicsPipelineWithLayouts(frame, this.vertexShader, this.pixelShader,
                     this.inputLayout, this.bindingLayout);
                 this.pipeline = pipeline;
             }
 
-            Donut_ClearColor(frame, 0.0, 0.0, 0.0, 0.0);
+            frame.clearColor(0.0, 0.0, 0.0, 0.0);
 
             // Fill out the constant buffer slices for multiple views of the model.
             for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
@@ -221,59 +222,59 @@ namespace VertexBuffer {
             }
 
             // Upload all constant buffer slices at once.
-            Donut_WriteBuffer(Donut_GetFrameCommandList(frame), this.constantBuffer, Ref(this.constants[0]),
+            frame.getCommandList().writeBuffer(this.constantBuffer, Ref(this.constants[0]),
                 NUM_VIEWS * CONSTANT_BUFFER_ENTRY_SIZE);
 
             for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
-                Donut_BeginDraw(frame, pipeline);
+                frame.beginDraw(pipeline);
                 // Pick the right binding set for this view.
-                Donut_DrawAddBindingSet(frame, this.bindingSets[viewIndex]);
-                Donut_DrawSetIndexBuffer(frame, this.indexBuffer);
+                frame.drawAddBindingSet(this.bindingSets[viewIndex]);
+                frame.drawSetIndexBuffer(this.indexBuffer);
                 // Bind the vertex buffers in reverse order to test the NVRHI implementation of binding slots
-                Donut_DrawAddVertexBuffer(frame, this.vertexBuffer, 1, UV_OFFSET);
-                Donut_DrawAddVertexBuffer(frame, this.vertexBuffer, 0, 0);
+                frame.drawAddVertexBuffer(this.vertexBuffer, 1, UV_OFFSET);
+                frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
 
                 // Construct the viewport so that all viewports form a grid.
                 const viewWidth = width * 0.5;
                 const viewHeight = height * 0.5;
                 const left = viewWidth * (viewIndex % 2);
                 const top = viewHeight * Math.floor(viewIndex / 2);
-                Donut_DrawSetViewport(frame, left, top, viewWidth, viewHeight);
+                frame.drawSetViewport(left, top, viewWidth, viewHeight);
 
                 // Draw the model.
-                Donut_DrawIndexed(frame, INDEX_COUNT);
+                frame.drawIndexed(INDEX_COUNT);
             }
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
-            this.vertexShader = Donut_CreateShader(this.app, "vertex_buffer.hlsl", "main_vs", ShaderType.Vertex);
-            this.pixelShader = Donut_CreateShader(this.app, "vertex_buffer.hlsl", "main_ps", ShaderType.Pixel);
+            this.vertexShader = this.app.createShader("vertex_buffer.hlsl", "main_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("vertex_buffer.hlsl", "main_ps", ShaderType.Pixel);
 
             if (!this.vertexShader || !this.pixelShader) {
                 return false;
             }
 
-            this.constantBuffer = Donut_CreateConstantBuffer(this.app, CONSTANT_BUFFER_ENTRY_SIZE * NUM_VIEWS, "ConstantBuffer");
+            this.constantBuffer = this.app.createConstantBuffer(CONSTANT_BUFFER_ENTRY_SIZE * NUM_VIEWS, "ConstantBuffer");
 
-            const layoutDesc = Donut_CreateInputLayoutDesc();
-            Donut_AddVertexAttribute(layoutDesc, "POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            Donut_AddVertexAttribute(layoutDesc, "UV", Format.RG32_FLOAT, 0, 1, VERTEX_SIZE);
-            this.inputLayout = Donut_CreateInputLayout(this.app, layoutDesc, this.vertexShader);
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("UV", Format.RG32_FLOAT, 0, 1, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
 
-            const commandList = Donut_CreateCommandList(this.app);
-            Donut_OpenCommandList(commandList);
+            const commandList = this.app.createCommandList();
+            commandList.open();
 
-            this.vertexBuffer = Donut_CreateStaticVertexBuffer(this.app, commandList, Ref(g_Vertices[0]),
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(g_Vertices[0]),
                 24 * VERTEX_SIZE, "VertexBuffer");
-            this.indexBuffer = Donut_CreateStaticIndexBuffer(this.app, commandList, Ref(g_Indices[0]),
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(g_Indices[0]),
                 INDEX_COUNT * 4, "IndexBuffer");
 
-            const texture = Donut_LoadTexture(this.app, commandList, "media/nvidia-logo.png", 1);
+            const texture = this.app.loadTexture(commandList, "media/nvidia-logo.png", 1);
 
-            Donut_CloseCommandList(commandList);
-            Donut_ExecuteCommandList(this.app, commandList);
-            Donut_ReleaseResource(this.app, commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
 
             if (!texture) {
                 console.log("Couldn't load the texture");
@@ -283,57 +284,57 @@ namespace VertexBuffer {
 
             // Create a single binding layout and multiple binding sets, one set per view.
             // The different binding sets use different slices of the same constant buffer.
-            const sampler = Donut_GetCommonSampler(this.app, CommonSampler.AnisotropicWrap);
+            const sampler = this.app.getCommonSampler(CommonSampler.AnisotropicWrap);
             for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
-                const bindingSetDesc = Donut_CreateBindingSetDesc();
+                const bindingSetDesc = BindingSetDesc.create();
                 // Note: using viewIndex to construct a buffer range.
-                Donut_BindConstantBuffer(bindingSetDesc, 0, this.constantBuffer, CONSTANT_BUFFER_ENTRY_SIZE * viewIndex, CONSTANT_BUFFER_ENTRY_SIZE);
+                bindingSetDesc.bindConstantBuffer(0, this.constantBuffer, CONSTANT_BUFFER_ENTRY_SIZE * viewIndex, CONSTANT_BUFFER_ENTRY_SIZE);
                 // Texture and sampler are the same for all model views.
-                Donut_BindTextureSRV(bindingSetDesc, 0, this.texture);
-                Donut_BindSampler(bindingSetDesc, 0, sampler);
+                bindingSetDesc.bindTextureSRV(0, this.texture);
+                bindingSetDesc.bindSampler(0, sampler);
 
                 // Create the binding layout with the first binding set, and use it for the others.
                 const bindingSet = viewIndex == 0
-                    ? Donut_CreateBindingSet(this.app, bindingSetDesc, ShaderType.All)
-                    : Donut_CreateBindingSetForLayout(this.app, bindingSetDesc, this.bindingLayout);
-                if (!bindingSet) {
+                    ? this.app.createBindingSet(bindingSetDesc, ShaderType.All)
+                    : this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
+                if (bindingSet.isNull()) {
                     console.log("Couldn't create the binding set or layout");
                     return false;
                 }
                 if (viewIndex == 0) {
-                    this.bindingLayout = Donut_GetBindingLayout(bindingSet);
+                    this.bindingLayout = bindingSet.getBindingLayout();
                 }
                 this.bindingSets.push(bindingSet);
             }
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetBackBufferResizingCallback(pass, this.onBackBufferResizing);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
 
     export function main(argc: int, argv: Ref<string>): int {
 
-        const app = Donut_CreateApp(argc, argv, WINDOW_TITLE, 1280, 720);
-        if (!app) {
+        const app = App.create(argc, argv, WINDOW_TITLE, 1280, 720);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}`);
+        console.log(`Renderer: ${app.getRendererString()}`);
 
         const vertexBuffer = new VertexBufferPass(app);
         if (!vertexBuffer.init()) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

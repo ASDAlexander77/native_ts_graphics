@@ -5,6 +5,9 @@
       "allowJs": false,
       "skipLibCheck": true,
       "strict": true,
+      // The examples create their objects in init() methods rather than constructors (tslang
+      // resolves `this.onX` callbacks only for members declared earlier).
+      "strictPropertyInitialization": false,
       "noEmit": true,
       "esModuleInterop": true,
       "module": "esnext",

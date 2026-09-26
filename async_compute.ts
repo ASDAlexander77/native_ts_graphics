@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace AsyncCompute {
@@ -24,17 +24,17 @@ namespace AsyncCompute {
     // The worker thread (Donut_CreateAsyncComputeLoop) is C++: tslang code can't run on threads its
     // GC doesn't know about. This class creates everything it runs, and does the rendering.
     class AsyncComputePass {
-        private app: Opaque;
+        private app: App;
         private vertexShader: Opaque;
         private pixelShader: Opaque;
         private computeShader: Opaque;
         private drawBindingLayout: Opaque;
         private sampler: Opaque;
-        private computeLoop: Opaque;
+        private computeLoop: AsyncComputeLoop;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private graphicsPipeline: Opaque | null;
 
-        constructor(app: Opaque) {
+        constructor(app: App) {
             this.app = app;
             this.graphicsPipeline = null;
         }
@@ -42,87 +42,88 @@ namespace AsyncCompute {
         onBackBufferResizing(): void {
             const graphicsPipeline = this.graphicsPipeline;
             if (graphicsPipeline) {
-                Donut_ReleaseResource(this.app, graphicsPipeline);
+                this.app.releaseResource(graphicsPipeline);
                 this.graphicsPipeline = null;
             }
         }
 
         onAnimate(elapsedSeconds: number): void {
-            Donut_SetInformativeWindowTitle(this.app, WINDOW_TITLE);
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frame: Opaque): void {
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
             let graphicsPipeline = this.graphicsPipeline;
             if (!graphicsPipeline) {
-                graphicsPipeline = Donut_CreateGraphicsPipelineWithTopology(this.app, frame, this.vertexShader, this.pixelShader,
+                graphicsPipeline = this.app.createGraphicsPipelineWithTopology(frame, this.vertexShader, this.pixelShader,
                     null, this.drawBindingLayout, PrimitiveType.TriangleStrip);
                 this.graphicsPipeline = graphicsPipeline;
             }
 
-            const texture = Donut_AcquireAsyncComputeTexture(this.computeLoop, frame);
+            const texture = this.computeLoop.acquireTexture(frame);
 
-            Donut_ClearColor(frame, 0.0, 0.0, 0.0, 0.0);
+            frame.clearColor(0.0, 0.0, 0.0, 0.0);
 
             if (texture) {
-                const bindingSetDesc = Donut_CreateBindingSetDesc();
-                Donut_BindTextureSRV(bindingSetDesc, 0, texture);
-                Donut_BindSampler(bindingSetDesc, 0, this.sampler);
-                const bindingSet = Donut_GetCachedBindingSet(this.app, bindingSetDesc, this.drawBindingLayout);
+                const bindingSetDesc = BindingSetDesc.create();
+                bindingSetDesc.bindTextureSRV(0, texture);
+                bindingSetDesc.bindSampler(0, this.sampler);
+                const bindingSet = this.app.getCachedBindingSet(bindingSetDesc, this.drawBindingLayout);
 
-                Donut_BeginDraw(frame, graphicsPipeline);
-                Donut_DrawAddBindingSet(frame, bindingSet);
-                Donut_DrawVertices(frame, 4);
+                frame.beginDraw(graphicsPipeline);
+                frame.drawAddBindingSet(bindingSet);
+                frame.drawVertices(4);
             }
         }
 
         // Joins the worker thread; before Donut_DestroyApp.
         stop(): void {
-            Donut_StopAsyncComputeLoop(this.computeLoop);
+            this.computeLoop.stop();
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
-            this.vertexShader = Donut_CreateShader(this.app, "async_compute.hlsl", "main_vs", ShaderType.Vertex);
-            this.pixelShader = Donut_CreateShader(this.app, "async_compute.hlsl", "main_ps", ShaderType.Pixel);
-            this.computeShader = Donut_CreateShader(this.app, "async_compute.hlsl", "main_cs", ShaderType.Compute);
+            this.vertexShader = this.app.createShader("async_compute.hlsl", "main_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("async_compute.hlsl", "main_ps", ShaderType.Pixel);
+            this.computeShader = this.app.createShader("async_compute.hlsl", "main_cs", ShaderType.Compute);
 
             if (!this.vertexShader || !this.pixelShader || !this.computeShader) {
                 return false;
             }
 
             // Trilinear, clamped: nvrhi::SamplerDesc's defaults, as the sample creates it.
-            this.sampler = Donut_GetCommonSampler(this.app, CommonSampler.LinearClamp);
+            this.sampler = this.app.getCommonSampler(CommonSampler.LinearClamp);
 
-            const drawLayoutDesc = Donut_CreateBindingLayoutDesc();
-            Donut_LayoutTextureSRV(drawLayoutDesc, 0);
-            Donut_LayoutSampler(drawLayoutDesc, 0);
-            this.drawBindingLayout = Donut_CreateBindingLayout(this.app, drawLayoutDesc, ShaderType.Pixel);
+            const drawLayoutDesc = BindingLayoutDesc.create();
+            drawLayoutDesc.layoutTextureSRV(0);
+            drawLayoutDesc.layoutSampler(0);
+            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Pixel);
 
-            const computeLayoutDesc = Donut_CreateBindingLayoutDesc();
-            Donut_LayoutPushConstants(computeLayoutDesc, 0, PUSH_CONSTANTS_SIZE);
-            Donut_LayoutTextureUAV(computeLayoutDesc, 0);
-            const computeBindingLayout = Donut_CreateBindingLayout(this.app, computeLayoutDesc, ShaderType.Compute);
+            const computeLayoutDesc = BindingLayoutDesc.create();
+            computeLayoutDesc.layoutPushConstants(0, PUSH_CONSTANTS_SIZE);
+            computeLayoutDesc.layoutTextureUAV(0);
+            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
 
-            const computePipeline = Donut_CreateComputePipelineWithLayout(this.app, this.computeShader, computeBindingLayout);
+            const computePipeline = this.app.createComputePipelineWithLayout(this.computeShader, computeBindingLayout);
 
-            const computeLoop = Donut_CreateAsyncComputeLoop(this.app, computePipeline, computeBindingLayout,
+            const computeLoop = this.app.createAsyncComputeLoop(computePipeline, computeBindingLayout,
                 COMPUTE_GROUPS, COMPUTE_GROUPS, COMPUTE_INTERVAL_MICROSECONDS);
-            if (!computeLoop) {
+            if (computeLoop.isNull()) {
                 console.log("The graphics device has no compute queue");
                 return false;
             }
             this.computeLoop = computeLoop;
 
             for (let i = 0; i < NUM_TEXTURES; i++) {
-                Donut_AddAsyncComputeTexture(computeLoop, Donut_CreateUAVTexture(this.app, TEXTURE_SIZE, TEXTURE_SIZE, "AsyncComputeTexture"));
+                computeLoop.addTexture(this.app.createUAVTexture(TEXTURE_SIZE, TEXTURE_SIZE, "AsyncComputeTexture"));
             }
 
-            Donut_StartAsyncComputeLoop(computeLoop);
+            computeLoop.start();
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetBackBufferResizingCallback(pass, this.onBackBufferResizing);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
@@ -130,25 +131,25 @@ namespace AsyncCompute {
     export function main(argc: int, argv: Ref<string>): int {
 
         const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = Donut_CreateAppWithOptions(api, WINDOW_TITLE, 1280, 720, AppOptions.ComputeQueue);
-        if (!app) {
+        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, AppOptions.ComputeQueue);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}`);
+        console.log(`Renderer: ${app.getRendererString()}`);
 
         const asyncCompute = new AsyncComputePass(app);
         if (!asyncCompute.init()) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
+        app.run();
         asyncCompute.stop();
-        Donut_DestroyApp(app);
+        app.destroy();
         return 0;
     }
 }

@@ -1,5 +1,5 @@
-// donut_interop.d.ts comes in through input_pass.ts: tslang would load it twice if this
-// file referenced it too.
+// donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
+// would load it twice if this file referenced it too.
 import { InputPass } from "./input_pass";
 
 namespace RtShadows {
@@ -35,32 +35,32 @@ namespace RtShadows {
     // Port of Donut-Samples' rt_shadows.cpp: fills a G-buffer with the scene, then a ray generation
     // shader traces one ray per pixel towards the sun and shades the pixel, lit or in shadow.
     class RayTracedShadowsPass {
-        private app: Opaque;
-        private scene: Opaque;
-        private sunLight: Opaque;
-        private camera: Opaque;
-        private view: Opaque;
+        private app: App;
+        private scene: Scene;
+        private sunLight: Light;
+        private camera: Camera;
+        private view: View;
         private bindingLayout: Opaque;
-        private shaderTable: Opaque;
+        private shaderTable: ShaderTable;
         private constantBuffer: Opaque;
-        private accelStructs: Opaque;
+        private accelStructs: SceneAccelStructs;
         // Created on the first frame, dropped on resize.
-        private renderTargets: Opaque | null;
-        private bindingSet: Opaque | null;
-        private gbufferPass: Opaque | null;
+        private renderTargets: GBufferTargets;
+        private bindingSet: BindingSet;
+        private gbufferPass: GBufferFillPass;
         // The LightingConstants contents; `view` starts at viewOffset.
         private constants: f32[];
         private viewOffset: int;
         private constantsSize: int;
-        // Passed to Donut_SetPlanarView, 16 floats each.
+        // Passed to View.setPlanarView, 16 floats each.
         private viewMatrix: f32[];
         private projMatrix: f32[];
 
-        constructor(app: Opaque) {
+        constructor(app: App) {
             this.app = app;
-            this.renderTargets = null;
-            this.bindingSet = null;
-            this.gbufferPass = null;
+            this.renderTargets = new GBufferTargets(null);
+            this.bindingSet = new BindingSet(null);
+            this.gbufferPass = new GBufferFillPass(null);
             this.constants = [];
             this.viewOffset = 0;
             this.constantsSize = 0;
@@ -73,179 +73,180 @@ namespace RtShadows {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int): int {
-            Donut_CameraKeyboardUpdate(this.camera, key, scancode, action, mods);
+            this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
         onMousePos(x: number, y: number): int {
-            Donut_CameraMousePosUpdate(this.camera, x, y);
+            this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
         onMouseButton(button: int, action: int, mods: int): int {
-            Donut_CameraMouseButtonUpdate(this.camera, button, action, mods);
+            this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
         onAnimate(elapsedSeconds: number): void {
-            Donut_CameraAnimate(this.camera, elapsedSeconds);
-            Donut_SetInformativeWindowTitle(this.app, WINDOW_TITLE);
+            this.camera.animate(elapsedSeconds);
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         onBackBufferResizing(): void {
             const bindingSet = this.bindingSet;
-            if (bindingSet) {
-                Donut_ReleaseResource(this.app, bindingSet);
-                this.bindingSet = null;
+            if (!bindingSet.isNull()) {
+                this.app.releaseResource(bindingSet.handle);
+                this.bindingSet = new BindingSet(null);
             }
 
             const renderTargets = this.renderTargets;
-            if (renderTargets) {
-                Donut_ReleaseObject(this.app, renderTargets);
-                this.renderTargets = null;
+            if (!renderTargets.isNull()) {
+                this.app.releaseObject(renderTargets.handle);
+                this.renderTargets = new GBufferTargets(null);
             }
 
             // The blit's cached binding sets still reference the old render targets.
-            Donut_ClearBindingCache(this.app);
+            this.app.clearBindingCache();
 
             const gbufferPass = this.gbufferPass;
-            if (gbufferPass) {
-                Donut_ReleaseObject(this.app, gbufferPass);
-                this.gbufferPass = null;
+            if (!gbufferPass.isNull()) {
+                this.app.releaseObject(gbufferPass.handle);
+                this.gbufferPass = new GBufferFillPass(null);
             }
         }
 
-        onRender(frame: Opaque): void {
-            const width = Donut_GetFrameWidth(frame);
-            const height = Donut_GetFrameHeight(frame);
+        onRender(frameHandle: Opaque): void {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
 
             let renderTargets = this.renderTargets;
             let bindingSet = this.bindingSet;
-            if (!renderTargets || !bindingSet) {
+            if (renderTargets.isNull() || bindingSet.isNull()) {
                 // Reverse Z: depth is cleared to 0.
-                renderTargets = Donut_CreateGBufferTargets(this.app, width, height, 1);
+                renderTargets = this.app.createGBufferTargets(width, height, 1);
 
-                const bindingSetDesc = Donut_CreateBindingSetDesc();
-                Donut_BindEntireConstantBuffer(bindingSetDesc, 0, this.constantBuffer);
-                Donut_BindAccelStruct(bindingSetDesc, 0, Donut_GetSceneTopLevelAS(this.accelStructs));
-                Donut_BindTextureSRV(bindingSetDesc, 1, Donut_GetGBufferTexture(renderTargets, GBufferTexture.Depth));
-                Donut_BindTextureSRV(bindingSetDesc, 2, Donut_GetGBufferTexture(renderTargets, GBufferTexture.Diffuse));
-                Donut_BindTextureSRV(bindingSetDesc, 3, Donut_GetGBufferTexture(renderTargets, GBufferTexture.Specular));
-                Donut_BindTextureSRV(bindingSetDesc, 4, Donut_GetGBufferTexture(renderTargets, GBufferTexture.Normals));
-                Donut_BindTextureSRV(bindingSetDesc, 5, Donut_GetGBufferTexture(renderTargets, GBufferTexture.Emissive));
-                Donut_BindTextureUAV(bindingSetDesc, 0, Donut_GetGBufferShadedColor(renderTargets));
-                bindingSet = Donut_CreateBindingSetForLayout(this.app, bindingSetDesc, this.bindingLayout);
+                const bindingSetDesc = BindingSetDesc.create();
+                bindingSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+                bindingSetDesc.bindAccelStruct(0, this.accelStructs.getTopLevelAS());
+                bindingSetDesc.bindTextureSRV(1, renderTargets.getTexture(GBufferTexture.Depth));
+                bindingSetDesc.bindTextureSRV(2, renderTargets.getTexture(GBufferTexture.Diffuse));
+                bindingSetDesc.bindTextureSRV(3, renderTargets.getTexture(GBufferTexture.Specular));
+                bindingSetDesc.bindTextureSRV(4, renderTargets.getTexture(GBufferTexture.Normals));
+                bindingSetDesc.bindTextureSRV(5, renderTargets.getTexture(GBufferTexture.Emissive));
+                bindingSetDesc.bindTextureUAV(0, renderTargets.getShadedColor());
+                bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
 
                 this.renderTargets = renderTargets;
                 this.bindingSet = bindingSet;
             }
 
-            Donut_GetCameraWorldToView(this.camera, Ref(this.viewMatrix[0]));
+            this.camera.getWorldToView(Ref(this.viewMatrix[0]));
             const projection = perspProjD3DStyleReverse(Math.PI * 0.25, width / height, 0.1);
             for (let i = 0; i < 16; i++) {
                 this.projMatrix[i] = projection[i];
             }
-            Donut_SetPlanarView(this.view, Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
+            this.view.setPlanarView(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
 
             let gbufferPass = this.gbufferPass;
-            if (!gbufferPass) {
-                gbufferPass = Donut_CreateGBufferFillPass(this.app);
+            if (gbufferPass.isNull()) {
+                gbufferPass = this.app.createGBufferFillPass();
                 this.gbufferPass = gbufferPass;
             }
 
-            Donut_ClearGBuffer(frame, renderTargets);
-            Donut_RenderSceneToGBuffer(frame, gbufferPass, this.view, renderTargets, this.scene);
+            frame.clearGBuffer(renderTargets);
+            frame.renderSceneToGBuffer(gbufferPass, this.view, renderTargets, this.scene);
 
             for (let i = 0; i < 4; i++) {
                 this.constants[AMBIENT_COLOR_OFFSET + i] = 0.05;
             }
-            Donut_FillPlanarViewConstants(this.view, Ref(this.constants[this.viewOffset]));
-            Donut_FillLightConstants(this.sunLight, Ref(this.constants[LIGHT_OFFSET]));
-            Donut_WriteBuffer(Donut_GetFrameCommandList(frame), this.constantBuffer, Ref(this.constants[0]), this.constantsSize);
+            this.view.fillPlanarViewConstants(Ref(this.constants[this.viewOffset]));
+            this.sunLight.fillConstants(Ref(this.constants[LIGHT_OFFSET]));
+            frame.getCommandList().writeBuffer(this.constantBuffer, Ref(this.constants[0]), this.constantsSize);
 
-            Donut_DispatchRays(frame, this.shaderTable, bindingSet, width, height);
+            frame.dispatchRays(this.shaderTable, bindingSet, width, height);
 
-            Donut_BlitTexture(this.app, frame, Donut_GetGBufferShadedColor(renderTargets));
+            this.app.blitTexture(frame, renderTargets.getShadedColor());
         }
 
         createRayTracingPipeline(): boolean {
-            const shaderLibrary = Donut_CreateShaderLibrary(this.app, "rt_shadows.hlsl");
+            const shaderLibrary = this.app.createShaderLibrary("rt_shadows.hlsl");
             if (!shaderLibrary) {
                 return false;
             }
 
-            const layoutDesc = Donut_CreateBindingLayoutDesc();
-            Donut_LayoutVolatileConstantBuffer(layoutDesc, 0);
-            Donut_LayoutAccelStruct(layoutDesc, 0);
-            Donut_LayoutTextureSRV(layoutDesc, 1);
-            Donut_LayoutTextureSRV(layoutDesc, 2);
-            Donut_LayoutTextureSRV(layoutDesc, 3);
-            Donut_LayoutTextureSRV(layoutDesc, 4);
-            Donut_LayoutTextureSRV(layoutDesc, 5);
-            Donut_LayoutTextureUAV(layoutDesc, 0);
-            this.bindingLayout = Donut_CreateBindingLayout(this.app, layoutDesc, ShaderType.All);
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutTextureSRV(1);
+            layoutDesc.layoutTextureSRV(2);
+            layoutDesc.layoutTextureSRV(3);
+            layoutDesc.layoutTextureSRV(4);
+            layoutDesc.layoutTextureSRV(5);
+            layoutDesc.layoutTextureUAV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
 
             // The hit group has no shaders: a hit just leaves the payload's `missed` false.
-            const pipeline = Donut_CreateRayTracingPipeline(this.app, shaderLibrary, this.bindingLayout,
+            const pipeline = this.app.createRayTracingPipeline(shaderLibrary, this.bindingLayout,
                 "RayGen", "Miss", "HitGroup", "", PAYLOAD_SIZE);
             if (!pipeline) {
                 return false;
             }
 
-            this.shaderTable = Donut_CreateShaderTable(this.app, pipeline, "RayGen", "HitGroup", "Miss");
+            this.shaderTable = this.app.createShaderTable(pipeline, "RayGen", "HitGroup", "Miss");
             // The shader table keeps the pipeline alive.
-            Donut_ReleaseResource(this.app, pipeline);
+            this.app.releaseResource(pipeline);
             return true;
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(scenePath: string): boolean {
-            const scene = Donut_LoadScene(this.app, scenePath);
-            if (!scene) {
+            const scene = this.app.loadScene(scenePath);
+            if (scene.isNull()) {
                 console.log(`Cannot load the scene ${scenePath}`);
                 return false;
             }
             this.scene = scene;
 
-            const sceneGraph = Donut_GetSceneGraph(scene);
-            this.sunLight = Donut_AddDirectionalLight(sceneGraph, Donut_GetRootNode(sceneGraph), "Sun",
+            const sceneGraph = scene.getSceneGraph();
+            this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
                 0.1, -1.0, 0.15, 0.53, 1.0);
-            Donut_RefreshSceneGraph(this.app, sceneGraph);
+            this.app.refreshSceneGraph(sceneGraph);
 
-            this.camera = Donut_CreateFirstPersonCamera(this.app);
-            Donut_CameraLookAt(this.camera, 0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            Donut_CameraSetMoveSpeed(this.camera, 3.0);
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+            this.camera.setMoveSpeed(3.0);
 
-            this.view = Donut_CreatePlanarView(this.app);
+            this.view = this.app.createPlanarView();
 
             this.viewOffset = LIGHT_OFFSET + Donut_GetLightConstantsSize() / 4;
             this.constantsSize = this.viewOffset * 4 + Donut_GetPlanarViewConstantsSize();
             for (let i = 0; i < this.constantsSize / 4; i++) {
                 this.constants.push(0.0);
             }
-            this.constantBuffer = Donut_CreateVolatileConstantBuffer(this.app, this.constantsSize, "LightingConstants");
+            this.constantBuffer = this.app.createVolatileConstantBuffer(this.constantsSize, "LightingConstants");
 
             if (!this.createRayTracingPipeline()) {
                 return false;
             }
 
-            const commandList = Donut_CreateCommandList(this.app);
-            Donut_OpenCommandList(commandList);
+            const commandList = this.app.createCommandList();
+            commandList.open();
 
-            this.accelStructs = Donut_BuildSceneAccelStructs(this.app, commandList, scene);
+            this.accelStructs = this.app.buildSceneAccelStructs(commandList, scene);
 
-            Donut_CloseCommandList(commandList);
-            Donut_ExecuteCommandList(this.app, commandList);
-            Donut_WaitForIdle(this.app);
-            Donut_ReleaseResource(this.app, commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
 
-            const pass = Donut_AddPass(this.app);
-            Donut_SetKeyboardCallback(pass, this.onKey);
-            Donut_SetMousePosCallback(pass, this.onMousePos);
-            Donut_SetMouseButtonCallback(pass, this.onMouseButton);
-            Donut_SetAnimateCallback(pass, this.onAnimate);
-            Donut_SetBackBufferResizingCallback(pass, this.onBackBufferResizing);
-            Donut_SetRenderCallback(pass, this.onRender);
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
@@ -261,30 +262,30 @@ namespace RtShadows {
         }
 
         const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = Donut_CreateAppWithOptions(api, WINDOW_TITLE, 1280, 720, AppOptions.RayTracing);
-        if (!app) {
+        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, AppOptions.RayTracing);
+        if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        if (!Donut_IsFeatureSupported(app, Feature.RayTracingPipeline)) {
+        if (!app.isFeatureSupported(Feature.RayTracingPipeline)) {
             console.log("The graphics device does not support Ray Tracing Pipelines");
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        console.log(`Renderer: ${Donut_GetRendererString(app)}`);
+        console.log(`Renderer: ${app.getRendererString()}`);
 
         const rayTracedShadows = new RayTracedShadowsPass(app);
         if (!rayTracedShadows.init(scenePath)) {
-            Donut_DestroyApp(app);
+            app.destroy();
             return 1;
         }
 
-        const input = new InputPass(app);
+        const input = new InputPass(app.handle);
 
-        Donut_RunApp(app);
-        Donut_DestroyApp(app);
+        app.run();
+        app.destroy();
         return 0;
     }
 }

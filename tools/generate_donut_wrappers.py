@@ -77,6 +77,7 @@ PARAMETER_ALIASES = {
     "previousView": "View",
     "parentNode": "Node",
     "meshNode": "Node",
+    "localBindingSet": "BindingSet",
     "previousToneMappingPass": "ToneMappingPass",
 }
 

@@ -1521,8 +1521,8 @@ export class ShaderTable {
         return Donut_ShaderTableAddMiss(this.handle, exportName);
     }
 
-    addHitGroup(exportName: string, localBindingSet: Opaque | null): int {
-        return Donut_ShaderTableAddHitGroup(this.handle, exportName, localBindingSet);
+    addHitGroup(exportName: string, localBindingSet: BindingSet | null): int {
+        return Donut_ShaderTableAddHitGroup(this.handle, exportName, localBindingSet ? (localBindingSet as BindingSet).handle : null);
     }
 }
 
