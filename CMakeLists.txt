@@ -119,14 +119,15 @@ if(NOT WIN32)
     list(APPEND TSLANG_LINK_LIBS "stdc++" "m" "pthread" "dl" "rt")
 endif()
 
-# One executable per example, built from <name>.ts. Its shaders, if any (the <name>_shaders
-# target), must be compiled into bin/shaders/<name>/<dxbc|dxil|spirv>: donut_interop loads them
-# from the folder named after the executable.
+# One executable per example, built from <name>.ts, plus any further sources given after the name.
+# Its shaders, if any (the <name>_shaders target), must be compiled into
+# bin/shaders/<name>/<dxbc|dxil|spirv>: donut_interop loads them from the folder named after the
+# executable.
 function(add_tslang_example name)
-    # .ts files compile with the TSLANG command. The target has no .cpp, so link with the C++
+    # .ts files compile with the TSLANG command. Most targets have no .cpp, so link with the C++
     # rule explicitly: the C++ link flags (debug info, CRT) apply and the tslang compile flags
     # stay off the link line.
-    add_executable(${name} ${name}.ts)
+    add_executable(${name} ${name}.ts ${ARGN})
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop)
     if (TARGET ${name}_shaders)
@@ -299,3 +300,28 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/spirv
 )
 add_tslang_example(rt_particles)
+
+# Port of Donut-Samples' work_graphs: deferred shading of a procedural scene with one D3D12 work
+# graph (light culling and per-material shading nodes), or with two compute dispatches. D3D12 only,
+# shader model 6.8, and the Agility SDK runtime (d3d12_agility_sdk.cpp exports its version).
+if (NVRHI_WITH_DX12)
+    donut_compile_shaders(
+        TARGET work_graphs_shaders
+        PROJECT_NAME "Work Graphs"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs.cfg
+        SOURCES
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs_animation.hlsl
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs_gbuffer_fill.hlsl
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs_light_culling.hlsl
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs_deferred_shading.hlsl
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs_broadcasting.hlsl
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs_scene_data.hlsli
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs_materials.hlsli
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/work_graphs_lighting.hlsli
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/work_graphs/dxil
+        SHADER_MODEL 6_8
+    )
+    set_source_files_properties(d3d12_agility_sdk.cpp PROPERTIES
+        COMPILE_DEFINITIONS DONUT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
+    add_tslang_example(work_graphs d3d12_agility_sdk.cpp)
+endif()

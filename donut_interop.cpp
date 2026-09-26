@@ -49,6 +49,9 @@
 
 #if DONUT_WITH_DX12
 #include <d3d12.h>
+// From the Agility SDK (see CMakeLists.txt), for the work graph state object.
+#include <d3dx12/d3dx12.h>
+#include <wrl/client.h>
 #endif
 
 // Shared with HLSL, so they use the math types unqualified (as Donut's own sources include them).
@@ -725,6 +728,26 @@ namespace
         commandList->setPermanentBufferState(buffer, permanentState);
         return a->Own(buffer);
     }
+
+#if DONUT_WITH_DX12
+    // A D3D12 work graph program (Donut_CreateD3D12WorkGraph) and its backing memory.
+    struct D3D12WorkGraph
+    {
+        Microsoft::WRL::ComPtr<ID3D12StateObject> stateObject;
+        D3D12_PROGRAM_IDENTIFIER programIdentifier = {};
+        // Null if the graph needs none.
+        nvrhi::BufferHandle backingMemory;
+    };
+
+    std::wstring Widen(const char* text)
+    {
+        const int length = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
+        std::wstring wide(length > 0 ? length - 1 : 0, L'\0');
+        if (length > 1)
+            MultiByteToWideChar(CP_UTF8, 0, text, -1, wide.data(), length);
+        return wide;
+    }
+#endif
 }
 
 // donut_interop.d.ts mirrors these enum values as plain numbers.
@@ -737,7 +760,8 @@ static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Pi
     && int(nvrhi::ShaderType::Mesh) == 0x80 && int(nvrhi::ShaderType::All) == 0x3FFF);
 static_assert(int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::PrimitiveType::TriangleStrip) == 4);
 static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
-    && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46);
+    && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46
+    && int(nvrhi::Format::RGBA8_UNORM) == 19 && int(nvrhi::Format::RGBA16_UINT) == 36 && int(nvrhi::Format::D32) == 53);
 static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
 // LoadMatrix copies 16 floats from TypeScript straight into these.
 static_assert(sizeof(dm::float4x4) == 16 * sizeof(float));
@@ -1476,6 +1500,13 @@ extern "C"
             nvrhi::BindingLayoutItem::ConstantBuffer(static_cast<uint32_t>(slot)));
     }
 
+    // RWStructuredBuffer at u<slot>.
+    void Donut_LayoutStructuredBufferUAV(void* bindingLayoutDesc, int slot)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot)));
+    }
+
     // Layout visible to the stages in shaderType (nvrhi::ShaderType bits), in register space 0
     // unless set with Donut_SetBindingLayoutRegisterSpace. Returns null on failure.
     void* Donut_CreateBindingLayout(void* app, void* bindingLayoutDesc, int shaderType)
@@ -1552,6 +1583,21 @@ extern "C"
             .setStructStride(static_cast<uint32_t>(stride))
             .setDebugName(debugName)
             .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // Same, that shaders can also write (RWStructuredBuffer, u registers).
+    void* Donut_CreateRWStructuredBuffer(void* app, int stride, int count, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(uint64_t(stride) * uint64_t(count))
+            .setStructStride(static_cast<uint32_t>(stride))
+            .setCanHaveUAVs(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::UnorderedAccess)
             .setKeepInitialState(true);
 
         App* a = AsApp(app);
@@ -1666,6 +1712,22 @@ extern "C"
             nvrhi::BindingSetItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
     }
 
+    // A buffer from Donut_CreateRWStructuredBuffer, as RWStructuredBuffer at u<slot>.
+    void Donut_BindStructuredBufferUAV(void* bindingSetDesc, int slot, void* buffer)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+    }
+
+    // The push constants of a Donut_LayoutPushConstants item: byteSize bytes at b<slot>, whose
+    // values are given when dispatching or drawing (Donut_DispatchWithPushConstants,
+    // Donut_DrawIndexedWithPushConstants).
+    void Donut_BindPushConstants(void* bindingSetDesc, int slot, int byteSize)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::PushConstants(static_cast<uint32_t>(slot), static_cast<uint32_t>(byteSize)));
+    }
+
     // cbuffer at b<slot>: the whole of a constant buffer (required for volatile ones).
     void Donut_BindEntireConstantBuffer(void* bindingSetDesc, int slot, void* constantBuffer)
     {
@@ -1745,6 +1807,62 @@ extern "C"
 
         App* a = AsApp(app);
         return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Render target (for Donut_CreateFramebuffer) of width x height in `format` (an nvrhi::Format
+    // value) that shaders can also read; resting at ShaderResource. A depth format makes a depth
+    // buffer, cleared to 1 by default, whose shader view reads the depth. Returns null on failure.
+    void* Donut_CreateRenderTargetTexture(void* app, int width, int height, int format, const char* debugName)
+    {
+        const auto textureFormat = static_cast<nvrhi::Format>(format);
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(textureFormat)
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setIsRenderTarget(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+        if (nvrhi::getFormatInfo(textureFormat).hasDepth)
+        {
+            // Typeless, for the depth-stencil view and the shader resource view to differ in format.
+            desc.setIsTypeless(true).setClearValue(nvrhi::Color(1.f));
+        }
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Framebuffer of one color target and an optional depth target (null for none), textures from
+    // Donut_CreateRenderTargetTexture. Draw into it with Donut_BeginDrawToFramebuffer. Returns null
+    // on failure.
+    void* Donut_CreateFramebuffer(void* app, void* colorTexture, void* depthTexture)
+    {
+        auto desc = nvrhi::FramebufferDesc().addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture));
+        if (depthTexture)
+            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createFramebuffer(desc));
+    }
+
+    // Triangle-list pipeline for a framebuffer's layout (Donut_CreateFramebuffer), with an input
+    // layout and one binding layout, and NVRHI's default render state: depth test (less) and
+    // depth writes on, back faces culled (clockwise triangles are front faces). Returns null on
+    // failure.
+    void* Donut_CreateGraphicsPipelineForFramebuffer(void* app, void* framebuffer, void* vertexShader, void* pixelShader,
+        void* inputLayout, void* bindingLayout)
+    {
+        nvrhi::GraphicsPipelineDesc desc;
+        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
+        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc.inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+        desc.primType = nvrhi::PrimitiveType::TriangleList;
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createGraphicsPipeline(desc,
+            static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo()));
     }
 
     // A binding set for a description (which it frees) from the app's binding cache: created on
@@ -1896,6 +2014,77 @@ extern "C"
         cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
     }
 
+    // Same, with byteSize bytes of push constants from data (the binding set's
+    // Donut_BindPushConstants item).
+    void Donut_DispatchWithPushConstants(void* commandList, void* computePipeline, void* bindingSet,
+        const void* data, int byteSize, int groupsX, int groupsY, int groupsZ)
+    {
+        auto state = nvrhi::ComputeState()
+            .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
+            .addBindingSet(static_cast<nvrhi::IBindingSet*>(bindingSet));
+
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+        cl->setComputeState(state);
+        cl->setPushConstants(data, static_cast<size_t>(byteSize));
+        cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
+    }
+
+    // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
+    void Donut_ClearDepth(void* commandList, void* depthTexture, double depth)
+    {
+        AsCommandList(commandList)->clearDepthStencilTexture(static_cast<nvrhi::ITexture*>(depthTexture),
+            nvrhi::AllSubresources, true, float(depth), false, 0);
+    }
+
+    // Names the commands recorded until the matching Donut_EndMarker, for GPU debuggers and profilers.
+    void Donut_BeginMarker(void* commandList, const char* name)
+    {
+        AsCommandList(commandList)->beginMarker(name);
+    }
+
+    void Donut_EndMarker(void* commandList)
+    {
+        AsCommandList(commandList)->endMarker();
+    }
+
+    // --- GPU timer queries ---------------------------------------------------------------------
+
+    // Measures the GPU time between Donut_BeginTimerQuery and Donut_EndTimerQuery. Returns null on
+    // failure.
+    void* Donut_CreateTimerQuery(void* app)
+    {
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTimerQuery());
+    }
+
+    // Makes a query that has been read (or never used) ready to measure again.
+    void Donut_ResetTimerQuery(void* app, void* timerQuery)
+    {
+        AsApp(app)->device()->resetTimerQuery(static_cast<nvrhi::ITimerQuery*>(timerQuery));
+    }
+
+    void Donut_BeginTimerQuery(void* commandList, void* timerQuery)
+    {
+        AsCommandList(commandList)->beginTimerQuery(static_cast<nvrhi::ITimerQuery*>(timerQuery));
+    }
+
+    void Donut_EndTimerQuery(void* commandList, void* timerQuery)
+    {
+        AsCommandList(commandList)->endTimerQuery(static_cast<nvrhi::ITimerQuery*>(timerQuery));
+    }
+
+    // Non-zero once the GPU has finished the measured commands.
+    int Donut_PollTimerQuery(void* app, void* timerQuery)
+    {
+        return AsApp(app)->device()->pollTimerQuery(static_cast<nvrhi::ITimerQuery*>(timerQuery)) ? 1 : 0;
+    }
+
+    // The measured time in seconds; waits for the GPU unless Donut_PollTimerQuery returned non-zero.
+    double Donut_GetTimerQueryTime(void* app, void* timerQuery)
+    {
+        return AsApp(app)->device()->getTimerQueryTime(static_cast<nvrhi::ITimerQuery*>(timerQuery));
+    }
+
     // --- Render passes -----------------------------------------------------------------------
 
     // Adds a pass drawn after the previously added ones. The app owns it; set its callbacks
@@ -2028,6 +2217,12 @@ extern "C"
         bool checked = value != 0;
         ImGui::Checkbox(label, &checked);
         return checked ? 1 : 0;
+    }
+
+    // Returns non-zero if the button was clicked.
+    int Donut_ImGuiButton(const char* label)
+    {
+        return ImGui::Button(label) ? 1 : 0;
     }
 
     // A combo box of '|'-separated items; returns the new selection (current, unless changed).
@@ -3578,6 +3773,161 @@ extern "C"
 #endif
     }
 
+    // --- D3D12 work graphs (through the D3D12 API directly; NVRHI has no work graphs) -------
+    //
+    // They need a D3D12 runtime from Agility SDK 1.613 or later, so an executable using them must
+    // export D3D12SDKVersion and D3D12SDKPath (d3d12_agility_sdk.cpp in CMakeLists.txt).
+
+    // The device's D3D12_WORK_GRAPHS_TIER (D3D12_FEATURE_D3D12_OPTIONS21): 0 when work graphs are
+    // unsupported, 10 for tier 1.0, 11 for tier 1.1. Also 0 on other graphics APIs.
+    int Donut_GetD3D12WorkGraphsTier(void* app)
+    {
+#if DONUT_WITH_DX12
+        nvrhi::IDevice* device = AsApp(app)->device();
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS21 options = {};
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            if (SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS21, &options, sizeof(options))))
+                return static_cast<int>(options.WorkGraphsTier);
+        }
+#endif
+        return 0;
+    }
+
+    // A work graph program named programName holding all the nodes of a shader library
+    // (Donut_CreateShaderLibrary, compiled for lib_6_8), with the root signature of computePipeline
+    // (whose binding layout the nodes' registers must match), and the [NodeDispatchGrid] of its
+    // broadcasting entry node entryNodeName overridden with gridX x gridY x gridZ. Creates its
+    // backing memory too. Release it with Donut_ReleaseObject. Returns null (after logging why) on
+    // failure.
+    void* Donut_CreateD3D12WorkGraph(void* app, void* shaderLibrary, void* computePipeline, const char* programName,
+        const char* entryNodeName, int gridX, int gridY, int gridZ)
+    {
+#if DONUT_WITH_DX12
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        if (device->getGraphicsAPI() != nvrhi::GraphicsAPI::D3D12)
+        {
+            donut::log::error("Work graphs need D3D12");
+            return nullptr;
+        }
+
+        ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        Microsoft::WRL::ComPtr<ID3D12Device5> device5;
+        if (FAILED(d3dDevice->QueryInterface(IID_PPV_ARGS(&device5))))
+        {
+            donut::log::error("Could not access the D3D12 device interface for work graphs");
+            return nullptr;
+        }
+
+        const std::wstring program = Widen(programName);
+        const std::wstring entryNode = Widen(entryNodeName);
+        D3D12_SHADER_BYTECODE libraryCode = {};
+        static_cast<nvrhi::IShaderLibrary*>(shaderLibrary)->getBytecode(&libraryCode.pShaderBytecode, &libraryCode.BytecodeLength);
+        ID3D12RootSignature* rootSignature = static_cast<nvrhi::IComputePipeline*>(computePipeline)->getNativeObject(
+            nvrhi::ObjectTypes::D3D12_RootSignature);
+
+        // The state object: the library, the graph (every node in the library), and the root
+        // signature shared with the other shaders.
+        CD3DX12_STATE_OBJECT_DESC stateObjectDesc(D3D12_STATE_OBJECT_TYPE_EXECUTABLE);
+        auto* library = stateObjectDesc.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
+        library->SetDXILLibrary(&libraryCode);
+        auto* graph = stateObjectDesc.CreateSubobject<CD3DX12_WORK_GRAPH_SUBOBJECT>();
+        graph->SetProgramName(program.c_str());
+        graph->IncludeAllAvailableNodes();
+        auto* globalRootSignature = stateObjectDesc.CreateSubobject<CD3DX12_GLOBAL_ROOT_SIGNATURE_SUBOBJECT>();
+        globalRootSignature->SetRootSignature(rootSignature);
+        // Overriding the grid size in the state object costs nothing at launch, unlike a
+        // SV_DispatchGrid in the entry record.
+        auto* entryOverrides = graph->CreateBroadcastingLaunchNodeOverrides(entryNode.c_str());
+        entryOverrides->DispatchGrid(static_cast<UINT>(gridX), static_cast<UINT>(gridY), static_cast<UINT>(gridZ));
+
+        auto workGraph = std::make_shared<D3D12WorkGraph>();
+        if (FAILED(device5->CreateStateObject(stateObjectDesc, IID_PPV_ARGS(&workGraph->stateObject))))
+        {
+            donut::log::error("Cannot create the work graph state object for %s", programName);
+            return nullptr;
+        }
+
+        Microsoft::WRL::ComPtr<ID3D12StateObjectProperties1> properties;
+        Microsoft::WRL::ComPtr<ID3D12WorkGraphProperties> graphProperties;
+        if (FAILED(workGraph->stateObject.As(&properties)) || FAILED(workGraph->stateObject.As(&graphProperties)))
+        {
+            donut::log::error("Cannot query the work graph properties of %s", programName);
+            return nullptr;
+        }
+        workGraph->programIdentifier = properties->GetProgramIdentifier(program.c_str());
+
+        // Backing memory of the largest size the graph asks for, the fastest.
+        D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS memoryRequirements = {};
+        graphProperties->GetWorkGraphMemoryRequirements(graphProperties->GetWorkGraphIndex(program.c_str()), &memoryRequirements);
+        if (memoryRequirements.MaxSizeInBytes > 0)
+        {
+            workGraph->backingMemory = device->createBuffer(nvrhi::BufferDesc()
+                .setByteSize(memoryRequirements.MaxSizeInBytes)
+                .setCanHaveUAVs(true)
+                .setDebugName("WorkGraphBackingMemory")
+                .setInitialState(nvrhi::ResourceStates::UnorderedAccess)
+                .setKeepInitialState(true));
+            if (!workGraph->backingMemory)
+                return nullptr;
+        }
+
+        return a->OwnObject(workGraph);
+#else
+        donut::log::error("Work graphs need D3D12");
+        return nullptr;
+#endif
+    }
+
+    // Launches a work graph (Donut_CreateD3D12WorkGraph) with one empty input record for its entry
+    // node, with bindingSet and byteSize bytes of push constants from data as its root arguments.
+    // computePipeline, one with the graph's root signature, only serves to set those through NVRHI;
+    // record no more dispatches with it after the graph in the command list (NVRHI believes it is
+    // still bound). initializeBackingMemory: non-zero the first time the graph's backing memory is
+    // used, or after another graph used it.
+    void Donut_DispatchD3D12WorkGraph(void* commandList, void* workGraph, void* computePipeline, void* bindingSet,
+        const void* data, int byteSize, int initializeBackingMemory)
+    {
+#if DONUT_WITH_DX12
+        const auto* graph = static_cast<D3D12WorkGraph*>(workGraph);
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+
+        // Bindings (and the barriers they need) through NVRHI.
+        cl->setComputeState(nvrhi::ComputeState()
+            .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
+            .addBindingSet(static_cast<nvrhi::IBindingSet*>(bindingSet)));
+        if (byteSize > 0)
+            cl->setPushConstants(data, static_cast<size_t>(byteSize));
+
+        ID3D12GraphicsCommandList* d3dCommandList = cl->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList10> graphCommandList;
+        if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&graphCommandList))))
+            return;
+
+        D3D12_SET_PROGRAM_DESC setProgram = {};
+        setProgram.Type = D3D12_PROGRAM_TYPE_WORK_GRAPH;
+        setProgram.WorkGraph.ProgramIdentifier = graph->programIdentifier;
+        setProgram.WorkGraph.Flags = initializeBackingMemory ? D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE : D3D12_SET_WORK_GRAPH_FLAG_NONE;
+        if (graph->backingMemory)
+        {
+            setProgram.WorkGraph.BackingMemory.StartAddress = graph->backingMemory->getGpuVirtualAddress();
+            setProgram.WorkGraph.BackingMemory.SizeInBytes = graph->backingMemory->getDesc().byteSize;
+        }
+        graphCommandList->SetProgram(&setProgram);
+
+        // The entry record has no data, so none is passed.
+        D3D12_DISPATCH_GRAPH_DESC dispatchGraph = {};
+        dispatchGraph.Mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+        dispatchGraph.NodeCPUInput.EntrypointIndex = 0;
+        dispatchGraph.NodeCPUInput.NumRecords = 1;
+        dispatchGraph.NodeCPUInput.pRecords = nullptr;
+        dispatchGraph.NodeCPUInput.RecordStrideInBytes = 0;
+        graphCommandList->DispatchGraph(&dispatchGraph);
+#endif
+    }
+
     // --- Frame commands (valid only inside the render callback) ----------------------------
 
     void Donut_ClearColor(void* frame, double r, double g, double b, double a)
@@ -3700,6 +4050,15 @@ extern "C"
         ctx->draw.framebuffer = ctx->framebuffer;
     }
 
+    // Same, into another framebuffer (Donut_CreateFramebuffer; the pipeline must be for its layout).
+    void Donut_BeginDrawToFramebuffer(void* frame, void* pipeline, void* framebuffer)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        ctx->draw = nvrhi::GraphicsState();
+        ctx->draw.pipeline = static_cast<nvrhi::IGraphicsPipeline*>(pipeline);
+        ctx->draw.framebuffer = static_cast<nvrhi::IFramebuffer*>(framebuffer);
+    }
+
     void Donut_DrawAddBindingSet(void* frame, void* bindingSet)
     {
         AsFrame(frame)->draw.bindings.push_back(static_cast<nvrhi::IBindingSet*>(bindingSet));
@@ -3709,6 +4068,12 @@ extern "C"
     void Donut_DrawSetIndexBuffer(void* frame, void* indexBuffer)
     {
         AsFrame(frame)->draw.indexBuffer = { AsBuffer(indexBuffer), nvrhi::Format::R32_UINT, 0 };
+    }
+
+    // R16_UINT indices.
+    void Donut_DrawSetIndexBuffer16(void* frame, void* indexBuffer)
+    {
+        AsFrame(frame)->draw.indexBuffer = { AsBuffer(indexBuffer), nvrhi::Format::R16_UINT, 0 };
     }
 
     // Binds a vertex buffer, starting at byteOffset, to the input layout's slot.
@@ -3729,7 +4094,7 @@ extern "C"
     {
         FrameContext* ctx = AsFrame(frame);
         if (ctx->draw.viewport.viewports.empty())
-            ctx->draw.viewport.addViewportAndScissorRect(ctx->framebuffer->getFramebufferInfo().getViewport());
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
         ctx->commandList->setGraphicsState(ctx->draw);
 
         nvrhi::DrawArguments args;
@@ -3737,12 +4102,38 @@ extern "C"
         ctx->commandList->drawIndexed(args);
     }
 
+    // Same, with byteSize bytes of push constants from data (the binding set's
+    // Donut_BindPushConstants item). The draw described stays, so this can repeat with other
+    // push constants.
+    void Donut_DrawIndexedWithPushConstants(void* frame, int indexCount, const void* data, int byteSize)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        // NVRHI skips the parts of the state that haven't changed since the previous draw.
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->setPushConstants(data, static_cast<size_t>(byteSize));
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(indexCount);
+        ctx->commandList->drawIndexed(args);
+    }
+
+    // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into
+    // the back buffer, without conversion.
+    void Donut_CopyTextureToFrame(void* frame, void* texture)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        ctx->commandList->copyTexture(ctx->framebuffer->getDesc().colorAttachments[0].texture, nvrhi::TextureSlice(),
+            static_cast<nvrhi::ITexture*>(texture), nvrhi::TextureSlice());
+    }
+
     // Same as Donut_DrawIndexed, without an index buffer: vertexCount vertices.
     void Donut_DrawVertices(void* frame, int vertexCount)
     {
         FrameContext* ctx = AsFrame(frame);
         if (ctx->draw.viewport.viewports.empty())
-            ctx->draw.viewport.addViewportAndScissorRect(ctx->framebuffer->getFramebufferInfo().getViewport());
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
         ctx->commandList->setGraphicsState(ctx->draw);
 
         nvrhi::DrawArguments args;
