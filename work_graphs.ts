@@ -1353,7 +1353,7 @@ class InputPass {
     }
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
 
     // -debug: the D3D12 debug layer and NVRHI's validation layer.
     let options = AppOptions.None;

@@ -277,7 +277,7 @@ class InputPass {
     }
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
 
     // --scene <path>: relative to the executable's directory, or absolute.
     let scenePath = DEFAULT_SCENE;

@@ -154,7 +154,7 @@ class InputPass {
     }
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
 
     const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
     const app = Donut_CreateAppWithOptions(api, WINDOW_TITLE, 1280, 720, AppOptions.ComputeQueue);

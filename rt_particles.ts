@@ -798,7 +798,7 @@ class InputPass {
     }
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
 
     // -debug: the graphics API's debug layer and NVRHI's validation layer.
     // -noui: without the settings window.

@@ -161,7 +161,7 @@ class InputPass {
     }
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
 
     if (Donut_GetGraphicsAPIFromCommandLine(argc, argv) == GraphicsAPI.D3D11) {
         console.log("The Threaded Rendering example does not support D3D11.");

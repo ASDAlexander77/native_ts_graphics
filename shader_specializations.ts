@@ -102,7 +102,7 @@ class InputPass {
     }
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
 
     const app = Donut_CreateAppForAPI(GraphicsAPI.VULKAN, WINDOW_TITLE, 1280, 720);
     if (!app) {

@@ -293,7 +293,7 @@ class InputPass {
     }
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
 
     const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
     if (api == GraphicsAPI.D3D11) {

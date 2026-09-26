@@ -338,7 +338,7 @@ class InputPass {
     }
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
 
     // -rayQuery: inline ray queries in a compute shader instead of a ray tracing pipeline.
     // -debug: the graphics API's debug layer and NVRHI's validation layer.

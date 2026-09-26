@@ -100,7 +100,7 @@ function listAdapters(api: GraphicsAPI): int {
     return 0;
 }
 
-function main(argc: int, argv: Opaque): int {
+function main(argc: int, argv: Ref<string>): int {
     // The C++ sample does this in release builds only.
     Donut_SetLogMinSeverity(LogSeverity.Warning);
 
