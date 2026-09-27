@@ -17,9 +17,9 @@ import sys
 import textwrap
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCE = os.path.join(ROOT, "donut_interop.d.ts")
-OUTPUT = os.path.join(ROOT, "donut.ts")
-GLOBALS = os.path.join(ROOT, "donut_globals.d.ts")
+SOURCE = os.path.join(ROOT, "core", "donut_interop.d.ts")
+OUTPUT = os.path.join(ROOT, "core", "donut.ts")
+GLOBALS = os.path.join(ROOT, "core", "donut_globals.d.ts")
 
 # Handle parameter name -> wrapper class, in the order the classes are emitted. A function goes to
 # the class of its first parameter; any other parameter with one of these names takes the class too.

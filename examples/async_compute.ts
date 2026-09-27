@@ -1,6 +1,6 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
-import { InputPass } from "./input_pass";
+import { InputPass } from "../core/input_pass";
 
 namespace AsyncCompute {
     const WINDOW_TITLE = "Donut Example: Async Compute";
@@ -129,6 +129,8 @@ namespace AsyncCompute {
     }
 
     export function main(argc: int, argv: Ref<string>): int {
+        // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
+        Donut_SetAppName("async_compute");
 
         const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
         const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, AppOptions.ComputeQueue);

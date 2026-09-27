@@ -2,7 +2,7 @@
 
 // The input handling the examples share: Escape closes the window, V toggles vertical sync.
 //
-// Imported with `import { InputPass } from "./input_pass";`, which gives the importer its
+// Imported with `import { InputPass } from "../core/input_pass";` (from examples/), which gives the importer its
 // declarations only; the code is linked in from its own object (CMake builds it once for all the
 // examples) or, under the JIT, comes from input_pass.dll listed in --shared-libs (see run_jit.bat).
 // It references donut.ts (the class wrappers, which reference donut_interop.d.ts) for the examples

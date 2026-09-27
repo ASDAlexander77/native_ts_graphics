@@ -1,7 +1,7 @@
 // Imported only for its declarations: input_pass.ts brings in donut.ts (the class wrappers over
 // donut_interop.d.ts), whose code every example links from its object. Referencing donut.ts here
 // would compile that code into this object too, defining its symbols twice.
-import { InputPass } from "./input_pass";
+import { InputPass } from "../core/input_pass";
 
 namespace Headless {
     // Port of Donut-Samples' headless.cpp: runs a compute shader on a device without a window and
@@ -105,6 +105,8 @@ namespace Headless {
     }
 
     export function main(argc: int, argv: Ref<string>): int {
+        // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
+        Donut_SetAppName("headless");
         // The C++ sample does this in release builds only.
         Donut_SetLogMinSeverity(LogSeverity.Warning);
 

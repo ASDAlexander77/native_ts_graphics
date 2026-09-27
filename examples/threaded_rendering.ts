@@ -1,6 +1,6 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
-import { InputPass } from "./input_pass";
+import { InputPass } from "../core/input_pass";
 
 namespace ThreadedRendering {
     // GLFW values, as passed to the keyboard callback.
@@ -139,6 +139,8 @@ namespace ThreadedRendering {
     }
 
     export function main(argc: int, argv: Ref<string>): int {
+        // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
+        Donut_SetAppName("threaded_rendering");
 
         if (Donut_GetGraphicsAPIFromCommandLine(argc, argv) == GraphicsAPI.D3D11) {
             console.log("The Threaded Rendering example does not support D3D11.");
