@@ -4,3 +4,4 @@
 /build-dlss
 /build-release-dlss
 __pycache__/
+__jit/

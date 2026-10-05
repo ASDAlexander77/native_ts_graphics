@@ -341,7 +341,17 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/vertex_buffer
 )
 add_tslang_example(vertex_buffer)
-configure_file(media/nvidia-logo.png ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/nvidia-logo.png COPYONLY)
+
+# The whole media folder goes next to the executables, at build time so files added to it later are
+# picked up without reconfiguring. copy_directory_if_different needs CMake 3.26.
+if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.26)
+    set(MEDIA_COPY_COMMAND copy_directory_if_different)
+else()
+    set(MEDIA_COPY_COMMAND copy_directory)
+endif()
+add_custom_target(copy_media ALL
+    COMMAND ${CMAKE_COMMAND} -E ${MEDIA_COPY_COMMAND} "${CMAKE_CURRENT_SOURCE_DIR}/media" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media"
+    COMMENT "Copying media to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
 
 # Port of Donut-Samples' threaded_rendering: no shaders of its own (Donut's forward shading).
 # It renders Sponza from Khronos' glTF-Sample-Assets (52 MB, not in this repo); point this at a
@@ -366,7 +376,7 @@ endif()
 add_tslang_example(threaded_rendering)
 
 # Port of Donut-Samples' deferred_shading: no shaders of its own (Donut's G-buffer fill and
-# deferred lighting passes); uses media/nvidia-logo.png, copied above.
+# deferred lighting passes); uses media/nvidia-logo.png, copied with the media folder above.
 add_tslang_example(deferred_shading)
 
 # Port of Donut-Samples' rt_shadows: ray traced sun shadows on Sponza (see DONUT_SAMPLES_MEDIA_DIR
