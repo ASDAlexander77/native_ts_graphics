@@ -21,21 +21,51 @@ set(CMAKE_CXX_EXTENSIONS ON)
 # Include folders
 include_directories(${CMAKE_TSLANG_DIR}/defaultlib)
 
-# The compiled default lib is split into per-build subfolders (debug/release) and then per
-# memory model (gc/rc/none); pick the pair matching this build, so that the CRT, the allocator
-# and the default-lib binaries all agree. A library built for one model cannot be linked into
-# a program built for another.
+# The compiled default lib is split into per-target subfolders, then per build (debug/release),
+# then per memory model (gc/rc/none); tslang names the one matching this build (below), so that
+# the CRT, the allocator and the default-lib binaries all agree. A library built for one model
+# cannot be linked into a program built for another. tslang tells the debug build by --di, as it
+# does when it links itself.
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
-	set(TSLANG_DEFAULTLIB_BUILD "release")
+	set(TSLANG_DEFAULTLIB_BUILD_FLAG "")
 else()
-	set(TSLANG_DEFAULTLIB_BUILD "debug")
+	set(TSLANG_DEFAULTLIB_BUILD_FLAG "--di")
 endif()
 
 set(TSLANG_MEMORY_MODEL "gc" CACHE STRING "Memory model of compiled code: gc, rc or none")
 set_property(CACHE TSLANG_MEMORY_MODEL PROPERTY STRINGS gc rc none)
 
+# Android (the NDK's toolchain file, see the android-* presets): the TypeScript is compiled for the
+# toolchain's ABI and API level, the same triple the C++ is compiled for, and that triple also picks
+# the default lib below. Objects for Android are position independent without -relocation-model.
+if (ANDROID)
+	if (CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
+		set(TSLANG_ANDROID_ARCH "aarch64")
+	elseif (CMAKE_ANDROID_ARCH_ABI STREQUAL "x86_64")
+		set(TSLANG_ANDROID_ARCH "x86_64")
+	else()
+		message(FATAL_ERROR "No tslang runtime for the Android ABI '${CMAKE_ANDROID_ARCH_ABI}': use arm64-v8a or x86_64")
+	endif()
+	set(TSLANG_TARGET_TRIPLE_FLAG "-mtriple=${TSLANG_ANDROID_ARCH}-linux-android${CMAKE_SYSTEM_VERSION}")
+else()
+	set(TSLANG_TARGET_TRIPLE_FLAG "")
+endif()
+
+execute_process(COMMAND "${CMAKE_TSLANG_COMPILER}" --print-default-lib-dir=lib ${TSLANG_DEFAULTLIB_BUILD_FLAG} -mm=${TSLANG_MEMORY_MODEL} ${TSLANG_TARGET_TRIPLE_FLAG}
+	OUTPUT_VARIABLE TSLANG_DEFAULTLIB_SUBDIR
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	COMMAND_ERROR_IS_FATAL ANY)
+
 # Lib folders
-link_directories(${CMAKE_TSLANG_DIR} ${CMAKE_TSLANG_DIR}/defaultlib/lib/${TSLANG_DEFAULTLIB_BUILD}/${TSLANG_MEMORY_MODEL})
+if (ANDROID)
+	# The collector and the async runtime built for Android sit in a folder per ABI, not next to
+	# tslang where the host's are.
+	set(TSLANG_ANDROID_LIB_DIR "${CMAKE_TSLANG_DIR}/android/${CMAKE_ANDROID_ARCH_ABI}/lib" CACHE PATH
+		"libgc.a and libTypeScriptAsyncRuntime.a built for the Android ABI")
+	link_directories(${CMAKE_TSLANG_DIR}/${TSLANG_DEFAULTLIB_SUBDIR} ${TSLANG_ANDROID_LIB_DIR})
+else()
+	link_directories(${CMAKE_TSLANG_DIR} ${CMAKE_TSLANG_DIR}/${TSLANG_DEFAULTLIB_SUBDIR})
+endif()
 
 # set options
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -46,7 +76,7 @@ endif()
 
 # The same variable that picked the link directory has to reach the compiler as well, or the
 # program is compiled for one model and linked against another model's default lib.
-set(CMAKE_TSLANG_FLAGS "${CMAKE_TSLANG_FLAGS} -mm=${TSLANG_MEMORY_MODEL}") # global
+set(CMAKE_TSLANG_FLAGS "${CMAKE_TSLANG_FLAGS} -mm=${TSLANG_MEMORY_MODEL} ${TSLANG_TARGET_TRIPLE_FLAG}") # global
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -78,6 +108,9 @@ set(DONUT_PATCHES
     # GLFW's joystick enumeration can stall startup for tens of seconds on Windows; none of the
     # examples read joysticks.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/DeviceManager-skip-joystick-init-by-default.patch"
+    # Building with the Android NDK: Bionic has glob but no glob64, libc++ needs <sstream> spelled
+    # out, and neither stdc++fs nor a separate pthread library exists there.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-build-for-Android.patch"
 )
 
 find_package(Git QUIET)
@@ -149,6 +182,39 @@ endif()
 #   policies as of 3.10 instead (it says it was validated with 3.13's).
 # Both only for the Donut subtree. The ASM check runs only when the compiler is first detected,
 # so the warning showed on a fresh configure only.
+if (ANDROID)
+    # GLFW has no Android backend; Android counts as UNIX, so it would build X11 and Wayland
+    # support. Only its null platform remains, enough to link Donut: a headless device never
+    # calls glfwInit. A window needs an Android DeviceManager instead (not there yet).
+    set(GLFW_BUILD_X11 OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+
+    # ShaderMake runs at build time, so it has to be a program for this machine, not one built
+    # with the NDK: take the one a desktop build of this project made. Donut then doesn't build
+    # it (it checks for the target), which leaves out ShaderMakeBlob too, so that is built here.
+    find_program(DONUT_HOST_SHADERMAKE ShaderMake
+        HINTS "${CMAKE_CURRENT_SOURCE_DIR}/build-release/bin" "${CMAKE_CURRENT_SOURCE_DIR}/build/bin"
+        DOC "ShaderMake built for the host (by a desktop build of this project)"
+        NO_CMAKE_FIND_ROOT_PATH)
+    if (NOT DONUT_HOST_SHADERMAKE)
+        message(FATAL_ERROR "No ShaderMake for the host: build the desktop preset first "
+                            "(cmake --preset release && cmake --build --preset release --target ShaderMake), "
+                            "or set DONUT_HOST_SHADERMAKE")
+    endif()
+    add_executable(ShaderMake IMPORTED GLOBAL)
+    set_target_properties(ShaderMake PROPERTIES IMPORTED_LOCATION "${DONUT_HOST_SHADERMAKE}")
+    set(SHADERMAKE_PATH ShaderMake CACHE INTERNAL "")
+
+    # Vulkan only, so SPIR-V only: DXC from the Vulkan SDK.
+    find_program(SHADERMAKE_DXC_VK_PATH dxc
+        HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin"
+        DOC "DXC with SPIR-V output (Vulkan SDK)"
+        NO_CMAKE_FIND_ROOT_PATH)
+
+    add_library(ShaderMakeBlob STATIC external/Donut/ShaderMake/ShaderMake/ShaderBlob.cpp)
+    target_include_directories(ShaderMakeBlob PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/ShaderMake")
+endif()
+
 set(CMAKE_PROJECT_zstd_INCLUDE_BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/zstd_policies.cmake")
 set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 add_subdirectory(external/Donut)
@@ -199,12 +265,15 @@ configure_donut_interop(donut_interop)
 # It sits next to bin/shaders and bin/media, where it looks them up (see Donut_SetAppName).
 # The functions have no dllexport, so export all of core/donut_interop.cpp's symbols; its import library
 # is renamed so it doesn't overwrite the static donut_interop.lib.
-add_library(donut_interop_shared SHARED core/donut_interop.cpp)
-configure_donut_interop(donut_interop_shared)
-set_target_properties(donut_interop_shared PROPERTIES
-    OUTPUT_NAME donut_interop
-    ARCHIVE_OUTPUT_NAME donut_interop_shared
-    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+# There is no JIT on Android, so no shared build there either.
+if (NOT ANDROID)
+    add_library(donut_interop_shared SHARED core/donut_interop.cpp)
+    configure_donut_interop(donut_interop_shared)
+    set_target_properties(donut_interop_shared PROPERTIES
+        OUTPUT_NAME donut_interop
+        ARCHIVE_OUTPUT_NAME donut_interop_shared
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 
 # With DONUT_WITH_DLSS, NGX loads nvngx_dlss.dll from the directory of the executable (of
 # donut_interop.dll under the JIT): bin/, where both are. Set by Donut's cmake/DLSS.cmake.
@@ -214,7 +283,9 @@ function(copy_dlss_library target)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLSS_SHARED_LIBRARY_PATH}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
     endif()
 endfunction()
-copy_dlss_library(donut_interop_shared)
+if (TARGET donut_interop_shared)
+    copy_dlss_library(donut_interop_shared)
+endif()
 
 # required libs
 set(TSLANG_LINK_LIBS "TypeScriptDefaultLib" "TypeScriptAsyncRuntime")
@@ -225,7 +296,10 @@ if (TSLANG_MEMORY_MODEL STREQUAL "gc")
     list(APPEND TSLANG_LINK_LIBS "gc")
 endif()
 
-if(NOT WIN32)
+if(ANDROID)
+    # Bionic's libc holds pthread and rt; the C++ runtime is the toolchain's ANDROID_STL.
+    list(APPEND TSLANG_LINK_LIBS "m" "dl")
+elseif(NOT WIN32)
     list(APPEND TSLANG_LINK_LIBS "stdc++" "m" "pthread" "dl" "rt")
 endif()
 
@@ -247,19 +321,24 @@ set_source_files_properties(${TSLANG_SHARED_SOURCES} PROPERTIES OBJECT_DEPENDS "
 # --shared-libs after donut_interop.dll (which it calls into, through its import library) and the
 # DLL build of the default library it links, copied next to it (see run_jit.bat). Run from a
 # directory without an input_pass.dll, so the import reads input_pass.ts as in the build above.
-set(TSLANG_DEFAULTLIB_DLL
-    "${CMAKE_TSLANG_DIR}/defaultlib/dll/${TSLANG_DEFAULTLIB_BUILD}/${TSLANG_MEMORY_MODEL}/TypeScriptDefaultLib.dll")
-separate_arguments(TSLANG_FLAGS_LIST NATIVE_COMMAND "${CMAKE_TSLANG_FLAGS}")
-add_custom_command(
-    OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll"
-    COMMAND "${CMAKE_TSLANG_COMPILER}" ${TSLANG_FLAGS_LIST} "--default-lib-path=${CMAKE_TSLANG_DIR}" --emit=dll
-        "--obj=$<TARGET_LINKER_FILE:donut_interop_shared>"
-        "-o=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll" "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TSLANG_DEFAULTLIB_DLL}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts" ${TSLANG_SHARED_INCLUDES} donut_interop_shared
-    WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-    COMMENT "Building input_pass.dll for the JIT")
-add_custom_target(tslang_shared_dll ALL DEPENDS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll")
+if (NOT ANDROID)
+    execute_process(COMMAND "${CMAKE_TSLANG_COMPILER}" --print-default-lib-dir=dll ${TSLANG_DEFAULTLIB_BUILD_FLAG} -mm=${TSLANG_MEMORY_MODEL}
+        OUTPUT_VARIABLE TSLANG_DEFAULTLIB_DLL_SUBDIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY)
+    set(TSLANG_DEFAULTLIB_DLL "${CMAKE_TSLANG_DIR}/${TSLANG_DEFAULTLIB_DLL_SUBDIR}/TypeScriptDefaultLib.dll")
+    separate_arguments(TSLANG_FLAGS_LIST NATIVE_COMMAND "${CMAKE_TSLANG_FLAGS}")
+    add_custom_command(
+        OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll"
+        COMMAND "${CMAKE_TSLANG_COMPILER}" ${TSLANG_FLAGS_LIST} "--default-lib-path=${CMAKE_TSLANG_DIR}" --emit=dll
+            "--obj=$<TARGET_LINKER_FILE:donut_interop_shared>"
+            "-o=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll" "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TSLANG_DEFAULTLIB_DLL}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts" ${TSLANG_SHARED_INCLUDES} donut_interop_shared
+        WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        COMMENT "Building input_pass.dll for the JIT")
+    add_custom_target(tslang_shared_dll ALL DEPENDS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/input_pass.dll")
+endif()
 
 # One executable per example, built from examples/<name>.ts, plus any further sources given after the name.
 # Its shaders, if any (the <name>_shaders target), must be compiled into

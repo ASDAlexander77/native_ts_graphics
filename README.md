@@ -52,9 +52,37 @@ the build matching the model it was compiled with. One variable drives both:
 cmake --preset default -DTSLANG_MEMORY_MODEL=rc
 ```
 
-It selects `defaultlib/lib/<debug|release>/<model>` as the link directory and adds `-mm=<model>`
-to the compile flags, so the two cannot disagree. Valid values are `gc` (default), `rc` and
-`none`; only `gc` links Boehm.
+It selects `defaultlib/lib/<target>/<debug|release>/<model>` (on Windows
+`defaultlib/lib/x86_64/pc/windows/msvc/release/gc`, as `tslang --print-default-lib-dir=lib` names
+it) as the link directory and adds `-mm=<model>` to the compile flags, so the two cannot disagree.
+Valid values are `gc` (default), `rc` and `none`; only `gc` links Boehm.
+
+## Android
+
+The `android-x86_64` (emulator) and `android-arm64` (devices) presets cross-compile with the
+Android NDK for API 29, Vulkan only. So far only `headless` runs there: Donut has no Android
+window yet (GLFW is built with its null platform only), so the windowed examples build but have
+no window to open.
+
+Shaders are compiled at build time by ShaderMake, which has to run on this machine, so build the
+desktop preset first; its `build-release/bin/ShaderMake.exe` is found (or set
+`DONUT_HOST_SHADERMAKE`). DXC comes from the Vulkan SDK.
+
+```
+set ANDROID_NDK_HOME=C:\Android\android-ndk-r30
+cmake --preset android-x86_64
+cmake --build --preset android-x86_64 --target headless
+```
+
+`bin/` holds the executable and its shaders; run it from that folder on the device or emulator:
+
+```
+adb push build-android-x86_64/bin /data/local/tmp/
+adb shell "cd /data/local/tmp/bin && ./headless"
+```
+
+The default library comes from tslang's tree for the Android triple; the collector and the async
+runtime from `<tslang>/android/<abi>/lib` (`TSLANG_ANDROID_LIB_DIR`).
 
 ## Minimal alternative
 

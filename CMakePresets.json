@@ -45,6 +45,30 @@
       "cacheVariables": {
         "DONUT_WITH_DLSS": "ON"
       }
+    },
+    {
+      "name": "android-x86_64",
+      "displayName": "Android x86_64 Release (Ninja, NDK)",
+      "description": "Release for Android x86_64 (the emulator), API 29, Vulkan only. Needs ANDROID_NDK_HOME, and a desktop build first for its ShaderMake.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-android-x86_64",
+      "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ANDROID_ABI": "x86_64",
+        "ANDROID_PLATFORM": "android-29",
+        "ANDROID_STL": "c++_static"
+      }
+    },
+    {
+      "name": "android-arm64",
+      "displayName": "Android arm64 Release (Ninja, NDK)",
+      "description": "Release for Android arm64-v8a (devices), API 29, Vulkan only. Needs ANDROID_NDK_HOME, and a desktop build first for its ShaderMake.",
+      "inherits": "android-x86_64",
+      "binaryDir": "${sourceDir}/build-android-arm64",
+      "cacheVariables": {
+        "ANDROID_ABI": "arm64-v8a"
+      }
     }
   ],
   "buildPresets": [
@@ -63,6 +87,14 @@
     {
       "name": "release-dlss",
       "configurePreset": "release-dlss"
+    },
+    {
+      "name": "android-x86_64",
+      "configurePreset": "android-x86_64"
+    },
+    {
+      "name": "android-arm64",
+      "configurePreset": "android-arm64"
     }
   ]
 }

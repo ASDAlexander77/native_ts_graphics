@@ -5,3 +5,5 @@
 /build-release-dlss
 __pycache__/
 __jit/
+/build-android-x86_64
+/build-android-arm64
