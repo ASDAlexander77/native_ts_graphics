@@ -82,9 +82,17 @@ def make_debug_keystore(keystore, java_home, env):
     if not keytool:
         fail("no keytool to make a debug keystore with: pass --java-home (a JDK)")
     os.makedirs(os.path.dirname(os.path.abspath(keystore)), exist_ok=True)
-    run([keytool, "-genkeypair", "-keystore", keystore, "-storepass", KEY_PASSWORD, "-keypass", KEY_PASSWORD,
+    # The APK targets build in parallel, and each makes it if it isn't there: make it under another
+    # name and link it into place, which fails for all but the first, so all sign with that one.
+    made = f"{keystore}.{os.getpid()}"
+    run([keytool, "-genkeypair", "-keystore", made, "-storepass", KEY_PASSWORD, "-keypass", KEY_PASSWORD,
          "-alias", KEY_ALIAS, "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
          "-dname", "CN=Android Debug,O=Android,C=US"], env=env)
+    try:
+        os.link(made, keystore)
+    except FileExistsError:
+        pass
+    os.remove(made)
 
 
 def stage_assets(assets, folder):
