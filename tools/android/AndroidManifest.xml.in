@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An example as a NativeActivity app: no Java code, the activity loads lib@NAME@.so (core/android_main.cpp).
+     Filled in by tools/package_apk.py. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="@PACKAGE@"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="@MIN_SDK@" android:targetSdkVersion="@TARGET_SDK@" />
+
+    <!-- The native library is stored uncompressed and page aligned, and loaded from the APK. -->
+    <application
+        android:label="@LABEL@"
+        android:hasCode="false"
+        android:extractNativeLibs="false">
+
+        <!-- configChanges: a rotation or a resize reaches the app as a new window size instead of
+             recreating the activity, which would end it (an example runs once per process). -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:label="@LABEL@"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density">
+            <meta-data android:name="android.app.lib_name" android:value="@NAME@" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

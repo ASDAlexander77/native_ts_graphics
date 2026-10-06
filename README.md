@@ -60,9 +60,7 @@ Valid values are `gc` (default), `rc` and `none`; only `gc` links Boehm.
 ## Android
 
 The `android-x86_64` (emulator) and `android-arm64` (devices) presets cross-compile with the
-Android NDK for API 29, Vulkan only. So far only `headless` runs there: Donut has no Android
-window yet (GLFW is built with its null platform only), so the windowed examples build but have
-no window to open.
+Android NDK for API 29, Vulkan only.
 
 Shaders are compiled at build time by ShaderMake, which has to run on this machine, so build the
 desktop preset first; its `build-release/bin/ShaderMake.exe` is found (or set
@@ -71,10 +69,31 @@ desktop preset first; its `build-release/bin/ShaderMake.exe` is found (or set
 ```
 set ANDROID_NDK_HOME=C:\Android\android-ndk-r30
 cmake --preset android-x86_64
-cmake --build --preset android-x86_64 --target headless
+cmake --build --preset android-x86_64 --target basic_triangle_apk
 ```
 
-`bin/` holds the executable and its shaders; run it from that folder on the device or emulator:
+Each example is an app, `<example>_apk` (not built by default): `bin/<example>.apk`, a
+NativeActivity running `lib<example>.so` (the example with `core/android_main.cpp`), with its
+shaders and the media its `add_tslang_example(<example> MEDIA ...)` lists (the files and folders
+of `media/` it reads), signed with a debug key made in the build folder. Packaging
+(`tools/package_apk.py`) needs the Android SDK's build tools and platform 29 (`ANDROID_HOME`, or
+the SDK next to the NDK, or `ANDROID_SDK_DIR`), a JDK (`JAVA_HOME`, or `ANDROID_JAVA_HOME`) and
+Python.
+
+```
+adb install -r build-android-x86_64/bin/basic_triangle.apk
+adb shell am start -n org.powdertoy_game.basic_triangle/android.app.NativeActivity
+adb logcat -s basic_triangle
+```
+
+The window is the activity's, through GLFW's Android platform
+(`patches/glfw-android-platform.patch`): touch drives the mouse cursor and left button, Back is
+Escape, and the display density is the content scale. What the examples print goes to logcat
+under their name. An example runs once per process: Back, or the activity leaving the screen,
+closes it and the process exits. Their shaders and media are extracted into the app's storage on
+the first start after an install.
+
+`headless` needs no window, and runs as a plain executable as well, from `bin/`:
 
 ```
 adb push build-android-x86_64/bin /data/local/tmp/

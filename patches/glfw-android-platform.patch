@@ -1,0 +1,856 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a3cb1fe6..b189ca69 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -34,8 +34,9 @@ endif()
+ 
+ cmake_dependent_option(GLFW_BUILD_WIN32 "Build support for Win32" ON "WIN32" OFF)
+ cmake_dependent_option(GLFW_BUILD_COCOA "Build support for Cocoa" ON "APPLE" OFF)
+-cmake_dependent_option(GLFW_BUILD_X11 "Build support for X11" ON "UNIX;NOT APPLE" OFF)
+-cmake_dependent_option(GLFW_BUILD_WAYLAND "Build support for Wayland" ON "UNIX;NOT APPLE" OFF)
++cmake_dependent_option(GLFW_BUILD_X11 "Build support for X11" ON "UNIX;NOT APPLE;NOT ANDROID" OFF)
++cmake_dependent_option(GLFW_BUILD_WAYLAND "Build support for Wayland" ON "UNIX;NOT APPLE;NOT ANDROID" OFF)
++cmake_dependent_option(GLFW_BUILD_ANDROID "Build support for Android (NativeActivity, Vulkan)" ON "ANDROID" OFF)
+ 
+ cmake_dependent_option(GLFW_USE_HYBRID_HPG "Force use of high-performance GPU on hybrid systems" OFF
+                        "WIN32" OFF)
+diff --git a/include/GLFW/glfw3.h b/include/GLFW/glfw3.h
+index 9c55ac9d..fe3149d1 100644
+--- a/include/GLFW/glfw3.h
++++ b/include/GLFW/glfw3.h
+@@ -1341,6 +1341,7 @@ extern "C" {
+ #define GLFW_PLATFORM_WAYLAND       0x00060003
+ #define GLFW_PLATFORM_X11           0x00060004
+ #define GLFW_PLATFORM_NULL          0x00060005
++#define GLFW_PLATFORM_ANDROID       0x00060006
+ /*! @} */
+ 
+ #define GLFW_DONT_CARE              -1
+diff --git a/include/GLFW/glfw3native.h b/include/GLFW/glfw3native.h
+index 92f0d324..eac716f0 100644
+--- a/include/GLFW/glfw3native.h
++++ b/include/GLFW/glfw3native.h
+@@ -123,6 +123,10 @@ extern "C" {
+   #include <wayland-client.h>
+  #endif
+ 
++ #if defined(GLFW_EXPOSE_NATIVE_ANDROID)
++  #include <android/native_window.h>
++ #endif
++
+  #if defined(GLFW_EXPOSE_NATIVE_WGL)
+   /* WGL is declared by windows.h */
+  #endif
+@@ -533,6 +537,40 @@ GLFWAPI struct wl_output* glfwGetWaylandMonitor(GLFWmonitor* monitor);
+ GLFWAPI struct wl_surface* glfwGetWaylandWindow(GLFWwindow* window);
+ #endif
+ 
++#if defined(GLFW_EXPOSE_NATIVE_ANDROID)
++struct android_app;
++
++/*! @brief Hands GLFW the NativeActivity it runs in.
++ *
++ *  The Android platform takes its window, its input and its lifecycle events
++ *  from the `android_app` of `android_native_app_glue`, so this must be called,
++ *  from the thread running `android_main`, before @ref glfwInit.
++ *
++ *  @param[in] app The `android_app` passed to `android_main`.
++ *
++ *  @thread_safety This function must only be called from the thread running
++ *  `android_main`.
++ *
++ *  @ingroup native
++ */
++GLFWAPI void glfwSetAndroidApp(struct android_app* app);
++
++/*! @brief Returns the `ANativeWindow` of the specified window.
++ *
++ *  @return The `ANativeWindow` of the specified window, or `NULL` if an
++ *  [error](@ref error_handling) occurred or the activity has no window now.
++ *
++ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED and @ref
++ *  GLFW_PLATFORM_UNAVAILABLE.
++ *
++ *  @thread_safety This function may be called from any thread.  Access is not
++ *  synchronized.
++ *
++ *  @ingroup native
++ */
++GLFWAPI ANativeWindow* glfwGetAndroidWindow(GLFWwindow* window);
++#endif
++
+ #if defined(GLFW_EXPOSE_NATIVE_EGL)
+ /*! @brief Returns the `EGLDisplay` used by GLFW.
+  *
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 1057a6f9..affe6a73 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -56,6 +56,16 @@ if (GLFW_BUILD_WAYLAND)
+                                 wl_monitor.c wl_window.c xkb_unicode.c)
+ endif()
+ 
++if (GLFW_BUILD_ANDROID)
++    # The window, input and lifecycle come from android_native_app_glue, which the application
++    # builds (it defines ANativeActivity_onCreate and calls the application's android_main);
++    # only its header is needed here. Android's Vulkan loader has no versioned name.
++    target_compile_definitions(glfw PRIVATE _GLFW_ANDROID _GLFW_VULKAN_LIBRARY="libvulkan.so")
++    target_sources(glfw PRIVATE android_platform.h android_window.c)
++    target_include_directories(glfw PRIVATE "${ANDROID_NDK}/sources/android/native_app_glue")
++    target_link_libraries(glfw PRIVATE android)
++endif()
++
+ if (GLFW_BUILD_X11 OR GLFW_BUILD_WAYLAND)
+     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+         target_sources(glfw PRIVATE linux_joystick.h linux_joystick.c)
+diff --git a/src/android_platform.h b/src/android_platform.h
+new file mode 100644
+index 00000000..276a5aba
+--- /dev/null
++++ b/src/android_platform.h
+@@ -0,0 +1,35 @@
++//========================================================================
++// GLFW 3.4 Android - www.glfw.org
++//------------------------------------------------------------------------
++// Added to GLFW for Donut on Android; under GLFW's license:
++//
++// This software is provided 'as-is', without any express or implied
++// warranty. In no event will the authors be held liable for any damages
++// arising from the use of this software.
++//
++// Permission is granted to anyone to use this software for any purpose,
++// including commercial applications, and to alter it and redistribute it
++// freely, subject to the following restrictions:
++//
++// 1. The origin of this software must not be misrepresented; you must not
++//    claim that you wrote the original software. If you use this software
++//    in a product, an acknowledgment in the product documentation would
++//    be appreciated but is not required.
++//
++// 2. Altered source versions must be plainly marked as such, and must not
++//    be misrepresented as being the original software.
++//
++// 3. This notice may not be removed or altered from any source
++//    distribution.
++//
++//========================================================================
++
++// The Android platform runs in a NativeActivity through android_native_app_glue: its one window
++// is the activity's ANativeWindow, its events come from the activity's looper, and it presents
++// with Vulkan (VK_KHR_android_surface). There is no OpenGL context support. Everything an
++// activity has no notion of (window position, monitors, cursors, joysticks) is the null
++// platform's, which also keeps the window's state (window->null).
++
++#include <android/native_window.h>
++
++GLFWbool _glfwConnectAndroid(int platformID, _GLFWplatform* platform);
+diff --git a/src/android_window.c b/src/android_window.c
+new file mode 100644
+index 00000000..63b476dc
+--- /dev/null
++++ b/src/android_window.c
+@@ -0,0 +1,648 @@
++//========================================================================
++// GLFW 3.4 Android - www.glfw.org
++//------------------------------------------------------------------------
++// Added to GLFW for Donut on Android; under GLFW's license:
++//
++// This software is provided 'as-is', without any express or implied
++// warranty. In no event will the authors be held liable for any damages
++// arising from the use of this software.
++//
++// Permission is granted to anyone to use this software for any purpose,
++// including commercial applications, and to alter it and redistribute it
++// freely, subject to the following restrictions:
++//
++// 1. The origin of this software must not be misrepresented; you must not
++//    claim that you wrote the original software. If you use this software
++//    in a product, an acknowledgment in the product documentation would
++//    be appreciated but is not required.
++//
++// 2. Altered source versions must be plainly marked as such, and must not
++//    be misrepresented as being the original software.
++//
++// 3. This notice may not be removed or altered from any source
++//    distribution.
++//
++//========================================================================
++
++#include "internal.h"
++
++#include <string.h>
++
++#include <android/configuration.h>
++#include <android/input.h>
++#include <android/keycodes.h>
++#include <android/looper.h>
++#include <android/native_window.h>
++#include <android_native_app_glue.h>
++
++typedef VkFlags VkAndroidSurfaceCreateFlagsKHR;
++
++typedef struct VkAndroidSurfaceCreateInfoKHR
++{
++    VkStructureType                 sType;
++    const void*                     pNext;
++    VkAndroidSurfaceCreateFlagsKHR  flags;
++    ANativeWindow*                  window;
++} VkAndroidSurfaceCreateInfoKHR;
++
++typedef VkResult (APIENTRY *PFN_vkCreateAndroidSurfaceKHR)(VkInstance,const VkAndroidSurfaceCreateInfoKHR*,const VkAllocationCallbacks*,VkSurfaceKHR*);
++
++#define GLFW_VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR ((VkStructureType) 1000008000)
++
++// An activity has one window, so the platform's state is global
++static struct
++{
++    // set by glfwSetAndroidApp, before glfwInit
++    struct android_app* app;
++    // the GLFW window standing for the activity's window, if one was created
++    _GLFWwindow*        window;
++    float               contentScale;
++    // the pointer that drives the cursor and the left mouse button, -1 while none is down
++    int32_t             pointerId;
++} _glfwAndroid = { NULL, NULL, 1.f, -1 };
++
++
++//////////////////////////////////////////////////////////////////////////
++//////                       GLFW internal API                      //////
++//////////////////////////////////////////////////////////////////////////
++
++// Android's density buckets are relative to 160 dpi, the density of a scale of 1
++//
++static void updateContentScale(void)
++{
++    int32_t density = ACONFIGURATION_DENSITY_DEFAULT;
++    if (_glfwAndroid.app->config)
++        density = AConfiguration_getDensity(_glfwAndroid.app->config);
++
++    float scale = 1.f;
++    if (density != ACONFIGURATION_DENSITY_DEFAULT &&
++        density != ACONFIGURATION_DENSITY_NONE &&
++        density != ACONFIGURATION_DENSITY_ANY)
++    {
++        scale = density / (float) ACONFIGURATION_DENSITY_MEDIUM;
++    }
++
++    if (scale != _glfwAndroid.contentScale)
++    {
++        _glfwAndroid.contentScale = scale;
++        if (_glfwAndroid.window)
++            _glfwInputWindowContentScale(_glfwAndroid.window, scale, scale);
++    }
++}
++
++// The window's size is the native window's, which changes with a rotation or a split screen; the
++// size queries return the size recorded here, which stays valid while the activity has no window
++//
++static void updateWindowSize(void)
++{
++    _GLFWwindow* window = _glfwAndroid.window;
++    ANativeWindow* native = _glfwAndroid.app->window;
++    if (!window || !native)
++        return;
++
++    const int width = ANativeWindow_getWidth(native);
++    const int height = ANativeWindow_getHeight(native);
++    if (width <= 0 || height <= 0)
++        return;
++
++    if (width != window->null.width || height != window->null.height)
++    {
++        window->null.width = width;
++        window->null.height = height;
++        _glfwInputWindowSize(window, width, height);
++        _glfwInputFramebufferSize(window, width, height);
++    }
++}
++
++static void handleCommand(struct android_app* app, int32_t cmd)
++{
++    _GLFWwindow* window = _glfwAndroid.window;
++
++    switch (cmd)
++    {
++        case APP_CMD_INIT_WINDOW:
++        case APP_CMD_WINDOW_RESIZED:
++        case APP_CMD_CONTENT_RECT_CHANGED:
++            updateWindowSize();
++            break;
++
++        case APP_CMD_CONFIG_CHANGED:
++            updateContentScale();
++            updateWindowSize();
++            break;
++
++        case APP_CMD_TERM_WINDOW:
++        case APP_CMD_DESTROY:
++            // The native window goes away when the activity stops (sent to the background or
++            // finishing), and a Vulkan surface can't present to it any more. Rather than wait
++            // for another one, the application is asked to close.
++            if (window)
++                _glfwInputWindowCloseRequest(window);
++            break;
++
++        case APP_CMD_GAINED_FOCUS:
++            if (window)
++                _glfwInputWindowFocus(window, GLFW_TRUE);
++            break;
++
++        case APP_CMD_LOST_FOCUS:
++            if (window)
++                _glfwInputWindowFocus(window, GLFW_FALSE);
++            break;
++
++        default:
++            break;
++    }
++}
++
++static int translateKey(int32_t keycode)
++{
++    if (keycode >= AKEYCODE_A && keycode <= AKEYCODE_Z)
++        return GLFW_KEY_A + (keycode - AKEYCODE_A);
++    if (keycode >= AKEYCODE_0 && keycode <= AKEYCODE_9)
++        return GLFW_KEY_0 + (keycode - AKEYCODE_0);
++    if (keycode >= AKEYCODE_F1 && keycode <= AKEYCODE_F12)
++        return GLFW_KEY_F1 + (keycode - AKEYCODE_F1);
++
++    switch (keycode)
++    {
++        // the back button (or gesture): Escape, which closes the examples
++        case AKEYCODE_BACK:           return GLFW_KEY_ESCAPE;
++        case AKEYCODE_ESCAPE:         return GLFW_KEY_ESCAPE;
++        case AKEYCODE_SPACE:          return GLFW_KEY_SPACE;
++        case AKEYCODE_ENTER:          return GLFW_KEY_ENTER;
++        case AKEYCODE_NUMPAD_ENTER:   return GLFW_KEY_KP_ENTER;
++        case AKEYCODE_TAB:            return GLFW_KEY_TAB;
++        case AKEYCODE_DEL:            return GLFW_KEY_BACKSPACE;
++        case AKEYCODE_FORWARD_DEL:    return GLFW_KEY_DELETE;
++        case AKEYCODE_INSERT:         return GLFW_KEY_INSERT;
++        case AKEYCODE_MOVE_HOME:      return GLFW_KEY_HOME;
++        case AKEYCODE_MOVE_END:       return GLFW_KEY_END;
++        case AKEYCODE_PAGE_UP:        return GLFW_KEY_PAGE_UP;
++        case AKEYCODE_PAGE_DOWN:      return GLFW_KEY_PAGE_DOWN;
++        case AKEYCODE_DPAD_LEFT:      return GLFW_KEY_LEFT;
++        case AKEYCODE_DPAD_RIGHT:     return GLFW_KEY_RIGHT;
++        case AKEYCODE_DPAD_UP:        return GLFW_KEY_UP;
++        case AKEYCODE_DPAD_DOWN:      return GLFW_KEY_DOWN;
++        case AKEYCODE_SHIFT_LEFT:     return GLFW_KEY_LEFT_SHIFT;
++        case AKEYCODE_SHIFT_RIGHT:    return GLFW_KEY_RIGHT_SHIFT;
++        case AKEYCODE_CTRL_LEFT:      return GLFW_KEY_LEFT_CONTROL;
++        case AKEYCODE_CTRL_RIGHT:     return GLFW_KEY_RIGHT_CONTROL;
++        case AKEYCODE_ALT_LEFT:       return GLFW_KEY_LEFT_ALT;
++        case AKEYCODE_ALT_RIGHT:      return GLFW_KEY_RIGHT_ALT;
++        case AKEYCODE_COMMA:          return GLFW_KEY_COMMA;
++        case AKEYCODE_PERIOD:         return GLFW_KEY_PERIOD;
++        case AKEYCODE_MINUS:          return GLFW_KEY_MINUS;
++        case AKEYCODE_EQUALS:         return GLFW_KEY_EQUAL;
++        case AKEYCODE_LEFT_BRACKET:   return GLFW_KEY_LEFT_BRACKET;
++        case AKEYCODE_RIGHT_BRACKET:  return GLFW_KEY_RIGHT_BRACKET;
++        case AKEYCODE_BACKSLASH:      return GLFW_KEY_BACKSLASH;
++        case AKEYCODE_SEMICOLON:      return GLFW_KEY_SEMICOLON;
++        case AKEYCODE_APOSTROPHE:     return GLFW_KEY_APOSTROPHE;
++        case AKEYCODE_SLASH:          return GLFW_KEY_SLASH;
++        case AKEYCODE_GRAVE:          return GLFW_KEY_GRAVE_ACCENT;
++        default:                      return GLFW_KEY_UNKNOWN;
++    }
++}
++
++static int translateMods(int32_t metaState)
++{
++    int mods = 0;
++
++    if (metaState & AMETA_SHIFT_ON)
++        mods |= GLFW_MOD_SHIFT;
++    if (metaState & AMETA_CTRL_ON)
++        mods |= GLFW_MOD_CONTROL;
++    if (metaState & AMETA_ALT_ON)
++        mods |= GLFW_MOD_ALT;
++    if (metaState & AMETA_META_ON)
++        mods |= GLFW_MOD_SUPER;
++    if (metaState & AMETA_CAPS_LOCK_ON)
++        mods |= GLFW_MOD_CAPS_LOCK;
++    if (metaState & AMETA_NUM_LOCK_ON)
++        mods |= GLFW_MOD_NUM_LOCK;
++
++    return mods;
++}
++
++// The text a key types, for the keys whose text doesn't need the keyboard layout (Java's
++// KeyCharacterMap): letters, digits and space
++//
++static uint32_t keyCodepoint(int key, int mods)
++{
++    if (key >= GLFW_KEY_A && key <= GLFW_KEY_Z)
++    {
++        const GLFWbool upper = ((mods & GLFW_MOD_SHIFT) != 0) != ((mods & GLFW_MOD_CAPS_LOCK) != 0);
++        return (upper ? 'A' : 'a') + (key - GLFW_KEY_A);
++    }
++    if (key >= GLFW_KEY_0 && key <= GLFW_KEY_9 && !(mods & GLFW_MOD_SHIFT))
++        return '0' + (key - GLFW_KEY_0);
++    if (key == GLFW_KEY_SPACE)
++        return ' ';
++    return 0;
++}
++
++static int32_t handleKeyEvent(_GLFWwindow* window, const AInputEvent* event)
++{
++    const int32_t keycode = AKeyEvent_getKeyCode(event);
++    const int key = translateKey(keycode);
++    if (key == GLFW_KEY_UNKNOWN)
++        return 0;
++
++    const int mods = translateMods(AKeyEvent_getMetaState(event));
++
++    int action;
++    switch (AKeyEvent_getAction(event))
++    {
++        case AKEY_EVENT_ACTION_DOWN:
++            action = AKeyEvent_getRepeatCount(event) > 0 ? GLFW_REPEAT : GLFW_PRESS;
++            break;
++        case AKEY_EVENT_ACTION_UP:
++            action = GLFW_RELEASE;
++            break;
++        default:
++            return 0;
++    }
++
++    _glfwInputKey(window, key, keycode, action, mods);
++
++    if (action != GLFW_RELEASE)
++    {
++        const uint32_t codepoint = keyCodepoint(key, mods);
++        if (codepoint)
++            _glfwInputChar(window, codepoint, mods, GLFW_TRUE);
++    }
++
++    // Back is left to the system as well, so it also finishes the activity: an application
++    // that doesn't close on Escape still closes, through APP_CMD_TERM_WINDOW
++    return keycode == AKEYCODE_BACK ? 0 : 1;
++}
++
++static int32_t findPointer(const AInputEvent* event, int32_t pointerId)
++{
++    const size_t count = AMotionEvent_getPointerCount(event);
++    for (size_t i = 0;  i < count;  i++)
++    {
++        if (AMotionEvent_getPointerId(event, i) == pointerId)
++            return (int32_t) i;
++    }
++    return -1;
++}
++
++static void inputPointerPos(_GLFWwindow* window, const AInputEvent* event, size_t index)
++{
++    _glfw.null.xcursor = (int) AMotionEvent_getX(event, index);
++    _glfw.null.ycursor = (int) AMotionEvent_getY(event, index);
++    _glfwInputCursorPos(window, AMotionEvent_getX(event, index), AMotionEvent_getY(event, index));
++}
++
++// A touch, or a mouse, drives the cursor and the left mouse button: the first finger down does,
++// until it is lifted; the other fingers are ignored
++//
++static int32_t handleMotionEvent(_GLFWwindow* window, const AInputEvent* event)
++{
++    const int32_t action = AMotionEvent_getAction(event);
++    const int32_t index = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >>
++                          AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
++    const int mods = translateMods(AMotionEvent_getMetaState(event));
++
++    switch (action & AMOTION_EVENT_ACTION_MASK)
++    {
++        case AMOTION_EVENT_ACTION_DOWN:
++            _glfwAndroid.pointerId = AMotionEvent_getPointerId(event, 0);
++            inputPointerPos(window, event, 0);
++            _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, mods);
++            return 1;
++
++        case AMOTION_EVENT_ACTION_MOVE:
++        {
++            const int32_t pointer = findPointer(event, _glfwAndroid.pointerId);
++            if (pointer >= 0)
++                inputPointerPos(window, event, pointer);
++            return 1;
++        }
++
++        case AMOTION_EVENT_ACTION_HOVER_MOVE:
++            inputPointerPos(window, event, 0);
++            return 1;
++
++        case AMOTION_EVENT_ACTION_POINTER_UP:
++            if (AMotionEvent_getPointerId(event, index) != _glfwAndroid.pointerId)
++                return 1;
++            // the primary pointer is lifted while others stay down
++            inputPointerPos(window, event, index);
++            _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, mods);
++            _glfwAndroid.pointerId = -1;
++            return 1;
++
++        case AMOTION_EVENT_ACTION_UP:
++        case AMOTION_EVENT_ACTION_CANCEL:
++            if (_glfwAndroid.pointerId < 0)
++                return 1;
++            {
++                const int32_t pointer = findPointer(event, _glfwAndroid.pointerId);
++                if (pointer >= 0)
++                    inputPointerPos(window, event, pointer);
++            }
++            _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, mods);
++            _glfwAndroid.pointerId = -1;
++            return 1;
++
++        case AMOTION_EVENT_ACTION_SCROLL:
++            _glfwInputScroll(window,
++                             AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HSCROLL, 0),
++                             AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_VSCROLL, 0));
++            return 1;
++
++        default:
++            return 0;
++    }
++}
++
++static int32_t handleInput(struct android_app* app, AInputEvent* event)
++{
++    _GLFWwindow* window = _glfwAndroid.window;
++    if (!window)
++        return 0;
++
++    switch (AInputEvent_getType(event))
++    {
++        case AINPUT_EVENT_TYPE_KEY:
++            return handleKeyEvent(window, event);
++        case AINPUT_EVENT_TYPE_MOTION:
++            return handleMotionEvent(window, event);
++        default:
++            return 0;
++    }
++}
++
++// Runs what the activity's looper has: lifecycle commands and input, through the glue's sources.
++// Waits up to timeoutMillis (-1: indefinitely) for the first event, then takes whatever else is
++// already there.
++//
++static void pumpEvents(int timeoutMillis)
++{
++    struct android_app* app = _glfwAndroid.app;
++
++    for (;;)
++    {
++        int events;
++        struct android_poll_source* source = NULL;
++        const int id = ALooper_pollOnce(timeoutMillis, NULL, &events, (void**) &source);
++
++        if (id == ALOOPER_POLL_CALLBACK)
++        {
++            timeoutMillis = 0;
++            continue;
++        }
++
++        // timed out, woken (glfwPostEmptyEvent) or failed
++        if (id < 0)
++            break;
++
++        if (source)
++            source->process(app, source);
++
++        timeoutMillis = 0;
++    }
++
++    updateWindowSize();
++}
++
++static int _glfwInitAndroid(void)
++{
++    if (!_glfwAndroid.app)
++    {
++        _glfwInputError(GLFW_PLATFORM_UNAVAILABLE,
++                        "Android: glfwSetAndroidApp must be called before glfwInit");
++        return GLFW_FALSE;
++    }
++
++    _glfwAndroid.app->onAppCmd = handleCommand;
++    _glfwAndroid.app->onInputEvent = handleInput;
++    _glfwAndroid.pointerId = -1;
++    updateContentScale();
++
++    return _glfwInitNull();
++}
++
++static void _glfwTerminateAndroid(void)
++{
++    if (_glfwAndroid.app)
++    {
++        _glfwAndroid.app->onAppCmd = NULL;
++        _glfwAndroid.app->onInputEvent = NULL;
++    }
++
++    _glfwTerminateNull();
++}
++
++static GLFWbool _glfwCreateWindowAndroid(_GLFWwindow* window,
++                                         const _GLFWwndconfig* wndconfig,
++                                         const _GLFWctxconfig* ctxconfig,
++                                         const _GLFWfbconfig* fbconfig)
++{
++    struct android_app* app = _glfwAndroid.app;
++
++    if (_glfwAndroid.window)
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR, "Android: An activity has only one window");
++        return GLFW_FALSE;
++    }
++
++    if (ctxconfig->client != GLFW_NO_API)
++    {
++        _glfwInputError(GLFW_API_UNAVAILABLE,
++                        "Android: Only Vulkan is supported, create the window with GLFW_NO_API");
++        return GLFW_FALSE;
++    }
++
++    // The native window comes with APP_CMD_INIT_WINDOW, which can follow the start of the
++    // activity's thread by a while
++    while (!app->window)
++    {
++        if (app->destroyRequested)
++        {
++            _glfwInputError(GLFW_PLATFORM_ERROR,
++                            "Android: The activity was destroyed before it had a window");
++            return GLFW_FALSE;
++        }
++
++        pumpEvents(-1);
++    }
++
++    // The window is the size of the activity's, whatever size was asked for
++    _GLFWwndconfig config = *wndconfig;
++    config.xpos = 0;
++    config.ypos = 0;
++    config.width = ANativeWindow_getWidth(app->window);
++    config.height = ANativeWindow_getHeight(app->window);
++
++    if (!_glfwCreateWindowNull(window, &config, ctxconfig, fbconfig))
++        return GLFW_FALSE;
++
++    // a full screen window took the null monitor's size
++    window->null.xpos = 0;
++    window->null.ypos = 0;
++    window->null.width = config.width;
++    window->null.height = config.height;
++
++    _glfwAndroid.window = window;
++    return GLFW_TRUE;
++}
++
++static void _glfwDestroyWindowAndroid(_GLFWwindow* window)
++{
++    if (_glfwAndroid.window == window)
++    {
++        _glfwAndroid.window = NULL;
++        _glfwAndroid.pointerId = -1;
++    }
++
++    _glfwDestroyWindowNull(window);
++}
++
++static void _glfwGetWindowSizeAndroid(_GLFWwindow* window, int* width, int* height)
++{
++    if (width)
++        *width = window->null.width;
++    if (height)
++        *height = window->null.height;
++}
++
++static void _glfwGetWindowContentScaleAndroid(_GLFWwindow* window, float* xscale, float* yscale)
++{
++    if (xscale)
++        *xscale = _glfwAndroid.contentScale;
++    if (yscale)
++        *yscale = _glfwAndroid.contentScale;
++}
++
++static void _glfwGetMonitorContentScaleAndroid(_GLFWmonitor* monitor, float* xscale, float* yscale)
++{
++    if (xscale)
++        *xscale = _glfwAndroid.contentScale;
++    if (yscale)
++        *yscale = _glfwAndroid.contentScale;
++}
++
++static void _glfwPollEventsAndroid(void)
++{
++    pumpEvents(0);
++}
++
++static void _glfwWaitEventsAndroid(void)
++{
++    pumpEvents(-1);
++}
++
++static void _glfwWaitEventsTimeoutAndroid(double timeout)
++{
++    pumpEvents((int) (timeout * 1000.0));
++}
++
++static void _glfwPostEmptyEventAndroid(void)
++{
++    ALooper_wake(_glfwAndroid.app->looper);
++}
++
++static void _glfwGetRequiredInstanceExtensionsAndroid(char** extensions)
++{
++    extensions[0] = "VK_KHR_surface";
++    extensions[1] = "VK_KHR_android_surface";
++}
++
++// "On Android, all physical devices and queue families must be capable of presentation with any
++// native window" (VK_KHR_android_surface)
++//
++static GLFWbool _glfwGetPhysicalDevicePresentationSupportAndroid(VkInstance instance,
++                                                                 VkPhysicalDevice device,
++                                                                 uint32_t queuefamily)
++{
++    return GLFW_TRUE;
++}
++
++static VkResult _glfwCreateWindowSurfaceAndroid(VkInstance instance,
++                                                _GLFWwindow* window,
++                                                const VkAllocationCallbacks* allocator,
++                                                VkSurfaceKHR* surface)
++{
++    ANativeWindow* native = _glfwAndroid.app->window;
++    if (!native)
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR, "Android: The activity has no window now");
++        return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
++    }
++
++    PFN_vkCreateAndroidSurfaceKHR vkCreateAndroidSurfaceKHR = (PFN_vkCreateAndroidSurfaceKHR)
++        vkGetInstanceProcAddr(instance, "vkCreateAndroidSurfaceKHR");
++    if (!vkCreateAndroidSurfaceKHR)
++    {
++        _glfwInputError(GLFW_API_UNAVAILABLE,
++                        "Android: Vulkan instance missing VK_KHR_android_surface extension");
++        return VK_ERROR_EXTENSION_NOT_PRESENT;
++    }
++
++    VkAndroidSurfaceCreateInfoKHR sci;
++    memset(&sci, 0, sizeof(sci));
++    sci.sType = GLFW_VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
++    sci.window = native;
++
++    const VkResult err = vkCreateAndroidSurfaceKHR(instance, &sci, allocator, surface);
++    if (err)
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR,
++                        "Android: Failed to create Vulkan surface: %s",
++                        _glfwGetVulkanResultString(err));
++    }
++
++    return err;
++}
++
++GLFWbool _glfwConnectAndroid(int platformID, _GLFWplatform* platform)
++{
++    // the null platform's, but for what an activity has
++    if (!_glfwConnectNull(GLFW_PLATFORM_NULL, platform))
++        return GLFW_FALSE;
++
++    platform->platformID = GLFW_PLATFORM_ANDROID;
++    platform->init = _glfwInitAndroid;
++    platform->terminate = _glfwTerminateAndroid;
++    platform->getMonitorContentScale = _glfwGetMonitorContentScaleAndroid;
++    platform->createWindow = _glfwCreateWindowAndroid;
++    platform->destroyWindow = _glfwDestroyWindowAndroid;
++    platform->getWindowSize = _glfwGetWindowSizeAndroid;
++    platform->getFramebufferSize = _glfwGetWindowSizeAndroid;
++    platform->getWindowContentScale = _glfwGetWindowContentScaleAndroid;
++    platform->pollEvents = _glfwPollEventsAndroid;
++    platform->waitEvents = _glfwWaitEventsAndroid;
++    platform->waitEventsTimeout = _glfwWaitEventsTimeoutAndroid;
++    platform->postEmptyEvent = _glfwPostEmptyEventAndroid;
++    platform->getRequiredInstanceExtensions = _glfwGetRequiredInstanceExtensionsAndroid;
++    platform->getPhysicalDevicePresentationSupport = _glfwGetPhysicalDevicePresentationSupportAndroid;
++    platform->createWindowSurface = _glfwCreateWindowSurfaceAndroid;
++    return GLFW_TRUE;
++}
++
++
++//////////////////////////////////////////////////////////////////////////
++//////                        GLFW native API                       //////
++//////////////////////////////////////////////////////////////////////////
++
++GLFWAPI void glfwSetAndroidApp(struct android_app* app)
++{
++    _glfwAndroid.app = app;
++}
++
++GLFWAPI ANativeWindow* glfwGetAndroidWindow(GLFWwindow* handle)
++{
++    _GLFW_REQUIRE_INIT_OR_RETURN(NULL);
++
++    if (_glfw.platform.platformID != GLFW_PLATFORM_ANDROID)
++    {
++        _glfwInputError(GLFW_PLATFORM_UNAVAILABLE, "Android: Platform not initialized");
++        return NULL;
++    }
++
++    return _glfwAndroid.app ? _glfwAndroid.app->window : NULL;
++}
+diff --git a/src/platform.c b/src/platform.c
+index af1b0f44..361768d4 100644
+--- a/src/platform.c
++++ b/src/platform.c
+@@ -56,6 +56,9 @@ static const struct
+ #if defined(_GLFW_X11)
+     { GLFW_PLATFORM_X11, _glfwConnectX11 },
+ #endif
++#if defined(_GLFW_ANDROID)
++    { GLFW_PLATFORM_ANDROID, _glfwConnectAndroid },
++#endif
+ };
+ 
+ GLFWbool _glfwSelectPlatform(int desiredID, _GLFWplatform* platform)
+@@ -68,6 +71,7 @@ GLFWbool _glfwSelectPlatform(int desiredID, _GLFWplatform* platform)
+         desiredID != GLFW_PLATFORM_COCOA &&
+         desiredID != GLFW_PLATFORM_WAYLAND &&
+         desiredID != GLFW_PLATFORM_X11 &&
++        desiredID != GLFW_PLATFORM_ANDROID &&
+         desiredID != GLFW_PLATFORM_NULL)
+     {
+         _glfwInputError(GLFW_INVALID_ENUM, "Invalid platform ID 0x%08X", desiredID);
+@@ -147,6 +151,7 @@ GLFWAPI int glfwPlatformSupported(int platformID)
+         platformID != GLFW_PLATFORM_COCOA &&
+         platformID != GLFW_PLATFORM_WAYLAND &&
+         platformID != GLFW_PLATFORM_X11 &&
++        platformID != GLFW_PLATFORM_ANDROID &&
+         platformID != GLFW_PLATFORM_NULL)
+     {
+         _glfwInputError(GLFW_INVALID_ENUM, "Invalid platform ID 0x%08X", platformID);
+@@ -181,6 +186,9 @@ GLFWAPI const char* glfwGetVersionString(void)
+ #endif
+ #if defined(_GLFW_X11)
+         " X11 GLX"
++#endif
++#if defined(_GLFW_ANDROID)
++        " Android"
+ #endif
+         " Null"
+         " EGL"
+diff --git a/src/platform.h b/src/platform.h
+index 75652dcc..e448660f 100644
+--- a/src/platform.h
++++ b/src/platform.h
+@@ -90,6 +90,11 @@
+  #define GLFW_GLX_LIBRARY_CONTEXT_STATE
+ #endif
+ 
++#if defined(_GLFW_ANDROID)
++ #include "android_platform.h"
++ #define GLFW_EXPOSE_NATIVE_ANDROID
++#endif
++
+ #include "null_joystick.h"
+ 
+ #if defined(_GLFW_WIN32)

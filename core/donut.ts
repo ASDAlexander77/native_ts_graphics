@@ -16,6 +16,18 @@
 
 /// <reference path="donut_interop.d.ts" />
 
+// The callbacks handed to Donut, kept for as long as the program runs: a callback is a method of
+// an object (an InputPass, a render pass) that Donut's C++ memory may be the only one to reference
+// once it is set, and the collector doesn't scan that memory on Linux or Android (on Windows it
+// scans all writable memory, so it found them there).
+let retainedAnimateCallbacks: AnimateCallback[] = [];
+let retainedKeyboardCallbacks: KeyboardCallback[] = [];
+let retainedMouseButtonCallbacks: MouseButtonCallback[] = [];
+let retainedMousePosCallbacks: MousePosCallback[] = [];
+let retainedMouseScrollCallbacks: MouseScrollCallback[] = [];
+let retainedRenderCallbacks: RenderCallback[] = [];
+let retainedVoidCallbacks: VoidCallback[] = [];
+
 export class App {
     readonly handle: Opaque;
 
@@ -393,6 +405,7 @@ export class App {
     // before them; buildUI builds the UI every frame with the Donut_ImGui* functions (only valid in
     // it). A null handle if the renderer can't be initialized.
     addImGuiPass(buildUI: VoidCallback): ImGuiPass {
+        retainedVoidCallbacks.push(buildUI);
         return new ImGuiPass(Donut_AddImGuiPass(this.handle, buildUI));
     }
 
@@ -797,34 +810,41 @@ export class Pass {
     }
 
     setRenderCallback(handler: RenderCallback): void {
+        retainedRenderCallbacks.push(handler);
         Donut_SetRenderCallback(this.handle, handler);
     }
 
     setAnimateCallback(handler: AnimateCallback): void {
+        retainedAnimateCallbacks.push(handler);
         Donut_SetAnimateCallback(this.handle, handler);
     }
 
     // Called before the swap chain is resized; release framebuffer-dependent resources here.
     setBackBufferResizingCallback(handler: VoidCallback): void {
+        retainedVoidCallbacks.push(handler);
         Donut_SetBackBufferResizingCallback(this.handle, handler);
     }
 
     setKeyboardCallback(handler: KeyboardCallback): void {
+        retainedKeyboardCallbacks.push(handler);
         Donut_SetKeyboardCallback(this.handle, handler);
     }
 
     // Window pixels; same return convention as the keyboard callback.
     setMousePosCallback(handler: MousePosCallback): void {
+        retainedMousePosCallbacks.push(handler);
         Donut_SetMousePosCallback(this.handle, handler);
     }
 
     // GLFW button / action values; same return convention as the keyboard callback.
     setMouseButtonCallback(handler: MouseButtonCallback): void {
+        retainedMouseButtonCallbacks.push(handler);
         Donut_SetMouseButtonCallback(this.handle, handler);
     }
 
     // Scroll offsets; same return convention as the keyboard callback.
     setMouseScrollCallback(handler: MouseScrollCallback): void {
+        retainedMouseScrollCallbacks.push(handler);
         Donut_SetMouseScrollCallback(this.handle, handler);
     }
 }

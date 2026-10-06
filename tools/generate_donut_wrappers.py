@@ -184,6 +184,8 @@ class Param:
         self.name = name.strip()
         self.type = " ".join(type_.split())
         self.nullable = self.type == "Opaque | null"
+        # A method of a TypeScript object (RenderCallback, KeyboardCallback, ...), which Donut keeps
+        self.is_callback = self.type.endswith("Callback")
         self.cls = None
         if self.type in ("Opaque", "Opaque | null"):
             self.cls = CLASSES.get(self.name) or PARAMETER_ALIASES.get(self.name)
@@ -316,10 +318,11 @@ def emit_method(out, function, cls, is_static):
     call = f"{function.name}({', '.join(args)})"
     if function.returns_class:
         returns = function.returns_class
-        body = f"return new {returns}({call});"
+        body = [f"return new {returns}({call});"]
     else:
         returns = function.returns
-        body = f"{call};" if returns == "void" else f"return {call};"
+        body = [f"{call};" if returns == "void" else f"return {call};"]
+    body = [f"{retained_array(p.type)}.push({p.name});" for p in params if p.is_callback] + body
     name = method_name(function, cls)
     signature = f"{'static ' if is_static else ''}{name}({', '.join(p.declaration() for p in params)}): {returns}"
 
@@ -327,9 +330,21 @@ def emit_method(out, function, cls, is_static):
     for comment in comments_for(function, function.previous):
         out.append(f"    {comment}")
     out.append(f"    {signature} {{")
-    out.append(f"        {body}")
+    for line in body:
+        out.append(f"        {line}")
     out.append("    }")
     return name
+
+
+def retained_array(callback_type):
+    return f"retained{callback_type}s"
+
+
+RETAINED_COMMENT = """\
+// The callbacks handed to Donut, kept for as long as the program runs: a callback is a method of
+// an object (an InputPass, a render pass) that Donut's C++ memory may be the only one to reference
+// once it is set, and the collector doesn't scan that memory on Linux or Android (on Windows it
+// scans all writable memory, so it found them there)."""
 
 
 def generate(functions):
@@ -342,6 +357,14 @@ def generate(functions):
             statics[function.target].append(function)
 
     out = [HEADER.rstrip("\n")]
+
+    callback_types = sorted({p.type for f in functions if f.target for p in f.params if p.is_callback})
+    if callback_types:
+        out.append("")
+        out.append(RETAINED_COMMENT)
+        for callback_type in callback_types:
+            out.append(f"let {retained_array(callback_type)}: {callback_type}[] = [];")
+
     for cls in CLASSES.values():
         if not methods[cls] and not statics[cls]:
             continue

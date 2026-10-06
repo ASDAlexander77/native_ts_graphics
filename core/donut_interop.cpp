@@ -328,11 +328,16 @@ namespace
         std::unique_ptr<donut::engine::ThreadPool> m_ThreadPool;
     };
 
+    // Set by Donut_SetExecutablePath; empty means the module's own path (below).
+    std::filesystem::path g_ExecutablePath;
+
     // The module this code is linked into: the example executable, or donut_interop.dll when a
     // TypeScript file runs under tslang's JIT (where the process is tslang.exe, far from bin/).
     // Shaders and media are looked up next to it.
     std::filesystem::path GetExecutablePath()
     {
+        if (!g_ExecutablePath.empty())
+            return g_ExecutablePath;
 #ifdef _WIN32
         HMODULE module = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -1175,6 +1180,15 @@ extern "C"
     void Donut_SetAppName(const char* name)
     {
         g_AppName = name ? name : "";
+    }
+
+    // The path the executable is taken to have: shaders and media are looked up next to it, and
+    // its name is the app's unless Donut_SetAppName gave one. For an Android app, whose process is
+    // the system's app_process: core/android_main.cpp extracts the APK's shaders and media and
+    // points this into that folder. Call before creating the app.
+    void Donut_SetExecutablePath(const char* path)
+    {
+        g_ExecutablePath = path ? path : "";
     }
 
     // severity is a donut::log::Severity value; messages below it are dropped.

@@ -111,7 +111,49 @@ set(DONUT_PATCHES
     # Building with the Android NDK: Bionic has glob but no glob64, libc++ needs <sstream> spelled
     # out, and neither stdc++fs nor a separate pthread library exists there.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-build-for-Android.patch"
+    # Android's window: Donut picks no X11 there, takes the surface's swap chain formats, alpha and
+    # present modes, and stops before a frame once its window is closing.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-Android-window.patch"
 )
+
+# The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
+# its own: an Android platform, a NativeActivity's window through android_native_app_glue.
+set(DONUT_GLFW_PATCHES
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/glfw-android-platform.patch"
+)
+
+# Applies the patches to the repository in <folder>, unless they are applied already.
+function(apply_patches folder)
+    foreach(PATCH_FILE ${ARGN})
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" apply --check "${PATCH_FILE}"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${folder}"
+            RESULT_VARIABLE PATCH_CHECK
+            OUTPUT_QUIET ERROR_QUIET)
+        if (PATCH_CHECK EQUAL 0)
+            message(STATUS "Applying patch to ${folder}: ${PATCH_FILE}")
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply "${PATCH_FILE}"
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${folder}"
+                RESULT_VARIABLE PATCH_APPLY)
+            if (NOT PATCH_APPLY EQUAL 0)
+                message(WARNING "Failed to apply patch: ${PATCH_FILE}")
+            endif()
+        else()
+            # Doesn't apply forward: it's already applied if it applies in reverse.
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" apply --check --reverse "${PATCH_FILE}"
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${folder}"
+                RESULT_VARIABLE PATCH_REVERSE_CHECK
+                OUTPUT_QUIET ERROR_QUIET)
+            if (PATCH_REVERSE_CHECK EQUAL 0)
+                message(STATUS "Patch already applied to ${folder}: ${PATCH_FILE}")
+            else()
+                message(WARNING "Patch does not apply cleanly to ${folder} (skipped): ${PATCH_FILE}")
+            endif()
+        endif()
+    endforeach()
+endfunction()
 
 find_package(Git QUIET)
 if (GIT_EXECUTABLE)
@@ -126,35 +168,8 @@ if (GIT_EXECUTABLE)
                             "cannot configure without external/Donut checked out.")
     endif()
 
-    foreach(PATCH_FILE ${DONUT_PATCHES})
-        execute_process(
-            COMMAND "${GIT_EXECUTABLE}" apply --check "${PATCH_FILE}"
-            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut"
-            RESULT_VARIABLE DONUT_PATCH_CHECK
-            OUTPUT_QUIET ERROR_QUIET)
-        if (DONUT_PATCH_CHECK EQUAL 0)
-            message(STATUS "Applying patch to external/Donut: ${PATCH_FILE}")
-            execute_process(
-                COMMAND "${GIT_EXECUTABLE}" apply "${PATCH_FILE}"
-                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut"
-                RESULT_VARIABLE DONUT_PATCH_APPLY)
-            if (NOT DONUT_PATCH_APPLY EQUAL 0)
-                message(WARNING "Failed to apply patch: ${PATCH_FILE}")
-            endif()
-        else()
-            # Doesn't apply forward: it's already applied if it applies in reverse.
-            execute_process(
-                COMMAND "${GIT_EXECUTABLE}" apply --check --reverse "${PATCH_FILE}"
-                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut"
-                RESULT_VARIABLE DONUT_PATCH_REVERSE_CHECK
-                OUTPUT_QUIET ERROR_QUIET)
-            if (DONUT_PATCH_REVERSE_CHECK EQUAL 0)
-                message(STATUS "Patch already applied to external/Donut: ${PATCH_FILE}")
-            else()
-                message(WARNING "Patch does not apply cleanly to external/Donut (skipped): ${PATCH_FILE}")
-            endif()
-        endif()
-    endforeach()
+    apply_patches(external/Donut ${DONUT_PATCHES})
+    apply_patches(external/Donut/thirdparty/glfw ${DONUT_GLFW_PATCHES})
 else()
     message(WARNING "git not found: skipping the external/Donut patches")
 endif()
@@ -183,11 +198,8 @@ endif()
 # Both only for the Donut subtree. The ASM check runs only when the compiler is first detected,
 # so the warning showed on a fresh configure only.
 if (ANDROID)
-    # GLFW has no Android backend; Android counts as UNIX, so it would build X11 and Wayland
-    # support. Only its null platform remains, enough to link Donut: a headless device never
-    # calls glfwInit. A window needs an Android DeviceManager instead (not there yet).
-    set(GLFW_BUILD_X11 OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+    # GLFW's Android platform (patches/glfw-android-platform.patch) gives Donut its window: the
+    # NativeActivity's, through android_native_app_glue (see core/android_main.cpp).
 
     # ShaderMake runs at build time, so it has to be a program for this machine, not one built
     # with the NDK: take the one a desktop build of this project made. Donut then doesn't build
@@ -344,17 +356,119 @@ endif()
 # Its shaders, if any (the <name>_shaders target), must be compiled into
 # bin/shaders/<name>/<dxbc|dxil|spirv>: donut_interop loads them from the folder named after the
 # executable.
+if (ANDROID)
+    # On Android each example is an app as well: <name>_app builds lib<name>.so, the example with
+    # core/android_main.cpp and the NDK's android_native_app_glue (a NativeActivity), and <name>_apk
+    # packages it as bin/<name>.apk with its shaders and media (tools/package_apk.py). Neither is
+    # built by default:
+    #   cmake --build --preset android-x86_64 --target basic_triangle_apk
+    # The executables stay, for the examples that need no window (headless, run through adb shell).
+    # The glue is C.
+    enable_language(C)
+    set(ANDROID_NATIVE_APP_GLUE_DIR "${ANDROID_NDK}/sources/android/native_app_glue")
+    # Renamed, so that core/android_main.cpp's ANativeActivity_onCreate runs first (it starts the
+    # collector on the activity's main thread) and calls the glue's.
+    set_source_files_properties("${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c" PROPERTIES
+        COMPILE_DEFINITIONS "ANativeActivity_onCreate=glue_ANativeActivity_onCreate")
+    if (TSLANG_MEMORY_MODEL STREQUAL "gc")
+        set_source_files_properties(core/android_main.cpp PROPERTIES COMPILE_DEFINITIONS "TSLANG_MEMORY_MODEL_GC=1")
+    endif()
+
+    # Packaging needs the SDK's build tools and platform (not the NDK's), a JDK for apksigner and
+    # keytool, and Python. The SDK is ANDROID_HOME's, or next to the NDK, or the NDK is in it.
+    foreach(candidate "$ENV{ANDROID_HOME}" "$ENV{ANDROID_SDK_ROOT}" "${ANDROID_NDK}/../sdk" "${ANDROID_NDK}/../..")
+        if (candidate AND IS_DIRECTORY "${candidate}/build-tools")
+            cmake_path(NORMAL_PATH candidate)
+            set(ANDROID_SDK_DIR_DEFAULT "${candidate}")
+            break()
+        endif()
+    endforeach()
+    set(ANDROID_SDK_DIR "${ANDROID_SDK_DIR_DEFAULT}" CACHE PATH "Android SDK (build-tools, platforms) for the *_apk targets")
+
+    set(ANDROID_JAVA_HOME_DEFAULT "$ENV{JAVA_HOME}")
+    if (NOT ANDROID_JAVA_HOME_DEFAULT AND ANDROID_SDK_DIR)
+        # a JDK installed next to the SDK
+        file(GLOB ANDROID_JDKS LIST_DIRECTORIES true "${ANDROID_SDK_DIR}/../jdk/*")
+        foreach(jdk ${ANDROID_JDKS})
+            if (EXISTS "${jdk}/bin/keytool${CMAKE_HOST_EXECUTABLE_SUFFIX}")
+                cmake_path(NORMAL_PATH jdk)
+                set(ANDROID_JAVA_HOME_DEFAULT "${jdk}")
+                break()
+            endif()
+        endforeach()
+    endif()
+    set(ANDROID_JAVA_HOME "${ANDROID_JAVA_HOME_DEFAULT}" CACHE PATH "JDK for apksigner and keytool (the *_apk targets)")
+
+    # Made on first use. Every build folder has its own, so an app from another one has to be
+    # uninstalled first; point this at ~/.android/debug.keystore to share Android Studio's.
+    set(ANDROID_DEBUG_KEYSTORE "${CMAKE_BINARY_DIR}/debug.keystore" CACHE FILEPATH "Keystore the APKs are signed with")
+
+    find_package(Python3 COMPONENTS Interpreter)
+    if (NOT ANDROID_SDK_DIR OR NOT Python3_Interpreter_FOUND)
+        message(STATUS "No Android SDK (set ANDROID_HOME or ANDROID_SDK_DIR) or no Python: no *_apk targets")
+    endif()
+endif()
+
+# lib<name>.so and bin/<name>.apk (see above), with the media files and folders listed in
+# <media> (paths in the media folder) and the further sources after it
+function(add_tslang_android_app name media)
+    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts ${ARGN}
+        core/android_main.cpp "${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c")
+    set_target_properties(${name}_app PROPERTIES
+        OUTPUT_NAME ${name}
+        LINKER_LANGUAGE CXX
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/android/${name}")
+    target_include_directories(${name}_app PRIVATE "${ANDROID_NATIVE_APP_GLUE_DIR}")
+    target_link_libraries(${name}_app PRIVATE ${TSLANG_LINK_LIBS} donut_interop tslang_shared glfw android log)
+    if (TARGET ${name}_shaders)
+        add_dependencies(${name}_app ${name}_shaders)
+    endif()
+
+    if (NOT ANDROID_SDK_DIR OR NOT Python3_Interpreter_FOUND)
+        return()
+    endif()
+
+    set(assets --assets "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/framework=shaders/framework")
+    if (TARGET ${name}_shaders)
+        list(APPEND assets --assets "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/${name}=shaders/${name}")
+    endif()
+    foreach(path ${media})
+        list(APPEND assets --assets "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/${path}=media/${path}")
+    endforeach()
+    add_custom_target(${name}_apk
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_apk.py"
+            --name ${name} --lib "$<TARGET_FILE:${name}_app>" --abi ${CMAKE_ANDROID_ARCH_ABI}
+            ${assets}
+            --sdk "${ANDROID_SDK_DIR}" --java-home "${ANDROID_JAVA_HOME}"
+            --min-sdk ${CMAKE_SYSTEM_VERSION} --keystore "${ANDROID_DEBUG_KEYSTORE}" --strip "${CMAKE_STRIP}"
+            --work "${CMAKE_BINARY_DIR}/android/${name}/apk"
+            --out "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}.apk"
+        COMMENT "Packaging ${name}.apk"
+        VERBATIM)
+    add_dependencies(${name}_apk ${name}_app copy_media)
+    if (TARGET donut_shaders)
+        add_dependencies(${name}_apk donut_shaders)
+    endif()
+endfunction()
+
+# add_tslang_example(<name> [MEDIA <path>...] [<source>...]): examples/<name>.ts and the further
+# sources. MEDIA lists the files and folders of the media folder it reads (paths in it), which
+# go into its APK on Android; on the desktop the whole folder is next to the executables.
 function(add_tslang_example name)
+    cmake_parse_arguments(PARSE_ARGV 1 EXAMPLE "" "" "MEDIA")
     # .ts files compile with the TSLANG command. Most targets have no .cpp, so link with the C++
     # rule explicitly: the C++ link flags (debug info, CRT) apply and the tslang compile flags
     # stay off the link line.
-    add_executable(${name} examples/${name}.ts ${ARGN})
+    add_executable(${name} examples/${name}.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop tslang_shared)
     # The TSLANG rule doesn't report dependencies: recompile when the imported declarations change.
     set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_SHARED_SOURCES};${TSLANG_SHARED_INCLUDES}")
     if (TARGET ${name}_shaders)
         add_dependencies(${name} ${name}_shaders)
+    endif()
+    if (ANDROID)
+        add_tslang_android_app(${name} "${EXAMPLE_MEDIA}" ${EXAMPLE_UNPARSED_ARGUMENTS})
     endif()
 endfunction()
 
@@ -421,7 +535,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_buffer.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/vertex_buffer
 )
-add_tslang_example(vertex_buffer)
+add_tslang_example(vertex_buffer MEDIA nvidia-logo.png)
 
 # The whole media folder goes next to the executables, at build time so files added to it later are
 # picked up without reconfiguring. copy_directory_if_different needs CMake 3.26.
@@ -454,11 +568,11 @@ if (DONUT_SAMPLES_MEDIA_DIR)
     file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/fonts"
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
 endif()
-add_tslang_example(threaded_rendering)
+add_tslang_example(threaded_rendering MEDIA glTF-Sample-Assets/Models/Sponza)
 
 # Port of Donut-Samples' deferred_shading: no shaders of its own (Donut's G-buffer fill and
 # deferred lighting passes); uses media/nvidia-logo.png, copied with the media folder above.
-add_tslang_example(deferred_shading)
+add_tslang_example(deferred_shading MEDIA nvidia-logo.png)
 
 # Port of Donut-Samples' rt_shadows: ray traced sun shadows on Sponza (see DONUT_SAMPLES_MEDIA_DIR
 # above). Ray tracing needs D3D12 or Vulkan, so no DXBC.
@@ -470,7 +584,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_shadows/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_shadows/spirv
 )
-add_tslang_example(rt_shadows)
+add_tslang_example(rt_shadows MEDIA glTF-Sample-Assets/Models/Sponza)
 
 # Port of Donut-Samples' variable_shading: variable rate shading of Sponza (see
 # DONUT_SAMPLES_MEDIA_DIR above) from a compute-generated shading rate surface. D3D12 or Vulkan.
@@ -482,7 +596,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/variable_shading/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/variable_shading/spirv
 )
-add_tslang_example(variable_shading)
+add_tslang_example(variable_shading MEDIA glTF-Sample-Assets/Models/Sponza)
 
 # Port of Donut-Samples' async_compute: a compute-queue worker thread animates textures that the
 # render thread shows.
@@ -506,7 +620,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_bindless/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_bindless/spirv
 )
-add_tslang_example(rt_bindless)
+add_tslang_example(rt_bindless MEDIA sponza-plus.scene.json glTF-Sample-Assets/Models/Sponza glTF-Sample-Assets/Models/BrainStem)
 
 # Port of Donut-Samples' rt_reflections: ray traced shadows and reflections on Sponza (see
 # DONUT_SAMPLES_MEDIA_DIR above). D3D12 only, as in the sample: its hit groups use local
@@ -518,7 +632,7 @@ donut_compile_shaders(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_reflections.hlsl
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections/dxil
 )
-add_tslang_example(rt_reflections)
+add_tslang_example(rt_reflections MEDIA glTF-Sample-Assets/Models/Sponza)
 
 # Port of Donut-Samples' rt_particles: ray query rendering of billboard and intersection
 # particles with multi-layer alpha blending (see DONUT_SAMPLES_MEDIA_DIR above), with an ImGui
@@ -536,7 +650,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/spirv
 )
-add_tslang_example(rt_particles)
+add_tslang_example(rt_particles MEDIA rt_particles nvidia-logo.png)
 
 # Port of Donut-Samples' work_graphs: deferred shading of a procedural scene with one D3D12 work
 # graph (light culling and per-material shading nodes), or with two compute dispatches. D3D12 only,
@@ -567,5 +681,5 @@ endif()
 # shadows, SSAO, procedural sky, TAA or MSAA, bloom, tone mapping, light probes, material picking)
 # over a loaded scene, with an ImGui settings window and material editor; DLSS with
 # DONUT_WITH_DLSS=ON. No shaders of its own; needs the scenes and fonts of DONUT_SAMPLES_MEDIA_DIR above.
-add_tslang_example(feature_demo)
+add_tslang_example(feature_demo MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
 copy_dlss_library(feature_demo)
