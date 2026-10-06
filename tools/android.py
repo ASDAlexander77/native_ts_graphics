@@ -45,7 +45,7 @@ NOT_ON_VULKAN = {"rt_reflections"}  # D3D12-only, no SPIR-V shaders
 # What test runs by default: the examples that run on the emulator's CPU Vulkan (lavapipe), which
 # has no ray tracing or mesh shaders.
 EMULATOR_EXAMPLES = ["basic_triangle", "vertex_buffer", "deferred_shading", "shader_specializations",
-                     "threaded_rendering", "feature_demo"]
+                     "threaded_rendering", "async_compute", "feature_demo"]
 
 REMOTE_FOLDER = "/data/local/tmp/powdertoy_game"
 

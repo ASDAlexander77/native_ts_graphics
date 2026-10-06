@@ -102,8 +102,8 @@ python tools/android.py test
   (`--seconds`), and to close without a crash on Back. Screenshots and logs go to
   `build-android-x86_64/android-test`. With no examples named, it tests the ones that run on the
   emulator, whose Vulkan is lavapipe, on the CPU, with no ray tracing or mesh shaders:
-  basic_triangle, vertex_buffer, deferred_shading, shader_specializations, threaded_rendering
-  and feature_demo.
+  basic_triangle, vertex_buffer, deferred_shading, shader_specializations, threaded_rendering,
+  async_compute and feature_demo.
 - `run <example>` installs and starts one and follows its log (Ctrl+C stops following);
   `--screenshot shot.png` takes a screenshot instead. `headless` runs headless alone.
 

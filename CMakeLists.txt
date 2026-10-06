@@ -114,6 +114,10 @@ set(DONUT_PATCHES
     # Android's window: Donut picks no X11 there, takes the surface's swap chain formats, alpha and
     # present modes, and stops before a frame once its window is closing.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-Android-window.patch"
+    # Vulkan's compute queue (AppOptions.ComputeQueue, async_compute): Donut wants a family with
+    # compute and no graphics, which most mobile GPUs don't have; take the graphics family's second
+    # queue then.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-compute-queue-fallback.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
