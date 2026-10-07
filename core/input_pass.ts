@@ -1,5 +1,3 @@
-/// <reference path="donut.ts" />
-
 // The input handling the examples share: Escape closes the window, V toggles vertical sync.
 //
 // Imported with `import { InputPass } from "../core/input_pass";` (from examples/), which gives the importer its
@@ -7,6 +5,8 @@
 // examples) or, under the JIT, comes from input_pass.dll listed in --shared-libs (see run_jit.bat).
 // It references donut.ts (the class wrappers, which reference donut_interop.d.ts) for the examples
 // that import it, as tslang would load those files twice if they referenced them too.
+
+import { App } from "./donut";
 
 // GLFW values, as passed to the keyboard callback.
 const KEY_V = 86;
