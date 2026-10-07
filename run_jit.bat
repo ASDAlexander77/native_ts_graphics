@@ -3,7 +3,7 @@
 @rem imports. From the repo root, where no ../core/input_pass.dll is, so the import reads
 @rem core/input_pass.ts for its declarations.
 @pushd %~dp0
-#set D=build-release-dlss/bin
+rem set D=build-release-dlss/bin
 set D=build/bin
 tslang --shared-libs=%D%/donut_interop.dll %*
 @popd
