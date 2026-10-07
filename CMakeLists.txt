@@ -86,9 +86,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # the same CRT, or the linker reports RuntimeLibrary/_ITERATOR_DEBUG_LEVEL mismatches.
 if (MSVC)
 	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
-	# Donut unconditionally adds -D_DEBUG to Debug flags, which makes the headers reference the
-	# debug CRT (_malloc_dbg, libcpmtd) that /MT doesn't provide; cancel it.
-	add_compile_options($<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:/U_DEBUG>)
+	# Donut adds -D_DEBUG to Debug flags, which would make the headers reference the debug CRT
+	# (_malloc_dbg, libcpmtd) that /MT doesn't provide; patches/Donut-no-D_DEBUG-on-MSVC.patch
+	# leaves it out on MSVC (a /U_DEBUG here instead made cl warn D9025).
 endif()
 
 # Keyed off CMAKE_BINARY_DIR (not CMAKE_SOURCE_DIR) so each config's own build folder
@@ -118,6 +118,8 @@ set(DONUT_PATCHES
     # compute and no graphics, which most mobile GPUs don't have; take the graphics family's second
     # queue then.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-compute-queue-fallback.patch"
+    # MSVC defines _DEBUG itself with /MTd; Donut's -D_DEBUG would pull in the debug CRT under /MT.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-no-D_DEBUG-on-MSVC.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of

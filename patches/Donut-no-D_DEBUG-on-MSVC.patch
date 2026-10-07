@@ -1,0 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1e3d57f..d172ef8 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -44,7 +44,9 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "x8
+     endif()
+ endif()
+ 
+-string(APPEND CMAKE_CXX_FLAGS_DEBUG " -D_DEBUG")
++if (NOT MSVC)
++    string(APPEND CMAKE_CXX_FLAGS_DEBUG " -D_DEBUG")
++endif()
+ 
+ include(CMakeDependentOption)
+ include(FetchContent)
