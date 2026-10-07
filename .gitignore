@@ -1,8 +1,5 @@
-/build-release
-/build
+/build*
 /bin
-/build-dlss
-/build-release-dlss
 __pycache__/
 __jit/
 /build-android-x86_64
