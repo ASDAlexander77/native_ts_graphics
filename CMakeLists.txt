@@ -12,7 +12,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # CXX is enabled for its linker only: TSLANG objects are linked by the C++ toolchain, so no
 # .cpp source is needed in the target.
-project(powdertoy_game CXX TSLANG)
+project(native_ts_graphics CXX TSLANG)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

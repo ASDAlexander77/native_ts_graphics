@@ -13,7 +13,7 @@ build      configures the android-<abi> preset if its folder has none, then buil
 emulator   starts an Android Virtual Device unless a device is connected, and waits for it to boot.
 run        installs bin/<example>.apk, starts it and follows its log (Ctrl+C stops following, the
            app keeps running); with --screenshot, takes one after --seconds and stops there.
-headless   pushes headless and its shaders to /data/local/tmp/powdertoy_game and runs it.
+headless   pushes headless and its shaders to /data/local/tmp/native_ts_graphics and runs it.
 test       a smoke test: headless, then each example's APK installed and started, alive after
            --seconds, a screenshot, then Back, which has to close it without a crash. Starts an
            emulator if no device is connected. The screenshots and logs go to
@@ -47,7 +47,7 @@ NOT_ON_VULKAN = {"rt_reflections"}  # D3D12-only, no SPIR-V shaders
 EMULATOR_EXAMPLES = ["basic_triangle", "vertex_buffer", "deferred_shading", "shader_specializations",
                      "threaded_rendering", "async_compute", "feature_demo"]
 
-REMOTE_FOLDER = "/data/local/tmp/powdertoy_game"
+REMOTE_FOLDER = "/data/local/tmp/native_ts_graphics"
 
 
 def fail(message):
@@ -217,7 +217,7 @@ def ensure_host_shadermake():
             fail("no Visual Studio found to build ShaderMake with: run these in a developer prompt\n  " +
                  "\n  ".join(commands))
         # in a batch file: cmd doesn't take the quotes Python would put around the call's path
-        script = os.path.join(tempfile.gettempdir(), f"powdertoy_game-shadermake-{os.getpid()}.bat")
+        script = os.path.join(tempfile.gettempdir(), f"native_ts_graphics-shadermake-{os.getpid()}.bat")
         with open(script, "w") as file:
             file.write(f'@call "{vcvars}" > nul || exit /b 1\n')
             for command in commands:
@@ -289,7 +289,7 @@ def start_emulator(tools, avd, window, timeout):
 
     command = [emulator, "-avd", avd, "-no-audio", "-no-boot-anim"] + ([] if window else ["-no-window"])
     log(f"starting {avd}")
-    output = open(os.path.join(tempfile.gettempdir(), "powdertoy_game-emulator.log"), "w")
+    output = open(os.path.join(tempfile.gettempdir(), "native_ts_graphics-emulator.log"), "w")
     if IS_WINDOWS:
         subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                          creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
@@ -312,7 +312,7 @@ def ensure_device(tools, args):
 # --- apps ------------------------------------------------------------------------------------
 
 def package_of(example):
-    return f"org.powdertoy_game.{example}"
+    return f"org.native_ts_graphics.{example}"
 
 
 def install(tools, abi, example):

@@ -1,6 +1,10 @@
-# Custom language with your own extension and compile command in CMake
+# Native TypeScript Graphics
 
-This registers TypeScript CMake *language* (`TSLANG`) that:
+Graphics samples written for the TypeScript native compiler, tslang.
+
+The samples run on top of the Donut rendering framework (D3D12 and Vulkan,
+including Android). Under the hood, the project registers a CMake *language*
+(`TSLANG`) that:
 
 - owns its own source extension (`.ts`),
 - is built with **tslang --emit=obj**,
@@ -8,6 +12,9 @@ This registers TypeScript CMake *language* (`TSLANG`) that:
 
 CMake then handles dependency tracking and incremental builds for `.ts`
 sources the same way it does for `.cpp`.
+
+TypeScript is a trademark of Microsoft; this project is not affiliated with or
+endorsed by Microsoft.
 
 ## Layout
 
@@ -145,19 +152,19 @@ emulator -avd api34_x86_64 -no-audio -no-boot-anim
 adb wait-for-device
 
 adb install -r build-android-x86_64/bin/basic_triangle.apk
-adb shell am start -n org.powdertoy_game.basic_triangle/android.app.NativeActivity
+adb shell am start -n org.native_ts_graphics.basic_triangle/android.app.NativeActivity
 adb logcat -s basic_triangle DEBUG
 adb exec-out screencap -p > shot.png
-adb shell am force-stop org.powdertoy_game.basic_triangle
+adb shell am force-stop org.native_ts_graphics.basic_triangle
 ```
 
 `headless` needs no window and runs as a plain executable, next to its shaders as in `bin/`:
 
 ```
-adb shell mkdir -p /data/local/tmp/powdertoy_game/shaders
-adb push build-android-x86_64/bin/headless /data/local/tmp/powdertoy_game/
-adb push build-android-x86_64/bin/shaders/framework build-android-x86_64/bin/shaders/headless /data/local/tmp/powdertoy_game/shaders/
-adb shell "cd /data/local/tmp/powdertoy_game && chmod +x headless && ./headless"
+adb shell mkdir -p /data/local/tmp/native_ts_graphics/shaders
+adb push build-android-x86_64/bin/headless /data/local/tmp/native_ts_graphics/
+adb push build-android-x86_64/bin/shaders/framework build-android-x86_64/bin/shaders/headless /data/local/tmp/native_ts_graphics/shaders/
+adb shell "cd /data/local/tmp/native_ts_graphics && chmod +x headless && ./headless"
 ```
 
 It prints `Test PASSED`. A native crash shows in logcat under `DEBUG`; the APKs hold a stripped

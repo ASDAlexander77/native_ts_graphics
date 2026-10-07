@@ -123,7 +123,7 @@ def stage_assets(assets, folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--name", required=True, help="the example: lib<name>.so, the app's label")
-    parser.add_argument("--package", help="the application ID (default: org.powdertoy_game.<name>)")
+    parser.add_argument("--package", help="the application ID (default: org.native_ts_graphics.<name>)")
     parser.add_argument("--lib", required=True, help="the example's shared library")
     parser.add_argument("--abi", required=True, help="its Android ABI: arm64-v8a or x86_64")
     parser.add_argument("--assets", action="append", default=[], metavar="SOURCE=PATH",
@@ -139,7 +139,7 @@ def main():
     parser.add_argument("--out", required=True, help="the APK")
     args = parser.parse_args()
 
-    package = args.package or f"org.powdertoy_game.{args.name}"
+    package = args.package or f"org.native_ts_graphics.{args.name}"
     work = args.work or os.path.splitext(args.out)[0] + "_apk"
     env = java_environment(args.java_home)
 
