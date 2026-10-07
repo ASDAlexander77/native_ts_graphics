@@ -27,8 +27,12 @@
 #include <string>
 #include <vector>
 
-// The example's TypeScript entry point
+// The example's TypeScript entry point: a C symbol named main, which clang's -Wmain flags in a
+// declaration (it is only declared here, never defined)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmain"
 extern "C" int main(int argc, char** argv);
+#pragma clang diagnostic pop
 
 // core/donut_interop.cpp
 extern "C" void Donut_SetExecutablePath(const char* path);
