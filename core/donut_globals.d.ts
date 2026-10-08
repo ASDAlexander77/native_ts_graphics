@@ -108,4 +108,6 @@ declare global {
     var TileMappings: typeof Donut.TileMappings;
     type MeshPipelineStatistics = Donut.MeshPipelineStatistics;
     var MeshPipelineStatistics: typeof Donut.MeshPipelineStatistics;
+    type PredicationBuffer = Donut.PredicationBuffer;
+    var PredicationBuffer: typeof Donut.PredicationBuffer;
 }

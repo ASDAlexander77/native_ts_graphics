@@ -96,6 +96,19 @@ export class App {
         return Donut_HasSparseResidency(this.handle);
     }
 
+    // Non-zero if draws can be skipped by a value in a buffer (Donut_CreatePredicationBuffer): D3D12's
+    // predication, Vulkan's VK_EXT_conditional_rendering; not D3D11 (whose predicates are queries).
+    hasConditionalRendering(): int {
+        return Donut_HasConditionalRendering(this.handle);
+    }
+
+    // Non-zero if pixel shaders can use rasterizer ordered views (RasterizerOrderedTexture2D...):
+    // accesses from overlapping pixels happen in primitive order. D3D11/D3D12 with ROVsSupported,
+    // Vulkan with fragment shader pixel interlock.
+    hasRasterizerOrderedViews(): int {
+        return Donut_HasRasterizerOrderedViews(this.handle);
+    }
+
     // Vulkan's conservative rasterization properties into dst (Ref of a `let` f32 array of 9):
     // primitiveOverestimationSize, maxExtraPrimitiveOverestimationSize,
     // extraPrimitiveOverestimationSizeGranularity, then 1 or 0 for primitiveUnderestimation,
@@ -838,6 +851,14 @@ export class App {
         Donut_BlitTextureSlice(this.handle, frame.handle, texture, arraySlice, left, top, width, height);
     }
 
+    // Values that decide whether draws happen (D3D12 predication, Vulkan conditional rendering):
+    // count of them, each 0 (skip) or not (draw), all 1 at first, in memory the CPU writes and the
+    // GPU reads when it executes the draws. Requires Donut_HasConditionalRendering. A null handle
+    // on failure.
+    createPredicationBuffer(count: int): PredicationBuffer {
+        return new PredicationBuffer(Donut_CreatePredicationBuffer(this.handle, count));
+    }
+
     // Executes what the frame's command list holds so far, and reopens it for the rest of the frame
     // (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
     submitFrameCommandList(frame: Frame): void {
@@ -1236,6 +1257,17 @@ export class Frame {
         Donut_DrawIndexedWithPushConstants(this.handle, indexCount, data, byteSize);
     }
 
+    // Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of the predication buffer
+    // isn't 0 when the GPU gets to it.
+    drawIndexedRangeWithPushConstantsPredicated(indexCount: int, startIndex: int, baseVertex: int, data: Opaque, byteSize: int, predicationBuffer: PredicationBuffer, index: int): void {
+        Donut_DrawIndexedRangeWithPushConstantsPredicated(this.handle, indexCount, startIndex, baseVertex, data, byteSize, predicationBuffer.handle, index);
+    }
+
+    // Same, instanceCount times.
+    drawIndexedInstancedWithPushConstants(indexCount: int, instanceCount: int, data: Opaque, byteSize: int): void {
+        Donut_DrawIndexedInstancedWithPushConstants(this.handle, indexCount, instanceCount, data, byteSize);
+    }
+
     // Same, indexCount indices from startIndex of the index buffer, added to baseVertex.
     drawIndexedRangeWithPushConstants(indexCount: int, startIndex: int, baseVertex: int, data: Opaque, byteSize: int): void {
         Donut_DrawIndexedRangeWithPushConstants(this.handle, indexCount, startIndex, baseVertex, data, byteSize);
@@ -1301,6 +1333,12 @@ export class CommandList {
     // True if the function that returned it failed.
     isNull(): boolean {
         return !this.handle;
+    }
+
+    // A barrier between the draws or dispatches before and after that write and read a UAV texture
+    // (NVRHI only places one where the texture is bound anew).
+    uavBarrier(texture: Opaque): void {
+        Donut_UavBarrier(this.handle, texture);
     }
 
     // Copies width x height texels at (srcX, srcY) of a staging texture to (dstX, dstY) of level dstMip.
@@ -2984,6 +3022,11 @@ export class GltfModel {
     }
 
     // The name of the primitive's mesh ("" if none).
+    // A primitive's material's base color factor (RGBA) into dst (Ref of a `let` f32 array of 4).
+    copyBaseColorFactor(primitive: int, dst: Opaque): void {
+        Donut_CopyGltfModelBaseColorFactor(this.handle, primitive, dst);
+    }
+
     getMeshName(primitive: int): string {
         return Donut_GetGltfModelMeshName(this.handle, primitive);
     }
@@ -3073,5 +3116,22 @@ export class MeshPipelineStatistics {
     // The latest results: which 0 for pixel, 1 for amplification (task), 2 for mesh shader invocations.
     get(which: int): number {
         return Donut_GetMeshPipelineStatistic(this.handle, which);
+    }
+}
+
+export class PredicationBuffer {
+    readonly handle: Opaque;
+
+    constructor(handle: Opaque | null) {
+        this.handle = handle as Opaque;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    setValue(index: int, value: int): void {
+        Donut_SetPredicationValue(this.handle, index, value);
     }
 }

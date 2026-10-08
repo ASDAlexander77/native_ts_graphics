@@ -64,6 +64,9 @@
 #include <donut/app/DeviceManager_VK.h>
 #endif
 
+#if DONUT_WITH_DX11
+#include <d3d11_2.h>
+#endif
 #if DONUT_WITH_DX12
 #include <d3d12.h>
 // From the Agility SDK (see CMakeLists.txt), for the work graph state object.
@@ -254,6 +257,10 @@ namespace
         bool sparseResidency = false;
         // Vulkan's pipelineStatisticsQuery feature, enabled (Donut_CreateMeshPipelineStatistics).
         bool pipelineStatisticsQuery = false;
+        // Whether draws can be skipped by a value in a buffer (Donut_HasConditionalRendering).
+        bool conditionalRendering = false;
+        // Whether pixel shaders can use rasterizer ordered views (Donut_HasRasterizerOrderedViews).
+        bool rasterizerOrderedViews = false;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -1110,6 +1117,8 @@ namespace
             int mesh = 0;
             // Its material's alpha mode: 0 opaque, 1 mask, 2 blend.
             int alphaMode = 0;
+            // Its material's base color factor.
+            float baseColorFactor[4] = { 1.f, 1.f, 1.f, 1.f };
         };
         std::vector<Primitive> primitives;
 
@@ -1186,12 +1195,17 @@ namespace
         VkPhysicalDeviceFeatures features{};
         // IndirectDrawSupport bits.
         int support = 0;
+        // Chained into the device's creation when VK_EXT_conditional_rendering is enabled.
+        VkPhysicalDeviceConditionalRenderingFeaturesEXT conditionalRendering{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT };
+        // Fragment shader pixel interlock (rasterizer ordered views), enabled.
+        bool fragmentShaderPixelInterlock = false;
     };
 
     // Device creation callback: enables multi-draw indirect, a first instance in indirect draws,
     // dynamically uniform indexing of sampled image arrays, stores and atomics in pixel shaders,
-    // sparse 2D images with residency queries in shaders, and pipeline statistics queries, when the
-    // GPU has them.
+    // sparse 2D images with residency queries in shaders, pipeline statistics queries, conditional
+    // rendering and fragment shader pixel interlock (with their extensions), when the GPU has them.
     void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
@@ -1217,6 +1231,42 @@ namespace
             if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
                 && reinterpret_cast<const VkPhysicalDeviceVulkan12Features*>(next)->bufferDeviceAddress)
                 result.support |= IndirectDraw_BufferDeviceAddress;
+        }
+
+        // Donut chains the interlock features itself with the extension, pixel interlock on:
+        // keep it to what the GPU has.
+        for (auto* next = static_cast<const VkBaseInStructure*>(info.pNext); next; next = next->pNext)
+        {
+            if (next->sType != VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT)
+                continue;
+            VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT available2{
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT };
+            VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features2.pNext = &available2;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+            auto* interlock = reinterpret_cast<VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT*>(const_cast<VkBaseInStructure*>(next));
+            interlock->fragmentShaderPixelInterlock = available2.fragmentShaderPixelInterlock;
+            result.fragmentShaderPixelInterlock = available2.fragmentShaderPixelInterlock == VK_TRUE;
+        }
+
+        // Donut enables the optional extensions the GPU has; the features go with them.
+        for (uint32_t i = 0; i < info.enabledExtensionCount; i++)
+        {
+            if (strcmp(info.ppEnabledExtensionNames[i], VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME) != 0)
+                continue;
+            VkPhysicalDeviceConditionalRenderingFeaturesEXT available2{
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT };
+            VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features2.pNext = &available2;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+            if (available2.conditionalRendering)
+            {
+                result.conditionalRendering.conditionalRendering = VK_TRUE;
+                result.conditionalRendering.pNext = const_cast<void*>(info.pNext);
+                info.pNext = &result.conditionalRendering;
+            }
         }
     }
 #endif
@@ -1286,6 +1336,10 @@ extern "C"
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
         // Conservative rasterization where the GPU has it (Feature.ConservativeRasterization).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_conservative_rasterization");
+        // Conditional rendering (Donut_HasConditionalRendering).
+        params.optionalVulkanDeviceExtensions.push_back("VK_EXT_conditional_rendering");
+        // Rasterizer ordered views (Donut_HasRasterizerOrderedViews).
+        params.optionalVulkanDeviceExtensions.push_back("VK_EXT_fragment_shader_interlock");
 
 #if DONUT_WITH_DLSS && DONUT_WITH_VULKAN
         if ((options & AppOption_Dlss) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
@@ -1353,8 +1407,33 @@ extern "C"
         app->indirectDrawSupport = indirectDrawSupport;
         app->fragmentStoresAndAtomics = fragmentStoresAndAtomics;
         app->sparseResidency = sparseResidency;
+        // D3D12 has predication from a buffer built in.
+        app->conditionalRendering = api == nvrhi::GraphicsAPI::D3D12;
+#if DONUT_WITH_DX11
+        if (api == nvrhi::GraphicsAPI::D3D11)
+        {
+            D3D11_FEATURE_DATA_D3D11_OPTIONS2 options = {};
+            ID3D11Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D11_Device);
+            app->rasterizerOrderedViews = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS2, &options, sizeof(options)))
+                && options.ROVsSupported;
+        }
+#endif
+#if DONUT_WITH_DX12
+        if (api == nvrhi::GraphicsAPI::D3D12)
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
+            ID3D12Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            app->rasterizerOrderedViews = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)))
+                && options.ROVsSupported;
+        }
+#endif
 #if DONUT_WITH_VULKAN
         app->pipelineStatisticsQuery = api == nvrhi::GraphicsAPI::VULKAN && vulkanFeatures->features.pipelineStatisticsQuery;
+        if (api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            app->conditionalRendering = vulkanFeatures->conditionalRendering.conditionalRendering == VK_TRUE;
+            app->rasterizerOrderedViews = vulkanFeatures->fragmentShaderPixelInterlock;
+        }
 #endif
         return app;
     }
@@ -2510,6 +2589,8 @@ extern "C"
                     primitive.baseColorImage = texture->image->uri;
                 if (mesh.name)
                     primitive.meshName = mesh.name;
+                if (material && material->has_pbr_metallic_roughness)
+                    memcpy(primitive.baseColorFactor, material->pbr_metallic_roughness.base_color_factor, sizeof(primitive.baseColorFactor));
                 primitive.mesh = static_cast<int>(m);
                 if (material && material->alpha_mode == cgltf_alpha_mode_mask)
                     primitive.alphaMode = 1;
@@ -2564,6 +2645,12 @@ extern "C"
     const char* Donut_GetGltfModelBaseColorImage(void* gltfModel, int primitive)
     {
         return static_cast<GltfModel*>(gltfModel)->primitives[primitive].baseColorImage.c_str();
+    }
+
+    // A primitive's material's base color factor (RGBA) into dst (Ref of a `let` f32 array of 4).
+    void Donut_CopyGltfModelBaseColorFactor(void* gltfModel, int primitive, float* dst)
+    {
+        memcpy(dst, static_cast<GltfModel*>(gltfModel)->primitives[primitive].baseColorFactor, 4 * sizeof(float));
     }
 
     // The name of a primitive's mesh ("" if it has none); valid as long as the model.
@@ -3965,6 +4052,25 @@ extern "C"
     void Donut_ImGuiSameLine()
     {
         ImGui::SameLine();
+    }
+
+    // Ends the line: the next item starts on a new one (after Donut_ImGuiSameLine, an empty line).
+    void Donut_ImGuiNewLine()
+    {
+        ImGui::NewLine();
+    }
+
+    // A scrolling region of width x height pixels (0: the rest of the window); end it with
+    // Donut_ImGuiEndChild whatever this returns.
+    int Donut_ImGuiBeginChild(const char* id, double width, double height, int border)
+    {
+        return ImGui::BeginChild(id, ImVec2(float(width), float(height)),
+            border != 0 ? ImGuiChildFlags_Borders : ImGuiChildFlags_None) ? 1 : 0;
+    }
+
+    void Donut_ImGuiEndChild()
+    {
+        ImGui::EndChild();
     }
 
     // Inside a combo box: scrolls to the last item when the list opens.
@@ -7206,6 +7312,21 @@ extern "C"
         ctx->commandList->drawIndexed(args);
     }
 
+    // Same, instanceCount times.
+    void Donut_DrawIndexedInstancedWithPushConstants(void* frame, int indexCount, int instanceCount, const void* data, int byteSize)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->setPushConstants(data, static_cast<size_t>(byteSize));
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(indexCount);
+        args.instanceCount = static_cast<uint32_t>(instanceCount);
+        ctx->commandList->drawIndexed(args);
+    }
+
     // Same, drawing indexCount indices from startIndex of the index buffer, added to baseVertex.
     void Donut_DrawIndexedRangeWithPushConstants(void* frame, int indexCount, int startIndex, int baseVertex,
         const void* data, int byteSize)
@@ -7220,6 +7341,189 @@ extern "C"
         args.vertexCount = static_cast<uint32_t>(indexCount);
         args.startIndexLocation = static_cast<uint32_t>(startIndex);
         args.startVertexLocation = static_cast<uint32_t>(baseVertex);
+        ctx->commandList->drawIndexed(args);
+    }
+
+    // Values that decide whether draws happen: D3D12 predication, Vulkan conditional rendering.
+    // NVRHI has neither: a native buffer the CPU writes (upload heap / host-visible, mapped all
+    // along), which the GPU reads when it executes the draws. 8 bytes per value: D3D12 reads 64
+    // bits, Vulkan the low 32.
+    struct PredicationBuffer
+    {
+        nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::D3D12;
+        uint64_t* values = nullptr;
+        uint32_t count = 0;
+#if DONUT_WITH_DX12
+        Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+#endif
+#if DONUT_WITH_VULKAN
+        VkDevice device = VK_NULL_HANDLE;
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+#endif
+
+        ~PredicationBuffer()
+        {
+#if DONUT_WITH_VULKAN
+            if (buffer != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyBuffer(device, buffer, nullptr);
+            if (memory != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkFreeMemory(device, memory, nullptr);
+#endif
+        }
+    };
+
+    // Non-zero if pixel shaders can use rasterizer ordered views (HLSL's RasterizerOrderedTexture2D
+    // and the like): accesses to them from overlapping pixels happen in the order of the
+    // primitives drawn. D3D11 and D3D12 with ROVsSupported, Vulkan with fragment shader pixel
+    // interlock (VK_EXT_fragment_shader_interlock; DXC compiles them to that).
+    int Donut_HasRasterizerOrderedViews(void* app)
+    {
+        return AsApp(app)->rasterizerOrderedViews ? 1 : 0;
+    }
+
+    // A barrier between the draws or dispatches before and after that write and read a UAV
+    // texture: NVRHI only places one where the texture is bound anew.
+    void Donut_UavBarrier(void* commandList, void* texture)
+    {
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+        cl->setTextureState(static_cast<nvrhi::ITexture*>(texture), nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        cl->commitBarriers();
+    }
+
+    // Non-zero if draws can be skipped by a value in a buffer (Donut_CreatePredicationBuffer):
+    // D3D12's predication, Vulkan's VK_EXT_conditional_rendering; not D3D11 (whose predicates are
+    // queries) or headless apps.
+    int Donut_HasConditionalRendering(void* app)
+    {
+        return AsApp(app)->conditionalRendering ? 1 : 0;
+    }
+
+    // count values, each 0 (skip) or not (draw), all 1 at first. Requires
+    // Donut_HasConditionalRendering. Returns null on failure.
+    void* Donut_CreatePredicationBuffer(void* app, int count)
+    {
+        App* a = AsApp(app);
+        if (!a->conditionalRendering || count <= 0)
+            return nullptr;
+        nvrhi::IDevice* device = a->device();
+        auto predication = std::make_shared<PredicationBuffer>();
+        predication->api = device->getGraphicsAPI();
+        predication->count = static_cast<uint32_t>(count);
+        const uint64_t byteSize = sizeof(uint64_t) * predication->count;
+        void* mapped = nullptr;
+#if DONUT_WITH_DX12
+        if (predication->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            D3D12_HEAP_PROPERTIES heapProperties = {};
+            heapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC bufferDesc = {};
+            bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            bufferDesc.Width = byteSize;
+            bufferDesc.Height = 1;
+            bufferDesc.DepthOrArraySize = 1;
+            bufferDesc.MipLevels = 1;
+            bufferDesc.SampleDesc.Count = 1;
+            bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            // GENERIC_READ includes PREDICATION.
+            if (FAILED(d3dDevice->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&predication->resource)))
+                || FAILED(predication->resource->Map(0, nullptr, &mapped)))
+                return nullptr;
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (predication->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            predication->device = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            bufferInfo.size = byteSize;
+            bufferInfo.usage = VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
+            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateBuffer(predication->device, &bufferInfo, nullptr, &predication->buffer) != VK_SUCCESS)
+                return nullptr;
+            VkMemoryRequirements requirements;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetBufferMemoryRequirements(predication->device, predication->buffer, &requirements);
+            VkPhysicalDeviceMemoryProperties memoryProperties;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceMemoryProperties(
+                DeviceManagerVKAccess::PhysicalDevice(static_cast<DeviceManager_VK*>(a->deviceManager.get())), &memoryProperties);
+            const VkMemoryPropertyFlags wanted = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            uint32_t memoryType = UINT32_MAX;
+            for (uint32_t i = 0; i < memoryProperties.memoryTypeCount && memoryType == UINT32_MAX; i++)
+            {
+                if ((requirements.memoryTypeBits & (1u << i)) && (memoryProperties.memoryTypes[i].propertyFlags & wanted) == wanted)
+                    memoryType = i;
+            }
+            VkMemoryAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+            allocateInfo.allocationSize = requirements.size;
+            allocateInfo.memoryTypeIndex = memoryType;
+            if (memoryType == UINT32_MAX
+                || VULKAN_HPP_DEFAULT_DISPATCHER.vkAllocateMemory(predication->device, &allocateInfo, nullptr, &predication->memory) != VK_SUCCESS
+                || VULKAN_HPP_DEFAULT_DISPATCHER.vkBindBufferMemory(predication->device, predication->buffer, predication->memory, 0) != VK_SUCCESS
+                || VULKAN_HPP_DEFAULT_DISPATCHER.vkMapMemory(predication->device, predication->memory, 0, VK_WHOLE_SIZE, 0, &mapped) != VK_SUCCESS)
+                return nullptr;
+        }
+#endif
+        if (!mapped)
+            return nullptr;
+        predication->values = static_cast<uint64_t*>(mapped);
+        for (uint32_t i = 0; i < predication->count; i++)
+            predication->values[i] = 1;
+        return a->OwnObject(predication);
+    }
+
+    // Value `index`: 0 skips the draws it decides, anything else lets them happen. Seen by the GPU
+    // when it executes the draws (not when they are recorded).
+    void Donut_SetPredicationValue(void* predicationBuffer, int index, int value)
+    {
+        auto* predication = static_cast<PredicationBuffer*>(predicationBuffer);
+        if (index >= 0 && uint32_t(index) < predication->count)
+            predication->values[index] = value != 0 ? 1 : 0;
+    }
+
+    // Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of a predication buffer
+    // isn't 0 when the GPU gets to it.
+    void Donut_DrawIndexedRangeWithPushConstantsPredicated(void* frame, int indexCount, int startIndex, int baseVertex,
+        const void* data, int byteSize, void* predicationBuffer, int index)
+    {
+        auto* predication = static_cast<PredicationBuffer*>(predicationBuffer);
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        // On Vulkan this begins the render pass: the conditional block lies within it.
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->setPushConstants(data, static_cast<size_t>(byteSize));
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(indexCount);
+        args.startIndexLocation = static_cast<uint32_t>(startIndex);
+        args.startVertexLocation = static_cast<uint32_t>(baseVertex);
+        const uint64_t offset = sizeof(uint64_t) * static_cast<uint64_t>(index);
+#if DONUT_WITH_DX12
+        if (predication->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12GraphicsCommandList* d3dCommandList = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            // "Equal zero": the draw is skipped when the value is 0.
+            d3dCommandList->SetPredication(predication->resource.Get(), offset, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            ctx->commandList->drawIndexed(args);
+            d3dCommandList->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            return;
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (predication->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            VkCommandBuffer commandBuffer = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            VkConditionalRenderingBeginInfoEXT beginInfo = { VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT };
+            beginInfo.buffer = predication->buffer;
+            beginInfo.offset = offset;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginConditionalRenderingEXT(commandBuffer, &beginInfo);
+            ctx->commandList->drawIndexed(args);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndConditionalRenderingEXT(commandBuffer);
+            return;
+        }
+#endif
         ctx->commandList->drawIndexed(args);
     }
 

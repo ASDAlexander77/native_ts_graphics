@@ -223,6 +223,16 @@ declare function Donut_HasFragmentStoresAndAtomics(app: Opaque): int;
 // they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan with
 // sparse residency; never D3D11.
 declare function Donut_HasSparseResidency(app: Opaque): int;
+// Non-zero if draws can be skipped by a value in a buffer (Donut_CreatePredicationBuffer): D3D12's
+// predication, Vulkan's VK_EXT_conditional_rendering; not D3D11 (whose predicates are queries).
+declare function Donut_HasConditionalRendering(app: Opaque): int;
+// Non-zero if pixel shaders can use rasterizer ordered views (RasterizerOrderedTexture2D...):
+// accesses from overlapping pixels happen in primitive order. D3D11/D3D12 with ROVsSupported,
+// Vulkan with fragment shader pixel interlock.
+declare function Donut_HasRasterizerOrderedViews(app: Opaque): int;
+// A barrier between the draws or dispatches before and after that write and read a UAV texture
+// (NVRHI only places one where the texture is bound anew).
+declare function Donut_UavBarrier(commandList: Opaque, texture: Opaque): void;
 // Vulkan's conservative rasterization properties into dst (Ref of a `let` f32 array of 9):
 // primitiveOverestimationSize, maxExtraPrimitiveOverestimationSize,
 // extraPrimitiveOverestimationSizeGranularity, then 1 or 0 for primitiveUnderestimation,
@@ -471,6 +481,8 @@ declare function Donut_CopyGltfModelVertices(gltfModel: Opaque, primitive: int, 
 declare function Donut_CopyGltfModelIndices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
 declare function Donut_GetGltfModelBaseColorImage(gltfModel: Opaque, primitive: int): string;
 // The name of the primitive's mesh ("" if none).
+// A primitive's material's base color factor (RGBA) into dst (Ref of a `let` f32 array of 4).
+declare function Donut_CopyGltfModelBaseColorFactor(gltfModel: Opaque, primitive: int, dst: Opaque): void;
 declare function Donut_GetGltfModelMeshName(gltfModel: Opaque, primitive: int): string;
 // The index of the primitive's mesh, and its material's alpha mode.
 declare function Donut_GetGltfModelPrimitiveMesh(gltfModel: Opaque, primitive: int): int;
@@ -764,6 +776,12 @@ declare function Donut_ImGuiCollapsingHeader(label: string): int;
 // Same, expanded until the user collapses it.
 declare function Donut_ImGuiCollapsingHeaderDefaultOpen(label: string): int;
 declare function Donut_ImGuiSameLine(): void;
+// Ends the line: the next item starts on a new one (after Donut_ImGuiSameLine, an empty line).
+declare function Donut_ImGuiNewLine(): void;
+// A scrolling region of width x height pixels (0: the rest of the window); end it with
+// Donut_ImGuiEndChild whatever this returns.
+declare function Donut_ImGuiBeginChild(id: string, width: number, height: number, border: int): int;
+declare function Donut_ImGuiEndChild(): void;
 // Inside a combo box, after the selected item: scrolls to it when the list opens.
 declare function Donut_ImGuiSetItemDefaultFocus(): void;
 declare function Donut_ImGuiGetFontSize(): number;
@@ -1084,6 +1102,17 @@ declare function Donut_DrawIndexedIndirect(frame: Opaque, offsetBytes: int, draw
 // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
 // item); the draw described stays, so it can repeat with other push constants.
 declare function Donut_DrawIndexedWithPushConstants(frame: Opaque, indexCount: int, data: Opaque, byteSize: int): void;
+// Values that decide whether draws happen (D3D12 predication, Vulkan conditional rendering): count
+// of them, each 0 (skip) or not (draw), all 1 at first, in memory the CPU writes and the GPU reads
+// when it executes the draws. Requires Donut_HasConditionalRendering. Null on failure.
+declare function Donut_CreatePredicationBuffer(app: Opaque, count: int): Opaque | null;
+declare function Donut_SetPredicationValue(predicationBuffer: Opaque, index: int, value: int): void;
+// Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of the predication buffer
+// isn't 0 when the GPU gets to it.
+declare function Donut_DrawIndexedRangeWithPushConstantsPredicated(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int,
+    data: Opaque, byteSize: int, predicationBuffer: Opaque, index: int): void;
+// Same, instanceCount times.
+declare function Donut_DrawIndexedInstancedWithPushConstants(frame: Opaque, indexCount: int, instanceCount: int, data: Opaque, byteSize: int): void;
 // Same, indexCount indices from startIndex of the index buffer, added to baseVertex.
 declare function Donut_DrawIndexedRangeWithPushConstants(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int,
     data: Opaque, byteSize: int): void;

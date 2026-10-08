@@ -1007,6 +1007,67 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(conservative_rasterization)
 
+# Port of Vulkan-Samples' conditional_rendering: each node of a glTF model drawn or skipped by a
+# value in a buffer the GPU reads as it executes the draws (D3D12 predication, Vulkan
+# VK_EXT_conditional_rendering). Its model is Vulkan-Samples' (see VULKAN_SAMPLES_ASSETS_DIR above),
+# copied.
+donut_compile_shaders_all_platforms(
+    TARGET conditional_rendering_shaders
+    PROJECT_NAME "Conditional Rendering"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/conditional_rendering.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/conditional_rendering.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/conditional_rendering
+)
+add_tslang_example(conditional_rendering)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/Buggy/glTF-Embedded/Buggy.gltf")
+    set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/conditional_rendering/Buggy.gltf")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+        DEPENDS "${source}"
+        COMMENT "Copying Buggy.gltf"
+        VERBATIM)
+    add_custom_target(conditional_rendering_media DEPENDS "${output}")
+    add_dependencies(conditional_rendering conditional_rendering_media)
+endif()
+
+# Port of Vulkan-Samples' rasterization_order_attachment_access: transparent spheres blended in the
+# pixel shader over what it reads at the pixel, overlapping fragments of one draw ordered by
+# rasterizer ordered views (D3D's ROVs, Vulkan's fragment shader interlock), or each sphere drawn
+# alone with a barrier after it. Its model and texture are Vulkan-Samples' (see
+# VULKAN_SAMPLES_ASSETS_DIR above): the glTF file copied, the KTX texture converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET rasterization_order_attachment_access_shaders
+    PROJECT_NAME "Rasterization Order Attachment Access"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rasterization_order_attachment_access.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rasterization_order_attachment_access.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rasterization_order_attachment_access
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_fragment_shader_interlock"
+)
+add_tslang_example(rasterization_order_attachment_access)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(roaa_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/rasterization_order_attachment_access")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/vulkan_logo_full.ktx")
+    set(output "${roaa_output}/vulkan_logo_full.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting vulkan_logo_full.ktx to DDS"
+        VERBATIM)
+    set(roaa_media "${output}")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/geosphere.gltf")
+    set(output "${roaa_output}/geosphere.gltf")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+        DEPENDS "${source}"
+        COMMENT "Copying geosphere.gltf"
+        VERBATIM)
+    list(APPEND roaa_media "${output}")
+    add_custom_target(rasterization_order_attachment_access_media DEPENDS ${roaa_media})
+    add_dependencies(rasterization_order_attachment_access rasterization_order_attachment_access_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.
