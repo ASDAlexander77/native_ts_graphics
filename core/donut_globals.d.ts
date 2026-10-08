@@ -104,4 +104,6 @@ declare global {
     var GltfModel: typeof Donut.GltfModel;
     type TriangleBlas = Donut.TriangleBlas;
     var TriangleBlas: typeof Donut.TriangleBlas;
+    type TileMappings = Donut.TileMappings;
+    var TileMappings: typeof Donut.TileMappings;
 }

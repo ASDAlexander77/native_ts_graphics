@@ -34,6 +34,7 @@
 #include <donut/engine/CommonRenderPasses.h>
 #include <donut/engine/DescriptorTableManager.h>
 #include <donut/engine/ShaderFactory.h>
+#include <donut/engine/DDSFile.h>
 #include <donut/engine/TextureCache.h>
 #include <donut/engine/FramebufferFactory.h>
 #include <donut/engine/Scene.h>
@@ -249,6 +250,8 @@ namespace
         int indirectDrawSupport = 0;
         // Whether pixel shaders can write to and do atomics on UAVs (Donut_HasFragmentStoresAndAtomics).
         bool fragmentStoresAndAtomics = false;
+        // Whether 2D textures can be tiled, with residency queries in shaders (Donut_HasSparseResidency).
+        bool sparseResidency = false;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -1166,6 +1169,11 @@ namespace
         {
             return deviceManager->*(&DeviceManagerVKAccess::m_VulkanPhysicalDevice);
         }
+
+        static int GraphicsQueueFamily(DeviceManager_VK* deviceManager)
+        {
+            return deviceManager->*(&DeviceManagerVKAccess::m_GraphicsQueueFamily);
+        }
     };
 
     // The core features of a Vulkan device that Donut's device manager leaves off and the examples
@@ -1179,8 +1187,8 @@ namespace
     };
 
     // Device creation callback: enables multi-draw indirect, a first instance in indirect draws,
-    // dynamically uniform indexing of sampled image arrays, and stores and atomics in pixel shaders,
-    // when the GPU has them.
+    // dynamically uniform indexing of sampled image arrays, stores and atomics in pixel shaders, and
+    // sparse 2D images with residency queries in shaders, when the GPU has them.
     void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
@@ -1193,6 +1201,9 @@ namespace
         features.drawIndirectFirstInstance = available.drawIndirectFirstInstance;
         features.shaderSampledImageArrayDynamicIndexing = available.shaderSampledImageArrayDynamicIndexing;
         features.fragmentStoresAndAtomics = available.fragmentStoresAndAtomics;
+        features.sparseBinding = available.sparseBinding;
+        features.sparseResidencyImage2D = available.sparseResidencyImage2D;
+        features.shaderResourceResidency = available.shaderResourceResidency;
         info.pEnabledFeatures = &features;
 
         result.support = (features.multiDrawIndirect ? IndirectDraw_MultiDraw : 0)
@@ -1302,17 +1313,40 @@ extern "C"
         }
         // D3D11 and D3D12 have UAVs in pixel shaders at every feature level Donut runs on.
         bool fragmentStoresAndAtomics = api != nvrhi::GraphicsAPI::VULKAN;
+        // NVRHI has no tiled resources on D3D11. D3D12 reports residency in shaders from tiled
+        // resources tier 2 on; Vulkan needs the features and sparse binding on the graphics queue,
+        // which NVRHI binds on.
+        bool sparseResidency = false;
+#if DONUT_WITH_DX12
+        if (api == nvrhi::GraphicsAPI::D3D12)
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
+            ID3D12Device* d3dDevice = deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            sparseResidency = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)))
+                && options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2;
+        }
+#endif
 #if DONUT_WITH_VULKAN
         if (api == nvrhi::GraphicsAPI::VULKAN)
         {
             indirectDrawSupport = vulkanFeatures->support;
             fragmentStoresAndAtomics = vulkanFeatures->features.fragmentStoresAndAtomics == VK_TRUE;
+
+            auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(deviceManager.get());
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(vulkanDeviceManager);
+            const int graphicsFamily = DeviceManagerVKAccess::GraphicsQueueFamily(vulkanDeviceManager);
+            const auto families = physicalDevice.getQueueFamilyProperties();
+            const VkPhysicalDeviceFeatures& features = vulkanFeatures->features;
+            sparseResidency = features.sparseBinding && features.sparseResidencyImage2D && features.shaderResourceResidency
+                && graphicsFamily >= 0 && size_t(graphicsFamily) < families.size()
+                && (families[graphicsFamily].queueFlags & vk::QueueFlagBits::eSparseBinding);
         }
 #endif
 
         App* app = MakeApp(std::move(deviceManager), api);
         app->indirectDrawSupport = indirectDrawSupport;
         app->fragmentStoresAndAtomics = fragmentStoresAndAtomics;
+        app->sparseResidency = sparseResidency;
         return app;
     }
 
@@ -1327,6 +1361,15 @@ extern "C"
     int Donut_HasFragmentStoresAndAtomics(void* app)
     {
         return AsApp(app)->fragmentStoresAndAtomics ? 1 : 0;
+    }
+
+    // Non-zero if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether
+    // what they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan
+    // with sparse residency of 2D images, shaderResourceResidency and sparse binding on the graphics
+    // queue; never D3D11 or headless apps.
+    int Donut_HasSparseResidency(void* app)
+    {
+        return AsApp(app)->sparseResidency ? 1 : 0;
     }
 
     // Same, without options.
@@ -2579,6 +2622,20 @@ extern "C"
         }
     }
 
+    // A sampler: linearFilter / linearMipFilter non-zero for linear filtering within / between
+    // levels (point otherwise), wrap non-zero to repeat (clamp otherwise). Returns null on failure.
+    void* Donut_CreateSampler(void* app, int linearFilter, int linearMipFilter, int wrap)
+    {
+        auto desc = nvrhi::SamplerDesc()
+            .setMinFilter(linearFilter != 0)
+            .setMagFilter(linearFilter != 0)
+            .setMipFilter(linearMipFilter != 0)
+            .setAllAddressModes(wrap != 0 ? nvrhi::SamplerAddressMode::Wrap : nvrhi::SamplerAddressMode::Clamp);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createSampler(desc));
+    }
+
     // A comparison sampler (SamplerComparisonState) for depth textures: bilinear, clamped to the
     // edges. NVRHI fixes its comparison at "less": SampleCmp returns the filtered fraction of texels
     // whose depth is greater than the reference. Returns null on failure.
@@ -2659,6 +2716,14 @@ extern "C"
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture)));
+    }
+
+    // Same, one level of the texture only (e.g. the level above the one a pass draws into).
+    void Donut_BindTextureSRVMip(void* bindingSetDesc, int slot, void* texture, int mipLevel)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::Texture_SRV(
+            static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture), nvrhi::Format::UNKNOWN,
+            nvrhi::TextureSubresourceSet(uint32_t(mipLevel), 1, 0, 1)));
     }
 
     // SamplerState at s<slot>.
@@ -2924,6 +2989,252 @@ extern "C"
 
         App* a = AsApp(app);
         return a->Own(a->device()->createFramebuffer(desc));
+    }
+
+    // Framebuffer of one level of a color target (e.g. of Donut_CreateTiledTexture), to draw into
+    // while sampling another level (Donut_BindTextureSRVMip). Returns null on failure.
+    void* Donut_CreateFramebufferForMip(void* app, void* colorTexture, int mipLevel)
+    {
+        auto desc = nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
+            .setTexture(static_cast<nvrhi::ITexture*>(colorTexture))
+            .setSubresources(nvrhi::TextureSubresourceSet(uint32_t(mipLevel), 1, 0, 1)));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createFramebuffer(desc));
+    }
+
+    // --- Tiled textures ----------------------------------------------------------------------
+
+    // A 2D texture of width x height and mipLevels levels in `format` whose memory is mapped tile by
+    // tile (Donut_ApplyTileMappings), from heaps of Donut_CreateTileHeap: unmapped tiles read as
+    // zeros, and shaders can tell (CheckAccessFullyMapped). It rests as a shader resource, and is a
+    // copy source and destination and a render target (e.g. to fill a level from the one above it).
+    // Requires Donut_HasSparseResidency. Returns null on failure.
+    void* Donut_CreateTiledTexture(void* app, int width, int height, int mipLevels, int format, const char* debugName)
+    {
+        nvrhi::TextureDesc desc;
+        desc.width = static_cast<uint32_t>(width);
+        desc.height = static_cast<uint32_t>(height);
+        desc.mipLevels = static_cast<uint32_t>(mipLevels);
+        desc.format = static_cast<nvrhi::Format>(format);
+        desc.dimension = nvrhi::TextureDimension::Texture2D;
+        desc.isTiled = true;
+        desc.isRenderTarget = true;
+        desc.initialState = nvrhi::ResourceStates::ShaderResource;
+        desc.keepInitialState = true;
+        desc.debugName = debugName;
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // A tiled texture's tiling, into dst (Ref of a `let` int array of 4): the tile's width and
+    // height in texels, the number of levels made of whole tiles, and the number of levels packed
+    // into the mip tail after them.
+    void Donut_GetTextureTiling(void* app, void* texture, int* dst)
+    {
+        uint32_t numTiles = 0;
+        nvrhi::PackedMipDesc packedMips;
+        nvrhi::TileShape tileShape;
+        uint32_t subresourceTilingsNum = 0;
+        AsApp(app)->device()->getTextureTiling(static_cast<nvrhi::ITexture*>(texture), &numTiles, &packedMips, &tileShape,
+            &subresourceTilingsNum, nullptr);
+        dst[0] = static_cast<int>(tileShape.widthInTexels);
+        dst[1] = static_cast<int>(tileShape.heightInTexels);
+        dst[2] = static_cast<int>(packedMips.numStandardMips);
+        dst[3] = static_cast<int>(packedMips.numPackedMips);
+    }
+
+    // Device memory to map tiles of tiled textures into: byteSize bytes, a multiple of the 64 KiB
+    // tile. Release it (Donut_ReleaseResource) once no tile is mapped to it any more and the GPU is
+    // done with what used it. Returns null on failure.
+    void* Donut_CreateTileHeap(void* app, double byteSize, const char* debugName)
+    {
+        nvrhi::HeapDesc desc;
+        desc.capacity = static_cast<uint64_t>(byteSize);
+        desc.type = nvrhi::HeapType::DeviceLocal;
+        desc.debugName = debugName;
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createHeap(desc));
+    }
+
+    // Tile mappings to apply in one go (Donut_ApplyTileMappings).
+    struct TileMappings
+    {
+        struct Tile
+        {
+            nvrhi::IHeap* heap;
+            nvrhi::TiledTextureCoordinate coordinate;
+            uint64_t byteOffset;
+        };
+        std::vector<Tile> tiles;
+    };
+
+    void* Donut_CreateTileMappings()
+    {
+        return new TileMappings();
+    }
+
+    // Maps the tile at column x, row y of level mipLevel to byteOffset (a multiple of 64 KiB) in a
+    // heap, or unmaps it (heap null).
+    void Donut_TileMappingsAdd(void* tileMappings, int mipLevel, int x, int y, void* heap, double byteOffset)
+    {
+        TileMappings::Tile tile;
+        tile.heap = static_cast<nvrhi::IHeap*>(heap);
+        tile.coordinate.mipLevel = static_cast<uint16_t>(mipLevel);
+        tile.coordinate.x = static_cast<uint32_t>(x);
+        tile.coordinate.y = static_cast<uint32_t>(y);
+        tile.byteOffset = static_cast<uint64_t>(byteOffset);
+        static_cast<TileMappings*>(tileMappings)->tiles.push_back(tile);
+    }
+
+    // Applies the mappings to a tiled texture, on the graphics queue, after the work submitted to
+    // it before; frees them. Vulkan's sparse binding isn't ordered with the queue's other work: there
+    // the device is idle before and after.
+    void Donut_ApplyTileMappings(void* app, void* texture, void* tileMappings)
+    {
+        std::unique_ptr<TileMappings> mappings(static_cast<TileMappings*>(tileMappings));
+        nvrhi::IDevice* device = AsApp(app)->device();
+
+        // A mapping per heap (and one for the tiles to unmap), in the order the tiles came.
+        std::vector<nvrhi::IHeap*> heaps;
+        std::vector<std::vector<size_t>> heapTiles;
+        for (size_t i = 0; i < mappings->tiles.size(); i++)
+        {
+            const auto found = std::find(heaps.begin(), heaps.end(), mappings->tiles[i].heap);
+            if (found == heaps.end())
+            {
+                heaps.push_back(mappings->tiles[i].heap);
+                heapTiles.push_back({ i });
+            }
+            else
+                heapTiles[found - heaps.begin()].push_back(i);
+        }
+
+        // One tile per region: D3D12 reads the region's size in texels (rounded up to tiles), Vulkan
+        // in tiles.
+        std::vector<std::vector<nvrhi::TiledTextureCoordinate>> coordinates(heaps.size());
+        std::vector<std::vector<nvrhi::TiledTextureRegion>> regions(heaps.size());
+        std::vector<std::vector<uint64_t>> byteOffsets(heaps.size());
+        std::vector<nvrhi::TextureTilesMapping> tilesMappings(heaps.size());
+        for (size_t h = 0; h < heaps.size(); h++)
+        {
+            for (size_t i : heapTiles[h])
+            {
+                coordinates[h].push_back(mappings->tiles[i].coordinate);
+                nvrhi::TiledTextureRegion region;
+                region.width = 1;
+                region.height = 1;
+                region.depth = 1;
+                regions[h].push_back(region);
+                byteOffsets[h].push_back(mappings->tiles[i].byteOffset);
+            }
+            tilesMappings[h].tiledTextureCoordinates = coordinates[h].data();
+            tilesMappings[h].tiledTextureRegions = regions[h].data();
+            tilesMappings[h].byteOffsets = byteOffsets[h].data();
+            tilesMappings[h].numTextureRegions = static_cast<uint32_t>(coordinates[h].size());
+            tilesMappings[h].heap = heaps[h];
+        }
+
+        const bool vulkan = device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
+        if (vulkan)
+            device->waitForIdle();
+        device->updateTextureTileMappings(static_cast<nvrhi::ITexture*>(texture), tilesMappings.data(),
+            static_cast<uint32_t>(tilesMappings.size()));
+        if (vulkan)
+            device->waitForIdle();
+    }
+
+    // The first level of a DDS file (path relative to the executable's directory) in a staging
+    // texture: memory on the CPU's side that the GPU copies from (Donut_CopyStagingTextureRegion).
+    // Null (after logging why) on failure.
+    void* Donut_LoadStagingTexture(void* app, const char* path)
+    {
+        const std::filesystem::path filePath = GetExecutablePath().parent_path() / path;
+        donut::vfs::NativeFileSystem fs;
+        donut::engine::TextureData texture;
+        texture.data = fs.readFile(filePath);
+        if (!texture.data || !donut::engine::LoadDDSTextureFromMemory(texture) || texture.dataLayout.empty()
+            || texture.dataLayout[0].empty())
+        {
+            donut::log::error("Cannot read %s", filePath.generic_string().c_str());
+            return nullptr;
+        }
+
+        nvrhi::TextureDesc desc;
+        desc.width = texture.width;
+        desc.height = texture.height;
+        desc.format = texture.format;
+        desc.dimension = nvrhi::TextureDimension::Texture2D;
+        desc.debugName = path;
+
+        App* a = AsApp(app);
+        nvrhi::StagingTextureHandle staging = a->device()->createStagingTexture(desc, nvrhi::CpuAccessMode::Write);
+        if (!staging)
+            return nullptr;
+
+        size_t rowPitch = 0;
+        auto* mapped = static_cast<uint8_t*>(a->device()->mapStagingTexture(staging, nvrhi::TextureSlice(),
+            nvrhi::CpuAccessMode::Write, &rowPitch));
+        if (!mapped)
+            return nullptr;
+        const donut::engine::TextureSubresourceData& level = texture.dataLayout[0][0];
+        const auto* source = static_cast<const uint8_t*>(texture.data->data()) + level.dataOffset;
+        const size_t rowBytes = std::min(rowPitch, level.rowPitch);
+        for (uint32_t row = 0; row < texture.height; row++)
+            memcpy(mapped + row * rowPitch, source + row * level.rowPitch, rowBytes);
+        a->device()->unmapStagingTexture(staging);
+        return a->Own(staging);
+    }
+
+    int Donut_GetStagingTextureWidth(void* stagingTexture)
+    {
+        return static_cast<int>(static_cast<nvrhi::IStagingTexture*>(stagingTexture)->getDesc().width);
+    }
+
+    int Donut_GetStagingTextureHeight(void* stagingTexture)
+    {
+        return static_cast<int>(static_cast<nvrhi::IStagingTexture*>(stagingTexture)->getDesc().height);
+    }
+
+    // Copies width x height texels at (srcX, srcY) of a staging texture's first level to (dstX, dstY)
+    // of level dstMip of a texture.
+    void Donut_CopyStagingTextureRegion(void* commandList, void* dstTexture, int dstMip, int dstX, int dstY,
+        void* stagingTexture, int srcX, int srcY, int width, int height)
+    {
+        nvrhi::TextureSlice dst;
+        dst.x = static_cast<uint32_t>(dstX);
+        dst.y = static_cast<uint32_t>(dstY);
+        dst.width = static_cast<uint32_t>(width);
+        dst.height = static_cast<uint32_t>(height);
+        dst.depth = 1;
+        dst.mipLevel = static_cast<uint32_t>(dstMip);
+        nvrhi::TextureSlice src = dst;
+        src.x = static_cast<uint32_t>(srcX);
+        src.y = static_cast<uint32_t>(srcY);
+        src.mipLevel = 0;
+        AsCommandList(commandList)->copyTexture(static_cast<nvrhi::ITexture*>(dstTexture), dst,
+            static_cast<nvrhi::IStagingTexture*>(stagingTexture), src);
+    }
+
+    // Same, between levels of textures (the same texture's other levels too).
+    void Donut_CopyTextureRegion(void* commandList, void* dstTexture, int dstMip, int dstX, int dstY,
+        void* srcTexture, int srcMip, int srcX, int srcY, int width, int height)
+    {
+        nvrhi::TextureSlice dst;
+        dst.x = static_cast<uint32_t>(dstX);
+        dst.y = static_cast<uint32_t>(dstY);
+        dst.width = static_cast<uint32_t>(width);
+        dst.height = static_cast<uint32_t>(height);
+        dst.depth = 1;
+        dst.mipLevel = static_cast<uint32_t>(dstMip);
+        nvrhi::TextureSlice src = dst;
+        src.x = static_cast<uint32_t>(srcX);
+        src.y = static_cast<uint32_t>(srcY);
+        src.mipLevel = static_cast<uint32_t>(srcMip);
+        AsCommandList(commandList)->copyTexture(static_cast<nvrhi::ITexture*>(dstTexture), dst,
+            static_cast<nvrhi::ITexture*>(srcTexture), src);
     }
 
     // Triangle-list pipeline for a framebuffer's layout (Donut_CreateFramebuffer), with an input
@@ -6878,6 +7189,16 @@ extern "C"
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(vertexCount);
         ctx->commandList->draw(args);
+    }
+
+    // Executes what the frame's command list holds so far, and reopens it for the rest of the frame:
+    // e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it.
+    void Donut_SubmitFrameCommandList(void* app, void* frame)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        ctx->commandList->close();
+        AsApp(app)->device()->executeCommandList(ctx->commandList);
+        ctx->commandList->open();
     }
 
     // Starts describing a mesh shader draw with a meshlet pipeline, over the whole framebuffer; add

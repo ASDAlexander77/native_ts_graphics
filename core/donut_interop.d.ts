@@ -218,6 +218,10 @@ declare function Donut_GetIndirectDrawSupport(app: Opaque): IndirectDrawSupport;
 // Non-zero if pixel shaders can write to UAVs and do atomics on them (Vulkan devices are created
 // with fragmentStoresAndAtomics when the GPU has it; D3D11 and D3D12 always can).
 declare function Donut_HasFragmentStoresAndAtomics(app: Opaque): int;
+// Non-zero if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether what
+// they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan with
+// sparse residency; never D3D11.
+declare function Donut_HasSparseResidency(app: Opaque): int;
 declare function Donut_GetRendererString(app: Opaque): string;
 declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".
@@ -344,6 +348,37 @@ declare function Donut_CreateDepthFramebuffer(app: Opaque, depthTexture: Opaque)
 // Same, with two color targets (SV_Target0 and SV_Target1).
 declare function Donut_CreateFramebufferWithTwoTargets(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque,
     depthTexture: Opaque | null): Opaque;
+// One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
+declare function Donut_CreateFramebufferForMip(app: Opaque, colorTexture: Opaque, mipLevel: int): Opaque;
+
+// Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
+// tile from heaps; unmapped tiles read as zeros. It rests as a shader resource, and is a copy source
+// and destination and a render target.
+declare function Donut_CreateTiledTexture(app: Opaque, width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque;
+// Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
+// levels made of whole tiles, the number of levels packed into the mip tail.
+declare function Donut_GetTextureTiling(app: Opaque, texture: Opaque, dst: Opaque): void;
+// Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
+// is mapped to it and the GPU is done with what used it.
+declare function Donut_CreateTileHeap(app: Opaque, byteSize: number, debugName: string): Opaque;
+// Tile mappings, applied in one go (and freed) by Donut_ApplyTileMappings.
+declare function Donut_CreateTileMappings(): Opaque;
+// Maps the tile at column x, row y of level mipLevel to byteOffset in a heap, or unmaps it (null).
+declare function Donut_TileMappingsAdd(tileMappings: Opaque, mipLevel: int, x: int, y: int, heap: Opaque | null, byteOffset: number): void;
+// On the graphics queue, after the work submitted before (on Vulkan the device is idle before and
+// after: its sparse binding isn't ordered with other work).
+declare function Donut_ApplyTileMappings(app: Opaque, texture: Opaque, tileMappings: Opaque): void;
+// The first level of a DDS file (path relative to the executable's directory) in a staging
+// texture: memory on the CPU's side the GPU copies from. Null (after logging why) on failure.
+declare function Donut_LoadStagingTexture(app: Opaque, path: string): Opaque;
+declare function Donut_GetStagingTextureWidth(stagingTexture: Opaque): int;
+declare function Donut_GetStagingTextureHeight(stagingTexture: Opaque): int;
+// Copies width x height texels at (srcX, srcY) of a staging texture to (dstX, dstY) of level dstMip.
+declare function Donut_CopyStagingTextureRegion(commandList: Opaque, dstTexture: Opaque, dstMip: int, dstX: int, dstY: int,
+    stagingTexture: Opaque, srcX: int, srcY: int, width: int, height: int): void;
+// Same, between levels of textures (the same texture's other levels too).
+declare function Donut_CopyTextureRegion(commandList: Opaque, dstTexture: Opaque, dstMip: int, dstX: int, dstY: int,
+    srcTexture: Opaque, srcMip: int, srcX: int, srcY: int, width: int, height: int): void;
 // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
 // writes, back faces culled (clockwise triangles are front faces).
 declare function Donut_CreateGraphicsPipelineForFramebuffer(app: Opaque, framebuffer: Opaque, vertexShader: Opaque,
@@ -438,6 +473,9 @@ declare function Donut_GetCommonSampler(app: Opaque, which: CommonSampler): Opaq
 // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
 // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
 declare function Donut_CreateComparisonSampler(app: Opaque): Opaque;
+// linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point
+// otherwise); wrap non-zero: repeating (clamped otherwise).
+declare function Donut_CreateSampler(app: Opaque, linearFilter: int, linearMipFilter: int, wrap: int): Opaque;
 
 // Built up with Donut_AddVertexAttribute, then consumed (freed) by Donut_CreateInputLayout.
 declare function Donut_CreateInputLayoutDesc(): Opaque;
@@ -517,6 +555,8 @@ declare function Donut_BindTextureSRVArrayElement(bindingSetDesc: Opaque, slot: 
 declare function Donut_BindPushConstants(bindingSetDesc: Opaque, slot: int, byteSize: int): void;
 // Texture2D at t<slot>.
 declare function Donut_BindTextureSRV(bindingSetDesc: Opaque, slot: int, texture: Opaque): void;
+// Same, one level of the texture only.
+declare function Donut_BindTextureSRVMip(bindingSetDesc: Opaque, slot: int, texture: Opaque, mipLevel: int): void;
 // SamplerState at s<slot>.
 declare function Donut_BindSampler(bindingSetDesc: Opaque, slot: int, sampler: Opaque): void;
 // RWTexture2D<float4> at u<slot>.
@@ -1038,6 +1078,9 @@ declare function Donut_DrawIndexedRangeWithPushConstants(frame: Opaque, indexCou
 declare function Donut_CopyTextureToFrame(frame: Opaque, texture: Opaque): void;
 // Same, without an index buffer.
 declare function Donut_DrawVertices(frame: Opaque, vertexCount: int): void;
+// Executes what the frame's command list holds so far, and reopens it for the rest of the frame
+// (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
+declare function Donut_SubmitFrameCommandList(app: Opaque, frame: Opaque): void;
 // A mesh shader draw: begin with a meshlet pipeline (whole framebuffer by default), add binding sets
 // (Donut_DrawAddBindingSet) and a viewport, then launch groupsX groups of its first shader
 // (amplification, or mesh without one).

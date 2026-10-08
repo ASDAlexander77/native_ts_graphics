@@ -128,11 +128,17 @@ set(DONUT_GLFW_PATCHES
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/glfw-android-platform.patch"
 )
 
-# And for NVRHI's (external/Donut/nvrhi): D3D11 rebinds the binding sets when a pipeline has other
-# shader stages than the previous one, so the same sets reach a geometry shader drawn after a draw
-# without one (gshader_to_mshader).
+# And for NVRHI's (external/Donut/nvrhi).
 set(DONUT_NVRHI_PATCHES
+    # D3D11 rebinds the binding sets when a pipeline has other shader stages than the previous one,
+    # so the same sets reach a geometry shader drawn after a draw without one (gshader_to_mshader).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-d3d11-rebind-on-shader-stage-change.patch"
+    # Vulkan binds a tiled texture's edge tiles up to the level's edge, not a whole tile past it,
+    # for levels that aren't a whole number of tiles (sparse_image).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-sparse-edge-tiles.patch"
+    # Vulkan copies between staging textures and textures from the right place when the region
+    # doesn't start at column 0: its offset counted the columns in blocks, not bytes (sparse_image).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-staging-copy-offset.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -945,6 +951,32 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
         VERBATIM)
     add_custom_target(gshader_to_mshader_media DEPENDS "${output}")
     add_dependencies(gshader_to_mshader gshader_to_mshader_media)
+endif()
+
+# Port of Vulkan-Samples' sparse_image: a large texture on a plane, its pages mapped to memory and
+# filled (level 0 from CPU-side data, the others from the level above) as the view needs them.
+# Tiled textures: D3D12 and Vulkan only, so no DXBC. The texture is Vulkan-Samples' (see
+# VULKAN_SAMPLES_ASSETS_DIR above), converted to DDS.
+donut_compile_shaders(
+    TARGET sparse_image_shaders
+    PROJECT_NAME "Sparse Image"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/sparse_image.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/sparse_image.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/sparse_image/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/sparse_image/spirv
+)
+add_tslang_example(sparse_image)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/vulkan_logo_full.ktx")
+    set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/sparse_image/vulkan_logo_full.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting vulkan_logo_full.ktx to DDS"
+        VERBATIM)
+    add_custom_target(sparse_image_media DEPENDS "${output}")
+    add_dependencies(sparse_image sparse_image_media)
 endif()
 
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see

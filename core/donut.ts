@@ -89,6 +89,13 @@ export class App {
         return Donut_HasFragmentStoresAndAtomics(this.handle);
     }
 
+    // Non-zero if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether what
+    // they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan with
+    // sparse residency; never D3D11.
+    hasSparseResidency(): int {
+        return Donut_HasSparseResidency(this.handle);
+    }
+
     getRendererString(): string {
         return Donut_GetRendererString(this.handle);
     }
@@ -270,6 +277,42 @@ export class App {
         return Donut_CreateFramebufferWithTwoTargets(this.handle, colorTexture0, colorTexture1, depthTexture);
     }
 
+    // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
+    createFramebufferForMip(colorTexture: Opaque, mipLevel: int): Opaque {
+        return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
+    }
+
+    // Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
+    // tile from heaps; unmapped tiles read as zeros. It rests as a shader resource, and is a copy source
+    // and destination and a render target.
+    createTiledTexture(width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateTiledTexture(this.handle, width, height, mipLevels, format, debugName);
+    }
+
+    // Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
+    // levels made of whole tiles, the number of levels packed into the mip tail.
+    getTextureTiling(texture: Opaque, dst: Opaque): void {
+        Donut_GetTextureTiling(this.handle, texture, dst);
+    }
+
+    // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
+    // is mapped to it and the GPU is done with what used it.
+    createTileHeap(byteSize: number, debugName: string): Opaque {
+        return Donut_CreateTileHeap(this.handle, byteSize, debugName);
+    }
+
+    // On the graphics queue, after the work submitted before (on Vulkan the device is idle before and
+    // after: its sparse binding isn't ordered with other work).
+    applyTileMappings(texture: Opaque, tileMappings: TileMappings): void {
+        Donut_ApplyTileMappings(this.handle, texture, tileMappings.handle);
+    }
+
+    // The first level of a DDS file (path relative to the executable's directory) in a staging
+    // texture: memory on the CPU's side the GPU copies from. Null (after logging why) on failure.
+    loadStagingTexture(path: string): Opaque {
+        return Donut_LoadStagingTexture(this.handle, path);
+    }
+
     // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
     // writes, back faces culled (clockwise triangles are front faces).
     createGraphicsPipelineForFramebuffer(framebuffer: Opaque, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque {
@@ -348,6 +391,12 @@ export class App {
     // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
     createComparisonSampler(): Opaque {
         return Donut_CreateComparisonSampler(this.handle);
+    }
+
+    // linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point
+    // otherwise); wrap non-zero: repeating (clamped otherwise).
+    createSampler(linearFilter: int, linearMipFilter: int, wrap: int): Opaque {
+        return Donut_CreateSampler(this.handle, linearFilter, linearMipFilter, wrap);
     }
 
     createInputLayout(inputLayoutDesc: InputLayoutDesc, vertexShader: Opaque): Opaque {
@@ -772,6 +821,12 @@ export class App {
     // One array slice of a texture, stretched into a rectangle of the framebuffer (pixels).
     blitTextureSlice(frame: Frame, texture: Opaque, arraySlice: int, left: number, top: number, width: number, height: number): void {
         Donut_BlitTextureSlice(this.handle, frame.handle, texture, arraySlice, left, top, width, height);
+    }
+
+    // Executes what the frame's command list holds so far, and reopens it for the rest of the frame
+    // (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
+    submitFrameCommandList(frame: Frame): void {
+        Donut_SubmitFrameCommandList(this.handle, frame.handle);
     }
 
     // Submits what the frame has recorded so far and goes on recording: work after it (e.g.
@@ -1210,6 +1265,16 @@ export class CommandList {
         return !this.handle;
     }
 
+    // Copies width x height texels at (srcX, srcY) of a staging texture to (dstX, dstY) of level dstMip.
+    copyStagingTextureRegion(dstTexture: Opaque, dstMip: int, dstX: int, dstY: int, stagingTexture: Opaque, srcX: int, srcY: int, width: int, height: int): void {
+        Donut_CopyStagingTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, stagingTexture, srcX, srcY, width, height);
+    }
+
+    // Same, between levels of textures (the same texture's other levels too).
+    copyTextureRegion(dstTexture: Opaque, dstMip: int, dstX: int, dstY: int, srcTexture: Opaque, srcMip: int, srcX: int, srcY: int, width: int, height: int): void {
+        Donut_CopyTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, srcTexture, srcMip, srcX, srcY, width, height);
+    }
+
     // Before a dispatch whose shaders write a buffer through its device address (NVRHI can't see
     // that): marks it as written by shaders, so that its next use waits for the writes.
     setBufferWrittenByShaders(buffer: Opaque): void {
@@ -1528,6 +1593,11 @@ export class BindingSetDesc {
     // Texture2D at t<slot>.
     bindTextureSRV(slot: int, texture: Opaque): void {
         Donut_BindTextureSRV(this.handle, slot, texture);
+    }
+
+    // Same, one level of the texture only.
+    bindTextureSRVMip(slot: int, texture: Opaque, mipLevel: int): void {
+        Donut_BindTextureSRVMip(this.handle, slot, texture, mipLevel);
     }
 
     // SamplerState at s<slot>.
@@ -2917,5 +2987,28 @@ export class TriangleBlas {
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
     getAccelStruct(): Opaque {
         return Donut_GetTriangleBlasAccelStruct(this.handle);
+    }
+}
+
+export class TileMappings {
+    readonly handle: Opaque;
+
+    constructor(handle: Opaque | null) {
+        this.handle = handle as Opaque;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // Tile mappings, applied in one go (and freed) by Donut_ApplyTileMappings.
+    static create(): TileMappings {
+        return new TileMappings(Donut_CreateTileMappings());
+    }
+
+    // Maps the tile at column x, row y of level mipLevel to byteOffset in a heap, or unmaps it (null).
+    add(mipLevel: int, x: int, y: int, heap: Opaque | null, byteOffset: number): void {
+        Donut_TileMappingsAdd(this.handle, mipLevel, x, y, heap, byteOffset);
     }
 }

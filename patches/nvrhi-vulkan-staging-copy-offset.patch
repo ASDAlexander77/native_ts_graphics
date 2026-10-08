@@ -1,0 +1,13 @@
+diff --git a/src/vulkan/vulkan-staging-texture.cpp b/src/vulkan/vulkan-staging-texture.cpp
+index ae2021c..32adde6 100644
+--- a/src/vulkan/vulkan-staging-texture.cpp
++++ b/src/vulkan/vulkan-staging-texture.cpp
+@@ -42,7 +42,7 @@ namespace nvrhi::vulkan
+         uint32_t blockY = y / formatInfo.blockSize;
+         uint32_t blockZ = z;
+ 
+-        return footprint.offset + (blockX + (blockY + blockZ * footprint.numRows) * footprint.rowPitch);
++        return footprint.offset + blockX * formatInfo.bytesPerBlock + (blockY + blockZ * footprint.numRows) * footprint.rowPitch;
+     }
+ 
+     size_t StagingTexture::computeCopyableFootprints()

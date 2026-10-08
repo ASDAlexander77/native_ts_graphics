@@ -72,6 +72,7 @@ CLASSES = {
     "gltfMesh": "GltfMesh",
     "gltfModel": "GltfModel",
     "triangleBlas": "TriangleBlas",
+    "tileMappings": "TileMappings",
 }
 
 # Further parameter names that hold one of those objects.
@@ -116,6 +117,7 @@ METHOD_NAMES = {
     "Donut_CreateRayTracingPipelineDesc": "create",
     "Donut_CreateGraphicsPipelineDesc": "create",
     "Donut_CreateMeshletPipelineDesc": "createMeshlet",
+    "Donut_CreateTileMappings": "create",
     "Donut_ImGuiPushFont": "push",
     "Donut_GetSceneTopLevelAS": "getTopLevelAS",
     "Donut_AddSceneTopLevelASInstances": "addSceneInstances",
