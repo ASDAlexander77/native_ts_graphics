@@ -420,6 +420,26 @@ function(add_tslang_android_app name media)
     endif()
 endfunction()
 
+# The files the examples' .ts files compile in, which their objects have to be rebuilt after: a
+# TSLANG object depends on its own .ts only, as tslang can't write a depfile (the DEP_FILE of the
+# rule is never made), so changing App in donut.ts left the examples' objects with the old layout.
+#   examples/<name>.ts imports core/input_pass.ts, which imports core/donut.ts, which references
+#   core/donut_interop.d.ts. donut_globals.d.ts is for the editor only, but it's generated with
+#   donut.ts.
+# Listed by hand, so a change to any of them rebuilds every example's .ts, and a new import has to
+# be added here. Once tslang can write a depfile, set CMAKE_DEPFILE_FLAGS_TSLANG in
+# cmake/CMakeTSLANGInformation.cmake and drop these.
+set(TSLANG_DONUT_DECLARATIONS
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/donut_interop.d.ts"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/donut_globals.d.ts")
+set(TSLANG_CORE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts"
+    ${TSLANG_DONUT_DECLARATIONS})
+set_source_files_properties(core/donut.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_DONUT_DECLARATIONS}")
+set_source_files_properties(core/input_pass.ts PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts;${TSLANG_DONUT_DECLARATIONS}")
+
 # add_tslang_example(<name> [MEDIA <path>...] [<source>...]): examples/<name>.ts and the further
 # sources. MEDIA lists the files and folders of the media folder it reads (paths in it), which
 # go into its APK on Android; on the desktop the whole folder is next to the executables.
@@ -429,6 +449,9 @@ function(add_tslang_example name)
     # rule explicitly: the C++ link flags (debug info, CRT) apply and the tslang compile flags
     # stay off the link line.
     add_executable(${name} examples/${name}.ts core/input_pass.ts core/donut.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
+    set(example_ts examples/${name}.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
+    list(FILTER example_ts INCLUDE REGEX "\\.ts$")
+    set_source_files_properties(${example_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES}")
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop)
     if (TARGET ${name}_shaders)
