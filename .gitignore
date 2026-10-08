@@ -4,3 +4,4 @@ __pycache__/
 __jit/
 /build-android-x86_64
 /build-android-arm64
+/tools/tslang
