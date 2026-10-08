@@ -105,6 +105,9 @@ enum AppOptions {
 
 // nvrhi::PrimitiveType values (only the ones used so far).
 enum PrimitiveType {
+    PointList = 0,
+    LineList = 1,
+    LineStrip = 2,
     TriangleList = 3,
     TriangleStrip = 4,
     PatchList = 8
@@ -257,6 +260,7 @@ enum ShaderType {
     Vertex = 0x0001,
     Hull = 0x0002,
     Domain = 0x0004,
+    Geometry = 0x0008,
     Pixel = 0x0010,
     Compute = 0x0020,
     Amplification = 0x0040,
@@ -349,9 +353,15 @@ declare function Donut_CreateGraphicsPipelineForFramebuffer(app: Opaque, framebu
 // render state: depth test (less) and writes, back faces culled (clockwise triangles are front
 // faces), solid fill, no blending.
 declare function Donut_CreateGraphicsPipelineDesc(vertexShader: Opaque, pixelShader: Opaque): Opaque;
+// Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (null for none),
+// mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the mesh
+// shader outputs (its outputtopology).
+declare function Donut_CreateMeshletPipelineDesc(amplificationShader: Opaque | null, meshShader: Opaque, pixelShader: Opaque): Opaque;
 declare function Donut_GraphicsPipelineAddBindingLayout(graphicsPipelineDesc: Opaque, bindingLayout: Opaque): void;
 declare function Donut_GraphicsPipelineSetInputLayout(graphicsPipelineDesc: Opaque, inputLayout: Opaque): void;
 declare function Donut_GraphicsPipelineSetPrimitiveType(graphicsPipelineDesc: Opaque, primitiveType: PrimitiveType): void;
+// A geometry shader between the vertex (or domain) shader and the rasterizer.
+declare function Donut_GraphicsPipelineSetGeometryShader(graphicsPipelineDesc: Opaque, geometryShader: Opaque): void;
 // Hull and domain shaders, drawing patches of controlPoints vertices.
 declare function Donut_GraphicsPipelineSetTessellation(graphicsPipelineDesc: Opaque, hullShader: Opaque, domainShader: Opaque,
     controlPoints: int): void;
@@ -371,6 +381,10 @@ declare function Donut_GraphicsPipelineSetColorWriteMask(graphicsPipelineDesc: O
 declare function Donut_CreateGraphicsPipelineFromDesc(app: Opaque, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
 // Same, for the frame's framebuffer (the back buffer's layout).
 declare function Donut_CreateGraphicsPipelineFromDescForFrame(app: Opaque, graphicsPipelineDesc: Opaque, frame: Opaque): Opaque;
+// A meshlet pipeline from a Donut_CreateMeshletPipelineDesc description, for a framebuffer's layout,
+// or the frame's; requires Feature.Meshlets.
+declare function Donut_CreateMeshletPipelineFromDesc(app: Opaque, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
+declare function Donut_CreateMeshletPipelineFromDescForFrame(app: Opaque, graphicsPipelineDesc: Opaque, frame: Opaque): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
 declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
@@ -1024,6 +1038,12 @@ declare function Donut_DrawIndexedRangeWithPushConstants(frame: Opaque, indexCou
 declare function Donut_CopyTextureToFrame(frame: Opaque, texture: Opaque): void;
 // Same, without an index buffer.
 declare function Donut_DrawVertices(frame: Opaque, vertexCount: int): void;
+// A mesh shader draw: begin with a meshlet pipeline (whole framebuffer by default), add binding sets
+// (Donut_DrawAddBindingSet) and a viewport, then launch groupsX groups of its first shader
+// (amplification, or mesh without one).
+declare function Donut_BeginMeshDraw(frame: Opaque, meshletPipeline: Opaque): void;
+declare function Donut_BeginMeshDrawToFramebuffer(frame: Opaque, meshletPipeline: Opaque, framebuffer: Opaque): void;
+declare function Donut_DrawMeshTasks(frame: Opaque, groupsX: int): void;
 declare function Donut_GetFrameWidth(frame: Opaque): int;
 declare function Donut_GetFrameHeight(frame: Opaque): int;
 

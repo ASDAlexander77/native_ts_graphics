@@ -128,6 +128,13 @@ set(DONUT_GLFW_PATCHES
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/glfw-android-platform.patch"
 )
 
+# And for NVRHI's (external/Donut/nvrhi): D3D11 rebinds the binding sets when a pipeline has other
+# shader stages than the previous one, so the same sets reach a geometry shader drawn after a draw
+# without one (gshader_to_mshader).
+set(DONUT_NVRHI_PATCHES
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-d3d11-rebind-on-shader-stage-change.patch"
+)
+
 # Applies the patches to the repository in <folder>, unless they are applied already.
 function(apply_patches folder)
     foreach(PATCH_FILE ${ARGN})
@@ -176,6 +183,7 @@ if (GIT_EXECUTABLE)
 
     apply_patches(external/Donut ${DONUT_PATCHES})
     apply_patches(external/Donut/thirdparty/glfw ${DONUT_GLFW_PATCHES})
+    apply_patches(external/Donut/nvrhi ${DONUT_NVRHI_PATCHES})
 else()
     message(WARNING "git not found: skipping the external/Donut patches")
 endif()
@@ -904,6 +912,39 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     list(APPEND oit_linked_lists_media "${output}")
     add_custom_target(oit_linked_lists_media DEPENDS ${oit_linked_lists_media})
     add_dependencies(oit_linked_lists oit_linked_lists_media)
+endif()
+
+# Port of Vulkan-Samples' gshader_to_mshader: a model's normals drawn by a geometry shader, or by a
+# mesh shader over meshlets. The mesh shader has a file of its own, without DXBC: D3D11 has no mesh
+# shaders. The model is Vulkan-Samples' (see VULKAN_SAMPLES_ASSETS_DIR above), copied.
+donut_compile_shaders_all_platforms(
+    TARGET gshader_to_mshader_shaders
+    PROJECT_NAME "Geometry Shader to Mesh Shader"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gshader_to_mshader.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gshader_to_mshader.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/gshader_to_mshader
+)
+donut_compile_shaders(
+    TARGET gshader_to_mshader_mesh_shaders
+    PROJECT_NAME "Geometry Shader to Mesh Shader"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gshader_to_mshader_mesh.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gshader_to_mshader_mesh.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/gshader_to_mshader/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/gshader_to_mshader/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+add_tslang_example(gshader_to_mshader)
+add_dependencies(gshader_to_mshader gshader_to_mshader_mesh_shaders)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/teapot.gltf")
+    set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/gshader_to_mshader/teapot.gltf")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+        DEPENDS "${source}"
+        COMMENT "Copying teapot.gltf"
+        VERBATIM)
+    add_custom_target(gshader_to_mshader_media DEPENDS "${output}")
+    add_dependencies(gshader_to_mshader gshader_to_mshader_media)
 endif()
 
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see

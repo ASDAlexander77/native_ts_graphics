@@ -121,6 +121,16 @@ namespace
         uint64_t previousSubmission;
         // Built up by Donut_BeginDraw / Donut_Draw* and used by Donut_DrawIndexed / Donut_DrawVertices.
         nvrhi::GraphicsState draw;
+        // Donut_BeginMeshDraw's pipeline: Donut_DrawMeshTasks takes the rest from `draw`.
+        nvrhi::IMeshletPipeline* meshletPipeline = nullptr;
+    };
+
+    // What Donut_CreateGraphicsPipelineDesc and Donut_CreateMeshletPipelineDesc return: a graphics
+    // pipeline description, plus the amplification and mesh shaders of a meshlet pipeline.
+    struct PipelineDesc : nvrhi::GraphicsPipelineDesc
+    {
+        nvrhi::ShaderHandle AS;
+        nvrhi::ShaderHandle MS;
     };
 
     class TsRenderPass : public donut::app::IRenderPass
@@ -1203,10 +1213,12 @@ static_assert(int(nvrhi::Feature::Meshlets) == 9 && int(nvrhi::Feature::RayTraci
     && int(nvrhi::Feature::ShaderSpecializations) == 18 && int(nvrhi::Feature::VariableRateShading) == 21
     && int(nvrhi::Feature::RayQuery) == 10);
 static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Hull) == 0x2
-    && int(nvrhi::ShaderType::Domain) == 0x4 && int(nvrhi::ShaderType::Pixel) == 0x10
+    && int(nvrhi::ShaderType::Domain) == 0x4 && int(nvrhi::ShaderType::Geometry) == 0x8
+    && int(nvrhi::ShaderType::Pixel) == 0x10
     && int(nvrhi::ShaderType::Compute) == 0x20 && int(nvrhi::ShaderType::Amplification) == 0x40
     && int(nvrhi::ShaderType::Mesh) == 0x80 && int(nvrhi::ShaderType::All) == 0x3FFF);
-static_assert(int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::PrimitiveType::TriangleStrip) == 4
+static_assert(int(nvrhi::PrimitiveType::PointList) == 0 && int(nvrhi::PrimitiveType::LineList) == 1
+    && int(nvrhi::PrimitiveType::LineStrip) == 2 && int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::PrimitiveType::TriangleStrip) == 4
     && int(nvrhi::PrimitiveType::PatchList) == 8);
 static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
     && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46
@@ -2939,16 +2951,35 @@ extern "C"
     // back faces culled (clockwise triangles are front faces), solid fill, no blending.
     void* Donut_CreateGraphicsPipelineDesc(void* vertexShader, void* pixelShader)
     {
-        auto* desc = new nvrhi::GraphicsPipelineDesc();
+        auto* desc = new PipelineDesc();
         desc->VS = static_cast<nvrhi::IShader*>(vertexShader);
         desc->PS = static_cast<nvrhi::IShader*>(pixelShader);
         desc->primType = nvrhi::PrimitiveType::TriangleList;
         return desc;
     }
 
-    static nvrhi::GraphicsPipelineDesc* AsGraphicsPipelineDesc(void* graphicsPipelineDesc)
+    // Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (optional),
+    // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the
+    // mesh shader outputs (its outputtopology).
+    void* Donut_CreateMeshletPipelineDesc(void* amplificationShader, void* meshShader, void* pixelShader)
     {
-        return static_cast<nvrhi::GraphicsPipelineDesc*>(graphicsPipelineDesc);
+        auto* desc = new PipelineDesc();
+        desc->AS = static_cast<nvrhi::IShader*>(amplificationShader);
+        desc->MS = static_cast<nvrhi::IShader*>(meshShader);
+        desc->PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc->primType = nvrhi::PrimitiveType::TriangleList;
+        return desc;
+    }
+
+    static PipelineDesc* AsGraphicsPipelineDesc(void* graphicsPipelineDesc)
+    {
+        return static_cast<PipelineDesc*>(graphicsPipelineDesc);
+    }
+
+    // A geometry shader between the vertex (or domain) shader and the rasterizer.
+    void Donut_GraphicsPipelineSetGeometryShader(void* graphicsPipelineDesc, void* geometryShader)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->GS = static_cast<nvrhi::IShader*>(geometryShader);
     }
 
     void Donut_GraphicsPipelineAddBindingLayout(void* graphicsPipelineDesc, void* bindingLayout)
@@ -2972,8 +3003,8 @@ extern "C"
     void Donut_GraphicsPipelineSetTessellation(void* graphicsPipelineDesc, void* hullShader, void* domainShader,
         int controlPoints)
     {
-        nvrhi::GraphicsPipelineDesc* desc = AsGraphicsPipelineDesc(graphicsPipelineDesc);
-        desc->HS = static_cast<nvrhi::IShader*>(hullShader);
+        PipelineDesc* desc = AsGraphicsPipelineDesc(graphicsPipelineDesc);
+        desc->HS =static_cast<nvrhi::IShader*>(hullShader);
         desc->DS = static_cast<nvrhi::IShader*>(domainShader);
         desc->primType = nvrhi::PrimitiveType::PatchList;
         desc->patchControlPoints = static_cast<uint32_t>(controlPoints);
@@ -3035,7 +3066,7 @@ extern "C"
     // failure.
     void* Donut_CreateGraphicsPipelineFromDesc(void* app, void* graphicsPipelineDesc, void* framebuffer)
     {
-        std::unique_ptr<nvrhi::GraphicsPipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        std::unique_ptr<PipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
         App* a = AsApp(app);
         return a->Own(a->device()->createGraphicsPipeline(*desc,
             static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo()));
@@ -3045,9 +3076,37 @@ extern "C"
     // null on failure.
     void* Donut_CreateGraphicsPipelineFromDescForFrame(void* app, void* graphicsPipelineDesc, void* frame)
     {
-        std::unique_ptr<nvrhi::GraphicsPipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        std::unique_ptr<PipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
         App* a = AsApp(app);
         return a->Own(a->device()->createGraphicsPipeline(*desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
+    }
+
+    // Owned by the app; null on failure.
+    static void* CreateMeshletPipeline(App* a, const PipelineDesc& desc, const nvrhi::FramebufferInfo& framebufferInfo)
+    {
+        nvrhi::MeshletPipelineDesc meshletDesc;
+        meshletDesc.primType = desc.primType;
+        meshletDesc.AS = desc.AS;
+        meshletDesc.MS = desc.MS;
+        meshletDesc.PS = desc.PS;
+        meshletDesc.renderState = desc.renderState;
+        meshletDesc.bindingLayouts = desc.bindingLayouts;
+        return a->Own(a->device()->createMeshletPipeline(meshletDesc, framebufferInfo));
+    }
+
+    // A meshlet pipeline from a Donut_CreateMeshletPipelineDesc description (which it frees), for a
+    // framebuffer's layout; requires nvrhi::Feature::Meshlets. Returns null on failure.
+    void* Donut_CreateMeshletPipelineFromDesc(void* app, void* graphicsPipelineDesc, void* framebuffer)
+    {
+        std::unique_ptr<PipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        return CreateMeshletPipeline(AsApp(app), *desc, static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo());
+    }
+
+    // Same, for the frame's framebuffer (the back buffer's layout).
+    void* Donut_CreateMeshletPipelineFromDescForFrame(void* app, void* graphicsPipelineDesc, void* frame)
+    {
+        std::unique_ptr<PipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        return CreateMeshletPipeline(AsApp(app), *desc, AsFrame(frame)->framebuffer->getFramebufferInfo());
     }
 
     // A binding set for a description (which it frees) from the app's binding cache: created on
@@ -6819,6 +6878,42 @@ extern "C"
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(vertexCount);
         ctx->commandList->draw(args);
+    }
+
+    // Starts describing a mesh shader draw with a meshlet pipeline, over the whole framebuffer; add
+    // binding sets and a viewport with the Donut_Draw* functions, then issue it with
+    // Donut_DrawMeshTasks.
+    void Donut_BeginMeshDraw(void* frame, void* meshletPipeline)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        ctx->draw = nvrhi::GraphicsState();
+        ctx->draw.framebuffer = ctx->framebuffer;
+        ctx->meshletPipeline = static_cast<nvrhi::IMeshletPipeline*>(meshletPipeline);
+    }
+
+    // Same, into another framebuffer (the pipeline must be for its layout).
+    void Donut_BeginMeshDrawToFramebuffer(void* frame, void* meshletPipeline, void* framebuffer)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        ctx->draw = nvrhi::GraphicsState();
+        ctx->draw.framebuffer = static_cast<nvrhi::IFramebuffer*>(framebuffer);
+        ctx->meshletPipeline = static_cast<nvrhi::IMeshletPipeline*>(meshletPipeline);
+    }
+
+    // Launches groupsX x 1 x 1 groups of the draw's first shader (amplification, or mesh without one).
+    void Donut_DrawMeshTasks(void* frame, int groupsX)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+
+        nvrhi::MeshletState state;
+        state.pipeline = ctx->meshletPipeline;
+        state.framebuffer = ctx->draw.framebuffer;
+        state.viewport = ctx->draw.viewport;
+        state.bindings = ctx->draw.bindings;
+        ctx->commandList->setMeshletState(state);
+        ctx->commandList->dispatchMesh(static_cast<uint32_t>(groupsX));
     }
 
     int Donut_GetFrameWidth(void* frame)

@@ -286,6 +286,16 @@ export class App {
         return Donut_CreateGraphicsPipelineFromDescForFrame(this.handle, graphicsPipelineDesc.handle, frame.handle);
     }
 
+    // A meshlet pipeline from a Donut_CreateMeshletPipelineDesc description, for a framebuffer's layout,
+    // or the frame's; requires Feature.Meshlets.
+    createMeshletPipelineFromDesc(graphicsPipelineDesc: GraphicsPipelineDesc, framebuffer: Opaque): Opaque {
+        return Donut_CreateMeshletPipelineFromDesc(this.handle, graphicsPipelineDesc.handle, framebuffer);
+    }
+
+    createMeshletPipelineFromDescForFrame(graphicsPipelineDesc: GraphicsPipelineDesc, frame: Frame): Opaque {
+        return Donut_CreateMeshletPipelineFromDescForFrame(this.handle, graphicsPipelineDesc.handle, frame.handle);
+    }
+
     // Vertex / index buffers uploaded once by an open command list (data copied during the call).
     createStaticVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
         return Donut_CreateStaticVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
@@ -1164,6 +1174,21 @@ export class Frame {
         Donut_DrawVertices(this.handle, vertexCount);
     }
 
+    // A mesh shader draw: begin with a meshlet pipeline (whole framebuffer by default), add binding sets
+    // (Donut_DrawAddBindingSet) and a viewport, then launch groupsX groups of its first shader
+    // (amplification, or mesh without one).
+    beginMeshDraw(meshletPipeline: Opaque): void {
+        Donut_BeginMeshDraw(this.handle, meshletPipeline);
+    }
+
+    beginMeshDrawToFramebuffer(meshletPipeline: Opaque, framebuffer: Opaque): void {
+        Donut_BeginMeshDrawToFramebuffer(this.handle, meshletPipeline, framebuffer);
+    }
+
+    drawMeshTasks(groupsX: int): void {
+        Donut_DrawMeshTasks(this.handle, groupsX);
+    }
+
     getWidth(): int {
         return Donut_GetFrameWidth(this.handle);
     }
@@ -1734,6 +1759,13 @@ export class GraphicsPipelineDesc {
         return new GraphicsPipelineDesc(Donut_CreateGraphicsPipelineDesc(vertexShader, pixelShader));
     }
 
+    // Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (null for none),
+    // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the mesh
+    // shader outputs (its outputtopology).
+    static createMeshlet(amplificationShader: Opaque | null, meshShader: Opaque, pixelShader: Opaque): GraphicsPipelineDesc {
+        return new GraphicsPipelineDesc(Donut_CreateMeshletPipelineDesc(amplificationShader, meshShader, pixelShader));
+    }
+
     addBindingLayout(bindingLayout: Opaque): void {
         Donut_GraphicsPipelineAddBindingLayout(this.handle, bindingLayout);
     }
@@ -1744,6 +1776,11 @@ export class GraphicsPipelineDesc {
 
     setPrimitiveType(primitiveType: PrimitiveType): void {
         Donut_GraphicsPipelineSetPrimitiveType(this.handle, primitiveType);
+    }
+
+    // A geometry shader between the vertex (or domain) shader and the rasterizer.
+    setGeometryShader(geometryShader: Opaque): void {
+        Donut_GraphicsPipelineSetGeometryShader(this.handle, geometryShader);
     }
 
     // Hull and domain shaders, drawing patches of controlPoints vertices.
