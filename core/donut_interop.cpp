@@ -237,6 +237,8 @@ namespace
         std::unordered_map<void*, std::shared_ptr<donut::engine::TextureCache>> bindlessTextureCaches;
         // IndirectDrawSupport bits (Donut_GetIndirectDrawSupport).
         int indirectDrawSupport = 0;
+        // Whether pixel shaders can write to and do atomics on UAVs (Donut_HasFragmentStoresAndAtomics).
+        bool fragmentStoresAndAtomics = false;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -1156,9 +1158,9 @@ namespace
         }
     };
 
-    // The core features of a Vulkan device that Donut's device manager leaves off and indirect
-    // draws need, and what that makes of them.
-    struct IndirectDrawFeatures
+    // The core features of a Vulkan device that Donut's device manager leaves off and the examples
+    // need (indirect draws, pixel shader stores), and what that makes of them.
+    struct VulkanCoreFeatures
     {
         // What the device is created with (its VkDeviceCreateInfo points here).
         VkPhysicalDeviceFeatures features{};
@@ -1166,9 +1168,10 @@ namespace
         int support = 0;
     };
 
-    // Device creation callback: enables multi-draw indirect, a first instance in indirect draws and
-    // dynamically uniform indexing of sampled image arrays, when the GPU has them.
-    void EnableIndirectDrawFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, IndirectDrawFeatures& result)
+    // Device creation callback: enables multi-draw indirect, a first instance in indirect draws,
+    // dynamically uniform indexing of sampled image arrays, and stores and atomics in pixel shaders,
+    // when the GPU has them.
+    void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
         VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures(
@@ -1179,6 +1182,7 @@ namespace
         features.multiDrawIndirect = available.multiDrawIndirect;
         features.drawIndirectFirstInstance = available.drawIndirectFirstInstance;
         features.shaderSampledImageArrayDynamicIndexing = available.shaderSampledImageArrayDynamicIndexing;
+        features.fragmentStoresAndAtomics = available.fragmentStoresAndAtomics;
         info.pEnabledFeatures = &features;
 
         result.support = (features.multiDrawIndirect ? IndirectDraw_MultiDraw : 0)
@@ -1268,13 +1272,13 @@ extern "C"
             : api == nvrhi::GraphicsAPI::D3D11 ? IndirectDraw_FirstInstance : 0;
 #if DONUT_WITH_VULKAN
         // Shared with the device manager's copy of the parameters.
-        auto vulkanFeatures = std::make_shared<IndirectDrawFeatures>();
+        auto vulkanFeatures = std::make_shared<VulkanCoreFeatures>();
         if (api == nvrhi::GraphicsAPI::VULKAN)
         {
             auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(deviceManager.get());
             params.deviceCreateInfoCallback = [vulkanDeviceManager, vulkanFeatures](VkDeviceCreateInfo& info)
             {
-                EnableIndirectDrawFeatures(vulkanDeviceManager, info, *vulkanFeatures);
+                EnableCoreFeatures(vulkanDeviceManager, info, *vulkanFeatures);
             };
         }
 #endif
@@ -1284,13 +1288,19 @@ extern "C"
             donut::log::error("cannot initialize the graphics device");
             return nullptr;
         }
+        // D3D11 and D3D12 have UAVs in pixel shaders at every feature level Donut runs on.
+        bool fragmentStoresAndAtomics = api != nvrhi::GraphicsAPI::VULKAN;
 #if DONUT_WITH_VULKAN
         if (api == nvrhi::GraphicsAPI::VULKAN)
+        {
             indirectDrawSupport = vulkanFeatures->support;
+            fragmentStoresAndAtomics = vulkanFeatures->features.fragmentStoresAndAtomics == VK_TRUE;
+        }
 #endif
 
         App* app = MakeApp(std::move(deviceManager), api);
         app->indirectDrawSupport = indirectDrawSupport;
+        app->fragmentStoresAndAtomics = fragmentStoresAndAtomics;
         return app;
     }
 
@@ -1298,6 +1308,13 @@ extern "C"
     int Donut_GetIndirectDrawSupport(void* app)
     {
         return AsApp(app)->indirectDrawSupport;
+    }
+
+    // Non-zero if pixel shaders can write to UAVs and do atomics on them (Vulkan's
+    // fragmentStoresAndAtomics; always on D3D11 and D3D12; 0 for headless apps).
+    int Donut_HasFragmentStoresAndAtomics(void* app)
+    {
+        return AsApp(app)->fragmentStoresAndAtomics ? 1 : 0;
     }
 
     // Same, without options.
@@ -2683,7 +2700,8 @@ extern "C"
     }
 
     // blendMode, a BlendMode value: 1 is additive (color One + One, alpha SrcAlpha + DstAlpha), 2
-    // alpha blending (color SrcAlpha + InvSrcAlpha, alpha InvSrcAlpha + Zero), 0 none.
+    // alpha blending (color SrcAlpha + InvSrcAlpha, alpha InvSrcAlpha + Zero), 3 alpha blending
+    // "over" (color SrcAlpha + InvSrcAlpha, alpha One + InvSrcAlpha), 0 none.
     static void SetBlendMode(nvrhi::BlendState::RenderTarget& target, int blendMode)
     {
         if (blendMode == 1)
@@ -2695,6 +2713,17 @@ extern "C"
                 .setBlendOp(nvrhi::BlendOp::Add)
                 .setSrcBlendAlpha(nvrhi::BlendFactor::SrcAlpha)
                 .setDestBlendAlpha(nvrhi::BlendFactor::DstAlpha)
+                .setBlendOpAlpha(nvrhi::BlendOp::Add);
+        }
+        else if (blendMode == 3)
+        {
+            target
+                .enableBlend()
+                .setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
+                .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+                .setBlendOp(nvrhi::BlendOp::Add)
+                .setSrcBlendAlpha(nvrhi::BlendFactor::One)
+                .setDestBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
                 .setBlendOpAlpha(nvrhi::BlendOp::Add);
         }
         else if (blendMode == 2)
@@ -2788,6 +2817,24 @@ extern "C"
             .setClearValue(nvrhi::Color(float(clearDepth)))
             .setDebugName(debugName)
             .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Texture of width x height in `format` (an nvrhi::Format value) that shaders write and read as
+    // a UAV (RWTexture2D<...>), resting at UnorderedAccess; clear it with Donut_ClearTextureUInt or
+    // Donut_ClearTextureFloat. Returns null on failure.
+    void* Donut_CreateUAVTextureWithFormat(void* app, int width, int height, int format, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setIsUAV(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::UnorderedAccess)
             .setKeepInitialState(true);
 
         App* a = AsApp(app);
@@ -2969,6 +3016,14 @@ extern "C"
         state.slopeScaledDepthBias = float(slopeScaledDepthBias);
     }
 
+    // Which channels every color target writes: ColorMask bits (red 1, green 2, blue 4, alpha 8; 0 for
+    // none, e.g. for a pass whose pixel shader only writes UAVs).
+    void Donut_GraphicsPipelineSetColorWriteMask(void* graphicsPipelineDesc, int mask)
+    {
+        for (nvrhi::BlendState::RenderTarget& target : AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets)
+            target.setColorWriteMask(static_cast<nvrhi::ColorMask>(mask));
+    }
+
     // Blending of every color target with blendMode (a BlendMode value, see SetBlendMode).
     void Donut_GraphicsPipelineSetBlendMode(void* graphicsPipelineDesc, int blendMode)
     {
@@ -2984,6 +3039,15 @@ extern "C"
         App* a = AsApp(app);
         return a->Own(a->device()->createGraphicsPipeline(*desc,
             static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo()));
+    }
+
+    // Same, for the frame's framebuffer (the back buffer's layout); frees the description. Returns
+    // null on failure.
+    void* Donut_CreateGraphicsPipelineFromDescForFrame(void* app, void* graphicsPipelineDesc, void* frame)
+    {
+        std::unique_ptr<nvrhi::GraphicsPipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        App* a = AsApp(app);
+        return a->Own(a->device()->createGraphicsPipeline(*desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
     }
 
     // A binding set for a description (which it frees) from the app's binding cache: created on
@@ -3418,6 +3482,12 @@ extern "C"
         float v = float(value);
         ImGui::SliderFloat(label, &v, float(min), float(max));
         return v;
+    }
+
+    int Donut_ImGuiSliderInt(const char* label, int value, int min, int max)
+    {
+        ImGui::SliderInt(label, &value, min, max);
+        return value;
     }
 
     // A value edited by dragging (speed per pixel), clamped to min .. max; returns the new value.

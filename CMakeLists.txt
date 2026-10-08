@@ -861,6 +861,42 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(async_compute_bloom async_compute_bloom_media)
 endif()
 
+# Port of Vulkan-Samples' oit_linked_lists: order-independent transparency, the fragments of 64
+# transparent spheres gathered into per-pixel linked lists by their pixel shaders (atomics on a
+# UAV texture and a counter), then sorted and blended over a background. Its model and texture are
+# Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF file is copied, the KTX
+# texture converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET oit_linked_lists_shaders
+    PROJECT_NAME "OIT Linked Lists"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_linked_lists.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_linked_lists.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_linked_lists
+)
+add_tslang_example(oit_linked_lists)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(oit_linked_lists_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/oit_linked_lists")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/vulkan_logo_full.ktx")
+    set(output "${oit_linked_lists_output}/vulkan_logo_full.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting vulkan_logo_full.ktx to DDS"
+        VERBATIM)
+    set(oit_linked_lists_media "${output}")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/geosphere.gltf")
+    set(output "${oit_linked_lists_output}/geosphere.gltf")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+        DEPENDS "${source}"
+        COMMENT "Copying geosphere.gltf"
+        VERBATIM)
+    list(APPEND oit_linked_lists_media "${output}")
+    add_custom_target(oit_linked_lists_media DEPENDS ${oit_linked_lists_media})
+    add_dependencies(oit_linked_lists oit_linked_lists_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

@@ -141,7 +141,19 @@ enum BlendMode {
     // Color One + One, alpha SrcAlpha + DstAlpha.
     Additive = 1,
     // Color SrcAlpha + InvSrcAlpha, alpha InvSrcAlpha + Zero.
-    AlphaBlend = 2
+    AlphaBlend = 2,
+    // Color SrcAlpha + InvSrcAlpha, alpha One + InvSrcAlpha ("over").
+    AlphaOver = 3
+}
+
+// nvrhi::ColorMask bits: the channels a pipeline writes (Donut_GraphicsPipelineSetColorWriteMask).
+enum ColorMask {
+    None = 0,
+    Red = 1,
+    Green = 2,
+    Blue = 4,
+    Alpha = 8,
+    All = 15
 }
 
 // donut::log::Severity values.
@@ -200,6 +212,9 @@ enum IndirectDrawSupport {
 // are created with multiDrawIndirect, drawIndirectFirstInstance and
 // shaderSampledImageArrayDynamicIndexing when the GPU has them.
 declare function Donut_GetIndirectDrawSupport(app: Opaque): IndirectDrawSupport;
+// Non-zero if pixel shaders can write to UAVs and do atomics on them (Vulkan devices are created
+// with fragmentStoresAndAtomics when the GPU has it; D3D11 and D3D12 always can).
+declare function Donut_HasFragmentStoresAndAtomics(app: Opaque): int;
 declare function Donut_GetRendererString(app: Opaque): string;
 declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".
@@ -315,6 +330,9 @@ declare function Donut_CreateDepthTexture(app: Opaque, width: int, height: int, 
 // (RWTexture2D<float4>) and shaders read.
 declare function Donut_CreateComputeReadableRenderTarget(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
 declare function Donut_CreateComputeTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+// Texture in `format` that shaders write and read as a UAV (RWTexture2D<...>), resting at
+// UnorderedAccess; clear it with Donut_ClearTextureUInt / Donut_ClearTextureFloat.
+declare function Donut_CreateUAVTextureWithFormat(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
 // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
 declare function Donut_CreateFramebuffer(app: Opaque, colorTexture: Opaque, depthTexture: Opaque | null): Opaque;
 // A depth target alone (e.g. a shadow map).
@@ -347,8 +365,12 @@ declare function Donut_GraphicsPipelineSetDepthBias(graphicsPipelineDesc: Opaque
     slopeScaledDepthBias: number): void;
 // Blending of every color target.
 declare function Donut_GraphicsPipelineSetBlendMode(graphicsPipelineDesc: Opaque, blendMode: BlendMode): void;
+// The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
+declare function Donut_GraphicsPipelineSetColorWriteMask(graphicsPipelineDesc: Opaque, mask: ColorMask): void;
 // For a framebuffer's layout.
 declare function Donut_CreateGraphicsPipelineFromDesc(app: Opaque, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
+// Same, for the frame's framebuffer (the back buffer's layout).
+declare function Donut_CreateGraphicsPipelineFromDescForFrame(app: Opaque, graphicsPipelineDesc: Opaque, frame: Opaque): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
 declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
@@ -662,6 +684,8 @@ declare function Donut_ImGuiDragFloat3(label: string, values: Opaque, speed: num
 declare function Donut_ImGuiSetNextWindowPosPivot(x: number, y: number, pivotX: number, pivotY: number): void;
 // Value in, new value out.
 declare function Donut_ImGuiSliderFloat(label: string, value: number, min: number, max: number): number;
+// Value in, new value out.
+declare function Donut_ImGuiSliderInt(label: string, value: int, min: int, max: int): int;
 // Value in, new value out: edited by dragging (speed per pixel), clamped to min .. max.
 declare function Donut_ImGuiDragFloat(label: string, value: number, speed: number, min: number, max: number): number;
 // A number field with - and + buttons stepping it by step, shown with a printf format ("%.3f");

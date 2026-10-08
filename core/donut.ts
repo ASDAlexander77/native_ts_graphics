@@ -83,6 +83,12 @@ export class App {
         return Donut_GetIndirectDrawSupport(this.handle);
     }
 
+    // Non-zero if pixel shaders can write to UAVs and do atomics on them (Vulkan devices are created
+    // with fragmentStoresAndAtomics when the GPU has it; D3D11 and D3D12 always can).
+    hasFragmentStoresAndAtomics(): int {
+        return Donut_HasFragmentStoresAndAtomics(this.handle);
+    }
+
     getRendererString(): string {
         return Donut_GetRendererString(this.handle);
     }
@@ -243,6 +249,12 @@ export class App {
         return Donut_CreateComputeTexture(this.handle, width, height, format, debugName);
     }
 
+    // Texture in `format` that shaders write and read as a UAV (RWTexture2D<...>), resting at
+    // UnorderedAccess; clear it with Donut_ClearTextureUInt / Donut_ClearTextureFloat.
+    createUAVTextureWithFormat(width: int, height: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateUAVTextureWithFormat(this.handle, width, height, format, debugName);
+    }
+
     // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
     createFramebuffer(colorTexture: Opaque, depthTexture: Opaque | null): Opaque {
         return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
@@ -267,6 +279,11 @@ export class App {
     // For a framebuffer's layout.
     createGraphicsPipelineFromDesc(graphicsPipelineDesc: GraphicsPipelineDesc, framebuffer: Opaque): Opaque {
         return Donut_CreateGraphicsPipelineFromDesc(this.handle, graphicsPipelineDesc.handle, framebuffer);
+    }
+
+    // Same, for the frame's framebuffer (the back buffer's layout).
+    createGraphicsPipelineFromDescForFrame(graphicsPipelineDesc: GraphicsPipelineDesc, frame: Frame): Opaque {
+        return Donut_CreateGraphicsPipelineFromDescForFrame(this.handle, graphicsPipelineDesc.handle, frame.handle);
     }
 
     // Vertex / index buffers uploaded once by an open command list (data copied during the call).
@@ -1751,6 +1768,11 @@ export class GraphicsPipelineDesc {
     // Blending of every color target.
     setBlendMode(blendMode: BlendMode): void {
         Donut_GraphicsPipelineSetBlendMode(this.handle, blendMode);
+    }
+
+    // The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
+    setColorWriteMask(mask: ColorMask): void {
+        Donut_GraphicsPipelineSetColorWriteMask(this.handle, mask);
     }
 }
 
