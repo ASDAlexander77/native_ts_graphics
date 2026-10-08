@@ -226,9 +226,31 @@ export class App {
         return Donut_CreateRenderTargetTexture(this.handle, width, height, format, debugName);
     }
 
+    // Depth buffer (a depth format) whose clears to clearDepth are fast (e.g. 0 for reversed depth),
+    // read by shaders as Texture2D<float>; resting at ShaderResource.
+    createDepthTexture(width: int, height: int, format: Format, clearDepth: number, debugName: string): Opaque {
+        return Donut_CreateDepthTexture(this.handle, width, height, format, clearDepth, debugName);
+    }
+
+    // Textures that compute shaders on the compute queue use too (they rest at NonPixelShaderResource):
+    // a render target that shaders read, and a texture that compute shaders write
+    // (RWTexture2D<float4>) and shaders read.
+    createComputeReadableRenderTarget(width: int, height: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateComputeReadableRenderTarget(this.handle, width, height, format, debugName);
+    }
+
+    createComputeTexture(width: int, height: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateComputeTexture(this.handle, width, height, format, debugName);
+    }
+
     // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
     createFramebuffer(colorTexture: Opaque, depthTexture: Opaque | null): Opaque {
         return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
+    }
+
+    // A depth target alone (e.g. a shadow map).
+    createDepthFramebuffer(depthTexture: Opaque): Opaque {
+        return Donut_CreateDepthFramebuffer(this.handle, depthTexture);
     }
 
     // Same, with two color targets (SV_Target0 and SV_Target1).
@@ -293,6 +315,12 @@ export class App {
 
     getCommonSampler(which: CommonSampler): Opaque {
         return Donut_GetCommonSampler(this.handle, which);
+    }
+
+    // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
+    // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
+    createComparisonSampler(): Opaque {
+        return Donut_CreateComparisonSampler(this.handle);
     }
 
     createInputLayout(inputLayoutDesc: InputLayoutDesc, vertexShader: Opaque): Opaque {
@@ -438,6 +466,12 @@ export class App {
 
     executeCommandList(commandList: CommandList): void {
         Donut_ExecuteCommandList(this.handle, commandList.handle);
+    }
+
+    // A command list for the compute queue (needs AppOptions.ComputeQueue), recorded each frame and
+    // run with Donut_ExecuteFrameComputeWork; a null handle if there's no compute queue.
+    createComputeQueueCommandList(): CommandList {
+        return new CommandList(Donut_CreateComputeQueueCommandList(this.handle));
     }
 
     // Blocks until the GPU has finished all submitted work.
@@ -717,6 +751,13 @@ export class App {
     // Donut_ReadPixelUInts) sees the GPU results.
     flushFrameCommandList(frame: Frame): void {
         Donut_FlushFrameCommandList(this.handle, frame.handle);
+    }
+
+    // Async compute: submits what the frame has recorded so far to the graphics queue, then a closed
+    // compute queue command list (Donut_CreateComputeQueueCommandList) that waits for it on the GPU,
+    // and goes on recording work that waits for the compute work.
+    executeFrameComputeWork(frame: Frame, commandList: CommandList): void {
+        Donut_ExecuteFrameComputeWork(this.handle, frame.handle, commandList.handle);
     }
 
     // Saves the frame's color as recorded so far (BMP, PNG, JPG or TGA, by extension); non-zero on success.
@@ -1088,6 +1129,11 @@ export class Frame {
     // item); the draw described stays, so it can repeat with other push constants.
     drawIndexedWithPushConstants(indexCount: int, data: Opaque, byteSize: int): void {
         Donut_DrawIndexedWithPushConstants(this.handle, indexCount, data, byteSize);
+    }
+
+    // Same, indexCount indices from startIndex of the index buffer, added to baseVertex.
+    drawIndexedRangeWithPushConstants(indexCount: int, startIndex: int, baseVertex: int, data: Opaque, byteSize: int): void {
+        Donut_DrawIndexedRangeWithPushConstants(this.handle, indexCount, startIndex, baseVertex, data, byteSize);
     }
 
     // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into the
@@ -1694,6 +1740,12 @@ export class GraphicsPipelineDesc {
 
     setRasterState(cullMode: CullMode, fillMode: FillMode, frontCounterClockwise: int): void {
         Donut_GraphicsPipelineSetRasterState(this.handle, cullMode, fillMode, frontCounterClockwise);
+    }
+
+    // depthBias units of the depth format's resolution plus slopeScaledDepthBias times the depth
+    // slope, clamped to depthBiasClamp in magnitude (0: no clamp).
+    setDepthBias(depthBias: int, depthBiasClamp: number, slopeScaledDepthBias: number): void {
+        Donut_GraphicsPipelineSetDepthBias(this.handle, depthBias, depthBiasClamp, slopeScaledDepthBias);
     }
 
     // Blending of every color target.
@@ -2760,6 +2812,29 @@ export class GltfModel {
     // The name of the primitive's mesh ("" if none).
     getMeshName(primitive: int): string {
         return Donut_GetGltfModelMeshName(this.handle, primitive);
+    }
+
+    // The index of the primitive's mesh, and its material's alpha mode.
+    getPrimitiveMesh(primitive: int): int {
+        return Donut_GetGltfModelPrimitiveMesh(this.handle, primitive);
+    }
+
+    getPrimitiveAlphaMode(primitive: int): AlphaMode {
+        return Donut_GetGltfModelPrimitiveAlphaMode(this.handle, primitive);
+    }
+
+    // The nodes that instantiate meshes, in node order: their mesh, and their world transform (16
+    // floats, column-major as glm) into dst (Ref of a `let` f32 array element).
+    getNodeCount(): int {
+        return Donut_GetGltfModelNodeCount(this.handle);
+    }
+
+    getNodeMesh(node: int): int {
+        return Donut_GetGltfModelNodeMesh(this.handle, node);
+    }
+
+    copyNodeTransform(node: int, dst: Opaque): void {
+        Donut_CopyGltfModelNodeTransform(this.handle, node, dst);
     }
 }
 

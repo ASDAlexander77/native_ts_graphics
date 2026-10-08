@@ -813,6 +813,54 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(multi_draw_indirect multi_draw_indirect_media)
 endif()
 
+# Port of Vulkan-Samples' async_compute (named apart from Donut-Samples' async_compute above): a
+# shadow map and a 4K HDR forward pass of the Bonza scene, a bloom in compute shaders (on the
+# compute queue with async queues on), and a tone mapping composite. Its scene is Vulkan-Samples'
+# assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF scene is copied and its base color
+# textures (KTX 2 ASTC) decoded to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET async_compute_bloom_shaders
+    PROJECT_NAME "Async Compute Bloom"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute_bloom.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute_bloom.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute_bloom_post.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/async_compute_bloom
+)
+add_tslang_example(async_compute_bloom)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(bonza_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/bonza")
+    set(bonza_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/async_compute_bloom/bonza")
+    set(async_compute_bloom_media)
+    foreach(file Bonza.gltf Bonza.bin)
+        set(output "${bonza_output}/${file}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${bonza_source}/${file}" "${output}"
+            DEPENDS "${bonza_source}/${file}"
+            COMMENT "Copying ${file}"
+            VERBATIM)
+        list(APPEND async_compute_bloom_media "${output}")
+    endforeach()
+    # The scene's base color textures, in one conversion: it decodes them in parallel.
+    set(sources)
+    set(outputs)
+    set(arguments)
+    foreach(name SM_1MPlane_DefaultMaterial_BaseColor T_AtriumCrossStruts_D T_Banner_D T_Carpet_D T_CenterStatue_D
+            T_ConcreteFloor_D T_Door_D T_FireEx_D T_Gray01 T_MetalBitsMerged_Part01_D T_Metal_Pillar_01_D T_Panel02_D
+            T_Pillar_Tall_D T_Plant_D T_Plate_D T_Sofa_Long_D T_Statue_D T_Steel_D T_TrimAtlas01_D T_Trim_01 T_Wall2_D
+            T_Wall_D T_Wall_RandomCrossStruts_D)
+        list(APPEND sources "${bonza_source}/${name}.ktx")
+        list(APPEND outputs "${bonza_output}/${name}.dds")
+        list(APPEND arguments "${bonza_source}/${name}.ktx" "${bonza_output}/${name}.dds")
+    endforeach()
+    add_custom_command(OUTPUT ${outputs}
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" ${arguments}
+        DEPENDS ${sources} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${CMAKE_CURRENT_SOURCE_DIR}/tools/astc.py"
+        COMMENT "Decoding the Bonza textures to DDS"
+        VERBATIM)
+    add_custom_target(async_compute_bloom_media DEPENDS ${async_compute_bloom_media} ${outputs})
+    add_dependencies(async_compute_bloom async_compute_bloom_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

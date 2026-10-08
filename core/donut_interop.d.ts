@@ -19,6 +19,7 @@ enum GraphicsAPI {
 
 // nvrhi::Feature values (only the ones used so far).
 enum Feature {
+    ComputeQueue = 0,
     FastGeometryShader = 5,
     Meshlets = 9,
     RayQuery = 10,
@@ -45,6 +46,13 @@ enum MaterialTexture {
     Occlusion = 4,
     Transmission = 5,
     Opacity = 6
+}
+
+// glTF material alpha modes (Donut_GetGltfModelPrimitiveAlphaMode).
+enum AlphaMode {
+    Opaque = 0,
+    Mask = 1,
+    Blend = 2
 }
 
 enum FallbackTexture {
@@ -131,7 +139,9 @@ enum FillMode {
 enum BlendMode {
     None = 0,
     // Color One + One, alpha SrcAlpha + DstAlpha.
-    Additive = 1
+    Additive = 1,
+    // Color SrcAlpha + InvSrcAlpha, alpha InvSrcAlpha + Zero.
+    AlphaBlend = 2
 }
 
 // donut::log::Severity values.
@@ -212,6 +222,7 @@ enum Format {
     R32_FLOAT = 35,
     RGBA16_UINT = 36,
     RGBA16_FLOAT = 38,
+    D16 = 50,
     D32 = 53,
     RG32_FLOAT = 43,
     RGB32_FLOAT = 46,
@@ -296,8 +307,18 @@ declare function Donut_CreateUAVTexture(app: Opaque, width: int, height: int, de
 // Render target that shaders can also read (resting at ShaderResource). A depth format (D32)
 // makes a depth buffer, cleared to 1 by default, read by shaders as Texture2D<float>.
 declare function Donut_CreateRenderTargetTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+// Depth buffer (a depth format) whose clears to clearDepth are fast (e.g. 0 for reversed depth),
+// read by shaders as Texture2D<float>; resting at ShaderResource.
+declare function Donut_CreateDepthTexture(app: Opaque, width: int, height: int, format: Format, clearDepth: number, debugName: string): Opaque;
+// Textures that compute shaders on the compute queue use too (they rest at NonPixelShaderResource):
+// a render target that shaders read, and a texture that compute shaders write
+// (RWTexture2D<float4>) and shaders read.
+declare function Donut_CreateComputeReadableRenderTarget(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+declare function Donut_CreateComputeTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
 // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
 declare function Donut_CreateFramebuffer(app: Opaque, colorTexture: Opaque, depthTexture: Opaque | null): Opaque;
+// A depth target alone (e.g. a shadow map).
+declare function Donut_CreateDepthFramebuffer(app: Opaque, depthTexture: Opaque): Opaque;
 // Same, with two color targets (SV_Target0 and SV_Target1).
 declare function Donut_CreateFramebufferWithTwoTargets(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque,
     depthTexture: Opaque | null): Opaque;
@@ -320,6 +341,10 @@ declare function Donut_GraphicsPipelineSetDepthState(graphicsPipelineDesc: Opaqu
     depthFunc: ComparisonFunc): void;
 declare function Donut_GraphicsPipelineSetRasterState(graphicsPipelineDesc: Opaque, cullMode: CullMode, fillMode: FillMode,
     frontCounterClockwise: int): void;
+// depthBias units of the depth format's resolution plus slopeScaledDepthBias times the depth
+// slope, clamped to depthBiasClamp in magnitude (0: no clamp).
+declare function Donut_GraphicsPipelineSetDepthBias(graphicsPipelineDesc: Opaque, depthBias: int, depthBiasClamp: number,
+    slopeScaledDepthBias: number): void;
 // Blending of every color target.
 declare function Donut_GraphicsPipelineSetBlendMode(graphicsPipelineDesc: Opaque, blendMode: BlendMode): void;
 // For a framebuffer's layout.
@@ -362,10 +387,21 @@ declare function Donut_CopyGltfModelIndices(gltfModel: Opaque, primitive: int, d
 declare function Donut_GetGltfModelBaseColorImage(gltfModel: Opaque, primitive: int): string;
 // The name of the primitive's mesh ("" if none).
 declare function Donut_GetGltfModelMeshName(gltfModel: Opaque, primitive: int): string;
+// The index of the primitive's mesh, and its material's alpha mode.
+declare function Donut_GetGltfModelPrimitiveMesh(gltfModel: Opaque, primitive: int): int;
+declare function Donut_GetGltfModelPrimitiveAlphaMode(gltfModel: Opaque, primitive: int): AlphaMode;
+// The nodes that instantiate meshes, in node order: their mesh, and their world transform (16
+// floats, column-major as glm) into dst (Ref of a `let` f32 array element).
+declare function Donut_GetGltfModelNodeCount(gltfModel: Opaque): int;
+declare function Donut_GetGltfModelNodeMesh(gltfModel: Opaque, node: int): int;
+declare function Donut_CopyGltfModelNodeTransform(gltfModel: Opaque, node: int, dst: Opaque): void;
 // Image file, path relative to the executable's directory, uploaded by an open command list.
 // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
 declare function Donut_LoadTexture(app: Opaque, commandList: Opaque, path: string, sRGB: int): Opaque;
 declare function Donut_GetCommonSampler(app: Opaque, which: CommonSampler): Opaque;
+// SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
+// fixes it): SampleCmp returns the fraction of texels deeper than the reference.
+declare function Donut_CreateComparisonSampler(app: Opaque): Opaque;
 
 // Built up with Donut_AddVertexAttribute, then consumed (freed) by Donut_CreateInputLayout.
 declare function Donut_CreateInputLayoutDesc(): Opaque;
@@ -544,6 +580,9 @@ declare function Donut_CreateCommandList(app: Opaque): Opaque;
 declare function Donut_OpenCommandList(commandList: Opaque): void;
 declare function Donut_CloseCommandList(commandList: Opaque): void;
 declare function Donut_ExecuteCommandList(app: Opaque, commandList: Opaque): void;
+// A command list for the compute queue (needs AppOptions.ComputeQueue), recorded each frame and
+// run with Donut_ExecuteFrameComputeWork; null if there's no compute queue.
+declare function Donut_CreateComputeQueueCommandList(app: Opaque): Opaque | null;
 // Blocks until the GPU has finished all submitted work.
 declare function Donut_WaitForIdle(app: Opaque): void;
 // Uploads byteSize bytes from data, copied during the call. Pass `Ref(array[0])` of a `let`
@@ -953,6 +992,9 @@ declare function Donut_DrawIndexedIndirect(frame: Opaque, offsetBytes: int, draw
 // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
 // item); the draw described stays, so it can repeat with other push constants.
 declare function Donut_DrawIndexedWithPushConstants(frame: Opaque, indexCount: int, data: Opaque, byteSize: int): void;
+// Same, indexCount indices from startIndex of the index buffer, added to baseVertex.
+declare function Donut_DrawIndexedRangeWithPushConstants(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int,
+    data: Opaque, byteSize: int): void;
 // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into the
 // back buffer, as is.
 declare function Donut_CopyTextureToFrame(frame: Opaque, texture: Opaque): void;
@@ -964,6 +1006,10 @@ declare function Donut_GetFrameHeight(frame: Opaque): int;
 // Submits what the frame has recorded so far and goes on recording: work after it (e.g.
 // Donut_ReadPixelUInts) sees the GPU results.
 declare function Donut_FlushFrameCommandList(app: Opaque, frame: Opaque): void;
+// Async compute: submits what the frame has recorded so far to the graphics queue, then a closed
+// compute queue command list (Donut_CreateComputeQueueCommandList) that waits for it on the GPU,
+// and goes on recording work that waits for the compute work.
+declare function Donut_ExecuteFrameComputeWork(app: Opaque, frame: Opaque, commandList: Opaque): void;
 // Saves the frame's color as recorded so far (BMP, PNG, JPG or TGA, by extension); non-zero on success.
 declare function Donut_SaveFrameToFile(app: Opaque, frame: Opaque, path: string): int;
 

@@ -1089,8 +1089,21 @@ namespace
             std::string baseColorImage;
             // The name of the primitive's mesh ("" if none).
             std::string meshName;
+            // The index of the primitive's mesh.
+            int mesh = 0;
+            // Its material's alpha mode: 0 opaque, 1 mask, 2 blend.
+            int alphaMode = 0;
         };
         std::vector<Primitive> primitives;
+
+        // The nodes that instantiate meshes, in node order.
+        struct Node
+        {
+            int mesh = 0;
+            // World transform, column-major (glm's layout).
+            float transform[16] = {};
+        };
+        std::vector<Node> nodes;
     };
 
     // A bottom-level acceleration structure of one triangle geometry, with the description it's
@@ -2364,8 +2377,23 @@ extern "C"
                     primitive.baseColorImage = texture->image->uri;
                 if (mesh.name)
                     primitive.meshName = mesh.name;
+                primitive.mesh = static_cast<int>(m);
+                if (material && material->alpha_mode == cgltf_alpha_mode_mask)
+                    primitive.alphaMode = 1;
+                else if (material && material->alpha_mode == cgltf_alpha_mode_blend)
+                    primitive.alphaMode = 2;
                 model->primitives.push_back(std::move(primitive));
             }
+        }
+        for (size_t n = 0; n < file.data->nodes_count; n++)
+        {
+            const cgltf_node& node = file.data->nodes[n];
+            if (!node.mesh)
+                continue;
+            GltfModel::Node modelNode;
+            modelNode.mesh = static_cast<int>(node.mesh - file.data->meshes);
+            cgltf_node_transform_world(&node, modelNode.transform);
+            model->nodes.push_back(modelNode);
         }
         return AsApp(app)->OwnObject(model);
     }
@@ -2409,6 +2437,37 @@ extern "C"
     const char* Donut_GetGltfModelMeshName(void* gltfModel, int primitive)
     {
         return static_cast<GltfModel*>(gltfModel)->primitives[primitive].meshName.c_str();
+    }
+
+    // The index of a primitive's mesh.
+    int Donut_GetGltfModelPrimitiveMesh(void* gltfModel, int primitive)
+    {
+        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].mesh;
+    }
+
+    // The alpha mode of a primitive's material: 0 opaque (also without a material), 1 mask, 2 blend.
+    int Donut_GetGltfModelPrimitiveAlphaMode(void* gltfModel, int primitive)
+    {
+        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].alphaMode;
+    }
+
+    // The nodes that instantiate meshes, in node order.
+    int Donut_GetGltfModelNodeCount(void* gltfModel)
+    {
+        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->nodes.size());
+    }
+
+    // The index of a node's mesh.
+    int Donut_GetGltfModelNodeMesh(void* gltfModel, int node)
+    {
+        return static_cast<GltfModel*>(gltfModel)->nodes[node].mesh;
+    }
+
+    // A node's world transform (16 floats, column-major as glm) into dst, e.g. Ref of an f32 array
+    // element.
+    void Donut_CopyGltfModelNodeTransform(void* gltfModel, int node, void* dst)
+    {
+        memcpy(dst, static_cast<GltfModel*>(gltfModel)->nodes[node].transform, sizeof(float) * 16);
     }
 
     // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
@@ -2489,6 +2548,20 @@ extern "C"
         case CommonSampler_AnisotropicWrap: return a->Own(passes->m_AnisotropicWrapSampler);
         default: return nullptr;
         }
+    }
+
+    // A comparison sampler (SamplerComparisonState) for depth textures: bilinear, clamped to the
+    // edges. NVRHI fixes its comparison at "less": SampleCmp returns the filtered fraction of texels
+    // whose depth is greater than the reference. Returns null on failure.
+    void* Donut_CreateComparisonSampler(void* app)
+    {
+        auto desc = nvrhi::SamplerDesc()
+            .setAllFilters(true)
+            .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp)
+            .setReductionType(nvrhi::SamplerReductionType::Comparison);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createSampler(desc));
     }
 
     // cbuffer at b<slot>: byteSize bytes of a constant buffer starting at byteOffset (both
@@ -2609,7 +2682,8 @@ extern "C"
         return a->Own(a->device()->createGraphicsPipeline(desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
     }
 
-    // blendMode, a BlendMode value: 1 is additive (color One + One, alpha SrcAlpha + DstAlpha), 0 none.
+    // blendMode, a BlendMode value: 1 is additive (color One + One, alpha SrcAlpha + DstAlpha), 2
+    // alpha blending (color SrcAlpha + InvSrcAlpha, alpha InvSrcAlpha + Zero), 0 none.
     static void SetBlendMode(nvrhi::BlendState::RenderTarget& target, int blendMode)
     {
         if (blendMode == 1)
@@ -2621,6 +2695,17 @@ extern "C"
                 .setBlendOp(nvrhi::BlendOp::Add)
                 .setSrcBlendAlpha(nvrhi::BlendFactor::SrcAlpha)
                 .setDestBlendAlpha(nvrhi::BlendFactor::DstAlpha)
+                .setBlendOpAlpha(nvrhi::BlendOp::Add);
+        }
+        else if (blendMode == 2)
+        {
+            target
+                .enableBlend()
+                .setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
+                .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+                .setBlendOp(nvrhi::BlendOp::Add)
+                .setSrcBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
+                .setDestBlendAlpha(nvrhi::BlendFactor::Zero)
                 .setBlendOpAlpha(nvrhi::BlendOp::Add);
         }
         else
@@ -2689,6 +2774,64 @@ extern "C"
         return a->Own(a->device()->createTexture(desc));
     }
 
+    // Depth buffer of width x height in `format` (a depth nvrhi::Format value), optimized for
+    // clears to clearDepth (e.g. 0 for reversed depth), that shaders can also read (resting at
+    // ShaderResource). Returns null on failure.
+    void* Donut_CreateDepthTexture(void* app, int width, int height, int format, double clearDepth, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setIsRenderTarget(true)
+            .setIsTypeless(true)
+            .setClearValue(nvrhi::Color(float(clearDepth)))
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Textures for compute shaders on the compute queue (as well as the graphics queue): they rest
+    // at NonPixelShaderResource between command lists, as D3D12 compute queues can't make or undo
+    // transitions to pixel shader states.
+
+    // Render target of width x height in `format` (an nvrhi::Format value) that shaders read.
+    // Returns null on failure.
+    void* Donut_CreateComputeReadableRenderTarget(void* app, int width, int height, int format, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setIsRenderTarget(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::NonPixelShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Texture of width x height in `format` that compute shaders write (RWTexture2D<float4>) and
+    // shaders read. Returns null on failure.
+    void* Donut_CreateComputeTexture(void* app, int width, int height, int format, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setIsUAV(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::NonPixelShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
     // Framebuffer of one color target and an optional depth target (null for none), textures from
     // Donut_CreateRenderTargetTexture. Draw into it with Donut_BeginDrawToFramebuffer. Returns null
     // on failure.
@@ -2697,6 +2840,15 @@ extern "C"
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture));
         if (depthTexture)
             desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createFramebuffer(desc));
+    }
+
+    // Framebuffer of a depth target alone (e.g. a shadow map). Returns null on failure.
+    void* Donut_CreateDepthFramebuffer(void* app, void* depthTexture)
+    {
+        auto desc = nvrhi::FramebufferDesc().setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
 
         App* a = AsApp(app);
         return a->Own(a->device()->createFramebuffer(desc));
@@ -2804,6 +2956,17 @@ extern "C"
         state.cullMode = static_cast<nvrhi::RasterCullMode>(cullMode);
         state.fillMode = static_cast<nvrhi::RasterFillMode>(fillMode);
         state.frontCounterClockwise = frontCounterClockwise != 0;
+    }
+
+    // Depth bias: depthBias units of the depth format's resolution, plus slopeScaledDepthBias times
+    // the triangle's depth slope, clamped to depthBiasClamp in magnitude (0 for no clamp).
+    void Donut_GraphicsPipelineSetDepthBias(void* graphicsPipelineDesc, int depthBias, double depthBiasClamp,
+        double slopeScaledDepthBias)
+    {
+        nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
+        state.depthBias = depthBias;
+        state.depthBiasClamp = float(depthBiasClamp);
+        state.slopeScaledDepthBias = float(slopeScaledDepthBias);
     }
 
     // Blending of every color target with blendMode (a BlendMode value, see SetBlendMode).
@@ -2926,6 +3089,19 @@ extern "C"
     void Donut_ExecuteCommandList(void* app, void* commandList)
     {
         AsApp(app)->device()->executeCommandList(AsCommandList(commandList));
+    }
+
+    // A command list for the compute queue (the app needs AppOptions.ComputeQueue), to record each
+    // frame and run with Donut_ExecuteFrameComputeWork. Returns null if there's no compute queue.
+    void* Donut_CreateComputeQueueCommandList(void* app)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        if (!device->queryFeatureSupport(nvrhi::Feature::ComputeQueue))
+            return nullptr;
+        return a->Own(device->createCommandList(nvrhi::CommandListParameters()
+            .setEnableImmediateExecution(false)
+            .setQueueType(nvrhi::CommandQueue::Compute)));
     }
 
     // Blocks the CPU until the GPU has finished all submitted work.
@@ -6282,6 +6458,22 @@ extern "C"
         ctx->commandList->open();
     }
 
+    // Async compute in the frame: submits what the frame has recorded so far to the graphics queue,
+    // then a closed command list of Donut_CreateComputeQueueCommandList to the compute queue,
+    // which waits for the graphics work; the frame goes on recording into the same command list,
+    // whose work waits for the compute work. The waits are GPU-side (semaphores / fences).
+    void Donut_ExecuteFrameComputeWork(void* app, void* frame, void* computeCommandList)
+    {
+        nvrhi::IDevice* device = AsApp(app)->device();
+        FrameContext* ctx = AsFrame(frame);
+        ctx->commandList->close();
+        const uint64_t graphicsWork = device->executeCommandList(ctx->commandList, nvrhi::CommandQueue::Graphics);
+        device->queueWaitForCommandList(nvrhi::CommandQueue::Compute, nvrhi::CommandQueue::Graphics, graphicsWork);
+        const uint64_t computeWork = device->executeCommandList(AsCommandList(computeCommandList), nvrhi::CommandQueue::Compute);
+        device->queueWaitForCommandList(nvrhi::CommandQueue::Graphics, nvrhi::CommandQueue::Compute, computeWork);
+        ctx->commandList->open();
+    }
+
     // Saves the frame's color (as recorded so far, which it submits) to an image file: BMP, PNG,
     // JPG or TGA, by the extension. Returns non-zero on success.
     int Donut_SaveFrameToFile(void* app, void* frame, const char* path)
@@ -6499,6 +6691,23 @@ extern "C"
 
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(indexCount);
+        ctx->commandList->drawIndexed(args);
+    }
+
+    // Same, drawing indexCount indices from startIndex of the index buffer, added to baseVertex.
+    void Donut_DrawIndexedRangeWithPushConstants(void* frame, int indexCount, int startIndex, int baseVertex,
+        const void* data, int byteSize)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->setPushConstants(data, static_cast<size_t>(byteSize));
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(indexCount);
+        args.startIndexLocation = static_cast<uint32_t>(startIndex);
+        args.startVertexLocation = static_cast<uint32_t>(baseVertex);
         ctx->commandList->drawIndexed(args);
     }
 

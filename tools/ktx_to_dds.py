@@ -7,11 +7,15 @@ handles what the ported samples need:
 - KTX 1, ASTC (LDR, 2D): decoded to RGBA8 (sRGB if the data is), level 0 only, as the
   Vulkan-Samples framework decodes ASTC textures on GPUs without ASTC support (it then generates
   the mip levels, as Donut does for textures that have none);
-- KTX 2, uncompressed RGBA8 2D textures (no supercompression), with their mip levels.
+- KTX 2, uncompressed RGBA8 2D textures (no supercompression), with their mip levels;
+- KTX 2, ASTC (LDR, 2D, no supercompression): decoded as KTX 1's, level 0 only.
 
     python tools/ktx_to_dds.py <input.ktx> <output.dds> [<input.ktx> <output.dds> ...]
+
+Several textures convert in parallel, a process each.
 """
 
+import concurrent.futures
 import os
 import struct
 import sys
@@ -35,6 +39,10 @@ ASTC_SRGB_FORMATS = 0x93D0
 ASTC_BLOCK_SIZES = [(4, 4), (5, 4), (5, 5), (6, 5), (6, 6), (8, 5), (8, 6), (8, 8), (10, 5), (10, 6), (10, 8),
                     (10, 10), (12, 10), (12, 12)]
 DXGI_R8G8B8A8_UNORM, DXGI_R8G8B8A8_UNORM_SRGB = 28, 29
+
+# KTX 2 vkFormat of VK_FORMAT_ASTC_4x4_UNORM_BLOCK; the formats follow in ASTC_BLOCK_SIZES order, each
+# UNORM then SRGB.
+KTX2_ASTC_FORMATS = 157
 
 # KTX 2 vkFormat -> DXGI_FORMAT, for 4-byte texels.
 KTX2_FORMATS = {
@@ -112,6 +120,20 @@ def read_ktx(path):
 def read_ktx2(path, data):
     (vk_format, _type_size, width, height, depth, layers, faces, mip_levels,
      supercompression) = struct.unpack_from("<9I", data, 12)
+    astc_format = vk_format - KTX2_ASTC_FORMATS
+    if 0 <= astc_format < 2 * len(ASTC_BLOCK_SIZES):
+        if supercompression != 0:
+            sys.exit(f"{path}: supercompressed KTX 2 files aren't supported")
+        if depth > 1 or layers > 1 or faces != 1:
+            sys.exit(f"{path}: only 2D ASTC textures are supported")
+        block_width, block_height = ASTC_BLOCK_SIZES[astc_format // 2]
+        srgb = astc_format % 2 == 1
+        # The level index (offset, size, uncompressed size per level, level 0 first) follows the
+        # 80-byte header.
+        offset, size, _ = struct.unpack_from("<3Q", data, 80)
+        texels = astc.decode(data[offset:offset + size], width, height, block_width, block_height, srgb)
+        return (width, height, 1, False, 1, DXGI_R8G8B8A8_UNORM_SRGB if srgb else DXGI_R8G8B8A8_UNORM, 4,
+                [[texels]])
     if vk_format not in KTX2_FORMATS:
         sys.exit(f"{path}: unsupported KTX 2 format (vkFormat {vk_format})")
     if supercompression != 0:
@@ -154,13 +176,23 @@ def write_dds(path, width, height, layers, cube, mip_levels, dxgi_format, texel_
                 f.write(image)
 
 
+def convert(source, output):
+    texture = read_ktx(source)
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+    write_dds(output, *texture)
+
+
 def main():
     if len(sys.argv) < 3 or len(sys.argv) % 2 != 1:
         sys.exit(__doc__)
-    for source, output in zip(sys.argv[1::2], sys.argv[2::2]):
-        texture = read_ktx(source)
-        os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
-        write_dds(output, *texture)
+    pairs = list(zip(sys.argv[1::2], sys.argv[2::2]))
+    if len(pairs) == 1:
+        convert(*pairs[0])
+        return
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = [executor.submit(convert, source, output) for source, output in pairs]
+        for future in futures:
+            future.result()
 
 
 if __name__ == "__main__":
