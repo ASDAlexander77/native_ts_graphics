@@ -5,8 +5,8 @@ handles what the ported samples need:
 - KTX 1, uncompressed: RGBA8 (linear or sRGB), R16 and RGBA16F data, 2D textures, 2D texture arrays and cube maps,
   with their mip levels;
 - KTX 1, ASTC (LDR, 2D): decoded to RGBA8 (sRGB if the data is), level 0 only, as the
-  Vulkan-Samples framework decodes ASTC textures on GPUs without ASTC support (it then generates
-  the mip levels, as Donut does for textures that have none);
+  Vulkan-Samples framework decodes ASTC textures on GPUs without ASTC support (its glTF loader then
+  generates the mip levels: tools/dds_mips.cpp does it here, Donut generates none for DDS files);
 - KTX 2, uncompressed RGBA8 2D textures (no supercompression), with their mip levels;
 - KTX 2, ASTC (LDR, 2D, no supercompression): decoded as KTX 1's, level 0 only.
 

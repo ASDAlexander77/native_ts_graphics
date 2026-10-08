@@ -614,6 +614,12 @@ add_tslang_example(compute_nbody)
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
 # to DDS next to the executables; point this at a Vulkan-Samples assets folder.
 set(VULKAN_SAMPLES_ASSETS_DIR "" CACHE PATH "Vulkan-Samples assets folder, with textures/terrain_*.ktx")
+# A host tool for those assets: the mip levels the framework generates for the ASTC textures it
+# decodes, with the same stb_image_resize (Donut's copy of it), into DDS files.
+if (VULKAN_SAMPLES_ASSETS_DIR AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(dds_mips tools/dds_mips.cpp)
+    target_include_directories(dds_mips PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/thirdparty/stb/deprecated")
+endif()
 donut_compile_shaders_all_platforms(
     TARGET terrain_tessellation_shaders
     PROJECT_NAME "Terrain Tessellation"
@@ -840,7 +846,9 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
             VERBATIM)
         list(APPEND async_compute_bloom_media "${output}")
     endforeach()
-    # The scene's base color textures, in one conversion: it decodes them in parallel.
+    # The scene's base color textures, in one conversion: it decodes them in parallel. Then their
+    # mip levels, which the framework generates for the ASTC textures it decodes (see
+    # tools/dds_mips.cpp).
     set(sources)
     set(outputs)
     set(arguments)
@@ -854,7 +862,8 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     endforeach()
     add_custom_command(OUTPUT ${outputs}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" ${arguments}
-        DEPENDS ${sources} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${CMAKE_CURRENT_SOURCE_DIR}/tools/astc.py"
+        COMMAND dds_mips ${outputs}
+        DEPENDS ${sources} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${CMAKE_CURRENT_SOURCE_DIR}/tools/astc.py" dds_mips
         COMMENT "Decoding the Bonza textures to DDS"
         VERBATIM)
     add_custom_target(async_compute_bloom_media DEPENDS ${async_compute_bloom_media} ${outputs})
