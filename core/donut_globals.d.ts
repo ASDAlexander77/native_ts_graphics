@@ -106,4 +106,6 @@ declare global {
     var TriangleBlas: typeof Donut.TriangleBlas;
     type TileMappings = Donut.TileMappings;
     var TileMappings: typeof Donut.TileMappings;
+    type MeshPipelineStatistics = Donut.MeshPipelineStatistics;
+    var MeshPipelineStatistics: typeof Donut.MeshPipelineStatistics;
 }

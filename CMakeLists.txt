@@ -139,6 +139,9 @@ set(DONUT_NVRHI_PATCHES
     # Vulkan copies between staging textures and textures from the right place when the region
     # doesn't start at column 0: its offset counted the columns in blocks, not bytes (sparse_image).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-staging-copy-offset.patch"
+    # RasterState::conservativeRasterExtraOverestimation, Vulkan's extraPrimitiveOverestimationSize
+    # (conservative_rasterization).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-conservative-extra-overestimation.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -978,6 +981,31 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_custom_target(sparse_image_media DEPENDS "${output}")
     add_dependencies(sparse_image sparse_image_media)
 endif()
+
+# Port of Vulkan-Samples' mesh_shader_culling: task (amplification) shaders cull the sub-rects of a
+# square against a circle and launch mesh shaders for those kept, with the pipeline statistics of
+# the draw. D3D11 has no mesh shaders, so no DXBC.
+donut_compile_shaders(
+    TARGET mesh_shader_culling_shaders
+    PROJECT_NAME "Mesh Shader Culling"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_shader_culling.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_shader_culling.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mesh_shader_culling/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mesh_shader_culling/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+add_tslang_example(mesh_shader_culling)
+
+# Port of Vulkan-Samples' conservative_rasterization: a triangle drawn at low resolution with and
+# without conservative rasterization, stretched over the screen, its real outline over it.
+donut_compile_shaders_all_platforms(
+    TARGET conservative_rasterization_shaders
+    PROJECT_NAME "Conservative Rasterization"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/conservative_rasterization.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/conservative_rasterization.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/conservative_rasterization
+)
+add_tslang_example(conservative_rasterization)
 
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray

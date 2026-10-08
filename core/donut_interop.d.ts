@@ -20,6 +20,7 @@ enum GraphicsAPI {
 // nvrhi::Feature values (only the ones used so far).
 enum Feature {
     ComputeQueue = 0,
+    ConservativeRasterization = 1,
     FastGeometryShader = 5,
     Meshlets = 9,
     RayQuery = 10,
@@ -222,6 +223,15 @@ declare function Donut_HasFragmentStoresAndAtomics(app: Opaque): int;
 // they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan with
 // sparse residency; never D3D11.
 declare function Donut_HasSparseResidency(app: Opaque): int;
+// Vulkan's conservative rasterization properties into dst (Ref of a `let` f32 array of 9):
+// primitiveOverestimationSize, maxExtraPrimitiveOverestimationSize,
+// extraPrimitiveOverestimationSizeGranularity, then 1 or 0 for primitiveUnderestimation,
+// conservativePointAndLineRasterization, degenerateTrianglesRasterized, degenerateLinesRasterized,
+// fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage. 0 (dst
+// untouched) on other graphics APIs or without the extension.
+declare function Donut_GetVulkanConservativeRasterizationProperties(app: Opaque, dst: Opaque): int;
+// D3D12's conservative rasterization tier (0 for none); 0 on other graphics APIs.
+declare function Donut_GetD3D12ConservativeRasterizationTier(app: Opaque): int;
 declare function Donut_GetRendererString(app: Opaque): string;
 declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".
@@ -410,6 +420,10 @@ declare function Donut_GraphicsPipelineSetDepthBias(graphicsPipelineDesc: Opaque
     slopeScaledDepthBias: number): void;
 // Blending of every color target.
 declare function Donut_GraphicsPipelineSetBlendMode(graphicsPipelineDesc: Opaque, blendMode: BlendMode): void;
+// Conservative rasterization (requires Feature.ConservativeRasterization): every pixel a triangle
+// touches is drawn; extraOverestimation enlarges triangles further, in pixels, on Vulkan only
+// (clamped to the device's maximum).
+declare function Donut_GraphicsPipelineSetConservativeRaster(graphicsPipelineDesc: Opaque, enable: int, extraOverestimation: number): void;
 // The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
 declare function Donut_GraphicsPipelineSetColorWriteMask(graphicsPipelineDesc: Opaque, mask: ColorMask): void;
 // For a framebuffer's layout.
@@ -1087,6 +1101,19 @@ declare function Donut_SubmitFrameCommandList(app: Opaque, frame: Opaque): void;
 declare function Donut_BeginMeshDraw(frame: Opaque, meshletPipeline: Opaque): void;
 declare function Donut_BeginMeshDrawToFramebuffer(frame: Opaque, meshletPipeline: Opaque, framebuffer: Opaque): void;
 declare function Donut_DrawMeshTasks(frame: Opaque, groupsX: int): void;
+// Same, groupsX x groupsY groups.
+declare function Donut_DrawMeshTasks2D(frame: Opaque, groupsX: int, groupsY: int): void;
+// Pipeline statistics of mesh shader draws (pixel, amplification and mesh shader invocations), read
+// back a few frames late without waiting. Null when the device can't count mesh shader work (D3D11,
+// D3D12 without MeshShaderPipelineStatsSupported, Vulkan without pipelineStatisticsQuery and
+// meshShaderQueries).
+declare function Donut_CreateMeshPipelineStatistics(app: Opaque): Opaque | null;
+// Before the frame's first draw: reads back the results of the query the frame reuses.
+declare function Donut_BeginMeshPipelineStatisticsFrame(frame: Opaque, meshPipelineStatistics: Opaque): void;
+// Donut_DrawMeshTasks2D, counted by the frame's statistics.
+declare function Donut_DrawMeshTasksWithStatistics(frame: Opaque, groupsX: int, groupsY: int, meshPipelineStatistics: Opaque): void;
+// The latest results: which 0 for pixel, 1 for amplification (task), 2 for mesh shader invocations.
+declare function Donut_GetMeshPipelineStatistic(meshPipelineStatistics: Opaque, which: int): number;
 declare function Donut_GetFrameWidth(frame: Opaque): int;
 declare function Donut_GetFrameHeight(frame: Opaque): int;
 

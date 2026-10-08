@@ -96,6 +96,21 @@ export class App {
         return Donut_HasSparseResidency(this.handle);
     }
 
+    // Vulkan's conservative rasterization properties into dst (Ref of a `let` f32 array of 9):
+    // primitiveOverestimationSize, maxExtraPrimitiveOverestimationSize,
+    // extraPrimitiveOverestimationSizeGranularity, then 1 or 0 for primitiveUnderestimation,
+    // conservativePointAndLineRasterization, degenerateTrianglesRasterized, degenerateLinesRasterized,
+    // fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage. 0 (dst
+    // untouched) on other graphics APIs or without the extension.
+    getVulkanConservativeRasterizationProperties(dst: Opaque): int {
+        return Donut_GetVulkanConservativeRasterizationProperties(this.handle, dst);
+    }
+
+    // D3D12's conservative rasterization tier (0 for none); 0 on other graphics APIs.
+    getD3D12ConservativeRasterizationTier(): int {
+        return Donut_GetD3D12ConservativeRasterizationTier(this.handle);
+    }
+
     getRendererString(): string {
         return Donut_GetRendererString(this.handle);
     }
@@ -829,6 +844,14 @@ export class App {
         Donut_SubmitFrameCommandList(this.handle, frame.handle);
     }
 
+    // Pipeline statistics of mesh shader draws (pixel, amplification and mesh shader invocations),
+    // read back a few frames late without waiting. A null handle when the device can't count mesh
+    // shader work (D3D11, D3D12 without MeshShaderPipelineStatsSupported, Vulkan without
+    // pipelineStatisticsQuery and meshShaderQueries).
+    createMeshPipelineStatistics(): MeshPipelineStatistics {
+        return new MeshPipelineStatistics(Donut_CreateMeshPipelineStatistics(this.handle));
+    }
+
     // Submits what the frame has recorded so far and goes on recording: work after it (e.g.
     // Donut_ReadPixelUInts) sees the GPU results.
     flushFrameCommandList(frame: Frame): void {
@@ -1242,6 +1265,21 @@ export class Frame {
 
     drawMeshTasks(groupsX: int): void {
         Donut_DrawMeshTasks(this.handle, groupsX);
+    }
+
+    // Same, groupsX x groupsY groups.
+    drawMeshTasks2D(groupsX: int, groupsY: int): void {
+        Donut_DrawMeshTasks2D(this.handle, groupsX, groupsY);
+    }
+
+    // Before the frame's first draw: reads back the results of the query the frame reuses.
+    beginMeshPipelineStatistics(meshPipelineStatistics: MeshPipelineStatistics): void {
+        Donut_BeginMeshPipelineStatisticsFrame(this.handle, meshPipelineStatistics.handle);
+    }
+
+    // Donut_DrawMeshTasks2D, counted by the frame's statistics.
+    drawMeshTasksWithStatistics(groupsX: int, groupsY: int, meshPipelineStatistics: MeshPipelineStatistics): void {
+        Donut_DrawMeshTasksWithStatistics(this.handle, groupsX, groupsY, meshPipelineStatistics.handle);
     }
 
     getWidth(): int {
@@ -1875,6 +1913,13 @@ export class GraphicsPipelineDesc {
     // Blending of every color target.
     setBlendMode(blendMode: BlendMode): void {
         Donut_GraphicsPipelineSetBlendMode(this.handle, blendMode);
+    }
+
+    // Conservative rasterization (requires Feature.ConservativeRasterization): every pixel a triangle
+    // touches is drawn; extraOverestimation enlarges triangles further, in pixels, on Vulkan only
+    // (clamped to the device's maximum).
+    setConservativeRaster(enable: int, extraOverestimation: number): void {
+        Donut_GraphicsPipelineSetConservativeRaster(this.handle, enable, extraOverestimation);
     }
 
     // The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
@@ -3010,5 +3055,23 @@ export class TileMappings {
     // Maps the tile at column x, row y of level mipLevel to byteOffset in a heap, or unmaps it (null).
     add(mipLevel: int, x: int, y: int, heap: Opaque | null, byteOffset: number): void {
         Donut_TileMappingsAdd(this.handle, mipLevel, x, y, heap, byteOffset);
+    }
+}
+
+export class MeshPipelineStatistics {
+    readonly handle: Opaque;
+
+    constructor(handle: Opaque | null) {
+        this.handle = handle as Opaque;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // The latest results: which 0 for pixel, 1 for amplification (task), 2 for mesh shader invocations.
+    get(which: int): number {
+        return Donut_GetMeshPipelineStatistic(this.handle, which);
     }
 }

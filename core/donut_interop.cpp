@@ -252,6 +252,8 @@ namespace
         bool fragmentStoresAndAtomics = false;
         // Whether 2D textures can be tiled, with residency queries in shaders (Donut_HasSparseResidency).
         bool sparseResidency = false;
+        // Vulkan's pipelineStatisticsQuery feature, enabled (Donut_CreateMeshPipelineStatistics).
+        bool pipelineStatisticsQuery = false;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -1187,8 +1189,9 @@ namespace
     };
 
     // Device creation callback: enables multi-draw indirect, a first instance in indirect draws,
-    // dynamically uniform indexing of sampled image arrays, stores and atomics in pixel shaders, and
-    // sparse 2D images with residency queries in shaders, when the GPU has them.
+    // dynamically uniform indexing of sampled image arrays, stores and atomics in pixel shaders,
+    // sparse 2D images with residency queries in shaders, and pipeline statistics queries, when the
+    // GPU has them.
     void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
@@ -1204,6 +1207,7 @@ namespace
         features.sparseBinding = available.sparseBinding;
         features.sparseResidencyImage2D = available.sparseResidencyImage2D;
         features.shaderResourceResidency = available.shaderResourceResidency;
+        features.pipelineStatisticsQuery = available.pipelineStatisticsQuery;
         info.pEnabledFeatures = &features;
 
         result.support = (features.multiDrawIndirect ? IndirectDraw_MultiDraw : 0)
@@ -1280,6 +1284,8 @@ extern "C"
         params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
         params.enableDebugRuntime = (options & AppOption_DebugRuntime) != 0;
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
+        // Conservative rasterization where the GPU has it (Feature.ConservativeRasterization).
+        params.optionalVulkanDeviceExtensions.push_back("VK_EXT_conservative_rasterization");
 
 #if DONUT_WITH_DLSS && DONUT_WITH_VULKAN
         if ((options & AppOption_Dlss) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
@@ -1347,6 +1353,9 @@ extern "C"
         app->indirectDrawSupport = indirectDrawSupport;
         app->fragmentStoresAndAtomics = fragmentStoresAndAtomics;
         app->sparseResidency = sparseResidency;
+#if DONUT_WITH_VULKAN
+        app->pipelineStatisticsQuery = api == nvrhi::GraphicsAPI::VULKAN && vulkanFeatures->features.pipelineStatisticsQuery;
+#endif
         return app;
     }
 
@@ -1361,6 +1370,58 @@ extern "C"
     int Donut_HasFragmentStoresAndAtomics(void* app)
     {
         return AsApp(app)->fragmentStoresAndAtomics ? 1 : 0;
+    }
+
+    // Vulkan's conservative rasterization properties (VkPhysicalDeviceConservativeRasterizationPropertiesEXT)
+    // into dst (Ref of a `let` f32 array of 9): primitiveOverestimationSize,
+    // maxExtraPrimitiveOverestimationSize, extraPrimitiveOverestimationSizeGranularity, then 1 or 0
+    // for primitiveUnderestimation, conservativePointAndLineRasterization,
+    // degenerateTrianglesRasterized, degenerateLinesRasterized,
+    // fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage. Returns 0
+    // (dst untouched) on other graphics APIs or without the extension.
+    int Donut_GetVulkanConservativeRasterizationProperties(void* app, float* dst)
+    {
+#if DONUT_WITH_VULKAN
+        App* a = AsApp(app);
+        if (a->device()->getGraphicsAPI() != nvrhi::GraphicsAPI::VULKAN
+            || !a->device()->queryFeatureSupport(nvrhi::Feature::ConservativeRasterization))
+            return 0;
+        const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+            static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+        auto properties = vk::PhysicalDeviceConservativeRasterizationPropertiesEXT();
+        vk::PhysicalDeviceProperties2 properties2;
+        properties2.pNext = &properties;
+        physicalDevice.getProperties2(&properties2);
+        dst[0] = properties.primitiveOverestimationSize;
+        dst[1] = properties.maxExtraPrimitiveOverestimationSize;
+        dst[2] = properties.extraPrimitiveOverestimationSizeGranularity;
+        dst[3] = properties.primitiveUnderestimation ? 1.f : 0.f;
+        dst[4] = properties.conservativePointAndLineRasterization ? 1.f : 0.f;
+        dst[5] = properties.degenerateTrianglesRasterized ? 1.f : 0.f;
+        dst[6] = properties.degenerateLinesRasterized ? 1.f : 0.f;
+        dst[7] = properties.fullyCoveredFragmentShaderInputVariable ? 1.f : 0.f;
+        dst[8] = properties.conservativeRasterizationPostDepthCoverage ? 1.f : 0.f;
+        return 1;
+#else
+        return 0;
+#endif
+    }
+
+    // D3D12's conservative rasterization tier (D3D12_CONSERVATIVE_RASTERIZATION_TIER, 0 for none);
+    // 0 on other graphics APIs.
+    int Donut_GetD3D12ConservativeRasterizationTier(void* app)
+    {
+#if DONUT_WITH_DX12
+        nvrhi::IDevice* device = AsApp(app)->device();
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            if (SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))))
+                return static_cast<int>(options.ConservativeRasterizationTier);
+        }
+#endif
+        return 0;
     }
 
     // Non-zero if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether
@@ -3356,6 +3417,17 @@ extern "C"
         state.depthBias = depthBias;
         state.depthBiasClamp = float(depthBiasClamp);
         state.slopeScaledDepthBias = float(slopeScaledDepthBias);
+    }
+
+    // Conservative rasterization (enable non-zero; requires Feature.ConservativeRasterization): every
+    // pixel a triangle touches at all is drawn. extraOverestimation enlarges the triangles further,
+    // in pixels, on Vulkan (extraPrimitiveOverestimationSize, clamped to the device's maximum); D3D
+    // has no such setting.
+    void Donut_GraphicsPipelineSetConservativeRaster(void* graphicsPipelineDesc, int enable, double extraOverestimation)
+    {
+        nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
+        state.conservativeRasterEnable = enable != 0;
+        state.conservativeRasterExtraOverestimation = float(extraOverestimation);
     }
 
     // Which channels every color target writes: ColorMask bits (red 1, green 2, blue 4, alpha 8; 0 for
@@ -7235,6 +7307,215 @@ extern "C"
         state.bindings = ctx->draw.bindings;
         ctx->commandList->setMeshletState(state);
         ctx->commandList->dispatchMesh(static_cast<uint32_t>(groupsX));
+    }
+
+    // Same as Donut_DrawMeshTasks, launching groupsX x groupsY groups.
+    void Donut_DrawMeshTasks2D(void* frame, int groupsX, int groupsY)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+
+        nvrhi::MeshletState state;
+        state.pipeline = ctx->meshletPipeline;
+        state.framebuffer = ctx->draw.framebuffer;
+        state.viewport = ctx->draw.viewport;
+        state.bindings = ctx->draw.bindings;
+        ctx->commandList->setMeshletState(state);
+        ctx->commandList->dispatchMesh(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY));
+    }
+
+    // Pipeline statistics of mesh shader draws: the pixel, amplification (task) and mesh shader
+    // invocations. NVRHI has no such queries: native D3D12 query heaps and Vulkan query pools, a ring
+    // of them, each read back when it comes round again (a few frames later, without waiting).
+    struct MeshPipelineStatistics
+    {
+        static constexpr uint32_t Slots = 4;
+        nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::D3D12;
+        uint32_t slot = 0;
+        bool slotUsed[Slots] = {};
+        // Pixel, amplification and mesh shader invocations, the latest read back.
+        uint64_t values[3] = {};
+#if DONUT_WITH_DX12
+        Microsoft::WRL::ComPtr<ID3D12QueryHeap> queryHeap;
+        Microsoft::WRL::ComPtr<ID3D12Resource> readback;
+#endif
+#if DONUT_WITH_VULKAN
+        VkDevice device = VK_NULL_HANDLE;
+        VkQueryPool queryPool = VK_NULL_HANDLE;
+#endif
+
+        ~MeshPipelineStatistics()
+        {
+#if DONUT_WITH_VULKAN
+            if (queryPool != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyQueryPool(device, queryPool, nullptr);
+#endif
+        }
+    };
+
+    // Null when the device can't count mesh shader work: D3D11, D3D12 without
+    // MeshShaderPipelineStatsSupported, Vulkan without pipelineStatisticsQuery and meshShaderQueries
+    // (or without mesh shaders).
+    void* Donut_CreateMeshPipelineStatistics(void* app)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        if (!device->queryFeatureSupport(nvrhi::Feature::Meshlets))
+            return nullptr;
+
+        auto stats = std::make_shared<MeshPipelineStatistics>();
+        stats->api = device->getGraphicsAPI();
+#if DONUT_WITH_DX12
+        if (stats->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            D3D12_FEATURE_DATA_D3D12_OPTIONS9 options = {};
+            if (FAILED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS9, &options, sizeof(options)))
+                || !options.MeshShaderPipelineStatsSupported)
+                return nullptr;
+
+            D3D12_QUERY_HEAP_DESC heapDesc = {};
+            heapDesc.Type = D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS1;
+            heapDesc.Count = MeshPipelineStatistics::Slots;
+            if (FAILED(d3dDevice->CreateQueryHeap(&heapDesc, IID_PPV_ARGS(&stats->queryHeap))))
+                return nullptr;
+
+            D3D12_HEAP_PROPERTIES heapProperties = {};
+            heapProperties.Type = D3D12_HEAP_TYPE_READBACK;
+            D3D12_RESOURCE_DESC bufferDesc = {};
+            bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            bufferDesc.Width = sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1) * MeshPipelineStatistics::Slots;
+            bufferDesc.Height = 1;
+            bufferDesc.DepthOrArraySize = 1;
+            bufferDesc.MipLevels = 1;
+            bufferDesc.SampleDesc.Count = 1;
+            bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            if (FAILED(d3dDevice->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&stats->readback))))
+                return nullptr;
+            return a->OwnObject(stats);
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (stats->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            if (!a->pipelineStatisticsQuery)
+                return nullptr;
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+            // Donut enables the mesh shader features the GPU has.
+            auto meshShaderFeatures = vk::PhysicalDeviceMeshShaderFeaturesEXT();
+            auto features2 = vk::PhysicalDeviceFeatures2().setPNext(&meshShaderFeatures);
+            physicalDevice.getFeatures2(&features2);
+            if (!meshShaderFeatures.meshShaderQueries)
+                return nullptr;
+
+            stats->device = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            VkQueryPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+            poolInfo.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+            poolInfo.queryCount = MeshPipelineStatistics::Slots;
+            // Results in bit order: pixel, task, mesh shader invocations.
+            poolInfo.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT
+                | VK_QUERY_PIPELINE_STATISTIC_TASK_SHADER_INVOCATIONS_BIT_EXT
+                | VK_QUERY_PIPELINE_STATISTIC_MESH_SHADER_INVOCATIONS_BIT_EXT;
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateQueryPool(stats->device, &poolInfo, nullptr, &stats->queryPool) != VK_SUCCESS)
+                return nullptr;
+            return a->OwnObject(stats);
+        }
+#endif
+        return nullptr;
+    }
+
+    // Starts the frame's statistics, before the frame's first draw (Vulkan resets queries outside
+    // render passes): reads back the results of the query this frame reuses, if it was used.
+    void Donut_BeginMeshPipelineStatisticsFrame(void* frame, void* meshPipelineStatistics)
+    {
+        auto* stats = static_cast<MeshPipelineStatistics*>(meshPipelineStatistics);
+        nvrhi::ICommandList* commandList = AsFrame(frame)->commandList;
+        stats->slot = (stats->slot + 1) % MeshPipelineStatistics::Slots;
+        const uint32_t slot = stats->slot;
+#if DONUT_WITH_DX12
+        if (stats->api == nvrhi::GraphicsAPI::D3D12 && stats->slotUsed[slot])
+        {
+            const SIZE_T offset = sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1) * slot;
+            const D3D12_RANGE range = { offset, offset + sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1) };
+            void* mapped = nullptr;
+            if (SUCCEEDED(stats->readback->Map(0, &range, &mapped)))
+            {
+                D3D12_QUERY_DATA_PIPELINE_STATISTICS1 data;
+                memcpy(&data, static_cast<uint8_t*>(mapped) + offset, sizeof(data));
+                const D3D12_RANGE written = { 0, 0 };
+                stats->readback->Unmap(0, &written);
+                stats->values[0] = data.PSInvocations;
+                stats->values[1] = data.ASInvocations;
+                stats->values[2] = data.MSInvocations;
+            }
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (stats->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            if (stats->slotUsed[slot])
+            {
+                uint64_t values[3];
+                if (VULKAN_HPP_DEFAULT_DISPATCHER.vkGetQueryPoolResults(stats->device, stats->queryPool, slot, 1,
+                        sizeof(values), values, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+                    memcpy(stats->values, values, sizeof(values));
+            }
+            VkCommandBuffer commandBuffer = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdResetQueryPool(commandBuffer, stats->queryPool, slot, 1);
+        }
+#endif
+        stats->slotUsed[slot] = false;
+    }
+
+    // Same as Donut_DrawMeshTasks2D, counted by the frame's statistics.
+    void Donut_DrawMeshTasksWithStatistics(void* frame, int groupsX, int groupsY, void* meshPipelineStatistics)
+    {
+        auto* stats = static_cast<MeshPipelineStatistics*>(meshPipelineStatistics);
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+
+        nvrhi::MeshletState state;
+        state.pipeline = ctx->meshletPipeline;
+        state.framebuffer = ctx->draw.framebuffer;
+        state.viewport = ctx->draw.viewport;
+        state.bindings = ctx->draw.bindings;
+        // On Vulkan this begins the render pass: the query lies within it.
+        ctx->commandList->setMeshletState(state);
+
+        const uint32_t slot = stats->slot;
+#if DONUT_WITH_DX12
+        if (stats->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12GraphicsCommandList* d3dCommandList = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            d3dCommandList->BeginQuery(stats->queryHeap.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS1, slot);
+            ctx->commandList->dispatchMesh(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY));
+            d3dCommandList->EndQuery(stats->queryHeap.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS1, slot);
+            d3dCommandList->ResolveQueryData(stats->queryHeap.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS1, slot, 1,
+                stats->readback.Get(), sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1) * slot);
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (stats->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            VkCommandBuffer commandBuffer = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginQuery(commandBuffer, stats->queryPool, slot, 0);
+            ctx->commandList->dispatchMesh(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY));
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndQuery(commandBuffer, stats->queryPool, slot);
+        }
+#endif
+        stats->slotUsed[slot] = true;
+    }
+
+    // The latest results read back: which 0 for pixel shader invocations, 1 for amplification
+    // (task) shader invocations, 2 for mesh shader invocations.
+    double Donut_GetMeshPipelineStatistic(void* meshPipelineStatistics, int which)
+    {
+        auto* stats = static_cast<MeshPipelineStatistics*>(meshPipelineStatistics);
+        return which >= 0 && which < 3 ? double(stats->values[which]) : 0.0;
     }
 
     int Donut_GetFrameWidth(void* frame)
