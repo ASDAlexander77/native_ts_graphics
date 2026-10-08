@@ -1007,10 +1007,12 @@ static_assert(int(nvrhi::GraphicsAPI::D3D11) == 0 && int(nvrhi::GraphicsAPI::D3D
 static_assert(int(nvrhi::Feature::Meshlets) == 9 && int(nvrhi::Feature::RayTracingPipeline) == 14
     && int(nvrhi::Feature::ShaderSpecializations) == 18 && int(nvrhi::Feature::VariableRateShading) == 21
     && int(nvrhi::Feature::RayQuery) == 10);
-static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Pixel) == 0x10
+static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Hull) == 0x2
+    && int(nvrhi::ShaderType::Domain) == 0x4 && int(nvrhi::ShaderType::Pixel) == 0x10
     && int(nvrhi::ShaderType::Compute) == 0x20 && int(nvrhi::ShaderType::Amplification) == 0x40
     && int(nvrhi::ShaderType::Mesh) == 0x80 && int(nvrhi::ShaderType::All) == 0x3FFF);
-static_assert(int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::PrimitiveType::TriangleStrip) == 4);
+static_assert(int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::PrimitiveType::TriangleStrip) == 4
+    && int(nvrhi::PrimitiveType::PatchList) == 8);
 static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
     && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46
     && int(nvrhi::Format::RGBA8_UNORM) == 19 && int(nvrhi::Format::RGBA16_UINT) == 36 && int(nvrhi::Format::D32) == 53);
@@ -2188,6 +2190,88 @@ extern "C"
 
         App* a = AsApp(app);
         return a->Own(a->device()->createGraphicsPipeline(desc,
+            static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo()));
+    }
+
+    // Graphics pipelines of any shape: a description built up with the Donut_GraphicsPipeline*
+    // functions below, then consumed (freed) by Donut_CreateGraphicsPipelineFromDesc. It starts as
+    // a triangle list with NVRHI's default render state: depth test (less) and depth writes on,
+    // back faces culled (clockwise triangles are front faces), solid fill, no blending.
+    void* Donut_CreateGraphicsPipelineDesc(void* vertexShader, void* pixelShader)
+    {
+        auto* desc = new nvrhi::GraphicsPipelineDesc();
+        desc->VS = static_cast<nvrhi::IShader*>(vertexShader);
+        desc->PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc->primType = nvrhi::PrimitiveType::TriangleList;
+        return desc;
+    }
+
+    static nvrhi::GraphicsPipelineDesc* AsGraphicsPipelineDesc(void* graphicsPipelineDesc)
+    {
+        return static_cast<nvrhi::GraphicsPipelineDesc*>(graphicsPipelineDesc);
+    }
+
+    void Donut_GraphicsPipelineAddBindingLayout(void* graphicsPipelineDesc, void* bindingLayout)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->bindingLayouts.push_back(
+            static_cast<nvrhi::IBindingLayout*>(bindingLayout));
+    }
+
+    void Donut_GraphicsPipelineSetInputLayout(void* graphicsPipelineDesc, void* inputLayout)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+    }
+
+    // primitiveType: an nvrhi::PrimitiveType value.
+    void Donut_GraphicsPipelineSetPrimitiveType(void* graphicsPipelineDesc, int primitiveType)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
+    }
+
+    // Hull and domain shaders, drawing patches of controlPoints vertices.
+    void Donut_GraphicsPipelineSetTessellation(void* graphicsPipelineDesc, void* hullShader, void* domainShader,
+        int controlPoints)
+    {
+        nvrhi::GraphicsPipelineDesc* desc = AsGraphicsPipelineDesc(graphicsPipelineDesc);
+        desc->HS = static_cast<nvrhi::IShader*>(hullShader);
+        desc->DS = static_cast<nvrhi::IShader*>(domainShader);
+        desc->primType = nvrhi::PrimitiveType::PatchList;
+        desc->patchControlPoints = static_cast<uint32_t>(controlPoints);
+    }
+
+    static_assert(int(nvrhi::ComparisonFunc::Never) == 1 && int(nvrhi::ComparisonFunc::Greater) == 5
+        && int(nvrhi::ComparisonFunc::Always) == 8);
+
+    // depthFunc: an nvrhi::ComparisonFunc value.
+    void Donut_GraphicsPipelineSetDepthState(void* graphicsPipelineDesc, int testEnable, int writeEnable, int depthFunc)
+    {
+        nvrhi::DepthStencilState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.depthStencilState;
+        state.depthTestEnable = testEnable != 0;
+        state.depthWriteEnable = writeEnable != 0;
+        state.depthFunc = static_cast<nvrhi::ComparisonFunc>(depthFunc);
+    }
+
+    static_assert(int(nvrhi::RasterCullMode::Back) == 0 && int(nvrhi::RasterCullMode::Front) == 1
+        && int(nvrhi::RasterCullMode::None) == 2);
+    static_assert(int(nvrhi::RasterFillMode::Solid) == 0 && int(nvrhi::RasterFillMode::Wireframe) == 1);
+
+    // cullMode, fillMode: nvrhi::RasterCullMode and nvrhi::RasterFillMode values.
+    void Donut_GraphicsPipelineSetRasterState(void* graphicsPipelineDesc, int cullMode, int fillMode,
+        int frontCounterClockwise)
+    {
+        nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
+        state.cullMode = static_cast<nvrhi::RasterCullMode>(cullMode);
+        state.fillMode = static_cast<nvrhi::RasterFillMode>(fillMode);
+        state.frontCounterClockwise = frontCounterClockwise != 0;
+    }
+
+    // For a framebuffer's layout (Donut_CreateFramebuffer); frees the description. Returns null on
+    // failure.
+    void* Donut_CreateGraphicsPipelineFromDesc(void* app, void* graphicsPipelineDesc, void* framebuffer)
+    {
+        std::unique_ptr<nvrhi::GraphicsPipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        App* a = AsApp(app);
+        return a->Own(a->device()->createGraphicsPipeline(*desc,
             static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo()));
     }
 

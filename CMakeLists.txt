@@ -587,6 +587,35 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(compute_nbody)
 
+# Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
+# their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
+# to DDS next to the executables; point this at a Vulkan-Samples assets folder.
+set(VULKAN_SAMPLES_ASSETS_DIR "" CACHE PATH "Vulkan-Samples assets folder, with textures/terrain_*.ktx")
+donut_compile_shaders_all_platforms(
+    TARGET terrain_tessellation_shaders
+    PROJECT_NAME "Terrain Tessellation"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/terrain_tessellation.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/terrain_tessellation.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/terrain_tessellation
+)
+add_tslang_example(terrain_tessellation)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(terrain_textures)
+    foreach(texture skysphere_rgba terrain_texturearray_rgba terrain_heightmap_r16)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/${texture}.ktx")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/terrain_tessellation/${texture}.dds")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+            DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+            COMMENT "Converting ${texture}.ktx to DDS"
+            VERBATIM)
+        list(APPEND terrain_textures "${output}")
+    endforeach()
+    add_custom_target(terrain_tessellation_media DEPENDS ${terrain_textures})
+    add_dependencies(terrain_tessellation terrain_tessellation_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

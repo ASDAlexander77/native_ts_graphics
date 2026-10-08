@@ -230,6 +230,11 @@ export class App {
         return Donut_CreateGraphicsPipelineForFramebuffer(this.handle, framebuffer, vertexShader, pixelShader, inputLayout, bindingLayout);
     }
 
+    // For a framebuffer's layout.
+    createGraphicsPipelineFromDesc(graphicsPipelineDesc: GraphicsPipelineDesc, framebuffer: Opaque): Opaque {
+        return Donut_CreateGraphicsPipelineFromDesc(this.handle, graphicsPipelineDesc.handle, framebuffer);
+    }
+
     // Vertex / index buffers uploaded once by an open command list (data copied during the call).
     createStaticVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
         return Donut_CreateStaticVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
@@ -1523,6 +1528,52 @@ export class RtPipelineDesc {
     // (D3D12 only), whose binding sets come with each shader table entry.
     addHitGroup(shaderLibrary: Opaque, exportName: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
         Donut_RtPipelineAddHitGroup(this.handle, shaderLibrary, exportName, closestHitEntry, anyHitEntry, localBindingLayout);
+    }
+}
+
+export class GraphicsPipelineDesc {
+    readonly handle: Opaque;
+
+    constructor(handle: Opaque | null) {
+        this.handle = handle as Opaque;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // Graphics pipelines of any shape: a description built with the Donut_GraphicsPipeline* functions,
+    // freed by Donut_CreateGraphicsPipelineFromDesc. It starts as a triangle list with NVRHI's default
+    // render state: depth test (less) and writes, back faces culled (clockwise triangles are front
+    // faces), solid fill, no blending.
+    static create(vertexShader: Opaque, pixelShader: Opaque): GraphicsPipelineDesc {
+        return new GraphicsPipelineDesc(Donut_CreateGraphicsPipelineDesc(vertexShader, pixelShader));
+    }
+
+    addBindingLayout(bindingLayout: Opaque): void {
+        Donut_GraphicsPipelineAddBindingLayout(this.handle, bindingLayout);
+    }
+
+    setInputLayout(inputLayout: Opaque): void {
+        Donut_GraphicsPipelineSetInputLayout(this.handle, inputLayout);
+    }
+
+    setPrimitiveType(primitiveType: PrimitiveType): void {
+        Donut_GraphicsPipelineSetPrimitiveType(this.handle, primitiveType);
+    }
+
+    // Hull and domain shaders, drawing patches of controlPoints vertices.
+    setTessellation(hullShader: Opaque, domainShader: Opaque, controlPoints: int): void {
+        Donut_GraphicsPipelineSetTessellation(this.handle, hullShader, domainShader, controlPoints);
+    }
+
+    setDepthState(testEnable: int, writeEnable: int, depthFunc: ComparisonFunc): void {
+        Donut_GraphicsPipelineSetDepthState(this.handle, testEnable, writeEnable, depthFunc);
+    }
+
+    setRasterState(cullMode: CullMode, fillMode: FillMode, frontCounterClockwise: int): void {
+        Donut_GraphicsPipelineSetRasterState(this.handle, cullMode, fillMode, frontCounterClockwise);
     }
 }
 

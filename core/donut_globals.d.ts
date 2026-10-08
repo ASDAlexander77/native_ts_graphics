@@ -32,6 +32,8 @@ declare global {
     var DescriptorTableManager: typeof Donut.DescriptorTableManager;
     type RtPipelineDesc = Donut.RtPipelineDesc;
     var RtPipelineDesc: typeof Donut.RtPipelineDesc;
+    type GraphicsPipelineDesc = Donut.GraphicsPipelineDesc;
+    var GraphicsPipelineDesc: typeof Donut.GraphicsPipelineDesc;
     type ShaderTable = Donut.ShaderTable;
     var ShaderTable: typeof Donut.ShaderTable;
     type AsyncComputeLoop = Donut.AsyncComputeLoop;

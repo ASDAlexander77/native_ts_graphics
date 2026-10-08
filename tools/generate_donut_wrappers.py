@@ -36,6 +36,7 @@ CLASSES = {
     "bindlessLayoutDesc": "BindlessLayoutDesc",
     "descriptorTableManager": "DescriptorTableManager",
     "pipelineDesc": "RtPipelineDesc",
+    "graphicsPipelineDesc": "GraphicsPipelineDesc",
     "shaderTable": "ShaderTable",
     "asyncComputeLoop": "AsyncComputeLoop",
     "imguiPass": "ImGuiPass",
@@ -86,6 +87,7 @@ PARAMETER_ALIASES = {
 NOUNS = {
     "BindlessLayoutDesc": ["BindlessLayout"],
     "RtPipelineDesc": ["RtPipeline"],
+    "GraphicsPipelineDesc": ["GraphicsPipeline"],
     "ImGuiPass": ["ImGui"],
     "ImGuiFont": ["ImGui"],
     "CubemapTarget": ["Cubemap"],
@@ -109,6 +111,7 @@ NOUNS = {
 METHOD_NAMES = {
     "Donut_SetViewVariableRateShading": "setVariableRateShading",
     "Donut_CreateRayTracingPipelineDesc": "create",
+    "Donut_CreateGraphicsPipelineDesc": "create",
     "Donut_ImGuiPushFont": "push",
     "Donut_GetSceneTopLevelAS": "getTopLevelAS",
     "Donut_AddSceneTopLevelASInstances": "addSceneInstances",

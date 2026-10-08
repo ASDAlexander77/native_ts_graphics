@@ -98,7 +98,33 @@ enum AppOptions {
 // nvrhi::PrimitiveType values (only the ones used so far).
 enum PrimitiveType {
     TriangleList = 3,
-    TriangleStrip = 4
+    TriangleStrip = 4,
+    PatchList = 8
+}
+
+// nvrhi::ComparisonFunc values: depth tests.
+enum ComparisonFunc {
+    Never = 1,
+    Less = 2,
+    Equal = 3,
+    LessOrEqual = 4,
+    Greater = 5,
+    NotEqual = 6,
+    GreaterOrEqual = 7,
+    Always = 8
+}
+
+// nvrhi::RasterCullMode values.
+enum CullMode {
+    Back = 0,
+    Front = 1,
+    None = 2
+}
+
+// nvrhi::RasterFillMode values.
+enum FillMode {
+    Solid = 0,
+    Wireframe = 1
 }
 
 // The framebuffer blending of Donut_CreateGraphicsPipelineWithBlend.
@@ -185,6 +211,8 @@ enum CommonSampler {
 // nvrhi::ShaderType values.
 enum ShaderType {
     Vertex = 0x0001,
+    Hull = 0x0002,
+    Domain = 0x0004,
     Pixel = 0x0010,
     Compute = 0x0020,
     Amplification = 0x0040,
@@ -256,6 +284,23 @@ declare function Donut_CreateFramebuffer(app: Opaque, colorTexture: Opaque, dept
 // writes, back faces culled (clockwise triangles are front faces).
 declare function Donut_CreateGraphicsPipelineForFramebuffer(app: Opaque, framebuffer: Opaque, vertexShader: Opaque,
     pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque;
+// Graphics pipelines of any shape: a description built with the Donut_GraphicsPipeline* functions,
+// freed by Donut_CreateGraphicsPipelineFromDesc. It starts as a triangle list with NVRHI's default
+// render state: depth test (less) and writes, back faces culled (clockwise triangles are front
+// faces), solid fill, no blending.
+declare function Donut_CreateGraphicsPipelineDesc(vertexShader: Opaque, pixelShader: Opaque): Opaque;
+declare function Donut_GraphicsPipelineAddBindingLayout(graphicsPipelineDesc: Opaque, bindingLayout: Opaque): void;
+declare function Donut_GraphicsPipelineSetInputLayout(graphicsPipelineDesc: Opaque, inputLayout: Opaque): void;
+declare function Donut_GraphicsPipelineSetPrimitiveType(graphicsPipelineDesc: Opaque, primitiveType: PrimitiveType): void;
+// Hull and domain shaders, drawing patches of controlPoints vertices.
+declare function Donut_GraphicsPipelineSetTessellation(graphicsPipelineDesc: Opaque, hullShader: Opaque, domainShader: Opaque,
+    controlPoints: int): void;
+declare function Donut_GraphicsPipelineSetDepthState(graphicsPipelineDesc: Opaque, testEnable: int, writeEnable: int,
+    depthFunc: ComparisonFunc): void;
+declare function Donut_GraphicsPipelineSetRasterState(graphicsPipelineDesc: Opaque, cullMode: CullMode, fillMode: FillMode,
+    frontCounterClockwise: int): void;
+// For a framebuffer's layout.
+declare function Donut_CreateGraphicsPipelineFromDesc(app: Opaque, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
 declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
