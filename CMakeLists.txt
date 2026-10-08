@@ -639,6 +639,45 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(terrain_tessellation terrain_tessellation_media)
 endif()
 
+# Port of Vulkan-Samples' instancing: thousands of rocks around a planet in one instanced draw, their
+# positions, rotations, scales and texture layers in a per-instance vertex buffer. Its models and
+# textures are Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF files
+# are copied, the KTX textures converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET instancing_shaders
+    PROJECT_NAME "Instancing"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/instancing.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/instancing.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/instancing
+)
+add_tslang_example(instancing)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(instancing_media)
+    foreach(texture texturearray_rocks_color_rgba lavaplanet_color_rgba)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/${texture}.ktx")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/instancing/${texture}.dds")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+            DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+            COMMENT "Converting ${texture}.ktx to DDS"
+            VERBATIM)
+        list(APPEND instancing_media "${output}")
+    endforeach()
+    foreach(model rock planet)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${model}.gltf")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/instancing/${model}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${model}.gltf"
+            VERBATIM)
+        list(APPEND instancing_media "${output}")
+    endforeach()
+    add_custom_target(instancing_media DEPENDS ${instancing_media})
+    add_dependencies(instancing instancing_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

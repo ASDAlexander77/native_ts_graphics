@@ -74,6 +74,8 @@ using namespace donut::math;
 #include <donut/shaders/view_cb.h>
 
 #include <GLFW/glfw3.h>
+// Its implementation is compiled into donut_engine (GltfImporter.cpp).
+#include <cgltf.h>
 
 #include <atomic>
 #include <chrono>
@@ -980,6 +982,16 @@ namespace
         commandList->setPermanentBufferState(buffer, permanentState);
         return a->Own(buffer);
     }
+
+    // A glTF mesh primitive as the Vulkan-Samples framework loads one (Donut_LoadGltfMesh).
+    struct GltfMesh
+    {
+        // float3 position, float3 normal, float2 texture coordinates.
+        nvrhi::BufferHandle vertexBuffer;
+        // R32_UINT.
+        nvrhi::BufferHandle indexBuffer;
+        int indexCount = 0;
+    };
 
 #if DONUT_WITH_DX12
     // A D3D12 work graph program (Donut_CreateD3D12WorkGraph) and its backing memory.
@@ -1927,6 +1939,100 @@ extern "C"
             nvrhi::ResourceStates::IndexBuffer, data, byteSize);
     }
 
+    // The first primitive of a glTF file's first mesh (path relative to the executable's
+    // directory), as the Vulkan-Samples framework's load_model reads it: positions, normals and
+    // texture coordinates interleaved, 32-bit indices, the nodes' transforms ignored. Uploaded by
+    // an open command list. Returns null (after logging why) on failure.
+    void* Donut_LoadGltfMesh(void* app, void* commandList, const char* path)
+    {
+        const std::filesystem::path fileName = GetExecutablePath().parent_path() / path;
+        const std::string fileNameString = fileName.generic_string();
+        donut::vfs::NativeFileSystem fs;
+        const std::shared_ptr<donut::vfs::IBlob> blob = fs.readFile(fileName);
+        if (!blob)
+        {
+            donut::log::error("Cannot read %s", fileNameString.c_str());
+            return nullptr;
+        }
+
+        // The buffers can be files next to the glTF or data URIs.
+        cgltf_options options{};
+        cgltf_data* data = nullptr;
+        cgltf_result result = cgltf_parse(&options, blob->data(), blob->size(), &data);
+        if (result == cgltf_result_success)
+            result = cgltf_load_buffers(&options, data, fileNameString.c_str());
+        const cgltf_primitive* primitive = result == cgltf_result_success && data->meshes_count > 0
+            && data->meshes[0].primitives_count > 0 ? &data->meshes[0].primitives[0] : nullptr;
+
+        const cgltf_accessor* positions = nullptr;
+        const cgltf_accessor* normals = nullptr;
+        const cgltf_accessor* texCoords = nullptr;
+        for (size_t i = 0; primitive && i < primitive->attributes_count; i++)
+        {
+            const cgltf_attribute& attribute = primitive->attributes[i];
+            if (attribute.type == cgltf_attribute_type_position)
+                positions = attribute.data;
+            else if (attribute.type == cgltf_attribute_type_normal)
+                normals = attribute.data;
+            else if (attribute.type == cgltf_attribute_type_texcoord && attribute.index == 0)
+                texCoords = attribute.data;
+        }
+        if (!positions || !primitive->indices)
+        {
+            donut::log::error("Cannot load an indexed mesh from %s", fileNameString.c_str());
+            cgltf_free(data);
+            return nullptr;
+        }
+
+        constexpr size_t vertexFloats = 8;
+        std::vector<float> vertices(positions->count * vertexFloats, 0.f);
+        for (size_t v = 0; v < positions->count; v++)
+        {
+            float* vertex = &vertices[v * vertexFloats];
+            cgltf_accessor_read_float(positions, v, vertex, 3);
+            if (normals)
+                cgltf_accessor_read_float(normals, v, vertex + 3, 3);
+            if (texCoords)
+                cgltf_accessor_read_float(texCoords, v, vertex + 6, 2);
+        }
+        std::vector<uint32_t> indices(primitive->indices->count);
+        for (size_t i = 0; i < indices.size(); i++)
+            indices[i] = static_cast<uint32_t>(cgltf_accessor_read_index(primitive->indices, i));
+        cgltf_free(data);
+
+        App* a = AsApp(app);
+        auto mesh = std::make_shared<GltfMesh>();
+        mesh->vertexBuffer = AsBuffer(CreateStaticBuffer(a, AsCommandList(commandList),
+            nvrhi::BufferDesc().setIsVertexBuffer(true).setDebugName(fileNameString + " vertices"),
+            nvrhi::ResourceStates::VertexBuffer, vertices.data(), static_cast<int>(vertices.size() * sizeof(float))));
+        mesh->indexBuffer = AsBuffer(CreateStaticBuffer(a, AsCommandList(commandList),
+            nvrhi::BufferDesc().setIsIndexBuffer(true).setDebugName(fileNameString + " indices"),
+            nvrhi::ResourceStates::IndexBuffer, indices.data(), static_cast<int>(indices.size() * sizeof(uint32_t))));
+        mesh->indexCount = static_cast<int>(indices.size());
+        if (!mesh->vertexBuffer || !mesh->indexBuffer)
+        {
+            donut::log::error("Cannot create the buffers of %s", fileNameString.c_str());
+            return nullptr;
+        }
+        return a->OwnObject(mesh);
+    }
+
+    // Valid as long as the mesh.
+    void* Donut_GetGltfMeshVertexBuffer(void* gltfMesh)
+    {
+        return static_cast<GltfMesh*>(gltfMesh)->vertexBuffer.Get();
+    }
+
+    void* Donut_GetGltfMeshIndexBuffer(void* gltfMesh)
+    {
+        return static_cast<GltfMesh*>(gltfMesh)->indexBuffer.Get();
+    }
+
+    int Donut_GetGltfMeshIndexCount(void* gltfMesh)
+    {
+        return static_cast<GltfMesh*>(gltfMesh)->indexCount;
+    }
+
     // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
     // (freed) by Donut_CreateInputLayout.
     void* Donut_CreateInputLayoutDesc()
@@ -1944,6 +2050,18 @@ extern "C"
             .setOffset(static_cast<uint32_t>(offset))
             .setBufferIndex(static_cast<uint32_t>(bufferIndex))
             .setElementStride(static_cast<uint32_t>(elementStride)));
+    }
+
+    // Same, read once per instance instead of once per vertex.
+    void Donut_AddInstanceVertexAttribute(void* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
+    {
+        static_cast<std::vector<nvrhi::VertexAttributeDesc>*>(inputLayoutDesc)->push_back(nvrhi::VertexAttributeDesc()
+            .setName(name)
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setOffset(static_cast<uint32_t>(offset))
+            .setBufferIndex(static_cast<uint32_t>(bufferIndex))
+            .setElementStride(static_cast<uint32_t>(elementStride))
+            .setIsInstanced(true));
     }
 
     // Returns null on failure.
@@ -3523,6 +3641,15 @@ extern "C"
     void Donut_ThirdPersonCameraSetRotation(void* camera, double yaw, double pitch)
     {
         AsThirdPersonCamera(camera)->SetRotation(float(yaw), float(pitch));
+    }
+
+    // Orbits cameraTarget from cameraPos. Through LookTo: ThirdPersonCamera::LookAt gets the pitch's
+    // sign wrong (it takes the angles of the direction to the target, LookTo of the opposite one).
+    void Donut_ThirdPersonCameraLookAt(void* camera, double posX, double posY, double posZ, double targetX, double targetY, double targetZ)
+    {
+        const dm::float3 position{ float(posX), float(posY), float(posZ) };
+        const dm::float3 direction = dm::float3(float(targetX), float(targetY), float(targetZ)) - position;
+        AsThirdPersonCamera(camera)->LookTo(position, direction, dm::length(direction));
     }
 
     // The camera needs the view it renders (after Donut_SetPlanarView), every frame.
@@ -5868,6 +5995,20 @@ extern "C"
 
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(indexCount);
+        ctx->commandList->drawIndexed(args);
+    }
+
+    // Same, instanceCount times (instance attributes advance per instance).
+    void Donut_DrawIndexedInstanced(void* frame, int indexCount, int instanceCount)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(indexCount);
+        args.instanceCount = static_cast<uint32_t>(instanceCount);
         ctx->commandList->drawIndexed(args);
     }
 

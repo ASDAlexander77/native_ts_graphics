@@ -244,6 +244,14 @@ export class App {
         return Donut_CreateStaticIndexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
     }
 
+    // The first primitive of a glTF file's first mesh (path relative to the executable's
+    // directory), as the Vulkan-Samples framework loads it: float3 position, float3 normal and
+    // float2 texture coordinates interleaved (32 bytes), R32_UINT indices, the nodes' transforms
+    // ignored. Uploaded by an open command list. A null handle (after logging why) on failure.
+    loadGltfMesh(commandList: CommandList, path: string): GltfMesh {
+        return new GltfMesh(Donut_LoadGltfMesh(this.handle, commandList.handle, path));
+    }
+
     // Image file, path relative to the executable's directory, uploaded by an open command list.
     // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
     loadTexture(commandList: CommandList, path: string, sRGB: int): Opaque {
@@ -1009,6 +1017,11 @@ export class Frame {
         Donut_DrawIndexed(this.handle, indexCount);
     }
 
+    // Same, instanceCount times (instance attributes advance per instance).
+    drawIndexedInstanced(indexCount: int, instanceCount: int): void {
+        Donut_DrawIndexedInstanced(this.handle, indexCount, instanceCount);
+    }
+
     // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
     // item); the draw described stays, so it can repeat with other push constants.
     drawIndexedWithPushConstants(indexCount: int, data: Opaque, byteSize: int): void {
@@ -1275,6 +1288,11 @@ export class InputLayoutDesc {
     // offset `offset` of each elementStride-byte element.
     addVertexAttribute(name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void {
         Donut_AddVertexAttribute(this.handle, name, format, offset, bufferIndex, elementStride);
+    }
+
+    // Same, read once per instance instead of once per vertex.
+    addInstanceVertexAttribute(name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void {
+        Donut_AddInstanceVertexAttribute(this.handle, name, format, offset, bufferIndex, elementStride);
     }
 }
 
@@ -2085,6 +2103,11 @@ export class Camera {
         Donut_ThirdPersonCameraSetRotation(this.handle, yaw, pitch);
     }
 
+    // Orbits the target from the position.
+    thirdPersonLookAt(posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void {
+        Donut_ThirdPersonCameraLookAt(this.handle, posX, posY, posZ, targetX, targetY, targetZ);
+    }
+
     // Every frame, after Donut_SetPlanarView of the view it renders.
     thirdPersonSetView(view: View): void {
         Donut_ThirdPersonCameraSetView(this.handle, view.handle);
@@ -2549,5 +2572,31 @@ export class LightProbeProcessingPass {
 
     resetCaches(): void {
         Donut_ResetLightProbeProcessingCaches(this.handle);
+    }
+}
+
+export class GltfMesh {
+    readonly handle: Opaque;
+
+    constructor(handle: Opaque | null) {
+        this.handle = handle as Opaque;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // Valid as long as the mesh.
+    getVertexBuffer(): Opaque {
+        return Donut_GetGltfMeshVertexBuffer(this.handle);
+    }
+
+    getIndexBuffer(): Opaque {
+        return Donut_GetGltfMeshIndexBuffer(this.handle);
+    }
+
+    getIndexCount(): int {
+        return Donut_GetGltfMeshIndexCount(this.handle);
     }
 }

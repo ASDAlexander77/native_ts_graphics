@@ -193,6 +193,8 @@ declare function Donut_CloseWindow(app: Opaque): void;
 enum Format {
     RGBA8_UNORM = 19,
     R32_UINT = 33,
+    R32_SINT = 34,
+    R32_FLOAT = 35,
     RGBA16_UINT = 36,
     RGBA16_FLOAT = 38,
     D32 = 53,
@@ -304,6 +306,15 @@ declare function Donut_CreateGraphicsPipelineFromDesc(app: Opaque, graphicsPipel
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
 declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+// The first primitive of a glTF file's first mesh (path relative to the executable's directory), as
+// the Vulkan-Samples framework loads it: float3 position, float3 normal and float2 texture
+// coordinates interleaved (32 bytes), R32_UINT indices, the nodes' transforms ignored. Uploaded by
+// an open command list. Null (after logging why) on failure.
+declare function Donut_LoadGltfMesh(app: Opaque, commandList: Opaque, path: string): Opaque;
+// Valid as long as the mesh.
+declare function Donut_GetGltfMeshVertexBuffer(gltfMesh: Opaque): Opaque;
+declare function Donut_GetGltfMeshIndexBuffer(gltfMesh: Opaque): Opaque;
+declare function Donut_GetGltfMeshIndexCount(gltfMesh: Opaque): int;
 // Image file, path relative to the executable's directory, uploaded by an open command list.
 // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
 declare function Donut_LoadTexture(app: Opaque, commandList: Opaque, path: string, sRGB: int): Opaque;
@@ -314,6 +325,8 @@ declare function Donut_CreateInputLayoutDesc(): Opaque;
 // Vertex shader input `name` (its semantic), read from vertex buffer slot bufferIndex at byte
 // offset `offset` of each elementStride-byte element.
 declare function Donut_AddVertexAttribute(inputLayoutDesc: Opaque, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
+// Same, read once per instance instead of once per vertex.
+declare function Donut_AddInstanceVertexAttribute(inputLayoutDesc: Opaque, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
 declare function Donut_CreateInputLayout(app: Opaque, inputLayoutDesc: Opaque, vertexShader: Opaque): Opaque;
 
 // Input for acceleration structure builds (index or vertex data).
@@ -592,6 +605,8 @@ declare function Donut_ThirdPersonCameraSetTarget(camera: Opaque, x: number, y: 
 declare function Donut_ThirdPersonCameraSetDistance(camera: Opaque, distance: number): void;
 // Radians.
 declare function Donut_ThirdPersonCameraSetRotation(camera: Opaque, yaw: number, pitch: number): void;
+// Orbits the target from the position.
+declare function Donut_ThirdPersonCameraLookAt(camera: Opaque, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
 // Every frame, after Donut_SetPlanarView of the view it renders.
 declare function Donut_ThirdPersonCameraSetView(camera: Opaque, view: Opaque): void;
 // Forward / up directions: 3 floats into dst (Ref of a `let` f32 array element).
@@ -841,6 +856,8 @@ declare function Donut_DrawAddVertexBuffer(frame: Opaque, vertexBuffer: Opaque, 
 // Draws into this rectangle of the framebuffer (pixels) instead of all of it.
 declare function Donut_DrawSetViewport(frame: Opaque, left: number, top: number, width: number, height: number): void;
 declare function Donut_DrawIndexed(frame: Opaque, indexCount: int): void;
+// Same, instanceCount times (instance attributes advance per instance).
+declare function Donut_DrawIndexedInstanced(frame: Opaque, indexCount: int, instanceCount: int): void;
 // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
 // item); the draw described stays, so it can repeat with other push constants.
 declare function Donut_DrawIndexedWithPushConstants(frame: Opaque, indexCount: int, data: Opaque, byteSize: int): void;

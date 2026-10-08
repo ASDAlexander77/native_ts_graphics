@@ -98,4 +98,6 @@ declare global {
     var LightProbeCapture: typeof Donut.LightProbeCapture;
     type LightProbeProcessingPass = Donut.LightProbeProcessingPass;
     var LightProbeProcessingPass: typeof Donut.LightProbeProcessingPass;
+    type GltfMesh = Donut.GltfMesh;
+    var GltfMesh: typeof Donut.GltfMesh;
 }

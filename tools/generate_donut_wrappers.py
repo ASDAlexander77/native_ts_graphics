@@ -69,6 +69,7 @@ CLASSES = {
     "lightProbeSet": "LightProbeSet",
     "lightProbeCapture": "LightProbeCapture",
     "lightProbeProcessingPass": "LightProbeProcessingPass",
+    "gltfMesh": "GltfMesh",
 }
 
 # Further parameter names that hold one of those objects.
