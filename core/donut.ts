@@ -76,6 +76,13 @@ export class App {
         return Donut_IsFeatureSupported(this.handle, feature);
     }
 
+    // What the device of a windowed app does with indirect draws (0 for headless apps). Vulkan devices
+    // are created with multiDrawIndirect, drawIndirectFirstInstance and
+    // shaderSampledImageArrayDynamicIndexing when the GPU has them.
+    getIndirectDrawSupport(): IndirectDrawSupport {
+        return Donut_GetIndirectDrawSupport(this.handle);
+    }
+
     getRendererString(): string {
         return Donut_GetRendererString(this.handle);
     }
@@ -247,6 +254,18 @@ export class App {
 
     createStaticIndexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
         return Donut_CreateStaticIndexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
+    }
+
+    // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
+    createStaticRawVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
+        return Donut_CreateStaticRawVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
+    }
+
+    // The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
+    // first index, vertex offset, first instance), filled with Donut_WriteBuffer, that shaders can
+    // also write as a RWByteAddressBuffer.
+    createDrawIndexedIndirectBuffer(count: int, debugName: string): Opaque {
+        return Donut_CreateDrawIndexedIndirectBuffer(this.handle, count, debugName);
     }
 
     // The first primitive of a glTF file's first mesh (path relative to the executable's
@@ -1054,6 +1073,17 @@ export class Frame {
         Donut_DrawIndexedInstanced(this.handle, indexCount, instanceCount);
     }
 
+    // The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
+    drawSetIndirectBuffer(indirectBuffer: Opaque): void {
+        Donut_DrawSetIndirectBuffer(this.handle, indirectBuffer);
+    }
+
+    // drawCount indexed draws, their arguments read from the indirect buffer from offsetBytes on (20
+    // bytes each); the draw described stays, so it can repeat with other offsets.
+    drawIndexedIndirect(offsetBytes: int, drawCount: int): void {
+        Donut_DrawIndexedIndirect(this.handle, offsetBytes, drawCount);
+    }
+
     // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
     // item); the draw described stays, so it can repeat with other push constants.
     drawIndexedWithPushConstants(indexCount: int, data: Opaque, byteSize: int): void {
@@ -1090,6 +1120,12 @@ export class CommandList {
     // True if the function that returned it failed.
     isNull(): boolean {
         return !this.handle;
+    }
+
+    // Before a dispatch whose shaders write a buffer through its device address (NVRHI can't see
+    // that): marks it as written by shaders, so that its next use waits for the writes.
+    setBufferWrittenByShaders(buffer: Opaque): void {
+        Donut_SetBufferWrittenByShaders(this.handle, buffer);
     }
 
     open(): void {
@@ -1380,6 +1416,21 @@ export class BindingSetDesc {
         Donut_BindStructuredBufferUAV(this.handle, slot, buffer);
     }
 
+    // ByteAddressBuffer at t<slot> (e.g. Donut_CreateStaticRawVertexBuffer).
+    bindRawBufferSRV(slot: int, buffer: Opaque): void {
+        Donut_BindRawBufferSRV(this.handle, slot, buffer);
+    }
+
+    // RWByteAddressBuffer at u<slot> (e.g. Donut_CreateDrawIndexedIndirectBuffer).
+    bindRawBufferUAV(slot: int, buffer: Opaque): void {
+        Donut_BindRawBufferUAV(this.handle, slot, buffer);
+    }
+
+    // Element arrayElement of a Donut_LayoutTextureSRVArray array of Texture2D at t<slot>.
+    bindTextureSRVArrayElement(slot: int, arrayElement: int, texture: Opaque): void {
+        Donut_BindTextureSRVArrayElement(this.handle, slot, arrayElement, texture);
+    }
+
     // Push constants (Donut_LayoutPushConstants) at b<slot>; their values come with each dispatch or
     // draw (Donut_DispatchWithPushConstants, Donut_DrawIndexedWithPushConstants).
     bindPushConstants(slot: int, byteSize: int): void {
@@ -1493,6 +1544,20 @@ export class BindingLayoutDesc {
 
     layoutStructuredBufferUAV(slot: int): void {
         Donut_LayoutStructuredBufferUAV(this.handle, slot);
+    }
+
+    layoutRawBufferSRV(slot: int): void {
+        Donut_LayoutRawBufferSRV(this.handle, slot);
+    }
+
+    layoutRawBufferUAV(slot: int): void {
+        Donut_LayoutRawBufferUAV(this.handle, slot);
+    }
+
+    // An array of `count` Texture2D at t<slot> (t<slot> .. t<slot + count - 1> on D3D12, one binding on
+    // Vulkan); not on D3D11.
+    layoutTextureSRVArray(slot: int, count: int): void {
+        Donut_LayoutTextureSRVArray(this.handle, slot, count);
     }
 
     // Register space of the layout's items (D3D12 only; 0 by default).
@@ -2690,6 +2755,11 @@ export class GltfModel {
 
     getBaseColorImage(primitive: int): string {
         return Donut_GetGltfModelBaseColorImage(this.handle, primitive);
+    }
+
+    // The name of the primitive's mesh ("" if none).
+    getMeshName(primitive: int): string {
+        return Donut_GetGltfModelMeshName(this.handle, primitive);
     }
 }
 

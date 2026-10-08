@@ -176,6 +176,20 @@ declare function Donut_RunApp(app: Opaque): void;
 // Destroys the app with all its passes and resources.
 declare function Donut_DestroyApp(app: Opaque): void;
 declare function Donut_IsFeatureSupported(app: Opaque, feature: Feature): int;
+
+// Bits of Donut_GetIndirectDrawSupport.
+enum IndirectDrawSupport {
+    // One indirect draw call issues several draws (Vulkan's multiDrawIndirect; D3D12).
+    MultiDraw = 1,
+    // Indirect draws can start at an instance other than 0 (Vulkan's drawIndirectFirstInstance).
+    FirstInstance = 2,
+    // Shaders can write buffers through their device addresses (Vulkan's bufferDeviceAddress).
+    BufferDeviceAddress = 4
+}
+// What the device of a windowed app does with indirect draws (0 for headless apps). Vulkan devices
+// are created with multiDrawIndirect, drawIndirectFirstInstance and
+// shaderSampledImageArrayDynamicIndexing when the GPU has them.
+declare function Donut_GetIndirectDrawSupport(app: Opaque): IndirectDrawSupport;
 declare function Donut_GetRendererString(app: Opaque): string;
 declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".
@@ -192,6 +206,7 @@ declare function Donut_CloseWindow(app: Opaque): void;
 // nvrhi::Format values (only the ones used so far).
 enum Format {
     RGBA8_UNORM = 19,
+    SRGBA8_UNORM = 23,
     R32_UINT = 33,
     R32_SINT = 34,
     R32_FLOAT = 35,
@@ -312,6 +327,18 @@ declare function Donut_CreateGraphicsPipelineFromDesc(app: Opaque, graphicsPipel
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
 declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+// A static vertex buffer that shaders can also read as a ByteAddressBuffer.
+declare function Donut_CreateStaticRawVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+// The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
+// first index, vertex offset, first instance), filled with Donut_WriteBuffer, that shaders can
+// also write as a RWByteAddressBuffer.
+declare function Donut_CreateDrawIndexedIndirectBuffer(app: Opaque, count: int, debugName: string): Opaque;
+// A buffer's GPU address (8 bytes; its device address on Vulkan) into dst (Ref of a `let` array
+// element), for shaders that write it through the address; 0 if it has none.
+declare function Donut_StoreBufferDeviceAddress(dst: Opaque, buffer: Opaque): void;
+// Before a dispatch whose shaders write a buffer through its device address (NVRHI can't see
+// that): marks it as written by shaders, so that its next use waits for the writes.
+declare function Donut_SetBufferWrittenByShaders(commandList: Opaque, buffer: Opaque): void;
 // The first primitive of a glTF file's first mesh (path relative to the executable's directory), as
 // the Vulkan-Samples framework loads it: float3 position, float3 normal and float2 texture
 // coordinates interleaved (32 bytes), R32_UINT indices, the nodes' transforms ignored. Uploaded by
@@ -333,6 +360,8 @@ declare function Donut_GetGltfModelIndexCount(gltfModel: Opaque, primitive: int)
 declare function Donut_CopyGltfModelVertices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
 declare function Donut_CopyGltfModelIndices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
 declare function Donut_GetGltfModelBaseColorImage(gltfModel: Opaque, primitive: int): string;
+// The name of the primitive's mesh ("" if none).
+declare function Donut_GetGltfModelMeshName(gltfModel: Opaque, primitive: int): string;
 // Image file, path relative to the executable's directory, uploaded by an open command list.
 // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
 declare function Donut_LoadTexture(app: Opaque, commandList: Opaque, path: string, sRGB: int): Opaque;
@@ -405,6 +434,12 @@ declare function Donut_BindEntireConstantBuffer(bindingSetDesc: Opaque, slot: in
 declare function Donut_BindStructuredBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
 // RWStructuredBuffer at u<slot>, from Donut_CreateRWStructuredBuffer.
 declare function Donut_BindStructuredBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+// ByteAddressBuffer at t<slot> (e.g. Donut_CreateStaticRawVertexBuffer).
+declare function Donut_BindRawBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+// RWByteAddressBuffer at u<slot> (e.g. Donut_CreateDrawIndexedIndirectBuffer).
+declare function Donut_BindRawBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+// Element arrayElement of a Donut_LayoutTextureSRVArray array of Texture2D at t<slot>.
+declare function Donut_BindTextureSRVArrayElement(bindingSetDesc: Opaque, slot: int, arrayElement: int, texture: Opaque): void;
 // Push constants (Donut_LayoutPushConstants) at b<slot>; their values come with each dispatch or
 // draw (Donut_DispatchWithPushConstants, Donut_DrawIndexedWithPushConstants).
 declare function Donut_BindPushConstants(bindingSetDesc: Opaque, slot: int, byteSize: int): void;
@@ -436,6 +471,11 @@ declare function Donut_LayoutTypedBufferSRV(bindingLayoutDesc: Opaque, slot: int
 // A non-volatile cbuffer.
 declare function Donut_LayoutConstantBuffer(bindingLayoutDesc: Opaque, slot: int): void;
 declare function Donut_LayoutStructuredBufferUAV(bindingLayoutDesc: Opaque, slot: int): void;
+declare function Donut_LayoutRawBufferSRV(bindingLayoutDesc: Opaque, slot: int): void;
+declare function Donut_LayoutRawBufferUAV(bindingLayoutDesc: Opaque, slot: int): void;
+// An array of `count` Texture2D at t<slot> (t<slot> .. t<slot + count - 1> on D3D12, one binding on
+// Vulkan); not on D3D11.
+declare function Donut_LayoutTextureSRVArray(bindingLayoutDesc: Opaque, slot: int, count: int): void;
 // Register space of the layout's items (D3D12 only; 0 by default).
 declare function Donut_SetBindingLayoutRegisterSpace(bindingLayoutDesc: Opaque, space: int): void;
 
@@ -905,6 +945,11 @@ declare function Donut_DrawSetViewport(frame: Opaque, left: number, top: number,
 declare function Donut_DrawIndexed(frame: Opaque, indexCount: int): void;
 // Same, instanceCount times (instance attributes advance per instance).
 declare function Donut_DrawIndexedInstanced(frame: Opaque, indexCount: int, instanceCount: int): void;
+// The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
+declare function Donut_DrawSetIndirectBuffer(frame: Opaque, indirectBuffer: Opaque): void;
+// drawCount indexed draws, their arguments read from the indirect buffer from offsetBytes on (20
+// bytes each); the draw described stays, so it can repeat with other offsets.
+declare function Donut_DrawIndexedIndirect(frame: Opaque, offsetBytes: int, drawCount: int): void;
 // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
 // item); the draw described stays, so it can repeat with other push constants.
 declare function Donut_DrawIndexedWithPushConstants(frame: Opaque, indexCount: int, data: Opaque, byteSize: int): void;

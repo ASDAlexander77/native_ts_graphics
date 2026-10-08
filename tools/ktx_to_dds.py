@@ -2,14 +2,14 @@
 
 Donut's texture cache reads DDS, block-compressed KTX 2 and the usual image formats, not KTX 1. This
 handles what the ported samples need:
-- KTX 1, uncompressed: RGBA8, R16 and RGBA16F data, 2D textures, 2D texture arrays and cube maps,
+- KTX 1, uncompressed: RGBA8 (linear or sRGB), R16 and RGBA16F data, 2D textures, 2D texture arrays and cube maps,
   with their mip levels;
 - KTX 1, ASTC (LDR, 2D): decoded to RGBA8 (sRGB if the data is), level 0 only, as the
   Vulkan-Samples framework decodes ASTC textures on GPUs without ASTC support (it then generates
   the mip levels, as Donut does for textures that have none);
 - KTX 2, uncompressed RGBA8 2D textures (no supercompression), with their mip levels.
 
-    python tools/ktx_to_dds.py <input.ktx> <output.dds>
+    python tools/ktx_to_dds.py <input.ktx> <output.dds> [<input.ktx> <output.dds> ...]
 """
 
 import os
@@ -24,6 +24,7 @@ KTX2_IDENTIFIER = b"\xabKTX 20\xbb\r\n\x1a\n"
 # (glType, glFormat, glInternalFormat) -> (DXGI_FORMAT, bytes per texel)
 FORMATS = {
     (0x1401, 0x1908, 0x8058): (28, 4),  # GL_UNSIGNED_BYTE, GL_RGBA, GL_RGBA8 -> R8G8B8A8_UNORM
+    (0x1401, 0x1908, 0x8C43): (29, 4),  # GL_UNSIGNED_BYTE, GL_RGBA, GL_SRGB8_ALPHA8 -> R8G8B8A8_UNORM_SRGB
     (0x1403, 0x1903, 0x822A): (56, 2),  # GL_UNSIGNED_SHORT, GL_RED, GL_R16 -> R16_UNORM
     (0x140B, 0x1908, 0x881A): (10, 8),  # GL_HALF_FLOAT, GL_RGBA, GL_RGBA16F -> R16G16B16A16_FLOAT
 }
@@ -154,11 +155,12 @@ def write_dds(path, width, height, layers, cube, mip_levels, dxgi_format, texel_
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 3 or len(sys.argv) % 2 != 1:
         sys.exit(__doc__)
-    texture = read_ktx(sys.argv[1])
-    os.makedirs(os.path.dirname(os.path.abspath(sys.argv[2])), exist_ok=True)
-    write_dds(sys.argv[2], *texture)
+    for source, output in zip(sys.argv[1::2], sys.argv[2::2]):
+        texture = read_ktx(source)
+        os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+        write_dds(output, *texture)
 
 
 if __name__ == "__main__":

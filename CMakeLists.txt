@@ -768,6 +768,51 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(ray_tracing_extended ray_tracing_extended_media)
 endif()
 
+# Port of Vulkan-Samples' multi_draw_indirect: 225 meshes drawn by one indirect draw call, culled on
+# the CPU or by a compute shader that writes the draws' instance counts. Its scene is Vulkan-Samples'
+# assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF scene is copied and the meshes' KTX
+# textures (named after them, 0000_0000 .. 0014_0014) converted to DDS. The textures are one array
+# of 225, more than D3D11 has slots for, so no DXBC.
+donut_compile_shaders(
+    TARGET multi_draw_indirect_shaders
+    PROJECT_NAME "Multi-Draw Indirect"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/multi_draw_indirect.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/multi_draw_indirect.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multi_draw_indirect/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multi_draw_indirect/spirv
+)
+add_tslang_example(multi_draw_indirect)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(vokselia_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/vokselia")
+    set(vokselia_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/multi_draw_indirect/vokselia")
+    add_custom_command(OUTPUT "${vokselia_output}/vokselia.gltf"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${vokselia_source}/vokselia.gltf" "${vokselia_output}/vokselia.gltf"
+        DEPENDS "${vokselia_source}/vokselia.gltf"
+        COMMENT "Copying vokselia.gltf"
+        VERBATIM)
+    # One conversion for all the textures: a Python process each would take longer than the work.
+    set(sources)
+    set(outputs)
+    set(arguments)
+    foreach(row RANGE 14)
+        foreach(column RANGE 14)
+            set(name "000${row}_000${column}")
+            string(REGEX REPLACE "0+([0-9][0-9][0-9][0-9])" "\\1" name "${name}")
+            list(APPEND sources "${vokselia_source}/${name}.ktx")
+            list(APPEND outputs "${vokselia_output}/${name}.dds")
+            list(APPEND arguments "${vokselia_source}/${name}.ktx" "${vokselia_output}/${name}.dds")
+        endforeach()
+    endforeach()
+    add_custom_command(OUTPUT ${outputs}
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" ${arguments}
+        DEPENDS ${sources} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${CMAKE_CURRENT_SOURCE_DIR}/tools/astc.py"
+        COMMENT "Converting the vokselia textures to DDS"
+        VERBATIM)
+    add_custom_target(multi_draw_indirect_media DEPENDS "${vokselia_output}/vokselia.gltf" ${outputs})
+    add_dependencies(multi_draw_indirect multi_draw_indirect_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

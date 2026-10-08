@@ -59,6 +59,10 @@
 #include <nvrhi/common/misc.h>
 #include <nvrhi/utils.h>
 
+#if DONUT_WITH_VULKAN
+#include <donut/app/DeviceManager_VK.h>
+#endif
+
 #if DONUT_WITH_DX12
 #include <d3d12.h>
 // From the Agility SDK (see CMakeLists.txt), for the work graph state object.
@@ -231,6 +235,8 @@ namespace
         std::vector<std::unique_ptr<donut::app::IRenderPass>> otherPasses;
         // Texture caches that register their textures in a descriptor table, by its manager.
         std::unordered_map<void*, std::shared_ptr<donut::engine::TextureCache>> bindlessTextureCaches;
+        // IndirectDrawSupport bits (Donut_GetIndirectDrawSupport).
+        int indirectDrawSupport = 0;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -1081,6 +1087,8 @@ namespace
             std::vector<uint32_t> indices;
             // The URI of the material's base color image ("" if none).
             std::string baseColorImage;
+            // The name of the primitive's mesh ("" if none).
+            std::string meshName;
         };
         std::vector<Primitive> primitives;
     };
@@ -1114,6 +1122,64 @@ namespace
 #endif
 }
 
+namespace
+{
+    // Bits of Donut_GetIndirectDrawSupport.
+    enum IndirectDrawSupport
+    {
+        IndirectDraw_MultiDraw = 1, // one indirect draw call issues several draws
+        IndirectDraw_FirstInstance = 2, // indirect draws can start at an instance other than 0
+        IndirectDraw_BufferDeviceAddress = 4, // shaders can write buffers through their addresses (Vulkan)
+    };
+
+#if DONUT_WITH_VULKAN
+    // The physical device a Vulkan device manager picked: a protected member, reached through a
+    // pointer to member named from a derived class.
+    struct DeviceManagerVKAccess : DeviceManager_VK
+    {
+        static vk::PhysicalDevice PhysicalDevice(DeviceManager_VK* deviceManager)
+        {
+            return deviceManager->*(&DeviceManagerVKAccess::m_VulkanPhysicalDevice);
+        }
+    };
+
+    // The core features of a Vulkan device that Donut's device manager leaves off and indirect
+    // draws need, and what that makes of them.
+    struct IndirectDrawFeatures
+    {
+        // What the device is created with (its VkDeviceCreateInfo points here).
+        VkPhysicalDeviceFeatures features{};
+        // IndirectDrawSupport bits.
+        int support = 0;
+    };
+
+    // Device creation callback: enables multi-draw indirect, a first instance in indirect draws and
+    // dynamically uniform indexing of sampled image arrays, when the GPU has them.
+    void EnableIndirectDrawFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, IndirectDrawFeatures& result)
+    {
+        VkPhysicalDeviceFeatures available{};
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures(
+            DeviceManagerVKAccess::PhysicalDevice(deviceManager), &available);
+
+        VkPhysicalDeviceFeatures& features = result.features;
+        features = info.pEnabledFeatures ? *info.pEnabledFeatures : VkPhysicalDeviceFeatures{};
+        features.multiDrawIndirect = available.multiDrawIndirect;
+        features.drawIndirectFirstInstance = available.drawIndirectFirstInstance;
+        features.shaderSampledImageArrayDynamicIndexing = available.shaderSampledImageArrayDynamicIndexing;
+        info.pEnabledFeatures = &features;
+
+        result.support = (features.multiDrawIndirect ? IndirectDraw_MultiDraw : 0)
+            | (features.drawIndirectFirstInstance ? IndirectDraw_FirstInstance : 0);
+        for (auto* next = static_cast<const VkBaseInStructure*>(info.pNext); next; next = next->pNext)
+        {
+            if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
+                && reinterpret_cast<const VkPhysicalDeviceVulkan12Features*>(next)->bufferDeviceAddress)
+                result.support |= IndirectDraw_BufferDeviceAddress;
+        }
+    }
+#endif
+}
+
 // donut_interop.d.ts mirrors these enum values as plain numbers.
 static_assert(int(nvrhi::GraphicsAPI::D3D11) == 0 && int(nvrhi::GraphicsAPI::D3D12) == 1 && int(nvrhi::GraphicsAPI::VULKAN) == 2);
 static_assert(int(nvrhi::Feature::Meshlets) == 9 && int(nvrhi::Feature::RayTracingPipeline) == 14
@@ -1128,7 +1194,7 @@ static_assert(int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::Primiti
 static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
     && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46
     && int(nvrhi::Format::RGBA8_UNORM) == 19 && int(nvrhi::Format::RGBA16_UINT) == 36 && int(nvrhi::Format::D32) == 53
-    && int(nvrhi::Format::RGBA32_FLOAT) == 49);
+    && int(nvrhi::Format::RGBA32_FLOAT) == 49 && int(nvrhi::Format::SRGBA8_UNORM) == 23);
 static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
 // LoadMatrix copies 16 floats from TypeScript straight into these.
 static_assert(sizeof(dm::float4x4) == 16 * sizeof(float));
@@ -1184,13 +1250,41 @@ extern "C"
         }
 #endif
 
+        // D3D12's ExecuteIndirect does all of it but buffer addresses; D3D11 has single indirect draws.
+        int indirectDrawSupport = api == nvrhi::GraphicsAPI::D3D12 ? IndirectDraw_MultiDraw | IndirectDraw_FirstInstance
+            : api == nvrhi::GraphicsAPI::D3D11 ? IndirectDraw_FirstInstance : 0;
+#if DONUT_WITH_VULKAN
+        // Shared with the device manager's copy of the parameters.
+        auto vulkanFeatures = std::make_shared<IndirectDrawFeatures>();
+        if (api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(deviceManager.get());
+            params.deviceCreateInfoCallback = [vulkanDeviceManager, vulkanFeatures](VkDeviceCreateInfo& info)
+            {
+                EnableIndirectDrawFeatures(vulkanDeviceManager, info, *vulkanFeatures);
+            };
+        }
+#endif
+
         if (!deviceManager->CreateWindowDeviceAndSwapChain(params, title))
         {
             donut::log::error("cannot initialize the graphics device");
             return nullptr;
         }
+#if DONUT_WITH_VULKAN
+        if (api == nvrhi::GraphicsAPI::VULKAN)
+            indirectDrawSupport = vulkanFeatures->support;
+#endif
 
-        return MakeApp(std::move(deviceManager), api);
+        App* app = MakeApp(std::move(deviceManager), api);
+        app->indirectDrawSupport = indirectDrawSupport;
+        return app;
+    }
+
+    // IndirectDrawSupport bits: what the app's device does with indirect draws (0 for headless apps).
+    int Donut_GetIndirectDrawSupport(void* app)
+    {
+        return AsApp(app)->indirectDrawSupport;
     }
 
     // Same, without options.
@@ -2000,6 +2094,28 @@ extern "C"
             nvrhi::BindingLayoutItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot)));
     }
 
+    // ByteAddressBuffer at t<slot>.
+    void Donut_LayoutRawBufferSRV(void* bindingLayoutDesc, int slot)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::RawBuffer_SRV(static_cast<uint32_t>(slot)));
+    }
+
+    // RWByteAddressBuffer at u<slot>.
+    void Donut_LayoutRawBufferUAV(void* bindingLayoutDesc, int slot)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::RawBuffer_UAV(static_cast<uint32_t>(slot)));
+    }
+
+    // An array of `count` Texture2D at t<slot> (t<slot> .. t<slot + count - 1> on D3D12, one
+    // binding on Vulkan); not on D3D11.
+    void Donut_LayoutTextureSRVArray(void* bindingLayoutDesc, int slot, int count)
+    {
+        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+            nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
+    }
+
     // Layout visible to the stages in shaderType (nvrhi::ShaderType bits), in register space 0
     // unless set with Donut_SetBindingLayoutRegisterSpace. Returns null on failure.
     void* Donut_CreateBindingLayout(void* app, void* bindingLayoutDesc, int shaderType)
@@ -2097,6 +2213,43 @@ extern "C"
         return a->Own(a->device()->createBuffer(desc));
     }
 
+    // The arguments of `count` indexed indirect draws (nvrhi::DrawIndexedIndirectArguments, 20 bytes
+    // each: index count, instance count, first index, vertex offset, first instance), filled with
+    // Donut_WriteBuffer, that shaders can also write as a RWByteAddressBuffer (u registers).
+    // Returns null on failure.
+    void* Donut_CreateDrawIndexedIndirectBuffer(void* app, int count, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(uint64_t(count) * sizeof(nvrhi::DrawIndexedIndirectArguments))
+            .setIsDrawIndirectArgs(true)
+            .setCanHaveUAVs(true)
+            .setCanHaveRawViews(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::IndirectArgument)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // Stores a buffer's GPU address (8 bytes; its device address on Vulkan) at dst, e.g. Ref of an
+    // f32 array element, for shaders that write it through the address. 0 if it has none.
+    void Donut_StoreBufferDeviceAddress(void* dst, void* buffer)
+    {
+        const uint64_t address = AsBuffer(buffer)->getGpuVirtualAddress();
+        memcpy(dst, &address, sizeof(address));
+    }
+
+    // Before a dispatch whose shaders write a buffer through its device address, which NVRHI can't
+    // see: marks the buffer as written by shaders (unordered access), so that its next use waits
+    // for the writes, and the writes for its previous use.
+    void Donut_SetBufferWrittenByShaders(void* commandList, void* buffer)
+    {
+        nvrhi::ICommandList* cl = AsCommandList(commandList);
+        cl->setBufferState(AsBuffer(buffer), nvrhi::ResourceStates::UnorderedAccess);
+        cl->commitBarriers();
+    }
+
     // Stores an int's bits at dst (e.g. Ref of an f32 array element), for int / uint fields of
     // structures that TypeScript lays out as f32 arrays.
     void Donut_StoreInt32(void* dst, int value)
@@ -2111,6 +2264,14 @@ extern "C"
         return CreateStaticBuffer(AsApp(app), AsCommandList(commandList),
             nvrhi::BufferDesc().setIsVertexBuffer(true).setDebugName(debugName),
             nvrhi::ResourceStates::VertexBuffer, data, byteSize);
+    }
+
+    // Same, that shaders can also read as a ByteAddressBuffer (t registers).
+    void* Donut_CreateStaticRawVertexBuffer(void* app, void* commandList, const void* data, int byteSize, const char* debugName)
+    {
+        return CreateStaticBuffer(AsApp(app), AsCommandList(commandList),
+            nvrhi::BufferDesc().setIsVertexBuffer(true).setCanHaveRawViews(true).setDebugName(debugName),
+            nvrhi::ResourceStates::VertexBuffer | nvrhi::ResourceStates::ShaderResource, data, byteSize);
     }
 
     // Same, for an index buffer.
@@ -2201,6 +2362,8 @@ extern "C"
                 const cgltf_texture* texture = material ? material->pbr_metallic_roughness.base_color_texture.texture : nullptr;
                 if (texture && texture->image && texture->image->uri)
                     primitive.baseColorImage = texture->image->uri;
+                if (mesh.name)
+                    primitive.meshName = mesh.name;
                 model->primitives.push_back(std::move(primitive));
             }
         }
@@ -2240,6 +2403,12 @@ extern "C"
     const char* Donut_GetGltfModelBaseColorImage(void* gltfModel, int primitive)
     {
         return static_cast<GltfModel*>(gltfModel)->primitives[primitive].baseColorImage.c_str();
+    }
+
+    // The name of a primitive's mesh ("" if it has none); valid as long as the model.
+    const char* Donut_GetGltfModelMeshName(void* gltfModel, int primitive)
+    {
+        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].meshName.c_str();
     }
 
     // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
@@ -2343,6 +2512,28 @@ extern "C"
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
             nvrhi::BindingSetItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+    }
+
+    // ByteAddressBuffer at t<slot>; the buffer must allow raw views.
+    void Donut_BindRawBufferSRV(void* bindingSetDesc, int slot, void* buffer)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::RawBuffer_SRV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+    }
+
+    // RWByteAddressBuffer at u<slot>; the buffer must allow raw views and UAVs.
+    void Donut_BindRawBufferUAV(void* bindingSetDesc, int slot, void* buffer)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::RawBuffer_UAV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+    }
+
+    // Element arrayElement of a Donut_LayoutTextureSRVArray array at t<slot>.
+    void Donut_BindTextureSRVArrayElement(void* bindingSetDesc, int slot, int arrayElement, void* texture)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture))
+                .setArrayElement(static_cast<uint32_t>(arrayElement)));
     }
 
     // The push constants of a Donut_LayoutPushConstants item: byteSize bytes at b<slot>, whose
@@ -6309,6 +6500,24 @@ extern "C"
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(indexCount);
         ctx->commandList->drawIndexed(args);
+    }
+
+    // The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
+    void Donut_DrawSetIndirectBuffer(void* frame, void* indirectBuffer)
+    {
+        AsFrame(frame)->draw.indirectParams = AsBuffer(indirectBuffer);
+    }
+
+    // drawCount indexed draws, their arguments read from the indirect buffer from offsetBytes on
+    // (20 bytes each). The draw described stays, so this can repeat with other offsets.
+    void Donut_DrawIndexedIndirect(void* frame, int offsetBytes, int drawCount)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        // NVRHI skips the parts of the state that haven't changed since the previous draw.
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->drawIndexedIndirect(static_cast<uint32_t>(offsetBytes), static_cast<uint32_t>(drawCount));
     }
 
     // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into
