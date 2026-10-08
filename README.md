@@ -40,6 +40,8 @@ custom_lang/
 - That `.obj` is added to the target and linked with `main.cpp`'s object using
   the C++ linker (`CMAKE_TSLANG_LINK_EXECUTABLE`).
 - Change `mycode.ts` and only it recompiles.
+- tslang can't write a depfile, so the files a `.ts` imports or references aren't tracked
+  for it: list them as its `OBJECT_DEPENDS`, as `CMakeLists.txt` does for `core/`.
 - Compile: `cmake --preset default && cmake --build --preset default`
 
 ## Passing flags
