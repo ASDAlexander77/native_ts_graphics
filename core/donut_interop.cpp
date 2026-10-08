@@ -1027,7 +1027,8 @@ static_assert(int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::Primiti
     && int(nvrhi::PrimitiveType::PatchList) == 8);
 static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
     && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46
-    && int(nvrhi::Format::RGBA8_UNORM) == 19 && int(nvrhi::Format::RGBA16_UINT) == 36 && int(nvrhi::Format::D32) == 53);
+    && int(nvrhi::Format::RGBA8_UNORM) == 19 && int(nvrhi::Format::RGBA16_UINT) == 36 && int(nvrhi::Format::D32) == 53
+    && int(nvrhi::Format::RGBA32_FLOAT) == 49);
 static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
 // LoadMatrix copies 16 floats from TypeScript straight into these.
 static_assert(sizeof(dm::float4x4) == 16 * sizeof(float));
@@ -2209,8 +2210,28 @@ extern "C"
         return a->Own(a->device()->createGraphicsPipeline(desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
     }
 
-    // Same, blending into the framebuffer with blendMode (a BlendMode value): 1 is additive (color
-    // One + One, alpha SrcAlpha + DstAlpha), 0 none. Returns null on failure.
+    // blendMode, a BlendMode value: 1 is additive (color One + One, alpha SrcAlpha + DstAlpha), 0 none.
+    static void SetBlendMode(nvrhi::BlendState::RenderTarget& target, int blendMode)
+    {
+        if (blendMode == 1)
+        {
+            target
+                .enableBlend()
+                .setSrcBlend(nvrhi::BlendFactor::One)
+                .setDestBlend(nvrhi::BlendFactor::One)
+                .setBlendOp(nvrhi::BlendOp::Add)
+                .setSrcBlendAlpha(nvrhi::BlendFactor::SrcAlpha)
+                .setDestBlendAlpha(nvrhi::BlendFactor::DstAlpha)
+                .setBlendOpAlpha(nvrhi::BlendOp::Add);
+        }
+        else
+        {
+            target.disableBlend();
+        }
+    }
+
+    // Same, blending into the framebuffer with blendMode (a BlendMode value, see SetBlendMode).
+    // Returns null on failure.
     void* Donut_CreateGraphicsPipelineWithBlend(void* app, void* frame, void* vertexShader, void* pixelShader,
         void* inputLayout, void* bindingLayout, int primitiveType, int blendMode)
     {
@@ -2222,17 +2243,7 @@ extern "C"
             desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
         desc.primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
         desc.renderState.depthStencilState.depthTestEnable = false;
-        if (blendMode == 1)
-        {
-            desc.renderState.blendState.targets[0]
-                .enableBlend()
-                .setSrcBlend(nvrhi::BlendFactor::One)
-                .setDestBlend(nvrhi::BlendFactor::One)
-                .setBlendOp(nvrhi::BlendOp::Add)
-                .setSrcBlendAlpha(nvrhi::BlendFactor::SrcAlpha)
-                .setDestBlendAlpha(nvrhi::BlendFactor::DstAlpha)
-                .setBlendOpAlpha(nvrhi::BlendOp::Add);
-        }
+        SetBlendMode(desc.renderState.blendState.targets[0], blendMode);
 
         App* a = AsApp(app);
         return a->Own(a->device()->createGraphicsPipeline(desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
@@ -2285,6 +2296,19 @@ extern "C"
     void* Donut_CreateFramebuffer(void* app, void* colorTexture, void* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture));
+        if (depthTexture)
+            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createFramebuffer(desc));
+    }
+
+    // Same, with two color targets (SV_Target0 and SV_Target1).
+    void* Donut_CreateFramebufferWithTwoTargets(void* app, void* colorTexture0, void* colorTexture1, void* depthTexture)
+    {
+        auto desc = nvrhi::FramebufferDesc()
+            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture0))
+            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture1));
         if (depthTexture)
             desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
 
@@ -2381,6 +2405,13 @@ extern "C"
         state.cullMode = static_cast<nvrhi::RasterCullMode>(cullMode);
         state.fillMode = static_cast<nvrhi::RasterFillMode>(fillMode);
         state.frontCounterClockwise = frontCounterClockwise != 0;
+    }
+
+    // Blending of every color target with blendMode (a BlendMode value, see SetBlendMode).
+    void Donut_GraphicsPipelineSetBlendMode(void* graphicsPipelineDesc, int blendMode)
+    {
+        for (nvrhi::BlendState::RenderTarget& target : AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets)
+            SetBlendMode(target, blendMode);
     }
 
     // For a framebuffer's layout (Donut_CreateFramebuffer); frees the description. Returns null on
@@ -2562,6 +2593,13 @@ extern "C"
     {
         AsCommandList(commandList)->clearDepthStencilTexture(static_cast<nvrhi::ITexture*>(depthTexture),
             nvrhi::AllSubresources, true, float(depth), false, 0);
+    }
+
+    // Fills a color texture (Donut_CreateRenderTargetTexture) with r, g, b, a.
+    void Donut_ClearTextureFloat(void* commandList, void* texture, double r, double g, double b, double a)
+    {
+        AsCommandList(commandList)->clearTextureFloat(static_cast<nvrhi::ITexture*>(texture), nvrhi::AllSubresources,
+            nvrhi::Color(float(r), float(g), float(b), float(a)));
     }
 
     // Names the commands recorded until the matching Donut_EndMarker, for GPU debuggers and profilers.
@@ -2815,10 +2853,25 @@ extern "C"
         return v;
     }
 
+    // A number field with - and + buttons that step it by `step`, shown with a printf format
+    // ("%.3f"); returns the new value.
+    double Donut_ImGuiInputFloat(const char* label, double value, double step, const char* format)
+    {
+        float v = float(value);
+        ImGui::InputFloat(label, &v, float(step), 0.f, format);
+        return v;
+    }
+
     // Returns non-zero while the header is expanded (show its contents then).
     int Donut_ImGuiCollapsingHeader(const char* label)
     {
         return ImGui::CollapsingHeader(label) ? 1 : 0;
+    }
+
+    // Same, expanded until the user collapses it.
+    int Donut_ImGuiCollapsingHeaderDefaultOpen(const char* label)
+    {
+        return ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen) ? 1 : 0;
     }
 
     // The next item goes on the same line as the previous one.

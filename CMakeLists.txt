@@ -678,6 +678,42 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(instancing instancing_media)
 endif()
 
+# Port of Vulkan-Samples' hdr: a reflective object in front of an HDR environment cube map, rendered
+# to float targets with exposure, then a two-pass bloom of its bright parts. Its models and cube
+# map are Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF files are
+# copied, the KTX cube map converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET hdr_shaders
+    PROJECT_NAME "HDR"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/hdr
+)
+add_tslang_example(hdr)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/uffizi_rgba16f_cube.ktx")
+    set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/hdr/uffizi_rgba16f_cube.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting uffizi_rgba16f_cube.ktx to DDS"
+        VERBATIM)
+    set(hdr_media "${output}")
+    foreach(model cube geosphere teapot torusknot)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${model}.gltf")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/hdr/${model}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${model}.gltf"
+            VERBATIM)
+        list(APPEND hdr_media "${output}")
+    endforeach()
+    add_custom_target(hdr_media DEPENDS ${hdr_media})
+    add_dependencies(hdr hdr_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

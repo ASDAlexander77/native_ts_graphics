@@ -199,7 +199,8 @@ enum Format {
     RGBA16_FLOAT = 38,
     D32 = 53,
     RG32_FLOAT = 43,
-    RGB32_FLOAT = 46
+    RGB32_FLOAT = 46,
+    RGBA32_FLOAT = 49
 }
 
 // Samplers shared through Donut's CommonRenderPasses.
@@ -282,6 +283,9 @@ declare function Donut_CreateUAVTexture(app: Opaque, width: int, height: int, de
 declare function Donut_CreateRenderTargetTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
 // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
 declare function Donut_CreateFramebuffer(app: Opaque, colorTexture: Opaque, depthTexture: Opaque | null): Opaque;
+// Same, with two color targets (SV_Target0 and SV_Target1).
+declare function Donut_CreateFramebufferWithTwoTargets(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque,
+    depthTexture: Opaque | null): Opaque;
 // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
 // writes, back faces culled (clockwise triangles are front faces).
 declare function Donut_CreateGraphicsPipelineForFramebuffer(app: Opaque, framebuffer: Opaque, vertexShader: Opaque,
@@ -301,6 +305,8 @@ declare function Donut_GraphicsPipelineSetDepthState(graphicsPipelineDesc: Opaqu
     depthFunc: ComparisonFunc): void;
 declare function Donut_GraphicsPipelineSetRasterState(graphicsPipelineDesc: Opaque, cullMode: CullMode, fillMode: FillMode,
     frontCounterClockwise: int): void;
+// Blending of every color target.
+declare function Donut_GraphicsPipelineSetBlendMode(graphicsPipelineDesc: Opaque, blendMode: BlendMode): void;
 // For a framebuffer's layout.
 declare function Donut_CreateGraphicsPipelineFromDesc(app: Opaque, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
@@ -487,6 +493,8 @@ declare function Donut_DispatchWithPushConstants(commandList: Opaque, computePip
     data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void;
 // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
 declare function Donut_ClearDepth(commandList: Opaque, depthTexture: Opaque, depth: number): void;
+// Fills a color texture (Donut_CreateRenderTargetTexture) with r, g, b, a.
+declare function Donut_ClearTextureFloat(commandList: Opaque, texture: Opaque, r: number, g: number, b: number, a: number): void;
 // Names the commands until the matching Donut_EndMarker, for GPU debuggers and profilers.
 declare function Donut_BeginMarker(commandList: Opaque, name: string): void;
 declare function Donut_EndMarker(commandList: Opaque): void;
@@ -550,8 +558,13 @@ declare function Donut_ImGuiSetNextWindowPosPivot(x: number, y: number, pivotX: 
 declare function Donut_ImGuiSliderFloat(label: string, value: number, min: number, max: number): number;
 // Value in, new value out: edited by dragging (speed per pixel), clamped to min .. max.
 declare function Donut_ImGuiDragFloat(label: string, value: number, speed: number, min: number, max: number): number;
+// A number field with - and + buttons stepping it by step, shown with a printf format ("%.3f");
+// returns the new value.
+declare function Donut_ImGuiInputFloat(label: string, value: number, step: number, format: string): number;
 // Non-zero while expanded.
 declare function Donut_ImGuiCollapsingHeader(label: string): int;
+// Same, expanded until the user collapses it.
+declare function Donut_ImGuiCollapsingHeaderDefaultOpen(label: string): int;
 declare function Donut_ImGuiSameLine(): void;
 // Inside a combo box, after the selected item: scrolls to it when the list opens.
 declare function Donut_ImGuiSetItemDefaultFocus(): void;

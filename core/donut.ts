@@ -224,6 +224,11 @@ export class App {
         return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
     }
 
+    // Same, with two color targets (SV_Target0 and SV_Target1).
+    createFramebufferWithTwoTargets(colorTexture0: Opaque, colorTexture1: Opaque, depthTexture: Opaque | null): Opaque {
+        return Donut_CreateFramebufferWithTwoTargets(this.handle, colorTexture0, colorTexture1, depthTexture);
+    }
+
     // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
     // writes, back faces culled (clockwise triangles are front faces).
     createGraphicsPipelineForFramebuffer(framebuffer: Opaque, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque {
@@ -1098,6 +1103,11 @@ export class CommandList {
         Donut_ClearDepth(this.handle, depthTexture, depth);
     }
 
+    // Fills a color texture (Donut_CreateRenderTargetTexture) with r, g, b, a.
+    clearTextureFloat(texture: Opaque, r: number, g: number, b: number, a: number): void {
+        Donut_ClearTextureFloat(this.handle, texture, r, g, b, a);
+    }
+
     // Names the commands until the matching Donut_EndMarker, for GPU debuggers and profilers.
     beginMarker(name: string): void {
         Donut_BeginMarker(this.handle, name);
@@ -1592,6 +1602,11 @@ export class GraphicsPipelineDesc {
 
     setRasterState(cullMode: CullMode, fillMode: FillMode, frontCounterClockwise: int): void {
         Donut_GraphicsPipelineSetRasterState(this.handle, cullMode, fillMode, frontCounterClockwise);
+    }
+
+    // Blending of every color target.
+    setBlendMode(blendMode: BlendMode): void {
+        Donut_GraphicsPipelineSetBlendMode(this.handle, blendMode);
     }
 }
 
