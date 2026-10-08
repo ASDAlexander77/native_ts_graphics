@@ -714,6 +714,60 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(hdr hdr_media)
 endif()
 
+# Port of Vulkan-Samples' ray_tracing_extended: Sponza ray traced with shadows and ambient
+# occlusion, a refracting sheet whose BLAS is updated every frame, and flame particles instanced
+# in a TLAS rebuilt every frame. Its scene and textures are Vulkan-Samples' assets too (see
+# VULKAN_SAMPLES_ASSETS_DIR above): the glTF scene is copied, its ASTC textures decoded to DDS and
+# the flame's KTX 2 texture converted. Ray tracing needs D3D12 or Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET ray_tracing_extended_shaders
+    PROJECT_NAME "Ray Tracing Extended"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_extended.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_extended.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/spirv
+)
+add_tslang_example(ray_tracing_extended)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(sponza_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/sponza")
+    set(ray_tracing_extended_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/ray_tracing_extended")
+    set(ray_tracing_extended_media)
+    foreach(file Sponza01.gltf Sponza01.bin)
+        set(output "${ray_tracing_extended_output}/sponza/${file}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${sponza_source}/${file}" "${output}"
+            DEPENDS "${sponza_source}/${file}"
+            COMMENT "Copying ${file}"
+            VERBATIM)
+        list(APPEND ray_tracing_extended_media "${output}")
+    endforeach()
+    # The scene's base color textures, and the flame's.
+    set(sources)
+    set(outputs)
+    foreach(name background chain_texture lion spnza_bricks_a_diff sponza_arch_diff sponza_ceiling_a_diff
+            sponza_column_a_diff sponza_column_b_diff sponza_column_c_diff sponza_curtain_blue_diff
+            sponza_curtain_diff sponza_curtain_green_diff sponza_details_diff sponza_fabric_blue_diff
+            sponza_fabric_diff sponza_fabric_green_diff sponza_flagpole_diff sponza_floor_a_diff sponza_roof_diff
+            sponza_thorn_diff vase_dif vase_hanging vase_plant vase_round)
+        list(APPEND sources "${sponza_source}/${name}.ktx")
+        list(APPEND outputs "${ray_tracing_extended_output}/sponza/${name}.dds")
+    endforeach()
+    list(APPEND sources "${VULKAN_SAMPLES_ASSETS_DIR}/textures/generated_flame.ktx")
+    list(APPEND outputs "${ray_tracing_extended_output}/generated_flame.dds")
+    foreach(source output IN ZIP_LISTS sources outputs)
+        get_filename_component(name "${source}" NAME)
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+            DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${CMAKE_CURRENT_SOURCE_DIR}/tools/astc.py"
+            COMMENT "Converting ${name} to DDS"
+            VERBATIM)
+        list(APPEND ray_tracing_extended_media "${output}")
+    endforeach()
+    add_custom_target(ray_tracing_extended_media DEPENDS ${ray_tracing_extended_media})
+    add_dependencies(ray_tracing_extended ray_tracing_extended_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

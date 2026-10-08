@@ -983,6 +983,84 @@ namespace
         return a->Own(buffer);
     }
 
+    // A glTF file (path relative to the executable's directory) with its buffers loaded.
+    struct GltfFile
+    {
+        std::string fileName;
+        std::shared_ptr<donut::vfs::IBlob> blob;
+        cgltf_data* data = nullptr;
+
+        ~GltfFile()
+        {
+            if (data)
+                cgltf_free(data);
+        }
+
+        // Returns false (after logging why) on failure.
+        bool Read(const char* path)
+        {
+            const std::filesystem::path filePath = GetExecutablePath().parent_path() / path;
+            fileName = filePath.generic_string();
+            donut::vfs::NativeFileSystem fs;
+            blob = fs.readFile(filePath);
+            if (!blob)
+            {
+                donut::log::error("Cannot read %s", fileName.c_str());
+                return false;
+            }
+
+            // The buffers can be files next to the glTF or data URIs.
+            cgltf_options options{};
+            cgltf_result result = cgltf_parse(&options, blob->data(), blob->size(), &data);
+            if (result == cgltf_result_success)
+                result = cgltf_load_buffers(&options, data, fileName.c_str());
+            if (result != cgltf_result_success)
+            {
+                donut::log::error("Cannot parse %s", fileName.c_str());
+                return false;
+            }
+            return true;
+        }
+    };
+
+    // A glTF primitive as the Vulkan-Samples framework reads one: positions, normals and texture
+    // coordinates interleaved (8 floats per vertex, zeros for missing attributes), 32-bit
+    // indices. Returns false if it has no positions or indices.
+    bool ReadGltfPrimitive(const cgltf_primitive& primitive, std::vector<float>& vertices, std::vector<uint32_t>& indices)
+    {
+        const cgltf_accessor* positions = nullptr;
+        const cgltf_accessor* normals = nullptr;
+        const cgltf_accessor* texCoords = nullptr;
+        for (size_t i = 0; i < primitive.attributes_count; i++)
+        {
+            const cgltf_attribute& attribute = primitive.attributes[i];
+            if (attribute.type == cgltf_attribute_type_position)
+                positions = attribute.data;
+            else if (attribute.type == cgltf_attribute_type_normal)
+                normals = attribute.data;
+            else if (attribute.type == cgltf_attribute_type_texcoord && attribute.index == 0)
+                texCoords = attribute.data;
+        }
+        if (!positions || !primitive.indices)
+            return false;
+
+        constexpr size_t vertexFloats = 8;
+        vertices.assign(positions->count * vertexFloats, 0.f);
+        for (size_t v = 0; v < positions->count; v++)
+        {
+            float* vertex = &vertices[v * vertexFloats];
+            cgltf_accessor_read_float(positions, v, vertex, 3);
+            if (normals)
+                cgltf_accessor_read_float(normals, v, vertex + 3, 3);
+            if (texCoords)
+                cgltf_accessor_read_float(texCoords, v, vertex + 6, 2);
+        }
+        indices.resize(primitive.indices->count);
+        for (size_t i = 0; i < indices.size(); i++)
+            indices[i] = static_cast<uint32_t>(cgltf_accessor_read_index(primitive.indices, i));
+        return true;
+    }
+
     // A glTF mesh primitive as the Vulkan-Samples framework loads one (Donut_LoadGltfMesh).
     struct GltfMesh
     {
@@ -991,6 +1069,28 @@ namespace
         // R32_UINT.
         nvrhi::BufferHandle indexBuffer;
         int indexCount = 0;
+    };
+
+    // Every mesh primitive of a glTF file, kept on the CPU (Donut_LoadGltfModel).
+    struct GltfModel
+    {
+        struct Primitive
+        {
+            // float3 position, float3 normal, float2 texture coordinates.
+            std::vector<float> vertices;
+            std::vector<uint32_t> indices;
+            // The URI of the material's base color image ("" if none).
+            std::string baseColorImage;
+        };
+        std::vector<Primitive> primitives;
+    };
+
+    // A bottom-level acceleration structure of one triangle geometry, with the description it's
+    // rebuilt from (Donut_CreateTriangleBlas).
+    struct TriangleBlas
+    {
+        nvrhi::rt::AccelStructDesc desc;
+        nvrhi::rt::AccelStructHandle accelStruct;
     };
 
 #if DONUT_WITH_DX12
@@ -1488,6 +1588,75 @@ extern "C"
         return a->Own(a->device()->createBuffer(desc));
     }
 
+    // Same, that shaders also read as a StructuredBuffer of `count` elements of `stride` bytes.
+    void* Donut_CreateAccelStructInputStructuredBuffer(void* app, int stride, int count, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(uint64_t(stride) * uint64_t(count))
+            .setStructStride(static_cast<uint32_t>(stride))
+            .setIsAccelStructBuildInput(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // A bottom-level acceleration structure of one opaque triangle geometry: indexCount R32_UINT
+    // indices from byte indexByteOffset of indexBuffer, into vertexCount RGB32_FLOAT positions
+    // every vertexStride bytes from byte vertexByteOffset of vertexBuffer (e.g. the first member
+    // of interleaved vertices). Its build is recorded into an open command list, preferring fast
+    // tracing, or if updatable != 0 fast builds and updates (Donut_UpdateTriangleBlas). Returns
+    // null on failure.
+    void* Donut_CreateTriangleBlas(void* app, void* commandList, void* indexBuffer, int indexByteOffset, int indexCount,
+        void* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, int updatable, const char* debugName)
+    {
+        auto triangles = nvrhi::rt::GeometryTriangles()
+            .setIndexBuffer(AsBuffer(indexBuffer))
+            .setIndexOffset(static_cast<uint64_t>(indexByteOffset))
+            .setIndexFormat(nvrhi::Format::R32_UINT)
+            .setIndexCount(static_cast<uint32_t>(indexCount))
+            .setVertexBuffer(AsBuffer(vertexBuffer))
+            .setVertexOffset(static_cast<uint64_t>(vertexByteOffset))
+            .setVertexFormat(nvrhi::Format::RGB32_FLOAT)
+            .setVertexStride(static_cast<uint32_t>(vertexStride))
+            .setVertexCount(static_cast<uint32_t>(vertexCount));
+
+        auto blas = std::make_shared<TriangleBlas>();
+        blas->desc.isTopLevel = false;
+        blas->desc.debugName = debugName;
+        blas->desc.buildFlags = updatable
+            ? nvrhi::rt::AccelStructBuildFlags::PreferFastBuild | nvrhi::rt::AccelStructBuildFlags::AllowUpdate
+            : nvrhi::rt::AccelStructBuildFlags::PreferFastTrace;
+        blas->desc.addBottomLevelGeometry(nvrhi::rt::GeometryDesc()
+            .setTriangles(triangles)
+            .setFlags(nvrhi::rt::GeometryFlags::Opaque));
+
+        App* a = AsApp(app);
+        blas->accelStruct = a->device()->createAccelStruct(blas->desc);
+        if (!blas->accelStruct)
+            return nullptr;
+        nvrhi::utils::BuildBottomLevelAccelStruct(AsCommandList(commandList), blas->accelStruct, blas->desc);
+        return a->OwnObject(blas);
+    }
+
+    // Updates an updatable Donut_CreateTriangleBlas BLAS in place from its buffers' current
+    // contents (the vertices may move, the counts stay), into an open command list.
+    void Donut_UpdateTriangleBlas(void* triangleBlas, void* commandList)
+    {
+        auto* blas = static_cast<TriangleBlas*>(triangleBlas);
+        const nvrhi::rt::GeometryDesc& geometry = blas->desc.bottomLevelGeometries[0];
+        AsCommandList(commandList)->buildBottomLevelAccelStruct(blas->accelStruct, &geometry, 1,
+            blas->desc.buildFlags | nvrhi::rt::AccelStructBuildFlags::PerformUpdate);
+    }
+
+    // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
+    void* Donut_GetTriangleBlasAccelStruct(void* triangleBlas)
+    {
+        return static_cast<TriangleBlas*>(triangleBlas)->accelStruct.Get();
+    }
+
     // Creates a bottom-level acceleration structure of opaque triangles (R32_UINT indices,
     // RGB32_FLOAT vertices) and records its build into an open command list.
     void* Donut_BuildTriangleBLAS(void* app, void* commandList, void* indexBuffer, int indexCount,
@@ -1564,6 +1733,18 @@ extern "C"
 
         App* a = AsApp(app);
         return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Same, in the back buffer's format without sRGB (RGBA8_UNORM with D3D12, BGRA8_UNORM with
+    // Vulkan): Donut_CopyTextureToFrame copies it to the back buffer bit for bit.
+    void* Donut_CreateUAVTextureForFrameCopy(void* app, void* frame, const char* debugName)
+    {
+        nvrhi::Format format = AsFrame(frame)->framebuffer->getDesc().colorAttachments[0].texture->getDesc().format;
+        if (format == nvrhi::Format::SRGBA8_UNORM)
+            format = nvrhi::Format::RGBA8_UNORM;
+        else if (format == nvrhi::Format::SBGRA8_UNORM)
+            format = nvrhi::Format::BGRA8_UNORM;
+        return Donut_CreateUAVTextureForFrameWithFormat(app, frame, debugName, static_cast<int>(format));
     }
 
     // Triangle-list pipeline without depth test, for the frame's framebuffer layout; recreate it
@@ -1946,60 +2127,19 @@ extern "C"
     // an open command list. Returns null (after logging why) on failure.
     void* Donut_LoadGltfMesh(void* app, void* commandList, const char* path)
     {
-        const std::filesystem::path fileName = GetExecutablePath().parent_path() / path;
-        const std::string fileNameString = fileName.generic_string();
-        donut::vfs::NativeFileSystem fs;
-        const std::shared_ptr<donut::vfs::IBlob> blob = fs.readFile(fileName);
-        if (!blob)
-        {
-            donut::log::error("Cannot read %s", fileNameString.c_str());
+        GltfFile file;
+        if (!file.Read(path))
             return nullptr;
-        }
+        const std::string& fileNameString = file.fileName;
 
-        // The buffers can be files next to the glTF or data URIs.
-        cgltf_options options{};
-        cgltf_data* data = nullptr;
-        cgltf_result result = cgltf_parse(&options, blob->data(), blob->size(), &data);
-        if (result == cgltf_result_success)
-            result = cgltf_load_buffers(&options, data, fileNameString.c_str());
-        const cgltf_primitive* primitive = result == cgltf_result_success && data->meshes_count > 0
-            && data->meshes[0].primitives_count > 0 ? &data->meshes[0].primitives[0] : nullptr;
-
-        const cgltf_accessor* positions = nullptr;
-        const cgltf_accessor* normals = nullptr;
-        const cgltf_accessor* texCoords = nullptr;
-        for (size_t i = 0; primitive && i < primitive->attributes_count; i++)
-        {
-            const cgltf_attribute& attribute = primitive->attributes[i];
-            if (attribute.type == cgltf_attribute_type_position)
-                positions = attribute.data;
-            else if (attribute.type == cgltf_attribute_type_normal)
-                normals = attribute.data;
-            else if (attribute.type == cgltf_attribute_type_texcoord && attribute.index == 0)
-                texCoords = attribute.data;
-        }
-        if (!positions || !primitive->indices)
+        std::vector<float> vertices;
+        std::vector<uint32_t> indices;
+        if (file.data->meshes_count == 0 || file.data->meshes[0].primitives_count == 0
+            || !ReadGltfPrimitive(file.data->meshes[0].primitives[0], vertices, indices))
         {
             donut::log::error("Cannot load an indexed mesh from %s", fileNameString.c_str());
-            cgltf_free(data);
             return nullptr;
         }
-
-        constexpr size_t vertexFloats = 8;
-        std::vector<float> vertices(positions->count * vertexFloats, 0.f);
-        for (size_t v = 0; v < positions->count; v++)
-        {
-            float* vertex = &vertices[v * vertexFloats];
-            cgltf_accessor_read_float(positions, v, vertex, 3);
-            if (normals)
-                cgltf_accessor_read_float(normals, v, vertex + 3, 3);
-            if (texCoords)
-                cgltf_accessor_read_float(texCoords, v, vertex + 6, 2);
-        }
-        std::vector<uint32_t> indices(primitive->indices->count);
-        for (size_t i = 0; i < indices.size(); i++)
-            indices[i] = static_cast<uint32_t>(cgltf_accessor_read_index(primitive->indices, i));
-        cgltf_free(data);
 
         App* a = AsApp(app);
         auto mesh = std::make_shared<GltfMesh>();
@@ -2032,6 +2172,74 @@ extern "C"
     int Donut_GetGltfMeshIndexCount(void* gltfMesh)
     {
         return static_cast<GltfMesh*>(gltfMesh)->indexCount;
+    }
+
+    // Every primitive of a glTF file's meshes (path relative to the executable's directory), in
+    // mesh and primitive order, as the Vulkan-Samples framework's scene loader reads them into
+    // submeshes: vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms
+    // ignored), indices, and the base color image's URI. Kept on the CPU, to copy out with the
+    // functions below. Returns null (after logging why) on failure.
+    void* Donut_LoadGltfModel(void* app, const char* path)
+    {
+        GltfFile file;
+        if (!file.Read(path))
+            return nullptr;
+
+        auto model = std::make_shared<GltfModel>();
+        for (size_t m = 0; m < file.data->meshes_count; m++)
+        {
+            const cgltf_mesh& mesh = file.data->meshes[m];
+            for (size_t p = 0; p < mesh.primitives_count; p++)
+            {
+                GltfModel::Primitive primitive;
+                if (!ReadGltfPrimitive(mesh.primitives[p], primitive.vertices, primitive.indices))
+                {
+                    donut::log::error("Mesh %zu of %s has a primitive without positions or indices", m, file.fileName.c_str());
+                    return nullptr;
+                }
+                const cgltf_material* material = mesh.primitives[p].material;
+                const cgltf_texture* texture = material ? material->pbr_metallic_roughness.base_color_texture.texture : nullptr;
+                if (texture && texture->image && texture->image->uri)
+                    primitive.baseColorImage = texture->image->uri;
+                model->primitives.push_back(std::move(primitive));
+            }
+        }
+        return AsApp(app)->OwnObject(model);
+    }
+
+    int Donut_GetGltfModelPrimitiveCount(void* gltfModel)
+    {
+        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->primitives.size());
+    }
+
+    int Donut_GetGltfModelVertexCount(void* gltfModel, int primitive)
+    {
+        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->primitives[primitive].vertices.size() / 8);
+    }
+
+    int Donut_GetGltfModelIndexCount(void* gltfModel, int primitive)
+    {
+        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->primitives[primitive].indices.size());
+    }
+
+    // A primitive's vertices (8 floats each) into dst, e.g. Ref of an f32 array element.
+    void Donut_CopyGltfModelVertices(void* gltfModel, int primitive, void* dst)
+    {
+        const std::vector<float>& vertices = static_cast<GltfModel*>(gltfModel)->primitives[primitive].vertices;
+        memcpy(dst, vertices.data(), vertices.size() * sizeof(float));
+    }
+
+    // A primitive's indices into dst, e.g. Ref of an int array element.
+    void Donut_CopyGltfModelIndices(void* gltfModel, int primitive, void* dst)
+    {
+        const std::vector<uint32_t>& indices = static_cast<GltfModel*>(gltfModel)->primitives[primitive].indices;
+        memcpy(dst, indices.data(), indices.size() * sizeof(uint32_t));
+    }
+
+    // Valid as long as the model.
+    const char* Donut_GetGltfModelBaseColorImage(void* gltfModel, int primitive)
+    {
+        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].baseColorImage.c_str();
     }
 
     // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
@@ -3449,6 +3657,21 @@ extern "C"
         static_cast<SceneAccelStructs*>(sceneAccelStructs)->pendingInstances.push_back(instanceDesc);
     }
 
+    // Adds an instance of a BLAS with a transform (12 floats: a row-major 3x4 matrix, the
+    // translation in the last column, as Vulkan's VkTransformMatrixKHR) and instance flags
+    // (nvrhi::rt::InstanceFlags bits, e.g. 1 = no triangle culling).
+    void Donut_AddTopLevelASInstanceWithTransform(void* sceneAccelStructs, void* bottomLevelAS, int instanceMask, int instanceID,
+        int flags, const void* transform)
+    {
+        nvrhi::rt::InstanceDesc instanceDesc;
+        instanceDesc.bottomLevelAS = static_cast<nvrhi::rt::IAccelStruct*>(bottomLevelAS);
+        instanceDesc.instanceMask = static_cast<uint32_t>(instanceMask);
+        instanceDesc.instanceID = static_cast<uint32_t>(instanceID);
+        instanceDesc.flags = static_cast<nvrhi::rt::InstanceFlags>(flags);
+        memcpy(instanceDesc.transform, transform, sizeof(instanceDesc.transform));
+        static_cast<SceneAccelStructs*>(sceneAccelStructs)->pendingInstances.push_back(instanceDesc);
+    }
+
     // Inside a render callback: builds the TLAS from the instances added since the last build.
     void Donut_BuildTopLevelAS(void* frame, void* sceneAccelStructs)
     {
@@ -3733,6 +3956,12 @@ extern "C"
     void Donut_CameraSetMoveSpeed(void* camera, double speed)
     {
         AsCamera(camera)->SetMoveSpeed(float(speed));
+    }
+
+    // Mouse sensitivity, in radians per pixel.
+    void Donut_CameraSetRotateSpeed(void* camera, double speed)
+    {
+        AsCamera(camera)->SetRotateSpeed(float(speed));
     }
 
     // Forward the pass input callbacks' arguments to these.

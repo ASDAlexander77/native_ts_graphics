@@ -321,6 +321,18 @@ declare function Donut_LoadGltfMesh(app: Opaque, commandList: Opaque, path: stri
 declare function Donut_GetGltfMeshVertexBuffer(gltfMesh: Opaque): Opaque;
 declare function Donut_GetGltfMeshIndexBuffer(gltfMesh: Opaque): Opaque;
 declare function Donut_GetGltfMeshIndexCount(gltfMesh: Opaque): int;
+// Every primitive of a glTF file's meshes (path relative to the executable's directory), in mesh
+// and primitive order, as the Vulkan-Samples framework's scene loader reads them into submeshes:
+// vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms ignored), int indices,
+// and the base color image's URI ("" if none). Kept on the CPU. Null (after logging why) on failure.
+declare function Donut_LoadGltfModel(app: Opaque, path: string): Opaque;
+declare function Donut_GetGltfModelPrimitiveCount(gltfModel: Opaque): int;
+declare function Donut_GetGltfModelVertexCount(gltfModel: Opaque, primitive: int): int;
+declare function Donut_GetGltfModelIndexCount(gltfModel: Opaque, primitive: int): int;
+// Into dst: Ref(arr[0]) of a `let` f32 array of 8 x the vertex count / int array of the index count.
+declare function Donut_CopyGltfModelVertices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
+declare function Donut_CopyGltfModelIndices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
+declare function Donut_GetGltfModelBaseColorImage(gltfModel: Opaque, primitive: int): string;
 // Image file, path relative to the executable's directory, uploaded by an open command list.
 // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
 declare function Donut_LoadTexture(app: Opaque, commandList: Opaque, path: string, sRGB: int): Opaque;
@@ -337,16 +349,31 @@ declare function Donut_CreateInputLayout(app: Opaque, inputLayoutDesc: Opaque, v
 
 // Input for acceleration structure builds (index or vertex data).
 declare function Donut_CreateAccelStructInputBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+// Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
+declare function Donut_CreateAccelStructInputStructuredBuffer(app: Opaque, stride: int, count: int, debugName: string): Opaque;
 // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
 declare function Donut_CreateUAVTextureForFrame(app: Opaque, frame: Opaque, debugName: string): Opaque;
 // Same, in another format.
 declare function Donut_CreateUAVTextureForFrameWithFormat(app: Opaque, frame: Opaque, debugName: string, format: Format): Opaque;
+// Same, in the back buffer's format without sRGB, for Donut_CopyTextureToFrame (a bit-for-bit copy).
+declare function Donut_CreateUAVTextureForFrameCopy(app: Opaque, frame: Opaque, debugName: string): Opaque;
 
 // Acceleration structures; both record their build into an open command list.
 // Opaque triangles: R32_UINT indices, RGB32_FLOAT vertices.
 declare function Donut_BuildTriangleBLAS(app: Opaque, commandList: Opaque, indexBuffer: Opaque, indexCount: int, vertexBuffer: Opaque, vertexCount: int): Opaque;
 // One instance of bottomLevelAS: identity transform, mask 1, counter-clockwise front faces.
 declare function Donut_BuildSingleInstanceTLAS(app: Opaque, commandList: Opaque, bottomLevelAS: Opaque): Opaque;
+// One opaque triangle geometry: indexCount R32_UINT indices from indexByteOffset of indexBuffer,
+// into vertexCount RGB32_FLOAT positions every vertexStride bytes from vertexByteOffset of
+// vertexBuffer. Build recorded into an open command list, preferring fast tracing, or if
+// updatable != 0 fast builds and updates.
+declare function Donut_CreateTriangleBlas(app: Opaque, commandList: Opaque, indexBuffer: Opaque, indexByteOffset: int,
+    indexCount: int, vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int,
+    debugName: string): Opaque;
+// An updatable one, in place, from its buffers' current contents, into an open command list.
+declare function Donut_UpdateTriangleBlas(triangleBlas: Opaque, commandList: Opaque): void;
+// For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
+declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: Opaque): Opaque;
 
 // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
 // no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
@@ -627,6 +654,8 @@ declare function Donut_GetCameraDirection(camera: Opaque, dst: Opaque): void;
 declare function Donut_GetCameraUp(camera: Opaque, dst: Opaque): void;
 // Units per second.
 declare function Donut_CameraSetMoveSpeed(camera: Opaque, speed: number): void;
+// Mouse sensitivity, radians per pixel.
+declare function Donut_CameraSetRotateSpeed(camera: Opaque, speed: number): void;
 // Forward the pass input callbacks' arguments to these.
 declare function Donut_CameraKeyboardUpdate(camera: Opaque, key: int, scancode: int, action: int, mods: int): void;
 declare function Donut_CameraMousePosUpdate(camera: Opaque, x: number, y: number): void;
@@ -716,6 +745,11 @@ declare function Donut_AddSceneTopLevelASInstances(sceneAccelStructs: Opaque, sc
 // A BLAS instance scaled by `scale`, then moved to (x, y, z).
 declare function Donut_AddTopLevelASInstance(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int, instanceID: int,
     scale: number, x: number, y: number, z: number): void;
+// A BLAS instance with a transform: Ref(arr[0]) of a `let` f32[12], a row-major 3x4 matrix with the
+// translation in the last column (Vulkan's VkTransformMatrixKHR). flags: nvrhi::rt::InstanceFlags bits
+// (1 = no triangle culling).
+declare function Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int,
+    instanceID: int, flags: int, transform: Opaque): void;
 // Valid only inside a render callback.
 declare function Donut_BuildTopLevelAS(frame: Opaque, sceneAccelStructs: Opaque): void;
 

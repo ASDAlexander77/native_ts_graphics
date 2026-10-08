@@ -70,6 +70,8 @@ CLASSES = {
     "lightProbeCapture": "LightProbeCapture",
     "lightProbeProcessingPass": "LightProbeProcessingPass",
     "gltfMesh": "GltfMesh",
+    "gltfModel": "GltfModel",
+    "triangleBlas": "TriangleBlas",
 }
 
 # Further parameter names that hold one of those objects.
@@ -117,6 +119,7 @@ METHOD_NAMES = {
     "Donut_GetSceneTopLevelAS": "getTopLevelAS",
     "Donut_AddSceneTopLevelASInstances": "addSceneInstances",
     "Donut_AddTopLevelASInstance": "addInstance",
+    "Donut_AddTopLevelASInstanceWithTransform": "addInstanceWithTransform",
 }
 
 # Functions returning an object with a wrapper class, beyond those named <verb><Class> (AddPass,

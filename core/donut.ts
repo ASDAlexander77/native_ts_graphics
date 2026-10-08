@@ -257,6 +257,15 @@ export class App {
         return new GltfMesh(Donut_LoadGltfMesh(this.handle, commandList.handle, path));
     }
 
+    // Every primitive of a glTF file's meshes (path relative to the executable's directory), in
+    // mesh and primitive order, as the Vulkan-Samples framework's scene loader reads them into
+    // submeshes: vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms ignored),
+    // int indices, and the base color image's URI ("" if none). Kept on the CPU. A null handle
+    // (after logging why) on failure.
+    loadGltfModel(path: string): GltfModel {
+        return new GltfModel(Donut_LoadGltfModel(this.handle, path));
+    }
+
     // Image file, path relative to the executable's directory, uploaded by an open command list.
     // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
     loadTexture(commandList: CommandList, path: string, sRGB: int): Opaque {
@@ -276,6 +285,11 @@ export class App {
         return Donut_CreateAccelStructInputBuffer(this.handle, byteSize, debugName);
     }
 
+    // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
+    createAccelStructInputStructuredBuffer(stride: int, count: int, debugName: string): Opaque {
+        return Donut_CreateAccelStructInputStructuredBuffer(this.handle, stride, count, debugName);
+    }
+
     // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
     createUAVTextureForFrame(frame: Frame, debugName: string): Opaque {
         return Donut_CreateUAVTextureForFrame(this.handle, frame.handle, debugName);
@@ -284,6 +298,11 @@ export class App {
     // Same, in another format.
     createUAVTextureForFrameWithFormat(frame: Frame, debugName: string, format: Format): Opaque {
         return Donut_CreateUAVTextureForFrameWithFormat(this.handle, frame.handle, debugName, format);
+    }
+
+    // Same, in the back buffer's format without sRGB, for Donut_CopyTextureToFrame (a bit-for-bit copy).
+    createUAVTextureForFrameCopy(frame: Frame, debugName: string): Opaque {
+        return Donut_CreateUAVTextureForFrameCopy(this.handle, frame.handle, debugName);
     }
 
     // Acceleration structures; both record their build into an open command list.
@@ -295,6 +314,14 @@ export class App {
     // One instance of bottomLevelAS: identity transform, mask 1, counter-clockwise front faces.
     buildSingleInstanceTLAS(commandList: CommandList, bottomLevelAS: Opaque): Opaque {
         return Donut_BuildSingleInstanceTLAS(this.handle, commandList.handle, bottomLevelAS);
+    }
+
+    // One opaque triangle geometry: indexCount R32_UINT indices from indexByteOffset of indexBuffer,
+    // into vertexCount RGB32_FLOAT positions every vertexStride bytes from vertexByteOffset of
+    // vertexBuffer. Build recorded into an open command list, preferring fast tracing, or if
+    // updatable != 0 fast builds and updates.
+    createTriangleBlas(commandList: CommandList, indexBuffer: Opaque, indexByteOffset: int, indexCount: int, vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int, debugName: string): TriangleBlas {
+        return new TriangleBlas(Donut_CreateTriangleBlas(this.handle, commandList.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, updatable, debugName));
     }
 
     // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
@@ -2068,6 +2095,13 @@ export class SceneAccelStructs {
     addInstance(bottomLevelAS: Opaque, instanceMask: int, instanceID: int, scale: number, x: number, y: number, z: number): void {
         Donut_AddTopLevelASInstance(this.handle, bottomLevelAS, instanceMask, instanceID, scale, x, y, z);
     }
+
+    // A BLAS instance with a transform: Ref(arr[0]) of a `let` f32[12], a row-major 3x4 matrix with the
+    // translation in the last column (Vulkan's VkTransformMatrixKHR). flags: nvrhi::rt::InstanceFlags bits
+    // (1 = no triangle culling).
+    addInstanceWithTransform(bottomLevelAS: Opaque, instanceMask: int, instanceID: int, flags: int, transform: Opaque): void {
+        Donut_AddTopLevelASInstanceWithTransform(this.handle, bottomLevelAS, instanceMask, instanceID, flags, transform);
+    }
 }
 
 export class LoadedTexture {
@@ -2140,6 +2174,11 @@ export class Camera {
     // Units per second.
     setMoveSpeed(speed: number): void {
         Donut_CameraSetMoveSpeed(this.handle, speed);
+    }
+
+    // Mouse sensitivity, radians per pixel.
+    setRotateSpeed(speed: number): void {
+        Donut_CameraSetRotateSpeed(this.handle, speed);
     }
 
     // Forward the pass input callbacks' arguments to these.
@@ -2613,5 +2652,66 @@ export class GltfMesh {
 
     getIndexCount(): int {
         return Donut_GetGltfMeshIndexCount(this.handle);
+    }
+}
+
+export class GltfModel {
+    readonly handle: Opaque;
+
+    constructor(handle: Opaque | null) {
+        this.handle = handle as Opaque;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    getPrimitiveCount(): int {
+        return Donut_GetGltfModelPrimitiveCount(this.handle);
+    }
+
+    getVertexCount(primitive: int): int {
+        return Donut_GetGltfModelVertexCount(this.handle, primitive);
+    }
+
+    getIndexCount(primitive: int): int {
+        return Donut_GetGltfModelIndexCount(this.handle, primitive);
+    }
+
+    // Into dst: Ref(arr[0]) of a `let` f32 array of 8 x the vertex count / int array of the index count.
+    copyVertices(primitive: int, dst: Opaque): void {
+        Donut_CopyGltfModelVertices(this.handle, primitive, dst);
+    }
+
+    copyIndices(primitive: int, dst: Opaque): void {
+        Donut_CopyGltfModelIndices(this.handle, primitive, dst);
+    }
+
+    getBaseColorImage(primitive: int): string {
+        return Donut_GetGltfModelBaseColorImage(this.handle, primitive);
+    }
+}
+
+export class TriangleBlas {
+    readonly handle: Opaque;
+
+    constructor(handle: Opaque | null) {
+        this.handle = handle as Opaque;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // An updatable one, in place, from its buffers' current contents, into an open command list.
+    update(commandList: CommandList): void {
+        Donut_UpdateTriangleBlas(this.handle, commandList.handle);
+    }
+
+    // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
+    getAccelStruct(): Opaque {
+        return Donut_GetTriangleBlasAccelStruct(this.handle);
     }
 }

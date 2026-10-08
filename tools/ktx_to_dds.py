@@ -1,8 +1,13 @@
-"""Converts uncompressed KTX 1 textures (as Vulkan-Samples ships them) to DDS, which Donut loads.
+"""Converts KTX textures (as Vulkan-Samples ships them) to DDS, which Donut loads.
 
-Donut's texture cache reads DDS, KTX 2 and the usual image formats, not KTX 1. This handles what the
-ported samples need: RGBA8, R16 and RGBA16F data, 2D textures, 2D texture arrays and cube maps, with
-their mip levels.
+Donut's texture cache reads DDS, block-compressed KTX 2 and the usual image formats, not KTX 1. This
+handles what the ported samples need:
+- KTX 1, uncompressed: RGBA8, R16 and RGBA16F data, 2D textures, 2D texture arrays and cube maps,
+  with their mip levels;
+- KTX 1, ASTC (LDR, 2D): decoded to RGBA8 (sRGB if the data is), level 0 only, as the
+  Vulkan-Samples framework decodes ASTC textures on GPUs without ASTC support (it then generates
+  the mip levels, as Donut does for textures that have none);
+- KTX 2, uncompressed RGBA8 2D textures (no supercompression), with their mip levels.
 
     python tools/ktx_to_dds.py <input.ktx> <output.dds>
 """
@@ -11,13 +16,29 @@ import os
 import struct
 import sys
 
+import astc
+
 KTX_IDENTIFIER = b"\xabKTX 11\xbb\r\n\x1a\n"
+KTX2_IDENTIFIER = b"\xabKTX 20\xbb\r\n\x1a\n"
 
 # (glType, glFormat, glInternalFormat) -> (DXGI_FORMAT, bytes per texel)
 FORMATS = {
     (0x1401, 0x1908, 0x8058): (28, 4),  # GL_UNSIGNED_BYTE, GL_RGBA, GL_RGBA8 -> R8G8B8A8_UNORM
     (0x1403, 0x1903, 0x822A): (56, 2),  # GL_UNSIGNED_SHORT, GL_RED, GL_R16 -> R16_UNORM
     (0x140B, 0x1908, 0x881A): (10, 8),  # GL_HALF_FLOAT, GL_RGBA, GL_RGBA16F -> R16G16B16A16_FLOAT
+}
+
+# glInternalFormat of GL_COMPRESSED_RGBA_ASTC_4x4 .. 12x12, and their sRGB (SRGB8_ALPHA8) twins.
+ASTC_RGBA_FORMATS = 0x93B0
+ASTC_SRGB_FORMATS = 0x93D0
+ASTC_BLOCK_SIZES = [(4, 4), (5, 4), (5, 5), (6, 5), (6, 6), (8, 5), (8, 6), (8, 8), (10, 5), (10, 6), (10, 8),
+                    (10, 10), (12, 10), (12, 12)]
+DXGI_R8G8B8A8_UNORM, DXGI_R8G8B8A8_UNORM_SRGB = 28, 29
+
+# KTX 2 vkFormat -> DXGI_FORMAT, for 4-byte texels.
+KTX2_FORMATS = {
+    37: DXGI_R8G8B8A8_UNORM,       # VK_FORMAT_R8G8B8A8_UNORM
+    43: DXGI_R8G8B8A8_UNORM_SRGB,  # VK_FORMAT_R8G8B8A8_SRGB
 }
 
 DDSD_CAPS, DDSD_HEIGHT, DDSD_WIDTH, DDSD_PITCH, DDSD_PIXELFORMAT, DDSD_MIPMAPCOUNT = 0x1, 0x2, 0x4, 0x8, 0x1000, 0x20000
@@ -31,12 +52,24 @@ DDS_RESOURCE_MISC_TEXTURECUBE = 0x4
 def read_ktx(path):
     with open(path, "rb") as f:
         data = f.read()
+    if data[:12] == KTX2_IDENTIFIER:
+        return read_ktx2(path, data)
     if data[:12] != KTX_IDENTIFIER:
-        sys.exit(f"{path}: not a KTX 1 file")
+        sys.exit(f"{path}: not a KTX file")
     (endianness, gl_type, _type_size, gl_format, gl_internal_format, _base_internal_format,
      width, height, depth, array_elements, faces, mip_levels, kv_bytes) = struct.unpack_from("<13I", data, 12)
     if endianness != 0x04030201:
         sys.exit(f"{path}: big-endian KTX files aren't supported")
+    for srgb, first in ((False, ASTC_RGBA_FORMATS), (True, ASTC_SRGB_FORMATS)):
+        if gl_type == 0 and first <= gl_internal_format < first + len(ASTC_BLOCK_SIZES):
+            if depth > 1 or faces != 1 or array_elements > 1:
+                sys.exit(f"{path}: only 2D ASTC textures are supported")
+            block_width, block_height = ASTC_BLOCK_SIZES[gl_internal_format - first]
+            offset = 64 + kv_bytes
+            (image_size,) = struct.unpack_from("<I", data, offset)
+            texels = astc.decode(data[offset + 4:offset + 4 + image_size], width, height, block_width, block_height, srgb)
+            return (width, height, 1, False, 1, DXGI_R8G8B8A8_UNORM_SRGB if srgb else DXGI_R8G8B8A8_UNORM, 4,
+                    [[texels]])
     key = (gl_type, gl_format, gl_internal_format)
     if key not in FORMATS:
         sys.exit(f"{path}: unsupported format (glType {gl_type:#x}, glFormat {gl_format:#x}, "
@@ -73,6 +106,28 @@ def read_ktx(path):
                                           for y in range(mip_height))
         offset += layer_stride * layers if cube else (image_size + 3) & ~3
     return width, height, layers, cube, mip_levels, dxgi_format, texel_size, images
+
+
+def read_ktx2(path, data):
+    (vk_format, _type_size, width, height, depth, layers, faces, mip_levels,
+     supercompression) = struct.unpack_from("<9I", data, 12)
+    if vk_format not in KTX2_FORMATS:
+        sys.exit(f"{path}: unsupported KTX 2 format (vkFormat {vk_format})")
+    if supercompression != 0:
+        sys.exit(f"{path}: supercompressed KTX 2 files aren't supported")
+    if depth > 1 or layers > 1 or faces != 1:
+        sys.exit(f"{path}: only 2D KTX 2 textures are supported")
+    mip_levels = max(mip_levels, 1)
+    # The level index (offset, size, uncompressed size per level, level 0 first) follows the
+    # 80-byte header; rows are packed.
+    images = []
+    for mip in range(mip_levels):
+        offset, size, _ = struct.unpack_from("<3Q", data, 80 + 24 * mip)
+        expected_size = max(width >> mip, 1) * max(height >> mip, 1) * 4
+        if size != expected_size:
+            sys.exit(f"{path}: mip {mip} has {size} bytes, expected {expected_size}")
+        images.append(data[offset:offset + size])
+    return width, height, 1, False, mip_levels, KTX2_FORMATS[vk_format], 4, [images]
 
 
 def write_dds(path, width, height, layers, cube, mip_levels, dxgi_format, texel_size, images):
