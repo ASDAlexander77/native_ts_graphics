@@ -576,6 +576,17 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(async_compute)
 
+# Port of Vulkan-Samples' compute_nbody: an N-body simulation in two compute passes, drawn as
+# additively blended sprites.
+donut_compile_shaders_all_platforms(
+    TARGET compute_nbody_shaders
+    PROJECT_NAME "Compute N-Body"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_nbody
+)
+add_tslang_example(compute_nbody)
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

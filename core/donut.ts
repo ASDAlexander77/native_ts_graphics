@@ -154,6 +154,11 @@ export class App {
         return Donut_CreateGraphicsPipelineWithTopology(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout, primitiveType);
     }
 
+    // Same, blending into the framebuffer with blendMode.
+    createGraphicsPipelineWithBlend(frame: Frame, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque {
+        return Donut_CreateGraphicsPipelineWithBlend(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout, primitiveType, blendMode);
+    }
+
     // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
     createMeshletPipeline(frame: Frame, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque {
         return Donut_CreateMeshletPipeline(this.handle, frame.handle, amplificationShader, meshShader, pixelShader);

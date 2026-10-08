@@ -2089,6 +2089,35 @@ extern "C"
         return a->Own(a->device()->createGraphicsPipeline(desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
     }
 
+    // Same, blending into the framebuffer with blendMode (a BlendMode value): 1 is additive (color
+    // One + One, alpha SrcAlpha + DstAlpha), 0 none. Returns null on failure.
+    void* Donut_CreateGraphicsPipelineWithBlend(void* app, void* frame, void* vertexShader, void* pixelShader,
+        void* inputLayout, void* bindingLayout, int primitiveType, int blendMode)
+    {
+        nvrhi::GraphicsPipelineDesc desc;
+        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
+        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc.inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        if (bindingLayout)
+            desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+        desc.primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
+        desc.renderState.depthStencilState.depthTestEnable = false;
+        if (blendMode == 1)
+        {
+            desc.renderState.blendState.targets[0]
+                .enableBlend()
+                .setSrcBlend(nvrhi::BlendFactor::One)
+                .setDestBlend(nvrhi::BlendFactor::One)
+                .setBlendOp(nvrhi::BlendOp::Add)
+                .setSrcBlendAlpha(nvrhi::BlendFactor::SrcAlpha)
+                .setDestBlendAlpha(nvrhi::BlendFactor::DstAlpha)
+                .setBlendOpAlpha(nvrhi::BlendOp::Add);
+        }
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createGraphicsPipeline(desc, AsFrame(frame)->framebuffer->getFramebufferInfo()));
+    }
+
     // RGBA8_UNORM texture of width x height that compute shaders write as RWTexture2D<float4> and
     // pixel shaders read; NVRHI tracks its state, which rests at NonPixelShaderResource. Returns
     // null on failure.

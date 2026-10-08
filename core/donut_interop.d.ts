@@ -101,6 +101,13 @@ enum PrimitiveType {
     TriangleStrip = 4
 }
 
+// The framebuffer blending of Donut_CreateGraphicsPipelineWithBlend.
+enum BlendMode {
+    None = 0,
+    // Color One + One, alpha SrcAlpha + DstAlpha.
+    Additive = 1
+}
+
 // donut::log::Severity values.
 enum LogSeverity {
     None = 0,
@@ -209,6 +216,9 @@ declare function Donut_CreateGraphicsPipelineWithLayouts(app: Opaque, frame: Opa
 // Same, drawing primitiveType, with each layout optional (null for none).
 declare function Donut_CreateGraphicsPipelineWithTopology(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque,
     inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque;
+// Same, blending into the framebuffer with blendMode.
+declare function Donut_CreateGraphicsPipelineWithBlend(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque,
+    inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque;
 // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
 declare function Donut_CreateMeshletPipeline(app: Opaque, frame: Opaque, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque;
 // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
