@@ -415,6 +415,12 @@ export class App {
         return Donut_CreateUAVTextureWithFormat(this.handle, width, height, format, debugName);
     }
 
+    // Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read: the bind
+    // functions bind all slices).
+    createUAVTextureArray(width: int, height: int, arraySize: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateUAVTextureArray(this.handle, width, height, arraySize, format, debugName);
+    }
+
     // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
     createFramebuffer(colorTexture: Opaque, depthTexture: Opaque | null): Opaque {
         return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
@@ -517,6 +523,13 @@ export class App {
         return Donut_CreateStaticIndexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
     }
 
+    // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
+    // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
+    // one copy of a mesh for rasterization and ray tracing.
+    createStaticGeometryBuffer(commandList: CommandList, data: Opaque, byteSize: int, isIndexBuffer: int, debugName: string): Opaque {
+        return Donut_CreateStaticGeometryBuffer(this.handle, commandList.handle, data, byteSize, isIndexBuffer, debugName);
+    }
+
     // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
     createStaticRawVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
         return Donut_CreateStaticRawVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
@@ -580,6 +593,12 @@ export class App {
     // maxAnisotropy samples (1: off; Donut_GetMaxSamplerAnisotropy).
     createSamplerWithDesc(linearMin: int, linearMag: int, linearMip: int, addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): Opaque {
         return Donut_CreateSamplerWithDesc(this.handle, linearMin, linearMag, linearMip, addressMode, mipBias, minLod, maxLod, maxAnisotropy);
+    }
+
+    // A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero) or
+    // point filtering when minifying, magnifying and between levels, every level.
+    createBorderSampler(linearMin: int, linearMag: int, linearMip: int, r: number, g: number, b: number, a: number): Opaque {
+        return Donut_CreateBorderSampler(this.handle, linearMin, linearMag, linearMip, r, g, b, a);
     }
 
     // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy with the
@@ -1540,6 +1559,12 @@ export class Frame {
         Donut_DrawSetViewport(this.handle, left, top, width, height);
     }
 
+    // One more viewport (with its scissor rectangle) for the draw, after those set or added before:
+    // geometry shaders pick one per primitive (SV_ViewportArrayIndex).
+    drawAddViewport(left: number, top: number, width: number, height: number): void {
+        Donut_DrawAddViewport(this.handle, left, top, width, height);
+    }
+
     drawIndexed(indexCount: int): void {
         Donut_DrawIndexed(this.handle, indexCount);
     }
@@ -2397,6 +2422,28 @@ export class AsyncComputeLoop {
     // Before starting it.
     addTexture(texture: Opaque): void {
         Donut_AddAsyncComputeTexture(this.handle, texture);
+    }
+
+    // Same, with the binding set (from the loop's layout) to write it with: its UAV at u0, the push
+    // constants at b0 and anything else the shader reads, instead of the loop's own set of those two.
+    addTextureWithBindingSet(texture: Opaque, bindingSet: BindingSet): void {
+        Donut_AddAsyncComputeTextureWithBindingSet(this.handle, texture, bindingSet.handle);
+    }
+
+    // The push constants of the runs from now on, instead of the run index: byteSize bytes from data
+    // (Ref of a `let` array element), copied during the call; the layout's push constants' size.
+    setPushConstants(data: Opaque, byteSize: int): void {
+        Donut_SetAsyncComputePushConstants(this.handle, data, byteSize);
+    }
+
+    // Non-zero: no more runs start until resumed (one under way finishes).
+    setPaused(paused: int): void {
+        Donut_SetAsyncComputeLoopPaused(this.handle, paused);
+    }
+
+    // Runs submitted so far.
+    getRunCount(): int {
+        return Donut_GetAsyncComputeRunCount(this.handle);
     }
 
     start(): void {

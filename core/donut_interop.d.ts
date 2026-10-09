@@ -97,6 +97,66 @@ declare function Donut_GetVideoFrameRowPitch(videoPlayer: Opaque): int;
 declare function Donut_SetVideoTime(videoPlayer: Opaque, seconds: number): void;
 declare function Donut_DestroyVideoPlayer(videoPlayer: Opaque): void;
 
+// SDKMESH files, the legacy DirectX SDK's mesh format the Xbox ATG samples load with DirectXTK
+// (core/sdkmesh.cpp, linked only into the examples that list it). A file in memory (e.g.
+// Donut_GetBinaryFileData; byteSize bytes, copied), checked as DirectXTK's Model::CreateFromSDKMESH
+// checks it; its buffers, meshes, subsets, materials and frames as the file has them. Null (after
+// printing why) on failure; free it with Donut_DestroySdkMesh. Strings are valid as long as the mesh.
+declare function Donut_LoadSdkMesh(data: Opaque, byteSize: int): Opaque | null;
+declare function Donut_DestroySdkMesh(sdkMesh: Opaque): void;
+// 101, or 200 for files with PBR materials.
+declare function Donut_GetSdkMeshVersion(sdkMesh: Opaque): int;
+// Vertex buffers: their data (valid until the mesh is freed), size in bytes, stride, vertex count.
+declare function Donut_GetSdkMeshVertexBufferCount(sdkMesh: Opaque): int;
+declare function Donut_GetSdkMeshVertexBufferData(sdkMesh: Opaque, vertexBuffer: int): Opaque;
+declare function Donut_GetSdkMeshVertexBufferSize(sdkMesh: Opaque, vertexBuffer: int): int;
+declare function Donut_GetSdkMeshVertexBufferStride(sdkMesh: Opaque, vertexBuffer: int): int;
+declare function Donut_GetSdkMeshVertexBufferVertexCount(sdkMesh: Opaque, vertexBuffer: int): int;
+// The byte offset in a vertex and the D3DDECLTYPE (2 FLOAT3, 1 FLOAT2...) of a vertex element by its
+// D3DDECLUSAGE (0 position, 3 normal, 5 texture coordinates, 6 tangent, 7 binormal, 10 color) and
+// usage index; -1 if the vertices have none.
+declare function Donut_GetSdkMeshVertexElementOffset(sdkMesh: Opaque, vertexBuffer: int, usage: int, usageIndex: int): int;
+declare function Donut_GetSdkMeshVertexElementType(sdkMesh: Opaque, vertexBuffer: int, usage: int, usageIndex: int): int;
+// Index buffers: their data, size in bytes, index count, and whether the indices are 32-bit (16-bit
+// otherwise).
+declare function Donut_GetSdkMeshIndexBufferCount(sdkMesh: Opaque): int;
+declare function Donut_GetSdkMeshIndexBufferData(sdkMesh: Opaque, indexBuffer: int): Opaque;
+declare function Donut_GetSdkMeshIndexBufferSize(sdkMesh: Opaque, indexBuffer: int): int;
+declare function Donut_GetSdkMeshIndexBufferIndexCount(sdkMesh: Opaque, indexBuffer: int): int;
+declare function Donut_IsSdkMeshIndexBuffer32Bit(sdkMesh: Opaque, indexBuffer: int): int;
+// Meshes: their name, vertex and index buffers, subsets (indices into the file's subsets), and
+// bounding box (center, then extents: 6 floats into dst, Ref of a `let` f32 array element).
+declare function Donut_GetSdkMeshMeshCount(sdkMesh: Opaque): int;
+declare function Donut_GetSdkMeshMeshName(sdkMesh: Opaque, mesh: int): string;
+declare function Donut_GetSdkMeshMeshVertexBuffer(sdkMesh: Opaque, mesh: int): int;
+declare function Donut_GetSdkMeshMeshIndexBuffer(sdkMesh: Opaque, mesh: int): int;
+declare function Donut_GetSdkMeshMeshSubsetCount(sdkMesh: Opaque, mesh: int): int;
+declare function Donut_GetSdkMeshMeshSubset(sdkMesh: Opaque, mesh: int, index: int): int;
+declare function Donut_CopySdkMeshMeshBounds(sdkMesh: Opaque, mesh: int, dst: Opaque): void;
+// Subsets: their material, primitive type (0 triangle list, 1 triangle strip, 2 line list, 3 line
+// strip, 4 point list...), and ranges of their mesh's index and vertex buffers.
+declare function Donut_GetSdkMeshSubsetMaterial(sdkMesh: Opaque, subset: int): int;
+declare function Donut_GetSdkMeshSubsetPrimitiveType(sdkMesh: Opaque, subset: int): int;
+declare function Donut_GetSdkMeshSubsetIndexStart(sdkMesh: Opaque, subset: int): int;
+declare function Donut_GetSdkMeshSubsetIndexCount(sdkMesh: Opaque, subset: int): int;
+declare function Donut_GetSdkMeshSubsetVertexStart(sdkMesh: Opaque, subset: int): int;
+declare function Donut_GetSdkMeshSubsetVertexCount(sdkMesh: Opaque, subset: int): int;
+// Materials: their name, a texture's file name ("" if none: which 0 diffuse, or albedo in version
+// 200; 1 normal; 2 specular, or roughness / metallic / ambient occlusion in version 200; 3 emissive,
+// version 200 only), and their colors into dst: version 101's diffuse, ambient, specular and
+// emissive (RGBA each) and specular power (17 floats), version 200's alpha (1 float).
+declare function Donut_GetSdkMeshMaterialCount(sdkMesh: Opaque): int;
+declare function Donut_GetSdkMeshMaterialName(sdkMesh: Opaque, material: int): string;
+declare function Donut_GetSdkMeshMaterialTexture(sdkMesh: Opaque, material: int, which: int): string;
+declare function Donut_CopySdkMeshMaterialColors(sdkMesh: Opaque, material: int, dst: Opaque): void;
+// Frames (the meshes' hierarchy): their name, mesh and parent frame (-1 for none), and transform
+// relative to the parent (16 floats into dst, row-major for mul(vector, matrix) as DirectXMath).
+declare function Donut_GetSdkMeshFrameCount(sdkMesh: Opaque): int;
+declare function Donut_GetSdkMeshFrameName(sdkMesh: Opaque, frame: int): string;
+declare function Donut_GetSdkMeshFrameMesh(sdkMesh: Opaque, frame: int): int;
+declare function Donut_GetSdkMeshFrameParent(sdkMesh: Opaque, frame: int): int;
+declare function Donut_CopySdkMeshFrameMatrix(sdkMesh: Opaque, frame: int, dst: Opaque): void;
+
 // nvrhi::VariableShadingRate values: pixels per shading, width x height.
 enum VariableShadingRate {
     Rate1x1 = 0,
@@ -534,8 +594,10 @@ declare function Donut_CloseWindow(app: Opaque): void;
 enum Format {
     UNKNOWN = 0,
     R8_UINT = 1,
+    R8_UNORM = 3,
     RG8_UINT = 5,
     R16_UINT = 9,
+    R16_FLOAT = 13,
     RGBA8_UINT = 17,
     RGBA8_UNORM = 19,
     BGRA8_UNORM = 21,
@@ -689,6 +751,10 @@ declare function Donut_CreateComputeTexture(app: Opaque, width: int, height: int
 // Texture in `format` that shaders write and read as a UAV (RWTexture2D<...>), resting at
 // UnorderedAccess; clear it with Donut_ClearTextureUInt / Donut_ClearTextureFloat.
 declare function Donut_CreateUAVTextureWithFormat(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+// Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read: the bind
+// functions bind all slices).
+declare function Donut_CreateUAVTextureArray(app: Opaque, width: int, height: int, arraySize: int, format: Format,
+    debugName: string): Opaque;
 // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
 declare function Donut_CreateFramebuffer(app: Opaque, colorTexture: Opaque, depthTexture: Opaque | null): Opaque;
 // Same, the color target seen in colorFormat (a format of its family, for a typeless texture:
@@ -811,6 +877,11 @@ declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque
 // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
 declare function Donut_CreateDynamicVertexBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+// A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
+// ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
+// one copy of a mesh for rasterization and ray tracing.
+declare function Donut_CreateStaticGeometryBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int,
+    isIndexBuffer: int, debugName: string): Opaque;
 // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
 declare function Donut_CreateStaticRawVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 // The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
@@ -895,6 +966,10 @@ declare function Donut_CreateSampler(app: Opaque, linearFilter: int, linearMipFi
 // maxAnisotropy samples (1: off; Donut_GetMaxSamplerAnisotropy).
 declare function Donut_CreateSamplerWithDesc(app: Opaque, linearMin: int, linearMag: int, linearMip: int,
     addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): Opaque;
+// A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero) or
+// point filtering when minifying, magnifying and between levels, every level.
+declare function Donut_CreateBorderSampler(app: Opaque, linearMin: int, linearMag: int, linearMip: int, r: number, g: number,
+    b: number, a: number): Opaque;
 // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy with the
 // samplerAnisotropy feature (1 without), 16 on D3D.
 declare function Donut_GetMaxSamplerAnisotropy(app: Opaque): number;
@@ -1099,6 +1174,16 @@ declare function Donut_CreateAsyncComputeLoop(app: Opaque, computePipeline: Opaq
     groupsX: int, groupsY: int, intervalMicroseconds: int): Opaque;
 // Before starting it.
 declare function Donut_AddAsyncComputeTexture(asyncComputeLoop: Opaque, texture: Opaque): void;
+// Same, with the binding set (from the loop's layout) to write it with: its UAV at u0, the push
+// constants at b0 and anything else the shader reads, instead of the loop's own set of those two.
+declare function Donut_AddAsyncComputeTextureWithBindingSet(asyncComputeLoop: Opaque, texture: Opaque, bindingSet: Opaque): void;
+// The push constants of the runs from now on, instead of the run index: byteSize bytes from data
+// (Ref of a `let` array element), copied during the call; the layout's push constants' size.
+declare function Donut_SetAsyncComputePushConstants(asyncComputeLoop: Opaque, data: Opaque, byteSize: int): void;
+// Non-zero: no more runs start until resumed (one under way finishes).
+declare function Donut_SetAsyncComputeLoopPaused(asyncComputeLoop: Opaque, paused: int): void;
+// Runs submitted so far.
+declare function Donut_GetAsyncComputeRunCount(asyncComputeLoop: Opaque): int;
 declare function Donut_StartAsyncComputeLoop(asyncComputeLoop: Opaque): void;
 // Joins the worker thread; call before Donut_DestroyApp.
 declare function Donut_StopAsyncComputeLoop(asyncComputeLoop: Opaque): void;
@@ -1259,6 +1344,11 @@ declare function Donut_ImGuiPopFont(): void;
 // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in
 // the current font and color, behind the windows (no window needed).
 declare function Donut_ImGuiDrawText(x: number, y: number, text: string, r: number, g: number, b: number, a: number, alignRight: int): void;
+// A filled rectangle from (x0, y0) to (x1, y1) in UI coordinates, behind the windows, over what was
+// drawn behind them before (e.g. a box for Donut_ImGuiDrawText's text to go on).
+declare function Donut_ImGuiDrawRect(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number, a: number): void;
+// The width of a line of text in the current font, in UI coordinates.
+declare function Donut_ImGuiCalcTextWidth(text: string): number;
 // A borderless window over the whole screen, with text centered on it (may span lines).
 declare function Donut_ImGuiBeginFullScreenWindow(imguiPass: Opaque): void;
 declare function Donut_ImGuiDrawScreenCenteredText(imguiPass: Opaque, text: string): void;
@@ -1589,6 +1679,9 @@ declare function Donut_DrawSetIndexBuffer16(frame: Opaque, indexBuffer: Opaque):
 declare function Donut_DrawAddVertexBuffer(frame: Opaque, vertexBuffer: Opaque, slot: int, byteOffset: int): void;
 // Draws into this rectangle of the framebuffer (pixels) instead of all of it.
 declare function Donut_DrawSetViewport(frame: Opaque, left: number, top: number, width: number, height: number): void;
+// One more viewport (with its scissor rectangle) for the draw, after those set or added before:
+// geometry shaders pick one per primitive (SV_ViewportArrayIndex).
+declare function Donut_DrawAddViewport(frame: Opaque, left: number, top: number, width: number, height: number): void;
 declare function Donut_DrawIndexed(frame: Opaque, indexCount: int): void;
 // Same, instanceCount times (instance attributes advance per instance).
 declare function Donut_DrawIndexedInstanced(frame: Opaque, indexCount: int, instanceCount: int): void;

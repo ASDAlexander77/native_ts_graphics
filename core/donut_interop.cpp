@@ -842,8 +842,18 @@ namespace
         // Only touched by the render thread.
         nvrhi::TextureHandle current;
 
+        // Binding sets the app made for its textures (Donut_AddAsyncComputeTextureWithBindingSet),
+        // used instead of the loop's own; set before the thread starts.
+        std::unordered_map<nvrhi::ITexture*, nvrhi::BindingSetHandle> textureBindingSets;
+        // Push constants the app set (Donut_SetAsyncComputePushConstants), sent instead of the run
+        // index when not empty; the latest values go with each run.
+        std::vector<uint8_t> pushConstants;
+        std::mutex pushConstantsMutex;
+
         std::thread thread;
         std::atomic_bool terminate = false;
+        std::atomic_bool paused = false;
+        std::atomic<uint32_t> runCount = 0;
 
         ~AsyncComputeLoop() { Stop(); }
 
@@ -865,24 +875,38 @@ namespace
 
                 nvrhi::TextureHandle texture;
                 uint64_t textureLastUse = 0;
-                while (!terminate && !renderToCompute.TryPop(texture, textureLastUse))
-                {}
+                while (!terminate && (paused || !renderToCompute.TryPop(texture, textureLastUse)))
+                    std::this_thread::yield();
 
                 if (terminate)
                     break;
 
                 commandList->open();
 
-                nvrhi::BindingSetDesc bindingDesc;
-                bindingDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(0, texture));
-                bindingDesc.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(uint32_t)));
-                nvrhi::BindingSetHandle bindingSet = bindings->GetOrCreateBindingSet(bindingDesc, bindingLayout);
+                nvrhi::BindingSetHandle bindingSet;
+                if (auto it = textureBindingSets.find(texture.Get()); it != textureBindingSets.end())
+                {
+                    bindingSet = it->second;
+                }
+                else
+                {
+                    nvrhi::BindingSetDesc bindingDesc;
+                    bindingDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(0, texture));
+                    bindingDesc.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(uint32_t)));
+                    bindingSet = bindings->GetOrCreateBindingSet(bindingDesc, bindingLayout);
+                }
 
                 nvrhi::ComputeState state;
                 state.pipeline = pipeline;
                 state.bindings = { bindingSet };
                 commandList->setComputeState(state);
-                commandList->setPushConstants(&counter, sizeof(counter));
+                {
+                    std::lock_guard lock(pushConstantsMutex);
+                    if (pushConstants.empty())
+                        commandList->setPushConstants(&counter, sizeof(counter));
+                    else
+                        commandList->setPushConstants(pushConstants.data(), pushConstants.size());
+                }
                 commandList->dispatch(groupsX, groupsY);
 
                 commandList->close();
@@ -894,6 +918,7 @@ namespace
                 computeToRender.Push(std::move(texture), textureLastUse);
 
                 counter++;
+                runCount++;
                 std::this_thread::sleep_until(nextTimePoint);
             }
         }
@@ -1376,6 +1401,8 @@ namespace
         // SV_ClipDistance and SV_CullDistance.
         features.shaderClipDistance = available.shaderClipDistance;
         features.shaderCullDistance = available.shaderCullDistance;
+        // Several viewports per draw (SV_ViewportArrayIndex from geometry shaders).
+        features.multiViewport = available.multiViewport;
         info.pEnabledFeatures = &features;
 
         result.support = (features.multiDrawIndirect ? IndirectDraw_MultiDraw : 0)
@@ -1416,6 +1443,23 @@ namespace
             result.native16Bit = features.shaderInt16 && features12->shaderFloat16 && features11->storageBuffer16BitAccess;
             result.native16BitConstants = result.native16Bit && features11->uniformAndStorageBuffer16BitAccess
                 && features11->storagePushConstant16;
+        }
+
+        // Out-of-bounds image accesses as on D3D (reads return zero, writes are dropped), for
+        // shaders written against D3D's rules (the ATG samples' SSAO dispatches past the edges):
+        // Vulkan 1.3's robustImageAccess, in the 1.3 features Donut chains.
+        for (auto* next = static_cast<const VkBaseInStructure*>(info.pNext); next; next = next->pNext)
+        {
+            if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES)
+            {
+                VkPhysicalDeviceVulkan13Features available13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available13;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                reinterpret_cast<VkPhysicalDeviceVulkan13Features*>(const_cast<VkBaseInStructure*>(next))->robustImageAccess =
+                    available13.robustImageAccess;
+            }
         }
 
         // Donut chains the interlock and barycentric features itself with their extensions, the
@@ -3067,6 +3111,22 @@ extern "C"
             nvrhi::ResourceStates::VertexBuffer | nvrhi::ResourceStates::ShaderResource, data, byteSize);
     }
 
+    // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
+    // ByteAddressBuffer and acceleration structure builds take as input: one copy of a mesh for
+    // rasterization and ray tracing.
+    void* Donut_CreateStaticGeometryBuffer(void* app, void* commandList, const void* data, int byteSize, int isIndexBuffer,
+        const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc().setCanHaveRawViews(true).setIsAccelStructBuildInput(true).setDebugName(debugName);
+        if (isIndexBuffer)
+            desc.setIsIndexBuffer(true);
+        else
+            desc.setIsVertexBuffer(true);
+        const nvrhi::ResourceStates state = (isIndexBuffer ? nvrhi::ResourceStates::IndexBuffer : nvrhi::ResourceStates::VertexBuffer)
+            | nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput;
+        return CreateStaticBuffer(AsApp(app), AsCommandList(commandList), desc, state, data, byteSize);
+    }
+
     // Same, for an index buffer.
     void* Donut_CreateStaticIndexBuffer(void* app, void* commandList, const void* data, int byteSize, const char* debugName)
     {
@@ -3514,6 +3574,22 @@ extern "C"
         return a->Own(a->device()->createSampler(desc));
     }
 
+    // A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero)
+    // or point filtering when minifying, magnifying and between levels, every level.
+    void* Donut_CreateBorderSampler(void* app, int linearMin, int linearMag, int linearMip, double r, double g,
+        double b, double a)
+    {
+        auto desc = nvrhi::SamplerDesc()
+            .setMinFilter(linearMin != 0)
+            .setMagFilter(linearMag != 0)
+            .setMipFilter(linearMip != 0)
+            .setAllAddressModes(nvrhi::SamplerAddressMode::Border)
+            .setBorderColor(nvrhi::Color(float(r), float(g), float(b), float(a)));
+
+        App* owner = AsApp(app);
+        return owner->Own(owner->device()->createSampler(desc));
+    }
+
     // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy where the
     // device has samplerAnisotropy (1 without), 16 on D3D.
     double Donut_GetMaxSamplerAnisotropy(void* app)
@@ -3917,6 +3993,24 @@ extern "C"
             .setFormat(static_cast<nvrhi::Format>(format))
             .setWidth(static_cast<uint32_t>(width))
             .setHeight(static_cast<uint32_t>(height))
+            .setIsUAV(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::UnorderedAccess)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read).
+    void* Donut_CreateUAVTextureArray(void* app, int width, int height, int arraySize, int format, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setDimension(nvrhi::TextureDimension::Texture2DArray)
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setArraySize(static_cast<uint32_t>(arraySize))
             .setIsUAV(true)
             .setDebugName(debugName)
             .setInitialState(nvrhi::ResourceStates::UnorderedAccess)
@@ -4597,6 +4691,37 @@ extern "C"
         static_cast<AsyncComputeLoop*>(asyncComputeLoop)->renderToCompute.Push(static_cast<nvrhi::ITexture*>(texture), 0);
     }
 
+    // Same, with the binding set (from the loop's binding layout) to run the compute pipeline with
+    // when writing it: the texture's UAV at u0, the push constants at b0, and anything else the
+    // shader reads (e.g. a color map), instead of the loop's own set of the first two.
+    void Donut_AddAsyncComputeTextureWithBindingSet(void* asyncComputeLoop, void* texture, void* bindingSet)
+    {
+        auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
+        loop->textureBindingSets[static_cast<nvrhi::ITexture*>(texture)] = static_cast<nvrhi::IBindingSet*>(bindingSet);
+        loop->renderToCompute.Push(static_cast<nvrhi::ITexture*>(texture), 0);
+    }
+
+    // The push constants of the runs from now on (byteSize bytes from data, copied during the call;
+    // the binding layout's push constants must be that size), instead of the run index.
+    void Donut_SetAsyncComputePushConstants(void* asyncComputeLoop, const void* data, int byteSize)
+    {
+        auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
+        std::lock_guard lock(loop->pushConstantsMutex);
+        loop->pushConstants.assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + byteSize);
+    }
+
+    // Non-zero: the worker starts no more runs until resumed (the run under way finishes).
+    void Donut_SetAsyncComputeLoopPaused(void* asyncComputeLoop, int paused)
+    {
+        static_cast<AsyncComputeLoop*>(asyncComputeLoop)->paused = paused != 0;
+    }
+
+    // Runs the worker has submitted so far.
+    int Donut_GetAsyncComputeRunCount(void* asyncComputeLoop)
+    {
+        return static_cast<int>(static_cast<AsyncComputeLoop*>(asyncComputeLoop)->runCount.load());
+    }
+
     void Donut_StartAsyncComputeLoop(void* asyncComputeLoop)
     {
         auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
@@ -5208,6 +5333,20 @@ extern "C"
             position.x -= ImGui::CalcTextSize(text).x;
         ImGui::GetBackgroundDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(), position,
             ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))), text);
+    }
+
+    // A filled rectangle from (x0, y0) to (x1, y1) in UI coordinates, behind the windows and over
+    // what was drawn behind them before (e.g. a box under Donut_ImGuiDrawText's text).
+    void Donut_ImGuiDrawRect(double x0, double y0, double x1, double y1, double r, double g, double b, double a)
+    {
+        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(float(x0), float(y0)), ImVec2(float(x1), float(y1)),
+            ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))));
+    }
+
+    // The width of a line of text in the current font, in UI coordinates.
+    double Donut_ImGuiCalcTextWidth(const char* text)
+    {
+        return ImGui::CalcTextSize(text).x;
     }
 
     // A borderless window covering the screen, e.g. for a loading message; pair with
@@ -9009,6 +9148,14 @@ extern "C"
     {
         const nvrhi::Viewport viewport(float(left), float(left + width), float(top), float(top + height), 0.f, 1.f);
         AsFrame(frame)->draw.viewport = nvrhi::ViewportState().addViewportAndScissorRect(viewport);
+    }
+
+    // One more viewport (with its scissor rectangle) for the draw, after those set or added before:
+    // geometry shaders pick one per primitive (SV_ViewportArrayIndex).
+    void Donut_DrawAddViewport(void* frame, double left, double top, double width, double height)
+    {
+        const nvrhi::Viewport viewport(float(left), float(left + width), float(top), float(top + height), 0.f, 1.f);
+        AsFrame(frame)->draw.viewport.addViewportAndScissorRect(viewport);
     }
 
     void Donut_DrawIndexed(void* frame, int indexCount)

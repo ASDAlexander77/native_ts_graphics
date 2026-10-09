@@ -2167,6 +2167,136 @@ if (WIN32)
     endif()
 endif()
 
+# Copies files of the Xbox-ATG-Samples checkout (XBOX_ATG_SAMPLES_DIR; paths relative to it) into
+# media/<dir> for an example, if the checkout is set; "path|name" copies the file under another name.
+function(add_atg_media target dir)
+    if (NOT XBOX_ATG_SAMPLES_DIR)
+        return()
+    endif()
+    set(outputs)
+    foreach(item ${ARGN})
+        string(REPLACE "|" ";" parts "${item}")
+        list(GET parts 0 file)
+        list(LENGTH parts count)
+        if (count GREATER 1)
+            list(GET parts 1 name)
+        else()
+            get_filename_component(name "${file}" NAME)
+        endif()
+        set(source "${XBOX_ATG_SAMPLES_DIR}/${file}")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/${dir}/${name}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${name}"
+            VERBATIM)
+        list(APPEND outputs "${output}")
+    endforeach()
+    add_custom_target(${target}_media DEPENDS ${outputs})
+    add_dependencies(${target} ${target}_media)
+endfunction()
+
+# Port of the Xbox ATG Bokeh12 sample (XDKSamples/Graphics/Bokeh12): depth of field by point sprites,
+# a sprite per pixel of a quarter-resolution copy of the scene, its size the circle of confusion,
+# expanded by a geometry shader into near and far layers of three resolutions (viewports of one
+# target, SV_ViewportArrayIndex), recombined with the in-focus scene. The scene is the sample's
+# SDKMESH models (core/sdkmesh.cpp) from XBOX_ATG_SAMPLES_DIR; the text's font is
+# DONUT_SAMPLES_MEDIA_DIR's.
+donut_compile_shaders_all_platforms(
+    TARGET bokeh_shaders
+    PROJECT_NAME "Bokeh"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bokeh.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bokeh.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bokeh_energy.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bokeh_scene.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bokeh
+)
+add_tslang_example(bokeh core/sdkmesh.cpp MEDIA fonts bokeh)
+add_atg_media(bokeh bokeh
+    Media/Meshes/MicroscopeCity/scanner.sdkmesh
+    Media/Meshes/MicroscopeCity/occcity.sdkmesh
+    Media/Meshes/MicroscopeCity/column.sdkmesh
+    Media/Meshes/MicroscopeCity/scanner.dds
+    Media/Meshes/MicroscopeCity/city.dds
+    Media/Meshes/MicroscopeCity/column.dds
+    XDKSamples/Graphics/Bokeh12/Assets/irishexa32.dds)
+
+# Port of the Xbox ATG RaytracingAO_PC12 sample (PCSamples/Raytracing/RaytracingAO_PC12): ambient
+# occlusion by ray tracing (DXR: primary rays, then a hemisphere of AO rays at each hit) beside
+# MiniEngine's screen-space AO (a G-buffer, depth and normals downsampled and deinterleaved,
+# SSAO at four resolutions, blurred and upsampled), split screen or one at a time, on the
+# sample's SDKMESH dragon and maze (core/sdkmesh.cpp) from XBOX_ATG_SAMPLES_DIR; the text's font is
+# DONUT_SAMPLES_MEDIA_DIR's. Ray tracing needs D3D12 or Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET raytracing_ao_shaders
+    PROJECT_NAME "Raytracing AO"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao_gbuffer.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao_ssao_prepare1.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao_ssao_prepare2.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao_ssao_render.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao_ssao_blur.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_ao_ssao_composite.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_ao/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_ao/spirv
+)
+add_tslang_example(raytracing_ao core/sdkmesh.cpp MEDIA fonts raytracing_ao)
+add_atg_media(raytracing_ao raytracing_ao
+    Media/Meshes/Dragon/Dragon.sdkmesh
+    Media/Meshes/Dragon/Dragon_Normal.dds
+    Media/Meshes/Maze/Maze1.sdkmesh)
+
+# Port of the Xbox ATG SimplePBR12_UWP sample (UWPSamples/Graphics/SimplePBR12_UWP): physically based
+# rendering (ATGTK's PBREffect: Disney-style, image based lighting from radiance and irradiance cube
+# maps) of a toy robot, blocks and a floor (SDKMESH, core/sdkmesh.cpp) with albedo, normal and
+# roughness / metallic / ambient occlusion textures, under a sky box, into an HDR scene tone mapped
+# (ACES filmic) or sent as HDR10 when the display is in HDR mode; an orbit camera on the mouse and
+# keys. Its assets are XBOX_ATG_SAMPLES_DIR's, the text's font DONUT_SAMPLES_MEDIA_DIR's.
+donut_compile_shaders_all_platforms(
+    TARGET simple_pbr_shaders
+    PROJECT_NAME "Simple PBR"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_pbr.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_pbr.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_pbr_sky.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_pbr_tonemap.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_pbr
+)
+add_tslang_example(simple_pbr core/sdkmesh.cpp MEDIA fonts simple_pbr)
+add_atg_media(simple_pbr simple_pbr
+    Media/PBR/ToyRobot/Floor/Floor.sdkmesh
+    Media/PBR/ToyRobot/Floor/Floor_BaseColor.dds
+    "Media/PBR/ToyRobot/Floor/Floor_Normal.DDS|Floor_Normal.dds"
+    "Media/PBR/ToyRobot/Floor/Floor_RMA.DDS|Floor_RMA.dds"
+    Media/PBR/ToyRobot/ToyRobot/ToyRobot.sdkmesh
+    Media/PBR/ToyRobot/ToyRobot/ToyRobot_BaseColor.dds
+    "Media/PBR/ToyRobot/ToyRobot/Toyrobot_Normal.DDS|ToyRobot_Normal.dds"
+    "Media/PBR/ToyRobot/ToyRobot/Toyrobot_RMA.DDS|ToyRobot_RMA.dds"
+    Media/PBR/ToyRobot/WoodBlocks/WoodBlocks.sdkmesh
+    Media/PBR/ToyRobot/WoodBlocks/WoodBlocks_BaseColor.dds
+    "Media/PBR/ToyRobot/WoodBlocks/WoodBlocks_Normal.DDS|WoodBlocks_Normal.dds"
+    "Media/PBR/ToyRobot/WoodBlocks/WoodBlocks_RMA.DDS|WoodBlocks_RMA.dds"
+    Media/HDR/Stonewall_Ref_radiance.dds
+    Media/HDR/Stonewall_Ref_irradiance.dds)
+
+# Port of the Xbox ATG SimpleComputePC12 sample (PCSamples/IntroGraphics/SimpleComputePC12): a
+# Mandelbrot fractal drawn by a compute shader, synchronously in the frame's command list or
+# asynchronously on the compute queue by a worker thread (Donut_CreateAsyncComputeLoop), panned and
+# zoomed with the keyboard. Async compute needs a compute queue (D3D12, Vulkan); D3D11 runs only
+# the synchronous path. The text's font is DONUT_SAMPLES_MEDIA_DIR's.
+donut_compile_shaders_all_platforms(
+    TARGET simple_compute_shaders
+    PROJECT_NAME "Simple Compute"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_compute.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_compute.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_compute
+)
+add_tslang_example(simple_compute MEDIA fonts)
+
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
 # triangles and a plane, two rotating, ray traced with per-instance colors and shadow rays; the
 # top-level acceleration structure refitted in place every frame. Needs D3D12 or Vulkan.
