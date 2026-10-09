@@ -110,4 +110,6 @@ declare global {
     var MeshPipelineStatistics: typeof Donut.MeshPipelineStatistics;
     type PredicationBuffer = Donut.PredicationBuffer;
     var PredicationBuffer: typeof Donut.PredicationBuffer;
+    type BinaryFile = Donut.BinaryFile;
+    var BinaryFile: typeof Donut.BinaryFile;
 }

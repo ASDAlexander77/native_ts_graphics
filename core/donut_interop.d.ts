@@ -147,7 +147,30 @@ enum BlendMode {
     // Color SrcAlpha + InvSrcAlpha, alpha InvSrcAlpha + Zero.
     AlphaBlend = 2,
     // Color SrcAlpha + InvSrcAlpha, alpha One + InvSrcAlpha ("over").
-    AlphaOver = 3
+    AlphaOver = 3,
+    // Premultiplied alpha: color and alpha One + InvSrcAlpha.
+    Premultiplied = 4
+}
+
+// Logic operations between a pixel shader's output (s) and the target's bits (d)
+// (Donut_GraphicsPipelineSetLogicOp): nvrhi::LogicOp, in Vulkan's order.
+enum LogicOp {
+    Clear = 0, // 0
+    And = 1, // s & d
+    AndReverse = 2, // s & ~d
+    Copy = 3, // s
+    AndInverted = 4, // ~s & d
+    NoOp = 5, // d
+    Xor = 6, // s ^ d
+    Or = 7, // s | d
+    Nor = 8, // ~(s | d)
+    Equivalent = 9, // ~(s ^ d)
+    Invert = 10, // ~d
+    OrReverse = 11, // s | ~d
+    CopyInverted = 12, // ~s
+    OrInverted = 13, // ~s | d
+    Nand = 14, // ~(s & d)
+    Set = 15 // all ones
 }
 
 // nvrhi::ColorMask bits: the channels a pipeline writes (Donut_GraphicsPipelineSetColorWriteMask).
@@ -216,6 +239,23 @@ enum IndirectDrawSupport {
 // are created with multiDrawIndirect, drawIndirectFirstInstance and
 // shaderSampledImageArrayDynamicIndexing when the GPU has them.
 declare function Donut_GetIndirectDrawSupport(app: Opaque): IndirectDrawSupport;
+// Donut_GetShaderExecutionReordering's values.
+enum ShaderExecutionReordering {
+    None = 0,
+    // Hit objects; reordering may be a no-op (D3D12 doesn't say).
+    HitObjects = 1,
+    // Hit objects, and the GPU says it reorders.
+    Reorders = 2
+}
+// Bits of Donut_GetComputeShaderDerivatives: how compute shaders can take derivatives (ddx, ddy,
+// implicit-LOD samples; shader model 6.6).
+enum ComputeDerivatives {
+    // In quads of 2 x 2 threads: thread groups of an even width and height (DXC's SPIR-V for them
+    // uses DerivativeGroupQuads).
+    Quads = 1,
+    // In 4 consecutive threads: one-dimensional thread groups (DerivativeGroupLinear).
+    Linear = 2
+}
 // Non-zero if pixel shaders can write to UAVs and do atomics on them (Vulkan devices are created
 // with fragmentStoresAndAtomics when the GPU has it; D3D11 and D3D12 always can).
 declare function Donut_HasFragmentStoresAndAtomics(app: Opaque): int;
@@ -230,6 +270,29 @@ declare function Donut_HasConditionalRendering(app: Opaque): int;
 // accesses from overlapping pixels happen in primitive order. D3D11/D3D12 with ROVsSupported,
 // Vulkan with fragment shader pixel interlock.
 declare function Donut_HasRasterizerOrderedViews(app: Opaque): int;
+// Non-zero if pixel shaders can read their barycentrics (SV_Barycentrics) and the triangle's vertex
+// attributes (GetAttributeAtVertex): D3D12 with BarycentricsSupported, Vulkan with
+// VK_KHR_fragment_shader_barycentric.
+declare function Donut_HasBarycentrics(app: Opaque): int;
+// Non-zero if shaders can compute with native 16-bit types (float16_t, int16_t, uint16_t) and read
+// them from structured buffers: D3D12 with Native16BitShaderOpsSupported, Vulkan with shaderFloat16,
+// shaderInt16 and storageBuffer16BitAccess.
+declare function Donut_HasNative16BitShaderOps(app: Opaque): int;
+// Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
+// D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
+declare function Donut_HasLogicOps(app: Opaque): int;
+// ComputeDerivatives bits: whether compute shaders can take derivatives (ddx, ddy, implicit-LOD
+// samples; shader model 6.6) in quads of 2 x 2 threads (2D thread groups) or in 4 consecutive
+// threads (1D thread groups). D3D12 with shader model 6.6, Vulkan with
+// VK_KHR_compute_shader_derivatives.
+declare function Donut_GetComputeShaderDerivatives(app: Opaque): ComputeDerivatives;
+// Whether ray generation shaders can trace rays into hit objects, reorder their threads by them
+// (MaybeReorderThread) and invoke their hit or miss shaders: D3D12 with shader model 6.9 and
+// raytracing tier 1.2, Vulkan with VK_NV_ray_tracing_invocation_reorder (AppOptions.RayTracing).
+declare function Donut_GetShaderExecutionReordering(app: Opaque): ShaderExecutionReordering;
+// Non-zero if push constants and constant buffers can hold 16-bit values as well (Vulkan's
+// storagePushConstant16 and uniformAndStorageBuffer16BitAccess).
+declare function Donut_HasNative16BitConstants(app: Opaque): int;
 // A barrier between the draws or dispatches before and after that write and read a UAV texture
 // (NVRHI only places one where the texture is bound anew).
 declare function Donut_UavBarrier(commandList: Opaque, texture: Opaque): void;
@@ -257,6 +320,7 @@ declare function Donut_CloseWindow(app: Opaque): void;
 
 // nvrhi::Format values (only the ones used so far).
 enum Format {
+    RGBA8_UINT = 17,
     RGBA8_UNORM = 19,
     SRGBA8_UNORM = 23,
     R32_UINT = 33,
@@ -350,6 +414,11 @@ declare function Donut_CreateUAVTexture(app: Opaque, width: int, height: int, de
 // Render target that shaders can also read (resting at ShaderResource). A depth format (D32)
 // makes a depth buffer, cleared to 1 by default, read by shaders as Texture2D<float>.
 declare function Donut_CreateRenderTargetTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+// Same, typeless: framebuffers can see it in other formats of its family
+// (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
+// without sRGB encoding) or RGBA8_UINT (logic operations, which D3D12 has on UINT targets only);
+// shaders read it in `format`.
+declare function Donut_CreateTypelessRenderTargetTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
 // Depth buffer (a depth format) whose clears to clearDepth are fast (e.g. 0 for reversed depth),
 // read by shaders as Texture2D<float>; resting at ShaderResource.
 declare function Donut_CreateDepthTexture(app: Opaque, width: int, height: int, format: Format, clearDepth: number, debugName: string): Opaque;
@@ -363,6 +432,9 @@ declare function Donut_CreateComputeTexture(app: Opaque, width: int, height: int
 declare function Donut_CreateUAVTextureWithFormat(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
 // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
 declare function Donut_CreateFramebuffer(app: Opaque, colorTexture: Opaque, depthTexture: Opaque | null): Opaque;
+// Same, the color target seen in colorFormat (a format of its family, for a typeless texture:
+// Donut_CreateTypelessRenderTargetTexture).
+declare function Donut_CreateFramebufferWithColorFormat(app: Opaque, colorTexture: Opaque, colorFormat: Format, depthTexture: Opaque | null): Opaque;
 // A depth target alone (e.g. a shadow map).
 declare function Donut_CreateDepthFramebuffer(app: Opaque, depthTexture: Opaque): Opaque;
 // Same, with two color targets (SV_Target0 and SV_Target1).
@@ -424,12 +496,18 @@ declare function Donut_GraphicsPipelineSetDepthState(graphicsPipelineDesc: Opaqu
     depthFunc: ComparisonFunc): void;
 declare function Donut_GraphicsPipelineSetRasterState(graphicsPipelineDesc: Opaque, cullMode: CullMode, fillMode: FillMode,
     frontCounterClockwise: int): void;
+// Primitives clipped at the near and far planes (as Vulkan by default), or not (the default here:
+// on D3D what lies beyond them is drawn, its depth clamped).
+declare function Donut_GraphicsPipelineSetDepthClip(graphicsPipelineDesc: Opaque, enable: int): void;
 // depthBias units of the depth format's resolution plus slopeScaledDepthBias times the depth
 // slope, clamped to depthBiasClamp in magnitude (0: no clamp).
 declare function Donut_GraphicsPipelineSetDepthBias(graphicsPipelineDesc: Opaque, depthBias: int, depthBiasClamp: number,
     slopeScaledDepthBias: number): void;
 // Blending of every color target.
 declare function Donut_GraphicsPipelineSetBlendMode(graphicsPipelineDesc: Opaque, blendMode: BlendMode): void;
+// A logic operation between the pixel shader's output and the targets' bits instead of blending
+// (requires Donut_HasLogicOps; UINT and UNORM targets).
+declare function Donut_GraphicsPipelineSetLogicOp(graphicsPipelineDesc: Opaque, enable: int, logicOp: LogicOp): void;
 // Conservative rasterization (requires Feature.ConservativeRasterization): every pixel a triangle
 // touches is drawn; extraOverestimation enlarges triangles further, in pixels, on Vulkan only
 // (clamped to the device's maximum).
@@ -446,6 +524,8 @@ declare function Donut_CreateMeshletPipelineFromDesc(app: Opaque, graphicsPipeli
 declare function Donut_CreateMeshletPipelineFromDescForFrame(app: Opaque, graphicsPipelineDesc: Opaque, frame: Opaque): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
 declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+// A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
+declare function Donut_CreateDynamicVertexBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
 declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
 // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
 declare function Donut_CreateStaticRawVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
@@ -473,11 +553,22 @@ declare function Donut_GetGltfMeshIndexCount(gltfMesh: Opaque): int;
 // vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms ignored), int indices,
 // and the base color image's URI ("" if none). Kept on the CPU. Null (after logging why) on failure.
 declare function Donut_LoadGltfModel(app: Opaque, path: string): Opaque;
+// A file read whole (path relative to the executable's directory), for TypeScript to parse: its
+// size, and bytes [offset, offset + count) into dst, an int (0..255) each (0 past the end).
+declare function Donut_LoadBinaryFile(app: Opaque, path: string): Opaque;
+declare function Donut_GetBinaryFileSize(binaryFile: Opaque): int;
+declare function Donut_CopyBinaryFileBytes(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
 declare function Donut_GetGltfModelPrimitiveCount(gltfModel: Opaque): int;
 declare function Donut_GetGltfModelVertexCount(gltfModel: Opaque, primitive: int): int;
 declare function Donut_GetGltfModelIndexCount(gltfModel: Opaque, primitive: int): int;
 // Into dst: Ref(arr[0]) of a `let` f32 array of 8 x the vertex count / int array of the index count.
 declare function Donut_CopyGltfModelVertices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
+// A primitive's vertex attribute by its name in the file ("COLOR_0",
+// "KHR_gaussian_splatting:ROTATION"...): its elements (0 if none), floats per element, and the
+// floats themselves (normalized integers converted; count * components into dst).
+declare function Donut_GetGltfModelAttributeCount(gltfModel: Opaque, primitive: int, name: string): int;
+declare function Donut_GetGltfModelAttributeComponents(gltfModel: Opaque, primitive: int, name: string): int;
+declare function Donut_CopyGltfModelAttribute(gltfModel: Opaque, primitive: int, name: string, dst: Opaque): void;
 declare function Donut_CopyGltfModelIndices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
 declare function Donut_GetGltfModelBaseColorImage(gltfModel: Opaque, primitive: int): string;
 // The name of the primitive's mesh ("" if none).
@@ -764,6 +855,9 @@ declare function Donut_ImGuiDragFloat3(label: string, values: Opaque, speed: num
 declare function Donut_ImGuiSetNextWindowPosPivot(x: number, y: number, pivotX: number, pivotY: number): void;
 // Value in, new value out.
 declare function Donut_ImGuiSliderFloat(label: string, value: number, min: number, max: number): number;
+// Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space, Escape); after
+// Donut_AddImGuiPass. ImGui then takes the keyboard while one of its windows has the focus.
+declare function Donut_ImGuiSetKeyboardNavigation(enable: int): void;
 // Value in, new value out.
 declare function Donut_ImGuiSliderInt(label: string, value: int, min: int, max: int): int;
 // Value in, new value out: edited by dragging (speed per pixel), clamped to min .. max.
@@ -939,6 +1033,10 @@ declare function Donut_AddTopLevelASInstance(sceneAccelStructs: Opaque, bottomLe
 // (1 = no triangle culling).
 declare function Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int,
     instanceID: int, flags: int, transform: Opaque): void;
+// Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex): which of
+// the shader table's hit groups its hits run.
+declare function Donut_AddTopLevelASInstanceWithHitGroup(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int,
+    instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void;
 // Valid only inside a render callback.
 declare function Donut_BuildTopLevelAS(frame: Opaque, sceneAccelStructs: Opaque): void;
 

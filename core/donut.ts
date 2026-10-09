@@ -109,6 +109,47 @@ export class App {
         return Donut_HasRasterizerOrderedViews(this.handle);
     }
 
+    // Non-zero if pixel shaders can read their barycentrics (SV_Barycentrics) and the triangle's vertex
+    // attributes (GetAttributeAtVertex): D3D12 with BarycentricsSupported, Vulkan with
+    // VK_KHR_fragment_shader_barycentric.
+    hasBarycentrics(): int {
+        return Donut_HasBarycentrics(this.handle);
+    }
+
+    // Non-zero if shaders can compute with native 16-bit types (float16_t, int16_t, uint16_t) and read
+    // them from structured buffers: D3D12 with Native16BitShaderOpsSupported, Vulkan with shaderFloat16,
+    // shaderInt16 and storageBuffer16BitAccess.
+    hasNative16BitShaderOps(): int {
+        return Donut_HasNative16BitShaderOps(this.handle);
+    }
+
+    // Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
+    // D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
+    hasLogicOps(): int {
+        return Donut_HasLogicOps(this.handle);
+    }
+
+    // ComputeDerivatives bits: whether compute shaders can take derivatives (ddx, ddy, implicit-LOD
+    // samples; shader model 6.6) in quads of 2 x 2 threads (2D thread groups) or in 4 consecutive
+    // threads (1D thread groups). D3D12 with shader model 6.6, Vulkan with
+    // VK_KHR_compute_shader_derivatives.
+    getComputeShaderDerivatives(): ComputeDerivatives {
+        return Donut_GetComputeShaderDerivatives(this.handle);
+    }
+
+    // Whether ray generation shaders can trace rays into hit objects, reorder their threads by them
+    // (MaybeReorderThread) and invoke their hit or miss shaders: D3D12 with shader model 6.9 and
+    // raytracing tier 1.2, Vulkan with VK_NV_ray_tracing_invocation_reorder (AppOptions.RayTracing).
+    getShaderExecutionReordering(): ShaderExecutionReordering {
+        return Donut_GetShaderExecutionReordering(this.handle);
+    }
+
+    // Non-zero if push constants and constant buffers can hold 16-bit values as well (Vulkan's
+    // storagePushConstant16 and uniformAndStorageBuffer16BitAccess).
+    hasNative16BitConstants(): int {
+        return Donut_HasNative16BitConstants(this.handle);
+    }
+
     // Vulkan's conservative rasterization properties into dst (Ref of a `let` f32 array of 9):
     // primitiveOverestimationSize, maxExtraPrimitiveOverestimationSize,
     // extraPrimitiveOverestimationSizeGranularity, then 1 or 0 for primitiveUnderestimation,
@@ -267,6 +308,14 @@ export class App {
         return Donut_CreateRenderTargetTexture(this.handle, width, height, format, debugName);
     }
 
+    // Same, typeless: framebuffers can see it in other formats of its family
+    // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
+    // without sRGB encoding) or RGBA8_UINT (logic operations, which D3D12 has on UINT targets only);
+    // shaders read it in `format`.
+    createTypelessRenderTargetTexture(width: int, height: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateTypelessRenderTargetTexture(this.handle, width, height, format, debugName);
+    }
+
     // Depth buffer (a depth format) whose clears to clearDepth are fast (e.g. 0 for reversed depth),
     // read by shaders as Texture2D<float>; resting at ShaderResource.
     createDepthTexture(width: int, height: int, format: Format, clearDepth: number, debugName: string): Opaque {
@@ -293,6 +342,12 @@ export class App {
     // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
     createFramebuffer(colorTexture: Opaque, depthTexture: Opaque | null): Opaque {
         return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
+    }
+
+    // Same, the color target seen in colorFormat (a format of its family, for a typeless texture:
+    // Donut_CreateTypelessRenderTargetTexture).
+    createFramebufferWithColorFormat(colorTexture: Opaque, colorFormat: Format, depthTexture: Opaque | null): Opaque {
+        return Donut_CreateFramebufferWithColorFormat(this.handle, colorTexture, colorFormat, depthTexture);
     }
 
     // A depth target alone (e.g. a shadow map).
@@ -372,6 +427,11 @@ export class App {
         return Donut_CreateStaticVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
     }
 
+    // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
+    createDynamicVertexBuffer(byteSize: int, debugName: string): Opaque {
+        return Donut_CreateDynamicVertexBuffer(this.handle, byteSize, debugName);
+    }
+
     createStaticIndexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
         return Donut_CreateStaticIndexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
     }
@@ -403,6 +463,12 @@ export class App {
     // (after logging why) on failure.
     loadGltfModel(path: string): GltfModel {
         return new GltfModel(Donut_LoadGltfModel(this.handle, path));
+    }
+
+    // A file read whole (path relative to the executable's directory), for TypeScript to parse: its
+    // size, and bytes [offset, offset + count) into dst, an int (0..255) each (0 past the end).
+    loadBinaryFile(path: string): BinaryFile {
+        return new BinaryFile(Donut_LoadBinaryFile(this.handle, path));
     }
 
     // Image file, path relative to the executable's directory, uploaded by an open command list.
@@ -1942,6 +2008,12 @@ export class GraphicsPipelineDesc {
         Donut_GraphicsPipelineSetRasterState(this.handle, cullMode, fillMode, frontCounterClockwise);
     }
 
+    // Primitives clipped at the near and far planes (as Vulkan by default), or not (the default here:
+    // on D3D what lies beyond them is drawn, its depth clamped).
+    setDepthClip(enable: int): void {
+        Donut_GraphicsPipelineSetDepthClip(this.handle, enable);
+    }
+
     // depthBias units of the depth format's resolution plus slopeScaledDepthBias times the depth
     // slope, clamped to depthBiasClamp in magnitude (0: no clamp).
     setDepthBias(depthBias: int, depthBiasClamp: number, slopeScaledDepthBias: number): void {
@@ -1951,6 +2023,12 @@ export class GraphicsPipelineDesc {
     // Blending of every color target.
     setBlendMode(blendMode: BlendMode): void {
         Donut_GraphicsPipelineSetBlendMode(this.handle, blendMode);
+    }
+
+    // A logic operation between the pixel shader's output and the targets' bits instead of blending
+    // (requires Donut_HasLogicOps; UINT and UNORM targets).
+    setLogicOp(enable: int, logicOp: LogicOp): void {
+        Donut_GraphicsPipelineSetLogicOp(this.handle, enable, logicOp);
     }
 
     // Conservative rasterization (requires Feature.ConservativeRasterization): every pixel a triangle
@@ -2430,6 +2508,12 @@ export class SceneAccelStructs {
     // (1 = no triangle culling).
     addInstanceWithTransform(bottomLevelAS: Opaque, instanceMask: int, instanceID: int, flags: int, transform: Opaque): void {
         Donut_AddTopLevelASInstanceWithTransform(this.handle, bottomLevelAS, instanceMask, instanceID, flags, transform);
+    }
+
+    // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex): which of
+    // the shader table's hit groups its hits run.
+    addInstanceWithHitGroup(bottomLevelAS: Opaque, instanceMask: int, instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void {
+        Donut_AddTopLevelASInstanceWithHitGroup(this.handle, bottomLevelAS, instanceMask, instanceID, hitGroupIndex, flags, transform);
     }
 }
 
@@ -3013,6 +3097,21 @@ export class GltfModel {
         Donut_CopyGltfModelVertices(this.handle, primitive, dst);
     }
 
+    // A primitive's vertex attribute by its name in the file ("COLOR_0",
+    // "KHR_gaussian_splatting:ROTATION"...): its elements (0 if none), floats per element, and the
+    // floats themselves (normalized integers converted; count * components into dst).
+    getAttributeCount(primitive: int, name: string): int {
+        return Donut_GetGltfModelAttributeCount(this.handle, primitive, name);
+    }
+
+    getAttributeComponents(primitive: int, name: string): int {
+        return Donut_GetGltfModelAttributeComponents(this.handle, primitive, name);
+    }
+
+    copyAttribute(primitive: int, name: string, dst: Opaque): void {
+        Donut_CopyGltfModelAttribute(this.handle, primitive, name, dst);
+    }
+
     copyIndices(primitive: int, dst: Opaque): void {
         Donut_CopyGltfModelIndices(this.handle, primitive, dst);
     }
@@ -3133,5 +3232,26 @@ export class PredicationBuffer {
 
     setValue(index: int, value: int): void {
         Donut_SetPredicationValue(this.handle, index, value);
+    }
+}
+
+export class BinaryFile {
+    readonly handle: Opaque;
+
+    constructor(handle: Opaque | null) {
+        this.handle = handle as Opaque;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    getSize(): int {
+        return Donut_GetBinaryFileSize(this.handle);
+    }
+
+    copyBytes(offset: int, count: int, dst: Opaque): void {
+        Donut_CopyBinaryFileBytes(this.handle, offset, count, dst);
     }
 }

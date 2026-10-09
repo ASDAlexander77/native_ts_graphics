@@ -142,6 +142,9 @@ set(DONUT_NVRHI_PATCHES
     # RasterState::conservativeRasterExtraOverestimation, Vulkan's extraPrimitiveOverestimationSize
     # (conservative_rasterization).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-conservative-extra-overestimation.patch"
+    # BlendState::logicOpEnable and logicOp: logic operations instead of blending, on D3D11 (11.1's
+    # blend state), D3D12 and Vulkan (logic_op_dynamic_state).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-logic-op.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -1066,6 +1069,195 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     list(APPEND roaa_media "${output}")
     add_custom_target(rasterization_order_attachment_access_media DEPENDS ${roaa_media})
     add_dependencies(rasterization_order_attachment_access rasterization_order_attachment_access_media)
+endif()
+
+# Port of Vulkan-Samples' fragment_shader_barycentric: a cube in front of a skybox, its pixel shader
+# reading its barycentrics and the triangle's vertex colors (SV_Barycentrics, GetAttributeAtVertex:
+# shader model 6.1, so no DXBC). Its models and textures are Vulkan-Samples' (see
+# VULKAN_SAMPLES_ASSETS_DIR above): the glTF files copied, the KTX textures converted to DDS.
+donut_compile_shaders(
+    TARGET fragment_shader_barycentric_shaders
+    PROJECT_NAME "Fragment Shader Barycentric"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fragment_shader_barycentric.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fragment_shader_barycentric.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shader_barycentric/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shader_barycentric/spirv
+)
+add_tslang_example(fragment_shader_barycentric)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(barycentric_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/fragment_shader_barycentric")
+    set(barycentric_media "")
+    foreach(texture uffizi_rgba16f_cube checkerboard_rgba)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/${texture}.ktx")
+        set(output "${barycentric_output}/${texture}.dds")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+            DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+            COMMENT "Converting ${texture}.ktx to DDS"
+            VERBATIM)
+        list(APPEND barycentric_media "${output}")
+    endforeach()
+    foreach(model cube textured_unit_cube)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${model}.gltf")
+        set(output "${barycentric_output}/${model}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${model}.gltf"
+            VERBATIM)
+        list(APPEND barycentric_media "${output}")
+    endforeach()
+    add_custom_target(fragment_shader_barycentric_media DEPENDS ${barycentric_media})
+    add_dependencies(fragment_shader_barycentric fragment_shader_barycentric_media)
+endif()
+
+# Port of Vulkan-Samples' 16bit_arithmetic: a compute shader rendering blobs in FP32, or in FP16 with
+# native 16-bit types (shader model 6.2: DXIL and SPIR-V only, in a file of their own, so the FP32
+# path runs on D3D11 too).
+donut_compile_shaders_all_platforms(
+    TARGET 16bit_arithmetic_shaders
+    PROJECT_NAME "16-bit Arithmetic"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/16bit_arithmetic.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/16bit_arithmetic.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/16bit_arithmetic
+)
+donut_compile_shaders(
+    TARGET 16bit_arithmetic_fp16_shaders
+    PROJECT_NAME "16-bit Arithmetic (FP16)"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/16bit_arithmetic_fp16.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/16bit_arithmetic_fp16.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/16bit_arithmetic/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/16bit_arithmetic/spirv
+)
+add_tslang_example(16bit_arithmetic)
+add_dependencies(16bit_arithmetic 16bit_arithmetic_fp16_shaders)
+
+# Port of Vulkan-Samples' compute_shader_derivatives: a compute shader taking derivatives of a
+# procedural pattern (shader model 6.6, so no DXBC) to draw its edges.
+donut_compile_shaders(
+    TARGET compute_shader_derivatives_shaders
+    PROJECT_NAME "Compute Shader Derivatives"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_shader_derivatives.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_shader_derivatives.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_shader_derivatives/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_shader_derivatives/spirv
+    SHADER_MODEL 6_6
+)
+add_tslang_example(compute_shader_derivatives)
+
+# Port of Vulkan-Samples' logic_op_dynamic_state: a cube combined with the background by a logic
+# operation picked in the UI (an NVRHI patch adds them, see DONUT_NVRHI_PATCHES above). Its model
+# and cube map are Vulkan-Samples' (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF file copied, the
+# KTX cube map converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET logic_op_dynamic_state_shaders
+    PROJECT_NAME "Logic Operations Dynamic State"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/logic_op_dynamic_state.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/logic_op_dynamic_state.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/logic_op_dynamic_state
+)
+add_tslang_example(logic_op_dynamic_state)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(logic_op_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/logic_op_dynamic_state")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/uffizi_rgba16f_cube.ktx")
+    set(output "${logic_op_output}/uffizi_rgba16f_cube.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting uffizi_rgba16f_cube.ktx to DDS"
+        VERBATIM)
+    set(logic_op_media "${output}")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/cube.gltf")
+    set(output "${logic_op_output}/cube.gltf")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+        DEPENDS "${source}"
+        COMMENT "Copying cube.gltf"
+        VERBATIM)
+    list(APPEND logic_op_media "${output}")
+    add_custom_target(logic_op_dynamic_state_media DEPENDS ${logic_op_media})
+    add_dependencies(logic_op_dynamic_state logic_op_dynamic_state_media)
+endif()
+
+# Port of Vulkan-Samples' oit_depth_peeling: order-independent transparency by depth peeling, up to 8
+# layers combined over a background. Its model and texture are Vulkan-Samples' (see
+# VULKAN_SAMPLES_ASSETS_DIR above): the glTF file copied, the KTX texture converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET oit_depth_peeling_shaders
+    PROJECT_NAME "OIT Depth Peeling"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_depth_peeling.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_depth_peeling.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_depth_peeling
+)
+add_tslang_example(oit_depth_peeling)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(depth_peeling_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/oit_depth_peeling")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/vulkan_logo_full.ktx")
+    set(output "${depth_peeling_output}/vulkan_logo_full.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting vulkan_logo_full.ktx to DDS"
+        VERBATIM)
+    set(depth_peeling_media "${output}")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/torusknot.gltf")
+    set(output "${depth_peeling_output}/torusknot.gltf")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+        DEPENDS "${source}"
+        COMMENT "Copying torusknot.gltf"
+        VERBATIM)
+    list(APPEND depth_peeling_media "${output}")
+    add_custom_target(oit_depth_peeling_media DEPENDS ${depth_peeling_media})
+    add_dependencies(oit_depth_peeling oit_depth_peeling_media)
+endif()
+
+# Port of Vulkan-Samples' render_octomap: a SLAM map as an octomap (instanced voxels), a glTF mesh
+# and Gaussian splats. Its map files are Vulkan-Samples' (see VULKAN_SAMPLES_ASSETS_DIR above),
+# copied.
+donut_compile_shaders_all_platforms(
+    TARGET render_octomap_shaders
+    PROJECT_NAME "Render Octomap"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/render_octomap.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/render_octomap.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/render_octomap
+)
+add_tslang_example(render_octomap)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(octomap_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/octmap_and_splats")
+    file(GLOB octomap_files RELATIVE "${octomap_source}" "${octomap_source}/*.bin" "${octomap_source}/*.gltf")
+    set(octomap_media "")
+    foreach(name ${octomap_files})
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/render_octomap/${name}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${octomap_source}/${name}" "${output}"
+            DEPENDS "${octomap_source}/${name}"
+            COMMENT "Copying ${name}"
+            VERBATIM)
+        list(APPEND octomap_media "${output}")
+    endforeach()
+    add_custom_target(render_octomap_media DEPENDS ${octomap_media})
+    add_dependencies(render_octomap render_octomap_media)
+endif()
+
+# Port of Vulkan-Samples' ray_tracing_invocation_reorder: ray_tracing_extended's scene with shader
+# execution reordering of the primary rays (shader model 6.9's hit objects; Vulkan's
+# SPV_NV_shader_invocation_reorder as inline SPIR-V), and a hit group per material. Ray tracing
+# needs D3D12 or Vulkan, so no DXBC. Its scene and textures are ray_tracing_extended's (see there).
+donut_compile_shaders(
+    TARGET ray_tracing_invocation_reorder_shaders
+    PROJECT_NAME "Ray Tracing Invocation Reorder"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_invocation_reorder.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_invocation_reorder.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_invocation_reorder/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_invocation_reorder/spirv
+)
+add_tslang_example(ray_tracing_invocation_reorder)
+if (TARGET ray_tracing_extended_media)
+    add_dependencies(ray_tracing_invocation_reorder ray_tracing_extended_media)
 endif()
 
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see

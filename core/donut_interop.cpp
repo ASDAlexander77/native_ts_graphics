@@ -88,6 +88,7 @@ using namespace donut::math;
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -261,6 +262,18 @@ namespace
         bool conditionalRendering = false;
         // Whether pixel shaders can use rasterizer ordered views (Donut_HasRasterizerOrderedViews).
         bool rasterizerOrderedViews = false;
+        // Whether pixel shaders can read barycentrics and per-vertex attributes (Donut_HasBarycentrics).
+        bool barycentrics = false;
+        // ComputeDerivatives bits: derivatives in compute shaders (Donut_GetComputeShaderDerivatives).
+        int computeShaderDerivatives = 0;
+        // Whether blend states can do logic operations (Donut_HasLogicOps).
+        bool logicOps = false;
+        // ShaderExecutionReordering value (Donut_GetShaderExecutionReordering).
+        int shaderExecutionReordering = 0;
+        // Whether shaders can compute with 16-bit types and read them from buffers
+        // (Donut_HasNative16BitShaderOps), and from push constants too (Donut_HasNative16BitConstants).
+        bool native16Bit = false;
+        bool native16BitConstants = false;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -1055,8 +1068,9 @@ namespace
 
     // A glTF primitive as the Vulkan-Samples framework reads one: positions, normals and texture
     // coordinates interleaved (8 floats per vertex, zeros for missing attributes), 32-bit
-    // indices. Returns false if it has no positions or indices.
-    bool ReadGltfPrimitive(const cgltf_primitive& primitive, std::vector<float>& vertices, std::vector<uint32_t>& indices)
+    // indices. Returns false if it has no positions, or no indices and requireIndices.
+    bool ReadGltfPrimitive(const cgltf_primitive& primitive, std::vector<float>& vertices, std::vector<uint32_t>& indices,
+        bool requireIndices = true)
     {
         const cgltf_accessor* positions = nullptr;
         const cgltf_accessor* normals = nullptr;
@@ -1071,7 +1085,7 @@ namespace
             else if (attribute.type == cgltf_attribute_type_texcoord && attribute.index == 0)
                 texCoords = attribute.data;
         }
-        if (!positions || !primitive.indices)
+        if (!positions || (!primitive.indices && requireIndices))
             return false;
 
         constexpr size_t vertexFloats = 8;
@@ -1085,7 +1099,7 @@ namespace
             if (texCoords)
                 cgltf_accessor_read_float(texCoords, v, vertex + 6, 2);
         }
-        indices.resize(primitive.indices->count);
+        indices.resize(primitive.indices ? primitive.indices->count : 0);
         for (size_t i = 0; i < indices.size(); i++)
             indices[i] = static_cast<uint32_t>(cgltf_accessor_read_index(primitive.indices, i));
         return true;
@@ -1119,6 +1133,14 @@ namespace
             int alphaMode = 0;
             // Its material's base color factor.
             float baseColorFactor[4] = { 1.f, 1.f, 1.f, 1.f };
+            // Every vertex attribute, by its name in the file (POSITION, COLOR_0, an extension's
+            // "KHR_gaussian_splatting:SCALE"...), as floats (normalized integers converted).
+            struct Attribute
+            {
+                int components = 0;
+                std::vector<float> data;
+            };
+            std::map<std::string, Attribute> attributes;
         };
         std::vector<Primitive> primitives;
 
@@ -1171,6 +1193,22 @@ namespace
         IndirectDraw_BufferDeviceAddress = 4, // shaders can write buffers through their addresses (Vulkan)
     };
 
+    // Donut_GetShaderExecutionReordering's values.
+    enum ShaderExecutionReordering
+    {
+        ShaderExecutionReordering_None = 0,
+        ShaderExecutionReordering_HitObjects = 1, // hit objects, reordering perhaps a no-op
+        ShaderExecutionReordering_Reorders = 2, // and the GPU says it reorders
+    };
+
+    // Bits of Donut_GetComputeShaderDerivatives: compute shaders can take derivatives (ddx, ddy,
+    // implicit-LOD samples; shader model 6.6) with their threads in...
+    enum ComputeDerivatives
+    {
+        ComputeDerivatives_Quads = 1, // quads of 2 x 2 (thread groups of an even width and height)
+        ComputeDerivatives_Linear = 2, // 4 consecutive threads (one-dimensional thread groups)
+    };
+
 #if DONUT_WITH_VULKAN
     // The physical device a Vulkan device manager picked: a protected member, reached through a
     // pointer to member named from a derived class.
@@ -1200,12 +1238,27 @@ namespace
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT };
         // Fragment shader pixel interlock (rasterizer ordered views), enabled.
         bool fragmentShaderPixelInterlock = false;
+        // Fragment shader barycentrics, enabled.
+        bool fragmentShaderBarycentric = false;
+        // 16-bit floats and integers in shaders and storage buffers, enabled.
+        bool native16Bit = false;
+        // With 16-bit values in push constants and uniform buffers too.
+        bool native16BitConstants = false;
+        // Chained into the device's creation when VK_KHR_compute_shader_derivatives is enabled.
+        VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR computeShaderDerivatives{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR };
+        // Chained into the device's creation when VK_NV_ray_tracing_invocation_reorder is enabled.
+        VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV invocationReorder{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV };
     };
 
     // Device creation callback: enables multi-draw indirect, a first instance in indirect draws,
     // dynamically uniform indexing of sampled image arrays, stores and atomics in pixel shaders,
     // sparse 2D images with residency queries in shaders, pipeline statistics queries, conditional
-    // rendering and fragment shader pixel interlock (with their extensions), when the GPU has them.
+    // rendering, fragment shader pixel interlock and fragment shader barycentrics (with their
+    // extensions), 16-bit floats in shaders and 16-bit values in uniform buffers and push constants,
+    // derivatives in compute shaders (with its extension), logic operations and shader execution
+    // reordering (with its extension), when the GPU has them.
     void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
@@ -1222,6 +1275,7 @@ namespace
         features.sparseResidencyImage2D = available.sparseResidencyImage2D;
         features.shaderResourceResidency = available.shaderResourceResidency;
         features.pipelineStatisticsQuery = available.pipelineStatisticsQuery;
+        features.logicOp = available.logicOp;
         info.pEnabledFeatures = &features;
 
         result.support = (features.multiDrawIndirect ? IndirectDraw_MultiDraw : 0)
@@ -1233,26 +1287,103 @@ namespace
                 result.support |= IndirectDraw_BufferDeviceAddress;
         }
 
-        // Donut chains the interlock features itself with the extension, pixel interlock on:
-        // keep it to what the GPU has.
-        for (auto* next = static_cast<const VkBaseInStructure*>(info.pNext); next; next = next->pNext)
+        // Donut chains the Vulkan 1.1 and 1.2 features, with 16-bit storage buffer access and
+        // 16-bit integers on (and its own chain: VkPhysicalDeviceFeatures2 doesn't take 1.x structs
+        // from other chains, so query them alone).
+        VkPhysicalDeviceVulkan11Features available11{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+        VkPhysicalDeviceVulkan12Features available12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         {
-            if (next->sType != VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT)
-                continue;
-            VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT available2{
-                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT };
+            available11.pNext = &available12;
             VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
-            features2.pNext = &available2;
+            features2.pNext = &available11;
             VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
                 DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
-            auto* interlock = reinterpret_cast<VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT*>(const_cast<VkBaseInStructure*>(next));
-            interlock->fragmentShaderPixelInterlock = available2.fragmentShaderPixelInterlock;
-            result.fragmentShaderPixelInterlock = available2.fragmentShaderPixelInterlock == VK_TRUE;
+        }
+        VkPhysicalDeviceVulkan11Features* features11 = nullptr;
+        VkPhysicalDeviceVulkan12Features* features12 = nullptr;
+        for (auto* next = static_cast<const VkBaseInStructure*>(info.pNext); next; next = next->pNext)
+        {
+            if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES)
+                features11 = reinterpret_cast<VkPhysicalDeviceVulkan11Features*>(const_cast<VkBaseInStructure*>(next));
+            else if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES)
+                features12 = reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(const_cast<VkBaseInStructure*>(next));
+        }
+        if (features11 && features12)
+        {
+            features12->shaderFloat16 = available12.shaderFloat16;
+            features11->uniformAndStorageBuffer16BitAccess = available11.uniformAndStorageBuffer16BitAccess;
+            features11->storagePushConstant16 = available11.storagePushConstant16;
+            result.native16Bit = features.shaderInt16 && features12->shaderFloat16 && features11->storageBuffer16BitAccess;
+            result.native16BitConstants = result.native16Bit && features11->uniformAndStorageBuffer16BitAccess
+                && features11->storagePushConstant16;
+        }
+
+        // Donut chains the interlock and barycentric features itself with their extensions, the
+        // features on: keep them to what the GPU has.
+        for (auto* next = static_cast<const VkBaseInStructure*>(info.pNext); next; next = next->pNext)
+        {
+            if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT)
+            {
+                VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                auto* interlock = reinterpret_cast<VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT*>(const_cast<VkBaseInStructure*>(next));
+                interlock->fragmentShaderPixelInterlock = available2.fragmentShaderPixelInterlock;
+                result.fragmentShaderPixelInterlock = available2.fragmentShaderPixelInterlock == VK_TRUE;
+            }
+            else if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR)
+            {
+                VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                auto* barycentric = reinterpret_cast<VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR*>(const_cast<VkBaseInStructure*>(next));
+                barycentric->fragmentShaderBarycentric = available2.fragmentShaderBarycentric;
+                result.fragmentShaderBarycentric = available2.fragmentShaderBarycentric == VK_TRUE;
+            }
         }
 
         // Donut enables the optional extensions the GPU has; the features go with them.
         for (uint32_t i = 0; i < info.enabledExtensionCount; i++)
         {
+            if (strcmp(info.ppEnabledExtensionNames[i], VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) == 0)
+            {
+                VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                if (available2.rayTracingInvocationReorder)
+                {
+                    result.invocationReorder.rayTracingInvocationReorder = VK_TRUE;
+                    result.invocationReorder.pNext = const_cast<void*>(info.pNext);
+                    info.pNext = &result.invocationReorder;
+                }
+                continue;
+            }
+            if (strcmp(info.ppEnabledExtensionNames[i], VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME) == 0)
+            {
+                VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                if (available2.computeDerivativeGroupQuads || available2.computeDerivativeGroupLinear)
+                {
+                    result.computeShaderDerivatives.computeDerivativeGroupQuads = available2.computeDerivativeGroupQuads;
+                    result.computeShaderDerivatives.computeDerivativeGroupLinear = available2.computeDerivativeGroupLinear;
+                    result.computeShaderDerivatives.pNext = const_cast<void*>(info.pNext);
+                    info.pNext = &result.computeShaderDerivatives;
+                }
+                continue;
+            }
             if (strcmp(info.ppEnabledExtensionNames[i], VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME) != 0)
                 continue;
             VkPhysicalDeviceConditionalRenderingFeaturesEXT available2{
@@ -1285,10 +1416,12 @@ static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Hu
 static_assert(int(nvrhi::PrimitiveType::PointList) == 0 && int(nvrhi::PrimitiveType::LineList) == 1
     && int(nvrhi::PrimitiveType::LineStrip) == 2 && int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::PrimitiveType::TriangleStrip) == 4
     && int(nvrhi::PrimitiveType::PatchList) == 8);
-static_assert(int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
+static_assert(int(nvrhi::Format::RGBA8_UINT) == 17 && int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
     && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46
     && int(nvrhi::Format::RGBA8_UNORM) == 19 && int(nvrhi::Format::RGBA16_UINT) == 36 && int(nvrhi::Format::D32) == 53
     && int(nvrhi::Format::RGBA32_FLOAT) == 49 && int(nvrhi::Format::SRGBA8_UNORM) == 23);
+static_assert(int(nvrhi::LogicOp::Clear) == 0 && int(nvrhi::LogicOp::Copy) == 3 && int(nvrhi::LogicOp::Xor) == 6
+    && int(nvrhi::LogicOp::Set) == 15);
 static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
 // LoadMatrix copies 16 floats from TypeScript straight into these.
 static_assert(sizeof(dm::float4x4) == 16 * sizeof(float));
@@ -1340,6 +1473,14 @@ extern "C"
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_conditional_rendering");
         // Rasterizer ordered views (Donut_HasRasterizerOrderedViews).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_fragment_shader_interlock");
+        // Barycentrics in pixel shaders (Donut_HasBarycentrics).
+        params.optionalVulkanDeviceExtensions.push_back("VK_KHR_fragment_shader_barycentric");
+        // Derivatives in compute shaders (Donut_GetComputeShaderDerivatives).
+        params.optionalVulkanDeviceExtensions.push_back("VK_KHR_compute_shader_derivatives");
+        // Shader execution reordering in ray tracing pipelines (Donut_GetShaderExecutionReordering):
+        // the NV extension, whose SPIR-V instructions DXC emits as inline SPIR-V.
+        if ((options & AppOption_RayTracing) != 0)
+            params.optionalVulkanDeviceExtensions.push_back("VK_NV_ray_tracing_invocation_reorder");
 
 #if DONUT_WITH_DLSS && DONUT_WITH_VULKAN
         if ((options & AppOption_Dlss) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
@@ -1416,6 +1557,9 @@ extern "C"
             ID3D11Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D11_Device);
             app->rasterizerOrderedViews = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS2, &options, sizeof(options)))
                 && options.ROVsSupported;
+            D3D11_FEATURE_DATA_D3D11_OPTIONS options0 = {};
+            app->logicOps = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options0, sizeof(options0)))
+                && options0.OutputMergerLogicOp;
         }
 #endif
 #if DONUT_WITH_DX12
@@ -1425,14 +1569,59 @@ extern "C"
             ID3D12Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
             app->rasterizerOrderedViews = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)))
                 && options.ROVsSupported;
+            app->logicOps = options.OutputMergerLogicOp != FALSE;
+            D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3 = {};
+            app->barycentrics = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3)))
+                && options3.BarycentricsSupported;
+            // Shader model 6.2's native 16-bit types: anywhere, root constants included.
+            D3D12_FEATURE_DATA_D3D12_OPTIONS4 options4 = {};
+            app->native16Bit = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS4, &options4, sizeof(options4)))
+                && options4.Native16BitShaderOpsSupported;
+            app->native16BitConstants = app->native16Bit;
+            // Hit objects and MaybeReorderThread: shader model 6.9 with raytracing tier 1.2 (DXR
+            // 1.2). D3D12 doesn't tell whether the GPU actually reorders.
+            D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5 = {};
+            D3D12_FEATURE_DATA_SHADER_MODEL shaderModel69 = { D3D_SHADER_MODEL_6_9 };
+            if (SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5)))
+                && options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_2
+                && SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel69, sizeof(shaderModel69)))
+                && shaderModel69.HighestShaderModel >= D3D_SHADER_MODEL_6_9)
+                app->shaderExecutionReordering = ShaderExecutionReordering_HitObjects;
+            // Shader model 6.6 has derivatives in compute shaders, quads for 2D thread groups and
+            // linear for 1D ones.
+            D3D12_FEATURE_DATA_SHADER_MODEL shaderModel = { D3D_SHADER_MODEL_6_6 };
+            if (SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel, sizeof(shaderModel)))
+                && shaderModel.HighestShaderModel >= D3D_SHADER_MODEL_6_6)
+                app->computeShaderDerivatives = ComputeDerivatives_Quads | ComputeDerivatives_Linear;
         }
 #endif
 #if DONUT_WITH_VULKAN
         app->pipelineStatisticsQuery = api == nvrhi::GraphicsAPI::VULKAN && vulkanFeatures->features.pipelineStatisticsQuery;
         if (api == nvrhi::GraphicsAPI::VULKAN)
+            app->logicOps = vulkanFeatures->features.logicOp == VK_TRUE;
+        if (api == nvrhi::GraphicsAPI::VULKAN)
         {
             app->conditionalRendering = vulkanFeatures->conditionalRendering.conditionalRendering == VK_TRUE;
             app->rasterizerOrderedViews = vulkanFeatures->fragmentShaderPixelInterlock;
+            app->barycentrics = vulkanFeatures->fragmentShaderBarycentric;
+            app->native16Bit = vulkanFeatures->native16Bit;
+            app->native16BitConstants = vulkanFeatures->native16BitConstants;
+            app->computeShaderDerivatives =
+                (vulkanFeatures->computeShaderDerivatives.computeDerivativeGroupQuads ? ComputeDerivatives_Quads : 0)
+                | (vulkanFeatures->computeShaderDerivatives.computeDerivativeGroupLinear ? ComputeDerivatives_Linear : 0);
+            if (vulkanFeatures->invocationReorder.rayTracingInvocationReorder)
+            {
+                auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(app->deviceManager.get());
+                VkPhysicalDeviceRayTracingInvocationReorderPropertiesNV reorder{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_PROPERTIES_NV };
+                VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+                properties2.pNext = &reorder;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceProperties2(
+                    DeviceManagerVKAccess::PhysicalDevice(vulkanDeviceManager), &properties2);
+                app->shaderExecutionReordering =
+                    reorder.rayTracingInvocationReorderReorderingHint == VK_RAY_TRACING_INVOCATION_REORDER_MODE_REORDER_NV
+                    ? ShaderExecutionReordering_Reorders : ShaderExecutionReordering_HitObjects;
+            }
         }
 #endif
         return app;
@@ -2491,6 +2680,20 @@ extern "C"
             nvrhi::ResourceStates::VertexBuffer, data, byteSize);
     }
 
+    // A vertex buffer of byteSize bytes to write (Donut_WriteBuffer) as often as needed, e.g. per
+    // frame. Returns null on failure.
+    void* Donut_CreateDynamicVertexBuffer(void* app, int byteSize, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(static_cast<uint64_t>(byteSize))
+            .setIsVertexBuffer(true)
+            .setInitialState(nvrhi::ResourceStates::VertexBuffer)
+            .setKeepInitialState(true)
+            .setDebugName(debugName);
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
     // Same, that shaders can also read as a ByteAddressBuffer (t registers).
     void* Donut_CreateStaticRawVertexBuffer(void* app, void* commandList, const void* data, int byteSize, const char* debugName)
     {
@@ -2560,6 +2763,47 @@ extern "C"
         return static_cast<GltfMesh*>(gltfMesh)->indexCount;
     }
 
+    // A file's bytes (Donut_LoadBinaryFile).
+    struct BinaryFile
+    {
+        std::vector<uint8_t> bytes;
+    };
+
+    // A file read whole (path relative to the executable's directory), for TypeScript to parse
+    // (Donut_CopyBinaryFileBytes). Returns null (after logging why) on failure.
+    void* Donut_LoadBinaryFile(void* app, const char* path)
+    {
+        const std::filesystem::path filePath = GetExecutablePath().parent_path() / path;
+        donut::vfs::NativeFileSystem fs;
+        std::shared_ptr<donut::vfs::IBlob> blob = fs.readFile(filePath);
+        if (!blob)
+        {
+            donut::log::error("Cannot read %s", filePath.generic_string().c_str());
+            return nullptr;
+        }
+        auto file = std::make_shared<BinaryFile>();
+        const auto* data = static_cast<const uint8_t*>(blob->data());
+        file->bytes.assign(data, data + blob->size());
+        return AsApp(app)->OwnObject(file);
+    }
+
+    int Donut_GetBinaryFileSize(void* binaryFile)
+    {
+        return static_cast<int>(static_cast<BinaryFile*>(binaryFile)->bytes.size());
+    }
+
+    // Bytes [offset, offset + count) into dst, one int (0..255) each, e.g. Ref of an int array
+    // element; those past the end of the file as 0.
+    void Donut_CopyBinaryFileBytes(void* binaryFile, int offset, int count, int* dst)
+    {
+        const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
+        for (int i = 0; i < count; i++)
+        {
+            const size_t index = size_t(offset) + size_t(i);
+            dst[i] = index < bytes.size() ? bytes[index] : 0;
+        }
+    }
+
     // Every primitive of a glTF file's meshes (path relative to the executable's directory), in
     // mesh and primitive order, as the Vulkan-Samples framework's scene loader reads them into
     // submeshes: vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms
@@ -2578,10 +2822,20 @@ extern "C"
             for (size_t p = 0; p < mesh.primitives_count; p++)
             {
                 GltfModel::Primitive primitive;
-                if (!ReadGltfPrimitive(mesh.primitives[p], primitive.vertices, primitive.indices))
+                if (!ReadGltfPrimitive(mesh.primitives[p], primitive.vertices, primitive.indices, false))
                 {
-                    donut::log::error("Mesh %zu of %s has a primitive without positions or indices", m, file.fileName.c_str());
+                    donut::log::error("Mesh %zu of %s has a primitive without positions", m, file.fileName.c_str());
                     return nullptr;
+                }
+                for (size_t a = 0; a < mesh.primitives[p].attributes_count; a++)
+                {
+                    const cgltf_attribute& attribute = mesh.primitives[p].attributes[a];
+                    if (!attribute.name || !attribute.data)
+                        continue;
+                    GltfModel::Primitive::Attribute& dst = primitive.attributes[attribute.name];
+                    dst.components = static_cast<int>(cgltf_num_components(attribute.data->type));
+                    dst.data.resize(attribute.data->count * size_t(dst.components));
+                    cgltf_accessor_unpack_floats(attribute.data, dst.data.data(), dst.data.size());
                 }
                 const cgltf_material* material = mesh.primitives[p].material;
                 const cgltf_texture* texture = material ? material->pbr_metallic_roughness.base_color_texture.texture : nullptr;
@@ -2625,6 +2879,34 @@ extern "C"
     int Donut_GetGltfModelIndexCount(void* gltfModel, int primitive)
     {
         return static_cast<int>(static_cast<GltfModel*>(gltfModel)->primitives[primitive].indices.size());
+    }
+
+    // The elements of a primitive's vertex attribute named `name` (as in the file: "COLOR_0",
+    // "KHR_gaussian_splatting:ROTATION"...); 0 if it has none.
+    int Donut_GetGltfModelAttributeCount(void* gltfModel, int primitive, const char* name)
+    {
+        const auto& attributes = static_cast<GltfModel*>(gltfModel)->primitives[primitive].attributes;
+        auto it = attributes.find(name);
+        return it == attributes.end() || it->second.components == 0 ? 0
+            : static_cast<int>(it->second.data.size() / size_t(it->second.components));
+    }
+
+    // Its floats per element (1 for SCALAR, 3 for VEC3...); 0 if it has none.
+    int Donut_GetGltfModelAttributeComponents(void* gltfModel, int primitive, const char* name)
+    {
+        const auto& attributes = static_cast<GltfModel*>(gltfModel)->primitives[primitive].attributes;
+        auto it = attributes.find(name);
+        return it == attributes.end() ? 0 : it->second.components;
+    }
+
+    // Its elements as floats (normalized integers converted) into dst, e.g. Ref of an f32 array
+    // element: count * components of them.
+    void Donut_CopyGltfModelAttribute(void* gltfModel, int primitive, const char* name, float* dst)
+    {
+        const auto& attributes = static_cast<GltfModel*>(gltfModel)->primitives[primitive].attributes;
+        auto it = attributes.find(name);
+        if (it != attributes.end())
+            memcpy(dst, it->second.data.data(), it->second.data.size() * sizeof(float));
     }
 
     // A primitive's vertices (8 floats each) into dst, e.g. Ref of an f32 array element.
@@ -2926,9 +3208,22 @@ extern "C"
 
     // blendMode, a BlendMode value: 1 is additive (color One + One, alpha SrcAlpha + DstAlpha), 2
     // alpha blending (color SrcAlpha + InvSrcAlpha, alpha InvSrcAlpha + Zero), 3 alpha blending
-    // "over" (color SrcAlpha + InvSrcAlpha, alpha One + InvSrcAlpha), 0 none.
+    // "over" (color SrcAlpha + InvSrcAlpha, alpha One + InvSrcAlpha), 4 premultiplied alpha
+    // (color and alpha One + InvSrcAlpha), 0 none.
     static void SetBlendMode(nvrhi::BlendState::RenderTarget& target, int blendMode)
     {
+        if (blendMode == 4)
+        {
+            target
+                .enableBlend()
+                .setSrcBlend(nvrhi::BlendFactor::One)
+                .setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+                .setBlendOp(nvrhi::BlendOp::Add)
+                .setSrcBlendAlpha(nvrhi::BlendFactor::One)
+                .setDestBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha)
+                .setBlendOpAlpha(nvrhi::BlendOp::Add);
+            return;
+        }
         if (blendMode == 1)
         {
             target
@@ -3007,6 +3302,28 @@ extern "C"
     // Render target (for Donut_CreateFramebuffer) of width x height in `format` (an nvrhi::Format
     // value) that shaders can also read; resting at ShaderResource. A depth format makes a depth
     // buffer, cleared to 1 by default, whose shader view reads the depth. Returns null on failure.
+    void* Donut_CreateRenderTargetTexture(void* app, int width, int height, int format, const char* debugName);
+
+    // Same, typeless: framebuffers can see it in other formats of its family
+    // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
+    // without sRGB encoding) or RGBA8_UINT (for logic operations, which D3D12 has on UINT targets
+    // only); shaders read it in `format`.
+    void* Donut_CreateTypelessRenderTargetTexture(void* app, int width, int height, int format, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setIsRenderTarget(true)
+            .setIsTypeless(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
     void* Donut_CreateRenderTargetTexture(void* app, int width, int height, int format, const char* debugName)
     {
         const auto textureFormat = static_cast<nvrhi::Format>(format);
@@ -3110,6 +3427,21 @@ extern "C"
     void* Donut_CreateFramebuffer(void* app, void* colorTexture, void* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture));
+        if (depthTexture)
+            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createFramebuffer(desc));
+    }
+
+    // Same, the color target seen in colorFormat (an nvrhi::Format value of the texture's family:
+    // e.g. RGBA8_UINT or RGBA8_UNORM for a typeless SRGBA8_UNORM texture,
+    // Donut_CreateTypelessRenderTargetTexture).
+    void* Donut_CreateFramebufferWithColorFormat(void* app, void* colorTexture, int colorFormat, void* depthTexture)
+    {
+        auto desc = nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
+            .setTexture(static_cast<nvrhi::ITexture*>(colorTexture))
+            .setFormat(static_cast<nvrhi::Format>(colorFormat)));
         if (depthTexture)
             desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
 
@@ -3495,6 +3827,14 @@ extern "C"
         state.frontCounterClockwise = frontCounterClockwise != 0;
     }
 
+    // Whether primitives are clipped at the near and far planes (Vulkan's default, as without
+    // VK_EXT_depth_clip_enable) or not (NVRHI's default: on D3D, depth beyond them is clamped and
+    // what's between the eye and the near plane drawn). Off by default.
+    void Donut_GraphicsPipelineSetDepthClip(void* graphicsPipelineDesc, int enable)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState.depthClipEnable = enable != 0;
+    }
+
     // Depth bias: depthBias units of the depth format's resolution, plus slopeScaledDepthBias times
     // the triangle's depth slope, clamped to depthBiasClamp in magnitude (0 for no clamp).
     void Donut_GraphicsPipelineSetDepthBias(void* graphicsPipelineDesc, int depthBias, double depthBiasClamp,
@@ -3523,6 +3863,15 @@ extern "C"
     {
         for (nvrhi::BlendState::RenderTarget& target : AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets)
             target.setColorWriteMask(static_cast<nvrhi::ColorMask>(mask));
+    }
+
+    // A logic operation (a LogicOp value: nvrhi::LogicOp, Vulkan's order) between the pixel shader's
+    // output and the targets' bits, instead of blending (Donut_HasLogicOps; UINT and UNORM targets).
+    void Donut_GraphicsPipelineSetLogicOp(void* graphicsPipelineDesc, int enable, int logicOp)
+    {
+        nvrhi::BlendState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState;
+        state.logicOpEnable = enable != 0;
+        state.logicOp = static_cast<nvrhi::LogicOp>(logicOp);
     }
 
     // Blending of every color target with blendMode (a BlendMode value, see SetBlendMode).
@@ -3896,6 +4245,18 @@ extern "C"
         a->otherPasses.push_back(std::move(pass));
         a->deviceManager->AddRenderPassToBack(raw);
         return raw;
+    }
+
+    // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space to activate, Escape),
+    // as ImGuiConfigFlags_NavEnableKeyboard; after Donut_AddImGuiPass (which creates the context).
+    // ImGui then takes the keyboard while one of its windows has the focus.
+    void Donut_ImGuiSetKeyboardNavigation(int enable)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        if (enable)
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        else
+            io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
     }
 
     // Only inside the buildUI callback.
@@ -4655,6 +5016,16 @@ extern "C"
         instanceDesc.flags = static_cast<nvrhi::rt::InstanceFlags>(flags);
         memcpy(instanceDesc.transform, transform, sizeof(instanceDesc.transform));
         static_cast<SceneAccelStructs*>(sceneAccelStructs)->pendingInstances.push_back(instanceDesc);
+    }
+
+    // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex, Vulkan's
+    // instanceShaderBindingTableRecordOffset): which of the shader table's hit groups its hits run.
+    void Donut_AddTopLevelASInstanceWithHitGroup(void* sceneAccelStructs, void* bottomLevelAS, int instanceMask, int instanceID,
+        int hitGroupIndex, int flags, const void* transform)
+    {
+        Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs, bottomLevelAS, instanceMask, instanceID, flags, transform);
+        static_cast<SceneAccelStructs*>(sceneAccelStructs)->pendingInstances.back().instanceContributionToHitGroupIndex =
+            static_cast<uint32_t>(hitGroupIndex);
     }
 
     // Inside a render callback: builds the TLAS from the instances added since the last build.
@@ -7380,6 +7751,57 @@ extern "C"
     int Donut_HasRasterizerOrderedViews(void* app)
     {
         return AsApp(app)->rasterizerOrderedViews ? 1 : 0;
+    }
+
+    // Non-zero if pixel shaders can read the barycentric coordinates of their pixel in its triangle
+    // (SV_Barycentrics) and the attributes of the triangle's vertices (GetAttributeAtVertex on
+    // nointerpolation inputs): D3D12 with BarycentricsSupported (shader model 6.1), Vulkan with
+    // VK_KHR_fragment_shader_barycentric; not D3D11.
+    int Donut_HasBarycentrics(void* app)
+    {
+        return AsApp(app)->barycentrics ? 1 : 0;
+    }
+
+    // A ShaderExecutionReordering value: whether ray generation shaders can trace rays into hit
+    // objects, reorder their threads by them (MaybeReorderThread) and then invoke their hit or miss
+    // shaders. D3D12: shader model 6.9 with raytracing tier 1.2 (HitObjects: D3D12 doesn't say
+    // whether the GPU reorders). Vulkan: VK_NV_ray_tracing_invocation_reorder (ray tracing apps
+    // only; Reorders if the GPU reorders, from rayTracingInvocationReorderReorderingHint). None on
+    // D3D11.
+    int Donut_GetShaderExecutionReordering(void* app)
+    {
+        return AsApp(app)->shaderExecutionReordering;
+    }
+
+    // ComputeDerivatives bits: D3D12 with shader model 6.6 has both; Vulkan with
+    // VK_KHR_compute_shader_derivatives what the GPU has; 0 on D3D11.
+    int Donut_GetComputeShaderDerivatives(void* app)
+    {
+        return AsApp(app)->computeShaderDerivatives;
+    }
+
+    // Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
+    // D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
+    int Donut_HasLogicOps(void* app)
+    {
+        return AsApp(app)->logicOps ? 1 : 0;
+    }
+
+    // Non-zero if shaders can compute with native 16-bit types (float16_t, int16_t, uint16_t; the
+    // shaders are compiled with -enable-16bit-types, as ShaderMake does from shader model 6.2) and
+    // read them from structured buffers: D3D12 with Native16BitShaderOpsSupported, Vulkan with
+    // shaderFloat16, shaderInt16 and storageBuffer16BitAccess; not D3D11.
+    int Donut_HasNative16BitShaderOps(void* app)
+    {
+        return AsApp(app)->native16Bit ? 1 : 0;
+    }
+
+    // Non-zero if, besides, push constants and constant buffers can hold 16-bit values: D3D12 with
+    // native 16-bit shader ops, Vulkan with storagePushConstant16 and
+    // uniformAndStorageBuffer16BitAccess too.
+    int Donut_HasNative16BitConstants(void* app)
+    {
+        return AsApp(app)->native16BitConstants ? 1 : 0;
     }
 
     // A barrier between the draws or dispatches before and after that write and read a UAV

@@ -75,6 +75,7 @@ CLASSES = {
     "tileMappings": "TileMappings",
     "meshPipelineStatistics": "MeshPipelineStatistics",
     "predicationBuffer": "PredicationBuffer",
+    "binaryFile": "BinaryFile",
 }
 
 # Further parameter names that hold one of those objects.
@@ -127,6 +128,7 @@ METHOD_NAMES = {
     "Donut_AddSceneTopLevelASInstances": "addSceneInstances",
     "Donut_AddTopLevelASInstance": "addInstance",
     "Donut_AddTopLevelASInstanceWithTransform": "addInstanceWithTransform",
+    "Donut_AddTopLevelASInstanceWithHitGroup": "addInstanceWithHitGroup",
 }
 
 # Functions returning an object with a wrapper class, beyond those named <verb><Class> (AddPass,
@@ -142,6 +144,7 @@ RETURNS = {
     "Donut_CreateMeshletPipelineDesc": "GraphicsPipelineDesc",
     "Donut_CreateMeshPipelineStatistics": "MeshPipelineStatistics",
     "Donut_CreatePredicationBuffer": "PredicationBuffer",
+    "Donut_LoadBinaryFile": "BinaryFile",
     "Donut_CreateEmptyShaderTable": "ShaderTable",
     "Donut_CreateCachedShaderTable": "ShaderTable",
     "Donut_ImGuiCreateFont": "ImGuiFont",
