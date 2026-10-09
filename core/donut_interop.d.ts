@@ -157,6 +157,44 @@ declare function Donut_GetSdkMeshFrameMesh(sdkMesh: Opaque, frame: int): int;
 declare function Donut_GetSdkMeshFrameParent(sdkMesh: Opaque, frame: int): int;
 declare function Donut_CopySdkMeshFrameMatrix(sdkMesh: Opaque, frame: int, dst: Opaque): void;
 
+// DirectXMath's collision types (core/directx_collision.cpp, linked only into the examples that
+// list it), shapes passed as floats: CollisionShape says which, and how many.
+enum CollisionShape {
+    // Center (3), radius.
+    Sphere = 0,
+    // Axis-aligned: center (3), extents (3).
+    Box = 1,
+    // Center (3), extents (3), orientation (quaternion x, y, z, w).
+    OrientedBox = 2,
+    // Origin (3), orientation (4), right, left, top and bottom slopes, near and far distances.
+    Frustum = 3,
+    // Three points (3 floats each).
+    Triangle = 4
+}
+
+// ContainmentType values.
+enum Containment {
+    Disjoint = 0,
+    Intersects = 1,
+    Contains = 2
+}
+
+// container.Contains(shape), a Containment; containers are spheres, boxes, oriented boxes and
+// frustums.
+declare function Donut_CollisionContains(containerShape: CollisionShape, container: Opaque, shape: CollisionShape, s: Opaque): Containment;
+// shape.Intersects(rayOrigin, rayDirection, distance) (TriangleTests::Intersects for triangles):
+// non-zero on a hit, with the distance along the (normalized) direction written to distance.
+declare function Donut_CollisionIntersectsRay(shape: CollisionShape, s: Opaque, rayOrigin: Opaque, rayDirection: Opaque, distance: Opaque): int;
+// BoundingFrustum::CreateFromMatrix of a projection matrix (16 floats, DirectXMath's row-major
+// layout) into frustum (13 floats).
+declare function Donut_CollisionFrustumFromMatrix(projection: Opaque, frustum: Opaque): void;
+// BoundingFrustum::GetCorners: 8 points (24 floats), the near plane's then the far plane's.
+declare function Donut_CollisionFrustumCorners(frustum: Opaque, corners: Opaque): void;
+// XMQuaternionRotationRollPitchYaw into quaternion (x, y, z, w).
+declare function Donut_QuaternionRotationRollPitchYaw(pitch: number, yaw: number, roll: number, quaternion: Opaque): void;
+// XMMatrixRotationRollPitchYaw into matrix (16 floats, row-major).
+declare function Donut_MatrixRotationRollPitchYaw(pitch: number, yaw: number, roll: number, matrix: Opaque): void;
+
 // nvrhi::VariableShadingRate values: pixels per shading, width x height.
 enum VariableShadingRate {
     Rate1x1 = 0,
@@ -590,6 +628,21 @@ declare function Donut_SetVsyncEnabled(app: Opaque, enabled: int): void;
 declare function Donut_IsVsyncEnabled(app: Opaque): int;
 declare function Donut_CloseWindow(app: Opaque): void;
 
+// GLFW's cursor modes.
+enum CursorMode {
+    Normal = 0,
+    Hidden = 1,
+    // Hidden and captured: the mouse callback gets unbounded virtual positions (raw mouse motion
+    // where the system has it), for camera controls.
+    Disabled = 2
+}
+
+declare function Donut_SetCursorMode(app: Opaque, mode: CursorMode): void;
+// Moves the mouse cursor to (x, y) in the mouse callback's coordinates.
+declare function Donut_SetCursorPosition(app: Opaque, x: number, y: number): void;
+// Non-zero while the window has the keyboard focus.
+declare function Donut_IsWindowFocused(app: Opaque): int;
+
 // nvrhi::Format values (only the ones used so far).
 enum Format {
     UNKNOWN = 0,
@@ -612,6 +665,7 @@ enum Format {
     RGBA16_FLOAT = 38,
     RGBA16_UNORM = 39,
     D16 = 50,
+    D24S8 = 51,
     D32 = 53,
     RG32_UINT = 41,
     RG32_FLOAT = 43,

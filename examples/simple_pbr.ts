@@ -6,9 +6,11 @@ namespace SimplePbr {
     const WINDOW_TITLE = "Donut Example: Simple PBR";
     const MEDIA_DIR = "media/simple_pbr/";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
-    // The sample's SegoeUI_18 sprite font (the one it takes up to 1200 lines): 18 points, 24 pixels,
+    // The sample's SegoeUI_18 sprite font (the one it takes up to 1200 lines),
     // its lines 32 pixels apart.
-    const FONT_SIZE = 24.0;
+    // ImGui sizes a font by its ascent + descent (1.3618 OpenSans ems), so the 23 pixel em that gives
+    // its strings' widths is 31.5.
+    const FONT_SIZE = 31.5;
     const LINE_SPACING = 31.921875;
 
     // ATG::ColorsHDR::LightGrey: the text, in the HDR scene before tone mapping.

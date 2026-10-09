@@ -6,9 +6,11 @@ namespace RaytracingAo {
     const WINDOW_TITLE = "Donut Example: Raytracing AO";
     const MEDIA_DIR = "media/raytracing_ao/";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
-    // The sample's SegoeUI_18 sprite font: 18 points, 24 pixels, its lines (and measured strings)
+    // The sample's SegoeUI_18 sprite font, its lines (and measured strings)
     // 32 pixels high.
-    const FONT_SIZE = 24.0;
+    // ImGui sizes a font by its ascent + descent (1.3618 OpenSans ems), so the 23 pixel em that gives
+    // its strings' widths is 31.5.
+    const FONT_SIZE = 31.5;
     const LINE_SPACING = 31.921875;
 
     // RaytracingAOPC12.cpp.

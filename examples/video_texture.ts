@@ -6,8 +6,10 @@ namespace VideoTexture {
     const WINDOW_TITLE = "Donut Example: Video Texture";
     const VIDEO_PATH = "media/video_texture/SampleVideo.mp4";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
-    // The sample's SegoeUI_18 sprite font: 18 points, 24 pixels.
-    const FONT_SIZE = 24.0;
+    // The sample's SegoeUI_18 sprite font.
+    // ImGui sizes a font by its ascent + descent (1.3618 OpenSans ems), so the 23 pixel em that gives
+    // its strings' widths is 31.5.
+    const FONT_SIZE = 31.5;
 
     // ATG::Colors: the background (#414141), the text's light grey (#7a7a7a).
     const BACKGROUND = 0.254901975;

@@ -6,9 +6,11 @@ namespace Bokeh {
     const WINDOW_TITLE = "Donut Example: Bokeh";
     const MEDIA_DIR = "media/bokeh/";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
-    // The sample's SegoeUI_18 sprite font (the one it takes up to 1080 lines): 18 points, 24 pixels,
+    // The sample's SegoeUI_18 sprite font (the one it takes up to 1080 lines),
     // its lines 32 pixels apart.
-    const FONT_SIZE = 24.0;
+    // ImGui sizes a font by its ascent + descent (1.3618 OpenSans ems), so the 23 pixel em that gives
+    // its strings' widths is 31.5.
+    const FONT_SIZE = 31.5;
     const LINE_SPACING = 32.0;
 
     // ATG::Colors::Green (#107c10), stored as is in the UNORM back buffer as the sample's.

@@ -2297,6 +2297,62 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(simple_compute MEDIA fonts)
 
+# Port of the Xbox ATG SimpleBezierPC12 sample (PCSamples/IntroGraphics/SimpleBezierPC12): a Mobius
+# strip of four Bezier patches tessellated by hull and domain shaders, in integer, fractional even
+# or fractional odd partitioning, solid or wireframe. The text's font is DONUT_SAMPLES_MEDIA_DIR's.
+donut_compile_shaders_all_platforms(
+    TARGET simple_bezier_shaders
+    PROJECT_NAME "Simple Bezier"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_bezier.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_bezier.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_bezier
+)
+add_tslang_example(simple_bezier MEDIA fonts)
+
+# Port of the Xbox ATG MouseCursor UWP sample (UWPSamples/System/MouseCursor): a menu picked with the
+# absolute mouse cursor, a first-person room turned by the captured mouse's relative motion, and a
+# real-time strategy map with a cursor of the sample's own that scrolls it at the window's edges.
+# Its SDKMESH models (core/sdkmesh.cpp) and menu images are XBOX_ATG_SAMPLES_DIR's, the text's font
+# DONUT_SAMPLES_MEDIA_DIR's.
+donut_compile_shaders_all_platforms(
+    TARGET mouse_cursor_shaders
+    PROJECT_NAME "Mouse Cursor"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mouse_cursor.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mouse_cursor.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mouse_cursor
+)
+add_tslang_example(mouse_cursor core/sdkmesh.cpp MEDIA fonts mouse_cursor)
+add_atg_media(mouse_cursor mouse_cursor
+    Media/Meshes/FPSRoom/FPSRoom.sdkmesh
+    Media/Meshes/FPSRoom/ABox001LightingMap.dds
+    Media/Meshes/FPSRoom/ACeilingLightingMap.dds
+    Media/Meshes/FPSRoom/AFloortLightingMap.dds
+    Media/Meshes/FPSRoom/AWallsLightingMap.dds
+    Media/Meshes/FPSRoom/Ceiling.dds
+    Media/Meshes/FPSRoom/Cement.dds
+    Media/Meshes/FPSRoom/clouds.dds
+    Media/Meshes/FPSRoom/Pillar.dds
+    Media/Meshes/RTSMap/3DRTSMap.sdkmesh
+    Media/Meshes/RTSMap/LabelBase.dds
+    Media/Meshes/RTSMap/Labels.dds
+    Media/Meshes/RTSMap/Map3DColor.dds
+    UWPSamples/System/MouseCursor/Assets/background_flat.png
+    UWPSamples/System/MouseCursor/Assets/green_tile.png
+    UWPSamples/System/MouseCursor/Assets/green_tile_border.png)
+
+# Port of the Xbox ATG Collision UWP sample (UWPSamples/System/CollisionUWP): DirectXMath's collision
+# types (core/directx_collision.cpp: frustum, boxes, oriented boxes, spheres, triangles, rays) tested
+# against each other, the objects drawn as lines colored by the results, with an orbit camera. The
+# text's font is DONUT_SAMPLES_MEDIA_DIR's.
+donut_compile_shaders_all_platforms(
+    TARGET collision_shaders
+    PROJECT_NAME "Collision"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/collision.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/collision.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/collision
+)
+add_tslang_example(collision core/directx_collision.cpp MEDIA fonts)
+
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
 # triangles and a plane, two rotating, ray traced with per-instance colors and shadow rays; the
 # top-level acceleration structure refitted in place every frame. Needs D3D12 or Vulkan.

@@ -5,8 +5,10 @@ import { InputPass } from "../core/input_pass";
 namespace SimpleCompute {
     const WINDOW_TITLE = "Donut Example: Simple Compute";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
-    // The sample's SegoeUI_18 sprite font: 18 points, 24 pixels, its lines 32 pixels apart.
-    const FONT_SIZE = 24.0;
+    // The sample's SegoeUI_18 sprite font, its lines 32 pixels apart.
+    // ImGui sizes a font by its ascent + descent (1.3618 OpenSans ems), so the 23 pixel em that gives
+    // its strings' widths is 31.5.
+    const FONT_SIZE = 31.5;
     const LINE_SPACING = 32.0;
 
     // The fractal textures are 1920 x 1080 whatever the window's size, computed in groups of

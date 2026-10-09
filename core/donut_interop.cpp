@@ -2171,6 +2171,39 @@ extern "C"
         glfwSetWindowShouldClose(AsApp(app)->deviceManager->GetWindow(), GLFW_TRUE);
     }
 
+    // The mouse cursor's mode (CursorMode): shown, hidden over the window, or hidden and captured
+    // (GLFW_CURSOR_DISABLED: the mouse callback then gets unbounded virtual positions, from raw
+    // mouse motion where the system has it).
+    void Donut_SetCursorMode(void* app, int mode)
+    {
+        GLFWwindow* window = AsApp(app)->deviceManager->GetWindow();
+        const int modes[] = { GLFW_CURSOR_NORMAL, GLFW_CURSOR_HIDDEN, GLFW_CURSOR_DISABLED };
+        glfwSetInputMode(window, GLFW_CURSOR, modes[std::clamp(mode, 0, 2)]);
+        if (glfwRawMouseMotionSupported())
+            glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, mode == 2 ? GLFW_TRUE : GLFW_FALSE);
+    }
+
+    // Moves the mouse cursor to (x, y) in the mouse callback's coordinates.
+    void Donut_SetCursorPosition(void* app, double x, double y)
+    {
+        donut::app::DeviceManager* deviceManager = AsApp(app)->deviceManager.get();
+        // The inverse of DeviceManager::MousePosUpdate's scaling.
+        if (!deviceManager->GetDeviceParams().supportExplicitDisplayScaling)
+        {
+            float scaleX = 1.f, scaleY = 1.f;
+            deviceManager->GetDPIScaleInfo(scaleX, scaleY);
+            x *= scaleX;
+            y *= scaleY;
+        }
+        glfwSetCursorPos(deviceManager->GetWindow(), x, y);
+    }
+
+    // Non-zero while the window has the keyboard focus.
+    int Donut_IsWindowFocused(void* app)
+    {
+        return glfwGetWindowAttrib(AsApp(app)->deviceManager->GetWindow(), GLFW_FOCUSED);
+    }
+
     // --- Resources (owned by the app until released or the app is destroyed) ---------------
 
     // Loads a shader compiled from the example's shaders/<example>.cfg. shaderType is an

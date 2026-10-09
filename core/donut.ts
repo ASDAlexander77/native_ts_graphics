@@ -246,6 +246,20 @@ export class App {
         Donut_CloseWindow(this.handle);
     }
 
+    setCursorMode(mode: CursorMode): void {
+        Donut_SetCursorMode(this.handle, mode);
+    }
+
+    // Moves the mouse cursor to (x, y) in the mouse callback's coordinates.
+    setCursorPosition(x: number, y: number): void {
+        Donut_SetCursorPosition(this.handle, x, y);
+    }
+
+    // Non-zero while the window has the keyboard focus.
+    isWindowFocused(): int {
+        return Donut_IsWindowFocused(this.handle);
+    }
+
     // Resources are owned by the app until released or the app is destroyed; null on failure.
     // Shaders come from the example's shaders/<example>.cfg, compiled at build time.
     createShader(fileName: string, entryName: string, shaderType: ShaderType): Opaque {
