@@ -64,6 +64,10 @@
 #include <donut/app/DeviceManager_VK.h>
 #endif
 
+#if DONUT_WITH_DX11 || DONUT_WITH_DX12
+// IDXGIAdapter3::QueryVideoMemoryInfo (Donut_QueryMemoryBudget).
+#include <dxgi1_4.h>
+#endif
 #if DONUT_WITH_DX11
 #include <d3d11_2.h>
 #include <nvrhi/d3d11.h>
@@ -238,6 +242,22 @@ namespace
         }
     };
 
+    // Bits of Donut_GetMemoryHeapFlags: Vulkan's VkMemoryHeapFlags.
+    enum MemoryHeapFlag
+    {
+        MemoryHeapFlag_DeviceLocal = 1,
+        MemoryHeapFlag_MultiInstance = 2,
+    };
+
+    // A memory heap's state (Donut_QueryMemoryBudget): this process's usage and its budget, in bytes,
+    // and the heap's MemoryHeapFlag bits.
+    struct MemoryHeap
+    {
+        double usage = 0.0;
+        double budget = 0.0;
+        int flags = 0;
+    };
+
     struct App
     {
         std::unique_ptr<DeviceManager> deviceManager;
@@ -280,6 +300,12 @@ namespace
         int advancedBlendOperations = 0;
         // Whether pixel shaders can ask for full quads (Donut_HasShaderQuadControl).
         bool shaderQuadControl = false;
+        // The memory heaps as Donut_QueryMemoryBudget last found them.
+        std::vector<MemoryHeap> memoryHeaps;
+        // LineRasterization bits (Donut_GetLineRasterizationModes) and the widest line
+        // (Donut_GetMaxLineWidth).
+        int lineRasterizationModes = 0;
+        float maxLineWidth = 1.f;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -1218,6 +1244,18 @@ namespace
         AdvancedBlend_CorrelatedOverlap = 16, // correlated overlap
     };
 
+    // Bits of Donut_GetLineRasterizationModes: the line rasterization modes pipelines can have
+    // (RasterState::lineRasterizationMode), plain and stippled.
+    enum LineRasterization
+    {
+        LineRasterization_Rectangular = 1,
+        LineRasterization_Bresenham = 2,
+        LineRasterization_Smooth = 4,
+        LineRasterization_StippledRectangular = 8,
+        LineRasterization_StippledBresenham = 16,
+        LineRasterization_StippledSmooth = 32,
+    };
+
     // Bits of Donut_GetComputeShaderDerivatives: compute shaders can take derivatives (ddx, ddy,
     // implicit-LOD samples; shader model 6.6) with their threads in...
     enum ComputeDerivatives
@@ -1276,6 +1314,9 @@ namespace
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_QUAD_CONTROL_FEATURES_KHR };
         VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR maximalReconvergence{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MAXIMAL_RECONVERGENCE_FEATURES_KHR };
+        // Chained into the device's creation when VK_EXT_line_rasterization is enabled.
+        VkPhysicalDeviceLineRasterizationFeaturesEXT lineRasterization{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT };
     };
 
     // Device creation callback: enables multi-draw indirect, a first instance in indirect draws,
@@ -1284,8 +1325,8 @@ namespace
     // rendering, fragment shader pixel interlock and fragment shader barycentrics (with their
     // extensions), 16-bit floats in shaders and 16-bit values in uniform buffers and push constants,
     // derivatives in compute shaders (with its extension), logic operations, shader execution
-    // reordering, coherent advanced blend operations and shader quad control (with their
-    // extensions), when the GPU has them.
+    // reordering, coherent advanced blend operations, shader quad control and line rasterization
+    // modes (with their extensions), wide lines, and clip and cull distances, when the GPU has them.
     void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
@@ -1303,6 +1344,10 @@ namespace
         features.shaderResourceResidency = available.shaderResourceResidency;
         features.pipelineStatisticsQuery = available.pipelineStatisticsQuery;
         features.logicOp = available.logicOp;
+        features.wideLines = available.wideLines;
+        // SV_ClipDistance and SV_CullDistance.
+        features.shaderClipDistance = available.shaderClipDistance;
+        features.shaderCullDistance = available.shaderCullDistance;
         info.pEnabledFeatures = &features;
 
         result.support = (features.multiDrawIndirect ? IndirectDraw_MultiDraw : 0)
@@ -1440,6 +1485,25 @@ namespace
                 }
                 continue;
             }
+            if (strcmp(info.ppEnabledExtensionNames[i], VK_EXT_LINE_RASTERIZATION_EXTENSION_NAME) == 0)
+            {
+                VkPhysicalDeviceLineRasterizationFeaturesEXT available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                VkPhysicalDeviceLineRasterizationFeaturesEXT& lines = result.lineRasterization;
+                lines.rectangularLines = available2.rectangularLines;
+                lines.bresenhamLines = available2.bresenhamLines;
+                lines.smoothLines = available2.smoothLines;
+                lines.stippledRectangularLines = available2.stippledRectangularLines;
+                lines.stippledBresenhamLines = available2.stippledBresenhamLines;
+                lines.stippledSmoothLines = available2.stippledSmoothLines;
+                lines.pNext = const_cast<void*>(info.pNext);
+                info.pNext = &lines;
+                continue;
+            }
             if (strcmp(info.ppEnabledExtensionNames[i], VK_EXT_BLEND_OPERATION_ADVANCED_EXTENSION_NAME) == 0)
             {
                 VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT available2{
@@ -1488,6 +1552,7 @@ static_assert(int(nvrhi::ShaderType::Vertex) == 0x1 && int(nvrhi::ShaderType::Hu
 static_assert(int(nvrhi::PrimitiveType::PointList) == 0 && int(nvrhi::PrimitiveType::LineList) == 1
     && int(nvrhi::PrimitiveType::LineStrip) == 2 && int(nvrhi::PrimitiveType::TriangleList) == 3 && int(nvrhi::PrimitiveType::TriangleStrip) == 4
     && int(nvrhi::PrimitiveType::PatchList) == 8);
+static_assert(int(nvrhi::Format::UNKNOWN) == 0 && int(nvrhi::Format::R16_UINT) == 9);
 static_assert(int(nvrhi::Format::RGBA8_UINT) == 17 && int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
     && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46
     && int(nvrhi::Format::RGBA8_UNORM) == 19 && int(nvrhi::Format::RGBA16_UINT) == 36 && int(nvrhi::Format::D32) == 53
@@ -1498,6 +1563,7 @@ static_assert(int(nvrhi::ResolveMode::None) == 0 && int(nvrhi::ResolveMode::Samp
 static_assert(int(nvrhi::BlendFactor::Zero) == 1 && int(nvrhi::BlendFactor::SrcAlphaSaturate) == 11
     && int(nvrhi::BlendFactor::ConstantColor) == 14 && int(nvrhi::BlendFactor::InvConstantColor) == 15);
 static_assert(int(nvrhi::BlendOp::Add) == 1 && int(nvrhi::BlendOp::Max) == 5);
+static_assert(int(nvrhi::LineRasterizationMode::Default) == 0 && int(nvrhi::LineRasterizationMode::Smooth) == 3);
 static_assert(int(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace) == 4
     && int(nvrhi::rt::AccelStructBuildFlags::AllowDataAccess) == 0x40);
 static_assert(int(nvrhi::Feature::RayTracingPositionFetch) == 15);
@@ -1579,6 +1645,10 @@ extern "C"
         // Quad control in shaders (Donut_HasShaderQuadControl), which needs maximal reconvergence.
         params.optionalVulkanDeviceExtensions.push_back("VK_KHR_shader_quad_control");
         params.optionalVulkanDeviceExtensions.push_back("VK_KHR_shader_maximal_reconvergence");
+        // Line rasterization modes and stipple (Donut_GetLineRasterizationModes).
+        params.optionalVulkanDeviceExtensions.push_back("VK_EXT_line_rasterization");
+        // Memory heaps' usage and budget (Donut_QueryMemoryBudget).
+        params.optionalVulkanDeviceExtensions.push_back("VK_EXT_memory_budget");
 
 #if DONUT_WITH_DLSS && DONUT_WITH_VULKAN
         if ((options & AppOption_Dlss) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
@@ -1645,6 +1715,10 @@ extern "C"
         App* app = MakeApp(std::move(deviceManager), api);
         // D3D12 runs pixel shaders in whole quads, helper lanes taking part in quad operations.
         app->shaderQuadControl = api == nvrhi::GraphicsAPI::D3D12;
+        // D3D's line algorithms (Donut_GraphicsPipelineSetLineRasterization): quadrilateral lines
+        // with multisampling on, aliased ones without, alpha antialiased ones; no stipple.
+        if (api != nvrhi::GraphicsAPI::VULKAN)
+            app->lineRasterizationModes = LineRasterization_Rectangular | LineRasterization_Bresenham | LineRasterization_Smooth;
         app->indirectDrawSupport = indirectDrawSupport;
         app->fragmentStoresAndAtomics = fragmentStoresAndAtomics;
         app->sparseResidency = sparseResidency;
@@ -1707,6 +1781,21 @@ extern "C"
             app->native16Bit = vulkanFeatures->native16Bit;
             app->native16BitConstants = vulkanFeatures->native16BitConstants;
             app->shaderQuadControl = vulkanFeatures->quadControl.shaderQuadControl == VK_TRUE;
+            const VkPhysicalDeviceLineRasterizationFeaturesEXT& lines = vulkanFeatures->lineRasterization;
+            app->lineRasterizationModes = (lines.rectangularLines ? LineRasterization_Rectangular : 0)
+                | (lines.bresenhamLines ? LineRasterization_Bresenham : 0)
+                | (lines.smoothLines ? LineRasterization_Smooth : 0)
+                | (lines.stippledRectangularLines ? LineRasterization_StippledRectangular : 0)
+                | (lines.stippledBresenhamLines ? LineRasterization_StippledBresenham : 0)
+                | (lines.stippledSmoothLines ? LineRasterization_StippledSmooth : 0);
+            if (vulkanFeatures->features.wideLines)
+            {
+                auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(app->deviceManager.get());
+                VkPhysicalDeviceProperties properties{};
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceProperties(
+                    DeviceManagerVKAccess::PhysicalDevice(vulkanDeviceManager), &properties);
+                app->maxLineWidth = properties.limits.lineWidthRange[1];
+            }
             if (vulkanFeatures->blendOperationAdvanced.advancedBlendCoherentOperations)
             {
                 auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(app->deviceManager.get());
@@ -4138,6 +4227,31 @@ extern "C"
         nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
         state.conservativeRasterEnable = enable != 0;
         state.conservativeRasterExtraOverestimation = float(extraOverestimation);
+    }
+
+    // Primitive restart: strips restart at the largest index of indexFormat (Format R16_UINT:
+    // 0xFFFF, R32_UINT: 0xFFFFFFFF; UNKNOWN for none), the format of the index buffers the pipeline
+    // draws with (D3D12 needs it; D3D11 always restarts strips).
+    void Donut_GraphicsPipelineSetPrimitiveRestart(void* graphicsPipelineDesc, int indexFormat)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->primitiveRestartIndexFormat = static_cast<nvrhi::Format>(indexFormat);
+    }
+
+    // How lines are drawn: their rasterization mode (LineRasterizationMode: 0 default, 1
+    // rectangular, 2 Bresenham, 3 smooth; Donut_GetLineRasterizationModes tells which the device
+    // has), width (up to Donut_GetMaxLineWidth) and stipple (stippleEnable non-zero: each bit of the
+    // 16-bit pattern, from the lowest, a run of stippleFactor pixels drawn if set). D3D draws
+    // rectangular lines as quadrilateral lines (multisampling on), Bresenham ones aliased, smooth ones
+    // alpha antialiased; it has no width or stipple.
+    void Donut_GraphicsPipelineSetLineRasterization(void* graphicsPipelineDesc, int mode, double width, int stippleEnable,
+        int stippleFactor, int stipplePattern)
+    {
+        nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
+        state.lineRasterizationMode = static_cast<nvrhi::LineRasterizationMode>(mode);
+        state.lineWidth = float(width);
+        state.setLineStipple(stippleEnable != 0, uint32_t(stippleFactor), uint16_t(stipplePattern));
+        state.multisampleEnable = state.lineRasterizationMode == nvrhi::LineRasterizationMode::Rectangular;
+        state.antialiasedLineEnable = state.lineRasterizationMode == nvrhi::LineRasterizationMode::Smooth;
     }
 
     // Which channels every color target writes: ColorMask bits (red 1, green 2, blue 4, alpha 8; 0 for
@@ -8440,6 +8554,115 @@ extern "C"
     int Donut_HasLogicOps(void* app)
     {
         return AsApp(app)->logicOps ? 1 : 0;
+    }
+
+    // The device's memory heaps now (their count): this process's usage of each and its budget, the
+    // memory it can use before the system has to page or fail allocations. Vulkan's memory heaps,
+    // with VK_EXT_memory_budget (without it the usage is 0 and the budget the heap's size); D3D's
+    // local (video) and non-local (system) memory segment groups, from DXGI. Read back by
+    // Donut_GetMemoryHeapUsage, Donut_GetMemoryHeapBudget and Donut_GetMemoryHeapFlags.
+    int Donut_QueryMemoryBudget(void* app)
+    {
+        App* a = AsApp(app);
+        a->memoryHeaps.clear();
+        nvrhi::IDevice* device = a->device();
+#if DONUT_WITH_VULKAN
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+            const bool budgetExtension = a->deviceManager->IsVulkanDeviceExtensionEnabled(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+            VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT };
+            VkPhysicalDeviceMemoryProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2 };
+            if (budgetExtension)
+                properties.pNext = &budget;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceMemoryProperties2(physicalDevice, &properties);
+            for (uint32_t i = 0; i < properties.memoryProperties.memoryHeapCount; i++)
+            {
+                const VkMemoryHeap& heap = properties.memoryProperties.memoryHeaps[i];
+                MemoryHeap h;
+                h.usage = budgetExtension ? double(budget.heapUsage[i]) : 0.0;
+                h.budget = budgetExtension ? double(budget.heapBudget[i]) : double(heap.size);
+                h.flags = ((heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? MemoryHeapFlag_DeviceLocal : 0)
+                    | ((heap.flags & VK_MEMORY_HEAP_MULTI_INSTANCE_BIT) ? MemoryHeapFlag_MultiInstance : 0);
+                a->memoryHeaps.push_back(h);
+            }
+            return int(a->memoryHeaps.size());
+        }
+#endif
+#if DONUT_WITH_DX11 || DONUT_WITH_DX12
+        Microsoft::WRL::ComPtr<IDXGIAdapter3> adapter;
+#if DONUT_WITH_DX12
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
+            if (SUCCEEDED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory))))
+                factory->EnumAdapterByLuid(d3dDevice->GetAdapterLuid(), IID_PPV_ARGS(&adapter));
+        }
+#endif
+#if DONUT_WITH_DX11
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D11)
+        {
+            ID3D11Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D11_Device);
+            Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+            Microsoft::WRL::ComPtr<IDXGIAdapter> dxgiAdapter;
+            if (SUCCEEDED(d3dDevice->QueryInterface(IID_PPV_ARGS(&dxgiDevice))) && SUCCEEDED(dxgiDevice->GetAdapter(&dxgiAdapter)))
+                dxgiAdapter.As(&adapter);
+        }
+#endif
+        if (adapter)
+        {
+            const DXGI_MEMORY_SEGMENT_GROUP groups[] = { DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL };
+            for (DXGI_MEMORY_SEGMENT_GROUP group : groups)
+            {
+                DXGI_QUERY_VIDEO_MEMORY_INFO info = {};
+                if (FAILED(adapter->QueryVideoMemoryInfo(0, group, &info)))
+                    continue;
+                MemoryHeap h;
+                h.usage = double(info.CurrentUsage);
+                h.budget = double(info.Budget);
+                h.flags = group == DXGI_MEMORY_SEGMENT_GROUP_LOCAL ? MemoryHeapFlag_DeviceLocal : 0;
+                a->memoryHeaps.push_back(h);
+            }
+        }
+#endif
+        return int(a->memoryHeaps.size());
+    }
+
+    // A memory heap's usage and budget in bytes, and its MemoryHeapFlag bits, as
+    // Donut_QueryMemoryBudget last found them.
+    double Donut_GetMemoryHeapUsage(void* app, int heap)
+    {
+        const App* a = AsApp(app);
+        return heap >= 0 && size_t(heap) < a->memoryHeaps.size() ? a->memoryHeaps[heap].usage : 0.0;
+    }
+
+    double Donut_GetMemoryHeapBudget(void* app, int heap)
+    {
+        const App* a = AsApp(app);
+        return heap >= 0 && size_t(heap) < a->memoryHeaps.size() ? a->memoryHeaps[heap].budget : 0.0;
+    }
+
+    int Donut_GetMemoryHeapFlags(void* app, int heap)
+    {
+        const App* a = AsApp(app);
+        return heap >= 0 && size_t(heap) < a->memoryHeaps.size() ? a->memoryHeaps[heap].flags : 0;
+    }
+
+    // LineRasterization bits: the line rasterization modes pipelines can have
+    // (Donut_GraphicsPipelineSetLineRasterization): Vulkan's with VK_EXT_line_rasterization's
+    // features, plain and stippled; D3D's rectangular (quadrilateral), Bresenham (aliased) and smooth
+    // (alpha antialiased) lines, unstippled.
+    int Donut_GetLineRasterizationModes(void* app)
+    {
+        return AsApp(app)->lineRasterizationModes;
+    }
+
+    // The widest lines can be: Vulkan's lineWidthRange with the wideLines feature, else 1.
+    double Donut_GetMaxLineWidth(void* app)
+    {
+        return AsApp(app)->maxLineWidth;
     }
 
     // Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad

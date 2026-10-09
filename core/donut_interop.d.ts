@@ -261,6 +261,31 @@ enum AdvancedBlend {
     CorrelatedOverlap = 16
 }
 
+// Bits of Donut_GetMemoryHeapFlags: Vulkan's VkMemoryHeapFlags.
+enum MemoryHeapFlag {
+    DeviceLocal = 1,
+    MultiInstance = 2
+}
+
+// Bits of Donut_GetLineRasterizationModes.
+enum LineRasterization {
+    Rectangular = 1,
+    Bresenham = 2,
+    Smooth = 4,
+    StippledRectangular = 8,
+    StippledBresenham = 16,
+    StippledSmooth = 32
+}
+
+// How lines are rasterized (Donut_GraphicsPipelineSetLineRasterization): Vulkan's
+// VkLineRasterizationModeEXT.
+enum LineRasterizationMode {
+    Default = 0,
+    Rectangular = 1,
+    Bresenham = 2,
+    Smooth = 3
+}
+
 // Logic operations between a pixel shader's output (s) and the target's bits (d)
 // (Donut_GraphicsPipelineSetLogicOp): nvrhi::LogicOp, in Vulkan's order.
 enum LogicOp {
@@ -390,6 +415,22 @@ declare function Donut_HasNative16BitShaderOps(app: Opaque): int;
 // Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
 // D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
 declare function Donut_HasLogicOps(app: Opaque): int;
+// The device's memory heaps now (their count): this process's usage of each and its budget, the
+// memory it can use before the system has to page or fail allocations. Vulkan's memory heaps, with
+// VK_EXT_memory_budget (without it the usage is 0 and the budget the heap's size); D3D's local
+// (video) and non-local (system) memory segment groups, from DXGI.
+declare function Donut_QueryMemoryBudget(app: Opaque): int;
+// A memory heap's usage and budget in bytes, and its MemoryHeapFlag bits, as Donut_QueryMemoryBudget
+// last found them.
+declare function Donut_GetMemoryHeapUsage(app: Opaque, heap: int): number;
+declare function Donut_GetMemoryHeapBudget(app: Opaque, heap: int): number;
+declare function Donut_GetMemoryHeapFlags(app: Opaque, heap: int): int;
+// LineRasterization bits: the line rasterization modes pipelines can have: Vulkan's with
+// VK_EXT_line_rasterization's features, plain and stippled; D3D's rectangular (quadrilateral),
+// Bresenham (aliased) and smooth (alpha antialiased) lines, unstippled.
+declare function Donut_GetLineRasterizationModes(app: Opaque): int;
+// The widest lines can be: Vulkan's lineWidthRange with the wideLines feature, else 1.
+declare function Donut_GetMaxLineWidth(app: Opaque): number;
 // Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad operations
 // (QuadReadLaneAt...): Vulkan with VK_KHR_shader_quad_control (SPIR-V's RequireFullQuadsKHR and
 // QuadDerivativesKHR execution modes), D3D12 always.
@@ -437,8 +478,10 @@ declare function Donut_CloseWindow(app: Opaque): void;
 
 // nvrhi::Format values (only the ones used so far).
 enum Format {
+    UNKNOWN = 0,
     R8_UINT = 1,
     RG8_UINT = 5,
+    R16_UINT = 9,
     RGBA8_UINT = 17,
     RGBA8_UNORM = 19,
     BGRA8_UNORM = 21,
@@ -669,6 +712,16 @@ declare function Donut_GraphicsPipelineSetLogicOp(graphicsPipelineDesc: Opaque, 
 // touches is drawn; extraOverestimation enlarges triangles further, in pixels, on Vulkan only
 // (clamped to the device's maximum).
 declare function Donut_GraphicsPipelineSetConservativeRaster(graphicsPipelineDesc: Opaque, enable: int, extraOverestimation: number): void;
+// Primitive restart: strips restart at the largest index of indexFormat (R16_UINT: 0xFFFF, R32_UINT:
+// 0xFFFFFFFF; UNKNOWN for none), the format of the index buffers the pipeline draws with (D3D12
+// needs it; D3D11 always restarts strips).
+declare function Donut_GraphicsPipelineSetPrimitiveRestart(graphicsPipelineDesc: Opaque, indexFormat: Format): void;
+// How lines are drawn: their rasterization mode (one Donut_GetLineRasterizationModes has), width (up to
+// Donut_GetMaxLineWidth) and stipple (stippleEnable non-zero, with the mode's stippled bit: each bit
+// of the 16-bit pattern, from the lowest, a run of stippleFactor pixels drawn if set). D3D has no
+// width or stipple.
+declare function Donut_GraphicsPipelineSetLineRasterization(graphicsPipelineDesc: Opaque, mode: LineRasterizationMode,
+    width: number, stippleEnable: int, stippleFactor: int, stipplePattern: int): void;
 // The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
 declare function Donut_GraphicsPipelineSetColorWriteMask(graphicsPipelineDesc: Opaque, mask: ColorMask): void;
 // For a framebuffer's layout.

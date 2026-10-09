@@ -162,6 +162,12 @@ set(DONUT_NVRHI_PATCHES
     # passed to vkCmdBeginRendering, so shading rate images did nothing), with pipelines made for it
     # (fragment_shading_rate_dynamic).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-shading-rate-attachment.patch"
+    # RasterState::lineRasterizationMode, lineWidth and line stipple: Vulkan's line rasterization
+    # modes (VK_EXT_line_rasterization), wide and stippled lines (dynamic_line_rasterization).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-line-rasterization.patch"
+    # GraphicsPipelineDesc::primitiveRestartIndexFormat: strips restart at the largest index, on
+    # Vulkan and D3D12 (D3D11 always restarts them; extended_dynamic_state2).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-primitive-restart.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -1536,6 +1542,196 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_quad_control/spirv
 )
 add_tslang_example(shader_quad_control)
+
+# Port of Vulkan-Samples' dynamic_line_rasterization: a cube's edges drawn as lines whose
+# rasterization mode (rectangular, Bresenham, smooth), width and stipple are set in the UI (the
+# sample's dynamic state is a pipeline per combination here; an NVRHI patch adds them, see
+# DONUT_NVRHI_PATCHES above), over a grid on the ground. Width and stipple are Vulkan's only.
+donut_compile_shaders_all_platforms(
+    TARGET dynamic_line_rasterization_shaders
+    PROJECT_NAME "Dynamic Line Rasterization"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_line_rasterization.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_line_rasterization.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_line_rasterization
+)
+add_tslang_example(dynamic_line_rasterization)
+
+# Port of Vulkan-Samples' extended_dynamic_state2: primitives over an environment cube map, each
+# with depth bias and rasterizer discard switched in the UI, a cube of triangle strips with
+# primitive restart (an NVRHI patch adds it, see DONUT_NVRHI_PATCHES above) and a tessellated
+# wireframe geosphere (the sample's dynamic state is pipelines here). Its scene, cube and cube map
+# are Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF files are copied,
+# the KTX cube map converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET extended_dynamic_state2_shaders
+    PROJECT_NAME "Extended Dynamic State 2"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/extended_dynamic_state2.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/extended_dynamic_state2.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/extended_dynamic_state2
+)
+add_tslang_example(extended_dynamic_state2 MEDIA extended_dynamic_state2)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/uffizi_rgba16f_cube.ktx")
+    set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/extended_dynamic_state2/uffizi_rgba16f_cube.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting uffizi_rgba16f_cube.ktx to DDS"
+        VERBATIM)
+    set(extended_dynamic_state2_media "${output}")
+    foreach(model primitives/primitives cube)
+        get_filename_component(name "${model}" NAME)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${model}.gltf")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/extended_dynamic_state2/${name}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${name}.gltf"
+            VERBATIM)
+        list(APPEND extended_dynamic_state2_media "${output}")
+    endforeach()
+    add_custom_target(extended_dynamic_state2_media DEPENDS ${extended_dynamic_state2_media})
+    add_dependencies(extended_dynamic_state2 extended_dynamic_state2_media)
+endif()
+
+# Port of Vulkan-Samples' fragment_shading_rate: a scene drawn with a shading rate image made once
+# on the CPU, rings of coarser rates around the center. Variable rate shading with shading rate
+# images needs D3D12 or Vulkan, so no DXBC. Its models and textures are Vulkan-Samples' assets too
+# (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF files are copied, the KTX textures converted to DDS.
+donut_compile_shaders(
+    TARGET fragment_shading_rate_shaders
+    PROJECT_NAME "Fragment Shading Rate"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fragment_shading_rate.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fragment_shading_rate.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate/spirv
+)
+add_tslang_example(fragment_shading_rate MEDIA fragment_shading_rate)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(fragment_shading_rate_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/fragment_shading_rate")
+    set(fragment_shading_rate_media)
+    foreach(texture skysphere_rgba metalplate01_rgba)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/${texture}.ktx")
+        set(output "${fragment_shading_rate_output}/${texture}.dds")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+            DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+            COMMENT "Converting ${texture}.ktx to DDS"
+            VERBATIM)
+        list(APPEND fragment_shading_rate_media "${output}")
+    endforeach()
+    foreach(model geosphere textured_unit_cube)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${model}.gltf")
+        set(output "${fragment_shading_rate_output}/${model}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${model}.gltf"
+            VERBATIM)
+        list(APPEND fragment_shading_rate_media "${output}")
+    endforeach()
+    add_custom_target(fragment_shading_rate_media DEPENDS ${fragment_shading_rate_media})
+    add_dependencies(fragment_shading_rate fragment_shading_rate_media)
+endif()
+
+# Port of Vulkan-Samples' memory_budget: its instancing sample's rocks around a planet (instancing's
+# shaders) with the memory heaps' usage and budget (VK_EXT_memory_budget, or DXGI's on D3D). Its
+# models and textures are Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the
+# glTF files are copied, the KTX textures converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET memory_budget_shaders
+    PROJECT_NAME "Memory Budget"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/memory_budget.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/instancing.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/memory_budget
+)
+add_tslang_example(memory_budget MEDIA memory_budget)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(memory_budget_media)
+    foreach(texture texturearray_rocks_color_rgba lavaplanet_color_rgba)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/${texture}.ktx")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/memory_budget/${texture}.dds")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+            DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+            COMMENT "Converting ${texture}.ktx to DDS"
+            VERBATIM)
+        list(APPEND memory_budget_media "${output}")
+    endforeach()
+    foreach(model rock planet)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${model}.gltf")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/memory_budget/${model}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${model}.gltf"
+            VERBATIM)
+        list(APPEND memory_budget_media "${output}")
+    endforeach()
+    add_custom_target(memory_budget_media DEPENDS ${memory_budget_media})
+    add_dependencies(memory_budget memory_budget_media)
+endif()
+
+# Port of Vulkan-Samples' mobile_nerf (after Google's MobileNeRF): neural radiance fields baked into
+# textured meshes, each pixel's color from its two feature textures run through the model's small
+# MLP in the pixel shader; four Lego models, instanced. Its models are Vulkan-Samples' assets too
+# (see VULKAN_SAMPLES_ASSETS_DIR above): each model's glTF mesh, feature textures and MLP are copied.
+donut_compile_shaders_all_platforms(
+    TARGET mobile_nerf_shaders
+    PROJECT_NAME "Mobile NeRF"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mobile_nerf.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mobile_nerf.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mobile_nerf
+)
+add_tslang_example(mobile_nerf MEDIA mobile_nerf)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(mobile_nerf_media)
+    foreach(model lego_ball_phone lego_boba_fett_phone lego_monster_truck_phone lego_tractor_phone)
+        foreach(file shape0.gltf shape0.pngfeat0.png shape0.pngfeat1.png mlp.json)
+            set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/morpheus_team/${model}/${file}")
+            set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/mobile_nerf/${model}/${file}")
+            add_custom_command(OUTPUT "${output}"
+                COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+                DEPENDS "${source}"
+                COMMENT "Copying ${model}/${file}"
+                VERBATIM)
+            list(APPEND mobile_nerf_media "${output}")
+        endforeach()
+    endforeach()
+    add_custom_target(mobile_nerf_media DEPENDS ${mobile_nerf_media})
+    add_dependencies(mobile_nerf mobile_nerf_media)
+endif()
+
+# Port of Vulkan-Samples' dynamic_primitive_clipping: an object drawn twice with user clip distances
+# (SV_ClipDistance), the second time negated, the clip distance function picked in the UI, and
+# depth clipping switched (the sample's dynamic state is a pipeline of its own here). Its models are
+# Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF files are copied.
+donut_compile_shaders_all_platforms(
+    TARGET dynamic_primitive_clipping_shaders
+    PROJECT_NAME "Dynamic Primitive Clipping"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_primitive_clipping.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_primitive_clipping.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_primitive_clipping
+)
+add_tslang_example(dynamic_primitive_clipping MEDIA dynamic_primitive_clipping)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(dynamic_primitive_clipping_media)
+    foreach(model teapot torusknot geosphere)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${model}.gltf")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/dynamic_primitive_clipping/${model}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${model}.gltf"
+            VERBATIM)
+        list(APPEND dynamic_primitive_clipping_media "${output}")
+    endforeach()
+    add_custom_target(dynamic_primitive_clipping_media DEPENDS ${dynamic_primitive_clipping_media})
+    add_dependencies(dynamic_primitive_clipping dynamic_primitive_clipping_media)
+endif()
 
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray

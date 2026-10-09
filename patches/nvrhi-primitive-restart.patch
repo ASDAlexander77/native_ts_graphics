@@ -1,0 +1,55 @@
+diff --git a/include/nvrhi/nvrhi.h b/include/nvrhi/nvrhi.h
+index 753e267..2bbb441 100644
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -2765,6 +2765,12 @@ namespace nvrhi
+ 
+         BindingLayoutVector bindingLayouts;
+         
++        // Primitive restart: strips restart at the index buffer format's largest index (0xFFFF for
++        // R16_UINT, 0xFFFFFFFF for R32_UINT; UNKNOWN: no restart). Vulkan's primitiveRestartEnable,
++        // D3D12's IBStripCutValue, which must match the format of the index buffers drawn with;
++        // D3D11 always restarts strips.
++        Format primitiveRestartIndexFormat = Format::UNKNOWN;
++
+         GraphicsPipelineDesc& setPrimType(PrimitiveType value) { primType = value; return *this; }
+         GraphicsPipelineDesc& setPatchControlPoints(uint32_t value) { patchControlPoints = value; return *this; }
+         GraphicsPipelineDesc& setInputLayout(IInputLayout* value) { inputLayout = value; return *this; }
+@@ -2779,6 +2785,7 @@ namespace nvrhi
+         GraphicsPipelineDesc& setRenderState(const RenderState& value) { renderState = value; return *this; }
+         GraphicsPipelineDesc& setVariableRateShadingState(const VariableRateShadingState& value) { shadingRateState = value; return *this; }
+         GraphicsPipelineDesc& addBindingLayout(IBindingLayout* layout) { bindingLayouts.push_back(layout); return *this; }
++        GraphicsPipelineDesc& setPrimitiveRestartIndexFormat(Format value) { primitiveRestartIndexFormat = value; return *this; }
+     };
+ 
+     class IGraphicsPipeline : public IResource
+diff --git a/src/d3d12/d3d12-graphics.cpp b/src/d3d12/d3d12-graphics.cpp
+index d744949..e3a8ec2 100644
+--- a/src/d3d12/d3d12-graphics.cpp
++++ b/src/d3d12/d3d12-graphics.cpp
+@@ -108,6 +108,11 @@ namespace nvrhi::d3d12
+             return nullptr;
+         }
+ 
++        if (state.primitiveRestartIndexFormat == Format::R16_UINT)
++            desc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF;
++        else if (state.primitiveRestartIndexFormat == Format::R32_UINT)
++            desc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF;
++
+         desc.DSVFormat = getDxgiFormatMapping(fbinfo.depthFormat).rtvFormat;
+ 
+         desc.SampleDesc.Count = fbinfo.sampleCount;
+diff --git a/src/vulkan/vulkan-graphics.cpp b/src/vulkan/vulkan-graphics.cpp
+index 0acc7be..e32261a 100644
+--- a/src/vulkan/vulkan-graphics.cpp
++++ b/src/vulkan/vulkan-graphics.cpp
+@@ -349,7 +349,8 @@ namespace nvrhi::vulkan
+         }
+ 
+         auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo()
+-                                .setTopology(convertPrimitiveTopology(desc.primType));
++                                .setTopology(convertPrimitiveTopology(desc.primType))
++                                .setPrimitiveRestartEnable(desc.primitiveRestartIndexFormat != Format::UNKNOWN);
+ 
+         // fixed function state
+         const auto& rasterState = desc.renderState.rasterState;

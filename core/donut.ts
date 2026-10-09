@@ -129,6 +129,40 @@ export class App {
         return Donut_HasLogicOps(this.handle);
     }
 
+    // The device's memory heaps now (their count): this process's usage of each and its budget, the
+    // memory it can use before the system has to page or fail allocations. Vulkan's memory heaps, with
+    // VK_EXT_memory_budget (without it the usage is 0 and the budget the heap's size); D3D's local
+    // (video) and non-local (system) memory segment groups, from DXGI.
+    queryMemoryBudget(): int {
+        return Donut_QueryMemoryBudget(this.handle);
+    }
+
+    // A memory heap's usage and budget in bytes, and its MemoryHeapFlag bits, as Donut_QueryMemoryBudget
+    // last found them.
+    getMemoryHeapUsage(heap: int): number {
+        return Donut_GetMemoryHeapUsage(this.handle, heap);
+    }
+
+    getMemoryHeapBudget(heap: int): number {
+        return Donut_GetMemoryHeapBudget(this.handle, heap);
+    }
+
+    getMemoryHeapFlags(heap: int): int {
+        return Donut_GetMemoryHeapFlags(this.handle, heap);
+    }
+
+    // LineRasterization bits: the line rasterization modes pipelines can have: Vulkan's with
+    // VK_EXT_line_rasterization's features, plain and stippled; D3D's rectangular (quadrilateral),
+    // Bresenham (aliased) and smooth (alpha antialiased) lines, unstippled.
+    getLineRasterizationModes(): int {
+        return Donut_GetLineRasterizationModes(this.handle);
+    }
+
+    // The widest lines can be: Vulkan's lineWidthRange with the wideLines feature, else 1.
+    getMaxLineWidth(): number {
+        return Donut_GetMaxLineWidth(this.handle);
+    }
+
     // Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad operations
     // (QuadReadLaneAt...): Vulkan with VK_KHR_shader_quad_control (SPIR-V's RequireFullQuadsKHR and
     // QuadDerivativesKHR execution modes), D3D12 always.
@@ -2195,6 +2229,21 @@ export class GraphicsPipelineDesc {
     // (clamped to the device's maximum).
     setConservativeRaster(enable: int, extraOverestimation: number): void {
         Donut_GraphicsPipelineSetConservativeRaster(this.handle, enable, extraOverestimation);
+    }
+
+    // Primitive restart: strips restart at the largest index of indexFormat (R16_UINT: 0xFFFF, R32_UINT:
+    // 0xFFFFFFFF; UNKNOWN for none), the format of the index buffers the pipeline draws with (D3D12
+    // needs it; D3D11 always restarts strips).
+    setPrimitiveRestart(indexFormat: Format): void {
+        Donut_GraphicsPipelineSetPrimitiveRestart(this.handle, indexFormat);
+    }
+
+    // How lines are drawn: their rasterization mode (one Donut_GetLineRasterizationModes has), width (up to
+    // Donut_GetMaxLineWidth) and stipple (stippleEnable non-zero, with the mode's stippled bit: each bit
+    // of the 16-bit pattern, from the lowest, a run of stippleFactor pixels drawn if set). D3D has no
+    // width or stipple.
+    setLineRasterization(mode: LineRasterizationMode, width: number, stippleEnable: int, stippleFactor: int, stipplePattern: int): void {
+        Donut_GraphicsPipelineSetLineRasterization(this.handle, mode, width, stippleEnable, stippleFactor, stipplePattern);
     }
 
     // The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
