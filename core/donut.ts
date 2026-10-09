@@ -924,6 +924,11 @@ export class App {
         return new SceneAccelStructs(Donut_CreateTopLevelAS(this.handle, maxInstances));
     }
 
+    // Same, built with buildFlags (e.g. AllowUpdate, for Donut_UpdateTopLevelAS).
+    createTopLevelASWithFlags(maxInstances: int, buildFlags: AccelStructBuildFlags): SceneAccelStructs {
+        return new SceneAccelStructs(Donut_CreateTopLevelASWithFlags(this.handle, maxInstances, buildFlags));
+    }
+
     // Scenes built in code. Material with a diffuse texture (relative to the executable's
     // directory, sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
     // specular-glossiness model. A null handle (after logging why) if the texture can't be loaded.
@@ -1351,6 +1356,13 @@ export class Frame {
     // Valid only inside a render callback.
     buildTopLevelAS(sceneAccelStructs: SceneAccelStructs): void {
         Donut_BuildTopLevelAS(this.handle, sceneAccelStructs.handle);
+    }
+
+    // Valid only inside a render callback: refits the TLAS in place to the instances added since the
+    // last build (new transforms, same instance count) instead of building it anew. Needs an AllowUpdate
+    // TLAS; builds it instead the first time or when the instance count changed. 1 if it refitted.
+    updateTopLevelAS(sceneAccelStructs: SceneAccelStructs): int {
+        return Donut_UpdateTopLevelAS(this.handle, sceneAccelStructs.handle);
     }
 
     // These four are valid only inside a render callback.

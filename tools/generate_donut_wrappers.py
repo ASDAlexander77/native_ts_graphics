@@ -161,6 +161,7 @@ RETURNS = {
     "Donut_BuildSceneAccelStructs": "SceneAccelStructs",
     "Donut_CreateAnimatedSceneAccelStructs": "SceneAccelStructs",
     "Donut_CreateTopLevelAS": "SceneAccelStructs",
+    "Donut_CreateTopLevelASWithFlags": "SceneAccelStructs",
     "Donut_CreateEmptyTriangleBlas": "TriangleBlas",
     "Donut_LoadBindlessTexture": "LoadedTexture",
     "Donut_CreateFirstPersonCamera": "Camera",

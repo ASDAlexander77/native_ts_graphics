@@ -1317,6 +1317,8 @@ declare function Donut_CreateUnitAABBBlas(app: Opaque, commandList: Opaque, debu
 // A TLAS of up to maxInstances, rebuilt by Donut_BuildTopLevelAS from the instances added since
 // the last build. Get the TLAS with Donut_GetSceneTopLevelAS.
 declare function Donut_CreateTopLevelAS(app: Opaque, maxInstances: int): Opaque;
+// Same, built with buildFlags (e.g. AllowUpdate, for Donut_UpdateTopLevelAS).
+declare function Donut_CreateTopLevelASWithFlags(app: Opaque, maxInstances: int, buildFlags: AccelStructBuildFlags): Opaque;
 // The scene's mesh instances (instance ID = instance index) with instanceMask, dynamicMesh's (if
 // not null) with dynamicMeshMask.
 declare function Donut_AddSceneTopLevelASInstances(sceneAccelStructs: Opaque, scene: Opaque, instanceMask: int,
@@ -1335,6 +1337,10 @@ declare function Donut_AddTopLevelASInstanceWithHitGroup(sceneAccelStructs: Opaq
     instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void;
 // Valid only inside a render callback.
 declare function Donut_BuildTopLevelAS(frame: Opaque, sceneAccelStructs: Opaque): void;
+// Valid only inside a render callback: refits the TLAS in place to the instances added since the
+// last build (new transforms, same instance count) instead of building it anew. Needs an AllowUpdate
+// TLAS; builds it instead the first time or when the instance count changed. 1 if it refitted.
+declare function Donut_UpdateTopLevelAS(frame: Opaque, sceneAccelStructs: Opaque): int;
 
 // Scenes built in code. Material with a diffuse texture (relative to the executable's directory,
 // sRGB), uploads recorded into an open command list; specularGloss != 0 selects the

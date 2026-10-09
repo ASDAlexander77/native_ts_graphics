@@ -891,6 +891,9 @@ namespace
         nvrhi::rt::AccelStructHandle topLevel;
         // Instances for the next Donut_BuildTopLevelAS (Donut_CreateTopLevelAS ones).
         std::vector<nvrhi::rt::InstanceDesc> pendingInstances;
+        // Instances in the TLAS's last build (Donut_UpdateTopLevelAS refits only to the same
+        // count), -1 before the first.
+        int builtInstanceCount = -1;
     };
 
     // A mesh of one geometry whose vertices and indices change every frame (e.g. particle
@@ -5626,6 +5629,21 @@ extern "C"
         return a->OwnObject(accelStructs);
     }
 
+    // Same, built with buildFlags (AccelStructBuildFlags bits, e.g. AllowUpdate for
+    // Donut_UpdateTopLevelAS, PreferFastBuild).
+    void* Donut_CreateTopLevelASWithFlags(void* app, int maxInstances, int buildFlags)
+    {
+        App* a = AsApp(app);
+        auto accelStructs = std::make_shared<SceneAccelStructs>();
+        nvrhi::rt::AccelStructDesc tlasDesc;
+        tlasDesc.isTopLevel = true;
+        tlasDesc.topLevelMaxInstances = static_cast<size_t>(maxInstances);
+        tlasDesc.buildFlags = static_cast<nvrhi::rt::AccelStructBuildFlags>(buildFlags);
+        tlasDesc.debugName = "TopLevelAS";
+        accelStructs->topLevel = a->device()->createAccelStruct(tlasDesc);
+        return a->OwnObject(accelStructs);
+    }
+
     // Adds all mesh instances of a loaded scene (instance ID = instance index; meshes' BLASes from
     // Donut_BuildSceneBLASes), with instanceMask, except dynamicMesh's (if not null) with
     // dynamicMeshMask.
@@ -5689,11 +5707,43 @@ extern "C"
     {
         auto* accelStructs = static_cast<SceneAccelStructs*>(sceneAccelStructs);
         nvrhi::ICommandList* cl = AsFrame(frame)->commandList;
+        // The flags it was created with (NVRHI adds AllowUpdate itself): an update must use the
+        // same ones as the build it refits.
+        const nvrhi::rt::AccelStructBuildFlags buildFlags = accelStructs->topLevel->getDesc().buildFlags;
         cl->beginMarker("TLAS Update");
         cl->buildTopLevelAccelStruct(accelStructs->topLevel, accelStructs->pendingInstances.data(),
-            accelStructs->pendingInstances.size());
+            accelStructs->pendingInstances.size(), buildFlags);
+        cl->endMarker();
+        accelStructs->builtInstanceCount = static_cast<int>(accelStructs->pendingInstances.size());
+        accelStructs->pendingInstances.clear();
+    }
+
+    // Inside a render callback: refits the TLAS in place to the instances added since the last
+    // build (new transforms, same instance count), instead of building it anew. Needs a TLAS
+    // created with AllowUpdate; builds it instead before its first build or when the instance
+    // count changed. Returns 1 if it refitted, 0 if it built.
+    int Donut_UpdateTopLevelAS(void* frame, void* sceneAccelStructs)
+    {
+        auto* accelStructs = static_cast<SceneAccelStructs*>(sceneAccelStructs);
+        const nvrhi::rt::AccelStructBuildFlags buildFlags = accelStructs->topLevel->getDesc().buildFlags;
+        if ((buildFlags & nvrhi::rt::AccelStructBuildFlags::AllowUpdate) == 0)
+        {
+            donut::log::error("Donut_UpdateTopLevelAS: the TLAS wasn't created with AllowUpdate; building it instead");
+        }
+        if ((buildFlags & nvrhi::rt::AccelStructBuildFlags::AllowUpdate) == 0 ||
+            accelStructs->builtInstanceCount != static_cast<int>(accelStructs->pendingInstances.size()))
+        {
+            Donut_BuildTopLevelAS(frame, sceneAccelStructs);
+            return 0;
+        }
+
+        nvrhi::ICommandList* cl = AsFrame(frame)->commandList;
+        cl->beginMarker("TLAS Refit");
+        cl->buildTopLevelAccelStruct(accelStructs->topLevel, accelStructs->pendingInstances.data(),
+            accelStructs->pendingInstances.size(), buildFlags | nvrhi::rt::AccelStructBuildFlags::PerformUpdate);
         cl->endMarker();
         accelStructs->pendingInstances.clear();
+        return 1;
     }
 
     // Scene animations (e.g. glTF skeletal animations), in the scene graph's order.

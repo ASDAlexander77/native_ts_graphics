@@ -2081,6 +2081,19 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(texture_compression_basisu texture_compression_basisu_media)
 endif()
 
+# Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
+# triangles and a plane, two rotating, ray traced with per-instance colors and shadow rays; the
+# top-level acceleration structure refitted in place every frame. Needs D3D12 or Vulkan.
+donut_compile_shaders(
+    TARGET dxr_refit_shaders
+    PROJECT_NAME "DXR Refit"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dxr_refit.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dxr_refit.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dxr_refit/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dxr_refit/spirv
+)
+add_tslang_example(dxr_refit)
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.
