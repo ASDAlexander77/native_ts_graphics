@@ -2,12 +2,12 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 
-namespace MobileNerf {
-    const WINDOW_TITLE = "Donut Example: Mobile NeRF";
+namespace MobileNerfRayQuery {
+    const WINDOW_TITLE = "Donut Example: Mobile NeRF Ray Query";
 
     // The sample's default scene, lego_combo: four of Morpheus team's Lego NeRFs (Vulkan-Samples'
-    // assets, copied at build time; see VULKAN_SAMPLES_ASSETS_DIR in CMakeLists.txt), each a mesh,
-    // two feature textures and an MLP.
+    // assets, mobile_nerf's copy; see VULKAN_SAMPLES_ASSETS_DIR in CMakeLists.txt), each a mesh, two
+    // feature textures and an MLP.
     const MEDIA_DIR = "media/mobile_nerf/";
     const MODELS = ["lego_ball_phone", "lego_boba_fett_phone", "lego_monster_truck_phone", "lego_tractor_phone"];
     // lego_combo's hard-coded model transforms: translations.
@@ -24,23 +24,24 @@ namespace MobileNerf {
     const CAMERA_POSITION = [-0.0381453, 1.84186, -1.51744];
     const CAMERA_FOV = 60.0;
     const Z_NEAR = 0.01;
-    const Z_FAR = 256.0;
+    const Z_FAR = 200.0;
+    // ApiVulkanSample's default_clear_color.
+    const CLEAR_COLOR = 0.002;
 
-    // Donut_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
-    const VERTEX_SIZE = 32;
+    // Donut_LoadGltfModel's vertices: float3 position, float3 normal, float2 texture coordinates.
+    const GLTF_VERTEX_FLOATS = 8;
+    // The sample's Vertex: float3 position, float2 texture coordinates.
+    const VERTEX_FLOATS = 5;
+    const VERTEX_SIZE = VERTEX_FLOATS * 4;
 
-    // struct GlobalUniform { float4x4 model, view, proj; float3 camera_position, camera_side,
-    // camera_up, camera_lookat (each in 16 bytes); float2 img_dim; float tan_half_fov; }, padded.
-    const UBO_MODEL = 0;
-    const UBO_VIEW = 16;
-    const UBO_PROJ = 32;
-    const UBO_CAMERA_POSITION = 48;
-    const UBO_CAMERA_SIDE = 52;
-    const UBO_CAMERA_UP = 56;
-    const UBO_CAMERA_LOOKAT = 60;
-    const UBO_IMG_DIM = 64;
-    const UBO_TAN_HALF_FOV = 66;
-    const UBO_FLOATS = 68;
+    // struct GlobalUniform { float4x4 view_inverse, proj_inverse; float2 img_dim; float
+    // tan_half_fov; } padded, then float4 model_offsets[4] (first vertex, first index: exact as floats).
+    const UBO_VIEW_INVERSE = 0;
+    const UBO_PROJ_INVERSE = 16;
+    const UBO_IMG_DIM = 32;
+    const UBO_TAN_HALF_FOV = 34;
+    const UBO_MODEL_OFFSETS = 36;
+    const UBO_FLOATS = 52;
 
     // The MLP: three layers' weights (the third's padded from 48 to 64, a zero after every 3), then
     // their biases (the third's padded from 3 to 4).
@@ -51,6 +52,9 @@ namespace MobileNerf {
     const BIAS_1_COUNT = 16;
     const BIAS_2_COUNT = 4;
     const MLP_FLOATS = WEIGHTS_0_COUNT + WEIGHTS_1_COUNT + WEIGHTS_2_COUNT + BIAS_0_COUNT + BIAS_1_COUNT + BIAS_2_COUNT;
+
+    // nvrhi::rt::InstanceFlags::TriangleCullDisable.
+    const INSTANCE_FLAGS_CULL_DISABLE = 1;
 
     // Character codes for the JSON reader.
     const CHAR_QUOTE = 34;
@@ -196,7 +200,8 @@ namespace MobileNerf {
         }
     }
 
-    // The sample's initialize_mlp_uniform_buffers: the layers' weights and biases, padded.
+    // The sample's initialize_mlp_uniform_buffers: the layers' weights and biases, padded, appended
+    // to dst.
     function loadMlp(app: App, path: string, dst: f32[]): boolean {
         const file = app.loadBinaryFile(path);
         const reader = new MlpReader();
@@ -215,33 +220,24 @@ namespace MobileNerf {
             console.log(`Unexpected MLP data in ${path}`);
             return false;
         }
-        for (let i = 0; i < MLP_FLOATS; i++) {
-            dst.push(0.0);
-        }
-        let o = 0;
         for (let i = 0; i < WEIGHTS_0_COUNT; i++) {
-            dst[o + i] = weights0[i];
+            dst.push(weights0[i]);
         }
-        o += WEIGHTS_0_COUNT;
         for (let i = 0; i < WEIGHTS_1_COUNT; i++) {
-            dst[o + i] = weights1[i];
+            dst.push(weights1[i]);
         }
-        o += WEIGHTS_1_COUNT;
         let raw = 0;
         for (let i = 0; i < WEIGHTS_2_COUNT; i++) {
-            dst[o + i] = (i + 1) % 4 == 0 ? 0.0 : weights2[raw++];
+            dst.push((i + 1) % 4 == 0 ? 0.0 : weights2[raw++]);
         }
-        o += WEIGHTS_2_COUNT;
         for (let i = 0; i < BIAS_0_COUNT; i++) {
-            dst[o + i] = bias0[i];
+            dst.push(bias0[i]);
         }
-        o += BIAS_0_COUNT;
         for (let i = 0; i < BIAS_1_COUNT; i++) {
-            dst[o + i] = bias1[i];
+            dst.push(bias1[i]);
         }
-        o += BIAS_1_COUNT;
         for (let i = 0; i < BIAS_2_COUNT; i++) {
-            dst[o + i] = (i + 1) % 4 == 0 ? 0.0 : bias2[i];
+            dst.push((i + 1) % 4 == 0 ? 0.0 : bias2[i]);
         }
         return true;
     }
@@ -294,6 +290,52 @@ namespace MobileNerf {
             0.0,                          0.0,               zFar / (zNear - zFar),            -1.0,
             0.0,                          0.0,               -(zFar * zNear) / (zFar - zNear), 0.0,
         ];
+    }
+
+    // The inverse of m, by Gauss-Jordan elimination with partial pivoting.
+    function inverse(m: number[]): number[] {
+        // Rows of [m | I].
+        let a: number[] = [];
+        for (let row = 0; row < 4; row++) {
+            for (let column = 0; column < 4; column++) {
+                a.push(m[column * 4 + row]);
+            }
+            for (let column = 0; column < 4; column++) {
+                a.push(row == column ? 1.0 : 0.0);
+            }
+        }
+        for (let column = 0; column < 4; column++) {
+            let pivot = column;
+            for (let row = column + 1; row < 4; row++) {
+                if (Math.abs(a[row * 8 + column]) > Math.abs(a[pivot * 8 + column])) {
+                    pivot = row;
+                }
+            }
+            for (let k = 0; k < 8; k++) {
+                const t = a[column * 8 + k];
+                a[column * 8 + k] = a[pivot * 8 + k];
+                a[pivot * 8 + k] = t;
+            }
+            const p = a[column * 8 + column];
+            for (let k = 0; k < 8; k++) {
+                a[column * 8 + k] /= p;
+            }
+            for (let row = 0; row < 4; row++) {
+                if (row != column) {
+                    const f = a[row * 8 + column];
+                    for (let k = 0; k < 8; k++) {
+                        a[row * 8 + k] -= f * a[column * 8 + k];
+                    }
+                }
+            }
+        }
+        let result: number[] = [];
+        for (let column = 0; column < 4; column++) {
+            for (let row = 0; row < 4; row++) {
+                result.push(a[row * 8 + 4 + column]);
+            }
+        }
+        return result;
     }
 
     function normalize(v: number[]): number[] {
@@ -426,58 +468,51 @@ namespace MobileNerf {
 
     // --- Pass -------------------------------------------------------------------------------
 
-    // One NeRF: its mesh (Donut_LoadGltfMesh: the framework's loader also ignores the nodes), its
-    // feature textures and MLP, and the binding set for them.
-    class NerfModel {
-        mesh: GltfMesh;
-        weights: f32[];
-        weightsBuffer: Opaque;
-        bindingSet: BindingSet;
-
-        constructor(mesh: GltfMesh, weights: f32[]) {
-            this.mesh = mesh;
-            this.weights = weights;
-        }
-    }
-
-    // Port of Vulkan-Samples' mobile_nerf (after Google's MobileNeRF): neural radiance fields baked
-    // into textured meshes. Each mesh is rasterized with two feature textures (8 channels per
-    // pixel); its pixel shader runs them and the view direction through the model's small MLP
-    // (11 inputs, two hidden layers of 16) for the color. As the sample by default: forward
-    // rendering (the MLP in the mesh's own pass), four Lego models side by side, each instanced 2 x
-    // 2 x 2 times.
-    class MobileNerfPass {
+    // Port of Vulkan-Samples' mobile_nerf_rayquery (after Google's MobileNeRF): mobile_nerf's
+    // neural radiance fields (see mobile_nerf.ts), found by ray queries instead of rasterization.
+    // A triangle over the screen; each pixel traces its ray inline through a TLAS of the NeRF
+    // meshes (one BLAS per model, 2 x 2 x 2 instances of each, the instance's custom index the
+    // model's), reads the hit's texture coordinates from the model's vertices and runs its feature
+    // textures through the model's MLP. Missed pixels keep the clear color.
+    class MobileNerfRayQueryPass {
         private app: App;
         private camera: SampleCamera;
 
         private vs: Opaque;
         private ps: Opaque;
-        private inputLayout: Opaque;
         private bindingLayout: Opaque;
+        private bindingSet: Opaque;
         private globalBuffer: Opaque;
-        private instanceBuffer: Opaque;
-        private instanceCount: int;
-        private models: NerfModel[];
+        private weightsBuffer: Opaque;
+        private vertexBuffer: Opaque;
+        private indexBuffer: Opaque;
+        private blases: TriangleBlas[];
+        private topLevelAS: SceneAccelStructs;
+        private topLevelASBuilt: boolean;
+        // The models' MLPs, one after the other, and their first vertex and index.
+        private weights: f32[];
+        private modelOffsets: int[];
 
-        // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
-        // pipeline made for them.
-        private depth: Opaque;
+        // A framebuffer per back buffer, for the back buffers' size, and the pipeline made for them.
         private framebuffers: Opaque[];
         private targetWidth: int;
         private targetHeight: int;
         private pipeline: Opaque;
         private pipelineCreated: boolean;
 
-        // Upload buffer.
+        // Upload buffers.
         private ubo: f32[];
+        private transform: f32[];
 
         constructor(app: App) {
             this.app = app;
             this.camera = new SampleCamera();
             this.camera.setLookAt([CAMERA_POSITION[0], -CAMERA_POSITION[1], CAMERA_POSITION[2]], [0.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0]);
-            this.models = [];
-            this.instanceCount = 0;
+            this.blases = [];
+            this.topLevelASBuilt = false;
+            this.weights = [];
+            this.modelOffsets = [];
             this.framebuffers = [];
             this.targetWidth = 0;
             this.targetHeight = 0;
@@ -485,6 +520,10 @@ namespace MobileNerf {
             this.ubo = [];
             for (let i = 0; i < UBO_FLOATS; i++) {
                 this.ubo.push(0.0);
+            }
+            this.transform = [];
+            for (let i = 0; i < 12; i++) {
+                this.transform.push(0.0);
             }
         }
 
@@ -511,9 +550,6 @@ namespace MobileNerf {
             for (let i = 0; i < this.framebuffers.length; i++) {
                 this.app.releaseResource(this.framebuffers[i]);
             }
-            if (this.framebuffers.length > 0) {
-                this.app.releaseResource(this.depth);
-            }
             this.framebuffers = [];
             this.targetWidth = 0;
             this.targetHeight = 0;
@@ -521,23 +557,50 @@ namespace MobileNerf {
 
         createTargets(width: int, height: int): void {
             this.releaseTargets();
-            this.depth = this.app.createDepthTexture(width, height, Format.D32, 1.0, "Depth");
             const count = this.app.getBackBufferCount();
             for (let i = 0; i < count; i++) {
-                this.framebuffers.push(this.app.createFramebuffer(this.app.getBackBuffer(i), this.depth));
+                this.framebuffers.push(this.app.createFramebuffer(this.app.getBackBuffer(i), null));
             }
-            // The sample's pipeline: depth tested (less) and written, no culling, no blending.
+            // The sample's pipeline draws a triangle over the screen: no culling, nothing blended
+            // (its depth test passes everywhere, the triangle's depth being 0).
             if (!this.pipelineCreated) {
                 const desc = GraphicsPipelineDesc.create(this.vs, this.ps);
-                desc.setInputLayout(this.inputLayout);
                 desc.addBindingLayout(this.bindingLayout);
-                desc.setDepthState(1, 1, ComparisonFunc.Less);
+                desc.setDepthState(0, 0, ComparisonFunc.Always);
                 desc.setRasterState(CullMode.None, FillMode.Solid, 1);
                 this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
                 this.pipelineCreated = true;
             }
             this.targetWidth = width;
             this.targetHeight = height;
+        }
+
+        // The sample's create_top_level_acceleration_structure: each model in each place of the
+        // instancing grid, its custom index the model's (for its buffers, textures and weights).
+        buildTopLevelAS(frame: Frame): void {
+            const tlas = this.topLevelAS;
+            let offset = [0.0, 0.0, 0.0];
+            for (let x = 0; x < INSTANCE_DIM[0]; x++) {
+                offset[0] = -INSTANCE_INTERVAL[0] * 0.5 * (INSTANCE_DIM[0] - 1) + INSTANCE_INTERVAL[0] * x;
+                for (let y = 0; y < INSTANCE_DIM[1]; y++) {
+                    offset[1] = -INSTANCE_INTERVAL[1] * 0.5 * (INSTANCE_DIM[1] - 1) + INSTANCE_INTERVAL[1] * y;
+                    for (let z = 0; z < INSTANCE_DIM[2]; z++) {
+                        offset[2] = -INSTANCE_INTERVAL[2] * 0.5 * (INSTANCE_DIM[2] - 1) + INSTANCE_INTERVAL[2] * z;
+                        // Rows of a 3 x 4 matrix: identity, translated.
+                        for (let i = 0; i < 12; i++) {
+                            this.transform[i] = i % 5 == 0 ? 1.0 : 0.0;
+                        }
+                        this.transform[3] = offset[0];
+                        this.transform[7] = offset[1];
+                        this.transform[11] = offset[2];
+                        for (let m = 0; m < this.blases.length; m++) {
+                            tlas.addInstanceWithTransform(this.blases[m].getAccelStruct(), 0xFF, m, INSTANCE_FLAGS_CULL_DISABLE,
+                                Ref(this.transform[0]));
+                        }
+                    }
+                }
+            }
+            frame.buildTopLevelAS(tlas);
         }
 
         onRender(frameHandle: Opaque): void {
@@ -550,118 +613,142 @@ namespace MobileNerf {
                 this.createTargets(width, height);
             }
 
-            // The sample's update_uniform_buffers: its projection (clip y negated for Donut), view,
-            // camera position (the view's translation, as the framework keeps it) and axes.
-            const projection = perspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
-            const view = this.camera.view();
+            if (!this.topLevelASBuilt) {
+                this.buildTopLevelAS(frame);
+                this.topLevelASBuilt = true;
+            }
+
+            // The sample's update_uniform_buffer: the inverses of its view and projection (glm's,
+            // no y flip: the shader takes SV_Position's y as the sample's gl_FragCoord's).
+            const viewInverse = inverse(this.camera.view());
+            const projInverse = inverse(perspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR));
             const u = this.ubo;
             for (let i = 0; i < 16; i++) {
-                u[UBO_VIEW + i] = view[i];
-                u[UBO_PROJ + i] = i % 4 == 1 ? -projection[i] : projection[i];
-            }
-            for (let i = 0; i < 3; i++) {
-                u[UBO_CAMERA_POSITION + i] = this.camera.position[i];
-                u[UBO_CAMERA_SIDE + i] = view[i * 4];
-                u[UBO_CAMERA_UP + i] = view[i * 4 + 1];
-                u[UBO_CAMERA_LOOKAT + i] = -view[i * 4 + 2];
+                u[UBO_VIEW_INVERSE + i] = viewInverse[i];
+                u[UBO_PROJ_INVERSE + i] = projInverse[i];
             }
             u[UBO_IMG_DIM] = width;
             u[UBO_IMG_DIM + 1] = height;
             u[UBO_TAN_HALF_FOV] = Math.tan(0.5 * radians(CAMERA_FOV));
+            commandList.writeBuffer(this.globalBuffer, Ref(u[0]), UBO_FLOATS * 4);
+            commandList.writeBuffer(this.weightsBuffer, Ref(this.weights[0]), this.weights.length * 4);
 
-            // The render pass: color cleared to black, depth to 1.
             const index = this.app.getCurrentBackBufferIndex();
-            commandList.clearTextureFloat(this.app.getBackBuffer(index), 0.0, 0.0, 0.0, 1.0);
-            commandList.clearDepth(this.depth, 1.0);
-            const framebuffer = this.framebuffers[index];
+            commandList.clearTextureFloat(this.app.getBackBuffer(index), CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
+            frame.beginDrawToFramebuffer(this.pipeline, this.framebuffers[index]);
+            frame.drawAddBindingSet(this.bindingSet);
+            frame.drawVertices(3);
+        }
 
-            // Each model, with its transform and MLP, instanced.
-            for (let m = 0; m < this.models.length; m++) {
-                const model = this.models[m];
-                const transform = identity();
-                transform[12] = COMBO_TRANSLATIONS[m * 3];
-                transform[13] = COMBO_TRANSLATIONS[m * 3 + 1];
-                transform[14] = COMBO_TRANSLATIONS[m * 3 + 2];
-                for (let i = 0; i < 16; i++) {
-                    u[UBO_MODEL + i] = transform[i];
+        // The sample's load_scene, create_static_object_buffers and
+        // create_bottom_level_acceleration_structure for every model: its meshes' vertices (y
+        // flipped, v flipped) and triangles, appended to one vertex and one index buffer, and a BLAS
+        // of them with the model's combo transform (y negated, as the sample's vertices are).
+        loadModels(commandList: CommandList): boolean {
+            let vertices: f32[] = [];
+            let indices: int[] = [];
+            let firstVertices: int[] = [];
+            let firstIndices: int[] = [];
+            let counts: int[] = [];
+            for (let m = 0; m < MODELS.length; m++) {
+                const path = MEDIA_DIR + MODELS[m] + "/shape0.gltf";
+                const scene = this.app.loadGltfModel(path);
+                if (scene.isNull()) {
+                    return false;
                 }
-                commandList.writeBuffer(this.globalBuffer, Ref(u[0]), UBO_FLOATS * 4);
-                commandList.writeBuffer(model.weightsBuffer, Ref(model.weights[0]), MLP_FLOATS * 4);
-
-                frame.beginDrawToFramebuffer(this.pipeline, framebuffer);
-                frame.drawAddBindingSet(model.bindingSet);
-                frame.drawSetIndexBuffer(model.mesh.getIndexBuffer());
-                frame.drawAddVertexBuffer(model.mesh.getVertexBuffer(), 0, 0);
-                frame.drawAddVertexBuffer(this.instanceBuffer, 1, 0);
-                frame.drawIndexedInstanced(model.mesh.getIndexCount(), this.instanceCount);
+                const firstVertex = vertices.length / VERTEX_FLOATS;
+                const firstIndex = indices.length;
+                for (let p = 0; p < scene.getPrimitiveCount(); p++) {
+                    const vertexStart = vertices.length / VERTEX_FLOATS - firstVertex;
+                    const vertexCount = scene.getVertexCount(p);
+                    const indexCount = scene.getIndexCount(p);
+                    let gltfVertices: f32[] = [];
+                    for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
+                        gltfVertices.push(0.0);
+                    }
+                    let gltfIndices: int[] = [];
+                    for (let i = 0; i < indexCount; i++) {
+                        gltfIndices.push(0);
+                    }
+                    scene.copyVertices(p, Ref(gltfVertices[0]));
+                    scene.copyIndices(p, Ref(gltfIndices[0]));
+                    for (let v = 0; v < vertexCount; v++) {
+                        const g = v * GLTF_VERTEX_FLOATS;
+                        vertices.push(gltfVertices[g]);
+                        vertices.push(-gltfVertices[g + 1]);
+                        vertices.push(gltfVertices[g + 2]);
+                        vertices.push(gltfVertices[g + 6]);
+                        vertices.push(1.0 - gltfVertices[g + 7]);
+                    }
+                    for (let i = 0; i < indexCount; i++) {
+                        indices.push(vertexStart + gltfIndices[i]);
+                    }
+                }
+                this.app.releaseResource(scene.handle);
+                firstVertices.push(firstVertex);
+                firstIndices.push(firstIndex);
+                counts.push(vertices.length / VERTEX_FLOATS - firstVertex);
+                counts.push(indices.length - firstIndex);
+                this.modelOffsets.push(firstVertex);
+                this.modelOffsets.push(firstIndex);
             }
+
+            const vertexCount = vertices.length / VERTEX_FLOATS;
+            this.vertexBuffer = this.app.createAccelStructInputStructuredBuffer(4, vertexCount * VERTEX_FLOATS, "Vertices");
+            this.indexBuffer = this.app.createAccelStructInputStructuredBuffer(4, indices.length, "Indices");
+            commandList.writeBuffer(this.vertexBuffer, Ref(vertices[0]), vertexCount * VERTEX_SIZE);
+            commandList.writeBuffer(this.indexBuffer, Ref(indices[0]), indices.length * 4);
+
+            let geometryTransform: f32[] = [];
+            for (let i = 0; i < 12; i++) {
+                geometryTransform.push(i % 5 == 0 ? 1.0 : 0.0);
+            }
+            for (let m = 0; m < MODELS.length; m++) {
+                geometryTransform[3] = COMBO_TRANSLATIONS[m * 3];
+                geometryTransform[7] = -COMBO_TRANSLATIONS[m * 3 + 1];
+                geometryTransform[11] = COMBO_TRANSLATIONS[m * 3 + 2];
+                const blas = this.app.createEmptyTriangleBlas(`Model #${m} BLAS`);
+                blas.addGeometry(this.indexBuffer, firstIndices[m] * 4, counts[m * 2 + 1], this.vertexBuffer,
+                    firstVertices[m] * VERTEX_SIZE, counts[m * 2], VERTEX_SIZE, Ref(geometryTransform[0]));
+                if (blas.build(this.app, commandList, AccelStructBuildFlags.PreferFastTrace) == 0) {
+                    return false;
+                }
+                this.blases.push(blas);
+            }
+            return true;
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
-            const shader = "mobile_nerf.hlsl";
-            this.vs = this.app.createShader(shader, "raster_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "merged_ps", ShaderType.Pixel);
+            const shader = "mobile_nerf_rayquery.hlsl";
+            this.vs = this.app.createShader(shader, "quad_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "rayquery_ps", ShaderType.Pixel);
             if (!this.vs || !this.ps) {
                 return false;
             }
 
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            layoutDesc.addInstanceVertexAttribute("INSTANCE_OFFSET", Format.RGB32_FLOAT, 0, 1, 12);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            // The sample's prepare_instance_data: a grid of offsets around the origin.
-            let offsets: f32[] = [];
-            for (let x = 0; x < INSTANCE_DIM[0]; x++) {
-                for (let y = 0; y < INSTANCE_DIM[1]; y++) {
-                    for (let z = 0; z < INSTANCE_DIM[2]; z++) {
-                        const index = [x, y, z];
-                        for (let i = 0; i < 3; i++) {
-                            offsets.push(-INSTANCE_INTERVAL[i] * 0.5 * (INSTANCE_DIM[i] - 1) + INSTANCE_INTERVAL[i] * index[i]);
-                        }
-                    }
+            for (let m = 0; m < MODELS.length; m++) {
+                if (!loadMlp(this.app, MEDIA_DIR + MODELS[m] + "/mlp.json", this.weights)) {
+                    console.log("Cannot load the NeRF models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                    return false;
                 }
             }
-            this.instanceCount = offsets.length / 3;
-
-            // Feature textures: linear (UNORM), filtered bilinearly at their first level only (the
-            // framework uploads PNGs without mip maps), clamped.
-            const sampler = this.app.createSamplerWithDesc(1, 1, 0, SamplerAddressMode.Clamp, 0.0, 0.0, 0.0, 1.0);
-            this.globalBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "GlobalUniform");
-            const layout = BindingLayoutDesc.create();
-            layout.layoutVolatileConstantBuffer(0);
-            layout.layoutVolatileConstantBuffer(1);
-            layout.layoutTextureSRV(0);
-            layout.layoutTextureSRV(1);
-            layout.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
 
             const commandList = this.app.createCommandList();
             commandList.open();
-            this.instanceBuffer = this.app.createStaticVertexBuffer(commandList, Ref(offsets[0]), offsets.length * 4, "Instances");
-            let loaded = true;
+            let loaded = this.loadModels(commandList);
+            let features0: Opaque[] = [];
+            let features1: Opaque[] = [];
             for (let m = 0; m < MODELS.length && loaded; m++) {
                 const dir = MEDIA_DIR + MODELS[m] + "/";
-                let weights: f32[] = [];
-                const mesh = this.app.loadGltfMesh(commandList, dir + "shape0.gltf");
                 const feature0 = this.app.loadTexture(commandList, dir + "shape0.pngfeat0.png", 0);
                 const feature1 = this.app.loadTexture(commandList, dir + "shape0.pngfeat1.png", 0);
-                if (mesh.isNull() || !feature0 || !feature1 || !loadMlp(this.app, dir + "mlp.json", weights)) {
+                if (!feature0 || !feature1) {
                     loaded = false;
                     break;
                 }
-                const model = new NerfModel(mesh, weights);
-                model.weightsBuffer = this.app.createVolatileConstantBuffer(MLP_FLOATS * 4, `MLP ${m}`);
-                const setDesc = BindingSetDesc.create();
-                setDesc.bindEntireConstantBuffer(0, this.globalBuffer);
-                setDesc.bindEntireConstantBuffer(1, model.weightsBuffer);
-                setDesc.bindTextureSRV(0, feature0);
-                setDesc.bindTextureSRV(1, feature1);
-                setDesc.bindSampler(0, sampler);
-                model.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-                this.models.push(model);
+                features0.push(feature0);
+                features1.push(feature1);
             }
             commandList.close();
             this.app.executeCommandList(commandList);
@@ -671,6 +758,43 @@ namespace MobileNerf {
                 console.log("Cannot load the NeRF models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return false;
             }
+
+            this.topLevelAS = this.app.createTopLevelAS(MODELS.length * INSTANCE_DIM[0] * INSTANCE_DIM[1] * INSTANCE_DIM[2]);
+
+            for (let m = 0; m < MODELS.length; m++) {
+                const k = UBO_MODEL_OFFSETS + m * 4;
+                this.ubo[k] = this.modelOffsets[m * 2];
+                this.ubo[k + 1] = this.modelOffsets[m * 2 + 1];
+            }
+
+            // Feature textures: linear (UNORM), filtered bilinearly at their first level only (the
+            // framework uploads PNGs without mip maps), clamped.
+            const sampler = this.app.createSamplerWithDesc(1, 1, 0, SamplerAddressMode.Clamp, 0.0, 0.0, 0.0, 1.0);
+            this.globalBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "GlobalUniform");
+            this.weightsBuffer = this.app.createVolatileConstantBuffer(this.weights.length * 4, "MLP weights");
+            const layout = BindingLayoutDesc.create();
+            layout.layoutVolatileConstantBuffer(0);
+            layout.layoutVolatileConstantBuffer(1);
+            layout.layoutAccelStruct(0);
+            layout.layoutStructuredBufferSRV(1);
+            layout.layoutStructuredBufferSRV(2);
+            layout.layoutTextureSRVArray(3, MODELS.length);
+            layout.layoutTextureSRVArray(7, MODELS.length);
+            layout.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
+
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.globalBuffer);
+            setDesc.bindEntireConstantBuffer(1, this.weightsBuffer);
+            setDesc.bindAccelStruct(0, this.topLevelAS.getTopLevelAS());
+            setDesc.bindStructuredBufferSRV(1, this.vertexBuffer);
+            setDesc.bindStructuredBufferSRV(2, this.indexBuffer);
+            for (let m = 0; m < MODELS.length; m++) {
+                setDesc.bindTextureSRVArrayElement(3, m, features0[m]);
+                setDesc.bindTextureSRVArrayElement(7, m, features1[m]);
+            }
+            setDesc.bindSampler(0, sampler);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
 
             const pass = this.app.addPass();
             pass.setMousePosCallback(this.onMousePos);
@@ -684,14 +808,14 @@ namespace MobileNerf {
 
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("mobile_nerf");
+        Donut_SetAppName("mobile_nerf_rayquery");
 
         // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        let options = AppOptions.None;
+        let options = AppOptions.RayTracing;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
             if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
+                options = options | AppOptions.DebugRuntime;
             }
         }
 
@@ -702,9 +826,15 @@ namespace MobileNerf {
             return 1;
         }
 
+        if (!app.isFeatureSupported(Feature.RayQuery)) {
+            console.log("The graphics device does not support Ray Queries");
+            app.destroy();
+            return 1;
+        }
+
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        const pass = new MobileNerfPass(app);
+        const pass = new MobileNerfRayQueryPass(app);
         if (!pass.init()) {
             app.destroy();
             return 1;
@@ -720,5 +850,5 @@ namespace MobileNerf {
 
 // tslang starts the program at a global main.
 function main(argc: int, argv: Ref<string>): int {
-    return MobileNerf.main(argc, argv);
+    return MobileNerfRayQuery.main(argc, argv);
 }

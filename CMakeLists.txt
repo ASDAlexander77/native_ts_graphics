@@ -1733,6 +1733,354 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(dynamic_primitive_clipping dynamic_primitive_clipping_media)
 endif()
 
+# Port of Vulkan-Samples' mobile_nerf_rayquery: mobile_nerf's NeRFs found by inline ray queries in a
+# pixel shader (a TLAS of the models' meshes) instead of rasterized, each hit's feature textures run
+# through its model's MLP. It reads mobile_nerf's copy of the models. Ray queries need D3D12 or
+# Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET mobile_nerf_rayquery_shaders
+    PROJECT_NAME "Mobile NeRF Ray Query"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mobile_nerf_rayquery.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mobile_nerf_rayquery.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mobile_nerf_rayquery/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mobile_nerf_rayquery/spirv
+)
+add_tslang_example(mobile_nerf_rayquery MEDIA mobile_nerf)
+if (TARGET mobile_nerf_media)
+    add_dependencies(mobile_nerf_rayquery mobile_nerf_media)
+endif()
+
+# Port of Vulkan-Samples' ray_queries: Sponza rasterized, each pixel shaded by inline ray queries
+# from its pixel shader against a TLAS of the scene (ambient occlusion and a hard shadow from a
+# moving light). It reads ray_tracing_extended's copy of the scene. Ray queries need D3D12 or
+# Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET ray_queries_shaders
+    PROJECT_NAME "Ray Queries"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_queries.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_queries.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_queries/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_queries/spirv
+)
+add_tslang_example(ray_queries MEDIA ray_tracing_extended)
+if (TARGET ray_tracing_extended_media)
+    add_dependencies(ray_queries ray_tracing_extended_media)
+endif()
+
+# Port of Vulkan-Samples' ray_tracing_reflection: two colored cubes over a slightly reflective floor
+# between two mirrors, ray traced with reflections (rays bounced up to 64 times) and shadow rays.
+# The scene is built in code. Ray tracing needs D3D12 or Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET ray_tracing_reflection_shaders
+    PROJECT_NAME "Ray Tracing Reflection"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_reflection.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_reflection.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_reflection/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_reflection/spirv
+)
+add_tslang_example(ray_tracing_reflection)
+
+# Port of Vulkan-Samples' timestamp_queries: its hdr sample (hdr's shaders and models) with the GPU
+# time of each pass measured by timer queries and shown in the UI.
+donut_compile_shaders_all_platforms(
+    TARGET timestamp_queries_shaders
+    PROJECT_NAME "Timestamp Queries"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/timestamp_queries.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/timestamp_queries
+)
+add_tslang_example(timestamp_queries MEDIA hdr)
+if (TARGET hdr_media)
+    add_dependencies(timestamp_queries hdr_media)
+endif()
+
+# Port of Vulkan-Samples' patch_control_points: a terrain drawn twice as wireframe tessellated
+# patches, tessellated and colored by their edges' distance from the camera; the sample's second
+# pipeline sets its patch control points dynamically. Its model is a Vulkan-Samples asset too (see
+# VULKAN_SAMPLES_ASSETS_DIR above): the glTF file is copied.
+donut_compile_shaders_all_platforms(
+    TARGET patch_control_points_shaders
+    PROJECT_NAME "Patch Control Points"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/patch_control_points.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/patch_control_points.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/patch_control_points
+)
+add_tslang_example(patch_control_points MEDIA patch_control_points)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/terrain/terrain.gltf")
+    set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/patch_control_points/terrain.gltf")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+        DEPENDS "${source}"
+        COMMENT "Copying terrain.gltf"
+        VERBATIM)
+    add_custom_target(patch_control_points_media DEPENDS "${output}")
+    add_dependencies(patch_control_points patch_control_points_media)
+endif()
+
+# Port of Vulkan-Samples' descriptor_indexing: two grids of rotating quads reading 64 small textures
+# from bindless texture arrays, one by a non-uniform index, the other by streaming each quad's
+# texture into a table already bound (update after bind). Bindless needs D3D12 or Vulkan, so no
+# DXBC.
+donut_compile_shaders(
+    TARGET descriptor_indexing_shaders
+    PROJECT_NAME "Descriptor Indexing"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/descriptor_indexing.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/descriptor_indexing.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/descriptor_indexing/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/descriptor_indexing/spirv
+)
+add_tslang_example(descriptor_indexing)
+
+# Port of Vulkan-Samples' timeline_semaphore: Conway's Game of Life stepped on the compute queue,
+# drawn by the graphics queue once the compute work is done (the sample orders its two queues'
+# threads with a timeline semaphore; NVRHI orders the queues itself).
+donut_compile_shaders_all_platforms(
+    TARGET timeline_semaphore_shaders
+    PROJECT_NAME "Timeline Semaphore"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/timeline_semaphore.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/timeline_semaphore.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/timeline_semaphore
+)
+add_tslang_example(timeline_semaphore)
+
+# Port of Vulkan-Samples' color_write_enable: a triangle drawn into three targets, each written in
+# one channel (or not at all, switched in the UI), then added up into the back buffer.
+donut_compile_shaders_all_platforms(
+    TARGET color_write_enable_shaders
+    PROJECT_NAME "Color Write Enable"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_write_enable.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_write_enable.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/color_write_enable
+)
+add_tslang_example(color_write_enable)
+
+# Port of Vulkan-Samples' dynamic_multisample_rasterization: the Space Module scene with its normal
+# and metallic-roughness maps, drawn with the sample count picked in the UI (the sample's dynamic
+# rasterization samples; pipelines per count here) and resolved into the back buffer. It reads
+# msaa's copy of the scene and base color textures (see VULKAN_SAMPLES_ASSETS_DIR above); its
+# other textures are decoded to DDS here.
+donut_compile_shaders_all_platforms(
+    TARGET dynamic_multisample_rasterization_shaders
+    PROJECT_NAME "Dynamic Multisample Rasterization"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_multisample_rasterization.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_multisample_rasterization.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_multisample_rasterization
+)
+add_tslang_example(dynamic_multisample_rasterization MEDIA msaa dynamic_multisample_rasterization)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(sources)
+    set(outputs)
+    set(arguments)
+    foreach(name PlaneCylinderRoom_M_CylinderRoom_Normal PlaneCylinderRoom_M_CylinderRoom_OcclusionRoughnessMetallic
+            T_Metal_S T_Pedestal_N T_Pedestal_S phone_NORM phone_SPEC)
+        list(APPEND sources "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/space_module/${name}.ktx")
+        list(APPEND outputs "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/dynamic_multisample_rasterization/${name}.dds")
+        list(APPEND arguments "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/space_module/${name}.ktx"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/dynamic_multisample_rasterization/${name}.dds")
+    endforeach()
+    add_custom_command(OUTPUT ${outputs}
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" ${arguments}
+        COMMAND dds_mips ${outputs}
+        DEPENDS ${sources} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${CMAKE_CURRENT_SOURCE_DIR}/tools/astc.py" dds_mips
+        COMMENT "Decoding the Space Module's normal and metallic-roughness textures to DDS"
+        VERBATIM)
+    add_custom_target(dynamic_multisample_rasterization_media DEPENDS ${outputs})
+    add_dependencies(dynamic_multisample_rasterization dynamic_multisample_rasterization_media msaa_media)
+endif()
+
+# Port of Vulkan-Samples' vertex_dynamic_state: hdr's skybox and a reflective cube, then a cube made
+# in code with another vertex layout (the sample's dynamic vertex input; a pipeline per layout
+# here). It reads hdr's copies of the models and cube map.
+donut_compile_shaders_all_platforms(
+    TARGET vertex_dynamic_state_shaders
+    PROJECT_NAME "Vertex Dynamic State"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_dynamic_state.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_dynamic_state.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/vertex_dynamic_state
+)
+add_tslang_example(vertex_dynamic_state MEDIA hdr)
+if (TARGET hdr_media)
+    add_dependencies(vertex_dynamic_state hdr_media)
+endif()
+
+# Port of Vulkan-Samples' dynamic_rendering: hdr's skybox and a reflective geosphere (the sample's
+# point, rendering without render pass objects, is how NVRHI draws anyway). vertex_dynamic_state's
+# shaders; hdr's copies of the models and cube map.
+donut_compile_shaders_all_platforms(
+    TARGET dynamic_rendering_shaders
+    PROJECT_NAME "Dynamic Rendering"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_rendering.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_dynamic_state.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_rendering
+)
+add_tslang_example(dynamic_rendering MEDIA hdr)
+if (TARGET hdr_media)
+    add_dependencies(dynamic_rendering hdr_media)
+endif()
+
+# Port of Vulkan-Samples' graphics_pipeline_library: a grid of spinning teapots, each with a pipeline
+# of its own and a lighting model picked at random ("Add pipeline" adds one). The sample links them
+# from pipeline libraries on a thread; NVRHI has no pipeline libraries: ordinary pipelines here. It
+# reads hdr's copy of the model.
+donut_compile_shaders_all_platforms(
+    TARGET graphics_pipeline_library_shaders
+    PROJECT_NAME "Graphics Pipeline Library"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/graphics_pipeline_library.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/graphics_pipeline_library.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/graphics_pipeline_library
+)
+add_tslang_example(graphics_pipeline_library MEDIA hdr)
+if (TARGET hdr_media)
+    add_dependencies(graphics_pipeline_library hdr_media)
+endif()
+
+# Port of Vulkan-Samples' mesh_shading: one mesh shader workgroup outputs a red triangle (no vertex
+# input, no task shader). Mesh shaders need D3D12 or Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET mesh_shading_shaders
+    PROJECT_NAME "Mesh Shading"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_shading.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mesh_shading.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mesh_shading/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mesh_shading/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+add_tslang_example(mesh_shading)
+
+# Port of Vulkan-Samples' dynamic_uniform_buffers: 125 spinning cubes, one draw each, their model
+# matrices in slices of one uniform buffer (the sample's dynamic offsets are a binding set per slice
+# here).
+donut_compile_shaders_all_platforms(
+    TARGET dynamic_uniform_buffers_shaders
+    PROJECT_NAME "Dynamic Uniform Buffers"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_uniform_buffers.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_uniform_buffers.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_uniform_buffers
+)
+add_tslang_example(dynamic_uniform_buffers)
+
+# Port of Vulkan-Samples' texture_loading: a lit quad with a texture loaded with its mip levels,
+# sampled with a level of detail bias set in the UI. It reads fragment_shading_rate's copy of the
+# texture (see VULKAN_SAMPLES_ASSETS_DIR above).
+donut_compile_shaders_all_platforms(
+    TARGET texture_loading_shaders
+    PROJECT_NAME "Texture Loading"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_loading.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_loading.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_loading
+)
+add_tslang_example(texture_loading MEDIA fragment_shading_rate)
+if (TARGET fragment_shading_rate_media)
+    add_dependencies(texture_loading fragment_shading_rate_media)
+endif()
+
+# Port of Vulkan-Samples' separate_image_sampler: a textured quad, its sampler bound apart from the
+# image (a binding set of its own), linear or nearest filtering picked in the UI. It reads
+# fragment_shading_rate's copy of the texture.
+donut_compile_shaders_all_platforms(
+    TARGET separate_image_sampler_shaders
+    PROJECT_NAME "Separate Image Sampler"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/separate_image_sampler.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/separate_image_sampler.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/separate_image_sampler
+)
+add_tslang_example(separate_image_sampler MEDIA fragment_shading_rate)
+if (TARGET fragment_shading_rate_media)
+    add_dependencies(separate_image_sampler fragment_shading_rate_media)
+endif()
+
+# Port of Vulkan-Samples' dynamic_rendering_local_read: deferred shading of a room lit by 64 point
+# lights, then glass drawn forward over it. The sample reads its G-buffer in the same dynamic render
+# pass (local read); here the composition and the glass are passes of their own. Its scenes and
+# texture are Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF files are
+# copied, the KTX texture converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET dynamic_rendering_local_read_shaders
+    PROJECT_NAME "Dynamic Rendering Local Read"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_rendering_local_read.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_rendering_local_read.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_rendering_local_read
+)
+add_tslang_example(dynamic_rendering_local_read MEDIA dynamic_rendering_local_read)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(dynamic_rendering_local_read_media)
+    foreach(scene subpass_scene_opaque subpass_scene_transparent)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${scene}.gltf")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/dynamic_rendering_local_read/${scene}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${scene}.gltf"
+            VERBATIM)
+        list(APPEND dynamic_rendering_local_read_media "${output}")
+    endforeach()
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/transparent_glass_rgba.ktx")
+    set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/dynamic_rendering_local_read/transparent_glass_rgba.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting transparent_glass_rgba.ktx to DDS"
+        VERBATIM)
+    list(APPEND dynamic_rendering_local_read_media "${output}")
+    add_custom_target(dynamic_rendering_local_read_media DEPENDS ${dynamic_rendering_local_read_media})
+    add_dependencies(dynamic_rendering_local_read dynamic_rendering_local_read_media)
+endif()
+
+# Port of Vulkan-Samples' shader_object: a scene drawn with shader objects combined at draw time
+# (any material vertex shader with any geometry shader and fragment shader), into output images of
+# every supported format in turn, then post-processed. NVRHI has no shader objects: a pipeline per
+# combination in use, created when first drawn. Its models and textures are other ports' copies (hdr,
+# instancing, terrain_tessellation, texture_mipmap_generation).
+donut_compile_shaders_all_platforms(
+    TARGET shader_object_shaders
+    PROJECT_NAME "Shader Object"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_object.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_object.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_object
+)
+add_tslang_example(shader_object MEDIA hdr instancing/rock.gltf terrain_tessellation texture_mipmap_generation/checkerboard_rgba.dds)
+foreach(media hdr_media instancing_media terrain_tessellation_media texture_mipmap_generation_media)
+    if (TARGET ${media})
+        add_dependencies(shader_object ${media})
+    endif()
+endforeach()
+
+# Port of Vulkan-Samples' texture_compression_basisu: a quad with a Kodak image from a Basis Universal
+# KTX 2 file (UASTC or ETC1S), transcoded on the CPU into the format picked (BC7, BC3 or RGBA8 here),
+# timed. Basis Universal's transcoder (see texture_compression_comparison above), through
+# core/basis_transcoder.cpp. Its KTX 2 files are Vulkan-Samples' assets (see VULKAN_SAMPLES_ASSETS_DIR
+# above), copied.
+donut_compile_shaders_all_platforms(
+    TARGET texture_compression_basisu_shaders
+    PROJECT_NAME "Texture Compression Basisu"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_compression_basisu.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_compression_basisu.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_compression_basisu
+)
+add_tslang_example(texture_compression_basisu core/basis_transcoder.cpp MEDIA texture_compression_basisu)
+target_link_libraries(texture_compression_basisu PRIVATE basisu_transcoder)
+if (TARGET texture_compression_basisu_app)
+    target_link_libraries(texture_compression_basisu_app PRIVATE basisu_transcoder)
+endif()
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(basisu_media)
+    foreach(image kodim23 kodim20 kodim05 kodim03)
+        foreach(codec UASTC ETC1S)
+            set(file "${image}_${codec}.ktx2")
+            set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/texture_compression_basisu/${file}")
+            add_custom_command(OUTPUT "${output}"
+                COMMAND "${CMAKE_COMMAND}" -E copy "${VULKAN_SAMPLES_ASSETS_DIR}/textures/basisu/${file}" "${output}"
+                DEPENDS "${VULKAN_SAMPLES_ASSETS_DIR}/textures/basisu/${file}"
+                COMMENT "Copying ${file}"
+                VERBATIM)
+            list(APPEND basisu_media "${output}")
+        endforeach()
+    endforeach()
+    add_custom_target(texture_compression_basisu_media DEPENDS ${basisu_media})
+    add_dependencies(texture_compression_basisu texture_compression_basisu_media)
+endif()
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.

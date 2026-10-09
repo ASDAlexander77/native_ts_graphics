@@ -1108,7 +1108,7 @@ namespace RenderOctomap {
                 console.log("Cannot read the octomap: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return false;
             }
-            this.app.releaseResource(file.handle);
+            this.app.releaseObject(file.handle);
 
             const commandList = this.app.createCommandList();
             commandList.open();

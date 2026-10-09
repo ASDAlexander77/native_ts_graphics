@@ -427,6 +427,11 @@ export class App {
         return Donut_CreateFramebufferWithTwoTargets(this.handle, colorTexture0, colorTexture1, depthTexture);
     }
 
+    // Same, with three color targets (SV_Target0 to SV_Target2).
+    createFramebufferWithThreeTargets(colorTexture0: Opaque, colorTexture1: Opaque, colorTexture2: Opaque, depthTexture: Opaque | null): Opaque {
+        return Donut_CreateFramebufferWithThreeTargets(this.handle, colorTexture0, colorTexture1, colorTexture2, depthTexture);
+    }
+
     // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
     createFramebufferForMip(colorTexture: Opaque, mipLevel: int): Opaque {
         return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
@@ -679,6 +684,26 @@ export class App {
     // Donut_LoadSceneWithDescriptorTable register their buffers and textures in it.
     createDescriptorTableManager(bindlessLayout: Opaque): DescriptorTableManager {
         return new DescriptorTableManager(Donut_CreateDescriptorTableManager(this.handle, bindlessLayout));
+    }
+
+    // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors in
+    // each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
+    createDescriptorTable(bindlessLayout: Opaque, capacity: int): Opaque {
+        return Donut_CreateDescriptorTable(this.handle, bindlessLayout, capacity);
+    }
+
+    // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at once
+    // (also into a table bound by command lists still recording or running: the bindless layouts are
+    // update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
+    writeDescriptorTableTexture(descriptorTable: Opaque, slot: int, texture: Opaque): int {
+        return Donut_WriteDescriptorTableTexture(this.handle, descriptorTable, slot, texture);
+    }
+
+    // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
+    // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
+    // (different every run).
+    createRandomEngine(seed: int): Opaque {
+        return Donut_CreateRandomEngine(this.handle, seed);
     }
 
     // Register space 0, visible to shaderType's stages.
@@ -1436,6 +1461,12 @@ export class Frame {
 
     drawAddBindingSet(bindingSet: BindingSet): void {
         Donut_DrawAddBindingSet(this.handle, bindingSet.handle);
+    }
+
+    // A descriptor table (Donut_CreateDescriptorTable, Donut_GetDescriptorTable) for the draw, in the
+    // pipeline's binding layout order as Donut_DrawAddBindingSet.
+    drawAddDescriptorTable(descriptorTable: Opaque): void {
+        Donut_DrawAddDescriptorTable(this.handle, descriptorTable);
     }
 
     // R32_UINT indices.
@@ -2249,6 +2280,11 @@ export class GraphicsPipelineDesc {
     // The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
     setColorWriteMask(mask: ColorMask): void {
         Donut_GraphicsPipelineSetColorWriteMask(this.handle, mask);
+    }
+
+    // The channels one render target (SV_Target<target>) is written in (0 writes nothing to it).
+    setTargetColorWriteMask(target: int, mask: ColorMask): void {
+        Donut_GraphicsPipelineSetTargetColorWriteMask(this.handle, target, mask);
     }
 
     // Variable rate shading in a pipeline: its draws take the draw state's shading rate
@@ -3355,6 +3391,25 @@ export class GltfModel {
 
     // The nodes that instantiate meshes, in node order: their mesh, and their world transform (16
     // floats, column-major as glm) into dst (Ref of a `let` f32 array element).
+    // A primitive's material's texture (0 base color, 1 normal, 2 metallic-roughness) as an index into
+    // the file's textures (-1 if none), and its metallic (0) or roughness (1) factor.
+    getMaterialTexture(primitive: int, which: int): int {
+        return Donut_GetGltfModelMaterialTexture(this.handle, primitive, which);
+    }
+
+    getMaterialFactor(primitive: int, which: int): number {
+        return Donut_GetGltfModelMaterialFactor(this.handle, primitive, which);
+    }
+
+    // The file's textures, and a texture's image URI ("" if none).
+    getTextureCount(): int {
+        return Donut_GetGltfModelTextureCount(this.handle);
+    }
+
+    getTextureImage(texture: int): string {
+        return Donut_GetGltfModelTextureImage(this.handle, texture);
+    }
+
     getNodeCount(): int {
         return Donut_GetGltfModelNodeCount(this.handle);
     }

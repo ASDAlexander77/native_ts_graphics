@@ -487,11 +487,14 @@ enum Format {
     BGRA8_UNORM = 21,
     SRGBA8_UNORM = 23,
     SBGRA8_UNORM = 24,
+    R10G10B10A2_UNORM = 26,
+    R11G11B10_FLOAT = 27,
     R32_UINT = 33,
     R32_SINT = 34,
     R32_FLOAT = 35,
     RGBA16_UINT = 36,
     RGBA16_FLOAT = 38,
+    RGBA16_UNORM = 39,
     D16 = 50,
     D32 = 53,
     RG32_FLOAT = 43,
@@ -630,6 +633,9 @@ declare function Donut_CreateDepthFramebuffer(app: Opaque, depthTexture: Opaque)
 // Same, with two color targets (SV_Target0 and SV_Target1).
 declare function Donut_CreateFramebufferWithTwoTargets(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque,
     depthTexture: Opaque | null): Opaque;
+// Same, with three color targets (SV_Target0 to SV_Target2).
+declare function Donut_CreateFramebufferWithThreeTargets(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque,
+    colorTexture2: Opaque, depthTexture: Opaque | null): Opaque;
 // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
 declare function Donut_CreateFramebufferForMip(app: Opaque, colorTexture: Opaque, mipLevel: int): Opaque;
 
@@ -724,6 +730,8 @@ declare function Donut_GraphicsPipelineSetLineRasterization(graphicsPipelineDesc
     width: number, stippleEnable: int, stippleFactor: int, stipplePattern: int): void;
 // The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
 declare function Donut_GraphicsPipelineSetColorWriteMask(graphicsPipelineDesc: Opaque, mask: ColorMask): void;
+// The channels one render target (SV_Target<target>) is written in (0 writes nothing to it).
+declare function Donut_GraphicsPipelineSetTargetColorWriteMask(graphicsPipelineDesc: Opaque, target: int, mask: ColorMask): void;
 // For a framebuffer's layout.
 declare function Donut_CreateGraphicsPipelineFromDesc(app: Opaque, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
 // Same, for the frame's framebuffer (the back buffer's layout).
@@ -792,6 +800,13 @@ declare function Donut_GetGltfModelPrimitiveMesh(gltfModel: Opaque, primitive: i
 declare function Donut_GetGltfModelPrimitiveAlphaMode(gltfModel: Opaque, primitive: int): AlphaMode;
 // The nodes that instantiate meshes, in node order: their mesh, and their world transform (16
 // floats, column-major as glm) into dst (Ref of a `let` f32 array element).
+// A primitive's material's texture (0 base color, 1 normal, 2 metallic-roughness) as an index into
+// the file's textures (-1 if none), and its metallic (0) or roughness (1) factor.
+declare function Donut_GetGltfModelMaterialTexture(gltfModel: Opaque, primitive: int, which: int): int;
+declare function Donut_GetGltfModelMaterialFactor(gltfModel: Opaque, primitive: int, which: int): number;
+// The file's textures, and a texture's image URI ("" if none).
+declare function Donut_GetGltfModelTextureCount(gltfModel: Opaque): int;
+declare function Donut_GetGltfModelTextureImage(gltfModel: Opaque, texture: int): string;
 declare function Donut_GetGltfModelNodeCount(gltfModel: Opaque): int;
 declare function Donut_GetGltfModelNodeMesh(gltfModel: Opaque, node: int): int;
 declare function Donut_CopyGltfModelNodeTransform(gltfModel: Opaque, node: int, dst: Opaque): void;
@@ -970,6 +985,25 @@ declare function Donut_CreateBindlessLayout(app: Opaque, bindlessLayoutDesc: Opa
 declare function Donut_CreateDescriptorTableManager(app: Opaque, bindlessLayout: Opaque): Opaque;
 // The table, to bind after a binding set; valid as long as the manager.
 declare function Donut_GetDescriptorTable(descriptorTableManager: Opaque): Opaque;
+// A descriptor table of a bindless layout without a manager: room for `capacity` descriptors in
+// each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
+declare function Donut_CreateDescriptorTable(app: Opaque, bindlessLayout: Opaque, capacity: int): Opaque;
+// Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at once
+// (also into a table bound by command lists still recording or running: the bindless layouts are
+// update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
+declare function Donut_WriteDescriptorTableTexture(app: Opaque, descriptorTable: Opaque, slot: int, texture: Opaque): int;
+// A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
+// with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
+// (different every run).
+declare function Donut_CreateRandomEngine(app: Opaque, seed: int): Opaque;
+// The engine's next number from std::uniform_real_distribution<float>(a, b).
+declare function Donut_RandomUniformFloat(randomEngine: Opaque, a: number, b: number): number;
+// The engine's next number from std::uniform_int_distribution<int>(a, b).
+declare function Donut_RandomUniformInt(randomEngine: Opaque, a: int, b: int): int;
+// count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
+// (Ref of a `let` f32 array element): one distribution object, as the samples keep one (MSVC's makes
+// values in pairs and keeps the second).
+declare function Donut_RandomNormalFloats(randomEngine: Opaque, mean: number, stddev: number, count: int, dst: Opaque): void;
 // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
 declare function Donut_LayoutPushConstants(bindingLayoutDesc: Opaque, slot: int, byteSize: int): void;
 // Register space 0, visible to shaderType's stages.
@@ -1090,6 +1124,9 @@ declare function Donut_ImGuiRadioButton(label: string, active: int): int;
 // 4 floats (RGBA) at values (Ref of a `let` f32 array element), width pixels wide (0: default);
 // non-zero if changed.
 declare function Donut_ImGuiColorEdit4(label: string, values: Opaque, width: number): int;
+// A color picker of 3 floats (Ref of a `let` f32 array; RGB, unbounded) without previews; non-zero
+// when changed.
+declare function Donut_ImGuiColorPicker3(label: string, values: Opaque, width: number): int;
 // Scopes the IDs of the widgets that follow (same labels apart) until Donut_ImGuiPopID.
 declare function Donut_ImGuiPushID(id: int): void;
 declare function Donut_ImGuiPopID(): void;
@@ -1105,6 +1142,20 @@ declare function Donut_ImGuiSliderFloat(label: string, value: number, min: numbe
 declare function Donut_ImGuiSetKeyboardNavigation(enable: int): void;
 // Value in, new value out.
 declare function Donut_ImGuiSliderInt(label: string, value: int, min: int, max: int): int;
+// The next item on this line, offsetFromStartX pixels from the window's left (0: right after the
+// previous item).
+declare function Donut_ImGuiSameLineAt(offsetFromStartX: number): void;
+// The text color of the items that follow, until Donut_ImGuiPopStyleColor.
+declare function Donut_ImGuiPushTextColor(r: number, g: number, b: number, a: number): void;
+declare function Donut_ImGuiPopStyleColor(): void;
+// A window drawn over the scene at (x, y), width x height: no title bar, background or scrollbars,
+// not movable, ignoring the mouse (an overlay graph). Pair with Donut_ImGuiEnd.
+declare function Donut_ImGuiBeginOverlay(title: string, x: number, y: number, width: number, height: number): void;
+// count values (Ref of a `let` f32 array element) as a line graph, starting at valuesOffset
+// (wrapping around), scaleMin at the bottom and scaleMax at the top, width x height pixels;
+// frameBackground 0: without the frame's background.
+declare function Donut_ImGuiPlotLines(label: string, values: Opaque, count: int, valuesOffset: int, scaleMin: number,
+    scaleMax: number, width: number, height: number, frameBackground: int): void;
 // Value in, new value out: edited by dragging (speed per pixel), clamped to min .. max.
 declare function Donut_ImGuiDragFloat(label: string, value: number, speed: number, min: number, max: number): number;
 // A number field with - and + buttons stepping it by step, shown with a printf format ("%.3f");
@@ -1442,6 +1493,9 @@ declare function Donut_BeginDraw(frame: Opaque, pipeline: Opaque): void;
 // Same, into another framebuffer (Donut_CreateFramebuffer; a pipeline for its layout).
 declare function Donut_BeginDrawToFramebuffer(frame: Opaque, pipeline: Opaque, framebuffer: Opaque): void;
 declare function Donut_DrawAddBindingSet(frame: Opaque, bindingSet: Opaque): void;
+// A descriptor table (Donut_CreateDescriptorTable, Donut_GetDescriptorTable) for the draw, in the
+// pipeline's binding layout order as Donut_DrawAddBindingSet.
+declare function Donut_DrawAddDescriptorTable(frame: Opaque, descriptorTable: Opaque): void;
 // R32_UINT indices.
 declare function Donut_DrawSetIndexBuffer(frame: Opaque, indexBuffer: Opaque): void;
 // R16_UINT indices.

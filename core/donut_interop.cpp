@@ -100,6 +100,7 @@ using namespace donut::math;
 #include <queue>
 #include <thread>
 #include <unordered_map>
+#include <random>
 #include <vector>
 
 using donut::app::DeviceManager;
@@ -1165,6 +1166,11 @@ namespace
             int alphaMode = 0;
             // Its material's base color factor.
             float baseColorFactor[4] = { 1.f, 1.f, 1.f, 1.f };
+            // Its material's metallic and roughness factors, and its textures (indices into the
+            // file's textures; -1 if none): base color, normal, metallic-roughness.
+            float metallicFactor = 1.f;
+            float roughnessFactor = 1.f;
+            int materialTextures[3] = { -1, -1, -1 };
             // Every vertex attribute, by its name in the file (POSITION, COLOR_0, an extension's
             // "KHR_gaussian_splatting:SCALE"...), as floats (normalized integers converted).
             struct Attribute
@@ -1175,6 +1181,8 @@ namespace
             std::map<std::string, Attribute> attributes;
         };
         std::vector<Primitive> primitives;
+        // The file's textures' image URIs ("" if none), in texture order.
+        std::vector<std::string> textureImages;
 
         // The nodes that instantiate meshes, in node order.
         struct Node
@@ -3108,7 +3116,18 @@ extern "C"
                 if (mesh.name)
                     primitive.meshName = mesh.name;
                 if (material && material->has_pbr_metallic_roughness)
+                {
                     memcpy(primitive.baseColorFactor, material->pbr_metallic_roughness.base_color_factor, sizeof(primitive.baseColorFactor));
+                    primitive.metallicFactor = material->pbr_metallic_roughness.metallic_factor;
+                    primitive.roughnessFactor = material->pbr_metallic_roughness.roughness_factor;
+                }
+                if (material)
+                {
+                    const cgltf_texture* textures[3] = { material->pbr_metallic_roughness.base_color_texture.texture,
+                        material->normal_texture.texture, material->pbr_metallic_roughness.metallic_roughness_texture.texture };
+                    for (int t = 0; t < 3; t++)
+                        primitive.materialTextures[t] = textures[t] ? static_cast<int>(cgltf_texture_index(file.data, textures[t])) : -1;
+                }
                 primitive.mesh = static_cast<int>(m);
                 if (material && material->alpha_mode == cgltf_alpha_mode_mask)
                     primitive.alphaMode = 1;
@@ -3116,6 +3135,11 @@ extern "C"
                     primitive.alphaMode = 2;
                 model->primitives.push_back(std::move(primitive));
             }
+        }
+        for (size_t t = 0; t < file.data->textures_count; t++)
+        {
+            const cgltf_texture& texture = file.data->textures[t];
+            model->textureImages.push_back(texture.image && texture.image->uri ? texture.image->uri : "");
         }
         for (size_t n = 0; n < file.data->nodes_count; n++)
         {
@@ -3218,6 +3242,31 @@ extern "C"
     }
 
     // The nodes that instantiate meshes, in node order.
+    // A primitive's material's texture (0 base color, 1 normal, 2 metallic-roughness) as an index
+    // into the file's textures; -1 if it has none.
+    int Donut_GetGltfModelMaterialTexture(void* gltfModel, int primitive, int which)
+    {
+        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].materialTextures[which];
+    }
+
+    // A primitive's material's metallic (which 0) or roughness (1) factor.
+    double Donut_GetGltfModelMaterialFactor(void* gltfModel, int primitive, int which)
+    {
+        const GltfModel::Primitive& p = static_cast<GltfModel*>(gltfModel)->primitives[primitive];
+        return which == 0 ? p.metallicFactor : p.roughnessFactor;
+    }
+
+    // The file's textures, and a texture's image URI ("" if none).
+    int Donut_GetGltfModelTextureCount(void* gltfModel)
+    {
+        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->textureImages.size());
+    }
+
+    const char* Donut_GetGltfModelTextureImage(void* gltfModel, int texture)
+    {
+        return static_cast<GltfModel*>(gltfModel)->textureImages[texture].c_str();
+    }
+
     int Donut_GetGltfModelNodeCount(void* gltfModel)
     {
         return static_cast<int>(static_cast<GltfModel*>(gltfModel)->nodes.size());
@@ -3843,6 +3892,21 @@ extern "C"
         return a->Own(a->device()->createFramebuffer(desc));
     }
 
+    // Same, with three color targets (SV_Target0 to SV_Target2).
+    void* Donut_CreateFramebufferWithThreeTargets(void* app, void* colorTexture0, void* colorTexture1, void* colorTexture2,
+        void* depthTexture)
+    {
+        auto desc = nvrhi::FramebufferDesc()
+            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture0))
+            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture1))
+            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture2));
+        if (depthTexture)
+            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createFramebuffer(desc));
+    }
+
     // Framebuffer of one level of a color target (e.g. of Donut_CreateTiledTexture), to draw into
     // while sampling another level (Donut_BindTextureSRVMip). Returns null on failure.
     void* Donut_CreateFramebufferForMip(void* app, void* colorTexture, int mipLevel)
@@ -4260,6 +4324,14 @@ extern "C"
     {
         for (nvrhi::BlendState::RenderTarget& target : AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets)
             target.setColorWriteMask(static_cast<nvrhi::ColorMask>(mask));
+    }
+
+    // The channels one render target (SV_Target<target>) is written in (ColorMask bits; 0 writes
+    // nothing to it).
+    void Donut_GraphicsPipelineSetTargetColorWriteMask(void* graphicsPipelineDesc, int target, int mask)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets[target]
+            .setColorWriteMask(static_cast<nvrhi::ColorMask>(mask));
     }
 
     // A logic operation (a LogicOp value: nvrhi::LogicOp, Vulkan's order) between the pixel shader's
@@ -4797,6 +4869,17 @@ extern "C"
         return changed ? 1 : 0;
     }
 
+    // A color picker of 3 floats (RGB, unbounded: HDR) without previews, as Vulkan-Samples'
+    // Drawer::color_op<Pick>; non-zero when changed.
+    int Donut_ImGuiColorPicker3(const char* label, float* values, double width)
+    {
+        ImGui::PushItemWidth(float(width));
+        const bool changed = ImGui::ColorPicker3(label, values, ImGuiColorEditFlags_NoSidePreview
+            | ImGuiColorEditFlags_NoSmallPreview | ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+        ImGui::PopItemWidth();
+        return changed ? 1 : 0;
+    }
+
     // Scopes the IDs of the widgets that follow (ones with the same labels apart) until the
     // matching Donut_ImGuiPopID.
     void Donut_ImGuiPushID(int id)
@@ -4851,6 +4934,49 @@ extern "C"
     {
         ImGui::SliderInt(label, &value, min, max);
         return value;
+    }
+
+    // ImGui::SameLine(offsetFromStartX): the next item on this line, offsetFromStartX pixels from
+    // the window's left (0: right after the previous item).
+    void Donut_ImGuiSameLineAt(double offsetFromStartX)
+    {
+        ImGui::SameLine(float(offsetFromStartX));
+    }
+
+    // The text color of the items that follow, until Donut_ImGuiPopStyleColor.
+    void Donut_ImGuiPushTextColor(double r, double g, double b, double a)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(float(r), float(g), float(b), float(a)));
+    }
+
+    void Donut_ImGuiPopStyleColor()
+    {
+        ImGui::PopStyleColor();
+    }
+
+    // A window drawn over the scene at (x, y), width x height: no title bar, background or
+    // scrollbars, not movable, ignoring the mouse (an overlay graph). Pair with Donut_ImGuiEnd.
+    void Donut_ImGuiBeginOverlay(const char* title, double x, double y, double width, double height)
+    {
+        ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(float(width), float(height)), ImGuiCond_Always);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, 0);
+        ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs);
+        ImGui::PopStyleColor();
+    }
+
+    // count values (Ref of a `let` f32 array element) as a line graph, starting at valuesOffset
+    // (wrapping around), scaleMin at the bottom and scaleMax at the top, width x height pixels;
+    // frameBackground 0: without the frame's background.
+    void Donut_ImGuiPlotLines(const char* label, const float* values, int count, int valuesOffset, double scaleMin,
+        double scaleMax, double width, double height, int frameBackground)
+    {
+        if (!frameBackground)
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, 0);
+        ImGui::PlotLines(label, values, count, valuesOffset, nullptr, float(scaleMin), float(scaleMax),
+            ImVec2(float(width), float(height)));
+        if (!frameBackground)
+            ImGui::PopStyleColor();
     }
 
     // A value edited by dragging (speed per pixel), clamped to min .. max; returns the new value.
@@ -5051,6 +5177,63 @@ extern "C"
     void* Donut_GetDescriptorTable(void* descriptorTableManager)
     {
         return static_cast<donut::engine::DescriptorTableManager*>(descriptorTableManager)->GetDescriptorTable();
+    }
+
+    // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors
+    // in each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
+    void* Donut_CreateDescriptorTable(void* app, void* bindlessLayout, int capacity)
+    {
+        App* a = AsApp(app);
+        nvrhi::DescriptorTableHandle table = a->device()->createDescriptorTable(static_cast<nvrhi::IBindingLayout*>(bindlessLayout));
+        if (!table)
+            return nullptr;
+        a->device()->resizeDescriptorTable(table, static_cast<uint32_t>(capacity), false);
+        return a->Own(table);
+    }
+
+    // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at
+    // once (also into a table bound by command lists still recording or running: the bindless
+    // layouts are update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
+    int Donut_WriteDescriptorTableTexture(void* app, void* descriptorTable, int slot, void* texture)
+    {
+        return AsApp(app)->device()->writeDescriptorTable(static_cast<nvrhi::IDescriptorTable*>(descriptorTable),
+            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture))) ? 1 : 0;
+    }
+
+    // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples
+    // make with one: the same seed gives the same numbers; a negative seed takes one from
+    // std::random_device (different every run).
+    void* Donut_CreateRandomEngine(void* app, int seed)
+    {
+        const auto value = seed >= 0 ? static_cast<std::default_random_engine::result_type>(seed)
+                                     : static_cast<std::default_random_engine::result_type>(std::random_device()());
+        return AsApp(app)->OwnObject(std::make_shared<std::default_random_engine>(value));
+    }
+
+    // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
+    // (Ref of a `let` f32 array element): one distribution object, as the samples keep it (MSVC's
+    // makes values in pairs and keeps the second).
+    void Donut_RandomNormalFloats(void* randomEngine, double mean, double stddev, int count, float* dst)
+    {
+        std::normal_distribution<float> distribution(static_cast<float>(mean), static_cast<float>(stddev));
+        auto& engine = *static_cast<std::default_random_engine*>(randomEngine);
+        for (int i = 0; i < count; i++)
+            dst[i] = distribution(engine);
+    }
+
+    // The engine's next number from std::uniform_real_distribution<float>(a, b) (a and b rounded to
+    // float as the sample's literals are).
+    double Donut_RandomUniformFloat(void* randomEngine, double a, double b)
+    {
+        return std::uniform_real_distribution<float>(static_cast<float>(a), static_cast<float>(b))(
+            *static_cast<std::default_random_engine*>(randomEngine));
+    }
+
+    // The engine's next number from std::uniform_int_distribution<int>(a, b) (a fresh distribution
+    // object per call, as samples that make one per use).
+    int Donut_RandomUniformInt(void* randomEngine, int a, int b)
+    {
+        return std::uniform_int_distribution<int>(a, b)(*static_cast<std::default_random_engine*>(randomEngine));
     }
 
     // Same as Donut_LoadScene, also registering the scene's vertex / index buffers and textures in
@@ -8366,6 +8549,13 @@ extern "C"
     void Donut_DrawAddBindingSet(void* frame, void* bindingSet)
     {
         AsFrame(frame)->draw.bindings.push_back(static_cast<nvrhi::IBindingSet*>(bindingSet));
+    }
+
+    // A descriptor table (Donut_CreateDescriptorTable, Donut_GetDescriptorTable) for the draw, in
+    // the pipeline's binding layout order as Donut_DrawAddBindingSet.
+    void Donut_DrawAddDescriptorTable(void* frame, void* descriptorTable)
+    {
+        AsFrame(frame)->draw.bindings.push_back(static_cast<nvrhi::IDescriptorTable*>(descriptorTable));
     }
 
     // R32_UINT indices.
