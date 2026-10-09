@@ -323,6 +323,15 @@ export class App {
         return Donut_ReadBuffer(this.handle, readbackBuffer, dst, byteSize);
     }
 
+    // Copies a level of a texture to dst (Ref of a `let` array element; byteSize bytes at most): its
+    // rows (of 4 x 4 blocks for block-compressed formats) one after the other, without padding.
+    // Submits its own command list and waits for it: call it while no other one is open (not in a
+    // render callback). Not for textures the texture cache loaded (Donut_LoadTexture: they stay
+    // shader resources, and can't be copied from). Returns the bytes copied, 0 on failure.
+    readTextureLevel(texture: Opaque, mipLevel: int, dst: Opaque, byteSize: int): int {
+        return Donut_ReadTextureLevel(this.handle, texture, mipLevel, dst, byteSize);
+    }
+
     // For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
     createConstantBuffer(byteSize: int, debugName: string): Opaque {
         return Donut_CreateConstantBuffer(this.handle, byteSize, debugName);
@@ -1190,6 +1199,36 @@ export class App {
         return Donut_GetBackBufferFormat(this.handle);
     }
 
+    getSwapChainColorSpace(): SwapChainColorSpace {
+        return Donut_GetSwapChainColorSpace(this.handle);
+    }
+
+    // A texture another D3D11 device writes and this one's shaders read (e.g. Media Foundation's video
+    // frames: Donut_TransferVideoFrame): a render target shared through an NT handle (on D3D12 with
+    // simultaneous access), resting at ShaderResource. D3D12 and D3D11 only (Windows): null with other
+    // APIs, and (after logging why) on failure.
+    createSharedTexture(width: int, height: int, format: Format, debugName: string): Opaque | null {
+        return Donut_CreateSharedTexture(this.handle, width, height, format, debugName);
+    }
+
+    // The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
+    // make another API's device on the same GPU. 0 if the API doesn't give it.
+    getAdapterLuid(dst: Opaque): int {
+        return Donut_GetAdapterLuid(this.handle, dst);
+    }
+
+    // Asks for another color space of the back buffers, from the next frame on (as a resize: back
+    // buffer resizing callbacks run). 0 (nothing changes) if the swap chain can't present it.
+    setSwapChainColorSpace(colorSpace: SwapChainColorSpace): int {
+        return Donut_SetSwapChainColorSpace(this.handle, colorSpace);
+    }
+
+    // Non-zero if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
+    // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
+    isDisplayHdr(): int {
+        return Donut_IsDisplayHdr(this.handle);
+    }
+
     // Shadows.
     createCascadedShadowMap(resolution: int, numCascades: int): ShadowMap {
         return new ShadowMap(Donut_CreateCascadedShadowMap(this.handle, resolution, numCascades));
@@ -1557,6 +1596,12 @@ export class Frame {
     // Same, without an index buffer.
     drawVertices(vertexCount: int): void {
         Donut_DrawVertices(this.handle, vertexCount);
+    }
+
+    // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
+    // item); the draw described stays, so it can repeat with other push constants.
+    drawVerticesWithPushConstants(vertexCount: int, data: Opaque, byteSize: int): void {
+        Donut_DrawVerticesWithPushConstants(this.handle, vertexCount, data, byteSize);
     }
 
     // A mesh shader draw: begin with a meshlet pipeline (whole framebuffer by default), add binding sets
@@ -1962,6 +2007,12 @@ export class BindingSetDesc {
     // Same, one level of the texture only.
     bindTextureSRVMip(slot: int, texture: Opaque, mipLevel: int): void {
         Donut_BindTextureSRVMip(this.handle, slot, texture, mipLevel);
+    }
+
+    // Same, mipCount levels from firstMip on: the shader's level 0 is firstMip (SampleLevel(..., n)
+    // reads level firstMip + n, Load and Gather firstMip).
+    bindTextureSRVMips(slot: int, texture: Opaque, firstMip: int, mipCount: int): void {
+        Donut_BindTextureSRVMips(this.handle, slot, texture, firstMip, mipCount);
     }
 
     // SamplerState at s<slot>.
@@ -2374,6 +2425,13 @@ export class ImGuiPass {
     // True if the function that returned it failed.
     isNull(): boolean {
         return !this.handle;
+    }
+
+    // Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the back
+    // buffer; null: the back buffer again. Passes added after the ImGui pass draw after it (e.g. one
+    // that takes that framebuffer's texture to the back buffer).
+    setFramebuffer(framebuffer: Opaque | null): void {
+        Donut_SetImGuiPassFramebuffer(this.handle, framebuffer);
     }
 
     // A TrueType font (path relative to the executable's directory) at a size in pixels; call right

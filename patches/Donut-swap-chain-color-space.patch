@@ -1,0 +1,310 @@
+diff --git a/include/donut/app/DeviceManager.h b/include/donut/app/DeviceManager.h
+index f5f12d9..94c7711 100644
+--- a/include/donut/app/DeviceManager.h
++++ b/include/donut/app/DeviceManager.h
+@@ -95,6 +95,17 @@ namespace donut::app
+         void message(nvrhi::MessageSeverity severity, const char* messageText) override;
+     };
+ 
++    // The color space of what the swap chain's images hold, for the display:
++    // - SRGB: sRGB / Rec.709 primaries, sRGB curve (SDR; every format).
++    // - HDR10: Rec.2020 primaries, ST.2084 (PQ) curve, for 10-bit formats (R10G10B10A2_UNORM).
++    // - ScRGB: Rec.709 primaries, linear, 1.0 = 80 nits, for RGBA16_FLOAT.
++    enum class SwapChainColorSpace
++    {
++        SRGB,
++        HDR10,
++        ScRGB
++    };
++
+     struct InstanceParameters
+     {
+         bool enableDebugRuntime = false;
+@@ -167,6 +178,8 @@ namespace donut::app
+         uint32_t refreshRate = 0;
+         uint32_t swapChainBufferCount = 3;
+         nvrhi::Format swapChainFormat = nvrhi::Format::SRGBA8_UNORM;
++        // Where the swap chain can't present it, SRGB (IsSwapChainColorSpaceSupported).
++        SwapChainColorSpace swapChainColorSpace = SwapChainColorSpace::SRGB;
+         uint32_t swapChainSampleCount = 1;
+         uint32_t swapChainSampleQuality = 0;
+ 
+@@ -314,6 +327,7 @@ namespace donut::app
+         float m_PrevDPIScaleFactorX = 0.f;
+         float m_PrevDPIScaleFactorY = 0.f;
+         bool m_RequestedVSync = false;
++        SwapChainColorSpace m_RequestedSwapChainColorSpace = SwapChainColorSpace::SRGB;
+         bool m_InstanceCreated = false;
+         int m_PrevWindowX = 0;
+         int m_PrevWindowY = 0;
+@@ -368,6 +382,11 @@ namespace donut::app
+         void SetFrameTimeUpdateInterval(double seconds) { m_AverageTimeUpdateInterval = seconds; }
+         [[nodiscard]] bool IsVsyncEnabled() const { return m_DeviceParams.vsyncEnabled; }
+         virtual void SetVsyncEnabled(bool enabled) { m_RequestedVSync = enabled; /* will be processed later */ }
++        // The swap chain's color space, and whether it can present a color space with its format and
++        // display (e.g. HDR10 on an HDR display). Set takes effect before the next frame, as a resize.
++        [[nodiscard]] SwapChainColorSpace GetSwapChainColorSpace() const { return m_DeviceParams.swapChainColorSpace; }
++        [[nodiscard]] virtual bool IsSwapChainColorSpaceSupported(SwapChainColorSpace colorSpace) { return colorSpace == SwapChainColorSpace::SRGB; }
++        void SetSwapChainColorSpace(SwapChainColorSpace colorSpace) { m_RequestedSwapChainColorSpace = colorSpace; /* will be processed later */ }
+         virtual void ReportLiveObjects() {}
+         void SetEnableRenderDuringWindowMovement(bool val) {m_EnableRenderDuringWindowMovement = val;} 
+         bool IsWindowFocused() const { return m_windowIsInFocus; }
+diff --git a/include/donut/app/DeviceManager_DX11.h b/include/donut/app/DeviceManager_DX11.h
+index c200a48..347c619 100644
+--- a/include/donut/app/DeviceManager_DX11.h
++++ b/include/donut/app/DeviceManager_DX11.h
+@@ -80,6 +80,8 @@ public:
+     {
+         return nvrhi::GraphicsAPI::D3D11;
+     }
++
++    bool IsSwapChainColorSpaceSupported(donut::app::SwapChainColorSpace colorSpace) override;
+ protected:
+     bool CreateInstanceInternal() override;
+     bool CreateDevice() override;
+diff --git a/include/donut/app/DeviceManager_DX12.h b/include/donut/app/DeviceManager_DX12.h
+index 271c96c..9050e9e 100644
+--- a/include/donut/app/DeviceManager_DX12.h
++++ b/include/donut/app/DeviceManager_DX12.h
+@@ -88,6 +88,8 @@ public:
+     {
+         return nvrhi::GraphicsAPI::D3D12;
+     }
++
++    bool IsSwapChainColorSpaceSupported(donut::app::SwapChainColorSpace colorSpace) override;
+     
+ protected:
+     bool CreateInstanceInternal() override;
+diff --git a/include/donut/app/DeviceManager_VK.h b/include/donut/app/DeviceManager_VK.h
+index 0d9a7c0..4214128 100644
+--- a/include/donut/app/DeviceManager_VK.h
++++ b/include/donut/app/DeviceManager_VK.h
+@@ -79,6 +79,8 @@ public:
+         return nvrhi::GraphicsAPI::VULKAN;
+     }
+ 
++    bool IsSwapChainColorSpaceSupported(donut::app::SwapChainColorSpace colorSpace) override;
++
+     bool EnumerateAdapters(std::vector<donut::app::AdapterInfo>& outAdapters) override;
+     const donut::app::DeviceCreationParameters& GetDeviceParams() const { return m_DeviceParams; };
+ 
+diff --git a/src/app/DeviceManager.cpp b/src/app/DeviceManager.cpp
+index ff8ccd3..fbecef6 100644
+--- a/src/app/DeviceManager.cpp
++++ b/src/app/DeviceManager.cpp
+@@ -307,6 +307,8 @@ bool DeviceManager::CreateWindowDeviceAndSwapChain(const DeviceCreationParameter
+     if (!CreateInstance(m_DeviceParams))
+         return false;
+ 
++    m_RequestedSwapChainColorSpace = m_DeviceParams.swapChainColorSpace;
++
+     m_PrevWindowWidth  = static_cast<int>(m_DeviceParams.backBufferWidth);
+     m_PrevWindowHeight = static_cast<int>(m_DeviceParams.backBufferHeight);
+ 
+@@ -800,15 +802,17 @@ void DeviceManager::UpdateWindowSize()
+ 
+     if (int(m_DeviceParams.backBufferWidth) != width || 
+         int(m_DeviceParams.backBufferHeight) != height ||
+-        (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN))
++        (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN) ||
++        m_DeviceParams.swapChainColorSpace != m_RequestedSwapChainColorSpace)
+     {
+-        // window is not minimized, and the size has changed
++        // window is not minimized, and the size (or the swap chain's color space) has changed
+ 
+         BackBufferResizing();
+ 
+         m_DeviceParams.backBufferWidth = width;
+         m_DeviceParams.backBufferHeight = height;
+         m_DeviceParams.vsyncEnabled = m_RequestedVSync;
++        m_DeviceParams.swapChainColorSpace = m_RequestedSwapChainColorSpace;
+ 
+         ResizeSwapChain();
+         BackBufferResized();
+diff --git a/src/app/dx11/DeviceManager_DX11.cpp b/src/app/dx11/DeviceManager_DX11.cpp
+index ec163de..d3226d7 100644
+--- a/src/app/dx11/DeviceManager_DX11.cpp
++++ b/src/app/dx11/DeviceManager_DX11.cpp
+@@ -57,6 +57,7 @@ freely, subject to the following restrictions:
+ 
+ #include <Windows.h>
+ #include <dxgi1_3.h>
++#include <dxgi1_4.h>
+ #include <dxgidebug.h>
+ 
+ #include <nvrhi/d3d11.h>
+@@ -70,6 +71,38 @@ using nvrhi::RefCountPtr;
+ 
+ using namespace donut::app;
+ 
++namespace
++{
++    DXGI_COLOR_SPACE_TYPE ToDxgiColorSpace(SwapChainColorSpace colorSpace)
++    {
++        switch (colorSpace)
++        {
++        case SwapChainColorSpace::HDR10: return DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
++        case SwapChainColorSpace::ScRGB: return DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
++        default: return DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
++        }
++    }
++
++    // Whether the swap chain can present colorSpace, and if so (and set), sets it.
++    bool ApplyDxgiColorSpace(IUnknown* swapChain, SwapChainColorSpace colorSpace, bool set)
++    {
++        RefCountPtr<IDXGISwapChain3> swapChain3;
++        if (!swapChain || FAILED(swapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))))
++            return colorSpace == SwapChainColorSpace::SRGB;
++        UINT support = 0;
++        const DXGI_COLOR_SPACE_TYPE dxgiColorSpace = ToDxgiColorSpace(colorSpace);
++        if (FAILED(swapChain3->CheckColorSpaceSupport(dxgiColorSpace, &support))
++            || (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0)
++            return false;
++        return !set || SUCCEEDED(swapChain3->SetColorSpace1(dxgiColorSpace));
++    }
++}
++
++bool DeviceManager_DX11::IsSwapChainColorSpaceSupported(SwapChainColorSpace colorSpace)
++{
++    return ApplyDxgiColorSpace(m_SwapChain, colorSpace, false);
++}
++
+ static bool IsNvDeviceID(UINT id)
+ {
+     return id == 0x10DE;
+@@ -323,6 +356,9 @@ bool DeviceManager_DX11::CreateSwapChain()
+ 
+     m_DxgiFactory->MakeWindowAssociation(m_hWnd, DXGI_MWA_NO_ALT_ENTER);
+ 
++    if (!ApplyDxgiColorSpace(m_SwapChain, m_DeviceParams.swapChainColorSpace, true))
++        m_DeviceParams.swapChainColorSpace = m_RequestedSwapChainColorSpace = SwapChainColorSpace::SRGB;
++
+     bool ret = CreateRenderTarget();
+ 
+     if(!ret)
+@@ -404,6 +440,9 @@ void DeviceManager_DX11::ResizeSwapChain()
+         donut::log::fatal("ResizeBuffers failed");
+     }
+ 
++    if (!ApplyDxgiColorSpace(m_SwapChain, m_DeviceParams.swapChainColorSpace, true))
++        m_DeviceParams.swapChainColorSpace = m_RequestedSwapChainColorSpace = SwapChainColorSpace::SRGB;
++
+     const bool ret = CreateRenderTarget();
+     if (!ret)
+     {
+diff --git a/src/app/dx12/DeviceManager_DX12.cpp b/src/app/dx12/DeviceManager_DX12.cpp
+index c92cd39..e7727d8 100644
+--- a/src/app/dx12/DeviceManager_DX12.cpp
++++ b/src/app/dx12/DeviceManager_DX12.cpp
+@@ -68,6 +68,38 @@ using namespace donut::app;
+ 
+ #define HR_RETURN(hr) if(FAILED(hr)) return false;
+ 
++namespace
++{
++    DXGI_COLOR_SPACE_TYPE ToDxgiColorSpace(SwapChainColorSpace colorSpace)
++    {
++        switch (colorSpace)
++        {
++        case SwapChainColorSpace::HDR10: return DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
++        case SwapChainColorSpace::ScRGB: return DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
++        default: return DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
++        }
++    }
++
++    // Whether the swap chain can present colorSpace, and if so (and set), sets it.
++    bool ApplyDxgiColorSpace(IUnknown* swapChain, SwapChainColorSpace colorSpace, bool set)
++    {
++        RefCountPtr<IDXGISwapChain3> swapChain3;
++        if (!swapChain || FAILED(swapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))))
++            return colorSpace == SwapChainColorSpace::SRGB;
++        UINT support = 0;
++        const DXGI_COLOR_SPACE_TYPE dxgiColorSpace = ToDxgiColorSpace(colorSpace);
++        if (FAILED(swapChain3->CheckColorSpaceSupport(dxgiColorSpace, &support))
++            || (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0)
++            return false;
++        return !set || SUCCEEDED(swapChain3->SetColorSpace1(dxgiColorSpace));
++    }
++}
++
++bool DeviceManager_DX12::IsSwapChainColorSpaceSupported(SwapChainColorSpace colorSpace)
++{
++    return ApplyDxgiColorSpace(m_SwapChain, colorSpace, false);
++}
++
+ 
+ 
+ static bool IsNvDeviceID(UINT id)
+@@ -415,6 +447,9 @@ bool DeviceManager_DX12::CreateSwapChain()
+ 
+     m_DxgiFactory2->MakeWindowAssociation(m_hWnd, DXGI_MWA_NO_ALT_ENTER);
+ 
++    if (!ApplyDxgiColorSpace(m_SwapChain, m_DeviceParams.swapChainColorSpace, true))
++        m_DeviceParams.swapChainColorSpace = m_RequestedSwapChainColorSpace = SwapChainColorSpace::SRGB;
++
+     if (!CreateRenderTargets())
+         return false;
+ 
+@@ -530,6 +565,9 @@ void DeviceManager_DX12::ResizeSwapChain()
+         donut::log::fatal("ResizeBuffers failed");
+     }
+ 
++    if (!ApplyDxgiColorSpace(m_SwapChain, m_DeviceParams.swapChainColorSpace, true))
++        m_DeviceParams.swapChainColorSpace = m_RequestedSwapChainColorSpace = SwapChainColorSpace::SRGB;
++
+     bool ret = CreateRenderTargets();
+     if (!ret)
+     {
+diff --git a/src/app/vulkan/DeviceManager_VK.cpp b/src/app/vulkan/DeviceManager_VK.cpp
+index 8156576..2419db7 100644
+--- a/src/app/vulkan/DeviceManager_VK.cpp
++++ b/src/app/vulkan/DeviceManager_VK.cpp
+@@ -961,6 +961,34 @@ void DeviceManager_VK::destroySwapChain()
+     m_SwapChainImages.clear();
+ }
+ 
++static vk::ColorSpaceKHR ToVkColorSpace(SwapChainColorSpace colorSpace)
++{
++    switch (colorSpace)
++    {
++    case SwapChainColorSpace::HDR10: return vk::ColorSpaceKHR::eHdr10St2084EXT;
++    case SwapChainColorSpace::ScRGB: return vk::ColorSpaceKHR::eExtendedSrgbLinearEXT;
++    default: return vk::ColorSpaceKHR::eSrgbNonlinear;
++    }
++}
++
++// The surface takes the swap chain's format in colorSpace (the color spaces but sRGB come with
++// VK_EXT_swapchain_colorspace).
++bool DeviceManager_VK::IsSwapChainColorSpaceSupported(SwapChainColorSpace colorSpace)
++{
++    if (colorSpace == SwapChainColorSpace::SRGB)
++        return true;
++    if (!m_VulkanPhysicalDevice || !m_WindowSurface || !IsVulkanInstanceExtensionEnabled(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME))
++        return false;
++    const vk::Format format = vk::Format(nvrhi::vulkan::convertFormat(m_DeviceParams.swapChainFormat));
++    const vk::ColorSpaceKHR vkColorSpace = ToVkColorSpace(colorSpace);
++    for (const auto& surfaceFormat : m_VulkanPhysicalDevice.getSurfaceFormatsKHR(m_WindowSurface))
++    {
++        if (surfaceFormat.format == format && surfaceFormat.colorSpace == vkColorSpace)
++            return true;
++    }
++    return false;
++}
++
+ bool DeviceManager_VK::createSwapChain()
+ {
+     destroySwapChain();
+@@ -1054,6 +1082,13 @@ bool DeviceManager_VK::createSwapChain()
+     if (m_SwapChainMutableFormatSupported)
+         desc.pNext = &imageFormatListCreateInfo;
+ 
++    // The contents' color space (DeviceCreationParameters::swapChainColorSpace), sRGB where the
++    // surface can't present it.
++    if (!IsSwapChainColorSpaceSupported(m_DeviceParams.swapChainColorSpace))
++        m_DeviceParams.swapChainColorSpace = m_RequestedSwapChainColorSpace = SwapChainColorSpace::SRGB;
++    m_SwapChainFormat.colorSpace = ToVkColorSpace(m_DeviceParams.swapChainColorSpace);
++    desc.setImageColorSpace(m_SwapChainFormat.colorSpace);
++
+     const vk::Result res = m_VulkanDevice.createSwapchainKHR(&desc, nullptr, &m_SwapChain);
+     if (res != vk::Result::eSuccess)
+     {

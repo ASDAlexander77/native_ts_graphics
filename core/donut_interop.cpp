@@ -68,6 +68,12 @@
 // IDXGIAdapter3::QueryVideoMemoryInfo (Donut_QueryMemoryBudget).
 #include <dxgi1_4.h>
 #endif
+#ifdef _WIN32
+// IDXGIOutput6::GetDesc1, whether the window's display is in HDR mode (Donut_IsDisplayHdr), and
+// the window's HWND.
+#include <dxgi1_6.h>
+#pragma comment(lib, "dxgi.lib")
+#endif
 #if DONUT_WITH_DX11
 #include <d3d11_2.h>
 #include <nvrhi/d3d11.h>
@@ -88,6 +94,10 @@ using namespace donut::math;
 #include <donut/shaders/view_cb.h>
 
 #include <GLFW/glfw3.h>
+#ifdef _WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#endif
 // Its implementation is compiled into donut_engine (GltfImporter.cpp).
 #include <cgltf.h>
 
@@ -229,6 +239,13 @@ namespace
         }
 
         Callback<VoidFn> m_BuildUI;
+        // Where the UI is drawn instead of the back buffer (Donut_SetImGuiPassFramebuffer), if set.
+        nvrhi::FramebufferHandle m_Framebuffer;
+
+        void Render(nvrhi::IFramebuffer* framebuffer) override
+        {
+            ImGui_Renderer::Render(m_Framebuffer ? m_Framebuffer.Get() : framebuffer);
+        }
 
         // For the Donut_ImGui* functions; the base class keeps these protected.
         using ImGui_Renderer::BeginFullScreenWindow;
@@ -1583,6 +1600,9 @@ static_assert(int(nvrhi::VariableShadingRate::e1x1) == 0 && int(nvrhi::VariableS
     && int(nvrhi::ShadingRateCombiner::ApplyRelative) == 4);
 static_assert(int(nvrhi::Format::R8_UINT) == 1 && int(nvrhi::Format::RG8_UINT) == 5);
 static_assert(int(nvrhi::Format::BC3_UNORM_SRGB) == 61 && int(nvrhi::Format::BC7_UNORM_SRGB) == 69);
+static_assert(int(nvrhi::Format::RG32_UINT) == 41 && int(nvrhi::Format::RGBA32_UINT) == 47
+    && int(nvrhi::Format::BC1_UNORM) == 56 && int(nvrhi::Format::BC3_UNORM) == 60
+    && int(nvrhi::Format::BC5_UNORM) == 64 && int(nvrhi::Format::BC7_UNORM) == 68);
 static_assert(int(nvrhi::SamplerAddressMode::Clamp) == 0 && int(nvrhi::SamplerAddressMode::Wrap) == 1
     && int(nvrhi::SamplerAddressMode::Border) == 2 && int(nvrhi::SamplerAddressMode::Mirror) == 3
     && int(nvrhi::SamplerAddressMode::MirrorOnce) == 4);
@@ -1608,6 +1628,8 @@ extern "C"
         AppOption_NoVsync = 16, // starts with vertical sync off
         AppOption_PerMonitorDpi = 32, // DPI aware, with ImGui scaled explicitly (as Donut's feature demo)
         AppOption_Dlss = 64, // with Vulkan, enables the extensions DLSS needs (when built with DONUT_WITH_DLSS)
+        AppOption_UnormBackBuffer = 128, // UNORM back buffers instead of sRGB ones
+        AppOption_HdrBackBuffer = 256, // R10G10B10A2_UNORM back buffers, for HDR10 (Donut_SetSwapChainColorSpace)
     };
 
     // Creates the device and window for graphicsApi (an nvrhi::GraphicsAPI value), with the
@@ -1633,6 +1655,16 @@ extern "C"
         params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
         params.enableDebugRuntime = (options & AppOption_DebugRuntime) != 0;
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
+        // Donut's Vulkan device manager turns it into BGRA8_UNORM.
+        if ((options & AppOption_UnormBackBuffer) != 0)
+            params.swapChainFormat = nvrhi::Format::RGBA8_UNORM;
+        // 10 bits per channel, in sRGB until Donut_SetSwapChainColorSpace asks for HDR10 (which
+        // Vulkan has through VK_EXT_swapchain_colorspace).
+        if ((options & AppOption_HdrBackBuffer) != 0)
+        {
+            params.swapChainFormat = nvrhi::Format::R10G10B10A2_UNORM;
+            params.optionalVulkanInstanceExtensions.push_back("VK_EXT_swapchain_colorspace");
+        }
         // Conservative rasterization where the GPU has it (Feature.ConservativeRasterization).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_conservative_rasterization");
         // Conditional rendering (Donut_HasConditionalRendering).
@@ -2632,6 +2664,70 @@ extern "C"
         return 1;
     }
 
+    // Copies a level of a texture to dst (at most byteSize bytes), its rows (of 4 x 4 blocks for
+    // block-compressed formats) packed, through a staging texture and a command list of its own
+    // that it waits for: call it while no other immediate command list is open. Not for the
+    // texture cache's textures (permanently shader resources). Returns the bytes copied, 0 on
+    // failure.
+    int Donut_ReadTextureLevel(void* app, void* texture, int mipLevel, void* dst, int byteSize)
+    {
+        nvrhi::IDevice* device = AsApp(app)->device();
+        auto* source = static_cast<nvrhi::ITexture*>(texture);
+        const nvrhi::TextureDesc& sourceDesc = source->getDesc();
+
+        const nvrhi::FormatInfo& info = nvrhi::getFormatInfo(sourceDesc.format);
+        const uint32_t blockSize = std::max<uint32_t>(info.blockSize, 1);
+        const uint32_t levelWidth = std::max(sourceDesc.width >> mipLevel, 1u);
+        const uint32_t levelHeight = std::max(sourceDesc.height >> mipLevel, 1u);
+
+        // A staging texture of the whole texture, the level copied into the same level: D3D12 and
+        // D3D11 can't describe a block-compressed texture smaller than a block (2x2, 1x1) on its own.
+        nvrhi::TextureDesc stagingDesc = sourceDesc;
+        stagingDesc.isRenderTarget = false;
+        stagingDesc.isUAV = false;
+        stagingDesc.isTypeless = false;
+        stagingDesc.initialState = nvrhi::ResourceStates::CopyDest;
+        stagingDesc.keepInitialState = true;
+        stagingDesc.debugName = "ReadTextureLevel";
+        nvrhi::StagingTextureHandle staging = device->createStagingTexture(stagingDesc, nvrhi::CpuAccessMode::Read);
+        if (!staging)
+            return 0;
+
+        nvrhi::TextureSlice slice;
+        slice.mipLevel = static_cast<uint32_t>(mipLevel);
+        // D3D copies block-compressed levels in whole blocks (a 2x2 box of a 2x2 level removed the
+        // D3D12 device, and copied nothing on D3D11); Vulkan wants the level's own size.
+        if (device->getGraphicsAPI() != nvrhi::GraphicsAPI::VULKAN)
+        {
+            slice.width = (levelWidth + blockSize - 1) / blockSize * blockSize;
+            slice.height = (levelHeight + blockSize - 1) / blockSize * blockSize;
+        }
+        nvrhi::CommandListHandle commandList = device->createCommandList();
+        commandList->open();
+        commandList->copyTexture(staging, slice, source, slice);
+        commandList->close();
+        device->executeCommandList(commandList);
+        device->waitForIdle();
+
+        size_t rowPitch = 0;
+        const auto* data = static_cast<const uint8_t*>(device->mapStagingTexture(staging, slice,
+            nvrhi::CpuAccessMode::Read, &rowPitch));
+        if (!data)
+            return 0;
+
+        // Rows of texels, or of blocks.
+        const uint32_t rows = (levelHeight + blockSize - 1) / blockSize;
+        const size_t rowBytes = size_t((levelWidth + blockSize - 1) / blockSize) * info.bytesPerBlock;
+        size_t copied = 0;
+        for (uint32_t row = 0; row < rows && copied + rowBytes <= size_t(byteSize); ++row)
+        {
+            memcpy(static_cast<uint8_t*>(dst) + copied, data + row * rowPitch, rowBytes);
+            copied += rowBytes;
+        }
+        device->unmapStagingTexture(staging);
+        return static_cast<int>(copied);
+    }
+
     // Binding set descriptions are built up with the Donut_Bind* functions below and then
     // consumed (freed) by Donut_CreateBindingSet.
     void* Donut_CreateBindingSetDesc()
@@ -3079,6 +3175,21 @@ extern "C"
         }
     }
 
+    // Writes byteSize bytes of data to a file (path as given: absolute, or relative to the current
+    // directory). Returns 1 on success, 0 (after logging why) on failure.
+    int Donut_WriteBinaryFile(const char* path, const void* data, int byteSize)
+    {
+        FILE* file = fopen(path, "wb");
+        if (!file)
+        {
+            donut::log::error("Cannot write %s", path);
+            return 0;
+        }
+        const size_t written = fwrite(data, 1, static_cast<size_t>(byteSize), file);
+        fclose(file);
+        return written == static_cast<size_t>(byteSize) ? 1 : 0;
+    }
+
     // Every primitive of a glTF file's meshes (path relative to the executable's directory), in
     // mesh and primitive order, as the Vulkan-Samples framework's scene loader reads them into
     // submeshes: vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms
@@ -3510,6 +3621,14 @@ extern "C"
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::Texture_SRV(
             static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture), nvrhi::Format::UNKNOWN,
             nvrhi::TextureSubresourceSet(uint32_t(mipLevel), 1, 0, 1)));
+    }
+
+    // Same, mipCount levels from firstMip on (the shader's level 0 is firstMip).
+    void Donut_BindTextureSRVMips(void* bindingSetDesc, int slot, void* texture, int firstMip, int mipCount)
+    {
+        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::Texture_SRV(
+            static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture), nvrhi::Format::UNKNOWN,
+            nvrhi::TextureSubresourceSet(uint32_t(firstMip), uint32_t(mipCount), 0, 1)));
     }
 
     // SamplerState at s<slot>.
@@ -4767,6 +4886,14 @@ extern "C"
         return raw;
     }
 
+    // Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the
+    // back buffer, from the next frame on; null: the back buffer again. Passes added after the
+    // ImGui pass draw after it (e.g. one that takes that framebuffer's texture to the back buffer).
+    void Donut_SetImGuiPassFramebuffer(void* imguiPass, void* framebuffer)
+    {
+        static_cast<TsImGuiPass*>(imguiPass)->m_Framebuffer = static_cast<nvrhi::IFramebuffer*>(framebuffer);
+    }
+
     // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space to activate, Escape),
     // as ImGuiConfigFlags_NavEnableKeyboard; after Donut_AddImGuiPass (which creates the context).
     // ImGui then takes the keyboard while one of its windows has the focus.
@@ -4964,7 +5091,9 @@ extern "C"
         ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(float(width), float(height)), ImGuiCond_Always);
         ImGui::PushStyleColor(ImGuiCol_WindowBg, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs);
+        ImGui::PopStyleVar();
         ImGui::PopStyleColor();
     }
 
@@ -5067,6 +5196,18 @@ extern "C"
     void Donut_ImGuiPopFont()
     {
         ImGui::PopFont();
+    }
+
+    // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in
+    // the current font and color (r, g, b, a), on the background draw list: behind the windows, no
+    // window needed.
+    void Donut_ImGuiDrawText(double x, double y, const char* text, double r, double g, double b, double a, int alignRight)
+    {
+        ImVec2 position{ float(x), float(y) };
+        if (alignRight)
+            position.x -= ImGui::CalcTextSize(text).x;
+        ImGui::GetBackgroundDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(), position,
+            ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))), text);
     }
 
     // A borderless window covering the screen, e.g. for a loading message; pair with
@@ -7744,6 +7885,242 @@ extern "C"
         return static_cast<int>(AsApp(app)->deviceManager->GetBackBuffer(0)->getDesc().format);
     }
 
+#ifdef _WIN32
+    // A texture another D3D11 device writes and this one's shaders read (e.g. Media Foundation's
+    // video frames, Donut_TransferVideoFrame), as the ATG VideoTexture samples make it: a render
+    // target, shared through an NT handle; on D3D12 also D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS
+    // and D3D12_HEAP_FLAG_SHARED. Resting at ShaderResource.
+    struct SharedTexture
+    {
+        nvrhi::TextureHandle texture;
+        HANDLE handle = nullptr;
+        ~SharedTexture()
+        {
+            if (handle)
+                CloseHandle(handle);
+        }
+    };
+
+    // D3D12 and D3D11 only: null with other APIs, and (after logging why) on failure.
+    void* Donut_CreateSharedTexture(void* app, int width, int height, int format, const char* debugName)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        auto textureDesc = nvrhi::TextureDesc()
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setIsRenderTarget(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+        auto shared = std::make_shared<SharedTexture>();
+#if DONUT_WITH_DX12
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            D3D12_RESOURCE_DESC desc = {};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            desc.Width = UINT64(width);
+            desc.Height = UINT(height);
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.Format = nvrhi::d3d12::convertFormat(textureDesc.format);
+            desc.SampleDesc.Count = 1;
+            desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+            D3D12_HEAP_PROPERTIES heap = {};
+            heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+            Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+            if (FAILED(d3dDevice->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_SHARED, &desc,
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&resource)))
+                || FAILED(d3dDevice->CreateSharedHandle(resource.Get(), nullptr, GENERIC_ALL, nullptr, &shared->handle)))
+            {
+                donut::log::error("Donut_CreateSharedTexture: cannot create a shared D3D12 texture");
+                return nullptr;
+            }
+            shared->texture = device->createHandleForNativeTexture(nvrhi::ObjectTypes::D3D12_Resource,
+                nvrhi::Object(resource.Get()), textureDesc);
+        }
+#endif
+#if DONUT_WITH_DX11
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D11)
+        {
+            ID3D11Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D11_Device);
+            D3D11_TEXTURE2D_DESC desc = {};
+            desc.Width = UINT(width);
+            desc.Height = UINT(height);
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Format = nvrhi::d3d11::convertFormat(textureDesc.format);
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+            desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+            Microsoft::WRL::ComPtr<IDXGIResource1> dxgiResource;
+            if (FAILED(d3dDevice->CreateTexture2D(&desc, nullptr, &texture))
+                || FAILED(texture.As(&dxgiResource))
+                || FAILED(dxgiResource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                    nullptr, &shared->handle)))
+            {
+                donut::log::error("Donut_CreateSharedTexture: cannot create a shared D3D11 texture");
+                return nullptr;
+            }
+            shared->texture = device->createHandleForNativeTexture(nvrhi::ObjectTypes::D3D11_Resource,
+                nvrhi::Object(texture.Get()), textureDesc);
+        }
+#endif
+        // Other APIs: none (the caller takes another way).
+        if (!shared->texture)
+            return nullptr;
+        return a->OwnObject(shared);
+    }
+
+    // The texture, for bindings; valid as long as the shared texture.
+    void* Donut_GetSharedTexture(void* sharedTexture)
+    {
+        return static_cast<SharedTexture*>(sharedTexture)->texture.Get();
+    }
+
+    // Its NT handle, for the other device's OpenSharedResource1.
+    void* Donut_GetSharedTextureHandle(void* sharedTexture)
+    {
+        return static_cast<SharedTexture*>(sharedTexture)->handle;
+    }
+
+    // The LUID of the device's adapter into dst (2 ints: low, high part), e.g. for another API's
+    // device on the same GPU. Returns 0 if the API doesn't give it.
+    int Donut_GetAdapterLuid(void* app, int* dst)
+    {
+        nvrhi::IDevice* device = AsApp(app)->device();
+        LUID luid = {};
+        bool found = false;
+#if DONUT_WITH_DX12
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            luid = d3dDevice->GetAdapterLuid();
+            found = true;
+        }
+#endif
+#if DONUT_WITH_DX11
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D11)
+        {
+            ID3D11Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D11_Device);
+            Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+            Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+            DXGI_ADAPTER_DESC desc;
+            if (SUCCEEDED(d3dDevice->QueryInterface(IID_PPV_ARGS(&dxgiDevice))) && SUCCEEDED(dxgiDevice->GetAdapter(&adapter))
+                && SUCCEEDED(adapter->GetDesc(&desc)))
+            {
+                luid = desc.AdapterLuid;
+                found = true;
+            }
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(AsApp(app)->deviceManager.get());
+            const auto properties = DeviceManagerVKAccess::PhysicalDevice(vulkanDeviceManager).getProperties2<
+                vk::PhysicalDeviceProperties2, vk::PhysicalDeviceIDProperties>();
+            const auto& id = properties.get<vk::PhysicalDeviceIDProperties>();
+            if (id.deviceLUIDValid)
+            {
+                memcpy(&luid, id.deviceLUID.data(), sizeof(luid));
+                found = true;
+            }
+        }
+#endif
+        dst[0] = static_cast<int>(luid.LowPart);
+        dst[1] = static_cast<int>(luid.HighPart);
+        return found ? 1 : 0;
+    }
+#endif
+
+    // The color space of what the back buffers hold, a donut::app::SwapChainColorSpace value (0 sRGB,
+    // 1 HDR10, 2 scRGB).
+    int Donut_GetSwapChainColorSpace(void* app)
+    {
+        return static_cast<int>(AsApp(app)->deviceManager->GetSwapChainColorSpace());
+    }
+
+    // Asks for another color space of the back buffers, from the next frame on (as a resize: the
+    // passes' back buffer resizing callbacks run). Returns 0 (and changes nothing) if the swap chain
+    // can't present it with its format and display.
+    int Donut_SetSwapChainColorSpace(void* app, int colorSpace)
+    {
+        DeviceManager* deviceManager = AsApp(app)->deviceManager.get();
+        const auto value = static_cast<donut::app::SwapChainColorSpace>(colorSpace);
+        if (!deviceManager->IsSwapChainColorSpaceSupported(value))
+            return 0;
+        deviceManager->SetSwapChainColorSpace(value);
+        return 1;
+    }
+
+    // Whether the display the window is mostly on is in HDR mode (Windows' HDR / advanced color on,
+    // an HDR10 output: DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020), as the ATG samples'
+    // DeviceResources::UpdateColorSpace finds it. 0 elsewhere than on Windows.
+    int Donut_IsDisplayHdr(void* app)
+    {
+#ifdef _WIN32
+        HWND hwnd = glfwGetWin32Window(AsApp(app)->deviceManager->GetWindow());
+        RECT window;
+        if (!hwnd || !GetWindowRect(hwnd, &window))
+            return 0;
+
+        IDXGIFactory1* factory = nullptr;
+        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+            return 0;
+
+        // The output with the largest intersection with the window.
+        IDXGIOutput* bestOutput = nullptr;
+        long bestArea = -1;
+        IDXGIAdapter1* adapter = nullptr;
+        for (UINT a = 0; factory->EnumAdapters1(a, &adapter) != DXGI_ERROR_NOT_FOUND; ++a)
+        {
+            IDXGIOutput* output = nullptr;
+            for (UINT o = 0; adapter->EnumOutputs(o, &output) != DXGI_ERROR_NOT_FOUND; ++o)
+            {
+                DXGI_OUTPUT_DESC desc;
+                output->GetDesc(&desc);
+                const RECT& r = desc.DesktopCoordinates;
+                const long width = std::max(0L, std::min(window.right, r.right) - std::max(window.left, r.left));
+                const long height = std::max(0L, std::min(window.bottom, r.bottom) - std::max(window.top, r.top));
+                if (width * height > bestArea)
+                {
+                    if (bestOutput)
+                        bestOutput->Release();
+                    bestOutput = output;
+                    bestArea = width * height;
+                }
+                else
+                {
+                    output->Release();
+                }
+            }
+            adapter->Release();
+        }
+        factory->Release();
+
+        int hdr = 0;
+        IDXGIOutput6* output6 = nullptr;
+        if (bestOutput && SUCCEEDED(bestOutput->QueryInterface(IID_PPV_ARGS(&output6))))
+        {
+            DXGI_OUTPUT_DESC1 desc1;
+            if (SUCCEEDED(output6->GetDesc1(&desc1)) && desc1.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
+                hdr = 1;
+            output6->Release();
+        }
+        if (bestOutput)
+            bestOutput->Release();
+        return hdr;
+#else
+        (void)app;
+        return 0;
+#endif
+    }
+
     // --- Shadows ------------------------------------------------------------------------------
 
     // A cascaded shadow map of numCascades resolution x resolution cascades.
@@ -9117,6 +9494,20 @@ extern "C"
         if (ctx->draw.viewport.viewports.empty())
             ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
         ctx->commandList->setGraphicsState(ctx->draw);
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(vertexCount);
+        ctx->commandList->draw(args);
+    }
+
+    // Same, with byteSize bytes of push constants from data; the draw described stays.
+    void Donut_DrawVerticesWithPushConstants(void* frame, int vertexCount, const void* data, int byteSize)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->setPushConstants(data, static_cast<size_t>(byteSize));
 
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(vertexCount);

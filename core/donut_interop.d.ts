@@ -57,6 +57,46 @@ declare function Donut_GetTranscodedLevelData(transcodedTexture: Opaque, level: 
 declare function Donut_GetTranscodedLevelRowPitch(transcodedTexture: Opaque, level: int): int;
 declare function Donut_DestroyTranscodedTexture(transcodedTexture: Opaque): void;
 
+// The Xbox ATG FastBlockCompress sample's CPU side (core/fast_block_compress.cpp with the sample's
+// CPU compressor, core/fbc_cpu.cpp, linked only into the examples that list them). A DDS file in
+// memory (square, a power of two, 32-bit BGRA / BGRX / RGBA) decoded to RGBA8 levels in the
+// sample's CPU compressor layout (16-byte aligned, natural pitches, 2x2 and 1x1 replicated to 4x4;
+// X8 alpha read as 255). Null on failure; free it with Donut_DestroyFbcTexture.
+declare function Donut_FbcDecodeDds(data: Opaque, byteSize: int): Opaque | null;
+// The sample's CPU compression of such an image into BC1_UNORM, BC3_UNORM or BC5_UNORM: its top
+// level alone, then every level; stats gets the milliseconds of each (Ref of a `let` f32 array of
+// 2). Null on failure; free it with Donut_DestroyFbcTexture.
+declare function Donut_FbcCompressCpu(fbcTexture: Opaque, format: Format, stats: Opaque): Opaque | null;
+declare function Donut_GetFbcTextureWidth(fbcTexture: Opaque): int;
+declare function Donut_GetFbcTextureLevelCount(fbcTexture: Opaque): int;
+// A level's data, its rows (of pixels, or of 4x4 blocks) rowPitch bytes apart, valid until the
+// texture is freed.
+declare function Donut_GetFbcTextureLevelData(fbcTexture: Opaque, level: int): Opaque;
+declare function Donut_GetFbcTextureLevelRowPitch(fbcTexture: Opaque, level: int): int;
+declare function Donut_DestroyFbcTexture(fbcTexture: Opaque): void;
+
+// The Xbox ATG VideoTexturePC12 sample's MediaEnginePlayer (core/video_player.cpp, linked only into
+// the examples that list it; Windows): Media Foundation's Media Engine playing a video file (path
+// relative to the executable's directory) on a D3D11 device of the adapter with this LUID
+// (Donut_GetAdapterLuid; 0, 0: any), muted or not, playing as soon as it can. Null (after printing
+// why) on failure; free it with Donut_DestroyVideoPlayer.
+declare function Donut_CreateVideoPlayer(path: string, luidLow: int, luidHigh: int, muted: int): Opaque | null;
+declare function Donut_GetVideoWidth(videoPlayer: Opaque): int;
+declare function Donut_GetVideoHeight(videoPlayer: Opaque): int;
+// Non-zero once it played to its end.
+declare function Donut_IsVideoFinished(videoPlayer: Opaque): int;
+// The current frame, if there is a new one, into a shared texture (Donut_GetSharedTextureHandle),
+// as the sample's TransferFrame; 1 if it drew one.
+declare function Donut_TransferVideoFrame(videoPlayer: Opaque, sharedHandle: Opaque): int;
+// The same into memory, for APIs that can't share textures with D3D11 (Vulkan): BGRA8 rows
+// (Donut_GetVideoFrameData, rowPitch bytes apart), valid until the next transfer.
+declare function Donut_TransferVideoFrameToMemory(videoPlayer: Opaque): int;
+declare function Donut_GetVideoFrameData(videoPlayer: Opaque): Opaque;
+declare function Donut_GetVideoFrameRowPitch(videoPlayer: Opaque): int;
+// Moves playback to `seconds` into the video.
+declare function Donut_SetVideoTime(videoPlayer: Opaque, seconds: number): void;
+declare function Donut_DestroyVideoPlayer(videoPlayer: Opaque): void;
+
 // nvrhi::VariableShadingRate values: pixels per shading, width x height.
 enum VariableShadingRate {
     Rate1x1 = 0,
@@ -171,7 +211,21 @@ enum AppOptions {
     // DPI aware, with ImGui scaled explicitly (as Donut's feature demo).
     PerMonitorDpi = 32,
     // With Vulkan, enables the extensions DLSS needs (when built with DONUT_WITH_DLSS).
-    Dlss = 64
+    Dlss = 64,
+    // UNORM back buffers instead of sRGB ones (RGBA8_UNORM with D3D, BGRA8_UNORM with Vulkan):
+    // shader output stored as is.
+    UnormBackBuffer = 128,
+    // R10G10B10A2_UNORM back buffers, in sRGB until Donut_SetSwapChainColorSpace asks for HDR10.
+    HdrBackBuffer = 256
+}
+
+// The color space of what the back buffers hold (donut::app::SwapChainColorSpace): sRGB (SDR),
+// HDR10 (Rec.2020 primaries, ST.2084 curve; R10G10B10A2_UNORM back buffers), scRGB (linear Rec.709,
+// 1.0 = 80 nits; RGBA16_FLOAT ones).
+enum SwapChainColorSpace {
+    SRGB = 0,
+    HDR10 = 1,
+    ScRGB = 2
 }
 
 // nvrhi::PrimitiveType values (only the ones used so far).
@@ -497,10 +551,16 @@ enum Format {
     RGBA16_UNORM = 39,
     D16 = 50,
     D32 = 53,
+    RG32_UINT = 41,
     RG32_FLOAT = 43,
     RGB32_FLOAT = 46,
+    RGBA32_UINT = 47,
     RGBA32_FLOAT = 49,
+    BC1_UNORM = 56,
+    BC3_UNORM = 60,
     BC3_UNORM_SRGB = 61,
+    BC5_UNORM = 64,
+    BC7_UNORM = 68,
     BC7_UNORM_SRGB = 69
 }
 
@@ -574,6 +634,12 @@ declare function Donut_CreateReadbackBuffer(app: Opaque, byteSize: int, debugNam
 // Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
 // Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int[] / f32[] array. Returns 0 on failure.
 declare function Donut_ReadBuffer(app: Opaque, readbackBuffer: Opaque, dst: Opaque, byteSize: int): int;
+// Copies a level of a texture to dst (Ref of a `let` array element; byteSize bytes at most): its
+// rows (of 4 x 4 blocks for block-compressed formats) one after the other, without padding.
+// Submits its own command list and waits for it: call it while no other one is open (not in a
+// render callback). Not for textures the texture cache loaded (Donut_LoadTexture: they stay
+// shader resources, and can't be copied from). Returns the bytes copied, 0 on failure.
+declare function Donut_ReadTextureLevel(app: Opaque, texture: Opaque, mipLevel: int, dst: Opaque, byteSize: int): int;
 // For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
 declare function Donut_CreateConstantBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
 // For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
@@ -778,6 +844,9 @@ declare function Donut_GetBinaryFileSize(binaryFile: Opaque): int;
 // The file's bytes, valid as long as the file (e.g. for Donut_TranscodeKtx2).
 declare function Donut_GetBinaryFileData(binaryFile: Opaque): Opaque;
 declare function Donut_CopyBinaryFileBytes(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
+// Writes byteSize bytes of data (Ref of a `let` array element, or a Donut data pointer) to a file
+// (path as given: absolute, or relative to the current directory). 1 on success.
+declare function Donut_WriteBinaryFile(path: string, data: Opaque, byteSize: int): int;
 declare function Donut_GetGltfModelPrimitiveCount(gltfModel: Opaque): int;
 declare function Donut_GetGltfModelVertexCount(gltfModel: Opaque, primitive: int): int;
 declare function Donut_GetGltfModelIndexCount(gltfModel: Opaque, primitive: int): int;
@@ -921,6 +990,9 @@ declare function Donut_BindPushConstants(bindingSetDesc: Opaque, slot: int, byte
 declare function Donut_BindTextureSRV(bindingSetDesc: Opaque, slot: int, texture: Opaque): void;
 // Same, one level of the texture only.
 declare function Donut_BindTextureSRVMip(bindingSetDesc: Opaque, slot: int, texture: Opaque, mipLevel: int): void;
+// Same, mipCount levels from firstMip on: the shader's level 0 is firstMip (SampleLevel(..., n)
+// reads level firstMip + n, Load and Gather firstMip).
+declare function Donut_BindTextureSRVMips(bindingSetDesc: Opaque, slot: int, texture: Opaque, firstMip: int, mipCount: int): void;
 // SamplerState at s<slot>.
 declare function Donut_BindSampler(bindingSetDesc: Opaque, slot: int, sampler: Opaque): void;
 // RWTexture2D<float4> at u<slot>.
@@ -1099,6 +1171,10 @@ declare function Donut_SetMouseScrollCallback(pass: Opaque, handler: MouseScroll
 // before them; buildUI builds the UI every frame with the Donut_ImGui* functions (only valid in
 // it). Null if the renderer can't be initialized.
 declare function Donut_AddImGuiPass(app: Opaque, buildUI: VoidCallback): Opaque | null;
+// Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the back
+// buffer; null: the back buffer again. Passes added after the ImGui pass draw after it (e.g. one
+// that takes that framebuffer's texture to the back buffer).
+declare function Donut_SetImGuiPassFramebuffer(imguiPass: Opaque, framebuffer: Opaque | null): void;
 declare function Donut_ImGuiSetNextWindowPos(x: number, y: number): void;
 // autoResize != 0: the window fits its contents. Pair with Donut_ImGuiEnd.
 declare function Donut_ImGuiBegin(title: string, autoResize: int): void;
@@ -1180,6 +1256,9 @@ declare function Donut_ImGuiGetFontSize(): number;
 declare function Donut_ImGuiCreateFont(imguiPass: Opaque, path: string, size: number): Opaque;
 declare function Donut_ImGuiPushFont(font: Opaque): void;
 declare function Donut_ImGuiPopFont(): void;
+// Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in
+// the current font and color, behind the windows (no window needed).
+declare function Donut_ImGuiDrawText(x: number, y: number, text: string, r: number, g: number, b: number, a: number, alignRight: int): void;
 // A borderless window over the whole screen, with text centered on it (may span lines).
 declare function Donut_ImGuiBeginFullScreenWindow(imguiPass: Opaque): void;
 declare function Donut_ImGuiDrawScreenCenteredText(imguiPass: Opaque, text: string): void;
@@ -1542,6 +1621,9 @@ declare function Donut_DrawIndexedRange(frame: Opaque, indexCount: int, startInd
 declare function Donut_CopyTextureToFrame(frame: Opaque, texture: Opaque): void;
 // Same, without an index buffer.
 declare function Donut_DrawVertices(frame: Opaque, vertexCount: int): void;
+// Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
+// item); the draw described stays, so it can repeat with other push constants.
+declare function Donut_DrawVerticesWithPushConstants(frame: Opaque, vertexCount: int, data: Opaque, byteSize: int): void;
 // Executes what the frame's command list holds so far, and reopens it for the rest of the frame
 // (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
 declare function Donut_SubmitFrameCommandList(app: Opaque, frame: Opaque): void;
@@ -1759,6 +1841,24 @@ declare function Donut_GetBackBufferCount(app: Opaque): int;
 declare function Donut_GetBackBuffer(app: Opaque, index: int): Opaque;
 declare function Donut_GetCurrentBackBufferIndex(app: Opaque): int;
 declare function Donut_GetBackBufferFormat(app: Opaque): Format;
+declare function Donut_GetSwapChainColorSpace(app: Opaque): SwapChainColorSpace;
+// A texture another D3D11 device writes and this one's shaders read (e.g. Media Foundation's video
+// frames: Donut_TransferVideoFrame): a render target shared through an NT handle (on D3D12 with
+// simultaneous access), resting at ShaderResource. D3D12 and D3D11 only (Windows): null with other
+// APIs, and (after logging why) on failure.
+declare function Donut_CreateSharedTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque | null;
+// Its texture (valid as long as it) and NT handle.
+declare function Donut_GetSharedTexture(sharedTexture: Opaque): Opaque;
+declare function Donut_GetSharedTextureHandle(sharedTexture: Opaque): Opaque;
+// The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
+// make another API's device on the same GPU. 0 if the API doesn't give it.
+declare function Donut_GetAdapterLuid(app: Opaque, dst: Opaque): int;
+// Asks for another color space of the back buffers, from the next frame on (as a resize: back
+// buffer resizing callbacks run). 0 (nothing changes) if the swap chain can't present it.
+declare function Donut_SetSwapChainColorSpace(app: Opaque, colorSpace: SwapChainColorSpace): int;
+// Non-zero if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
+// output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
+declare function Donut_IsDisplayHdr(app: Opaque): int;
 
 // Shadows.
 declare function Donut_CreateCascadedShadowMap(app: Opaque, resolution: int, numCascades: int): Opaque;

@@ -120,6 +120,10 @@ set(DONUT_PATCHES
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-compute-queue-fallback.patch"
     # MSVC defines _DEBUG itself with /MTd; Donut's -D_DEBUG would pull in the debug CRT under /MT.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-no-D_DEBUG-on-MSVC.patch"
+    # DeviceCreationParameters::swapChainColorSpace and Set/IsSwapChainColorSpaceSupported: swap
+    # chains in sRGB, HDR10 (ST.2084, Rec.2020) or scRGB, through SetColorSpace1 on D3D11 and D3D12
+    # and the surface's color space on Vulkan; changes go through the resize path (simple_hdr).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-swap-chain-color-space.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
@@ -2079,6 +2083,88 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     endforeach()
     add_custom_target(texture_compression_basisu_media DEPENDS ${basisu_media})
     add_dependencies(texture_compression_basisu texture_compression_basisu_media)
+endif()
+
+# Port of the Xbox ATG FastBlockCompress sample (github.com/microsoft/Xbox-ATG-Samples,
+# XDKSamples/Graphics/FastBlockCompress): BC1, BC3 and BC5 compression at run time in compute shaders
+# (into R32G32_UINT / R32G32B32A32_UINT textures copied into BC textures) or on the CPU (the sample's
+# SSE2 compressor, core/fbc_cpu.cpp), compared with offline BC and BC7 versions side by side, RMS
+# errors and timings shown. Its images are the sample's, not in this repo: point
+# XBOX_ATG_SAMPLES_DIR at an Xbox-ATG-Samples checkout.
+set(XBOX_ATG_SAMPLES_DIR "" CACHE PATH "Xbox-ATG-Samples checkout (github.com/microsoft/Xbox-ATG-Samples)")
+donut_compile_shaders_all_platforms(
+    TARGET fast_block_compress_shaders
+    PROJECT_NAME "Fast Block Compress"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fast_block_compress.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fast_block_compress.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fast_block_compress.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fast_block_compress_rms.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fast_block_compress_quad.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fast_block_compress
+)
+add_tslang_example(fast_block_compress core/fast_block_compress.cpp core/fbc_cpu.cpp MEDIA fast_block_compress)
+if (XBOX_ATG_SAMPLES_DIR)
+    set(fbc_media)
+    foreach(file opaque_1024.DDS opaque_1024_offline_bc1.DDS opaque_1024_offline_bc7.dds
+            opaque_512.dds opaque_512_offline_bc1.DDS opaque_512_offline_bc7.dds
+            alpha.DDS alpha_offline_bc3.DDS alpha_offline_bc7.dds
+            normal.dds normal_offline_bc5.DDS normal_offline_bc7.dds)
+        set(source "${XBOX_ATG_SAMPLES_DIR}/XDKSamples/Graphics/FastBlockCompress/Assets/${file}")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/fast_block_compress/${file}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${file}"
+            VERBATIM)
+        list(APPEND fbc_media "${output}")
+    endforeach()
+    add_custom_target(fast_block_compress_media DEPENDS ${fbc_media})
+    add_dependencies(fast_block_compress fast_block_compress_media)
+endif()
+
+# Port of the Xbox ATG SimpleHDR_PC12 sample (PCSamples/Graphics/SimpleHDR_PC12): an HDR scene of
+# blocks brighter than paper white, or the ST.2084 curve, in an HDR10 back buffer (R10G10B10A2,
+# Rec.2020, ST.2084) when the display is in HDR mode, clipped to SDR otherwise. Its text uses the
+# fonts of DONUT_SAMPLES_MEDIA_DIR above.
+donut_compile_shaders_all_platforms(
+    TARGET simple_hdr_shaders
+    PROJECT_NAME "Simple HDR"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_hdr.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_hdr_scene.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_hdr_convert.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_hdr
+)
+add_tslang_example(simple_hdr MEDIA fonts)
+
+# Port of the Xbox ATG VideoTexturePC12 sample (PCSamples/Graphics/VideoTexturePC12): a video played
+# by Media Foundation's Media Engine (core/video_player.cpp) into a texture shared with the app's
+# device (D3D12, D3D11; through memory on Vulkan), on a spinning lit cube or as a sprite. Windows
+# only; mfplat.dll is delay-loaded (Windows N editions lack it). The video is the sample's
+# (XBOX_ATG_SAMPLES_DIR above), the text's font DONUT_SAMPLES_MEDIA_DIR's.
+if (WIN32)
+    donut_compile_shaders_all_platforms(
+        TARGET video_texture_shaders
+        PROJECT_NAME "Video Texture"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/video_texture.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/video_texture.hlsl
+        OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/video_texture
+    )
+    add_tslang_example(video_texture core/video_player.cpp MEDIA fonts video_texture)
+    target_link_libraries(video_texture PRIVATE delayimp)
+    target_link_options(video_texture PRIVATE /DELAYLOAD:mfplat.dll)
+    if (XBOX_ATG_SAMPLES_DIR)
+        set(source "${XBOX_ATG_SAMPLES_DIR}/Media/Videos/SampleVideo.mp4")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/video_texture/SampleVideo.mp4")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying SampleVideo.mp4"
+            VERBATIM)
+        add_custom_target(video_texture_media DEPENDS "${output}")
+        add_dependencies(video_texture video_texture_media)
+    endif()
 endif()
 
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
