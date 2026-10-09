@@ -25,9 +25,69 @@ enum Feature {
     Meshlets = 9,
     RayQuery = 10,
     RayTracingPipeline = 14,
+    // Hit shaders reading the vertex positions of the triangles they hit (Vulkan's
+    // VK_KHR_ray_tracing_position_fetch, with AppOptions.RayTracing; D3D12 through NVAPI).
+    RayTracingPositionFetch = 15,
     ShaderSpecializations = 18,
     VariableRateShading = 21,
     VirtualResources = 22
+}
+
+// Donut_TranscodeKtx2's target formats (core/basis_transcoder.cpp, linked into the examples that
+// use it): RGBA8, BC7, BC3, ASTC 4x4, ETC2 RGBA.
+enum TranscodeFormat {
+    RGBA32 = 0,
+    BC7 = 1,
+    BC3 = 2,
+    ASTC4x4 = 3,
+    ETC2 = 4
+}
+
+// Basis Universal transcoding (core/basis_transcoder.cpp, linked only into the examples that list
+// it): a KTX 2 file in memory (Basis Universal ETC1S or UASTC, Zstandard supercompressed or not)
+// transcoded into format, every level, kept on the CPU; stats gets the milliseconds it took and
+// the bytes (Ref of a `let` f32 array of 2). Null on failure; free it with
+// Donut_DestroyTranscodedTexture.
+declare function Donut_TranscodeKtx2(data: Opaque, byteSize: int, format: TranscodeFormat, stats: Opaque): Opaque | null;
+declare function Donut_GetTranscodedWidth(transcodedTexture: Opaque): int;
+declare function Donut_GetTranscodedHeight(transcodedTexture: Opaque): int;
+declare function Donut_GetTranscodedLevelCount(transcodedTexture: Opaque): int;
+// A level's data, block (or pixel) rows rowPitch bytes apart, valid until the texture is freed.
+declare function Donut_GetTranscodedLevelData(transcodedTexture: Opaque, level: int): Opaque;
+declare function Donut_GetTranscodedLevelRowPitch(transcodedTexture: Opaque, level: int): int;
+declare function Donut_DestroyTranscodedTexture(transcodedTexture: Opaque): void;
+
+// nvrhi::VariableShadingRate values: pixels per shading, width x height.
+enum VariableShadingRate {
+    Rate1x1 = 0,
+    Rate1x2 = 1,
+    Rate2x1 = 2,
+    Rate2x2 = 3,
+    Rate2x4 = 4,
+    Rate4x2 = 5,
+    Rate4x4 = 6
+}
+
+// nvrhi::ShadingRateCombiner values (Vulkan's VkFragmentShadingRateCombinerOpKHR).
+enum ShadingRateCombiner {
+    Passthrough = 0, // KEEP
+    Override = 1, // REPLACE
+    Min = 2,
+    Max = 3,
+    ApplyRelative = 4 // MUL
+}
+
+// nvrhi::rt::AccelStructBuildFlags bits (Donut_BuildTriangleBlas).
+enum AccelStructBuildFlags {
+    None = 0,
+    AllowUpdate = 1,
+    AllowCompaction = 2,
+    PreferFastTrace = 4,
+    PreferFastBuild = 8,
+    MinimizeMemory = 0x10,
+    // Hit shaders can read the vertex positions of the triangles they hit (Vulkan;
+    // Feature.RayTracingPositionFetch).
+    AllowDataAccess = 0x40
 }
 
 // Vertex attributes of Donut_BindGeometryVertexAttribute, with their Buffer<...> element types.
@@ -47,6 +107,16 @@ enum MaterialTexture {
     Occlusion = 4,
     Transmission = 5,
     Opacity = 6
+}
+
+// nvrhi::ResolveMode values: how a multisampled depth buffer is resolved by a render pass
+// (Donut_CreateResolveFramebuffer, Donut_GetDepthResolveModes).
+enum ResolveMode {
+    None = 0,
+    SampleZero = 1,
+    Average = 2,
+    Min = 3,
+    Max = 4
 }
 
 // glTF material alpha modes (Donut_GetGltfModelPrimitiveAlphaMode).
@@ -150,6 +220,45 @@ enum BlendMode {
     AlphaOver = 3,
     // Premultiplied alpha: color and alpha One + InvSrcAlpha.
     Premultiplied = 4
+}
+
+// nvrhi::BlendFactor values (D3D's numbering; Vulkan's names in the comments).
+enum BlendFactor {
+    Zero = 1,
+    One = 2,
+    SrcColor = 3,
+    InvSrcColor = 4, // ONE_MINUS_SRC_COLOR
+    SrcAlpha = 5,
+    InvSrcAlpha = 6, // ONE_MINUS_SRC_ALPHA
+    DstAlpha = 7,
+    InvDstAlpha = 8, // ONE_MINUS_DST_ALPHA
+    DstColor = 9,
+    InvDstColor = 10, // ONE_MINUS_DST_COLOR
+    SrcAlphaSaturate = 11,
+    // The graphics state's blend constant (0 in Donut's draws).
+    ConstantColor = 14,
+    InvConstantColor = 15 // ONE_MINUS_CONSTANT_COLOR
+}
+
+// nvrhi::BlendOp values.
+enum BlendOp {
+    Add = 1,
+    Subtract = 2,
+    ReverseSubtract = 3,
+    Min = 4,
+    Max = 5
+}
+
+// Bits of Donut_GetAdvancedBlendOperations.
+enum AdvancedBlend {
+    // The blend equation advanced operations, at least, coherent.
+    Available = 1,
+    // All of them (advancedBlendAllOperations).
+    AllOperations = 2,
+    // Sources not premultiplied by their alpha, destinations neither, correlated overlap.
+    NonPremultipliedSrc = 4,
+    NonPremultipliedDst = 8,
+    CorrelatedOverlap = 16
 }
 
 // Logic operations between a pixel shader's output (s) and the target's bits (d)
@@ -281,6 +390,14 @@ declare function Donut_HasNative16BitShaderOps(app: Opaque): int;
 // Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
 // D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
 declare function Donut_HasLogicOps(app: Opaque): int;
+// Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad operations
+// (QuadReadLaneAt...): Vulkan with VK_KHR_shader_quad_control (SPIR-V's RequireFullQuadsKHR and
+// QuadDerivativesKHR execution modes), D3D12 always.
+declare function Donut_HasShaderQuadControl(app: Opaque): int;
+// AdvancedBlend bits: the advanced blend operations blend states can do
+// (Donut_GraphicsPipelineSetAdvancedBlendOp): Vulkan with VK_EXT_blend_operation_advanced and its
+// coherent operations; 0 elsewhere.
+declare function Donut_GetAdvancedBlendOperations(app: Opaque): int;
 // ComputeDerivatives bits: whether compute shaders can take derivatives (ddx, ddy, implicit-LOD
 // samples; shader model 6.6) in quads of 2 x 2 threads (2D thread groups) or in 4 consecutive
 // threads (1D thread groups). D3D12 with shader model 6.6, Vulkan with
@@ -320,9 +437,13 @@ declare function Donut_CloseWindow(app: Opaque): void;
 
 // nvrhi::Format values (only the ones used so far).
 enum Format {
+    R8_UINT = 1,
+    RG8_UINT = 5,
     RGBA8_UINT = 17,
     RGBA8_UNORM = 19,
+    BGRA8_UNORM = 21,
     SRGBA8_UNORM = 23,
+    SBGRA8_UNORM = 24,
     R32_UINT = 33,
     R32_SINT = 34,
     R32_FLOAT = 35,
@@ -332,7 +453,18 @@ enum Format {
     D32 = 53,
     RG32_FLOAT = 43,
     RGB32_FLOAT = 46,
-    RGBA32_FLOAT = 49
+    RGBA32_FLOAT = 49,
+    BC3_UNORM_SRGB = 61,
+    BC7_UNORM_SRGB = 69
+}
+
+// nvrhi::SamplerAddressMode values (Vulkan's names in the comments).
+enum SamplerAddressMode {
+    Clamp = 0, // CLAMP_TO_EDGE
+    Wrap = 1, // REPEAT
+    Border = 2, // CLAMP_TO_BORDER
+    Mirror = 3, // MIRRORED_REPEAT
+    MirrorOnce = 4 // MIRROR_CLAMP_TO_EDGE
 }
 
 // Samplers shared through Donut's CommonRenderPasses.
@@ -414,6 +546,21 @@ declare function Donut_CreateUAVTexture(app: Opaque, width: int, height: int, de
 // Render target that shaders can also read (resting at ShaderResource). A depth format (D32)
 // makes a depth buffer, cleared to 1 by default, read by shaders as Texture2D<float>.
 declare function Donut_CreateRenderTargetTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+// Texture of width x height with mipLevels levels (block-compressed formats too) for shaders to
+// read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
+declare function Donut_CreateTextureWithLevels(app: Opaque, width: int, height: int, mipLevels: int, format: Format,
+    debugName: string): Opaque;
+// Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed formats)
+// rowPitch bytes apart, copied during the call, into an open command list.
+declare function Donut_WriteTextureLevel(commandList: Opaque, texture: Opaque, mipLevel: int, data: Opaque, rowPitch: int): void;
+// Render target that shaders also read and write as a UAV (RWTexture2D<...>), resting at
+// UnorderedAccess.
+declare function Donut_CreateRenderTargetUAVTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+// Same, with mipLevels levels (draw into one with Donut_CreateFramebufferForMip, read another with
+// Donut_BindTextureSRVMip), typeless: copies of other formats of its family land (RGBA8_UNORM data
+// into SRGBA8_UNORM).
+declare function Donut_CreateMipmappedRenderTarget(app: Opaque, width: int, height: int, mipLevels: int, format: Format,
+    debugName: string): Opaque;
 // Same, typeless: framebuffers can see it in other formats of its family
 // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
 // without sRGB encoding) or RGBA8_UINT (logic operations, which D3D12 has on UINT targets only);
@@ -505,6 +652,16 @@ declare function Donut_GraphicsPipelineSetDepthBias(graphicsPipelineDesc: Opaque
     slopeScaledDepthBias: number): void;
 // Blending of every color target.
 declare function Donut_GraphicsPipelineSetBlendMode(graphicsPipelineDesc: Opaque, blendMode: BlendMode): void;
+// Blending of every color target, on or off, by the blend factors and operations of the color and
+// of the alpha; the color write mask stays.
+declare function Donut_GraphicsPipelineSetBlendState(graphicsPipelineDesc: Opaque, enable: int, srcBlend: BlendFactor,
+    destBlend: BlendFactor, blendOp: BlendOp, srcBlendAlpha: BlendFactor, destBlendAlpha: BlendFactor, blendOpAlpha: BlendOp): void;
+// An advanced blend operation for the targets that blend, instead of their factors and operations
+// (Vulkan, with Donut_GetAdvancedBlendOperations): its number from VK_BLEND_OP_ZERO_EXT (0 Zero ...
+// 45 Blue, -1 for none), whether the source and destination colors are premultiplied by their
+// alpha, and how they overlap (0 uncorrelated, 1 disjoint, 2 conjoint).
+declare function Donut_GraphicsPipelineSetAdvancedBlendOp(graphicsPipelineDesc: Opaque, advancedBlendOp: int,
+    srcPremultiplied: int, dstPremultiplied: int, overlap: int): void;
 // A logic operation between the pixel shader's output and the targets' bits instead of blending
 // (requires Donut_HasLogicOps; UINT and UNORM targets).
 declare function Donut_GraphicsPipelineSetLogicOp(graphicsPipelineDesc: Opaque, enable: int, logicOp: LogicOp): void;
@@ -557,6 +714,8 @@ declare function Donut_LoadGltfModel(app: Opaque, path: string): Opaque;
 // size, and bytes [offset, offset + count) into dst, an int (0..255) each (0 past the end).
 declare function Donut_LoadBinaryFile(app: Opaque, path: string): Opaque;
 declare function Donut_GetBinaryFileSize(binaryFile: Opaque): int;
+// The file's bytes, valid as long as the file (e.g. for Donut_TranscodeKtx2).
+declare function Donut_GetBinaryFileData(binaryFile: Opaque): Opaque;
 declare function Donut_CopyBinaryFileBytes(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
 declare function Donut_GetGltfModelPrimitiveCount(gltfModel: Opaque): int;
 declare function Donut_GetGltfModelVertexCount(gltfModel: Opaque, primitive: int): int;
@@ -593,6 +752,15 @@ declare function Donut_CreateComparisonSampler(app: Opaque): Opaque;
 // linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point
 // otherwise); wrap non-zero: repeating (clamped otherwise).
 declare function Donut_CreateSampler(app: Opaque, linearFilter: int, linearMipFilter: int, wrap: int): Opaque;
+// A sampler by its whole description: linear (non-zero) or point filtering when minifying,
+// magnifying and between levels; the address mode of all coordinates; a bias added to the level of
+// detail, the range it's clamped to (maxLod 0: level 0 only), and anisotropic filtering up to
+// maxAnisotropy samples (1: off; Donut_GetMaxSamplerAnisotropy).
+declare function Donut_CreateSamplerWithDesc(app: Opaque, linearMin: int, linearMag: int, linearMip: int,
+    addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): Opaque;
+// The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy with the
+// samplerAnisotropy feature (1 without), 16 on D3D.
+declare function Donut_GetMaxSamplerAnisotropy(app: Opaque): number;
 
 // Built up with Donut_AddVertexAttribute, then consumed (freed) by Donut_CreateInputLayout.
 declare function Donut_CreateInputLayoutDesc(): Opaque;
@@ -628,6 +796,17 @@ declare function Donut_CreateTriangleBlas(app: Opaque, commandList: Opaque, inde
     debugName: string): Opaque;
 // An updatable one, in place, from its buffers' current contents, into an open command list.
 declare function Donut_UpdateTriangleBlas(triangleBlas: Opaque, commandList: Opaque): void;
+// A bottom-level acceleration structure of several geometries: add them with
+// Donut_AddTriangleBlasGeometry, then build it with Donut_BuildTriangleBlas.
+declare function Donut_CreateEmptyTriangleBlas(app: Opaque, debugName: string): Opaque;
+// Opaque triangles: indexCount R32_UINT indices at indexByteOffset of indexBuffer, vertexCount
+// RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of vertexBuffer (acceleration
+// structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
+declare function Donut_AddTriangleBlasGeometry(triangleBlas: Opaque, indexBuffer: Opaque, indexByteOffset: int, indexCount: int,
+    vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
+// Builds the BLAS of the geometries added (AccelStructBuildFlags bits), recorded into an open
+// command list; 0 on failure.
+declare function Donut_BuildTriangleBlas(triangleBlas: Opaque, app: Opaque, commandList: Opaque, buildFlags: AccelStructBuildFlags): int;
 // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
 declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: Opaque): Opaque;
 
@@ -773,6 +952,11 @@ declare function Donut_CreateCommandList(app: Opaque): Opaque;
 declare function Donut_OpenCommandList(commandList: Opaque): void;
 declare function Donut_CloseCommandList(commandList: Opaque): void;
 declare function Donut_ExecuteCommandList(app: Opaque, commandList: Opaque): void;
+// Draws vertexCount vertices (no vertex buffers: e.g. a triangle over the target from SV_VertexID)
+// with a graphics pipeline into all of a framebuffer, with one binding set (null for none): for
+// drawing outside the frames, e.g. into a texture's levels at load time.
+declare function Donut_CommandListDraw(commandList: Opaque, pipeline: Opaque, framebuffer: Opaque, bindingSet: Opaque | null,
+    vertexCount: int): void;
 // A command list for the compute queue (needs AppOptions.ComputeQueue), recorded each frame and
 // run with Donut_ExecuteFrameComputeWork; null if there's no compute queue.
 declare function Donut_CreateComputeQueueCommandList(app: Opaque): Opaque | null;
@@ -848,6 +1032,14 @@ declare function Donut_ImGuiCombo(label: string, current: int, items: string): i
 declare function Donut_ImGuiBeginCombo(label: string, preview: string): int;
 // Non-zero if clicked.
 declare function Donut_ImGuiSelectable(label: string, selected: int): int;
+// Shown selected when active is non-zero; non-zero if clicked.
+declare function Donut_ImGuiRadioButton(label: string, active: int): int;
+// 4 floats (RGBA) at values (Ref of a `let` f32 array element), width pixels wide (0: default);
+// non-zero if changed.
+declare function Donut_ImGuiColorEdit4(label: string, values: Opaque, width: number): int;
+// Scopes the IDs of the widgets that follow (same labels apart) until Donut_ImGuiPopID.
+declare function Donut_ImGuiPushID(id: int): void;
+declare function Donut_ImGuiPopID(): void;
 declare function Donut_ImGuiEndCombo(): void;
 // 3 floats at values (Ref of a `let` f32 array element); non-zero if changed.
 declare function Donut_ImGuiDragFloat3(label: string, values: Opaque, speed: number): int;
@@ -1133,6 +1325,22 @@ declare function Donut_GetShadingRateTileSize(app: Opaque): int;
 declare function Donut_GetD3D12ShadingRateTileSize(app: Opaque): int;
 // R8_UINT surface of width x height tiles, written by compute shaders as RWTexture2D<uint>.
 declare function Donut_CreateShadingRateSurface(app: Opaque, width: int, height: int): Opaque;
+// The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of a
+// `let` int array of 32), largest first (Vulkan's order; D3D12's tier rates); returns their count,
+// 0 without variable rate shading.
+declare function Donut_GetFragmentShadingRates(app: Opaque, dst: Opaque): int;
+// Variable rate shading in a pipeline: its draws take the draw state's shading rate
+// (Donut_DrawSetVariableRateShading) combined with the framebuffer's shading rate surface.
+declare function Donut_GraphicsPipelineSetVariableRateShading(graphicsPipelineDesc: Opaque, enabled: int): void;
+// The draw state's shading rate (after Donut_BeginDraw*): the per-draw rate, combined with the
+// primitives' by primitiveCombiner, then with the framebuffer's shading rate surface by
+// imageCombiner (Passthrough keeps the rate so far, Override takes the new one).
+declare function Donut_DrawSetVariableRateShading(frame: Opaque, enabled: int, shadingRate: VariableShadingRate,
+    primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void;
+// Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
+// none) whose draws can take their shading rates from shadingRateSurface (null for none).
+declare function Donut_CreateFramebufferWithShadingRate(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque | null,
+    depthTexture: Opaque | null, shadingRateSurface: Opaque | null): Opaque;
 // enabled != 0: the view's draws use the framebuffer's shading rate surface alone; 0: full rate.
 declare function Donut_SetViewVariableRateShading(view: Opaque, enabled: int): void;
 // The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
@@ -1214,6 +1422,8 @@ declare function Donut_DrawIndexedInstancedWithPushConstants(frame: Opaque, inde
 // Same, indexCount indices from startIndex of the index buffer, added to baseVertex.
 declare function Donut_DrawIndexedRangeWithPushConstants(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int,
     data: Opaque, byteSize: int): void;
+// Same, without push constants.
+declare function Donut_DrawIndexedRange(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int): void;
 // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into the
 // back buffer, as is.
 declare function Donut_CopyTextureToFrame(frame: Opaque, texture: Opaque): void;
@@ -1406,6 +1616,36 @@ declare function Donut_GetSceneRenderTargetsFramebuffer(sceneRenderTargets: Opaq
 // Resolves a multisampled texture's mip 0 / slice 0 into a single-sample one.
 declare function Donut_ResolveTexture(commandList: Opaque, dstTexture: Opaque, srcTexture: Opaque): void;
 declare function Donut_ClearTextureUInt(commandList: Opaque, texture: Opaque, value: int): void;
+
+// Multisampling.
+// The sample counts that a color target in colorFormat and a depth buffer in depthFormat can both
+// have, as bits (bit n for n samples: 0x1 | 0x2 | 0x4 ...): on Vulkan the device's
+// framebufferColorSampleCounts & framebufferDepthSampleCounts, on D3D the formats' quality levels.
+declare function Donut_GetSupportedSampleCounts(app: Opaque, colorFormat: Format, depthFormat: Format): int;
+// Non-zero if render passes resolve multisampled targets as they end (Vulkan's dynamic rendering;
+// Donut_CreateResolveFramebuffer). NVRHI runs D3D without render passes: use Donut_ResolveTexture.
+declare function Donut_HasRenderPassResolve(app: Opaque): int;
+// The ResolveModes render passes can resolve depth by, as bits 1 << mode (Vulkan's
+// supportedDepthResolveModes); 0 without render pass resolves.
+declare function Donut_GetDepthResolveModes(app: Opaque): int;
+// Render target (color format) or depth buffer (depth format, cleared to clearDepth) of width x
+// height with sampleCount samples (Texture2DMS when more than 1) that shaders can read and that can
+// be resolved; resting at ShaderResource. Null on failure.
+declare function Donut_CreateMultisampledTexture(app: Opaque, width: int, height: int, format: Format, sampleCount: int,
+    clearDepth: number, debugName: string): Opaque;
+// Framebuffer drawing into colorTexture and depthTexture (null for none) whose render passes, as
+// they end, resolve color into colorResolveTexture and depth into depthResolveTexture by
+// depthResolveMode, where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI ends a render
+// pass at every barrier, so a pass may resolve more than once (with the same result).
+declare function Donut_CreateResolveFramebuffer(app: Opaque, colorTexture: Opaque | null, colorResolveTexture: Opaque | null,
+    depthTexture: Opaque | null, depthResolveTexture: Opaque | null, depthResolveMode: ResolveMode): Opaque;
+// The swap chain's back buffers (valid until they're resized: recreate what refers to them in the
+// back buffer resizing callback), the one the current frame renders into, and their format
+// (SRGBA8_UNORM with D3D, SBGRA8_UNORM with Vulkan).
+declare function Donut_GetBackBufferCount(app: Opaque): int;
+declare function Donut_GetBackBuffer(app: Opaque, index: int): Opaque;
+declare function Donut_GetCurrentBackBufferIndex(app: Opaque): int;
+declare function Donut_GetBackBufferFormat(app: Opaque): Format;
 
 // Shadows.
 declare function Donut_CreateCascadedShadowMap(app: Opaque, resolution: int, numCascades: int): Opaque;

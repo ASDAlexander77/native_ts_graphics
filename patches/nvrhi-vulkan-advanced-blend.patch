@@ -1,0 +1,65 @@
+diff --git a/include/nvrhi/nvrhi.h b/include/nvrhi/nvrhi.h
+index 8251d20..0eb6177 100644
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -1132,6 +1132,25 @@ namespace nvrhi
+         constexpr BlendState& enableAlphaToCoverage() { alphaToCoverageEnable = true; return *this; }
+         constexpr BlendState& disableAlphaToCoverage() { alphaToCoverageEnable = false; return *this; }
+ 
++        // Vulkan only (VK_EXT_blend_operation_advanced, with advancedBlendCoherentOperations): an
++        // advanced blend operation for the targets that blend, instead of their blend factors and
++        // operations. Its number from VK_BLEND_OP_ZERO_EXT (0 Zero, 1 Src, ... 45 Blue), -1 for
++        // none; whether the source and destination colors are premultiplied by their alpha, and
++        // how their coverage overlaps (VkBlendOverlapEXT: 0 uncorrelated, 1 disjoint, 2 conjoint).
++        int8_t advancedBlendOp = -1;
++        bool advancedSrcPremultiplied = true;
++        bool advancedDstPremultiplied = true;
++        uint8_t advancedBlendOverlap = 0;
++
++        constexpr BlendState& setAdvancedBlendOp(int8_t op, bool srcPremultiplied, bool dstPremultiplied, uint8_t overlap)
++        {
++            advancedBlendOp = op;
++            advancedSrcPremultiplied = srcPremultiplied;
++            advancedDstPremultiplied = dstPremultiplied;
++            advancedBlendOverlap = overlap;
++            return *this;
++        }
++
+         [[nodiscard]] bool usesConstantColor(uint32_t numTargets) const;
+ 
+         constexpr bool operator ==(const BlendState& other) const
+@@ -1148,6 +1167,10 @@ namespace nvrhi
+                     return false;
+             }
+ 
++            if (advancedBlendOp != other.advancedBlendOp || advancedSrcPremultiplied != other.advancedSrcPremultiplied
++                || advancedDstPremultiplied != other.advancedDstPremultiplied || advancedBlendOverlap != other.advancedBlendOverlap)
++                return false;
++
+             return true;
+         }
+ 
+diff --git a/src/vulkan/vulkan-graphics.cpp b/src/vulkan/vulkan-graphics.cpp
+index 6007b38..d9bdf95 100644
+--- a/src/vulkan/vulkan-graphics.cpp
++++ b/src/vulkan/vulkan-graphics.cpp
+@@ -434,6 +434,19 @@ namespace nvrhi::vulkan
+ 
+         pso->usesBlendConstants = blendState.usesConstantColor(uint32_t(fbinfo.colorFormats.size()));
+ 
++        // An advanced blend operation replaces the targets' color and alpha operations.
++        auto colorBlendAdvanced = vk::PipelineColorBlendAdvancedStateCreateInfoEXT()
++            .setSrcPremultiplied(blendState.advancedSrcPremultiplied)
++            .setDstPremultiplied(blendState.advancedDstPremultiplied)
++            .setBlendOverlap(vk::BlendOverlapEXT(blendState.advancedBlendOverlap));
++        if (blendState.advancedBlendOp >= 0)
++        {
++            const auto advancedOp = vk::BlendOp(VK_BLEND_OP_ZERO_EXT + blendState.advancedBlendOp);
++            for (vk::PipelineColorBlendAttachmentState& attachment : colorBlendAttachments)
++                attachment.setColorBlendOp(advancedOp).setAlphaBlendOp(advancedOp);
++            colorBlend.setPNext(&colorBlendAdvanced);
++        }
++
+         static_vector<vk::DynamicState, 5> dynamicStates = {
+             vk::DynamicState::eViewport,
+             vk::DynamicState::eScissor

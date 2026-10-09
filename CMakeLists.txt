@@ -145,6 +145,23 @@ set(DONUT_NVRHI_PATCHES
     # BlendState::logicOpEnable and logicOp: logic operations instead of blending, on D3D11 (11.1's
     # blend state), D3D12 and Vulkan (logic_op_dynamic_state).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-logic-op.patch"
+    # FramebufferDesc::colorResolveAttachments, depthResolveAttachment and depthResolveMode: Vulkan
+    # render passes resolve multisampled attachments as they end, through dynamic rendering's
+    # resolve attachments (msaa).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-render-pass-resolve.patch"
+    # BlendState::advancedBlendOp and its premultiplication and overlap: Vulkan's advanced blend
+    # operations (VK_EXT_blend_operation_advanced) instead of the blend factors (dynamic_blending).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-advanced-blend.patch"
+    # SamplerDesc::minLod and maxLod: the levels of detail sampled clamped, e.g. to level 0 only, on
+    # D3D11, D3D12 and Vulkan (texture_mipmap_generation).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-sampler-lod-range.patch"
+    # rt::AccelStructBuildFlags::AllowDataAccess: Vulkan BLASes whose vertex positions hit shaders
+    # read (VK_KHR_ray_tracing_position_fetch; ray_tracing_position_fetch).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-accel-struct-allow-data-access.patch"
+    # Vulkan render passes take their framebuffer's shading rate attachment (it was made but never
+    # passed to vkCmdBeginRendering, so shading rate images did nothing), with pipelines made for it
+    # (fragment_shading_rate_dynamic).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-shading-rate-attachment.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -268,6 +285,10 @@ if (NVRHI_WITH_DX12)
         "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/bin/x64/D3D12Core.dll"
         "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/bin/x64/D3D12SDKLayers.dll"
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/D3D12/")
+    # Linked into the examples that need the Agility SDK runtime rather than the OS's (work
+    # graphs, shader model 6.9): exports its version.
+    set_source_files_properties(core/d3d12_agility_sdk.cpp PROPERTIES
+        COMPILE_DEFINITIONS DONUT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
 endif()
 
 # end of Donut
@@ -1255,10 +1276,266 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_invocation_reorder/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_invocation_reorder/spirv
 )
-add_tslang_example(ray_tracing_invocation_reorder)
+# Hit objects are shader model 6.9: the Agility SDK runtime on D3D12 (the OS's may not have it).
+if (NVRHI_WITH_DX12)
+    add_tslang_example(ray_tracing_invocation_reorder core/d3d12_agility_sdk.cpp)
+else()
+    add_tslang_example(ray_tracing_invocation_reorder)
+endif()
 if (TARGET ray_tracing_extended_media)
     add_dependencies(ray_tracing_invocation_reorder ray_tracing_extended_media)
 endif()
+
+# Port of Vulkan-Samples' msaa: the Space Module scene forward shaded with or without
+# multisampling, its color (and, before an outline post-processing pass, depth) resolved by the
+# render pass (Vulkan) or in a separate pass. Its scene is Vulkan-Samples' assets too (see
+# VULKAN_SAMPLES_ASSETS_DIR above): the glTF scene is copied and its base color textures (KTX 1
+# ASTC) decoded to DDS, with the mip levels the framework generates for them.
+donut_compile_shaders_all_platforms(
+    TARGET msaa_shaders
+    PROJECT_NAME "MSAA"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/msaa.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/msaa.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/msaa_post.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/msaa
+)
+add_tslang_example(msaa MEDIA msaa)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(space_module_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/space_module")
+    set(space_module_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/msaa/space_module")
+    set(msaa_media)
+    foreach(file SpaceModule.gltf SpaceModule.bin)
+        set(output "${space_module_output}/${file}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${space_module_source}/${file}" "${output}"
+            DEPENDS "${space_module_source}/${file}"
+            COMMENT "Copying ${file}"
+            VERBATIM)
+        list(APPEND msaa_media "${output}")
+    endforeach()
+    # The scene's base color textures, in one conversion (in parallel), then their mip levels (see
+    # tools/dds_mips.cpp).
+    set(sources)
+    set(outputs)
+    set(arguments)
+    foreach(name T_CylinderRoom T_Metal_D T_Glass_D T_ScreenUIV2 T_Pedestal_D T_Phone_D T_CircuitBoardV2_LowerRes)
+        list(APPEND sources "${space_module_source}/${name}.ktx")
+        list(APPEND outputs "${space_module_output}/${name}.dds")
+        list(APPEND arguments "${space_module_source}/${name}.ktx" "${space_module_output}/${name}.dds")
+    endforeach()
+    add_custom_command(OUTPUT ${outputs}
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" ${arguments}
+        COMMAND dds_mips ${outputs}
+        DEPENDS ${sources} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${CMAKE_CURRENT_SOURCE_DIR}/tools/astc.py" dds_mips
+        COMMENT "Decoding the Space Module textures to DDS"
+        VERBATIM)
+    add_custom_target(msaa_media DEPENDS ${msaa_media} ${outputs})
+    add_dependencies(msaa msaa_media)
+endif()
+
+# Port of Vulkan-Samples' dynamic_blending: two overlapping faces blended by a blend state set in
+# the UI (the sample's dynamic state is a pipeline per combination here): blending on or off, its
+# operations and factors, Vulkan's advanced blend operations, and each face's color write mask.
+donut_compile_shaders_all_platforms(
+    TARGET dynamic_blending_shaders
+    PROJECT_NAME "Dynamic Blending"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_blending.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_blending.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_blending
+)
+add_tslang_example(dynamic_blending)
+
+# Port of Vulkan-Samples' texture_mipmap_generation: a texture's mip chain generated on the GPU from
+# its first level, and a tunnel sampled through it without mip maps, with them, and with
+# anisotropic filtering. Its model and texture are Vulkan-Samples' assets too (see
+# VULKAN_SAMPLES_ASSETS_DIR above): the glTF file is copied, the KTX texture converted to DDS.
+donut_compile_shaders_all_platforms(
+    TARGET texture_mipmap_generation_shaders
+    PROJECT_NAME "Texture MipMap Generation"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_mipmap_generation.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_mipmap_generation.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_mipmap_generation
+)
+add_tslang_example(texture_mipmap_generation MEDIA texture_mipmap_generation)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(mipmap_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/texture_mipmap_generation")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/checkerboard_rgba.ktx")
+    set(output "${mipmap_output}/checkerboard_rgba.dds")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+        DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+        COMMENT "Converting checkerboard_rgba.ktx to DDS"
+        VERBATIM)
+    set(mipmap_media "${output}")
+    set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/tunnel_cylinder.gltf")
+    set(output "${mipmap_output}/tunnel_cylinder.gltf")
+    add_custom_command(OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+        DEPENDS "${source}"
+        COMMENT "Copying tunnel_cylinder.gltf"
+        VERBATIM)
+    list(APPEND mipmap_media "${output}")
+    add_custom_target(texture_mipmap_generation_media DEPENDS ${mipmap_media})
+    add_dependencies(texture_mipmap_generation texture_mipmap_generation_media)
+endif()
+
+# Port of Vulkan-Samples' ray_tracing_position_fetch: a robot ray traced, its closest hit shader
+# reading the hit triangles' vertex positions from the acceleration structure. Vulkan only
+# (VK_KHR_ray_tracing_position_fetch; D3D12 has it through NVAPI only), so SPIR-V only. Its scene is
+# Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above), copied.
+donut_compile_shaders(
+    TARGET ray_tracing_position_fetch_shaders
+    PROJECT_NAME "Ray Tracing Position Fetch"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_position_fetch.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_position_fetch.hlsl
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_position_fetch/spirv
+)
+add_tslang_example(ray_tracing_position_fetch MEDIA ray_tracing_position_fetch)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(position_fetch_media)
+    foreach(file scene.gltf scene.bin)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/pica_pica_robot/${file}")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/ray_tracing_position_fetch/pica_pica_robot/${file}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying pica_pica_robot/${file}"
+            VERBATIM)
+        list(APPEND position_fetch_media "${output}")
+    endforeach()
+    add_custom_target(ray_tracing_position_fetch_media DEPENDS ${position_fetch_media})
+    add_dependencies(ray_tracing_position_fetch ray_tracing_position_fetch_media)
+endif()
+
+# Port of Vulkan-Samples' fragment_shading_rate_dynamic: a scene drawn with a shading rate image
+# that a compute shader makes each frame from the scene's frequency content (its colors'
+# screen-space derivatives, from a reduced size pass). Variable rate shading with shading rate
+# images needs D3D12 or Vulkan, so no DXBC. Its models and textures are Vulkan-Samples' assets too
+# (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF files are copied, the KTX textures converted to DDS.
+donut_compile_shaders(
+    TARGET fragment_shading_rate_dynamic_shaders
+    PROJECT_NAME "Dynamic Fragment Shading Rate"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fragment_shading_rate_dynamic.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fragment_shading_rate_dynamic.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fragment_shading_rate_dynamic_compute.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate_dynamic/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate_dynamic/spirv
+)
+add_tslang_example(fragment_shading_rate_dynamic MEDIA fragment_shading_rate_dynamic)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(shading_rate_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/fragment_shading_rate_dynamic")
+    set(shading_rate_media)
+    foreach(texture skysphere_rgba vulkan_logo_full)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/${texture}.ktx")
+        set(output "${shading_rate_output}/${texture}.dds")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+            DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+            COMMENT "Converting ${texture}.ktx to DDS"
+            VERBATIM)
+        list(APPEND shading_rate_media "${output}")
+    endforeach()
+    foreach(model geosphere textured_unit_cube)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/${model}.gltf")
+        set(output "${shading_rate_output}/${model}.gltf")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${model}.gltf"
+            VERBATIM)
+        list(APPEND shading_rate_media "${output}")
+    endforeach()
+    add_custom_target(fragment_shading_rate_dynamic_media DEPENDS ${shading_rate_media})
+    add_dependencies(fragment_shading_rate_dynamic fragment_shading_rate_dynamic_media)
+endif()
+
+# Port of Vulkan-Samples' texture_compression_comparison: Sponza with its textures transcoded at
+# load time from Basis Universal KTX 2 files (UASTC, Zstandard supercompressed) into the format
+# picked: RGBA8, BC7 or BC3 (ASTC and ETC2 where the GPU has them and NVRHI the formats), timed. The
+# transcoding is Basis Universal's own transcoder (BASIS_UNIVERSAL_FETCH_TAG), fetched at configure
+# time and linked into this example only, through core/basis_transcoder.cpp. Its scene is
+# Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF scene and the KTX 2
+# textures are copied. Its shaders are msaa's (the framework's base.vert and base.frag).
+set(BASIS_UNIVERSAL_FETCH_TAG "v1_60" CACHE STRING "Git tag of Basis Universal, whose transcoder texture_compression_comparison uses")
+include(FetchContent)
+FetchContent_Declare(basis_universal
+    GIT_REPOSITORY https://github.com/BinomialLLC/basis_universal.git
+    GIT_TAG ${BASIS_UNIVERSAL_FETCH_TAG}
+    GIT_SHALLOW TRUE
+    # The transcoder only: not its CMake project (the encoder and tools).
+    SOURCE_SUBDIR transcoder-only)
+FetchContent_MakeAvailable(basis_universal)
+# Its Zstandard decoder is C.
+enable_language(C)
+add_library(basisu_transcoder STATIC
+    "${basis_universal_SOURCE_DIR}/transcoder/basisu_transcoder.cpp"
+    "${basis_universal_SOURCE_DIR}/zstd/zstddeclib.c")
+target_include_directories(basisu_transcoder PUBLIC "${basis_universal_SOURCE_DIR}/transcoder")
+# KTX 2 files, with Zstandard supercompression (its own decoder); no texture formats it doesn't need.
+target_compile_definitions(basisu_transcoder PUBLIC BASISD_SUPPORT_KTX2=1 BASISD_SUPPORT_KTX2_ZSTD=1)
+if (MSVC)
+    target_compile_options(basisu_transcoder PRIVATE /W0)
+else()
+    target_compile_options(basisu_transcoder PRIVATE -w)
+endif()
+donut_compile_shaders_all_platforms(
+    TARGET texture_compression_comparison_shaders
+    PROJECT_NAME "Texture Compression Comparison"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_compression_comparison.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/msaa.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_compression_comparison
+)
+add_tslang_example(texture_compression_comparison core/basis_transcoder.cpp MEDIA texture_compression_comparison)
+target_link_libraries(texture_compression_comparison PRIVATE basisu_transcoder)
+if (TARGET texture_compression_comparison_app)
+    target_link_libraries(texture_compression_comparison_app PRIVATE basisu_transcoder)
+endif()
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    set(sponza_ktx2_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/sponza")
+    set(sponza_ktx2_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/texture_compression_comparison/sponza")
+    set(compression_media)
+    foreach(file Sponza01.gltf Sponza01.bin)
+        set(output "${sponza_ktx2_output}/${file}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${sponza_ktx2_source}/${file}" "${output}"
+            DEPENDS "${sponza_ktx2_source}/${file}"
+            COMMENT "Copying ${file}"
+            VERBATIM)
+        list(APPEND compression_media "${output}")
+    endforeach()
+    # The scene's images (KTX 1 files) as the sample loads them instead: ktx2/<name>.ktx2.
+    foreach(name sponza_flagpole_diff lion background sponza_thorn_diff vase_plant spnza_bricks_a_diff
+            sponza_ceiling_a_diff sponza_column_a_diff sponza_arch_diff sponza_column_c_diff sponza_details_diff
+            sponza_floor_a_diff sponza_column_b_diff vase_dif vase_hanging vase_round chain_texture
+            sponza_curtain_blue_diff sponza_curtain_diff sponza_curtain_green_diff sponza_fabric_green_diff
+            sponza_fabric_blue_diff sponza_fabric_diff sponza_roof_diff)
+        set(output "${sponza_ktx2_output}/ktx2/${name}.ktx2")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${sponza_ktx2_source}/ktx2/${name}.ktx2" "${output}"
+            DEPENDS "${sponza_ktx2_source}/ktx2/${name}.ktx2"
+            COMMENT "Copying ${name}.ktx2"
+            VERBATIM)
+        list(APPEND compression_media "${output}")
+    endforeach()
+    add_custom_target(texture_compression_comparison_media DEPENDS ${compression_media})
+    add_dependencies(texture_compression_comparison texture_compression_comparison_media)
+endif()
+
+# Port of Vulkan-Samples' shader_quad_control: a triangle over the screen, its pixel shader run in
+# full quads (VK_KHR_shader_quad_control's execution mode, as DXC's inline SPIR-V; D3D12 runs whole
+# quads anyway), optionally each quad showing its top left pixel's value. Quad operations need
+# shader model 6, so no DXBC.
+donut_compile_shaders(
+    TARGET shader_quad_control_shaders
+    PROJECT_NAME "Shader Quad Control"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_quad_control.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_quad_control.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_quad_control/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_quad_control/spirv
+)
+add_tslang_example(shader_quad_control)
 
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
@@ -1323,8 +1600,6 @@ if (NVRHI_WITH_DX12)
         DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/work_graphs/dxil
         SHADER_MODEL 6_8
     )
-    set_source_files_properties(core/d3d12_agility_sdk.cpp PROPERTIES
-        COMPILE_DEFINITIONS DONUT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
     add_tslang_example(work_graphs core/d3d12_agility_sdk.cpp)
 endif()
 

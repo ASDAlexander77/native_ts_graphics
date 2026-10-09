@@ -1,0 +1,67 @@
+diff --git a/include/nvrhi/nvrhi.h b/include/nvrhi/nvrhi.h
+index 0eb6177..50c3329 100644
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -1396,6 +1396,9 @@ namespace nvrhi
+         SamplerAddressMode addressV = SamplerAddressMode::Clamp;
+         SamplerAddressMode addressW = SamplerAddressMode::Clamp;
+         SamplerReductionType reductionType = SamplerReductionType::Standard;
++        // The levels of detail sampled are clamped to [minLod, maxLod] (maxLod 0: level 0 only).
++        float minLod = 0.f;
++        float maxLod = 3.402823466e+38f;
+ 
+         SamplerDesc& setBorderColor(const Color& color) { borderColor = color; return *this; }
+         SamplerDesc& setMaxAnisotropy(float value) { maxAnisotropy = value; return *this; }
+@@ -1409,6 +1412,7 @@ namespace nvrhi
+         SamplerDesc& setAddressW(SamplerAddressMode mode) { addressW = mode; return *this; }
+         SamplerDesc& setAllAddressModes(SamplerAddressMode mode) { addressU = addressV = addressW = mode; return *this; }
+         SamplerDesc& setReductionType(SamplerReductionType type) { reductionType = type; return *this; }
++        SamplerDesc& setLodRange(float min, float max) { minLod = min; maxLod = max; return *this; }
+     };
+ 
+     class ISampler : public IResource
+diff --git a/src/d3d11/d3d11-device.cpp b/src/d3d11/d3d11-device.cpp
+index f1392ab..91974ca 100644
+--- a/src/d3d11/d3d11-device.cpp
++++ b/src/d3d11/d3d11-device.cpp
+@@ -406,8 +406,8 @@ namespace nvrhi::d3d11
+         desc11.BorderColor[1] = d.borderColor.g;
+         desc11.BorderColor[2] = d.borderColor.b;
+         desc11.BorderColor[3] = d.borderColor.a;
+-        desc11.MinLOD = 0;
+-        desc11.MaxLOD = D3D11_FLOAT32_MAX;
++        desc11.MinLOD = d.minLod;
++        desc11.MaxLOD = d.maxLod;
+ 
+         RefCountPtr<ID3D11SamplerState> sState;
+         const HRESULT res = m_Context.device->CreateSamplerState(&desc11, &sState);
+diff --git a/src/d3d12/d3d12-device.cpp b/src/d3d12/d3d12-device.cpp
+index 9e7cbb7..715ffa4 100644
+--- a/src/d3d12/d3d12-device.cpp
++++ b/src/d3d12/d3d12-device.cpp
+@@ -570,8 +570,8 @@ namespace nvrhi::d3d12
+         m_d3d12desc.BorderColor[1] = m_Desc.borderColor.g;
+         m_d3d12desc.BorderColor[2] = m_Desc.borderColor.b;
+         m_d3d12desc.BorderColor[3] = m_Desc.borderColor.a;
+-        m_d3d12desc.MinLOD = 0;
+-        m_d3d12desc.MaxLOD = D3D12_FLOAT32_MAX;
++        m_d3d12desc.MinLOD = desc.minLod;
++        m_d3d12desc.MaxLOD = desc.maxLod;
+     }
+     
+     void Sampler::createDescriptor(size_t descriptor) const
+diff --git a/src/vulkan/vulkan-texture.cpp b/src/vulkan/vulkan-texture.cpp
+index a5cc6fe..1aca85e 100644
+--- a/src/vulkan/vulkan-texture.cpp
++++ b/src/vulkan/vulkan-texture.cpp
+@@ -867,8 +867,8 @@ namespace nvrhi::vulkan
+                             .setMaxAnisotropy(anisotropyEnable ? desc.maxAnisotropy : 1.f)
+                             .setCompareEnable(desc.reductionType == SamplerReductionType::Comparison)
+                             .setCompareOp(vk::CompareOp::eLess)
+-                            .setMinLod(0.f)
+-                            .setMaxLod(std::numeric_limits<float>::max())
++                            .setMinLod(desc.minLod)
++                            .setMaxLod(desc.maxLod)
+                             .setBorderColor(pickSamplerBorderColor(desc));
+ 
+         vk::SamplerReductionModeCreateInfoEXT samplerReductionCreateInfo;

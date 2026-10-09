@@ -1,0 +1,55 @@
+diff --git a/include/nvrhi/nvrhi.h b/include/nvrhi/nvrhi.h
+index 50c3329..b781c72 100644
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -1878,6 +1878,10 @@ namespace nvrhi
+             PreferFastBuild = 8,
+             MinimizeMemory = 0x10,
+             PerformUpdate = 0x20,
++            // Vulkan only (VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_DATA_ACCESS_KHR): hit shaders can
++            // read the vertex positions of the triangles they hit (VK_KHR_ray_tracing_position_fetch,
++            // Feature::RayTracingPositionFetch). D3D12 ignores it.
++            AllowDataAccess = 0x40,
+ 
+             // Removes the errors or warnings that NVRHI validation layer issues when a TLAS
+             // includes an instance that points at a NULL BLAS or has a zero instance mask.
+diff --git a/src/d3d12/d3d12-raytracing.cpp b/src/d3d12/d3d12-raytracing.cpp
+index 9ed4f7a..9fa91d9 100644
+--- a/src/d3d12/d3d12-raytracing.cpp
++++ b/src/d3d12/d3d12-raytracing.cpp
+@@ -217,7 +217,9 @@ namespace
+         }
+ 
+         void SetFlags(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags) {
+-            m_desc.Flags = flags;
++            // AllowDataAccess is Vulkan's only.
++            m_desc.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS(
++                uint32_t(flags) & ~uint32_t(nvrhi::rt::AccelStructBuildFlags::AllowDataAccess));
+         }
+ 
+         void SetInstanceDescs(D3D12_GPU_VIRTUAL_ADDRESS instanceDescs, UINT numDescs) {
+diff --git a/src/vulkan/vulkan-constants.cpp b/src/vulkan/vulkan-constants.cpp
+index 8ab73c6..fbc6d00 100644
+--- a/src/vulkan/vulkan-constants.cpp
++++ b/src/vulkan/vulkan-constants.cpp
+@@ -747,7 +747,10 @@ namespace nvrhi::vulkan
+         static_assert(uint32_t(rt::AccelStructBuildFlags::PreferFastBuild) == uint32_t(VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR));
+         static_assert(uint32_t(rt::AccelStructBuildFlags::MinimizeMemory) == uint32_t(VK_BUILD_ACCELERATION_STRUCTURE_LOW_MEMORY_BIT_KHR));
+ 
+-        return vk::BuildAccelerationStructureFlagsKHR(uint32_t(buildFlags) & 0x1f);
++        vk::BuildAccelerationStructureFlagsKHR flags = vk::BuildAccelerationStructureFlagsKHR(uint32_t(buildFlags) & 0x1f);
++        if ((buildFlags & rt::AccelStructBuildFlags::AllowDataAccess) != 0)
++            flags |= vk::BuildAccelerationStructureFlagBitsKHR::eAllowDataAccess;
++        return flags;
+ #else
+         vk::BuildAccelerationStructureFlagsKHR flags = vk::BuildAccelerationStructureFlagBitsKHR(0);
+         if ((buildFlags & rt::AccelStructBuildFlags::AllowUpdate) != 0)
+@@ -760,6 +763,8 @@ namespace nvrhi::vulkan
+             flags |= vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastBuild;
+         if ((buildFlags & rt::AccelStructBuildFlags::MinimizeMemory) != 0)
+             flags |= vk::BuildAccelerationStructureFlagBitsKHR::eLowMemory;
++        if ((buildFlags & rt::AccelStructBuildFlags::AllowDataAccess) != 0)
++            flags |= vk::BuildAccelerationStructureFlagBitsKHR::eAllowDataAccess;
+         return flags;
+ #endif
+     }

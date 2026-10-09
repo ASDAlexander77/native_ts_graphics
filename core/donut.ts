@@ -129,6 +129,20 @@ export class App {
         return Donut_HasLogicOps(this.handle);
     }
 
+    // Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad operations
+    // (QuadReadLaneAt...): Vulkan with VK_KHR_shader_quad_control (SPIR-V's RequireFullQuadsKHR and
+    // QuadDerivativesKHR execution modes), D3D12 always.
+    hasShaderQuadControl(): int {
+        return Donut_HasShaderQuadControl(this.handle);
+    }
+
+    // AdvancedBlend bits: the advanced blend operations blend states can do
+    // (Donut_GraphicsPipelineSetAdvancedBlendOp): Vulkan with VK_EXT_blend_operation_advanced and its
+    // coherent operations; 0 elsewhere.
+    getAdvancedBlendOperations(): int {
+        return Donut_GetAdvancedBlendOperations(this.handle);
+    }
+
     // ComputeDerivatives bits: whether compute shaders can take derivatives (ddx, ddy, implicit-LOD
     // samples; shader model 6.6) in quads of 2 x 2 threads (2D thread groups) or in 4 consecutive
     // threads (1D thread groups). D3D12 with shader model 6.6, Vulkan with
@@ -306,6 +320,25 @@ export class App {
     // makes a depth buffer, cleared to 1 by default, read by shaders as Texture2D<float>.
     createRenderTargetTexture(width: int, height: int, format: Format, debugName: string): Opaque {
         return Donut_CreateRenderTargetTexture(this.handle, width, height, format, debugName);
+    }
+
+    // Texture of width x height with mipLevels levels (block-compressed formats too) for shaders to
+    // read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
+    createTextureWithLevels(width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateTextureWithLevels(this.handle, width, height, mipLevels, format, debugName);
+    }
+
+    // Render target that shaders also read and write as a UAV (RWTexture2D<...>), resting at
+    // UnorderedAccess.
+    createRenderTargetUAVTexture(width: int, height: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateRenderTargetUAVTexture(this.handle, width, height, format, debugName);
+    }
+
+    // Same, with mipLevels levels (draw into one with Donut_CreateFramebufferForMip, read another with
+    // Donut_BindTextureSRVMip), typeless: copies of other formats of its family land (RGBA8_UNORM data
+    // into SRGBA8_UNORM).
+    createMipmappedRenderTarget(width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque {
+        return Donut_CreateMipmappedRenderTarget(this.handle, width, height, mipLevels, format, debugName);
     }
 
     // Same, typeless: framebuffers can see it in other formats of its family
@@ -493,6 +526,20 @@ export class App {
         return Donut_CreateSampler(this.handle, linearFilter, linearMipFilter, wrap);
     }
 
+    // A sampler by its whole description: linear (non-zero) or point filtering when minifying,
+    // magnifying and between levels; the address mode of all coordinates; a bias added to the level of
+    // detail, the range it's clamped to (maxLod 0: level 0 only), and anisotropic filtering up to
+    // maxAnisotropy samples (1: off; Donut_GetMaxSamplerAnisotropy).
+    createSamplerWithDesc(linearMin: int, linearMag: int, linearMip: int, addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): Opaque {
+        return Donut_CreateSamplerWithDesc(this.handle, linearMin, linearMag, linearMip, addressMode, mipBias, minLod, maxLod, maxAnisotropy);
+    }
+
+    // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy with the
+    // samplerAnisotropy feature (1 without), 16 on D3D.
+    getMaxSamplerAnisotropy(): number {
+        return Donut_GetMaxSamplerAnisotropy(this.handle);
+    }
+
     createInputLayout(inputLayoutDesc: InputLayoutDesc, vertexShader: Opaque): Opaque {
         return Donut_CreateInputLayout(this.handle, inputLayoutDesc.handle, vertexShader);
     }
@@ -539,6 +586,12 @@ export class App {
     // updatable != 0 fast builds and updates.
     createTriangleBlas(commandList: CommandList, indexBuffer: Opaque, indexByteOffset: int, indexCount: int, vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int, debugName: string): TriangleBlas {
         return new TriangleBlas(Donut_CreateTriangleBlas(this.handle, commandList.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, updatable, debugName));
+    }
+
+    // A bottom-level acceleration structure of several geometries: add them with
+    // Donut_AddTriangleBlasGeometry, then build it with Donut_BuildTriangleBlas.
+    createEmptyTriangleBlas(debugName: string): TriangleBlas {
+        return new TriangleBlas(Donut_CreateEmptyTriangleBlas(this.handle, debugName));
     }
 
     // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
@@ -888,6 +941,19 @@ export class App {
         return Donut_CreateShadingRateSurface(this.handle, width, height);
     }
 
+    // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of a
+    // `let` int array of 32), largest first (Vulkan's order; D3D12's tier rates); returns their count,
+    // 0 without variable rate shading.
+    getFragmentShadingRates(dst: Opaque): int {
+        return Donut_GetFragmentShadingRates(this.handle, dst);
+    }
+
+    // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
+    // none) whose draws can take their shading rates from shadingRateSurface (null for none).
+    createFramebufferWithShadingRate(colorTexture0: Opaque, colorTexture1: Opaque | null, depthTexture: Opaque | null, shadingRateSurface: Opaque | null): Opaque {
+        return Donut_CreateFramebufferWithShadingRate(this.handle, colorTexture0, colorTexture1, depthTexture, shadingRateSurface);
+    }
+
     // D3D12 work graphs, through D3D12 directly. They need the Agility SDK runtime: the executable
     // must be linked with d3d12_agility_sdk.cpp (see CMakeLists.txt).
     // D3D12_WORK_GRAPHS_TIER: 0 unsupported (or not D3D12), 10 for tier 1.0, 11 for tier 1.1.
@@ -1004,6 +1070,60 @@ export class App {
     // ambient occlusion. Create new ones when the size or sample count changes.
     createSceneRenderTargets(width: int, height: int, sampleCount: int): SceneRenderTargets {
         return new SceneRenderTargets(Donut_CreateSceneRenderTargets(this.handle, width, height, sampleCount));
+    }
+
+    // Multisampling.
+    // The sample counts that a color target in colorFormat and a depth buffer in depthFormat can both
+    // have, as bits (bit n for n samples: 0x1 | 0x2 | 0x4 ...): on Vulkan the device's
+    // framebufferColorSampleCounts & framebufferDepthSampleCounts, on D3D the formats' quality levels.
+    getSupportedSampleCounts(colorFormat: Format, depthFormat: Format): int {
+        return Donut_GetSupportedSampleCounts(this.handle, colorFormat, depthFormat);
+    }
+
+    // Non-zero if render passes resolve multisampled targets as they end (Vulkan's dynamic rendering;
+    // Donut_CreateResolveFramebuffer). NVRHI runs D3D without render passes: use Donut_ResolveTexture.
+    hasRenderPassResolve(): int {
+        return Donut_HasRenderPassResolve(this.handle);
+    }
+
+    // The ResolveModes render passes can resolve depth by, as bits 1 << mode (Vulkan's
+    // supportedDepthResolveModes); 0 without render pass resolves.
+    getDepthResolveModes(): int {
+        return Donut_GetDepthResolveModes(this.handle);
+    }
+
+    // Render target (color format) or depth buffer (depth format, cleared to clearDepth) of width x
+    // height with sampleCount samples (Texture2DMS when more than 1) that shaders can read and that can
+    // be resolved; resting at ShaderResource. Null on failure.
+    createMultisampledTexture(width: int, height: int, format: Format, sampleCount: int, clearDepth: number, debugName: string): Opaque {
+        return Donut_CreateMultisampledTexture(this.handle, width, height, format, sampleCount, clearDepth, debugName);
+    }
+
+    // Framebuffer drawing into colorTexture and depthTexture (null for none) whose render passes, as
+    // they end, resolve color into colorResolveTexture and depth into depthResolveTexture by
+    // depthResolveMode, where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI ends a render
+    // pass at every barrier, so a pass may resolve more than once (with the same result).
+    createResolveFramebuffer(colorTexture: Opaque | null, colorResolveTexture: Opaque | null, depthTexture: Opaque | null, depthResolveTexture: Opaque | null, depthResolveMode: ResolveMode): Opaque {
+        return Donut_CreateResolveFramebuffer(this.handle, colorTexture, colorResolveTexture, depthTexture, depthResolveTexture, depthResolveMode);
+    }
+
+    // The swap chain's back buffers (valid until they're resized: recreate what refers to them in the
+    // back buffer resizing callback), the one the current frame renders into, and their format
+    // (SRGBA8_UNORM with D3D, SBGRA8_UNORM with Vulkan).
+    getBackBufferCount(): int {
+        return Donut_GetBackBufferCount(this.handle);
+    }
+
+    getBackBuffer(index: int): Opaque {
+        return Donut_GetBackBuffer(this.handle, index);
+    }
+
+    getCurrentBackBufferIndex(): int {
+        return Donut_GetCurrentBackBufferIndex(this.handle);
+    }
+
+    getBackBufferFormat(): Format {
+        return Donut_GetBackBufferFormat(this.handle);
     }
 
     // Shadows.
@@ -1222,6 +1342,13 @@ export class Frame {
         Donut_TemporalResolve(this.handle, temporalAntiAliasingPass.handle, view.handle, feedbackIsValid);
     }
 
+    // The draw state's shading rate (after Donut_BeginDraw*): the per-draw rate, combined with the
+    // primitives' by primitiveCombiner, then with the framebuffer's shading rate surface by
+    // imageCombiner (Passthrough keeps the rate so far, Override takes the new one).
+    drawSetVariableRateShading(enabled: int, shadingRate: VariableShadingRate, primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void {
+        Donut_DrawSetVariableRateShading(this.handle, enabled, shadingRate, primitiveCombiner, imageCombiner);
+    }
+
     // The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
     // inside a render callback, Begin and End around the draws.
     beginD3D12ShadingRateImage(shadingRateSurface: Opaque): void {
@@ -1339,6 +1466,11 @@ export class Frame {
         Donut_DrawIndexedRangeWithPushConstants(this.handle, indexCount, startIndex, baseVertex, data, byteSize);
     }
 
+    // Same, without push constants.
+    drawIndexedRange(indexCount: int, startIndex: int, baseVertex: int): void {
+        Donut_DrawIndexedRange(this.handle, indexCount, startIndex, baseVertex);
+    }
+
     // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into the
     // back buffer, as is.
     copyTextureToFrame(texture: Opaque): void {
@@ -1407,6 +1539,12 @@ export class CommandList {
         Donut_UavBarrier(this.handle, texture);
     }
 
+    // Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed formats)
+    // rowPitch bytes apart, copied during the call, into an open command list.
+    writeTextureLevel(texture: Opaque, mipLevel: int, data: Opaque, rowPitch: int): void {
+        Donut_WriteTextureLevel(this.handle, texture, mipLevel, data, rowPitch);
+    }
+
     // Copies width x height texels at (srcX, srcY) of a staging texture to (dstX, dstY) of level dstMip.
     copyStagingTextureRegion(dstTexture: Opaque, dstMip: int, dstX: int, dstY: int, stagingTexture: Opaque, srcX: int, srcY: int, width: int, height: int): void {
         Donut_CopyStagingTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, stagingTexture, srcX, srcY, width, height);
@@ -1429,6 +1567,13 @@ export class CommandList {
 
     close(): void {
         Donut_CloseCommandList(this.handle);
+    }
+
+    // Draws vertexCount vertices (no vertex buffers: e.g. a triangle over the target from SV_VertexID)
+    // with a graphics pipeline into all of a framebuffer, with one binding set (null for none): for
+    // drawing outside the frames, e.g. into a texture's levels at load time.
+    draw(pipeline: Opaque, framebuffer: Opaque, bindingSet: BindingSet | null, vertexCount: int): void {
+        Donut_CommandListDraw(this.handle, pipeline, framebuffer, bindingSet ? (bindingSet as BindingSet).handle : null, vertexCount);
     }
 
     // Uploads byteSize bytes from data, copied during the call. Pass `Ref(array[0])` of a `let`
@@ -2025,6 +2170,20 @@ export class GraphicsPipelineDesc {
         Donut_GraphicsPipelineSetBlendMode(this.handle, blendMode);
     }
 
+    // Blending of every color target, on or off, by the blend factors and operations of the color and
+    // of the alpha; the color write mask stays.
+    setBlendState(enable: int, srcBlend: BlendFactor, destBlend: BlendFactor, blendOp: BlendOp, srcBlendAlpha: BlendFactor, destBlendAlpha: BlendFactor, blendOpAlpha: BlendOp): void {
+        Donut_GraphicsPipelineSetBlendState(this.handle, enable, srcBlend, destBlend, blendOp, srcBlendAlpha, destBlendAlpha, blendOpAlpha);
+    }
+
+    // An advanced blend operation for the targets that blend, instead of their factors and operations
+    // (Vulkan, with Donut_GetAdvancedBlendOperations): its number from VK_BLEND_OP_ZERO_EXT (0 Zero ...
+    // 45 Blue, -1 for none), whether the source and destination colors are premultiplied by their
+    // alpha, and how they overlap (0 uncorrelated, 1 disjoint, 2 conjoint).
+    setAdvancedBlendOp(advancedBlendOp: int, srcPremultiplied: int, dstPremultiplied: int, overlap: int): void {
+        Donut_GraphicsPipelineSetAdvancedBlendOp(this.handle, advancedBlendOp, srcPremultiplied, dstPremultiplied, overlap);
+    }
+
     // A logic operation between the pixel shader's output and the targets' bits instead of blending
     // (requires Donut_HasLogicOps; UINT and UNORM targets).
     setLogicOp(enable: int, logicOp: LogicOp): void {
@@ -2041,6 +2200,12 @@ export class GraphicsPipelineDesc {
     // The channels every color target writes (ColorMask bits; None for a pass that only writes UAVs).
     setColorWriteMask(mask: ColorMask): void {
         Donut_GraphicsPipelineSetColorWriteMask(this.handle, mask);
+    }
+
+    // Variable rate shading in a pipeline: its draws take the draw state's shading rate
+    // (Donut_DrawSetVariableRateShading) combined with the framebuffer's shading rate surface.
+    setVariableRateShading(enabled: int): void {
+        Donut_GraphicsPipelineSetVariableRateShading(this.handle, enabled);
     }
 }
 
@@ -3171,6 +3336,19 @@ export class TriangleBlas {
         Donut_UpdateTriangleBlas(this.handle, commandList.handle);
     }
 
+    // Opaque triangles: indexCount R32_UINT indices at indexByteOffset of indexBuffer, vertexCount
+    // RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of vertexBuffer (acceleration
+    // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
+    addGeometry(indexBuffer: Opaque, indexByteOffset: int, indexCount: int, vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void {
+        Donut_AddTriangleBlasGeometry(this.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
+    }
+
+    // Builds the BLAS of the geometries added (AccelStructBuildFlags bits), recorded into an open
+    // command list; 0 on failure.
+    build(app: App, commandList: CommandList, buildFlags: AccelStructBuildFlags): int {
+        return Donut_BuildTriangleBlas(this.handle, app.handle, commandList.handle, buildFlags);
+    }
+
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
     getAccelStruct(): Opaque {
         return Donut_GetTriangleBlasAccelStruct(this.handle);
@@ -3249,6 +3427,11 @@ export class BinaryFile {
 
     getSize(): int {
         return Donut_GetBinaryFileSize(this.handle);
+    }
+
+    // The file's bytes, valid as long as the file (e.g. for Donut_TranscodeKtx2).
+    getData(): Opaque {
+        return Donut_GetBinaryFileData(this.handle);
     }
 
     copyBytes(offset: int, count: int, dst: Opaque): void {

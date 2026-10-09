@@ -1,0 +1,137 @@
+diff --git a/include/nvrhi/nvrhi.h b/include/nvrhi/nvrhi.h
+index 905b7ee..8251d20 100644
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -1418,11 +1418,30 @@ namespace nvrhi
+         [[nodiscard]] bool valid() const { return texture != nullptr; }
+     };
+ 
++    // How a multisampled depth attachment is resolved into its resolve attachment
++    // (FramebufferDesc::depthResolveMode), as Vulkan's VkResolveModeFlagBits.
++    enum class ResolveMode : uint8_t
++    {
++        None,
++        SampleZero,
++        Average,
++        Min,
++        Max
++    };
++
+     struct FramebufferDesc
+     {
+         static_vector<FramebufferAttachment, c_MaxRenderTargets> colorAttachments;
+         FramebufferAttachment depthAttachment;
+         FramebufferAttachment shadingRateAttachment;
++        // Vulkan only (the D3D backends ignore them): single-sampled textures that the
++        // multisampled attachments are resolved into whenever a render pass on the framebuffer
++        // ends, by the render pass itself (VkRenderingAttachmentInfo's resolve). Color attachment i
++        // resolves into colorResolveAttachments[i] (averaged; sample 0 for integer formats) where
++        // that is valid; the depth attachment into depthResolveAttachment, by depthResolveMode.
++        static_vector<FramebufferAttachment, c_MaxRenderTargets> colorResolveAttachments;
++        FramebufferAttachment depthResolveAttachment;
++        ResolveMode depthResolveMode = ResolveMode::None;
+ 
+         FramebufferDesc& addColorAttachment(const FramebufferAttachment& a) { colorAttachments.push_back(a); return *this; }
+         FramebufferDesc& addColorAttachment(ITexture* texture) { colorAttachments.push_back(FramebufferAttachment().setTexture(texture)); return *this; }
+@@ -1433,6 +1452,10 @@ namespace nvrhi
+         FramebufferDesc& setShadingRateAttachment(const FramebufferAttachment& d) { shadingRateAttachment = d; return *this; }
+         FramebufferDesc& setShadingRateAttachment(ITexture* texture) { shadingRateAttachment = FramebufferAttachment().setTexture(texture); return *this; }
+         FramebufferDesc& setShadingRateAttachment(ITexture* texture, TextureSubresourceSet subresources) { shadingRateAttachment = FramebufferAttachment().setTexture(texture).setSubresources(subresources); return *this; }
++        FramebufferDesc& addColorResolveAttachment(const FramebufferAttachment& a) { colorResolveAttachments.push_back(a); return *this; }
++        FramebufferDesc& addColorResolveAttachment(ITexture* texture) { colorResolveAttachments.push_back(FramebufferAttachment().setTexture(texture)); return *this; }
++        FramebufferDesc& setDepthResolveAttachment(const FramebufferAttachment& d, ResolveMode mode) { depthResolveAttachment = d; depthResolveMode = mode; return *this; }
++        FramebufferDesc& setDepthResolveAttachment(ITexture* texture, ResolveMode mode) { depthResolveAttachment = FramebufferAttachment().setTexture(texture); depthResolveMode = mode; return *this; }
+     };
+ 
+     // Describes the parameters of a framebuffer that can be used to determine if a given framebuffer
+diff --git a/src/common/misc.cpp b/src/common/misc.cpp
+index aada5c0..f27caa0 100644
+--- a/src/common/misc.cpp
++++ b/src/common/misc.cpp
+@@ -205,6 +205,22 @@ namespace nvrhi
+             setTextureState(desc.shadingRateAttachment.texture, desc.shadingRateAttachment.subresources,
+                 nvrhi::ResourceStates::ShadingRateSurface);
+         }
++
++        // Resolve attachments (Vulkan): written by the render pass as attachments.
++        if (getDevice()->getGraphicsAPI() == GraphicsAPI::VULKAN)
++        {
++            for (const auto& attachment : desc.colorResolveAttachments)
++            {
++                if (attachment.valid())
++                    setTextureState(attachment.texture, attachment.subresources, ResourceStates::RenderTarget);
++            }
++
++            if (desc.depthResolveAttachment.valid() && desc.depthResolveMode != ResolveMode::None)
++            {
++                setTextureState(desc.depthResolveAttachment.texture, desc.depthResolveAttachment.subresources,
++                    ResourceStates::DepthWrite);
++            }
++        }
+     }
+     
+     size_t coopvec::getDataTypeSize(coopvec::DataType type)
+diff --git a/src/vulkan/vulkan-graphics.cpp b/src/vulkan/vulkan-graphics.cpp
+index 1021d62..6007b38 100644
+--- a/src/vulkan/vulkan-graphics.cpp
++++ b/src/vulkan/vulkan-graphics.cpp
+@@ -81,6 +81,24 @@ namespace nvrhi::vulkan
+                 .setStoreOp(vk::AttachmentStoreOp::eStore);
+ 
+             fb->resources.push_back(rt.texture);
++
++            // Resolved into a single-sampled texture when the render pass ends.
++            if (i < desc.colorResolveAttachments.size() && desc.colorResolveAttachments[i].valid())
++            {
++                const auto& resolve = desc.colorResolveAttachments[i];
++                Texture* resolveTexture = checked_cast<Texture*>(resolve.texture);
++                TextureSubresourceSet resolveSubresources = resolve.subresources.resolve(resolveTexture->desc, true);
++                TextureDimension resolveDimension = getDimensionForFramebuffer(resolveTexture->desc.dimension, resolveSubresources.numArraySlices > 1);
++                const auto& resolveView = resolveTexture->getSubresourceView(resolveSubresources, resolveDimension, resolve.format, vk::ImageUsageFlagBits::eColorAttachment);
++
++                const FormatKind kind = getFormatInfo(t->desc.format).kind;
++                attachmentInfo
++                    .setResolveMode(kind == FormatKind::Integer ? vk::ResolveModeFlagBits::eSampleZero : vk::ResolveModeFlagBits::eAverage)
++                    .setResolveImageView(resolveView.view)
++                    .setResolveImageLayout(vk::ImageLayout::eColorAttachmentOptimal);
++
++                fb->resources.push_back(resolve.texture);
++            }
+         }
+ 
+         // add depth/stencil attachment if present
+@@ -113,8 +131,33 @@ namespace nvrhi::vulkan
+ 
+             if (getFormatInfo(texture->desc.format).hasStencil)
+                 fb->stencilAttachment = fb->depthAttachment;
+-                
++
+             fb->resources.push_back(att.texture);
++
++            // Resolved into a single-sampled texture when the render pass ends (depth only).
++            if (desc.depthResolveAttachment.valid() && desc.depthResolveMode != ResolveMode::None)
++            {
++                const auto& resolve = desc.depthResolveAttachment;
++                Texture* resolveTexture = checked_cast<Texture*>(resolve.texture);
++                TextureSubresourceSet resolveSubresources = resolve.subresources.resolve(resolveTexture->desc, true);
++                TextureDimension resolveDimension = getDimensionForFramebuffer(resolveTexture->desc.dimension, resolveSubresources.numArraySlices > 1);
++                const auto& resolveView = resolveTexture->getSubresourceView(resolveSubresources, resolveDimension, resolve.format, vk::ImageUsageFlagBits::eDepthStencilAttachment);
++
++                vk::ResolveModeFlagBits mode = vk::ResolveModeFlagBits::eSampleZero;
++                switch (desc.depthResolveMode)  // NOLINT(clang-diagnostic-switch-enum)
++                {
++                case ResolveMode::Average: mode = vk::ResolveModeFlagBits::eAverage; break;
++                case ResolveMode::Min: mode = vk::ResolveModeFlagBits::eMin; break;
++                case ResolveMode::Max: mode = vk::ResolveModeFlagBits::eMax; break;
++                default: break;
++                }
++                fb->depthAttachment
++                    .setResolveMode(mode)
++                    .setResolveImageView(resolveView.view)
++                    .setResolveImageLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal);
++
++                fb->resources.push_back(resolve.texture);
++            }
+         }
+ 
+         // add VRS attachment

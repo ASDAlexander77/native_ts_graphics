@@ -66,9 +66,11 @@
 
 #if DONUT_WITH_DX11
 #include <d3d11_2.h>
+#include <nvrhi/d3d11.h>
 #endif
 #if DONUT_WITH_DX12
 #include <d3d12.h>
+#include <nvrhi/d3d12.h>
 // From the Agility SDK (see CMakeLists.txt), for the work graph state object.
 #include <d3dx12/d3dx12.h>
 #include <wrl/client.h>
@@ -274,6 +276,10 @@ namespace
         // (Donut_HasNative16BitShaderOps), and from push constants too (Donut_HasNative16BitConstants).
         bool native16Bit = false;
         bool native16BitConstants = false;
+        // AdvancedBlend bits (Donut_GetAdvancedBlendOperations).
+        int advancedBlendOperations = 0;
+        // Whether pixel shaders can ask for full quads (Donut_HasShaderQuadControl).
+        bool shaderQuadControl = false;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -1201,6 +1207,17 @@ namespace
         ShaderExecutionReordering_Reorders = 2, // and the GPU says it reorders
     };
 
+    // Bits of Donut_GetAdvancedBlendOperations: what Vulkan's VK_EXT_blend_operation_advanced has
+    // (BlendState::advancedBlendOp), with coherent operations (no barriers between draws).
+    enum AdvancedBlend
+    {
+        AdvancedBlend_Available = 1, // the blend equation advanced operations, at least
+        AdvancedBlend_AllOperations = 2, // all of them (advancedBlendAllOperations)
+        AdvancedBlend_NonPremultipliedSrc = 4, // sources that aren't premultiplied by their alpha
+        AdvancedBlend_NonPremultipliedDst = 8, // destinations that aren't either
+        AdvancedBlend_CorrelatedOverlap = 16, // correlated overlap
+    };
+
     // Bits of Donut_GetComputeShaderDerivatives: compute shaders can take derivatives (ddx, ddy,
     // implicit-LOD samples; shader model 6.6) with their threads in...
     enum ComputeDerivatives
@@ -1250,6 +1267,15 @@ namespace
         // Chained into the device's creation when VK_NV_ray_tracing_invocation_reorder is enabled.
         VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV invocationReorder{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV };
+        // Chained into the device's creation when VK_EXT_blend_operation_advanced is enabled.
+        VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT blendOperationAdvanced{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_FEATURES_EXT };
+        // Chained when VK_KHR_shader_quad_control and VK_KHR_shader_maximal_reconvergence (which it
+        // needs) are both enabled.
+        VkPhysicalDeviceShaderQuadControlFeaturesKHR quadControl{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_QUAD_CONTROL_FEATURES_KHR };
+        VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR maximalReconvergence{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MAXIMAL_RECONVERGENCE_FEATURES_KHR };
     };
 
     // Device creation callback: enables multi-draw indirect, a first instance in indirect draws,
@@ -1257,8 +1283,9 @@ namespace
     // sparse 2D images with residency queries in shaders, pipeline statistics queries, conditional
     // rendering, fragment shader pixel interlock and fragment shader barycentrics (with their
     // extensions), 16-bit floats in shaders and 16-bit values in uniform buffers and push constants,
-    // derivatives in compute shaders (with its extension), logic operations and shader execution
-    // reordering (with its extension), when the GPU has them.
+    // derivatives in compute shaders (with its extension), logic operations, shader execution
+    // reordering, coherent advanced blend operations and shader quad control (with their
+    // extensions), when the GPU has them.
     void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
@@ -1348,6 +1375,35 @@ namespace
             }
         }
 
+        // Quad control needs maximal reconvergence: both extensions, both features.
+        bool quadControlExtension = false;
+        bool maximalReconvergenceExtension = false;
+        for (uint32_t i = 0; i < info.enabledExtensionCount; i++)
+        {
+            quadControlExtension |= strcmp(info.ppEnabledExtensionNames[i], VK_KHR_SHADER_QUAD_CONTROL_EXTENSION_NAME) == 0;
+            maximalReconvergenceExtension |= strcmp(info.ppEnabledExtensionNames[i], VK_KHR_SHADER_MAXIMAL_RECONVERGENCE_EXTENSION_NAME) == 0;
+        }
+        if (quadControlExtension && maximalReconvergenceExtension)
+        {
+            VkPhysicalDeviceShaderQuadControlFeaturesKHR quadControl{
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_QUAD_CONTROL_FEATURES_KHR };
+            VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR maximalReconvergence{
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MAXIMAL_RECONVERGENCE_FEATURES_KHR };
+            quadControl.pNext = &maximalReconvergence;
+            VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features2.pNext = &quadControl;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+            if (quadControl.shaderQuadControl && maximalReconvergence.shaderMaximalReconvergence)
+            {
+                result.quadControl.shaderQuadControl = VK_TRUE;
+                result.maximalReconvergence.shaderMaximalReconvergence = VK_TRUE;
+                result.quadControl.pNext = &result.maximalReconvergence;
+                result.maximalReconvergence.pNext = const_cast<void*>(info.pNext);
+                info.pNext = &result.quadControl;
+            }
+        }
+
         // Donut enables the optional extensions the GPU has; the features go with them.
         for (uint32_t i = 0; i < info.enabledExtensionCount; i++)
         {
@@ -1381,6 +1437,22 @@ namespace
                     result.computeShaderDerivatives.computeDerivativeGroupLinear = available2.computeDerivativeGroupLinear;
                     result.computeShaderDerivatives.pNext = const_cast<void*>(info.pNext);
                     info.pNext = &result.computeShaderDerivatives;
+                }
+                continue;
+            }
+            if (strcmp(info.ppEnabledExtensionNames[i], VK_EXT_BLEND_OPERATION_ADVANCED_EXTENSION_NAME) == 0)
+            {
+                VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_FEATURES_EXT };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                if (available2.advancedBlendCoherentOperations)
+                {
+                    result.blendOperationAdvanced.advancedBlendCoherentOperations = VK_TRUE;
+                    result.blendOperationAdvanced.pNext = const_cast<void*>(info.pNext);
+                    info.pNext = &result.blendOperationAdvanced;
                 }
                 continue;
             }
@@ -1419,7 +1491,24 @@ static_assert(int(nvrhi::PrimitiveType::PointList) == 0 && int(nvrhi::PrimitiveT
 static_assert(int(nvrhi::Format::RGBA8_UINT) == 17 && int(nvrhi::Format::R32_UINT) == 33 && int(nvrhi::Format::RGBA16_FLOAT) == 38
     && int(nvrhi::Format::RG32_FLOAT) == 43 && int(nvrhi::Format::RGB32_FLOAT) == 46
     && int(nvrhi::Format::RGBA8_UNORM) == 19 && int(nvrhi::Format::RGBA16_UINT) == 36 && int(nvrhi::Format::D32) == 53
-    && int(nvrhi::Format::RGBA32_FLOAT) == 49 && int(nvrhi::Format::SRGBA8_UNORM) == 23);
+    && int(nvrhi::Format::RGBA32_FLOAT) == 49 && int(nvrhi::Format::SRGBA8_UNORM) == 23
+    && int(nvrhi::Format::BGRA8_UNORM) == 21 && int(nvrhi::Format::SBGRA8_UNORM) == 24);
+static_assert(int(nvrhi::ResolveMode::None) == 0 && int(nvrhi::ResolveMode::SampleZero) == 1
+    && int(nvrhi::ResolveMode::Average) == 2 && int(nvrhi::ResolveMode::Min) == 3 && int(nvrhi::ResolveMode::Max) == 4);
+static_assert(int(nvrhi::BlendFactor::Zero) == 1 && int(nvrhi::BlendFactor::SrcAlphaSaturate) == 11
+    && int(nvrhi::BlendFactor::ConstantColor) == 14 && int(nvrhi::BlendFactor::InvConstantColor) == 15);
+static_assert(int(nvrhi::BlendOp::Add) == 1 && int(nvrhi::BlendOp::Max) == 5);
+static_assert(int(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace) == 4
+    && int(nvrhi::rt::AccelStructBuildFlags::AllowDataAccess) == 0x40);
+static_assert(int(nvrhi::Feature::RayTracingPositionFetch) == 15);
+static_assert(int(nvrhi::VariableShadingRate::e1x1) == 0 && int(nvrhi::VariableShadingRate::e4x4) == 6
+    && int(nvrhi::ShadingRateCombiner::Passthrough) == 0 && int(nvrhi::ShadingRateCombiner::Override) == 1
+    && int(nvrhi::ShadingRateCombiner::ApplyRelative) == 4);
+static_assert(int(nvrhi::Format::R8_UINT) == 1 && int(nvrhi::Format::RG8_UINT) == 5);
+static_assert(int(nvrhi::Format::BC3_UNORM_SRGB) == 61 && int(nvrhi::Format::BC7_UNORM_SRGB) == 69);
+static_assert(int(nvrhi::SamplerAddressMode::Clamp) == 0 && int(nvrhi::SamplerAddressMode::Wrap) == 1
+    && int(nvrhi::SamplerAddressMode::Border) == 2 && int(nvrhi::SamplerAddressMode::Mirror) == 3
+    && int(nvrhi::SamplerAddressMode::MirrorOnce) == 4);
 static_assert(int(nvrhi::LogicOp::Clear) == 0 && int(nvrhi::LogicOp::Copy) == 3 && int(nvrhi::LogicOp::Xor) == 6
     && int(nvrhi::LogicOp::Set) == 15);
 static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::Fatal) == 5);
@@ -1481,6 +1570,15 @@ extern "C"
         // the NV extension, whose SPIR-V instructions DXC emits as inline SPIR-V.
         if ((options & AppOption_RayTracing) != 0)
             params.optionalVulkanDeviceExtensions.push_back("VK_NV_ray_tracing_invocation_reorder");
+        // The vertex positions of the triangles hit shaders hit (Feature.RayTracingPositionFetch;
+        // Donut chains its feature, on).
+        if ((options & AppOption_RayTracing) != 0)
+            params.optionalVulkanDeviceExtensions.push_back("VK_KHR_ray_tracing_position_fetch");
+        // Advanced blend operations (Donut_GetAdvancedBlendOperations).
+        params.optionalVulkanDeviceExtensions.push_back("VK_EXT_blend_operation_advanced");
+        // Quad control in shaders (Donut_HasShaderQuadControl), which needs maximal reconvergence.
+        params.optionalVulkanDeviceExtensions.push_back("VK_KHR_shader_quad_control");
+        params.optionalVulkanDeviceExtensions.push_back("VK_KHR_shader_maximal_reconvergence");
 
 #if DONUT_WITH_DLSS && DONUT_WITH_VULKAN
         if ((options & AppOption_Dlss) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
@@ -1545,6 +1643,8 @@ extern "C"
 #endif
 
         App* app = MakeApp(std::move(deviceManager), api);
+        // D3D12 runs pixel shaders in whole quads, helper lanes taking part in quad operations.
+        app->shaderQuadControl = api == nvrhi::GraphicsAPI::D3D12;
         app->indirectDrawSupport = indirectDrawSupport;
         app->fragmentStoresAndAtomics = fragmentStoresAndAtomics;
         app->sparseResidency = sparseResidency;
@@ -1606,6 +1706,22 @@ extern "C"
             app->barycentrics = vulkanFeatures->fragmentShaderBarycentric;
             app->native16Bit = vulkanFeatures->native16Bit;
             app->native16BitConstants = vulkanFeatures->native16BitConstants;
+            app->shaderQuadControl = vulkanFeatures->quadControl.shaderQuadControl == VK_TRUE;
+            if (vulkanFeatures->blendOperationAdvanced.advancedBlendCoherentOperations)
+            {
+                auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(app->deviceManager.get());
+                VkPhysicalDeviceBlendOperationAdvancedPropertiesEXT advanced{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_PROPERTIES_EXT };
+                VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+                properties2.pNext = &advanced;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceProperties2(
+                    DeviceManagerVKAccess::PhysicalDevice(vulkanDeviceManager), &properties2);
+                app->advancedBlendOperations = AdvancedBlend_Available
+                    | (advanced.advancedBlendAllOperations ? AdvancedBlend_AllOperations : 0)
+                    | (advanced.advancedBlendNonPremultipliedSrcColor ? AdvancedBlend_NonPremultipliedSrc : 0)
+                    | (advanced.advancedBlendNonPremultipliedDstColor ? AdvancedBlend_NonPremultipliedDst : 0)
+                    | (advanced.advancedBlendCorrelatedOverlap ? AdvancedBlend_CorrelatedOverlap : 0);
+            }
             app->computeShaderDerivatives =
                 (vulkanFeatures->computeShaderDerivatives.computeDerivativeGroupQuads ? ComputeDerivatives_Quads : 0)
                 | (vulkanFeatures->computeShaderDerivatives.computeDerivativeGroupLinear ? ComputeDerivatives_Linear : 0);
@@ -2157,6 +2273,59 @@ extern "C"
         const nvrhi::rt::GeometryDesc& geometry = blas->desc.bottomLevelGeometries[0];
         AsCommandList(commandList)->buildBottomLevelAccelStruct(blas->accelStruct, &geometry, 1,
             blas->desc.buildFlags | nvrhi::rt::AccelStructBuildFlags::PerformUpdate);
+    }
+
+    // A bottom-level acceleration structure of several geometries, built up with
+    // Donut_AddTriangleBlasGeometry and then built with Donut_BuildTriangleBlas.
+    void* Donut_CreateEmptyTriangleBlas(void* app, const char* debugName)
+    {
+        auto blas = std::make_shared<TriangleBlas>();
+        blas->desc.isTopLevel = false;
+        blas->desc.debugName = debugName;
+        return AsApp(app)->OwnObject(blas);
+    }
+
+    // Adds opaque triangles to an unbuilt BLAS: indexCount R32_UINT indices at indexByteOffset of
+    // indexBuffer, vertexCount RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of
+    // vertexBuffer (both created for acceleration structure builds), with transform (12 floats, 3
+    // rows of 4: a VkTransformMatrixKHR) applied to the positions, or none (null).
+    void Donut_AddTriangleBlasGeometry(void* triangleBlas, void* indexBuffer, int indexByteOffset, int indexCount,
+        void* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
+    {
+        auto triangles = nvrhi::rt::GeometryTriangles()
+            .setIndexBuffer(AsBuffer(indexBuffer))
+            .setIndexOffset(static_cast<uint64_t>(indexByteOffset))
+            .setIndexFormat(nvrhi::Format::R32_UINT)
+            .setIndexCount(static_cast<uint32_t>(indexCount))
+            .setVertexBuffer(AsBuffer(vertexBuffer))
+            .setVertexOffset(static_cast<uint64_t>(vertexByteOffset))
+            .setVertexFormat(nvrhi::Format::RGB32_FLOAT)
+            .setVertexStride(static_cast<uint32_t>(vertexStride))
+            .setVertexCount(static_cast<uint32_t>(vertexCount));
+        auto geometry = nvrhi::rt::GeometryDesc()
+            .setTriangles(triangles)
+            .setFlags(nvrhi::rt::GeometryFlags::Opaque);
+        if (transform)
+        {
+            nvrhi::rt::AffineTransform affine;
+            memcpy(affine, transform, sizeof(affine));
+            geometry.setTransform(affine);
+        }
+        static_cast<TriangleBlas*>(triangleBlas)->desc.addBottomLevelGeometry(geometry);
+    }
+
+    // Creates the BLAS of the geometries added (AccelStructBuildFlags bits: e.g. PreferFastTrace,
+    // AllowDataAccess for hit shaders to read its vertex positions) and records its build into an
+    // open command list. Returns 0 on failure.
+    int Donut_BuildTriangleBlas(void* triangleBlas, void* app, void* commandList, int buildFlags)
+    {
+        auto* blas = static_cast<TriangleBlas*>(triangleBlas);
+        blas->desc.buildFlags = static_cast<nvrhi::rt::AccelStructBuildFlags>(buildFlags);
+        blas->accelStruct = AsApp(app)->device()->createAccelStruct(blas->desc);
+        if (!blas->accelStruct)
+            return 0;
+        nvrhi::utils::BuildBottomLevelAccelStruct(AsCommandList(commandList), blas->accelStruct, blas->desc);
+        return 1;
     }
 
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
@@ -2787,6 +2956,12 @@ extern "C"
         return AsApp(app)->OwnObject(file);
     }
 
+    // The file's bytes, valid as long as the file, e.g. for Donut_TranscodeKtx2.
+    const void* Donut_GetBinaryFileData(void* binaryFile)
+    {
+        return static_cast<BinaryFile*>(binaryFile)->bytes.data();
+    }
+
     int Donut_GetBinaryFileSize(void* binaryFile)
     {
         return static_cast<int>(static_cast<BinaryFile*>(binaryFile)->bytes.size());
@@ -3066,6 +3241,46 @@ extern "C"
         return a->Own(a->device()->createSampler(desc));
     }
 
+    // A sampler by its whole description: linear (non-zero) or point filtering when minifying,
+    // magnifying and between levels; the address mode of all coordinates (an
+    // nvrhi::SamplerAddressMode value); a bias added to the level of detail, the range it's clamped
+    // to (maxLod 0: level 0 only), and anisotropic filtering up to maxAnisotropy samples (1: off;
+    // see Donut_GetMaxSamplerAnisotropy). Returns null on failure.
+    void* Donut_CreateSamplerWithDesc(void* app, int linearMin, int linearMag, int linearMip, int addressMode,
+        double mipBias, double minLod, double maxLod, double maxAnisotropy)
+    {
+        auto desc = nvrhi::SamplerDesc()
+            .setMinFilter(linearMin != 0)
+            .setMagFilter(linearMag != 0)
+            .setMipFilter(linearMip != 0)
+            .setAllAddressModes(static_cast<nvrhi::SamplerAddressMode>(addressMode))
+            .setMipBias(float(mipBias))
+            .setLodRange(float(minLod), float(maxLod))
+            .setMaxAnisotropy(float(maxAnisotropy));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createSampler(desc));
+    }
+
+    // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy where the
+    // device has samplerAnisotropy (1 without), 16 on D3D.
+    double Donut_GetMaxSamplerAnisotropy(void* app)
+    {
+#if DONUT_WITH_VULKAN
+        App* a = AsApp(app);
+        if (a->device()->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+            if (!physicalDevice.getFeatures().samplerAnisotropy)
+                return 1.0;
+            return physicalDevice.getProperties().limits.maxSamplerAnisotropy;
+        }
+#endif
+        (void)app;
+        return 16.0;
+    }
+
     // A comparison sampler (SamplerComparisonState) for depth textures: bilinear, clamped to the
     // edges. NVRHI fixes its comparison at "less": SampleCmp returns the filtered fraction of texels
     // whose depth is greater than the reference. Returns null on failure.
@@ -3318,6 +3533,74 @@ extern "C"
             .setIsTypeless(true)
             .setDebugName(debugName)
             .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Render target of width x height with mipLevels levels (draw into one with
+    // Donut_CreateFramebufferForMip, read another with Donut_BindTextureSRVMip) in `format`, that
+    // shaders read with all its levels; typeless, so that copies from textures of other formats of
+    // its family land (e.g. RGBA8_UNORM data into SRGBA8_UNORM). Resting at ShaderResource. Returns
+    // null on failure.
+    void* Donut_CreateMipmappedRenderTarget(void* app, int width, int height, int mipLevels, int format,
+        const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setMipLevels(static_cast<uint32_t>(mipLevels))
+            .setIsRenderTarget(true)
+            .setIsTypeless(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Texture of width x height with mipLevels levels in `format` (block-compressed formats too) for
+    // shaders to read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
+    // Returns null on failure.
+    void* Donut_CreateTextureWithLevels(void* app, int width, int height, int mipLevels, int format, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setMipLevels(static_cast<uint32_t>(mipLevels))
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed
+    // formats) rowPitch bytes apart, copied during the call, recorded into an open command list.
+    void Donut_WriteTextureLevel(void* commandList, void* texture, int mipLevel, const void* data, int rowPitch)
+    {
+        AsCommandList(commandList)->writeTexture(static_cast<nvrhi::ITexture*>(texture), 0, static_cast<uint32_t>(mipLevel),
+            data, static_cast<size_t>(rowPitch));
+    }
+
+    // Render target of width x height in `format` that shaders also read and write as a UAV
+    // (RWTexture2D<...>), e.g. one pass's output another's compute shaders read; resting at
+    // UnorderedAccess. Returns null on failure.
+    void* Donut_CreateRenderTargetUAVTexture(void* app, int width, int height, int format, const char* debugName)
+    {
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setIsRenderTarget(true)
+            .setIsUAV(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::UnorderedAccess)
             .setKeepInitialState(true);
 
         App* a = AsApp(app);
@@ -3881,6 +4164,37 @@ extern "C"
             SetBlendMode(target, blendMode);
     }
 
+    // Blending of every color target, on or off (enable), by blend factors (nvrhi::BlendFactor
+    // values) and operations (nvrhi::BlendOp values) of the color and of the alpha. The color
+    // write mask stays.
+    void Donut_GraphicsPipelineSetBlendState(void* graphicsPipelineDesc, int enable, int srcBlend, int destBlend,
+        int blendOp, int srcBlendAlpha, int destBlendAlpha, int blendOpAlpha)
+    {
+        for (nvrhi::BlendState::RenderTarget& target : AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets)
+        {
+            target
+                .setBlendEnable(enable != 0)
+                .setSrcBlend(static_cast<nvrhi::BlendFactor>(srcBlend))
+                .setDestBlend(static_cast<nvrhi::BlendFactor>(destBlend))
+                .setBlendOp(static_cast<nvrhi::BlendOp>(blendOp))
+                .setSrcBlendAlpha(static_cast<nvrhi::BlendFactor>(srcBlendAlpha))
+                .setDestBlendAlpha(static_cast<nvrhi::BlendFactor>(destBlendAlpha))
+                .setBlendOpAlpha(static_cast<nvrhi::BlendOp>(blendOpAlpha));
+        }
+    }
+
+    // An advanced blend operation for the targets that blend, instead of their factors and
+    // operations (Vulkan with Donut_GetAdvancedBlendOperations): its number from
+    // VK_BLEND_OP_ZERO_EXT (0 Zero, 1 Src, ... 45 Blue; -1 for none), whether the source and the
+    // destination colors are premultiplied by their alpha, and their overlap (VkBlendOverlapEXT:
+    // 0 uncorrelated, 1 disjoint, 2 conjoint).
+    void Donut_GraphicsPipelineSetAdvancedBlendOp(void* graphicsPipelineDesc, int advancedBlendOp, int srcPremultiplied,
+        int dstPremultiplied, int overlap)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.setAdvancedBlendOp(
+            static_cast<int8_t>(advancedBlendOp), srcPremultiplied != 0, dstPremultiplied != 0, static_cast<uint8_t>(overlap));
+    }
+
     // For a framebuffer's layout (Donut_CreateFramebuffer); frees the description. Returns null on
     // failure.
     void* Donut_CreateGraphicsPipelineFromDesc(void* app, void* graphicsPipelineDesc, void* framebuffer)
@@ -4031,6 +4345,23 @@ extern "C"
     void Donut_ExecuteCommandList(void* app, void* commandList)
     {
         AsApp(app)->device()->executeCommandList(AsCommandList(commandList));
+    }
+
+    // Draws vertexCount vertices (no vertex buffers, e.g. a triangle over the target from
+    // SV_VertexID) with a graphics pipeline into a framebuffer, all of it, with one binding set:
+    // for drawing outside the frames, e.g. into a texture's levels at load time.
+    void Donut_CommandListDraw(void* commandList, void* pipeline, void* framebuffer, void* bindingSet, int vertexCount)
+    {
+        auto* fb = static_cast<nvrhi::IFramebuffer*>(framebuffer);
+        nvrhi::GraphicsState state;
+        state.pipeline = static_cast<nvrhi::IGraphicsPipeline*>(pipeline);
+        state.framebuffer = fb;
+        state.viewport.addViewportAndScissorRect(fb->getFramebufferInfo().getViewport());
+        if (bindingSet)
+            state.bindings = { static_cast<nvrhi::IBindingSet*>(bindingSet) };
+        nvrhi::ICommandList* list = AsCommandList(commandList);
+        list->setGraphicsState(state);
+        list->draw(nvrhi::DrawArguments().setVertexCount(static_cast<uint32_t>(vertexCount)));
     }
 
     // A command list for the compute queue (the app needs AppOptions.ComputeQueue), to record each
@@ -4340,6 +4671,34 @@ extern "C"
     int Donut_ImGuiBeginCombo(const char* label, const char* preview)
     {
         return ImGui::BeginCombo(label, preview) ? 1 : 0;
+    }
+
+    // A color editor of 4 floats at values (RGBA, edited as floats), width pixels wide (0 for the
+    // default); returns non-zero if they changed.
+    int Donut_ImGuiColorEdit4(const char* label, float* values, double width)
+    {
+        ImGui::PushItemWidth(float(width));
+        const bool changed = ImGui::ColorEdit4(label, values, ImGuiColorEditFlags_Float);
+        ImGui::PopItemWidth();
+        return changed ? 1 : 0;
+    }
+
+    // Scopes the IDs of the widgets that follow (ones with the same labels apart) until the
+    // matching Donut_ImGuiPopID.
+    void Donut_ImGuiPushID(int id)
+    {
+        ImGui::PushID(id);
+    }
+
+    void Donut_ImGuiPopID()
+    {
+        ImGui::PopID();
+    }
+
+    // A radio button shown selected when active is non-zero; returns non-zero if it was clicked.
+    int Donut_ImGuiRadioButton(const char* label, int active)
+    {
+        return ImGui::RadioButton(label, active != 0) ? 1 : 0;
     }
 
     // Returns non-zero if the item was clicked.
@@ -5977,6 +6336,101 @@ extern "C"
         return 0;
     }
 
+    // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of a
+    // `let` int array of 2 x 16), in Vulkan's order: largest first (vkGetPhysicalDeviceFragmentShadingRatesKHR;
+    // on D3D12 the rates of its tier: 2x4, 4x2 and 4x4 with AdditionalShadingRatesSupported). Returns
+    // their count, 0 without variable rate shading.
+    int Donut_GetFragmentShadingRates(void* app, int* dst)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        if (!device->queryFeatureSupport(nvrhi::Feature::VariableRateShading))
+            return 0;
+        int count = 0;
+#if DONUT_WITH_VULKAN
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+            const auto rates = physicalDevice.getFragmentShadingRatesKHR();
+            for (const vk::PhysicalDeviceFragmentShadingRateKHR& rate : rates)
+            {
+                if (count == 16)
+                    break;
+                dst[count * 2] = static_cast<int>(rate.fragmentSize.width);
+                dst[count * 2 + 1] = static_cast<int>(rate.fragmentSize.height);
+                count++;
+            }
+            return count;
+        }
+#endif
+#if DONUT_WITH_DX12
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            D3D12_FEATURE_DATA_D3D12_OPTIONS6 options = {};
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            if (FAILED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS6, &options, sizeof(options))))
+                return 0;
+            const int additional[] = { 4, 4, 4, 2, 2, 4 };
+            const int base[] = { 2, 2, 2, 1, 1, 2, 1, 1 };
+            if (options.AdditionalShadingRatesSupported)
+            {
+                for (int i = 0; i < 6; i++)
+                    dst[count * 2 + i] = additional[i];
+                count += 3;
+            }
+            for (int i = 0; i < 8; i++)
+                dst[count * 2 + i] = base[i];
+            count += 4;
+            return count;
+        }
+#endif
+        (void)dst;
+        return 0;
+    }
+
+    // Variable rate shading in a graphics pipeline (Feature::VariableRateShading): its draws take
+    // their shading rate from the draw state (Donut_DrawSetVariableRateShading), combined with a
+    // framebuffer's shading rate surface.
+    void Donut_GraphicsPipelineSetVariableRateShading(void* graphicsPipelineDesc, int enabled)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->shadingRateState.setEnabled(enabled != 0);
+    }
+
+    // The draw state's shading rate (after Donut_BeginDraw*; its pipeline needs
+    // Donut_GraphicsPipelineSetVariableRateShading): the per-draw rate (an nvrhi::VariableShadingRate),
+    // combined with the primitives' rate by primitiveCombiner, then with the framebuffer's shading
+    // rate surface by imageCombiner (nvrhi::ShadingRateCombiner values: Passthrough keeps the rate so
+    // far, Override takes the new one).
+    void Donut_DrawSetVariableRateShading(void* frame, int enabled, int shadingRate, int primitiveCombiner,
+        int imageCombiner)
+    {
+        AsFrame(frame)->draw.shadingRateState = nvrhi::VariableRateShadingState()
+            .setEnabled(enabled != 0)
+            .setShadingRate(static_cast<nvrhi::VariableShadingRate>(shadingRate))
+            .setPipelinePrimitiveCombiner(static_cast<nvrhi::ShadingRateCombiner>(primitiveCombiner))
+            .setImageCombiner(static_cast<nvrhi::ShadingRateCombiner>(imageCombiner));
+    }
+
+    // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null
+    // for none) whose draws can take their shading rates from shadingRateSurface
+    // (Donut_CreateShadingRateSurface, a texel per Donut_GetShadingRateTileSize square of pixels).
+    // Returns null on failure.
+    void* Donut_CreateFramebufferWithShadingRate(void* app, void* colorTexture0, void* colorTexture1, void* depthTexture,
+        void* shadingRateSurface)
+    {
+        auto desc = nvrhi::FramebufferDesc().addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture0));
+        if (colorTexture1)
+            desc.addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture1));
+        if (depthTexture)
+            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+        if (shadingRateSurface)
+            desc.setShadingRateAttachment(static_cast<nvrhi::ITexture*>(shadingRateSurface));
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createFramebuffer(desc));
+    }
+
     // R8_UINT shading rate surface of width x height tiles, written by compute shaders as
     // RWTexture2D<uint> (D3D12_SHADING_RATE values). Returns null on failure.
     void* Donut_CreateShadingRateSurface(void* app, int width, int height)
@@ -6755,6 +7209,192 @@ extern "C"
     {
         AsCommandList(commandList)->clearTextureUInt(static_cast<nvrhi::ITexture*>(texture), nvrhi::AllSubresources,
             static_cast<uint32_t>(value));
+    }
+
+    // --- Multisampling ------------------------------------------------------------------------
+
+    // The sample counts that a color target in colorFormat and a depth buffer in depthFormat
+    // (nvrhi::Format values) can both have, as bits (bit n for n samples: 0x1 | 0x2 | 0x4 ...). On
+    // Vulkan, the device's framebufferColorSampleCounts & framebufferDepthSampleCounts (as the
+    // Vulkan-Samples framework reads them, whatever the formats); on D3D, the counts with
+    // multisample quality levels for both formats.
+    int Donut_GetSupportedSampleCounts(void* app, int colorFormat, int depthFormat)
+    {
+        nvrhi::IDevice* device = AsApp(app)->device();
+        int counts = 1;
+#if DONUT_WITH_VULKAN
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(AsApp(app)->deviceManager.get()));
+            const vk::PhysicalDeviceLimits limits = physicalDevice.getProperties().limits;
+            return static_cast<int>(static_cast<uint32_t>(limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts));
+        }
+#endif
+#if DONUT_WITH_DX12
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            for (UINT count = 2; count <= D3D12_MAX_MULTISAMPLE_SAMPLE_COUNT; count *= 2)
+            {
+                bool supported = true;
+                for (int format : { colorFormat, depthFormat })
+                {
+                    D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS levels = {};
+                    levels.Format = nvrhi::d3d12::convertFormat(static_cast<nvrhi::Format>(format));
+                    levels.SampleCount = count;
+                    supported = supported && SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+                        &levels, sizeof(levels))) && levels.NumQualityLevels > 0;
+                }
+                if (supported)
+                    counts |= static_cast<int>(count);
+            }
+        }
+#endif
+#if DONUT_WITH_DX11
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D11)
+        {
+            ID3D11Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D11_Device);
+            for (UINT count = 2; count <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; count *= 2)
+            {
+                bool supported = true;
+                for (int format : { colorFormat, depthFormat })
+                {
+                    UINT levels = 0;
+                    supported = supported && SUCCEEDED(d3dDevice->CheckMultisampleQualityLevels(
+                        nvrhi::d3d11::convertFormat(static_cast<nvrhi::Format>(format)), count, &levels)) && levels > 0;
+                }
+                if (supported)
+                    counts |= static_cast<int>(count);
+            }
+        }
+#endif
+        (void)colorFormat;
+        (void)depthFormat;
+        return counts;
+    }
+
+    // Non-zero if render passes resolve multisampled targets into single-sampled ones as they end
+    // (Donut_CreateResolveFramebuffer): Vulkan's dynamic rendering. NVRHI runs D3D11 and D3D12
+    // without render passes; resolve there with Donut_ResolveTexture.
+    int Donut_HasRenderPassResolve(void* app)
+    {
+        return AsApp(app)->device()->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN ? 1 : 0;
+    }
+
+    // The ways render passes can resolve a multisampled depth buffer (Donut_CreateResolveFramebuffer),
+    // as bits 1 << ResolveMode (SampleZero 1, Average 2, Min 3, Max 4): Vulkan's
+    // supportedDepthResolveModes. 0 without render pass resolves (Donut_HasRenderPassResolve).
+    int Donut_GetDepthResolveModes(void* app)
+    {
+#if DONUT_WITH_VULKAN
+        App* a = AsApp(app);
+        if (a->device()->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+            auto resolveProperties = vk::PhysicalDeviceDepthStencilResolveProperties();
+            vk::PhysicalDeviceProperties2 properties2;
+            properties2.pNext = &resolveProperties;
+            physicalDevice.getProperties2(&properties2);
+            const vk::ResolveModeFlags modes = resolveProperties.supportedDepthResolveModes;
+            int bits = 0;
+            if (modes & vk::ResolveModeFlagBits::eSampleZero)
+                bits |= 1 << int(nvrhi::ResolveMode::SampleZero);
+            if (modes & vk::ResolveModeFlagBits::eAverage)
+                bits |= 1 << int(nvrhi::ResolveMode::Average);
+            if (modes & vk::ResolveModeFlagBits::eMin)
+                bits |= 1 << int(nvrhi::ResolveMode::Min);
+            if (modes & vk::ResolveModeFlagBits::eMax)
+                bits |= 1 << int(nvrhi::ResolveMode::Max);
+            return bits;
+        }
+#endif
+        (void)app;
+        return 0;
+    }
+
+    // Render target (a color format) or depth buffer (a depth format, cleared to clearDepth) of
+    // width x height with sampleCount samples (a Texture2DMS when more than 1), that shaders can
+    // also read (Texture2DMS<...> there) and that can be resolved; resting at ShaderResource.
+    // Returns null on failure.
+    void* Donut_CreateMultisampledTexture(void* app, int width, int height, int format, int sampleCount,
+        double clearDepth, const char* debugName)
+    {
+        const auto textureFormat = static_cast<nvrhi::Format>(format);
+        auto desc = nvrhi::TextureDesc()
+            .setFormat(textureFormat)
+            .setWidth(static_cast<uint32_t>(width))
+            .setHeight(static_cast<uint32_t>(height))
+            .setSampleCount(static_cast<uint32_t>(sampleCount))
+            .setDimension(sampleCount > 1 ? nvrhi::TextureDimension::Texture2DMS : nvrhi::TextureDimension::Texture2D)
+            .setIsRenderTarget(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+        if (nvrhi::getFormatInfo(textureFormat).hasDepth)
+        {
+            // Typeless, for the depth-stencil view and the shader resource view to differ in format.
+            desc.setIsTypeless(true).setClearValue(nvrhi::Color(float(clearDepth)));
+        }
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createTexture(desc));
+    }
+
+    // Framebuffer drawing into colorTexture and depthTexture (either null for none) whose render
+    // passes, as they end, resolve the multisampled color into colorResolveTexture and the depth
+    // into depthResolveTexture by depthResolveMode (an nvrhi::ResolveMode, one of
+    // Donut_GetDepthResolveModes) where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI
+    // ends a render pass at every barrier, so a pass with several may resolve several times, with
+    // the same result. Returns null on failure.
+    void* Donut_CreateResolveFramebuffer(void* app, void* colorTexture, void* colorResolveTexture, void* depthTexture,
+        void* depthResolveTexture, int depthResolveMode)
+    {
+        auto desc = nvrhi::FramebufferDesc();
+        if (colorTexture)
+        {
+            desc.addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture));
+            if (colorResolveTexture)
+                desc.addColorResolveAttachment(static_cast<nvrhi::ITexture*>(colorResolveTexture));
+        }
+        if (depthTexture)
+        {
+            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+            if (depthResolveTexture)
+            {
+                desc.setDepthResolveAttachment(static_cast<nvrhi::ITexture*>(depthResolveTexture),
+                    static_cast<nvrhi::ResolveMode>(depthResolveMode));
+            }
+        }
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createFramebuffer(desc));
+    }
+
+    // The swap chain's back buffers: their count, and the one at index (valid until the back
+    // buffers are resized: recreate what refers to them in the back buffer resizing callback).
+    int Donut_GetBackBufferCount(void* app)
+    {
+        return static_cast<int>(AsApp(app)->deviceManager->GetBackBufferCount());
+    }
+
+    void* Donut_GetBackBuffer(void* app, int index)
+    {
+        return AsApp(app)->deviceManager->GetBackBuffer(static_cast<uint32_t>(index));
+    }
+
+    // The index of the back buffer the current frame renders into (in a render callback).
+    int Donut_GetCurrentBackBufferIndex(void* app)
+    {
+        return static_cast<int>(AsApp(app)->deviceManager->GetCurrentBackBufferIndex());
+    }
+
+    // The back buffers' format, an nvrhi::Format value (SRGBA8_UNORM with D3D, SBGRA8_UNORM with
+    // Vulkan).
+    int Donut_GetBackBufferFormat(void* app)
+    {
+        return static_cast<int>(AsApp(app)->deviceManager->GetBackBuffer(0)->getDesc().format);
     }
 
     // --- Shadows ------------------------------------------------------------------------------
@@ -7699,6 +8339,21 @@ extern "C"
     }
 
     // Same, drawing indexCount indices from startIndex of the index buffer, added to baseVertex.
+    // indexCount indices from startIndex, offset by baseVertex, in the current draw state.
+    void Donut_DrawIndexedRange(void* frame, int indexCount, int startIndex, int baseVertex)
+    {
+        FrameContext* ctx = AsFrame(frame);
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(indexCount);
+        args.startIndexLocation = static_cast<uint32_t>(startIndex);
+        args.startVertexLocation = static_cast<uint32_t>(baseVertex);
+        ctx->commandList->drawIndexed(args);
+    }
+
     void Donut_DrawIndexedRangeWithPushConstants(void* frame, int indexCount, int startIndex, int baseVertex,
         const void* data, int byteSize)
     {
@@ -7785,6 +8440,22 @@ extern "C"
     int Donut_HasLogicOps(void* app)
     {
         return AsApp(app)->logicOps ? 1 : 0;
+    }
+
+    // Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad
+    // operations (QuadReadLaneAt...): Vulkan with VK_KHR_shader_quad_control (SPIR-V's
+    // RequireFullQuadsKHR and QuadDerivativesKHR execution modes), D3D12 always.
+    int Donut_HasShaderQuadControl(void* app)
+    {
+        return AsApp(app)->shaderQuadControl ? 1 : 0;
+    }
+
+    // AdvancedBlend bits: the advanced blend operations blend states can do
+    // (Donut_GraphicsPipelineSetAdvancedBlendOp): Vulkan with VK_EXT_blend_operation_advanced and
+    // its coherent operations; 0 elsewhere.
+    int Donut_GetAdvancedBlendOperations(void* app)
+    {
+        return AsApp(app)->advancedBlendOperations;
     }
 
     // Non-zero if shaders can compute with native 16-bit types (float16_t, int16_t, uint16_t; the
