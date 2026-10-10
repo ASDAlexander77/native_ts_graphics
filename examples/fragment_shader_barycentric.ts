@@ -116,7 +116,7 @@ namespace FragmentShaderBarycentric {
         private objectVS: ShaderHandle;
         private objectPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private skybox: GltfMesh;
         private object: GltfMesh;

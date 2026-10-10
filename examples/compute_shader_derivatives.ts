@@ -26,7 +26,7 @@ namespace ComputeShaderDerivatives {
         private image: TextureHandle;
         private fullscreenVS: ShaderHandle;
         private fullscreenPS: ShaderHandle;
-        private graphicsBindingLayout: Opaque;
+        private graphicsBindingLayout: BindingLayoutHandle;
         private graphicsBindingSet: BindingSet;
 
         // The back buffer's size: color (sRGB, as the sample's swapchain).

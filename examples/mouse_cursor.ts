@@ -454,7 +454,7 @@ namespace MouseCursor {
 
         private spriteVS: ShaderHandle;
         private spritePS: ShaderHandle;
-        private spriteLayout: Opaque;
+        private spriteLayout: BindingLayoutHandle;
         private spriteSampler: SamplerHandle;
         private backgroundBindingSet: BindingSet;
         private tileBindingSet: BindingSet;
@@ -465,7 +465,7 @@ namespace MouseCursor {
         private basicPS: ShaderHandle;
         private dualInputLayout: InputLayoutHandle;
         private basicInputLayout: InputLayoutHandle;
-        private modelLayout: Opaque;
+        private modelLayout: BindingLayoutHandle;
         private parametersBuffer: BufferHandle;
         private spriteConstants: f32[];
         private parameters: f32[];

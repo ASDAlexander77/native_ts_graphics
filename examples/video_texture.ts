@@ -129,8 +129,8 @@ namespace VideoTexture {
         private parametersBuffer: BufferHandle;
         private parameters: f32[];
         private spriteConstants: f32[];
-        private cubeLayout: Opaque;
-        private spriteLayout: Opaque;
+        private cubeLayout: BindingLayoutHandle;
+        private spriteLayout: BindingLayoutHandle;
         private cubeBindingSet: BindingSet;
         private spriteBindingSet: BindingSet;
         private cubeVS: ShaderHandle;

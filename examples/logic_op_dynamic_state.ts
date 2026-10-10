@@ -132,8 +132,8 @@ namespace LogicOpDynamicState {
         private baselinePS: ShaderHandle;
         private backgroundInputLayout: InputLayoutHandle;
         private baselineInputLayout: InputLayoutHandle;
-        private backgroundBindingLayout: Opaque;
-        private baselineBindingLayout: Opaque;
+        private backgroundBindingLayout: BindingLayoutHandle;
+        private baselineBindingLayout: BindingLayoutHandle;
         private backgroundBindingSet: BindingSet;
         private baselineBindingSet: BindingSet;
         private commonBuffer: BufferHandle;

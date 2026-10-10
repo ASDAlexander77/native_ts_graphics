@@ -453,7 +453,7 @@ namespace MobileNerf {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private globalBuffer: BufferHandle;
         private instanceBuffer: BufferHandle;
         private instanceCount: int;

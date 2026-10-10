@@ -41,10 +41,10 @@ namespace BindlessRendering {
         private view: View;
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
-        private bindlessLayout: Opaque;
-        private bindingLayout: Opaque;
+        private bindlessLayout: BindingLayoutHandle;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
-        private descriptorTable: Opaque;
+        private descriptorTable: DescriptorTableHandle;
         private viewConstants: BufferHandle;
         private viewConstantsData: f32[];
         private viewConstantsSize: int;

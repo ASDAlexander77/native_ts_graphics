@@ -161,9 +161,9 @@ namespace RasterizationOrderAttachmentAccess {
         private blendRovPS: ShaderHandle;
         private displayPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private backgroundBindingLayout: Opaque;
-        private blendBindingLayout: Opaque;
-        private displayBindingLayout: Opaque;
+        private backgroundBindingLayout: BindingLayoutHandle;
+        private blendBindingLayout: BindingLayoutHandle;
+        private displayBindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private instanceBuffer: BufferHandle;
         private background: TextureHandle;

@@ -128,7 +128,7 @@ namespace ProceduralGeometry {
     // animations.
     class ProceduralGeometryPass {
         private app: App;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         private planeBlas: TriangleBlas;
         private aabbBlas: TriangleBlas;

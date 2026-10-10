@@ -173,7 +173,7 @@ namespace DynamicPrimitiveClipping {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private models: GltfMesh[];
         private transforms: number[][];
         // The two draws' uniform buffers ("positive" and "negative") and binding sets.

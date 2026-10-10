@@ -132,8 +132,8 @@ namespace OitDepthPeeling {
         private gatherFirstPS: ShaderHandle;
         private gatherPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private gatherBindingLayout: Opaque;
-        private combineBindingLayout: Opaque;
+        private gatherBindingLayout: BindingLayoutHandle;
+        private combineBindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private background: TextureHandle;
         private object: GltfMesh;

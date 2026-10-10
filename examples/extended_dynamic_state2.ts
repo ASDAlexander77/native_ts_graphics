@@ -236,7 +236,7 @@ namespace ExtendedDynamicState2 {
         private tessDS: ShaderHandle;
         private tessPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private commonBuffer: BufferHandle;
         private baselineBuffer: BufferHandle;

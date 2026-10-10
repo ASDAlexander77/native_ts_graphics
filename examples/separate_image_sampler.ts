@@ -167,9 +167,9 @@ namespace SeparateImageSampler {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
-        private samplerBindingLayout: Opaque;
+        private samplerBindingLayout: BindingLayoutHandle;
         private samplerBindingSets: BindingSet[];
         private uniformBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;

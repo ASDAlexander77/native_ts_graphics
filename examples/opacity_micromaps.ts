@@ -94,7 +94,7 @@ namespace OpacityMicromaps {
     // shader, H shows where it ran, B rebuilds the acceleration structures every frame.
     class OpacityMicromapsPass {
         private app: App;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         private sampler: SamplerHandle;
         private textures: TextureHandle[];

@@ -138,7 +138,7 @@ namespace MemoryBudget {
         private starfieldPS: ShaderHandle;
         private rocksInputLayout: InputLayoutHandle;
         private planetInputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private rock: GltfMesh;
         private planet: GltfMesh;

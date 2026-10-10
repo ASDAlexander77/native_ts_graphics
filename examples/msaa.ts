@@ -204,8 +204,8 @@ namespace Msaa {
         private outlinePS: ShaderHandle;
         private outlineMSPS: ShaderHandle;
         private sceneInputLayout: InputLayoutHandle;
-        private sceneBindingLayout: Opaque;
-        private postBindingLayout: Opaque;
+        private sceneBindingLayout: BindingLayoutHandle;
+        private postBindingLayout: BindingLayoutHandle;
         private sceneConstantBuffer: BufferHandle;
         private postConstantBuffer: BufferHandle;
         private linearClamp: SamplerHandle;
@@ -429,7 +429,7 @@ namespace Msaa {
                 setDesc.bindTextureSRV(1, this.resolvedDepth);
                 setDesc.bindSampler(0, this.linearClamp);
                 this.postBindingSet = this.app.createBindingSetForLayout(setDesc, this.postBindingLayout);
-                this.own<ResourceHandle>(this.postBindingSet.handle);
+                this.own(this.postBindingSet.handle);
             }
 
             this.builtSampleCount = this.sampleCount;

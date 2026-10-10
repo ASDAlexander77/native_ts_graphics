@@ -480,8 +480,8 @@ namespace MobileNerfRayQuery {
 
         private vs: ShaderHandle;
         private ps: ShaderHandle;
-        private bindingLayout: Opaque;
-        private bindingSet: Opaque;
+        private bindingLayout: BindingLayoutHandle;
+        private bindingSet: BindingSet;
         private globalBuffer: BufferHandle;
         private weightsBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;

@@ -2389,14 +2389,14 @@ extern "C"
     // Ray tracing pipeline with one ray generation shader, one miss shader and one triangle hit
     // group made of a closest-hit shader (none if closestHitEntry is empty), all exported from
     // shaderLibrary by entry name, and one global binding layout. Returns null on failure.
-    void* Donut_CreateRayTracingPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, void* bindingLayout,
+    void* Donut_CreateRayTracingPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         int maxPayloadSize)
     {
         auto* library = shaderLibrary;
 
         nvrhi::rt::PipelineDesc desc;
-        desc.globalBindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+        desc.globalBindingLayouts = { bindingLayout };
         desc.shaders = {
             { "", library->getShader(rayGenEntry, nvrhi::ShaderType::RayGeneration), nullptr },
             { "", library->getShader(missEntry, nvrhi::ShaderType::Miss), nullptr }
@@ -2414,7 +2414,7 @@ extern "C"
 
     // Same, with a closest-hit and an any-hit shader in the hit group (either may be ""), and a
     // second global binding layout (e.g. a bindless layout; null for none).
-    void* Donut_CreateRayTracingPipelineWithLayouts(App* app, nvrhi::IShaderLibrary* shaderLibrary, void* bindingLayout, void* secondBindingLayout,
+    void* Donut_CreateRayTracingPipelineWithLayouts(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         const char* anyHitEntry, int maxPayloadSize)
     {
@@ -2424,9 +2424,9 @@ extern "C"
         };
 
         nvrhi::rt::PipelineDesc desc;
-        desc.globalBindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+        desc.globalBindingLayouts = { bindingLayout };
         if (secondBindingLayout)
-            desc.globalBindingLayouts.push_back(static_cast<nvrhi::IBindingLayout*>(secondBindingLayout));
+            desc.globalBindingLayouts.push_back(secondBindingLayout);
         desc.shaders = {
             { "", library->getShader(rayGenEntry, nvrhi::ShaderType::RayGeneration), nullptr },
             { "", library->getShader(missEntry, nvrhi::ShaderType::Miss), nullptr }
@@ -2452,10 +2452,10 @@ extern "C"
         return desc;
     }
 
-    void Donut_RtPipelineAddGlobalBindingLayout(void* pipelineDesc, void* bindingLayout)
+    void Donut_RtPipelineAddGlobalBindingLayout(void* pipelineDesc, nvrhi::IBindingLayout* bindingLayout)
     {
         static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->globalBindingLayouts.push_back(
-            static_cast<nvrhi::IBindingLayout*>(bindingLayout));
+            bindingLayout);
     }
 
     // A ray generation, miss or callable shader (shaderType), exported by its entry name.
@@ -2470,7 +2470,7 @@ extern "C"
     // optional local binding layout (D3D12 only; null for none) whose binding sets are given per
     // shader table entry.
     void Donut_RtPipelineAddHitGroup(void* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
-        const char* closestHitEntry, const char* anyHitEntry, void* localBindingLayout)
+        const char* closestHitEntry, const char* anyHitEntry, nvrhi::IBindingLayout* localBindingLayout)
     {
         auto* library = shaderLibrary;
         auto entryShader = [library](const char* entry, nvrhi::ShaderType type) -> nvrhi::ShaderHandle {
@@ -2481,14 +2481,14 @@ extern "C"
             .setExportName(exportName)
             .setClosestHitShader(entryShader(closestHitEntry, nvrhi::ShaderType::ClosestHit))
             .setAnyHitShader(entryShader(anyHitEntry, nvrhi::ShaderType::AnyHit))
-            .setBindingLayout(static_cast<nvrhi::IBindingLayout*>(localBindingLayout)));
+            .setBindingLayout(localBindingLayout));
     }
 
     // A procedural primitive hit group, for AABB geometries: intersection, closest-hit and any-hit
     // shaders by entry name ("" for no closest-hit / any-hit shader), and an optional local binding
     // layout as above.
     void Donut_RtPipelineAddProceduralHitGroup(void* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
-        const char* intersectionEntry, const char* closestHitEntry, const char* anyHitEntry, void* localBindingLayout)
+        const char* intersectionEntry, const char* closestHitEntry, const char* anyHitEntry, nvrhi::IBindingLayout* localBindingLayout)
     {
         auto* library = shaderLibrary;
         auto entryShader = [library](const char* entry, nvrhi::ShaderType type) -> nvrhi::ShaderHandle {
@@ -2500,7 +2500,7 @@ extern "C"
             .setIntersectionShader(entryShader(intersectionEntry, nvrhi::ShaderType::Intersection))
             .setClosestHitShader(entryShader(closestHitEntry, nvrhi::ShaderType::ClosestHit))
             .setAnyHitShader(entryShader(anyHitEntry, nvrhi::ShaderType::AnyHit))
-            .setBindingLayout(static_cast<nvrhi::IBindingLayout*>(localBindingLayout))
+            .setBindingLayout(localBindingLayout)
             .setIsProceduralPrimitive(true));
     }
 
@@ -2547,10 +2547,10 @@ extern "C"
 
     // Adds an entry for a hit group, with a binding set for its local binding layout (null for
     // none). Returns the entry's index.
-    int Donut_ShaderTableAddHitGroup(void* shaderTable, const char* exportName, void* localBindingSet)
+    int Donut_ShaderTableAddHitGroup(void* shaderTable, const char* exportName, nvrhi::IBindingSet* localBindingSet)
     {
         return static_cast<nvrhi::rt::IShaderTable*>(shaderTable)->addHitGroup(exportName,
-            static_cast<nvrhi::IBindingSet*>(localBindingSet));
+            localBindingSet);
     }
 
     // Same as Donut_CreateShaderTable, with caching: NVRHI keeps up to maxCachedVersions copies
@@ -3113,32 +3113,32 @@ extern "C"
 
     // Binding set descriptions are built up with the Donut_Bind* functions below and then
     // consumed (freed) by Donut_CreateBindingSet.
-    void* Donut_CreateBindingSetDesc()
+    nvrhi::BindingSetDesc* Donut_CreateBindingSetDesc()
     {
         return new nvrhi::BindingSetDesc();
     }
 
     // Buffer created by Donut_CreateUIntBuffer, read by the shader as Buffer<uint> at t<slot>.
-    void Donut_BindTypedBufferSRV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    void Donut_BindTypedBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::TypedBuffer_SRV(static_cast<uint32_t>(slot), buffer));
     }
 
     // Writable buffer created by Donut_CreateUIntBuffer, written by the shader as RWBuffer<uint>
     // at u<slot>.
-    void Donut_BindTypedBufferUAV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    void Donut_BindTypedBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
     // Creates a binding set, and a matching layout (in register space 0) visible to the stages
     // in shaderType (nvrhi::ShaderType bits), from a description, which it frees. Returns null
     // on failure.
-    void* Donut_CreateBindingSet(App* app, void* bindingSetDesc, int shaderType)
+    nvrhi::IBindingSet* Donut_CreateBindingSet(App* app, nvrhi::BindingSetDesc* bindingSetDesc, int shaderType)
     {
-        std::unique_ptr<nvrhi::BindingSetDesc> desc(static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc));
+        std::unique_ptr<nvrhi::BindingSetDesc> desc(bindingSetDesc);
 
         nvrhi::BindingLayoutHandle layout;
         nvrhi::BindingSetHandle bindingSet;
@@ -3153,171 +3153,171 @@ extern "C"
 
     // Texture created by Donut_CreateUAVTextureForFrame, written by the shader as
     // RWTexture2D<float4> at u<slot>.
-    void Donut_BindTextureUAV(void* bindingSetDesc, int slot, nvrhi::ITexture* texture)
+    void Donut_BindTextureUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Texture_UAV(static_cast<uint32_t>(slot), texture));
     }
 
     // Top-level acceleration structure, read by the shader as RaytracingAccelerationStructure
     // at t<slot>.
-    void Donut_BindAccelStruct(void* bindingSetDesc, int slot, void* accelStruct)
+    void Donut_BindAccelStruct(nvrhi::BindingSetDesc* bindingSetDesc, int slot, void* accelStruct)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::RayTracingAccelStruct(static_cast<uint32_t>(slot),
                 static_cast<nvrhi::rt::IAccelStruct*>(accelStruct)));
     }
 
     // Creates a binding set for an existing layout (see Donut_CreateBindingLayout) from a
     // description, which it frees. Returns null on failure.
-    void* Donut_CreateBindingSetForLayout(App* app, void* bindingSetDesc, void* bindingLayout)
+    nvrhi::IBindingSet* Donut_CreateBindingSetForLayout(App* app, nvrhi::BindingSetDesc* bindingSetDesc, nvrhi::IBindingLayout* bindingLayout)
     {
-        std::unique_ptr<nvrhi::BindingSetDesc> desc(static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc));
+        std::unique_ptr<nvrhi::BindingSetDesc> desc(bindingSetDesc);
         App* a = app;
-        return a->Own(a->device()->createBindingSet(*desc, static_cast<nvrhi::IBindingLayout*>(bindingLayout)));
+        return a->Own(a->device()->createBindingSet(*desc, bindingLayout));
     }
 
     // Binding layout descriptions, for when the layout is needed before the resources exist
     // (e.g. to create a pipeline); built up with the Donut_Layout* functions below, then
     // consumed (freed) by Donut_CreateBindingLayout.
-    void* Donut_CreateBindingLayoutDesc()
+    nvrhi::BindingLayoutDesc* Donut_CreateBindingLayoutDesc()
     {
         return new nvrhi::BindingLayoutDesc();
     }
 
-    void Donut_LayoutTextureUAV(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutTextureUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::Texture_UAV(static_cast<uint32_t>(slot)));
     }
 
-    void Donut_LayoutAccelStruct(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutAccelStruct(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::RayTracingAccelStruct(static_cast<uint32_t>(slot)));
     }
 
-    void Donut_LayoutTextureSRV(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutTextureSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(slot)));
     }
 
-    void Donut_LayoutStructuredBufferSRV(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutStructuredBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot)));
     }
 
-    void Donut_LayoutSampler(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutSampler(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::Sampler(static_cast<uint32_t>(slot)));
     }
 
     // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
-    void Donut_LayoutPushConstants(void* bindingLayoutDesc, int slot, int byteSize)
+    void Donut_LayoutPushConstants(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int byteSize)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::PushConstants(static_cast<uint32_t>(slot), static_cast<uint32_t>(byteSize)));
     }
 
     // For a buffer from Donut_CreateVolatileConstantBuffer.
-    void Donut_LayoutVolatileConstantBuffer(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutVolatileConstantBuffer(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::VolatileConstantBuffer(static_cast<uint32_t>(slot)));
     }
 
     // Register space of the layout's items (D3D12 only; 0 by default).
-    void Donut_SetBindingLayoutRegisterSpace(void* bindingLayoutDesc, int space)
+    void Donut_SetBindingLayoutRegisterSpace(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int space)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->registerSpace = static_cast<uint32_t>(space);
+        bindingLayoutDesc->registerSpace = static_cast<uint32_t>(space);
     }
 
     // Buffer<T> at t<slot>.
-    void Donut_LayoutTypedBufferSRV(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutTypedBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::TypedBuffer_SRV(static_cast<uint32_t>(slot)));
     }
 
     // A non-volatile cbuffer at b<slot>.
-    void Donut_LayoutConstantBuffer(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutConstantBuffer(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::ConstantBuffer(static_cast<uint32_t>(slot)));
     }
 
     // RWStructuredBuffer at u<slot>.
-    void Donut_LayoutStructuredBufferUAV(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutStructuredBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot)));
     }
 
     // ByteAddressBuffer at t<slot>.
-    void Donut_LayoutRawBufferSRV(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutRawBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::RawBuffer_SRV(static_cast<uint32_t>(slot)));
     }
 
     // RWByteAddressBuffer at u<slot>.
-    void Donut_LayoutRawBufferUAV(void* bindingLayoutDesc, int slot)
+    void Donut_LayoutRawBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::RawBuffer_UAV(static_cast<uint32_t>(slot)));
     }
 
     // An array of `count` Texture2D at t<slot> (t<slot> .. t<slot + count - 1> on D3D12, one
     // binding on Vulkan); not on D3D11.
-    void Donut_LayoutTextureSRVArray(void* bindingLayoutDesc, int slot, int count)
+    void Donut_LayoutTextureSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
     {
-        static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc)->addItem(
+        bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
     }
 
     // Layout visible to the stages in shaderType (nvrhi::ShaderType bits), in register space 0
     // unless set with Donut_SetBindingLayoutRegisterSpace. Returns null on failure.
-    void* Donut_CreateBindingLayout(App* app, void* bindingLayoutDesc, int shaderType)
+    nvrhi::IBindingLayout* Donut_CreateBindingLayout(App* app, nvrhi::BindingLayoutDesc* bindingLayoutDesc, int shaderType)
     {
-        std::unique_ptr<nvrhi::BindingLayoutDesc> desc(static_cast<nvrhi::BindingLayoutDesc*>(bindingLayoutDesc));
+        std::unique_ptr<nvrhi::BindingLayoutDesc> desc(bindingLayoutDesc);
         desc->visibility = static_cast<nvrhi::ShaderType>(shaderType);
         App* a = app;
         return a->Own(a->device()->createBindingLayout(*desc));
     }
 
     // Compute pipeline with one binding layout (Donut_CreateBindingLayout). Returns null on failure.
-    void* Donut_CreateComputePipelineWithLayout(App* app, nvrhi::IShader* computeShader, void* bindingLayout)
+    void* Donut_CreateComputePipelineWithLayout(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
-            .addBindingLayout(static_cast<nvrhi::IBindingLayout*>(bindingLayout));
+            .addBindingLayout(bindingLayout);
 
         App* a = app;
         return a->Own(a->device()->createComputePipeline(desc));
     }
 
     // Same, with a second binding layout (e.g. a bindless layout; null for none).
-    void* Donut_CreateComputePipelineWithLayouts(App* app, nvrhi::IShader* computeShader, void* bindingLayout, void* secondBindingLayout)
+    void* Donut_CreateComputePipelineWithLayouts(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
-            .addBindingLayout(static_cast<nvrhi::IBindingLayout*>(bindingLayout));
+            .addBindingLayout(bindingLayout);
         if (secondBindingLayout)
-            desc.addBindingLayout(static_cast<nvrhi::IBindingLayout*>(secondBindingLayout));
+            desc.addBindingLayout(secondBindingLayout);
 
         App* a = app;
         return a->Own(a->device()->createComputePipeline(desc));
     }
 
     // Compute pipeline using the layout of bindingSet. Returns null on failure.
-    void* Donut_CreateComputePipeline(App* app, nvrhi::IShader* computeShader, void* bindingSet)
+    void* Donut_CreateComputePipeline(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingSet* bindingSet)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
-            .addBindingLayout(static_cast<nvrhi::IBindingSet*>(bindingSet)->getLayout());
+            .addBindingLayout(bindingSet->getLayout());
 
         App* a = app;
         return a->Own(a->device()->createComputePipeline(desc));
@@ -4048,45 +4048,45 @@ extern "C"
 
     // cbuffer at b<slot>: byteSize bytes of a constant buffer starting at byteOffset (both
     // multiples of 256).
-    void Donut_BindConstantBuffer(void* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer, int byteOffset, int byteSize)
+    void Donut_BindConstantBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer, int byteOffset, int byteSize)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::ConstantBuffer(
+        bindingSetDesc->addItem(nvrhi::BindingSetItem::ConstantBuffer(
             static_cast<uint32_t>(slot), constantBuffer,
             nvrhi::BufferRange(static_cast<uint64_t>(byteOffset), static_cast<uint64_t>(byteSize))));
     }
 
     // StructuredBuffer at t<slot> (e.g. from Donut_GetSceneBuffer).
-    void Donut_BindStructuredBufferSRV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    void Donut_BindStructuredBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot), buffer));
     }
 
     // A buffer from Donut_CreateRWStructuredBuffer, as RWStructuredBuffer at u<slot>.
-    void Donut_BindStructuredBufferUAV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    void Donut_BindStructuredBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
     // ByteAddressBuffer at t<slot>; the buffer must allow raw views.
-    void Donut_BindRawBufferSRV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    void Donut_BindRawBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::RawBuffer_SRV(static_cast<uint32_t>(slot), buffer));
     }
 
     // RWByteAddressBuffer at u<slot>; the buffer must allow raw views and UAVs.
-    void Donut_BindRawBufferUAV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    void Donut_BindRawBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::RawBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
     // Element arrayElement of a Donut_LayoutTextureSRVArray array at t<slot>.
-    void Donut_BindTextureSRVArrayElement(void* bindingSetDesc, int slot, int arrayElement, nvrhi::ITexture* texture)
+    void Donut_BindTextureSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::ITexture* texture)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture)
                 .setArrayElement(static_cast<uint32_t>(arrayElement)));
     }
@@ -4094,66 +4094,66 @@ extern "C"
     // The push constants of a Donut_LayoutPushConstants item: byteSize bytes at b<slot>, whose
     // values are given when dispatching or drawing (Donut_DispatchWithPushConstants,
     // Donut_DrawIndexedWithPushConstants).
-    void Donut_BindPushConstants(void* bindingSetDesc, int slot, int byteSize)
+    void Donut_BindPushConstants(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int byteSize)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::PushConstants(static_cast<uint32_t>(slot), static_cast<uint32_t>(byteSize)));
     }
 
     // cbuffer at b<slot>: the whole of a constant buffer (required for volatile ones).
-    void Donut_BindEntireConstantBuffer(void* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer)
+    void Donut_BindEntireConstantBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::ConstantBuffer(static_cast<uint32_t>(slot), constantBuffer));
     }
 
     // Texture2D at t<slot>.
-    void Donut_BindTextureSRV(void* bindingSetDesc, int slot, nvrhi::ITexture* texture)
+    void Donut_BindTextureSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture));
     }
 
     // Same, one level of the texture only (e.g. the level above the one a pass draws into).
-    void Donut_BindTextureSRVMip(void* bindingSetDesc, int slot, nvrhi::ITexture* texture, int mipLevel)
+    void Donut_BindTextureSRVMip(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture, int mipLevel)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::Texture_SRV(
+        bindingSetDesc->addItem(nvrhi::BindingSetItem::Texture_SRV(
             static_cast<uint32_t>(slot), texture, nvrhi::Format::UNKNOWN,
             nvrhi::TextureSubresourceSet(uint32_t(mipLevel), 1, 0, 1)));
     }
 
     // Same, mipCount levels from firstMip on (the shader's level 0 is firstMip).
-    void Donut_BindTextureSRVMips(void* bindingSetDesc, int slot, nvrhi::ITexture* texture, int firstMip, int mipCount)
+    void Donut_BindTextureSRVMips(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture, int firstMip, int mipCount)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::Texture_SRV(
+        bindingSetDesc->addItem(nvrhi::BindingSetItem::Texture_SRV(
             static_cast<uint32_t>(slot), texture, nvrhi::Format::UNKNOWN,
             nvrhi::TextureSubresourceSet(uint32_t(firstMip), uint32_t(mipCount), 0, 1)));
     }
 
     // SamplerState at s<slot>.
-    void Donut_BindSampler(void* bindingSetDesc, int slot, nvrhi::ISampler* sampler)
+    void Donut_BindSampler(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ISampler* sampler)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Sampler(static_cast<uint32_t>(slot), sampler));
     }
 
     // The layout a binding set was created with; valid as long as the binding set. Use it for
     // more binding sets (Donut_CreateBindingSetForLayout) and pipelines.
-    void* Donut_GetBindingLayout(void* bindingSet)
+    nvrhi::IBindingLayout* Donut_GetBindingLayout(nvrhi::IBindingSet* bindingSet)
     {
-        return static_cast<nvrhi::IBindingSet*>(bindingSet)->getLayout();
+        return bindingSet->getLayout();
     }
 
     // Triangle list, no depth test, for the frame's framebuffer layout, with an input layout
     // and one binding layout. Returns null on failure.
     void* Donut_CreateGraphicsPipelineWithLayouts(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
-        nvrhi::IInputLayout* inputLayout, void* bindingLayout)
+        nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout)
     {
         nvrhi::GraphicsPipelineDesc desc;
         desc.VS = vertexShader;
         desc.PS = pixelShader;
         desc.inputLayout = inputLayout;
-        desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+        desc.bindingLayouts = { bindingLayout };
         desc.primType = nvrhi::PrimitiveType::TriangleList;
         desc.renderState.depthStencilState.depthTestEnable = false;
 
@@ -4165,14 +4165,14 @@ extern "C"
     // nvrhi::PrimitiveType value), with an optional input layout and an optional binding layout
     // (null for either means none). Returns null on failure.
     void* Donut_CreateGraphicsPipelineWithTopology(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
-        nvrhi::IInputLayout* inputLayout, void* bindingLayout, int primitiveType)
+        nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout, int primitiveType)
     {
         nvrhi::GraphicsPipelineDesc desc;
         desc.VS = vertexShader;
         desc.PS = pixelShader;
         desc.inputLayout = inputLayout;
         if (bindingLayout)
-            desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+            desc.bindingLayouts = { bindingLayout };
         desc.primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
         desc.renderState.depthStencilState.depthTestEnable = false;
 
@@ -4240,14 +4240,14 @@ extern "C"
     // Same, blending into the framebuffer with blendMode (a BlendMode value, see SetBlendMode).
     // Returns null on failure.
     void* Donut_CreateGraphicsPipelineWithBlend(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
-        nvrhi::IInputLayout* inputLayout, void* bindingLayout, int primitiveType, int blendMode)
+        nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout, int primitiveType, int blendMode)
     {
         nvrhi::GraphicsPipelineDesc desc;
         desc.VS = vertexShader;
         desc.PS = pixelShader;
         desc.inputLayout = inputLayout;
         if (bindingLayout)
-            desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+            desc.bindingLayouts = { bindingLayout };
         desc.primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
         desc.renderState.depthStencilState.depthTestEnable = false;
         SetBlendMode(desc.renderState.blendState.targets[0], blendMode);
@@ -4959,13 +4959,13 @@ extern "C"
     // depth writes on, back faces culled (clockwise triangles are front faces). Returns null on
     // failure.
     void* Donut_CreateGraphicsPipelineForFramebuffer(App* app, void* framebuffer, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
-        nvrhi::IInputLayout* inputLayout, void* bindingLayout)
+        nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout)
     {
         nvrhi::GraphicsPipelineDesc desc;
         desc.VS = vertexShader;
         desc.PS = pixelShader;
         desc.inputLayout = inputLayout;
-        desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
+        desc.bindingLayouts = { bindingLayout };
         desc.primType = nvrhi::PrimitiveType::TriangleList;
 
         App* a = app;
@@ -5010,10 +5010,10 @@ extern "C"
         AsGraphicsPipelineDesc(graphicsPipelineDesc)->GS = geometryShader;
     }
 
-    void Donut_GraphicsPipelineAddBindingLayout(void* graphicsPipelineDesc, void* bindingLayout)
+    void Donut_GraphicsPipelineAddBindingLayout(void* graphicsPipelineDesc, nvrhi::IBindingLayout* bindingLayout)
     {
         AsGraphicsPipelineDesc(graphicsPipelineDesc)->bindingLayouts.push_back(
-            static_cast<nvrhi::IBindingLayout*>(bindingLayout));
+            bindingLayout);
     }
 
     void Donut_GraphicsPipelineSetInputLayout(void* graphicsPipelineDesc, nvrhi::IInputLayout* inputLayout)
@@ -5238,10 +5238,10 @@ extern "C"
 
     // A binding set for a description (which it frees) from the app's binding cache: created on
     // the first request, reused for identical ones after. Valid until Donut_ClearBindingCache.
-    void* Donut_GetCachedBindingSet(App* app, void* bindingSetDesc, void* bindingLayout)
+    nvrhi::IBindingSet* Donut_GetCachedBindingSet(App* app, nvrhi::BindingSetDesc* bindingSetDesc, nvrhi::IBindingLayout* bindingLayout)
     {
-        std::unique_ptr<nvrhi::BindingSetDesc> desc(static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc));
-        return app->bindingCache()->GetOrCreateBindingSet(*desc, static_cast<nvrhi::IBindingLayout*>(bindingLayout)).Get();
+        std::unique_ptr<nvrhi::BindingSetDesc> desc(bindingSetDesc);
+        return app->bindingCache()->GetOrCreateBindingSet(*desc, bindingLayout).Get();
     }
 
     // --- Async compute -----------------------------------------------------------------------
@@ -5252,7 +5252,7 @@ extern "C"
     // counting from 0) as push constants at b0; the binding layout must hold exactly those two.
     // Give it textures with Donut_AddAsyncComputeTexture, then start it. Returns null if the
     // device has no compute queue.
-    void* Donut_CreateAsyncComputeLoop(App* app, void* computePipeline, void* bindingLayout,
+    void* Donut_CreateAsyncComputeLoop(App* app, void* computePipeline, nvrhi::IBindingLayout* bindingLayout,
         int groupsX, int groupsY, int intervalMicroseconds)
     {
         App* a = app;
@@ -5263,7 +5263,7 @@ extern "C"
         auto loop = std::make_shared<AsyncComputeLoop>();
         loop->device = device;
         loop->pipeline = static_cast<nvrhi::IComputePipeline*>(computePipeline);
-        loop->bindingLayout = static_cast<nvrhi::IBindingLayout*>(bindingLayout);
+        loop->bindingLayout = bindingLayout;
         loop->groupsX = static_cast<uint32_t>(groupsX);
         loop->groupsY = static_cast<uint32_t>(groupsY);
         loop->interval = std::chrono::microseconds(intervalMicroseconds);
@@ -5286,10 +5286,10 @@ extern "C"
     // Same, with the binding set (from the loop's binding layout) to run the compute pipeline with
     // when writing it: the texture's UAV at u0, the push constants at b0, and anything else the
     // shader reads (e.g. a color map), instead of the loop's own set of the first two.
-    void Donut_AddAsyncComputeTextureWithBindingSet(void* asyncComputeLoop, nvrhi::ITexture* texture, void* bindingSet)
+    void Donut_AddAsyncComputeTextureWithBindingSet(void* asyncComputeLoop, nvrhi::ITexture* texture, nvrhi::IBindingSet* bindingSet)
     {
         auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
-        loop->textureBindingSets[texture] = static_cast<nvrhi::IBindingSet*>(bindingSet);
+        loop->textureBindingSets[texture] = bindingSet;
         loop->renderToCompute.Push(texture, 0);
     }
 
@@ -5377,7 +5377,7 @@ extern "C"
     // Draws vertexCount vertices (no vertex buffers, e.g. a triangle over the target from
     // SV_VertexID) with a graphics pipeline into a framebuffer, all of it, with one binding set:
     // for drawing outside the frames, e.g. into a texture's levels at load time.
-    void Donut_CommandListDraw(nvrhi::ICommandList* commandList, void* pipeline, void* framebuffer, void* bindingSet, int vertexCount)
+    void Donut_CommandListDraw(nvrhi::ICommandList* commandList, void* pipeline, void* framebuffer, nvrhi::IBindingSet* bindingSet, int vertexCount)
     {
         auto* fb = static_cast<nvrhi::IFramebuffer*>(framebuffer);
         nvrhi::GraphicsState state;
@@ -5385,7 +5385,7 @@ extern "C"
         state.framebuffer = fb;
         state.viewport.addViewportAndScissorRect(fb->getFramebufferInfo().getViewport());
         if (bindingSet)
-            state.bindings = { static_cast<nvrhi::IBindingSet*>(bindingSet) };
+            state.bindings = { bindingSet };
         nvrhi::ICommandList* list = commandList;
         list->setGraphicsState(state);
         list->draw(nvrhi::DrawArguments().setVertexCount(static_cast<uint32_t>(vertexCount)));
@@ -5434,24 +5434,24 @@ extern "C"
 
     // Same as Donut_Dispatch, with a descriptor table (Donut_GetDescriptorTable) bound after the
     // binding set, for pipelines with a bindless layout second.
-    void Donut_DispatchWithDescriptorTable(nvrhi::ICommandList* commandList, void* computePipeline, void* bindingSet, void* descriptorTable,
+    void Donut_DispatchWithDescriptorTable(nvrhi::ICommandList* commandList, void* computePipeline, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
         int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
             .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
-            .addBindingSet(static_cast<nvrhi::IBindingSet*>(bindingSet))
-            .addBindingSet(static_cast<nvrhi::IDescriptorTable*>(descriptorTable));
+            .addBindingSet(bindingSet)
+            .addBindingSet(descriptorTable);
 
         nvrhi::ICommandList* cl = commandList;
         cl->setComputeState(state);
         cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
     }
 
-    void Donut_Dispatch(nvrhi::ICommandList* commandList, void* computePipeline, void* bindingSet, int groupsX, int groupsY, int groupsZ)
+    void Donut_Dispatch(nvrhi::ICommandList* commandList, void* computePipeline, nvrhi::IBindingSet* bindingSet, int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
             .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
-            .addBindingSet(static_cast<nvrhi::IBindingSet*>(bindingSet));
+            .addBindingSet(bindingSet);
 
         nvrhi::ICommandList* cl = commandList;
         cl->setComputeState(state);
@@ -5460,12 +5460,12 @@ extern "C"
 
     // Same, with byteSize bytes of push constants from data (the binding set's
     // Donut_BindPushConstants item).
-    void Donut_DispatchWithPushConstants(nvrhi::ICommandList* commandList, void* computePipeline, void* bindingSet,
+    void Donut_DispatchWithPushConstants(nvrhi::ICommandList* commandList, void* computePipeline, nvrhi::IBindingSet* bindingSet,
         const void* data, int byteSize, int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
             .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
-            .addBindingSet(static_cast<nvrhi::IBindingSet*>(bindingSet));
+            .addBindingSet(bindingSet);
 
         nvrhi::ICommandList* cl = commandList;
         cl->setComputeState(state);
@@ -6020,7 +6020,7 @@ extern "C"
 
     // Bindless ray tracing: a bindless layout (register spaces added with the two functions
     // below), consumed (freed) by Donut_CreateBindlessLayout.
-    void* Donut_CreateBindlessLayoutDesc(int firstSlot, int maxCapacity, int shaderType)
+    nvrhi::BindlessLayoutDesc* Donut_CreateBindlessLayoutDesc(int firstSlot, int maxCapacity, int shaderType)
     {
         auto* desc = new nvrhi::BindlessLayoutDesc();
         desc->visibility = static_cast<nvrhi::ShaderType>(shaderType);
@@ -6030,48 +6030,48 @@ extern "C"
     }
 
     // ByteAddressBuffer[] in register space `space`.
-    void Donut_BindlessLayoutAddRawBuffers(void* bindlessLayoutDesc, int space)
+    void Donut_BindlessLayoutAddRawBuffers(nvrhi::BindlessLayoutDesc* bindlessLayoutDesc, int space)
     {
-        static_cast<nvrhi::BindlessLayoutDesc*>(bindlessLayoutDesc)->registerSpaces.push_back(
+        bindlessLayoutDesc->registerSpaces.push_back(
             nvrhi::BindingLayoutItem::RawBuffer_SRV(static_cast<uint32_t>(space)));
     }
 
     // Texture2D[] in register space `space`.
-    void Donut_BindlessLayoutAddTextures(void* bindlessLayoutDesc, int space)
+    void Donut_BindlessLayoutAddTextures(nvrhi::BindlessLayoutDesc* bindlessLayoutDesc, int space)
     {
-        static_cast<nvrhi::BindlessLayoutDesc*>(bindlessLayoutDesc)->registerSpaces.push_back(
+        bindlessLayoutDesc->registerSpaces.push_back(
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(space)));
     }
 
     // Returns null on failure.
-    void* Donut_CreateBindlessLayout(App* app, void* bindlessLayoutDesc)
+    nvrhi::IBindingLayout* Donut_CreateBindlessLayout(App* app, nvrhi::BindlessLayoutDesc* bindlessLayoutDesc)
     {
-        std::unique_ptr<nvrhi::BindlessLayoutDesc> desc(static_cast<nvrhi::BindlessLayoutDesc*>(bindlessLayoutDesc));
+        std::unique_ptr<nvrhi::BindlessLayoutDesc> desc(bindlessLayoutDesc);
         App* a = app;
         return a->Own(a->device()->createBindlessLayout(*desc));
     }
 
     // Donut's DescriptorTableManager: a descriptor table of a bindless layout that scenes loaded
     // with Donut_LoadSceneWithDescriptorTable put their buffers and textures in.
-    void* Donut_CreateDescriptorTableManager(App* app, void* bindlessLayout)
+    donut::engine::DescriptorTableManager* Donut_CreateDescriptorTableManager(App* app, nvrhi::IBindingLayout* bindlessLayout)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::engine::DescriptorTableManager>(
-            a->device(), static_cast<nvrhi::IBindingLayout*>(bindlessLayout)));
+            a->device(), bindlessLayout));
     }
 
     // The table itself, to bind next to a binding set; valid as long as the manager.
-    void* Donut_GetDescriptorTable(void* descriptorTableManager)
+    nvrhi::IDescriptorTable* Donut_GetDescriptorTable(donut::engine::DescriptorTableManager* descriptorTableManager)
     {
-        return static_cast<donut::engine::DescriptorTableManager*>(descriptorTableManager)->GetDescriptorTable();
+        return descriptorTableManager->GetDescriptorTable();
     }
 
     // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors
     // in each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
-    void* Donut_CreateDescriptorTable(App* app, void* bindlessLayout, int capacity)
+    nvrhi::IDescriptorTable* Donut_CreateDescriptorTable(App* app, nvrhi::IBindingLayout* bindlessLayout, int capacity)
     {
         App* a = app;
-        nvrhi::DescriptorTableHandle table = a->device()->createDescriptorTable(static_cast<nvrhi::IBindingLayout*>(bindlessLayout));
+        nvrhi::DescriptorTableHandle table = a->device()->createDescriptorTable(bindlessLayout);
         if (!table)
             return nullptr;
         a->device()->resizeDescriptorTable(table, static_cast<uint32_t>(capacity), false);
@@ -6081,9 +6081,9 @@ extern "C"
     // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at
     // once (also into a table bound by command lists still recording or running: the bindless
     // layouts are update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
-    int Donut_WriteDescriptorTableTexture(App* app, void* descriptorTable, int slot, nvrhi::ITexture* texture)
+    int Donut_WriteDescriptorTableTexture(App* app, nvrhi::IDescriptorTable* descriptorTable, int slot, nvrhi::ITexture* texture)
     {
-        return app->device()->writeDescriptorTable(static_cast<nvrhi::IDescriptorTable*>(descriptorTable),
+        return app->device()->writeDescriptorTable(descriptorTable,
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture)) ? 1 : 0;
     }
 
@@ -6126,7 +6126,7 @@ extern "C"
     // Same as Donut_LoadScene, also registering the scene's vertex / index buffers and textures in
     // a descriptor table (Donut_CreateDescriptorTableManager), where the scene's geometry and
     // material buffers refer to them by index. Returns null (after logging why) on failure.
-    void* Donut_LoadSceneWithDescriptorTable(App* app, const char* path, void* descriptorTableManager)
+    void* Donut_LoadSceneWithDescriptorTable(App* app, const char* path, donut::engine::DescriptorTableManager* descriptorTableManager)
     {
         App* a = app;
         auto descriptorTable = a->SharedObject<donut::engine::DescriptorTableManager>(descriptorTableManager);
@@ -6168,10 +6168,10 @@ extern "C"
     }
 
     // Buffer<uint> at t<slot>: the geometry's indices (relative to its first vertex).
-    void Donut_BindGeometryIndexBuffer(void* bindingSetDesc, int slot, void* scene, int globalGeometryIndex)
+    void Donut_BindGeometryIndexBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, void* scene, int globalGeometryIndex)
     {
         const SceneGeometry g = FindSceneGeometry(scene, globalGeometryIndex);
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::TypedBuffer_SRV(
+        bindingSetDesc->addItem(nvrhi::BindingSetItem::TypedBuffer_SRV(
             static_cast<uint32_t>(slot), g.mesh->buffers->indexBuffer, nvrhi::Format::R32_UINT,
             nvrhi::BufferRange((g.mesh->indexOffset + g.geometry->indexOffsetInMesh) * sizeof(uint32_t),
                 g.geometry->numIndices * sizeof(uint32_t))));
@@ -6187,7 +6187,7 @@ extern "C"
     };
 
     // Buffer<...> at t<slot>: one vertex attribute of the geometry's vertices.
-    void Donut_BindGeometryVertexAttribute(void* bindingSetDesc, int slot, void* scene, int globalGeometryIndex, int attribute)
+    void Donut_BindGeometryVertexAttribute(nvrhi::BindingSetDesc* bindingSetDesc, int slot, void* scene, int globalGeometryIndex, int attribute)
     {
         using donut::engine::VertexAttribute;
         VertexAttribute vertexAttribute = VertexAttribute::Position;
@@ -6207,7 +6207,7 @@ extern "C"
 
         const SceneGeometry g = FindSceneGeometry(scene, globalGeometryIndex);
         const uint64_t firstVertex = g.mesh->vertexOffset + g.geometry->vertexOffsetInMesh;
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::TypedBuffer_SRV(
+        bindingSetDesc->addItem(nvrhi::BindingSetItem::TypedBuffer_SRV(
             static_cast<uint32_t>(slot), g.mesh->buffers->vertexBuffer, format,
             nvrhi::BufferRange(firstVertex * elementSize + g.mesh->buffers->getVertexBufferRange(vertexAttribute).byteOffset,
                 g.geometry->numVertices * elementSize)));
@@ -6233,7 +6233,7 @@ extern "C"
 
     // Texture2D at t<slot>: one of the geometry's material textures, or Donut's white or black
     // texture if the material has none.
-    void Donut_BindGeometryMaterialTexture(App* app, void* bindingSetDesc, int slot, void* scene, int globalGeometryIndex,
+    void Donut_BindGeometryMaterialTexture(App* app, nvrhi::BindingSetDesc* bindingSetDesc, int slot, void* scene, int globalGeometryIndex,
         int which, int fallback)
     {
         const donut::engine::Material& material = *FindSceneGeometry(scene, globalGeometryIndex).geometry->material;
@@ -6247,14 +6247,14 @@ extern "C"
         nvrhi::ITexture* bound = texture && texture->texture ? texture->texture.Get()
             : fallback == FallbackTexture_Black ? passes->m_BlackTexture.Get() : passes->m_WhiteTexture.Get();
 
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
+        bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), bound));
     }
 
     // cbuffer at b<slot>: the geometry's MaterialConstants (donut/shaders/material_cb.h).
-    void Donut_BindGeometryMaterialConstants(void* bindingSetDesc, int slot, void* scene, int globalGeometryIndex)
+    void Donut_BindGeometryMaterialConstants(nvrhi::BindingSetDesc* bindingSetDesc, int slot, void* scene, int globalGeometryIndex)
     {
-        static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::ConstantBuffer(
+        bindingSetDesc->addItem(nvrhi::BindingSetItem::ConstantBuffer(
             static_cast<uint32_t>(slot), FindSceneGeometry(scene, globalGeometryIndex).geometry->material->materialConstants));
     }
 
@@ -6289,7 +6289,7 @@ extern "C"
     // (Donut_CreateDescriptorTableManager) for bindless access. It submits its own command list,
     // so call it while no other command list is open. Returns the texture object, or null (after
     // logging why) on failure.
-    void* Donut_LoadBindlessTexture(App* app, void* descriptorTableManager, const char* path, int sRGB)
+    void* Donut_LoadBindlessTexture(App* app, donut::engine::DescriptorTableManager* descriptorTableManager, const char* path, int sRGB)
     {
         App* a = app;
         std::shared_ptr<donut::engine::TextureCache>& cache = a->bindlessTextureCaches[descriptorTableManager];
@@ -6340,7 +6340,7 @@ extern "C"
     // maxVertices / maxIndices. Its buffers are registered in a descriptor table (for bindless
     // shaders), its material is alpha-blended, and its BLAS is created (not built) at full size.
     // Add it to a scene with Donut_AttachDynamicMesh.
-    void* Donut_CreateDynamicMesh(App* app, void* descriptorTableManager, int maxVertices, int maxIndices, const char* name)
+    void* Donut_CreateDynamicMesh(App* app, donut::engine::DescriptorTableManager* descriptorTableManager, int maxVertices, int maxIndices, const char* name)
     {
         using namespace donut::engine;
 
@@ -7870,7 +7870,7 @@ extern "C"
     // record no more dispatches with it after the graph in the command list (NVRHI believes it is
     // still bound). initializeBackingMemory: non-zero the first time the graph's backing memory is
     // used, or after another graph used it.
-    void Donut_DispatchD3D12WorkGraph(nvrhi::ICommandList* commandList, void* workGraph, void* computePipeline, void* bindingSet,
+    void Donut_DispatchD3D12WorkGraph(nvrhi::ICommandList* commandList, void* workGraph, void* computePipeline, nvrhi::IBindingSet* bindingSet,
         const void* data, int byteSize, int initializeBackingMemory)
     {
 #if DONUT_WITH_DX12
@@ -7880,7 +7880,7 @@ extern "C"
         // Bindings (and the barriers they need) through NVRHI.
         cl->setComputeState(nvrhi::ComputeState()
             .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
-            .addBindingSet(static_cast<nvrhi::IBindingSet*>(bindingSet)));
+            .addBindingSet(bindingSet));
         if (byteSize > 0)
             cl->setPushConstants(data, static_cast<size_t>(byteSize));
 
@@ -9707,13 +9707,13 @@ extern "C"
     }
 
     // Traces width x height rays with a shader table, with bindingSet as its global bindings.
-    void Donut_DispatchRays(FrameContext* frame, void* shaderTable, void* bindingSet, int width, int height)
+    void Donut_DispatchRays(FrameContext* frame, void* shaderTable, nvrhi::IBindingSet* bindingSet, int width, int height)
     {
         FrameContext* ctx = frame;
 
         nvrhi::rt::State state;
         state.shaderTable = static_cast<nvrhi::rt::IShaderTable*>(shaderTable);
-        state.bindings = { static_cast<nvrhi::IBindingSet*>(bindingSet) };
+        state.bindings = { bindingSet };
         ctx->commandList->setRayTracingState(state);
 
         nvrhi::rt::DispatchRaysArguments args;
@@ -9724,14 +9724,14 @@ extern "C"
 
     // Same as Donut_DispatchRays, with a descriptor table (Donut_GetDescriptorTable) bound after
     // the binding set, for pipelines with a bindless layout second.
-    void Donut_DispatchRaysWithDescriptorTable(FrameContext* frame, void* shaderTable, void* bindingSet, void* descriptorTable,
+    void Donut_DispatchRaysWithDescriptorTable(FrameContext* frame, void* shaderTable, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
         int width, int height)
     {
         FrameContext* ctx = frame;
 
         nvrhi::rt::State state;
         state.shaderTable = static_cast<nvrhi::rt::IShaderTable*>(shaderTable);
-        state.bindings = { static_cast<nvrhi::IBindingSet*>(bindingSet), static_cast<nvrhi::IDescriptorTable*>(descriptorTable) };
+        state.bindings = { bindingSet, descriptorTable };
         ctx->commandList->setRayTracingState(state);
 
         nvrhi::rt::DispatchRaysArguments args;
@@ -9798,16 +9798,16 @@ extern "C"
         ctx->draw.framebuffer = static_cast<nvrhi::IFramebuffer*>(framebuffer);
     }
 
-    void Donut_DrawAddBindingSet(FrameContext* frame, void* bindingSet)
+    void Donut_DrawAddBindingSet(FrameContext* frame, nvrhi::IBindingSet* bindingSet)
     {
-        frame->draw.bindings.push_back(static_cast<nvrhi::IBindingSet*>(bindingSet));
+        frame->draw.bindings.push_back(bindingSet);
     }
 
     // A descriptor table (Donut_CreateDescriptorTable, Donut_GetDescriptorTable) for the draw, in
     // the pipeline's binding layout order as Donut_DrawAddBindingSet.
-    void Donut_DrawAddDescriptorTable(FrameContext* frame, void* descriptorTable)
+    void Donut_DrawAddDescriptorTable(FrameContext* frame, nvrhi::IDescriptorTable* descriptorTable)
     {
-        frame->draw.bindings.push_back(static_cast<nvrhi::IDescriptorTable*>(descriptorTable));
+        frame->draw.bindings.push_back(descriptorTable);
     }
 
     // R32_UINT indices.

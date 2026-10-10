@@ -88,7 +88,7 @@ namespace TerrainTessellation {
         private terrainPS: ShaderHandle;
         private skyVS: ShaderHandle;
         private skyPS: ShaderHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private heightmap: TextureHandle;
         private terrainLayers: TextureHandle;

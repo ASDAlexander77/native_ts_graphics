@@ -176,7 +176,7 @@ namespace DynamicRendering {
         private objectVS: ShaderHandle;
         private objectPS: ShaderHandle;
         private gltfLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
         private skybox: GltfMesh;

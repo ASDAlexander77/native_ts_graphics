@@ -42,7 +42,7 @@ namespace RtShadows {
         private sunLight: Light;
         private camera: Camera;
         private view: View;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         private constantBuffer: BufferHandle;
         private accelStructs: SceneAccelStructs;

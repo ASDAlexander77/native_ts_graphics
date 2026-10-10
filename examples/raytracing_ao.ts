@@ -448,14 +448,14 @@ namespace RaytracingAo {
         private aoOptions: f32[];
         private ssaoConstants: f32[];
         private sampleThickness: number[];
-        private aoLayout: Opaque;
-        private gbufferLayout: Opaque;
-        private prepare1Layout: Opaque;
-        private prepare2Layout: Opaque;
-        private renderLayout: Opaque;
-        private blurBlendOutLayout: Opaque;
-        private blurLayout: Opaque;
-        private compositeLayout: Opaque;
+        private aoLayout: BindingLayoutHandle;
+        private gbufferLayout: BindingLayoutHandle;
+        private prepare1Layout: BindingLayoutHandle;
+        private prepare2Layout: BindingLayoutHandle;
+        private renderLayout: BindingLayoutHandle;
+        private blurBlendOutLayout: BindingLayoutHandle;
+        private blurLayout: BindingLayoutHandle;
+        private compositeLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         private gbufferVS: ShaderHandle;
         private gbufferPS: ShaderHandle;
@@ -898,7 +898,7 @@ namespace RaytracingAo {
             return resource;
         }
 
-        frameSet(desc: BindingSetDesc, layout: Opaque): BindingSet {
+        frameSet(desc: BindingSetDesc, layout: BindingLayoutHandle): BindingSet {
             const set = this.app.createBindingSetForLayout(desc, layout);
             this.frameBindingSets.push(set);
             return set;

@@ -72,7 +72,7 @@ namespace DxrRefit {
     // every frame as instances 1 and 2 rotate.
     class RefitPass {
         private app: App;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         // The triangle and the plane, the triangle alone. Kept alive for as long as the TLAS: only
         // the D3D12 backend of NVRHI references them from there.

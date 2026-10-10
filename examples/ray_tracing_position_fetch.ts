@@ -189,7 +189,7 @@ namespace RayTracingPositionFetch {
 
         private blas: TriangleBlas;
         private topLevelAS: SceneAccelStructs;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         private uniformBuffer: BufferHandle;
         // Created on the first frame (the back buffer's size and channel order), dropped on resize.

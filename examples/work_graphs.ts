@@ -760,7 +760,7 @@ namespace WorkGraphs {
         private ui: UIData;
         private scene: Scene;
 
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private inputLayout: InputLayoutHandle;
         private gbufferVertexShader: ShaderHandle;
         private gbufferPixelShader: ShaderHandle;

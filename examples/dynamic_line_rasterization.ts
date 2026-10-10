@@ -258,7 +258,7 @@ namespace DynamicLineRasterization {
         private gridVS: ShaderHandle;
         private gridPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private cameraBuffer: BufferHandle;
         private colorBuffer: BufferHandle;

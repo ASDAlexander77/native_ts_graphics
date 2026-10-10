@@ -274,7 +274,7 @@ namespace DynamicBlending {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private cameraBuffer: BufferHandle;
         private colorBuffer: BufferHandle;

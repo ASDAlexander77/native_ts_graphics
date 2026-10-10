@@ -96,15 +96,15 @@ namespace Khr16BitArithmetic {
 
         private computeFP32: Opaque;
         private computeFP16: Opaque | null;
-        private computeBindingLayout: Opaque;
-        private computeBindingLayoutFP16: Opaque;
+        private computeBindingLayout: BindingLayoutHandle;
+        private computeBindingLayoutFP16: BindingLayoutHandle;
         private computeBindingSet: BindingSet;
         private computeBindingSetFP16: BindingSet;
         private blobBuffer: BufferHandle;
         private image: TextureHandle;
         private visualizeVS: ShaderHandle;
         private visualizePS: ShaderHandle;
-        private visualizeBindingLayout: Opaque;
+        private visualizeBindingLayout: BindingLayoutHandle;
         private visualizeBindingSet: BindingSet;
 
         // The back buffer's size: color (sRGB, as the sample's swapchain).
@@ -254,7 +254,7 @@ namespace Khr16BitArithmetic {
             Donut_StoreInt32(Ref(this.push32[3]), RANGE_Y);
         }
 
-        createComputeBindingSet(layout: Opaque, pushConstantsSize: int): BindingSet {
+        createComputeBindingSet(layout: BindingLayoutHandle, pushConstantsSize: int): BindingSet {
             const setDesc = BindingSetDesc.create();
             setDesc.bindStructuredBufferSRV(0, this.blobBuffer);
             setDesc.bindTextureUAV(0, this.image);
@@ -262,7 +262,7 @@ namespace Khr16BitArithmetic {
             return this.app.createBindingSetForLayout(setDesc, layout);
         }
 
-        createComputeBindingLayout(pushConstantsSize: int): Opaque {
+        createComputeBindingLayout(pushConstantsSize: int): BindingLayoutHandle {
             const layoutDesc = BindingLayoutDesc.create();
             layoutDesc.layoutStructuredBufferSRV(0);
             layoutDesc.layoutTextureUAV(0);

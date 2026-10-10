@@ -216,8 +216,8 @@ namespace RayQueries {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
-        private bindingSet: Opaque;
+        private bindingLayout: BindingLayoutHandle;
+        private bindingSet: BindingSet;
         private globalBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;

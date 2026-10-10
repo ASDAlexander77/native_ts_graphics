@@ -250,7 +250,7 @@ namespace AsyncComputeBloom {
 
         private compositePS: ShaderHandle;
         private compositeVS: ShaderHandle;
-        private compositeBindingLayout: Opaque;
+        private compositeBindingLayout: BindingLayoutHandle;
         private compositeBindingSets: BindingSet[];
         // Created on the first frame (the back buffer's layout), dropped on resize.
         private compositePipeline: Opaque | null;
@@ -581,7 +581,7 @@ namespace AsyncComputeBloom {
 
         // The scene's base color textures and its draws: every node's primitives, their vertices and
         // indices in one vertex and one index buffer, recorded into an open command list.
-        loadScene(commandList: CommandList, linearWrap: SamplerHandle, comparisonSampler: SamplerHandle, forwardBindingLayout: Opaque): boolean {
+        loadScene(commandList: CommandList, linearWrap: SamplerHandle, comparisonSampler: SamplerHandle, forwardBindingLayout: BindingLayoutHandle): boolean {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -896,7 +896,7 @@ namespace AsyncComputeBloom {
             return true;
         }
 
-        createBlurBindingSet(layout: Opaque, sampler: SamplerHandle, input: TextureHandle, output: TextureHandle): BindingSet {
+        createBlurBindingSet(layout: BindingLayoutHandle, sampler: SamplerHandle, input: TextureHandle, output: TextureHandle): BindingSet {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, input);
             setDesc.bindSampler(0, sampler);

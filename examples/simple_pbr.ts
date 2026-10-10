@@ -593,9 +593,9 @@ namespace SimplePbr {
         private pbrConstants: f32[];
         private skyConstants: f32[];
         private toneMapConstants: f32[];
-        private pbrLayout: Opaque;
-        private skyLayout: Opaque;
-        private toneMapLayout: Opaque;
+        private pbrLayout: BindingLayoutHandle;
+        private skyLayout: BindingLayoutHandle;
+        private toneMapLayout: BindingLayoutHandle;
         private pbrInputLayout: InputLayoutHandle;
         private skyInputLayout: InputLayoutHandle;
         private pbrVS: ShaderHandle;

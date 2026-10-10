@@ -16,7 +16,7 @@ namespace RtTriangle {
     class RayTracedTrianglePass {
         private app: App;
         private shaderLibrary: ShaderLibraryHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         // Kept alive for as long as the TLAS: only the D3D12 backend of NVRHI references it from there.
         private bottomLevelAS: Opaque;

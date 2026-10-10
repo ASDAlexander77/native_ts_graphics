@@ -240,7 +240,7 @@ namespace SimpleBezier {
         private ds: ShaderHandle;
         private pixelShaders: ShaderHandle[];
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private constantBuffer: BufferHandle;
         private controlPointVB: BufferHandle;

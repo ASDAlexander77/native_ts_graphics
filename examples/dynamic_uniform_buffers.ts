@@ -171,7 +171,7 @@ namespace DynamicUniformBuffers {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSets: BindingSet[];
         private viewBuffer: BufferHandle;
         private dynamicBuffer: BufferHandle;

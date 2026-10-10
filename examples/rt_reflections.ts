@@ -76,8 +76,8 @@ namespace RtReflections {
         private camera: Camera;
         private view: View;
         private shaderLibrary: ShaderLibraryHandle;
-        private globalBindingLayout: Opaque;
-        private localBindingLayout: Opaque;
+        private globalBindingLayout: BindingLayoutHandle;
+        private localBindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         private constantBuffer: BufferHandle;
         private accelStructs: SceneAccelStructs;

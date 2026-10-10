@@ -22,7 +22,7 @@ namespace PredicationQueries {
     // disappears while the near quad covers it.
     class PredicationQueriesPass {
         private app: App;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
         private inputLayout: InputLayoutHandle;

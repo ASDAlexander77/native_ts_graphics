@@ -74,12 +74,12 @@ namespace DescriptorIndexing {
         private nonUniformPS: ShaderHandle;
         private updateAfterBindVS: ShaderHandle;
         private updateAfterBindPS: ShaderHandle;
-        private bindingLayout: Opaque;
-        private bindlessLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
+        private bindlessLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         // The sample's two descriptor sets: the 64 textures, and the streamed one.
-        private nonUniformTable: Opaque;
-        private updateAfterBindTable: Opaque;
+        private nonUniformTable: DescriptorTableHandle;
+        private updateAfterBindTable: DescriptorTableHandle;
         private textures: TextureHandle[];
         private quadIndexBuffer: BufferHandle;
         private descriptorOffset: int;

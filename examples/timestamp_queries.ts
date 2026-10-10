@@ -107,8 +107,8 @@ namespace TimestampQueries {
         private bloomFilterPS: ShaderHandle;
         private bloomCompositePS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private modelsBindingLayout: Opaque;
-        private postBindingLayout: Opaque;
+        private modelsBindingLayout: BindingLayoutHandle;
+        private postBindingLayout: BindingLayoutHandle;
         private matricesBuffer: BufferHandle;
         private paramsBuffer: BufferHandle;
         private skybox: GltfMesh;

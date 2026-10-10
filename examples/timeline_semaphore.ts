@@ -43,7 +43,7 @@ namespace TimelineSemaphore {
         // reading it.
         private storageBindingSets: BindingSet[];
         private sampledBindingSets: BindingSet[];
-        private graphicsBindingLayout: Opaque;
+        private graphicsBindingLayout: BindingLayoutHandle;
 
         // The sample's timeline frame, and its compute timer: seconds since the last step.
         private frameNumber: int;

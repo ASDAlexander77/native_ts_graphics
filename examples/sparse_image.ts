@@ -370,8 +370,8 @@ namespace SparseImage {
         private mipVS: ShaderHandle;
         private mipPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private sceneBindingLayout: Opaque;
-        private mipBindingLayout: Opaque;
+        private sceneBindingLayout: BindingLayoutHandle;
+        private mipBindingLayout: BindingLayoutHandle;
         private mvpBuffer: BufferHandle;
         private settingsBuffer: BufferHandle;
         private sceneBindingSet: BindingSet;

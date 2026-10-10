@@ -26,7 +26,7 @@ namespace ColorWriteEnable {
         private trianglePS: ShaderHandle;
         private compositionVS: ShaderHandle;
         private compositionPS: ShaderHandle;
-        private compositionBindingLayout: Opaque;
+        private compositionBindingLayout: BindingLayoutHandle;
 
         // The sample's three attachments (the back buffer's format, sRGB), their framebuffer and
         // the composition's binding set, for the back buffers' size; a framebuffer per back buffer.

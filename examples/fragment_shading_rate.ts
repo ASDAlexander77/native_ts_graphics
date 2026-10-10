@@ -180,7 +180,7 @@ namespace FragmentShadingRate {
         private inputLayout: InputLayoutHandle;
         private skysphereMesh: GltfMesh;
         private sceneMesh: GltfMesh;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
 

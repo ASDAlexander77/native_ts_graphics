@@ -165,9 +165,9 @@ namespace FastBlockCompress {
         private pointSampler: SamplerHandle;
         // [format][kind]: format 0 BC1, 1 BC3, 2 BC5.
         private compressPipelines: Opaque[];
-        private compressLayouts: Opaque[];
-        private rmsLayout: Opaque;
-        private rmsReduceLayout: Opaque;
+        private compressLayouts: BindingLayoutHandle[];
+        private rmsLayout: BindingLayoutHandle;
+        private rmsReduceLayout: BindingLayoutHandle;
         private rmsErrorPipeline: Opaque;
         private rmsReducePipeline: Opaque;
         private reduceBufferA: BufferHandle;
@@ -178,7 +178,7 @@ namespace FastBlockCompress {
         private rmsReadbackWidth: int[];
         private rmsResult: f32[];
         private rmsConstants: f32[];
-        private quadLayout: Opaque;
+        private quadLayout: BindingLayoutHandle;
         private quadVS: ShaderHandle;
         private quadPS: ShaderHandle;
         private quadPipeline: Opaque | null;

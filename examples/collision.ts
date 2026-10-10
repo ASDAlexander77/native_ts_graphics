@@ -484,7 +484,7 @@ namespace Collision {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private pipeline: Opaque | null;
         private constants: f32[];

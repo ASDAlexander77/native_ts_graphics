@@ -218,7 +218,7 @@ namespace PatchControlPoints {
         private ds: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private commonBuffer: BufferHandle;
         private staticTessBuffer: BufferHandle;
         private dynamicTessBuffer: BufferHandle;

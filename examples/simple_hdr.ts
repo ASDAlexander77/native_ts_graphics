@@ -116,8 +116,8 @@ namespace SimpleHdr {
     // checks when the window moves or the display changes).
     class SimpleHdrPass {
         private app: App;
-        private sceneLayout: Opaque;
-        private convertLayout: Opaque;
+        private sceneLayout: BindingLayoutHandle;
+        private convertLayout: BindingLayoutHandle;
         private rectVS: ShaderHandle;
         private lineVS: ShaderHandle;
         private colorPS: ShaderHandle;

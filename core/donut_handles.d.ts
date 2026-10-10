@@ -27,3 +27,11 @@ declare class ShaderHandle extends ResourceHandle { private readonly __shader: i
 declare class ShaderLibraryHandle extends ResourceHandle { private readonly __shaderLibrary: int; }
 declare class InputLayoutHandle extends ResourceHandle { private readonly __inputLayout: int; }
 declare class InputLayoutDescHandle { private readonly __inputLayoutDesc: int; }
+declare class BindingLayoutHandle extends ResourceHandle { private readonly __bindingLayout: int; }
+declare class BindingSetHandle extends ResourceHandle { private readonly __bindingSet: int; }
+declare class DescriptorTableHandle extends BindingSetHandle { private readonly __descriptorTable: int; }
+declare class BindingSetDescHandle { private readonly __bindingSetDesc: int; }
+declare class BindingLayoutDescHandle { private readonly __bindingLayoutDesc: int; }
+declare class BindlessLayoutDescHandle { private readonly __bindlessLayoutDesc: int; }
+declare class ObjectHandle { private readonly __object: int; }
+declare class DescriptorTableManagerHandle extends ObjectHandle { private readonly __descriptorTableManager: int; }

@@ -239,9 +239,9 @@ namespace RayTracingInvocationReorder {
         serEnabled: boolean;
         coherenceHintEnabled: boolean;
 
-        private bindingLayout: Opaque;
-        private bindlessLayout: Opaque;
-        private descriptorTable: Opaque;
+        private bindingLayout: BindingLayoutHandle;
+        private bindlessLayout: BindingLayoutHandle;
+        private descriptorTable: DescriptorTableHandle;
         private shaderTable: ShaderTable;
         private constantBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;

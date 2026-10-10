@@ -319,17 +319,17 @@ export class App {
     }
 
     // Same, with an input layout and one binding layout.
-    createGraphicsPipelineWithLayouts(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque): Opaque {
+    createGraphicsPipelineWithLayouts(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle): Opaque {
         return Donut_CreateGraphicsPipelineWithLayouts(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout);
     }
 
     // Same, drawing primitiveType, with each layout optional (null for none).
-    createGraphicsPipelineWithTopology(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque {
+    createGraphicsPipelineWithTopology(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: BindingLayoutHandle | null, primitiveType: PrimitiveType): Opaque {
         return Donut_CreateGraphicsPipelineWithTopology(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout, primitiveType);
     }
 
     // Same, blending into the framebuffer with blendMode.
-    createGraphicsPipelineWithBlend(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque {
+    createGraphicsPipelineWithBlend(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: BindingLayoutHandle | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque {
         return Donut_CreateGraphicsPipelineWithBlend(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout, primitiveType, blendMode);
     }
 
@@ -543,7 +543,7 @@ export class App {
 
     // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
     // writes, back faces culled (clockwise triangles are front faces).
-    createGraphicsPipelineForFramebuffer(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque): Opaque {
+    createGraphicsPipelineForFramebuffer(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle): Opaque {
         return Donut_CreateGraphicsPipelineForFramebuffer(this.handle, framebuffer, vertexShader, pixelShader, inputLayout, bindingLayout);
     }
 
@@ -738,7 +738,7 @@ export class App {
     // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
     // no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
     // global binding layout.
-    createRayTracingPipeline(shaderLibrary: ShaderLibraryHandle, bindingLayout: Opaque, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque {
+    createRayTracingPipeline(shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque {
         return Donut_CreateRayTracingPipeline(this.handle, shaderLibrary, bindingLayout, rayGenEntry, missEntry, hitGroupName, closestHitEntry, maxPayloadSize);
     }
 
@@ -754,7 +754,7 @@ export class App {
 
     // Like Donut_CreateRayTracingPipeline, with an any-hit shader too (either hit shader may be ""),
     // and a second global binding layout (e.g. bindless; null for none).
-    createRayTracingPipelineWithLayouts(shaderLibrary: ShaderLibraryHandle, bindingLayout: Opaque, secondBindingLayout: Opaque | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, anyHitEntry: string, maxPayloadSize: int): Opaque {
+    createRayTracingPipelineWithLayouts(shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle, secondBindingLayout: BindingLayoutHandle | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, anyHitEntry: string, maxPayloadSize: int): Opaque {
         return Donut_CreateRayTracingPipelineWithLayouts(this.handle, shaderLibrary, bindingLayout, secondBindingLayout, rayGenEntry, missEntry, hitGroupName, closestHitEntry, anyHitEntry, maxPayloadSize);
     }
 
@@ -764,7 +764,7 @@ export class App {
     }
 
     // Binding set for an existing layout.
-    createBindingSetForLayout(bindingSetDesc: BindingSetDesc, bindingLayout: Opaque): BindingSet {
+    createBindingSetForLayout(bindingSetDesc: BindingSetDesc, bindingLayout: BindingLayoutHandle): BindingSet {
         return new BindingSet(Donut_CreateBindingSetForLayout(this.handle, bindingSetDesc.handle, bindingLayout));
     }
 
@@ -778,26 +778,26 @@ export class App {
         return new ShaderTable(Donut_CreateEmptyShaderTable(this.handle, rayTracingPipeline));
     }
 
-    createBindlessLayout(bindlessLayoutDesc: BindlessLayoutDesc): Opaque {
+    createBindlessLayout(bindlessLayoutDesc: BindlessLayoutDesc): BindingLayoutHandle {
         return Donut_CreateBindlessLayout(this.handle, bindlessLayoutDesc.handle);
     }
 
     // Donut's DescriptorTableManager over a bindless layout; scenes loaded with
     // Donut_LoadSceneWithDescriptorTable register their buffers and textures in it.
-    createDescriptorTableManager(bindlessLayout: Opaque): DescriptorTableManager {
+    createDescriptorTableManager(bindlessLayout: BindingLayoutHandle): DescriptorTableManager {
         return new DescriptorTableManager(Donut_CreateDescriptorTableManager(this.handle, bindlessLayout));
     }
 
     // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors in
     // each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
-    createDescriptorTable(bindlessLayout: Opaque, capacity: int): Opaque {
+    createDescriptorTable(bindlessLayout: BindingLayoutHandle, capacity: int): DescriptorTableHandle {
         return Donut_CreateDescriptorTable(this.handle, bindlessLayout, capacity);
     }
 
     // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at once
     // (also into a table bound by command lists still recording or running: the bindless layouts are
     // update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
-    writeDescriptorTableTexture(descriptorTable: Opaque, slot: int, texture: TextureHandle): int {
+    writeDescriptorTableTexture(descriptorTable: DescriptorTableHandle, slot: int, texture: TextureHandle): int {
         return Donut_WriteDescriptorTableTexture(this.handle, descriptorTable, slot, texture);
     }
 
@@ -809,7 +809,7 @@ export class App {
     }
 
     // Register space 0, visible to shaderType's stages.
-    createBindingLayout(bindingLayoutDesc: BindingLayoutDesc, shaderType: ShaderType): Opaque {
+    createBindingLayout(bindingLayoutDesc: BindingLayoutDesc, shaderType: ShaderType): BindingLayoutHandle {
         return Donut_CreateBindingLayout(this.handle, bindingLayoutDesc.handle, shaderType);
     }
 
@@ -819,18 +819,18 @@ export class App {
     }
 
     // Same, from a binding layout.
-    createComputePipelineWithLayout(computeShader: ShaderHandle, bindingLayout: Opaque): Opaque {
+    createComputePipelineWithLayout(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle): Opaque {
         return Donut_CreateComputePipelineWithLayout(this.handle, computeShader, bindingLayout);
     }
 
     // Same, with a second binding layout (e.g. bindless; null for none).
-    createComputePipelineWithLayouts(computeShader: ShaderHandle, bindingLayout: Opaque, secondBindingLayout: Opaque | null): Opaque {
+    createComputePipelineWithLayouts(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle, secondBindingLayout: BindingLayoutHandle | null): Opaque {
         return Donut_CreateComputePipelineWithLayouts(this.handle, computeShader, bindingLayout, secondBindingLayout);
     }
 
     // A binding set from the app's binding cache (the description is freed): created once, reused for
     // identical descriptions. Valid until Donut_ClearBindingCache.
-    getCachedBindingSet(bindingSetDesc: BindingSetDesc, bindingLayout: Opaque): BindingSet {
+    getCachedBindingSet(bindingSetDesc: BindingSetDesc, bindingLayout: BindingLayoutHandle): BindingSet {
         return new BindingSet(Donut_GetCachedBindingSet(this.handle, bindingSetDesc.handle, bindingLayout));
     }
 
@@ -839,7 +839,7 @@ export class App {
     // its textures (RWTexture2D at u0, the run index as a uint push constant at b0; the layout must
     // hold exactly those), and hands it to the render thread. A null handle if there's no compute
     // queue.
-    createAsyncComputeLoop(computePipeline: Opaque, bindingLayout: Opaque, groupsX: int, groupsY: int, intervalMicroseconds: int): AsyncComputeLoop {
+    createAsyncComputeLoop(computePipeline: Opaque, bindingLayout: BindingLayoutHandle, groupsX: int, groupsY: int, intervalMicroseconds: int): AsyncComputeLoop {
         return new AsyncComputeLoop(Donut_CreateAsyncComputeLoop(this.handle, computePipeline, bindingLayout, groupsX, groupsY, intervalMicroseconds));
     }
 
@@ -900,7 +900,7 @@ export class App {
     }
 
     // C++ objects (scenes, cameras, ...) are owned by the app until released or the app is destroyed.
-    releaseObject(object: Opaque): void {
+    releaseObject(object: ObjectHandle): void {
         Donut_ReleaseObject(this.handle, object);
     }
 
@@ -1612,7 +1612,7 @@ export class Frame {
     }
 
     // Same, with a descriptor table bound after the binding set.
-    dispatchRaysWithDescriptorTable(shaderTable: ShaderTable, bindingSet: BindingSet, descriptorTable: Opaque, width: int, height: int): void {
+    dispatchRaysWithDescriptorTable(shaderTable: ShaderTable, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, width: int, height: int): void {
         Donut_DispatchRaysWithDescriptorTable(this.handle, shaderTable.handle, bindingSet.handle, descriptorTable, width, height);
     }
 
@@ -1638,7 +1638,7 @@ export class Frame {
 
     // A descriptor table (Donut_CreateDescriptorTable, Donut_GetDescriptorTable) for the draw, in the
     // pipeline's binding layout order as Donut_DrawAddBindingSet.
-    drawAddDescriptorTable(descriptorTable: Opaque): void {
+    drawAddDescriptorTable(descriptorTable: DescriptorTableHandle): void {
         Donut_DrawAddDescriptorTable(this.handle, descriptorTable);
     }
 
@@ -1869,7 +1869,7 @@ export class CommandList {
     }
 
     // Same, with a descriptor table bound after the binding set.
-    dispatchWithDescriptorTable(computePipeline: Opaque, bindingSet: BindingSet, descriptorTable: Opaque, groupsX: int, groupsY: int, groupsZ: int): void {
+    dispatchWithDescriptorTable(computePipeline: Opaque, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, groupsX: int, groupsY: int, groupsZ: int): void {
         Donut_DispatchWithDescriptorTable(this.handle, computePipeline, bindingSet.handle, descriptorTable, groupsX, groupsY, groupsZ);
     }
 
@@ -2093,10 +2093,10 @@ export class InputLayoutDesc {
 }
 
 export class BindingSetDesc {
-    readonly handle: Opaque;
+    readonly handle: BindingSetDescHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: BindingSetDescHandle | null) {
+        this.handle = handle as BindingSetDescHandle;
     }
 
     // True if the function that returned it failed.
@@ -2208,10 +2208,10 @@ export class BindingSetDesc {
 }
 
 export class BindingSet {
-    readonly handle: Opaque;
+    readonly handle: BindingSetHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: BindingSetHandle | null) {
+        this.handle = handle as BindingSetHandle;
     }
 
     // True if the function that returned it failed.
@@ -2220,16 +2220,16 @@ export class BindingSet {
     }
 
     // The layout a binding set was created with; valid as long as the binding set.
-    getBindingLayout(): Opaque {
+    getBindingLayout(): BindingLayoutHandle {
         return Donut_GetBindingLayout(this.handle);
     }
 }
 
 export class BindingLayoutDesc {
-    readonly handle: Opaque;
+    readonly handle: BindingLayoutDescHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: BindingLayoutDescHandle | null) {
+        this.handle = handle as BindingLayoutDescHandle;
     }
 
     // True if the function that returned it failed.
@@ -2306,10 +2306,10 @@ export class BindingLayoutDesc {
 }
 
 export class BindlessLayoutDesc {
-    readonly handle: Opaque;
+    readonly handle: BindlessLayoutDescHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: BindlessLayoutDescHandle | null) {
+        this.handle = handle as BindlessLayoutDescHandle;
     }
 
     // True if the function that returned it failed.
@@ -2334,10 +2334,10 @@ export class BindlessLayoutDesc {
 }
 
 export class DescriptorTableManager {
-    readonly handle: Opaque;
+    readonly handle: DescriptorTableManagerHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: DescriptorTableManagerHandle | null) {
+        this.handle = handle as DescriptorTableManagerHandle;
     }
 
     // True if the function that returned it failed.
@@ -2346,7 +2346,7 @@ export class DescriptorTableManager {
     }
 
     // The table, to bind after a binding set; valid as long as the manager.
-    getDescriptorTable(): Opaque {
+    getDescriptorTable(): DescriptorTableHandle {
         return Donut_GetDescriptorTable(this.handle);
     }
 }
@@ -2369,7 +2369,7 @@ export class RtPipelineDesc {
         return new RtPipelineDesc(Donut_CreateRayTracingPipelineDesc(maxPayloadSize, maxRecursionDepth));
     }
 
-    addGlobalBindingLayout(bindingLayout: Opaque): void {
+    addGlobalBindingLayout(bindingLayout: BindingLayoutHandle): void {
         Donut_RtPipelineAddGlobalBindingLayout(this.handle, bindingLayout);
     }
 
@@ -2380,13 +2380,13 @@ export class RtPipelineDesc {
 
     // Triangle hit group; "" for no closest-hit / any-hit shader; an optional local binding layout
     // (D3D12 only), whose binding sets come with each shader table entry.
-    addHitGroup(shaderLibrary: ShaderLibraryHandle, exportName: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
+    addHitGroup(shaderLibrary: ShaderLibraryHandle, exportName: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: BindingLayoutHandle | null): void {
         Donut_RtPipelineAddHitGroup(this.handle, shaderLibrary, exportName, closestHitEntry, anyHitEntry, localBindingLayout);
     }
 
     // Procedural primitive hit group, for AABB geometries (Donut_AddTriangleBlasAabbGeometry): its
     // intersection shader by entry name, then closest-hit / any-hit shaders as above ("" for none).
-    addProceduralHitGroup(shaderLibrary: ShaderLibraryHandle, exportName: string, intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
+    addProceduralHitGroup(shaderLibrary: ShaderLibraryHandle, exportName: string, intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: BindingLayoutHandle | null): void {
         Donut_RtPipelineAddProceduralHitGroup(this.handle, shaderLibrary, exportName, intersectionEntry, closestHitEntry, anyHitEntry, localBindingLayout);
     }
 
@@ -2429,7 +2429,7 @@ export class GraphicsPipelineDesc {
         return new GraphicsPipelineDesc(Donut_CreateMeshletPipelineDesc(amplificationShader, meshShader, pixelShader));
     }
 
-    addBindingLayout(bindingLayout: Opaque): void {
+    addBindingLayout(bindingLayout: BindingLayoutHandle): void {
         Donut_GraphicsPipelineAddBindingLayout(this.handle, bindingLayout);
     }
 

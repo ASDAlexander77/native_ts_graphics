@@ -747,13 +747,13 @@ declare function Donut_CreateShaderLibraryWithDefine(app: AppHandle, fileName: s
 // Triangle list, no depth test, for the frame's framebuffer layout.
 declare function Donut_CreateGraphicsPipeline(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle): Opaque;
 // Same, with an input layout and one binding layout.
-declare function Donut_CreateGraphicsPipelineWithLayouts(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipelineWithLayouts(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle): Opaque;
 // Same, drawing primitiveType, with each layout optional (null for none).
 declare function Donut_CreateGraphicsPipelineWithTopology(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle,
-    inputLayout: InputLayoutHandle | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque;
+    inputLayout: InputLayoutHandle | null, bindingLayout: BindingLayoutHandle | null, primitiveType: PrimitiveType): Opaque;
 // Same, blending into the framebuffer with blendMode.
 declare function Donut_CreateGraphicsPipelineWithBlend(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle,
-    inputLayout: InputLayoutHandle | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque;
+    inputLayout: InputLayoutHandle | null, bindingLayout: BindingLayoutHandle | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque;
 // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
 declare function Donut_CreateMeshletPipeline(app: AppHandle, frame: FrameHandle, amplificationShader: ShaderHandle, meshShader: ShaderHandle, pixelShader: ShaderHandle): Opaque;
 // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
@@ -886,7 +886,7 @@ declare function Donut_CopyTextureRegion(commandList: CommandListHandle, dstText
 // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
 // writes, back faces culled (clockwise triangles are front faces).
 declare function Donut_CreateGraphicsPipelineForFramebuffer(app: AppHandle, framebuffer: Opaque, vertexShader: ShaderHandle,
-    pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque): Opaque;
+    pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle): Opaque;
 // Graphics pipelines of any shape: a description built with the Donut_GraphicsPipeline* functions,
 // freed by Donut_CreateGraphicsPipelineFromDesc. It starts as a triangle list with NVRHI's default
 // render state: depth test (less) and writes, back faces culled (clockwise triangles are front
@@ -896,7 +896,7 @@ declare function Donut_CreateGraphicsPipelineDesc(vertexShader: ShaderHandle, pi
 // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the mesh
 // shader outputs (its outputtopology).
 declare function Donut_CreateMeshletPipelineDesc(amplificationShader: ShaderHandle | null, meshShader: ShaderHandle, pixelShader: ShaderHandle): Opaque;
-declare function Donut_GraphicsPipelineAddBindingLayout(graphicsPipelineDesc: Opaque, bindingLayout: Opaque): void;
+declare function Donut_GraphicsPipelineAddBindingLayout(graphicsPipelineDesc: Opaque, bindingLayout: BindingLayoutHandle): void;
 declare function Donut_GraphicsPipelineSetInputLayout(graphicsPipelineDesc: Opaque, inputLayout: InputLayoutHandle): void;
 declare function Donut_GraphicsPipelineSetPrimitiveType(graphicsPipelineDesc: Opaque, primitiveType: PrimitiveType): void;
 // A geometry shader between the vertex (or domain) shader and the rasterizer.
@@ -1160,7 +1160,7 @@ declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: Opaque): Opaque;
 // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
 // no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
 // global binding layout.
-declare function Donut_CreateRayTracingPipeline(app: AppHandle, shaderLibrary: ShaderLibraryHandle, bindingLayout: Opaque,
+declare function Donut_CreateRayTracingPipeline(app: AppHandle, shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle,
     rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque;
 // One ray generation shader, hit group and miss shader, by export name; keeps the pipeline alive.
 declare function Donut_CreateShaderTable(app: AppHandle, rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string, missExport: string): Opaque;
@@ -1169,88 +1169,88 @@ declare function Donut_CreateCachedShaderTable(app: AppHandle, rayTracingPipelin
     missExport: string, maxCachedVersions: int, debugName: string): Opaque;
 // Like Donut_CreateRayTracingPipeline, with an any-hit shader too (either hit shader may be ""),
 // and a second global binding layout (e.g. bindless; null for none).
-declare function Donut_CreateRayTracingPipelineWithLayouts(app: AppHandle, shaderLibrary: ShaderLibraryHandle, bindingLayout: Opaque,
-    secondBindingLayout: Opaque | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string,
+declare function Donut_CreateRayTracingPipelineWithLayouts(app: AppHandle, shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle,
+    secondBindingLayout: BindingLayoutHandle | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string,
     anyHitEntry: string, maxPayloadSize: int): Opaque;
 
 // Built up with Donut_Bind*, then consumed (freed) by Donut_CreateBindingSet.
-declare function Donut_CreateBindingSetDesc(): Opaque;
+declare function Donut_CreateBindingSetDesc(): BindingSetDescHandle;
 // Buffer<uint> at t<slot>.
-declare function Donut_BindTypedBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
+declare function Donut_BindTypedBufferSRV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // RWBuffer<uint> at u<slot>; the buffer must be writable.
-declare function Donut_BindTypedBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
+declare function Donut_BindTypedBufferUAV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
-declare function Donut_BindConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: BufferHandle, byteOffset: int, byteSize: int): void;
+declare function Donut_BindConstantBuffer(bindingSetDesc: BindingSetDescHandle, slot: int, constantBuffer: BufferHandle, byteOffset: int, byteSize: int): void;
 // cbuffer at b<slot>: all of a constant buffer (required for volatile ones).
-declare function Donut_BindEntireConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: BufferHandle): void;
+declare function Donut_BindEntireConstantBuffer(bindingSetDesc: BindingSetDescHandle, slot: int, constantBuffer: BufferHandle): void;
 // StructuredBuffer at t<slot>, e.g. from Donut_GetSceneBuffer.
-declare function Donut_BindStructuredBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
+declare function Donut_BindStructuredBufferSRV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // RWStructuredBuffer at u<slot>, from Donut_CreateRWStructuredBuffer.
-declare function Donut_BindStructuredBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
+declare function Donut_BindStructuredBufferUAV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // ByteAddressBuffer at t<slot> (e.g. Donut_CreateStaticRawVertexBuffer).
-declare function Donut_BindRawBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
+declare function Donut_BindRawBufferSRV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // RWByteAddressBuffer at u<slot> (e.g. Donut_CreateDrawIndexedIndirectBuffer).
-declare function Donut_BindRawBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
+declare function Donut_BindRawBufferUAV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // Element arrayElement of a Donut_LayoutTextureSRVArray array of Texture2D at t<slot>.
-declare function Donut_BindTextureSRVArrayElement(bindingSetDesc: Opaque, slot: int, arrayElement: int, texture: TextureHandle): void;
+declare function Donut_BindTextureSRVArrayElement(bindingSetDesc: BindingSetDescHandle, slot: int, arrayElement: int, texture: TextureHandle): void;
 // Push constants (Donut_LayoutPushConstants) at b<slot>; their values come with each dispatch or
 // draw (Donut_DispatchWithPushConstants, Donut_DrawIndexedWithPushConstants).
-declare function Donut_BindPushConstants(bindingSetDesc: Opaque, slot: int, byteSize: int): void;
+declare function Donut_BindPushConstants(bindingSetDesc: BindingSetDescHandle, slot: int, byteSize: int): void;
 // Texture2D at t<slot>.
-declare function Donut_BindTextureSRV(bindingSetDesc: Opaque, slot: int, texture: TextureHandle): void;
+declare function Donut_BindTextureSRV(bindingSetDesc: BindingSetDescHandle, slot: int, texture: TextureHandle): void;
 // Same, one level of the texture only.
-declare function Donut_BindTextureSRVMip(bindingSetDesc: Opaque, slot: int, texture: TextureHandle, mipLevel: int): void;
+declare function Donut_BindTextureSRVMip(bindingSetDesc: BindingSetDescHandle, slot: int, texture: TextureHandle, mipLevel: int): void;
 // Same, mipCount levels from firstMip on: the shader's level 0 is firstMip (SampleLevel(..., n)
 // reads level firstMip + n, Load and Gather firstMip).
-declare function Donut_BindTextureSRVMips(bindingSetDesc: Opaque, slot: int, texture: TextureHandle, firstMip: int, mipCount: int): void;
+declare function Donut_BindTextureSRVMips(bindingSetDesc: BindingSetDescHandle, slot: int, texture: TextureHandle, firstMip: int, mipCount: int): void;
 // SamplerState at s<slot>.
-declare function Donut_BindSampler(bindingSetDesc: Opaque, slot: int, sampler: SamplerHandle): void;
+declare function Donut_BindSampler(bindingSetDesc: BindingSetDescHandle, slot: int, sampler: SamplerHandle): void;
 // RWTexture2D<float4> at u<slot>.
-declare function Donut_BindTextureUAV(bindingSetDesc: Opaque, slot: int, texture: TextureHandle): void;
+declare function Donut_BindTextureUAV(bindingSetDesc: BindingSetDescHandle, slot: int, texture: TextureHandle): void;
 // RaytracingAccelerationStructure at t<slot>.
-declare function Donut_BindAccelStruct(bindingSetDesc: Opaque, slot: int, accelStruct: Opaque): void;
+declare function Donut_BindAccelStruct(bindingSetDesc: BindingSetDescHandle, slot: int, accelStruct: Opaque): void;
 // Binding set plus matching layout (register space 0) visible to shaderType's stages.
-declare function Donut_CreateBindingSet(app: AppHandle, bindingSetDesc: Opaque, shaderType: ShaderType): Opaque;
+declare function Donut_CreateBindingSet(app: AppHandle, bindingSetDesc: BindingSetDescHandle, shaderType: ShaderType): BindingSetHandle;
 // Binding set for an existing layout.
-declare function Donut_CreateBindingSetForLayout(app: AppHandle, bindingSetDesc: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateBindingSetForLayout(app: AppHandle, bindingSetDesc: BindingSetDescHandle, bindingLayout: BindingLayoutHandle): BindingSetHandle;
 // The layout a binding set was created with; valid as long as the binding set.
-declare function Donut_GetBindingLayout(bindingSet: Opaque): Opaque;
+declare function Donut_GetBindingLayout(bindingSet: BindingSetHandle): BindingLayoutHandle;
 
 // For a layout needed before its resources exist (e.g. by a pipeline): built up with
 // Donut_Layout*, then consumed (freed) by Donut_CreateBindingLayout.
-declare function Donut_CreateBindingLayoutDesc(): Opaque;
-declare function Donut_LayoutTextureUAV(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutAccelStruct(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutTextureSRV(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutVolatileConstantBuffer(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutSampler(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutStructuredBufferSRV(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutTypedBufferSRV(bindingLayoutDesc: Opaque, slot: int): void;
+declare function Donut_CreateBindingLayoutDesc(): BindingLayoutDescHandle;
+declare function Donut_LayoutTextureUAV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutAccelStruct(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutTextureSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutVolatileConstantBuffer(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutSampler(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutStructuredBufferSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutTypedBufferSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 // A non-volatile cbuffer.
-declare function Donut_LayoutConstantBuffer(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutStructuredBufferUAV(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutRawBufferSRV(bindingLayoutDesc: Opaque, slot: int): void;
-declare function Donut_LayoutRawBufferUAV(bindingLayoutDesc: Opaque, slot: int): void;
+declare function Donut_LayoutConstantBuffer(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutStructuredBufferUAV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutRawBufferSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+declare function Donut_LayoutRawBufferUAV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 // An array of `count` Texture2D at t<slot> (t<slot> .. t<slot + count - 1> on D3D12, one binding on
 // Vulkan); not on D3D11.
-declare function Donut_LayoutTextureSRVArray(bindingLayoutDesc: Opaque, slot: int, count: int): void;
+declare function Donut_LayoutTextureSRVArray(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, count: int): void;
 // Register space of the layout's items (D3D12 only; 0 by default).
-declare function Donut_SetBindingLayoutRegisterSpace(bindingLayoutDesc: Opaque, space: int): void;
+declare function Donut_SetBindingLayoutRegisterSpace(bindingLayoutDesc: BindingLayoutDescHandle, space: int): void;
 
 // Ray tracing pipelines of any shape: a description built with the Donut_RtPipeline* functions,
 // freed by Donut_CreateRayTracingPipelineFromDesc. maxRecursionDepth 1 = no rays from hit shaders.
 declare function Donut_CreateRayTracingPipelineDesc(maxPayloadSize: int, maxRecursionDepth: int): Opaque;
-declare function Donut_RtPipelineAddGlobalBindingLayout(pipelineDesc: Opaque, bindingLayout: Opaque): void;
+declare function Donut_RtPipelineAddGlobalBindingLayout(pipelineDesc: Opaque, bindingLayout: BindingLayoutHandle): void;
 // A ray generation or miss shader, exported by its entry name.
 declare function Donut_RtPipelineAddShader(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, entryName: string, shaderType: ShaderType): void;
 // Triangle hit group; "" for no closest-hit / any-hit shader; an optional local binding layout
 // (D3D12 only), whose binding sets come with each shader table entry.
 declare function Donut_RtPipelineAddHitGroup(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, exportName: string,
-    closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void;
+    closestHitEntry: string, anyHitEntry: string, localBindingLayout: BindingLayoutHandle | null): void;
 // Procedural primitive hit group, for AABB geometries (Donut_AddTriangleBlasAabbGeometry): its
 // intersection shader by entry name, then closest-hit / any-hit shaders as above ("" for none).
 declare function Donut_RtPipelineAddProceduralHitGroup(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, exportName: string,
-    intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void;
+    intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: BindingLayoutHandle | null): void;
 // The largest hit attributes the pipeline's shaders pass (ReportHit's attributes; the default is 8
 // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
 declare function Donut_RtPipelineSetMaxAttributeSize(pipelineDesc: Opaque, byteSize: int): void;
@@ -1262,27 +1262,27 @@ declare function Donut_CreateRayTracingPipelineFromDesc(app: AppHandle, pipeline
 declare function Donut_CreateEmptyShaderTable(app: AppHandle, rayTracingPipeline: Opaque): Opaque;
 declare function Donut_ShaderTableSetRayGeneration(shaderTable: Opaque, exportName: string): void;
 declare function Donut_ShaderTableAddMiss(shaderTable: Opaque, exportName: string): int;
-declare function Donut_ShaderTableAddHitGroup(shaderTable: Opaque, exportName: string, localBindingSet: Opaque | null): int;
+declare function Donut_ShaderTableAddHitGroup(shaderTable: Opaque, exportName: string, localBindingSet: BindingSetHandle | null): int;
 
 // Bindless: a layout of unbounded resource arrays, one register space each (visible to
 // shaderType's stages), freed by Donut_CreateBindlessLayout.
-declare function Donut_CreateBindlessLayoutDesc(firstSlot: int, maxCapacity: int, shaderType: ShaderType): Opaque;
+declare function Donut_CreateBindlessLayoutDesc(firstSlot: int, maxCapacity: int, shaderType: ShaderType): BindlessLayoutDescHandle;
 // ByteAddressBuffer[] / Texture2D[] in register space `space`.
-declare function Donut_BindlessLayoutAddRawBuffers(bindlessLayoutDesc: Opaque, space: int): void;
-declare function Donut_BindlessLayoutAddTextures(bindlessLayoutDesc: Opaque, space: int): void;
-declare function Donut_CreateBindlessLayout(app: AppHandle, bindlessLayoutDesc: Opaque): Opaque;
+declare function Donut_BindlessLayoutAddRawBuffers(bindlessLayoutDesc: BindlessLayoutDescHandle, space: int): void;
+declare function Donut_BindlessLayoutAddTextures(bindlessLayoutDesc: BindlessLayoutDescHandle, space: int): void;
+declare function Donut_CreateBindlessLayout(app: AppHandle, bindlessLayoutDesc: BindlessLayoutDescHandle): BindingLayoutHandle;
 // Donut's DescriptorTableManager over a bindless layout; scenes loaded with
 // Donut_LoadSceneWithDescriptorTable register their buffers and textures in it.
-declare function Donut_CreateDescriptorTableManager(app: AppHandle, bindlessLayout: Opaque): Opaque;
+declare function Donut_CreateDescriptorTableManager(app: AppHandle, bindlessLayout: BindingLayoutHandle): DescriptorTableManagerHandle;
 // The table, to bind after a binding set; valid as long as the manager.
-declare function Donut_GetDescriptorTable(descriptorTableManager: Opaque): Opaque;
+declare function Donut_GetDescriptorTable(descriptorTableManager: DescriptorTableManagerHandle): DescriptorTableHandle;
 // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors in
 // each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
-declare function Donut_CreateDescriptorTable(app: AppHandle, bindlessLayout: Opaque, capacity: int): Opaque;
+declare function Donut_CreateDescriptorTable(app: AppHandle, bindlessLayout: BindingLayoutHandle, capacity: int): DescriptorTableHandle;
 // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at once
 // (also into a table bound by command lists still recording or running: the bindless layouts are
 // update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
-declare function Donut_WriteDescriptorTableTexture(app: AppHandle, descriptorTable: Opaque, slot: int, texture: TextureHandle): int;
+declare function Donut_WriteDescriptorTableTexture(app: AppHandle, descriptorTable: DescriptorTableHandle, slot: int, texture: TextureHandle): int;
 // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
 // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
 // (different every run).
@@ -1296,31 +1296,31 @@ declare function Donut_RandomUniformInt(randomEngine: Opaque, a: int, b: int): i
 // values in pairs and keeps the second).
 declare function Donut_RandomNormalFloats(randomEngine: Opaque, mean: number, stddev: number, count: int, dst: Opaque): void;
 // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
-declare function Donut_LayoutPushConstants(bindingLayoutDesc: Opaque, slot: int, byteSize: int): void;
+declare function Donut_LayoutPushConstants(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, byteSize: int): void;
 // Register space 0, visible to shaderType's stages.
-declare function Donut_CreateBindingLayout(app: AppHandle, bindingLayoutDesc: Opaque, shaderType: ShaderType): Opaque;
+declare function Donut_CreateBindingLayout(app: AppHandle, bindingLayoutDesc: BindingLayoutDescHandle, shaderType: ShaderType): BindingLayoutHandle;
 // Uses the layout of bindingSet.
-declare function Donut_CreateComputePipeline(app: AppHandle, computeShader: ShaderHandle, bindingSet: Opaque): Opaque;
+declare function Donut_CreateComputePipeline(app: AppHandle, computeShader: ShaderHandle, bindingSet: BindingSetHandle): Opaque;
 // Same, from a binding layout.
-declare function Donut_CreateComputePipelineWithLayout(app: AppHandle, computeShader: ShaderHandle, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateComputePipelineWithLayout(app: AppHandle, computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle): Opaque;
 // Same, with a second binding layout (e.g. bindless; null for none).
-declare function Donut_CreateComputePipelineWithLayouts(app: AppHandle, computeShader: ShaderHandle, bindingLayout: Opaque,
-    secondBindingLayout: Opaque | null): Opaque;
+declare function Donut_CreateComputePipelineWithLayouts(app: AppHandle, computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle,
+    secondBindingLayout: BindingLayoutHandle | null): Opaque;
 // A binding set from the app's binding cache (the description is freed): created once, reused for
 // identical descriptions. Valid until Donut_ClearBindingCache.
-declare function Donut_GetCachedBindingSet(app: AppHandle, bindingSetDesc: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_GetCachedBindingSet(app: AppHandle, bindingSetDesc: BindingSetDescHandle, bindingLayout: BindingLayoutHandle): BindingSetHandle;
 
 // Async compute: every intervalMicroseconds, a C++ worker thread dispatches groupsX x groupsY
 // groups of a compute pipeline on the compute queue (needs AppOptions.ComputeQueue) into one of
 // its textures (RWTexture2D at u0, the run index as a uint push constant at b0; the layout must
 // hold exactly those), and hands it to the render thread. Null if there's no compute queue.
-declare function Donut_CreateAsyncComputeLoop(app: AppHandle, computePipeline: Opaque, bindingLayout: Opaque,
+declare function Donut_CreateAsyncComputeLoop(app: AppHandle, computePipeline: Opaque, bindingLayout: BindingLayoutHandle,
     groupsX: int, groupsY: int, intervalMicroseconds: int): Opaque;
 // Before starting it.
 declare function Donut_AddAsyncComputeTexture(asyncComputeLoop: Opaque, texture: TextureHandle): void;
 // Same, with the binding set (from the loop's layout) to write it with: its UAV at u0, the push
 // constants at b0 and anything else the shader reads, instead of the loop's own set of those two.
-declare function Donut_AddAsyncComputeTextureWithBindingSet(asyncComputeLoop: Opaque, texture: TextureHandle, bindingSet: Opaque): void;
+declare function Donut_AddAsyncComputeTextureWithBindingSet(asyncComputeLoop: Opaque, texture: TextureHandle, bindingSet: BindingSetHandle): void;
 // The push constants of the runs from now on, instead of the run index: byteSize bytes from data
 // (Ref of a `let` array element), copied during the call; the layout's push constants' size.
 declare function Donut_SetAsyncComputePushConstants(asyncComputeLoop: Opaque, data: Opaque, byteSize: int): void;
@@ -1346,7 +1346,7 @@ declare function Donut_ExecuteCommandList(app: AppHandle, commandList: CommandLi
 // Draws vertexCount vertices (no vertex buffers: e.g. a triangle over the target from SV_VertexID)
 // with a graphics pipeline into all of a framebuffer, with one binding set (null for none): for
 // drawing outside the frames, e.g. into a texture's levels at load time.
-declare function Donut_CommandListDraw(commandList: CommandListHandle, pipeline: Opaque, framebuffer: Opaque, bindingSet: Opaque | null,
+declare function Donut_CommandListDraw(commandList: CommandListHandle, pipeline: Opaque, framebuffer: Opaque, bindingSet: BindingSetHandle | null,
     vertexCount: int): void;
 // A command list for the compute queue (needs AppOptions.ComputeQueue), recorded each frame and
 // run with Donut_ExecuteFrameComputeWork; null if there's no compute queue.
@@ -1360,13 +1360,13 @@ declare function Donut_WriteBuffer(commandList: CommandListHandle, buffer: Buffe
 // D3D11 drops partial constant buffer writes).
 declare function Donut_WriteBufferAt(commandList: CommandListHandle, buffer: BufferHandle, byteOffset: int, data: Opaque, byteSize: int): void;
 declare function Donut_CopyBuffer(commandList: CommandListHandle, dst: BufferHandle, dstOffset: int, src: BufferHandle, srcOffset: int, byteSize: int): void;
-declare function Donut_Dispatch(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: Opaque, groupsX: int, groupsY: int, groupsZ: int): void;
+declare function Donut_Dispatch(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: BindingSetHandle, groupsX: int, groupsY: int, groupsZ: int): void;
 // Same, with a descriptor table bound after the binding set.
-declare function Donut_DispatchWithDescriptorTable(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: Opaque,
-    descriptorTable: Opaque, groupsX: int, groupsY: int, groupsZ: int): void;
+declare function Donut_DispatchWithDescriptorTable(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: BindingSetHandle,
+    descriptorTable: DescriptorTableHandle, groupsX: int, groupsY: int, groupsZ: int): void;
 // Same as Donut_Dispatch, with byteSize bytes of push constants from data (Ref of a `let` array
 // element) for the binding set's Donut_BindPushConstants item.
-declare function Donut_DispatchWithPushConstants(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: Opaque,
+declare function Donut_DispatchWithPushConstants(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: BindingSetHandle,
     data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void;
 // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
 declare function Donut_ClearDepth(commandList: CommandListHandle, depthTexture: TextureHandle, depth: number): void;
@@ -1511,7 +1511,7 @@ declare function Donut_ImGuiLightEditor(light: Opaque): int;
 declare function Donut_FileDialog(open: int, filters: string): string;
 
 // C++ objects (scenes, cameras, ...) are owned by the app until released or the app is destroyed.
-declare function Donut_ReleaseObject(app: AppHandle, object: Opaque): void;
+declare function Donut_ReleaseObject(app: AppHandle, object: ObjectHandle): void;
 
 // glTF or .scene.json, path relative to the executable's directory or absolute; loaded on the
 // app's thread pool, textures uploaded. Null (after logging why) on failure.
@@ -1574,7 +1574,7 @@ declare function Donut_BuildSceneAccelStructs(app: AppHandle, commandList: Comma
 declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: Opaque): Opaque;
 // Like Donut_LoadScene, registering the scene's buffers and textures in a descriptor table; the
 // scene's geometry and material buffers index into it.
-declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: Opaque): Opaque;
+declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: DescriptorTableManagerHandle): Opaque;
 // InstanceData / GeometryData / MaterialConstants structured buffers; valid as long as the scene.
 declare function Donut_GetSceneBuffer(scene: Opaque, which: SceneBuffer): BufferHandle;
 // Geometries of a loaded scene, addressed by global geometry index (0 .. count - 1).
@@ -1582,12 +1582,12 @@ declare function Donut_GetSceneGeometryCount(scene: Opaque): int;
 // Per-geometry bindings, e.g. for local binding sets: Buffer<uint> of the geometry's indices;
 // Buffer<...> of one vertex attribute; a material texture (or Donut's white / black texture if the
 // material has none); the MaterialConstants cbuffer.
-declare function Donut_BindGeometryIndexBuffer(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int): void;
-declare function Donut_BindGeometryVertexAttribute(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int,
+declare function Donut_BindGeometryIndexBuffer(bindingSetDesc: BindingSetDescHandle, slot: int, scene: Opaque, geometryIndex: int): void;
+declare function Donut_BindGeometryVertexAttribute(bindingSetDesc: BindingSetDescHandle, slot: int, scene: Opaque, geometryIndex: int,
     attribute: GeometryAttribute): void;
-declare function Donut_BindGeometryMaterialTexture(app: AppHandle, bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int,
+declare function Donut_BindGeometryMaterialTexture(app: AppHandle, bindingSetDesc: BindingSetDescHandle, slot: int, scene: Opaque, geometryIndex: int,
     which: MaterialTexture, fallback: FallbackTexture): void;
-declare function Donut_BindGeometryMaterialConstants(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int): void;
+declare function Donut_BindGeometryMaterialConstants(bindingSetDesc: BindingSetDescHandle, slot: int, scene: Opaque, geometryIndex: int): void;
 // Like Donut_BuildSceneAccelStructs, for shader tables with hitGroupStride entries per geometry in
 // global geometry index order.
 declare function Donut_BuildSceneAccelStructsWithHitGroupStride(app: AppHandle, commandList: CommandListHandle, scene: Opaque,
@@ -1610,7 +1610,7 @@ declare function Donut_UpdateSceneAccelStructs(app: AppHandle, frame: FrameHandl
 // A texture file (relative to the executable's directory) loaded and uploaded (mipmaps generated
 // if it has none), registered in a descriptor table for bindless access. It submits its own
 // command list: call it while no other one is open. Null (after logging why) on failure.
-declare function Donut_LoadBindlessTexture(app: AppHandle, descriptorTableManager: Opaque, path: string, sRGB: int): Opaque;
+declare function Donut_LoadBindlessTexture(app: AppHandle, descriptorTableManager: DescriptorTableManagerHandle, path: string, sRGB: int): Opaque;
 // Its index in the descriptor table (the shaders' array index).
 declare function Donut_GetTextureDescriptorIndex(loadedTexture: Opaque): int;
 declare function Donut_GetSceneInstanceCount(scene: Opaque): int;
@@ -1620,7 +1620,7 @@ declare function Donut_GetSceneNodePosition(scene: Opaque, path: string, dst: Op
 // Dynamic meshes: one alpha-blended geometry whose vertices (positions, texture coordinates) and
 // indices are replaced every frame, with room for maxVertices / maxIndices, buffers registered in
 // a descriptor table. Attach to a loaded scene before creating binding sets of its buffers.
-declare function Donut_CreateDynamicMesh(app: AppHandle, descriptorTableManager: Opaque, maxVertices: int, maxIndices: int, name: string): Opaque;
+declare function Donut_CreateDynamicMesh(app: AppHandle, descriptorTableManager: DescriptorTableManagerHandle, maxVertices: int, maxIndices: int, name: string): Opaque;
 declare function Donut_AttachDynamicMesh(app: AppHandle, scene: Opaque, dynamicMesh: Opaque): void;
 // A Donut_LoadBindlessTexture texture; the scene picks it up at the next Donut_RefreshScene.
 declare function Donut_SetDynamicMeshTexture(app: AppHandle, dynamicMesh: Opaque, loadedTexture: Opaque): void;
@@ -1793,7 +1793,7 @@ declare function Donut_CreateD3D12WorkGraph(app: AppHandle, shaderLibrary: Shade
 // from data as its root arguments, set through computePipeline (one with the same root signature;
 // don't dispatch with it after the graph in the same command list). initializeBackingMemory
 // non-zero on the backing memory's first use, or after another graph used it.
-declare function Donut_DispatchD3D12WorkGraph(commandList: CommandListHandle, workGraph: Opaque, computePipeline: Opaque, bindingSet: Opaque,
+declare function Donut_DispatchD3D12WorkGraph(commandList: CommandListHandle, workGraph: Opaque, computePipeline: Opaque, bindingSet: BindingSetHandle,
     data: Opaque, byteSize: int, initializeBackingMemory: int): void;
 
 // Valid only inside a render callback.
@@ -1803,10 +1803,10 @@ declare function Donut_Draw(frame: FrameHandle, pipeline: Opaque, vertexCount: i
 // Launches groupsX amplification-shader groups of a meshlet pipeline, over the whole framebuffer.
 declare function Donut_DispatchMesh(frame: FrameHandle, meshletPipeline: Opaque, groupsX: int): void;
 // Traces width x height rays with a shader table, with bindingSet as its global bindings.
-declare function Donut_DispatchRays(frame: FrameHandle, shaderTable: Opaque, bindingSet: Opaque, width: int, height: int): void;
+declare function Donut_DispatchRays(frame: FrameHandle, shaderTable: Opaque, bindingSet: BindingSetHandle, width: int, height: int): void;
 // Same, with a descriptor table bound after the binding set.
-declare function Donut_DispatchRaysWithDescriptorTable(frame: FrameHandle, shaderTable: Opaque, bindingSet: Opaque,
-    descriptorTable: Opaque, width: int, height: int): void;
+declare function Donut_DispatchRaysWithDescriptorTable(frame: FrameHandle, shaderTable: Opaque, bindingSet: BindingSetHandle,
+    descriptorTable: DescriptorTableHandle, width: int, height: int): void;
 // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
 // textures blitted before.
 declare function Donut_BlitTexture(app: AppHandle, frame: FrameHandle, texture: TextureHandle): void;
@@ -1820,10 +1820,10 @@ declare function Donut_GetFrameCommandList(frame: FrameHandle): CommandListHandl
 declare function Donut_BeginDraw(frame: FrameHandle, pipeline: Opaque): void;
 // Same, into another framebuffer (Donut_CreateFramebuffer; a pipeline for its layout).
 declare function Donut_BeginDrawToFramebuffer(frame: FrameHandle, pipeline: Opaque, framebuffer: Opaque): void;
-declare function Donut_DrawAddBindingSet(frame: FrameHandle, bindingSet: Opaque): void;
+declare function Donut_DrawAddBindingSet(frame: FrameHandle, bindingSet: BindingSetHandle): void;
 // A descriptor table (Donut_CreateDescriptorTable, Donut_GetDescriptorTable) for the draw, in the
 // pipeline's binding layout order as Donut_DrawAddBindingSet.
-declare function Donut_DrawAddDescriptorTable(frame: FrameHandle, descriptorTable: Opaque): void;
+declare function Donut_DrawAddDescriptorTable(frame: FrameHandle, descriptorTable: DescriptorTableHandle): void;
 // R32_UINT indices.
 declare function Donut_DrawSetIndexBuffer(frame: FrameHandle, indexBuffer: BufferHandle): void;
 // R16_UINT indices.

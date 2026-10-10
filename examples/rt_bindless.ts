@@ -51,9 +51,9 @@ namespace RtBindless {
         private sunLight: Light;
         private camera: Camera;
         private view: View;
-        private bindlessLayout: Opaque;
-        private bindingLayout: Opaque;
-        private descriptorTable: Opaque;
+        private bindlessLayout: BindingLayoutHandle;
+        private bindingLayout: BindingLayoutHandle;
+        private descriptorTable: DescriptorTableHandle;
         private constantBuffer: BufferHandle;
         private accelStructs: SceneAccelStructs;
         private shaderLibrary: ShaderLibraryHandle;

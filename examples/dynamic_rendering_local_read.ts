@@ -312,9 +312,9 @@ namespace DynamicRenderingLocalRead {
         private transparentPS: ShaderHandle;
         private opaqueInputLayout: InputLayoutHandle;
         private transparentInputLayout: InputLayoutHandle;
-        private opaqueBindingLayout: Opaque;
-        private compositionBindingLayout: Opaque;
-        private transparentBindingLayout: Opaque;
+        private opaqueBindingLayout: BindingLayoutHandle;
+        private compositionBindingLayout: BindingLayoutHandle;
+        private transparentBindingLayout: BindingLayoutHandle;
         private opaqueBindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
         private lightsBuffer: BufferHandle;
@@ -440,7 +440,7 @@ namespace DynamicRenderingLocalRead {
             compositionDesc.bindTextureSRV(2, this.albedo);
             compositionDesc.bindStructuredBufferSRV(3, this.lightsBuffer);
             this.compositionBindingSet = this.app.createBindingSetForLayout(compositionDesc, this.compositionBindingLayout);
-            this.own<ResourceHandle>(this.compositionBindingSet.handle);
+            this.own(this.compositionBindingSet.handle);
             const transparentDesc = BindingSetDesc.create();
             transparentDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
             transparentDesc.bindPushConstants(1, PUSH_SIZE);
@@ -448,7 +448,7 @@ namespace DynamicRenderingLocalRead {
             transparentDesc.bindTextureSRV(4, this.glassTexture);
             transparentDesc.bindSampler(0, this.glassSampler);
             this.transparentBindingSet = this.app.createBindingSetForLayout(transparentDesc, this.transparentBindingLayout);
-            this.own<ResourceHandle>(this.transparentBindingSet.handle);
+            this.own(this.transparentBindingSet.handle);
 
             if (!this.pipelinesCreated) {
                 // The opaque scene: back faces culled (counter-clockwise front faces), depth tested

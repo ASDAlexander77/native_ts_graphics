@@ -244,9 +244,9 @@ namespace FragmentShadingRateDynamic {
         private sceneMesh: GltfMesh;
         private skyspherePipeline: Opaque;
         private cubePipeline: Opaque;
-        private renderBindingLayout: Opaque;
+        private renderBindingLayout: BindingLayoutHandle;
         private computePipeline: Opaque;
-        private computeBindingLayout: Opaque;
+        private computeBindingLayout: BindingLayoutHandle;
         private uniformBuffer: BufferHandle;
         private skysphereTexture: TextureHandle;
         private sceneTexture: TextureHandle;
@@ -430,7 +430,7 @@ namespace FragmentShadingRateDynamic {
                 computeSetDesc.bindTextureUAV(1, this.shadingRateComputeImages[i]);
                 computeSetDesc.bindStructuredBufferSRV(0, paramsBuffer);
                 const computeSet = this.app.createBindingSetForLayout(computeSetDesc, this.computeBindingLayout);
-                this.own<ResourceHandle>(computeSet.handle);
+                this.own(computeSet.handle);
                 this.computeBindingSets.push(computeSet);
 
                 // The previous back buffer's frequency content, to show.
@@ -444,7 +444,7 @@ namespace FragmentShadingRateDynamic {
                 renderSetDesc.bindTextureUAV(0, this.frequencyImages[previous]);
                 renderSetDesc.bindPushConstants(1, PUSH_SIZE);
                 const renderSet = this.app.createBindingSetForLayout(renderSetDesc, this.renderBindingLayout);
-                this.own<ResourceHandle>(renderSet.handle);
+                this.own(renderSet.handle);
                 this.renderBindingSets.push(renderSet);
             }
 

@@ -171,9 +171,9 @@ namespace OitLinkedLists {
         private combineVS: ShaderHandle;
         private combinePS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private gatherBindingLayout: Opaque;
-        private backgroundBindingLayout: Opaque;
-        private combineBindingLayout: Opaque;
+        private gatherBindingLayout: BindingLayoutHandle;
+        private backgroundBindingLayout: BindingLayoutHandle;
+        private combineBindingLayout: BindingLayoutHandle;
         private sceneConstantBuffer: BufferHandle;
         private instanceConstantBuffer: BufferHandle;
         private backgroundBindingSet: BindingSet;

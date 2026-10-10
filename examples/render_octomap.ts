@@ -419,8 +419,8 @@ namespace RenderOctomap {
         private octomapInputLayout: InputLayoutHandle;
         private gltfInputLayout: InputLayoutHandle;
         private splatInputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
-        private gltfBindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
+        private gltfBindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private gltfBindingSet: BindingSet;
         private constantBuffer: BufferHandle;
@@ -659,7 +659,7 @@ namespace RenderOctomap {
             this.app.clearBindingCache();
         }
 
-        createPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque,
+        createPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle,
             cullMode: CullMode, depthWrite: int, blendMode: BlendMode, primitiveType: PrimitiveType): Opaque {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(inputLayout);

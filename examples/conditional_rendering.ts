@@ -123,7 +123,7 @@ namespace ConditionalRendering {
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private constantBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;

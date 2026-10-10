@@ -50,8 +50,8 @@ namespace WaveIntrinsics {
     // left button is held. Keys 1-9 pick the render mode.
     class WaveIntrinsicsPass {
         private app: App;
-        private sceneLayout: Opaque;
-        private composeLayout: Opaque;
+        private sceneLayout: BindingLayoutHandle;
+        private composeLayout: BindingLayoutHandle;
         private waveVS: ShaderHandle;
         private wavePS: ShaderHandle;
         private magnifyVS: ShaderHandle;

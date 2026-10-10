@@ -276,9 +276,9 @@ namespace ShaderObjectSample {
         private postPS: ShaderHandle[];
 
         private inputLayout: InputLayoutHandle;
-        private sceneLayout: Opaque;
+        private sceneLayout: BindingLayoutHandle;
         private sceneBindingSet: BindingSet;
-        private postLayout: Opaque;
+        private postLayout: BindingLayoutHandle;
         private postSampler: SamplerHandle;
         private uniformBuffer: BufferHandle;
 

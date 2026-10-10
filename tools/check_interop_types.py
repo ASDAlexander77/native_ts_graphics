@@ -58,11 +58,19 @@ HANDLES = {
     "nvrhi::IShaderLibrary": "ShaderLibraryHandle",
     "nvrhi::IInputLayout": "InputLayoutHandle",
     "InputLayoutDesc": "InputLayoutDescHandle",
+    "nvrhi::IBindingLayout": "BindingLayoutHandle",
+    "nvrhi::IBindingSet": "BindingSetHandle",
+    "nvrhi::IDescriptorTable": "DescriptorTableHandle",
+    "nvrhi::BindingSetDesc": "BindingSetDescHandle",
+    "nvrhi::BindingLayoutDesc": "BindingLayoutDescHandle",
+    "nvrhi::BindlessLayoutDesc": "BindlessLayoutDescHandle",
+    "donut::engine::DescriptorTableManager": "DescriptorTableManagerHandle",
 }
 
 # Parameters declared narrower than their C++ type: (function, parameter) -> (C++ type, TypeScript
 # type). Donut_ReleaseObject takes any object App::OwnObject registered, kept type-erased in C++.
 OVERRIDES = {
+    ("Donut_ReleaseObject", "object"): ("void*", "ObjectHandle"),
 }
 
 # Functions with no TypeScript declaration: called from C++ only.

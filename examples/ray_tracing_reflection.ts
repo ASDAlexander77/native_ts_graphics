@@ -258,7 +258,7 @@ namespace RayTracingReflection {
         private app: App;
         private camera: SampleCamera;
 
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         private uniformBuffer: BufferHandle;
         private objDescBuffer: BufferHandle;

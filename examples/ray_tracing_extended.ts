@@ -227,9 +227,9 @@ namespace RayTracingExtended {
         private camera: Camera;
         renderMode: int;
 
-        private bindingLayout: Opaque;
-        private bindlessLayout: Opaque;
-        private descriptorTable: Opaque;
+        private bindingLayout: BindingLayoutHandle;
+        private bindlessLayout: BindingLayoutHandle;
+        private descriptorTable: DescriptorTableHandle;
         private shaderTable: ShaderTable;
         private constantBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;

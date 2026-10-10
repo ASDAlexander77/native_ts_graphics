@@ -135,8 +135,8 @@ namespace ConservativeRasterization {
         private fullscreenVS: ShaderHandle;
         private fullscreenPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private sceneBindingLayout: Opaque;
-        private fullscreenBindingLayout: Opaque;
+        private sceneBindingLayout: BindingLayoutHandle;
+        private fullscreenBindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private sceneBindingSet: BindingSet;
         private sampler: SamplerHandle;

@@ -211,7 +211,7 @@ namespace TextureCompressionBasisu {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private sampler: SamplerHandle;
         private uniformBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;

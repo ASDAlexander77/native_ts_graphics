@@ -266,8 +266,8 @@ namespace GshaderToMshader {
         private normalsMS: ShaderHandle;
         private meshPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
-        private meshBindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
+        private meshBindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private bindingSet: BindingSet;
         private meshBindingSet: BindingSet;

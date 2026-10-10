@@ -179,7 +179,7 @@ namespace VertexDynamicState {
         private objectPS: ShaderHandle;
         private gltfLayout: InputLayoutHandle;
         private sampleLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
         private skybox: GltfMesh;

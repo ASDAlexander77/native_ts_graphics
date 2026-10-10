@@ -78,7 +78,7 @@ namespace ComputeNBody {
         private computeBindingSet: BindingSet;
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
-        private drawBindingLayout: Opaque;
+        private drawBindingLayout: BindingLayoutHandle;
         private drawBindingSet: BindingSet;
         private viewConstantBuffer: BufferHandle;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.

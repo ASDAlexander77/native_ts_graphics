@@ -133,7 +133,7 @@ namespace TextureCompressionComparison {
         totalBytes: number;
 
         private pipeline: Opaque;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private sampler: SamplerHandle;
         private vertexBuffer: BufferHandle;

@@ -164,7 +164,7 @@ namespace TextureLoading {
         private vs: ShaderHandle;
         private ps: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;

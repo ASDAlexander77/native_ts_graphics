@@ -28,7 +28,7 @@ namespace AsyncCompute {
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
         private computeShader: ShaderHandle;
-        private drawBindingLayout: Opaque;
+        private drawBindingLayout: BindingLayoutHandle;
         private sampler: SamplerHandle;
         private computeLoop: AsyncComputeLoop;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.

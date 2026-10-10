@@ -166,7 +166,7 @@ namespace VertexBuffer {
         private indexBuffer: BufferHandle;
         private texture: TextureHandle;
         private inputLayout: InputLayoutHandle;
-        private bindingLayout: Opaque;
+        private bindingLayout: BindingLayoutHandle;
         private bindingSets: BindingSet[];
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private pipeline: Opaque | null;
