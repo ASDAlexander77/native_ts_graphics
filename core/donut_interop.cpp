@@ -46,6 +46,7 @@
 #include <donut/render/DepthPass.h>
 #include <donut/render/DLSS.h>
 #include <donut/render/DrawStrategy.h>
+#include <donut/render/EnvironmentMapPass.h>
 #include <donut/render/ForwardShadingPass.h>
 #include <donut/render/GBuffer.h>
 #include <donut/render/GBufferFillPass.h>
@@ -53,6 +54,7 @@
 #include <donut/render/LightProbeProcessingPass.h>
 #include <donut/render/MipMapGenPass.h>
 #include <donut/render/PixelReadbackPass.h>
+#include <donut/render/PlanarShadowMap.h>
 #include <donut/render/SkyPass.h>
 #include <donut/render/SsaoPass.h>
 #include <donut/render/TemporalAntiAliasingPass.h>
@@ -715,10 +717,19 @@ namespace
     };
 
     // A cascaded shadow map and the framebuffer its depth pass renders into.
+    // A cascaded or a planar shadow map (one of the two set), and a framebuffer over its texture.
     struct ShadowMapTarget
     {
-        std::shared_ptr<donut::render::CascadedShadowMap> shadowMap;
+        std::shared_ptr<donut::render::CascadedShadowMap> cascaded;
+        std::shared_ptr<donut::render::PlanarShadowMap> planar;
         std::shared_ptr<donut::engine::FramebufferFactory> framebuffer;
+
+        std::shared_ptr<donut::engine::IShadowMap> shadowMap() const
+        {
+            if (cascaded)
+                return cascaded;
+            return planar;
+        }
     };
 
     // Light probes sharing one diffuse and one specular cube map array (a cube per probe).
@@ -8074,7 +8085,7 @@ extern "C"
     void Donut_SetLightShadowMap(void* light, void* shadowMapTarget)
     {
         static_cast<donut::engine::Light*>(light)->shadowMap = shadowMapTarget
-            ? static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap : nullptr;
+            ? static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap() : nullptr;
     }
 
     // Cameras defined in the scene file.
@@ -8200,6 +8211,18 @@ extern "C"
     void* Donut_GetMeshInstanceNode(void* sceneGraph, int index)
     {
         return AsSceneGraph(sceneGraph)->GetMeshInstances()[index]->GetNode();
+    }
+
+    // The geometries of the index-th mesh instance's mesh, and how many indices one of them has:
+    // what drawing them from the scene's bindless buffers takes (GeometryData::numIndices).
+    int Donut_GetMeshInstanceGeometryCount(void* sceneGraph, int index)
+    {
+        return static_cast<int>(AsSceneGraph(sceneGraph)->GetMeshInstances()[index]->GetMesh()->geometries.size());
+    }
+
+    int Donut_GetMeshInstanceGeometryIndexCount(void* sceneGraph, int index, int geometry)
+    {
+        return static_cast<int>(AsSceneGraph(sceneGraph)->GetMeshInstances()[index]->GetMesh()->geometries[geometry]->numIndices);
     }
 
     // --- Views ----------------------------------------------------------------------------------
@@ -8789,19 +8812,71 @@ extern "C"
     {
         App* a = AsApp(app);
         auto target = std::make_shared<ShadowMapTarget>();
-        target->shadowMap = std::make_shared<donut::render::CascadedShadowMap>(a->device(), resolution, numCascades, 0,
+        target->cascaded = std::make_shared<donut::render::CascadedShadowMap>(a->device(), resolution, numCascades, 0,
             ChooseDepthFormat(a->device()));
-        target->shadowMap->SetupProxyViews();
+        target->cascaded->SetupProxyViews();
 
         target->framebuffer = std::make_shared<donut::engine::FramebufferFactory>(a->device());
-        target->framebuffer->DepthTarget = target->shadowMap->GetTexture();
+        target->framebuffer->DepthTarget = target->cascaded->GetTexture();
         return a->OwnObject(target);
     }
 
-    // The depth texture, one array slice per cascade.
+    // A planar shadow map of resolution x resolution: one orthographic view for a directional
+    // light (Donut_SetupPlanarShadowMapForScene), no cascades. Works wherever a cascaded one does,
+    // except the Donut_SetupShadowMapFor* fitting functions, which leave it unchanged.
+    void* Donut_CreatePlanarShadowMap(void* app, int resolution)
+    {
+        App* a = AsApp(app);
+        auto target = std::make_shared<ShadowMapTarget>();
+        target->planar = std::make_shared<donut::render::PlanarShadowMap>(a->device(), resolution,
+            ChooseDepthFormat(a->device()));
+        target->planar->SetupProxyView();
+
+        target->framebuffer = std::make_shared<donut::engine::FramebufferFactory>(a->device());
+        target->framebuffer->DepthTarget = target->planar->GetTexture();
+        return a->OwnObject(target);
+    }
+
+    // Fits a planar shadow map's view to a directional light and the whole scene graph's bounds;
+    // shadows fade out over fadeRangeWorld (world units) at its edges. Returns 1 if the view
+    // changed (the shadow map needs rendering again), 0 if not or for a cascaded shadow map.
+    //
+    // Not with PlanarShadowMap::SetupWholeSceneDirectionalLightView: it passes the scene's depth
+    // range along the light negated (-max .. -min, not min .. max) to orthoProjD3DStyle, which is
+    // right only for scenes centered on the light's node along its direction. Elsewhere geometry
+    // falls out of the depth range: D3D clamps it to the near plane, Vulkan clips it away (NVRHI
+    // turns depth clipping off only with VK_EXT_depth_clip_enable, which the app doesn't enable).
+    // SetupDynamicDirectionalLightView's box, centered on an anchor, doesn't depend on that: here
+    // the box around the scene's bounds as seen from the light, grown by 1% of their diagonal so
+    // that geometry on them (Sponza's flat roofs) isn't on its near or far plane.
+    int Donut_SetupPlanarShadowMapForScene(void* shadowMapTarget, void* light, void* sceneGraph, double fadeRangeWorld)
+    {
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        if (!target->planar)
+            return 0;
+        const auto& directionalLight = *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light));
+
+        dm::box3 bounds = AsSceneGraph(sceneGraph)->GetRootNode()->GetGlobalBoundingBox();
+        bounds = bounds.grow(dm::float3(0.01f * dm::length(bounds.diagonal())));
+
+        // The light's view rotation, as SetupDynamicDirectionalLightView makes it.
+        dm::daffine3 viewToWorld = directionalLight.GetNode()->GetLocalToWorldTransform();
+        viewToWorld.m_translation = dm::double3(0.0);
+        viewToWorld = dm::scaling(dm::double3(1.0, 1.0, -1.0)) * viewToWorld;
+        const dm::affine3 worldToView = dm::affine3(dm::inverse(viewToWorld));
+
+        // Square texels: the same extent along X and Y.
+        dm::float3 halfSize = (bounds * worldToView).diagonal() * 0.5f;
+        halfSize.x = halfSize.y = std::max(halfSize.x, halfSize.y);
+
+        return target->planar->SetupDynamicDirectionalLightView(directionalLight, bounds.center(), halfSize,
+            dm::float3(0.f), float(fadeRangeWorld)) ? 1 : 0;
+    }
+
+    // The depth texture, one array slice per cascade (one for a planar shadow map).
     void* Donut_GetShadowMapTexture(void* shadowMapTarget)
     {
-        return static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->GetTexture();
+        return static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap()->GetTexture();
     }
 
     // Fits the cascades to a directional light and the first planar view of `view`, out to
@@ -8810,16 +8885,31 @@ extern "C"
     void Donut_SetupShadowMapForView(void* shadowMapTarget, void* light, void* view, double maxShadowDistance,
         double zRange, double exponent)
     {
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        if (!target->cascaded)
+            return;
         donut::engine::IView* v = AsView(view);
         const dm::affine3 viewMatrixInv = v->GetChildView(donut::engine::ViewType::PLANAR, 0)->GetInverseViewMatrix();
-        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->SetupForPlanarViewStable(
+        target->cascaded->SetupForPlanarViewStable(
             *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light)),
             v->GetProjectionFrustum(), viewMatrixInv, float(maxShadowDistance), float(zRange), float(zRange), float(exponent));
     }
 
     void Donut_ClearShadowMap(void* commandList, void* shadowMapTarget)
     {
-        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->Clear(AsCommandList(commandList));
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        if (target->cascaded)
+        {
+            target->cascaded->Clear(AsCommandList(commandList));
+        }
+        else
+        {
+            // PlanarShadowMap::Clear clears with clearTextureFloat, which NVRHI refuses for depth
+            // textures: as CascadedShadowMap::Clear does, to the far depth 1.
+            nvrhi::ITexture* texture = target->planar->GetTexture();
+            AsCommandList(commandList)->clearDepthStencilTexture(texture, target->planar->GetPlanarView()->GetSubresources(),
+                true, 1.f, nvrhi::getFormatInfo(texture->getDesc().format).hasStencil, 0);
+        }
     }
 
     // Donut's depth-only pass, with depth biases for shadow maps.
@@ -8846,7 +8936,7 @@ extern "C"
         auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
         donut::render::InstancedOpaqueDrawStrategy strategy;
         donut::render::DepthPass::Context context;
-        donut::render::RenderCompositeView(AsCommandList(commandList), &target->shadowMap->GetView(), nullptr,
+        donut::render::RenderCompositeView(AsCommandList(commandList), &target->shadowMap()->GetView(), nullptr,
             *target->framebuffer, AsSceneGraph(sceneGraph)->GetRootNode(), strategy,
             *static_cast<donut::render::DepthPass*>(depthPass), context, "ShadowMap", materialEvents != 0);
     }
@@ -9019,6 +9109,22 @@ extern "C"
             AsFramebufferFactory(framebuffer), *AsView(view)));
     }
 
+    // Donut's environment map background: a lat-long (2D) or cube map texture drawn where the
+    // framebuffer's depth is still clear. The view must be set up first (its depth direction picks
+    // the pipeline).
+    void* Donut_CreateEnvironmentMapPass(void* app, void* framebuffer, void* view, void* environmentMap)
+    {
+        App* a = AsApp(app);
+        return a->OwnObject(std::make_shared<donut::render::EnvironmentMapPass>(a->device(), a->shaderFactory,
+            a->sharedCommonPasses(), AsFramebufferFactory(framebuffer), *AsView(view),
+            static_cast<nvrhi::ITexture*>(environmentMap)));
+    }
+
+    void Donut_RenderEnvironmentMap(void* commandList, void* environmentMapPass, void* view)
+    {
+        static_cast<donut::render::EnvironmentMapPass*>(environmentMapPass)->Render(AsCommandList(commandList), *AsView(view));
+    }
+
     // Draws the sky around a directional light; the SkyParameters not given keep their defaults.
     void Donut_RenderSky(void* commandList, void* skyPass, void* view, void* light, double brightness,
         double glowSize, double glowSharpness, double glowIntensity, double horizonSize)
@@ -9114,12 +9220,14 @@ extern "C"
         static_cast<donut::render::ToneMappingPass*>(toneMappingPass)->ResetExposure(AsCommandList(commandList), float(initialExposure));
     }
 
-    // Tone maps an HDR texture with default parameters; freezeEyeAdaptation != 0 keeps the
-    // current exposure (e.g. right after Donut_ResetExposure).
-    void Donut_RenderToneMapping(void* commandList, void* toneMappingPass, void* view, void* sourceTexture, int freezeEyeAdaptation)
+    // Tone maps an HDR texture with default parameters. instantAdaptation != 0 sets the exposure
+    // to this frame's at once (eye adaptation speeds 0, as Donut's feature demo does right after
+    // Donut_ResetExposure); otherwise it adapts at the default speeds over the frame time of
+    // Donut_AdvanceToneMappingFrame, and stays as it is while that is 0 (never advanced).
+    void Donut_RenderToneMapping(void* commandList, void* toneMappingPass, void* view, void* sourceTexture, int instantAdaptation)
     {
         donut::render::ToneMappingParameters params;
-        if (freezeEyeAdaptation)
+        if (instantAdaptation)
         {
             params.eyeAdaptationSpeedUp = 0.f;
             params.eyeAdaptationSpeedDown = 0.f;
@@ -9409,7 +9517,10 @@ extern "C"
         double cullDistance, double zRange, double exponent)
     {
         auto* capture = static_cast<LightProbeCapture*>(lightProbeCapture);
-        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->SetupForCubemapView(
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        if (!target->cascaded)
+            return;
+        target->cascaded->SetupForCubemapView(
             *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light)),
             capture->view.GetViewOrigin(), float(cullDistance), float(zRange), float(zRange), float(exponent));
     }

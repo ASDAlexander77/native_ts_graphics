@@ -2039,6 +2039,9 @@ declare function Donut_GetSceneGraphMeshInstanceCount(sceneGraph: Opaque): int;
 // The instance index (what material ID passes write) and node of the index-th mesh instance.
 declare function Donut_GetMeshInstanceIndex(sceneGraph: Opaque, index: int): int;
 declare function Donut_GetMeshInstanceNode(sceneGraph: Opaque, index: int): Opaque;
+// The geometries of the index-th mesh instance's mesh, and how many indices one of them has.
+declare function Donut_GetMeshInstanceGeometryCount(sceneGraph: Opaque, index: int): int;
+declare function Donut_GetMeshInstanceGeometryIndexCount(sceneGraph: Opaque, index: int, geometry: int): int;
 
 // Views.
 declare function Donut_CreateStereoView(app: Opaque): Opaque;
@@ -2115,7 +2118,13 @@ declare function Donut_IsDisplayHdr(app: Opaque): int;
 
 // Shadows.
 declare function Donut_CreateCascadedShadowMap(app: Opaque, resolution: int, numCascades: int): Opaque;
-// One array slice per cascade.
+// A planar shadow map: one orthographic view for a directional light, fitted with
+// Donut_SetupPlanarShadowMapForScene (the cascade fitting functions leave it unchanged).
+declare function Donut_CreatePlanarShadowMap(app: Opaque, resolution: int): Opaque;
+// Fits a planar shadow map to a directional light and the whole scene graph's bounds, shadows
+// fading out over fadeRangeWorld at its edges. 1 if the view changed (render the shadow map again).
+declare function Donut_SetupPlanarShadowMapForScene(shadowMap: Opaque, light: Opaque, sceneGraph: Opaque, fadeRangeWorld: number): int;
+// One array slice per cascade (one for a planar shadow map).
 declare function Donut_GetShadowMapTexture(shadowMap: Opaque): Opaque;
 // Fits the cascades to a directional light and the view, out to maxShadowDistance (stable).
 declare function Donut_SetupShadowMapForView(shadowMap: Opaque, light: Opaque, view: Opaque, maxShadowDistance: number, zRange: number, exponent: number): void;
@@ -2151,6 +2160,10 @@ declare function Donut_RenderDeferredLightingToHdr(commandList: Opaque, deferred
 declare function Donut_CreateSsaoPass(app: Opaque, sceneRenderTargets: Opaque): Opaque;
 declare function Donut_RenderSsao(commandList: Opaque, ssaoPass: Opaque, view: Opaque): void;
 declare function Donut_CreateSkyPass(app: Opaque, framebuffer: Opaque, view: Opaque): Opaque;
+// A lat-long (2D) or cube map environment texture drawn where the framebuffer's depth is still
+// clear; set the view up before creating it (its depth direction picks the pipeline).
+declare function Donut_CreateEnvironmentMapPass(app: Opaque, framebuffer: Opaque, view: Opaque, environmentMap: Opaque): Opaque;
+declare function Donut_RenderEnvironmentMap(commandList: Opaque, environmentMapPass: Opaque, view: Opaque): void;
 // Around a directional light; other SkyParameters keep their defaults.
 declare function Donut_RenderSky(commandList: Opaque, skyPass: Opaque, view: Opaque, light: Opaque, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number): void;
 declare function Donut_CreateSceneTemporalAntiAliasingPass(app: Opaque, view: Opaque, sceneRenderTargets: Opaque, motionVectorStencilMask: int): Opaque;
@@ -2164,8 +2177,9 @@ declare function Donut_AdvanceTemporalFrame(temporalAntiAliasingPass: Opaque): v
 declare function Donut_CreateToneMappingPass(app: Opaque, framebuffer: Opaque, view: Opaque, previousToneMappingPass: Opaque | null): Opaque;
 declare function Donut_AdvanceToneMappingFrame(toneMappingPass: Opaque, elapsedSeconds: number): void;
 declare function Donut_ResetExposure(commandList: Opaque, toneMappingPass: Opaque, initialExposure: number): void;
-// Default parameters; freezeEyeAdaptation != 0 keeps the current exposure.
-declare function Donut_RenderToneMapping(commandList: Opaque, toneMappingPass: Opaque, view: Opaque, sourceTexture: Opaque, freezeEyeAdaptation: int): void;
+// Default parameters. instantAdaptation != 0: the exposure set to this frame's at once (as after
+// Donut_ResetExposure); else adapted over Donut_AdvanceToneMappingFrame's time (kept while that's 0).
+declare function Donut_RenderToneMapping(commandList: Opaque, toneMappingPass: Opaque, view: Opaque, sourceTexture: Opaque, instantAdaptation: int): void;
 declare function Donut_CreateBloomPass(app: Opaque, framebuffer: Opaque, view: Opaque): Opaque;
 declare function Donut_RenderBloom(commandList: Opaque, bloomPass: Opaque, framebuffer: Opaque, view: Opaque, sourceTexture: Opaque, sigma: number, alpha: number): void;
 // NVIDIA DLSS (loads nvngx_dlss.dll from the executable's directory); null when built without

@@ -2529,6 +2529,38 @@ donut_compile_shaders(
 )
 add_tslang_example(rt_bindless MEDIA sponza-plus.scene.json glTF-Sample-Assets/Models/Sponza glTF-Sample-Assets/Models/BrainStem)
 
+# Port of Donut-Samples' bindless_rendering: Sponza (see DONUT_SAMPLES_MEDIA_DIR above) drawn with
+# no vertex or index buffers bound, the vertex shader fetching them, and the pixel shader the
+# material textures, from the scene's bindless buffer and texture arrays. Bindless needs D3D12 or
+# Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET bindless_rendering_shaders
+    PROJECT_NAME "Bindless Rendering"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bindless_rendering.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bindless_rendering.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bindless_rendering/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bindless_rendering/spirv
+)
+add_tslang_example(bindless_rendering MEDIA glTF-Sample-Assets/Models/Sponza)
+
+# Donut's forward shading of Sponza (see DONUT_SAMPLES_MEDIA_DIR above) under an environment map
+# (Donut's EnvironmentMapPass), its sun's shadows from a PlanarShadowMap fitted to the whole scene.
+# The environment map is rt_particles' lat-long BC7 DDS, or with -ktx2 the KTX 2 file
+# tools/dds_to_ktx2.py makes of it here (the same blocks, through Donut's KTX 2 loader). No shaders
+# of its own; all APIs.
+add_tslang_example(environment_map MEDIA glTF-Sample-Assets/Models/Sponza rt_particles)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(source "${CMAKE_CURRENT_SOURCE_DIR}/media/rt_particles/environment-map.dds")
+set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/environment_map/environment-map.ktx2")
+add_custom_command(OUTPUT "${output}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/environment_map"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/dds_to_ktx2.py" "${source}" "${output}"
+    DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/dds_to_ktx2.py"
+    COMMENT "Converting environment-map.dds to KTX 2"
+    VERBATIM)
+add_custom_target(environment_map_media DEPENDS "${output}")
+add_dependencies(environment_map environment_map_media)
+
 # Port of Donut-Samples' rt_reflections: ray traced shadows and reflections on Sponza (see
 # DONUT_SAMPLES_MEDIA_DIR above). D3D12 only, as in the sample: its hit groups use local
 # binding layouts (local root signatures), so no SPIR-V.

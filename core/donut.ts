@@ -1329,6 +1329,12 @@ export class App {
         return new ShadowMap(Donut_CreateCascadedShadowMap(this.handle, resolution, numCascades));
     }
 
+    // A planar shadow map: one orthographic view for a directional light, fitted with
+    // Donut_SetupPlanarShadowMapForScene (the cascade fitting functions leave it unchanged).
+    createPlanarShadowMap(resolution: int): ShadowMap {
+        return new ShadowMap(Donut_CreatePlanarShadowMap(this.handle, resolution));
+    }
+
     createShadowDepthPass(depthBias: int, slopeScaledDepthBias: number): DepthPass {
         return new DepthPass(Donut_CreateShadowDepthPass(this.handle, depthBias, slopeScaledDepthBias));
     }
@@ -1362,6 +1368,12 @@ export class App {
 
     createSkyPass(framebuffer: Opaque, view: View): Opaque {
         return Donut_CreateSkyPass(this.handle, framebuffer, view.handle);
+    }
+
+    // A lat-long (2D) or cube map environment texture drawn where the framebuffer's depth is still
+    // clear; set the view up before creating it (its depth direction picks the pipeline).
+    createEnvironmentMapPass(framebuffer: Opaque, view: View, environmentMap: Opaque): Opaque {
+        return Donut_CreateEnvironmentMapPass(this.handle, framebuffer, view.handle, environmentMap);
     }
 
     createSceneTemporalAntiAliasingPass(view: View, sceneRenderTargets: SceneRenderTargets, motionVectorStencilMask: int): TemporalAntiAliasingPass {
@@ -1943,6 +1955,10 @@ export class CommandList {
         Donut_RenderSsao(this.handle, ssaoPass, view.handle);
     }
 
+    renderEnvironmentMap(environmentMapPass: Opaque, view: View): void {
+        Donut_RenderEnvironmentMap(this.handle, environmentMapPass, view.handle);
+    }
+
     // Around a directional light; other SkyParameters keep their defaults.
     renderSky(skyPass: Opaque, view: View, light: Light, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number): void {
         Donut_RenderSky(this.handle, skyPass, view.handle, light.handle, brightness, glowSize, glowSharpness, glowIntensity, horizonSize);
@@ -1960,9 +1976,10 @@ export class CommandList {
         Donut_ResetExposure(this.handle, toneMappingPass.handle, initialExposure);
     }
 
-    // Default parameters; freezeEyeAdaptation != 0 keeps the current exposure.
-    renderToneMapping(toneMappingPass: ToneMappingPass, view: View, sourceTexture: Opaque, freezeEyeAdaptation: int): void {
-        Donut_RenderToneMapping(this.handle, toneMappingPass.handle, view.handle, sourceTexture, freezeEyeAdaptation);
+    // Default parameters. instantAdaptation != 0: the exposure set to this frame's at once (as after
+    // Donut_ResetExposure); else adapted over Donut_AdvanceToneMappingFrame's time (kept while that's 0).
+    renderToneMapping(toneMappingPass: ToneMappingPass, view: View, sourceTexture: Opaque, instantAdaptation: int): void {
+        Donut_RenderToneMapping(this.handle, toneMappingPass.handle, view.handle, sourceTexture, instantAdaptation);
     }
 
     renderBloom(bloomPass: Opaque, framebuffer: Opaque, view: View, sourceTexture: Opaque, sigma: number, alpha: number): void {
@@ -2832,6 +2849,15 @@ export class SceneGraph {
     getMeshInstanceNode(index: int): Node {
         return new Node(Donut_GetMeshInstanceNode(this.handle, index));
     }
+
+    // The geometries of the index-th mesh instance's mesh, and how many indices one of them has.
+    getMeshInstanceGeometryCount(index: int): int {
+        return Donut_GetMeshInstanceGeometryCount(this.handle, index);
+    }
+
+    getMeshInstanceGeometryIndexCount(index: int, geometry: int): int {
+        return Donut_GetMeshInstanceGeometryIndexCount(this.handle, index, geometry);
+    }
 }
 
 export class Node {
@@ -3292,7 +3318,13 @@ export class ShadowMap {
         return !this.handle;
     }
 
-    // One array slice per cascade.
+    // Fits a planar shadow map to a directional light and the whole scene graph's bounds, shadows
+    // fading out over fadeRangeWorld at its edges. 1 if the view changed (render the shadow map again).
+    setupPlanarForScene(light: Light, sceneGraph: SceneGraph, fadeRangeWorld: number): int {
+        return Donut_SetupPlanarShadowMapForScene(this.handle, light.handle, sceneGraph.handle, fadeRangeWorld);
+    }
+
+    // One array slice per cascade (one for a planar shadow map).
     getTexture(): Opaque {
         return Donut_GetShadowMapTexture(this.handle);
     }
