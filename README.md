@@ -1,56 +1,228 @@
-# Native TypeScript Graphics
+# Native TypeScript Graphics: DirectX 12 and Vulkan samples in TypeScript
 
-Graphics samples written for the TypeScript native compiler, tslang.
+**Real-time 3D graphics, ray tracing, mesh shaders and GPU compute written in TypeScript and
+compiled to native code.** 89 graphics samples for **D3D12 and Vulkan** (and Vulkan on
+**Android**), built with [tslang](https://github.com/ASDAlexander77/TypeScriptCompiler), a native
+TypeScript compiler (LLVM), on top of NVIDIA's [Donut](https://github.com/NVIDIA-RTX/Donut)
+rendering framework and [NVRHI](https://github.com/NVIDIA-RTX/NVRHI).
 
-The samples run on top of the Donut rendering framework (D3D12 and Vulkan,
-including Android). Under the hood, the project registers a CMake *language*
-(`TSLANG`) that:
+The examples are ports of well-known samples from NVIDIA Donut-Samples, Khronos Vulkan-Samples,
+Microsoft DirectX-Graphics-Samples, Xbox ATG Samples and NVIDIA DXR Tutorials: hardware ray tracing
+(DXR, Vulkan ray tracing, ray queries, opacity micromaps, shader execution reordering), mesh and
+task shaders, work graphs, variable rate shading, async compute, bindless resources, HDR,
+order-independent transparency, tessellation, texture compression (BC, Basis Universal / KTX 2)
+and more. No JavaScript engine, no WebGPU: the TypeScript is compiled ahead of time to an object
+file and linked like C++.
+
+![Ray traced particles rendered by a TypeScript program with DirectX 12 ray queries](docs/screenshots/rt_particles.jpg)
+
+TypeScript is a trademark of Microsoft; this project is not affiliated with or endorsed by
+Microsoft.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Example gallery](#example-gallery)
+  - [Donut-Samples ports](#donut-samples-ports)
+  - [Vulkan-Samples ports](#vulkan-samples-ports)
+  - [DirectX-Graphics-Samples ports](#directx-graphics-samples-ports)
+  - [Xbox ATG Samples ports](#xbox-atg-samples-ports)
+  - [NVIDIA DXR Tutorials port](#nvidia-dxr-tutorials-port)
+  - [Original examples](#original-examples)
+- [External assets](#external-assets)
+- [Repository layout](#repository-layout)
+- [How the TypeScript build works](#how-the-typescript-build-works)
+- [Memory model](#memory-model)
+- [Android](#android)
+- [Screenshots and smoke tests](#screenshots-and-smoke-tests)
+- [Credits](#credits)
+
+## Quick start
+
+Requirements: Windows with Visual Studio 2022 (C++), CMake 3.26+ and Ninja (the `TSLANG`
+language needs the Ninja generator), the Vulkan SDK
+(`VULKAN_SDK`, for DXC), Python 3, and a D3D12 or Vulkan GPU (ray tracing and mesh shader examples
+need hardware that supports them). tslang is found on the `PATH` or in `tools/tslang`; if it isn't
+there, configure downloads the pinned release from GitHub. Build from a *x64 Native Tools* / Developer
+PowerShell prompt so the MSVC linker is found:
+
+```
+git clone --recursive https://github.com/ASDAlexander77/native_ts_graphics.git
+cd native_ts_graphics
+cmake --preset default
+cmake --build --preset default
+```
+
+`release` builds into `build-release`. The executables land in `build/bin`, next to their
+shaders and media:
+
+```
+build/bin/basic_triangle.exe -dx12
+build/bin/rt_particles.exe -vk
+```
+
+`-dx12`, `-vk` (and `-dx11` where an example supports it) pick the graphics API, `-debug` enables
+the debug and validation layers. `dlss` / `release-dlss` add DLSS to `feature_demo`.
+
+## Example gallery
+
+Every example is a single TypeScript file in [`examples/`](examples) with its HLSL shaders in
+[`shaders/`](shaders). Click a screenshot to open its source. Screenshots are taken with
+`tools/capture_screenshots.ps1` on D3D12 (or Vulkan for Vulkan-only examples).
+
+### Donut-Samples ports
+
+Ported from [NVIDIA Donut-Samples](https://github.com/NVIDIA-RTX/Donut-Samples).
+
+<table>
+<tr><td valign="top" width="33%"><a href="examples/basic_triangle.ts"><img src="docs/screenshots/basic_triangle.jpg" alt="Basic Triangle (TypeScript, DirectX 12 / Vulkan). Hello world: one vertex-colored triangle drawn with D3D12 or Vulkan" width="270"></a><br><a href="examples/basic_triangle.ts"><b>Basic Triangle</b></a><br><sub>Hello world: one vertex-colored triangle drawn with D3D12 or Vulkan.</sub></td><td valign="top" width="33%"><a href="examples/vertex_buffer.ts"><img src="docs/screenshots/vertex_buffer.jpg" alt="Vertex Buffer (TypeScript, DirectX 12 / Vulkan). Textured cubes drawn from vertex and index buffers" width="270"></a><br><a href="examples/vertex_buffer.ts"><b>Vertex Buffer</b></a><br><sub>Textured cubes drawn from vertex and index buffers.</sub></td><td valign="top" width="33%"><a href="examples/deferred_shading.ts"><img src="docs/screenshots/deferred_shading.jpg" alt="Deferred Shading (TypeScript, DirectX 12 / Vulkan). Donut's G-buffer fill and deferred lighting passes" width="270"></a><br><a href="examples/deferred_shading.ts"><b>Deferred Shading</b></a><br><sub>Donut's G-buffer fill and deferred lighting passes.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/threaded_rendering.ts"><img src="docs/screenshots/threaded_rendering.jpg" alt="Threaded Rendering (TypeScript, DirectX 12 / Vulkan). Sponza rendered into the six faces of a cube map, each face recorded on its own worker thread" width="270"></a><br><a href="examples/threaded_rendering.ts"><b>Threaded Rendering</b></a><br><sub>Sponza rendered into the six faces of a cube map, each face recorded on its own worker thread.</sub></td><td valign="top" width="33%"><a href="examples/async_compute.ts"><img src="docs/screenshots/async_compute.jpg" alt="Async Compute (TypeScript, DirectX 12 / Vulkan). A compute-queue worker thread animates textures that the render thread shows" width="270"></a><br><a href="examples/async_compute.ts"><b>Async Compute</b></a><br><sub>A compute-queue worker thread animates textures that the render thread shows.</sub></td><td valign="top" width="33%"><a href="examples/meshlets.ts"><img src="docs/screenshots/meshlets.jpg" alt="Meshlets (TypeScript, DirectX 12 / Vulkan). Geometry drawn by mesh shaders from meshlets" width="270"></a><br><a href="examples/meshlets.ts"><b>Meshlets</b></a><br><sub>Geometry drawn by mesh shaders from meshlets.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/shader_specializations.ts"><img src="docs/screenshots/shader_specializations.jpg" alt="Shader Specializations (TypeScript, DirectX 12 / Vulkan). Vulkan specialization constants picking shader variants" width="270"></a><br><a href="examples/shader_specializations.ts"><b>Shader Specializations</b></a><br><sub>Vulkan specialization constants picking shader variants.</sub></td><td valign="top" width="33%"><a href="examples/rt_triangle.ts"><img src="docs/screenshots/rt_triangle.jpg" alt="Ray Traced Triangle (TypeScript, DirectX 12 / Vulkan). The minimal hardware ray tracing pipeline (DXR / Vulkan RT)" width="270"></a><br><a href="examples/rt_triangle.ts"><b>Ray Traced Triangle</b></a><br><sub>The minimal hardware ray tracing pipeline (DXR / Vulkan RT).</sub></td><td valign="top" width="33%"><a href="examples/rt_shadows.ts"><img src="docs/screenshots/rt_shadows.jpg" alt="Ray Traced Shadows (TypeScript, DirectX 12 / Vulkan). Ray traced sun shadows on Sponza" width="270"></a><br><a href="examples/rt_shadows.ts"><b>Ray Traced Shadows</b></a><br><sub>Ray traced sun shadows on Sponza.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/rt_reflections.ts"><img src="docs/screenshots/rt_reflections.jpg" alt="Ray Traced Reflections (TypeScript, DirectX 12 / Vulkan). Ray traced shadows and reflections on Sponza (D3D12)" width="270"></a><br><a href="examples/rt_reflections.ts"><b>Ray Traced Reflections</b></a><br><sub>Ray traced shadows and reflections on Sponza (D3D12).</sub></td><td valign="top" width="33%"><a href="examples/rt_bindless.ts"><img src="docs/screenshots/rt_bindless.jpg" alt="Bindless Ray Tracing (TypeScript, DirectX 12 / Vulkan). Bindless ray tracing of an animated scene, by pipeline or inline ray queries" width="270"></a><br><a href="examples/rt_bindless.ts"><b>Bindless Ray Tracing</b></a><br><sub>Bindless ray tracing of an animated scene, by pipeline or inline ray queries.</sub></td><td valign="top" width="33%"><a href="examples/rt_particles.ts"><img src="docs/screenshots/rt_particles.jpg" alt="Ray Traced Particles (TypeScript, DirectX 12 / Vulkan). Billboard and intersection particles traced with ray queries and multi-layer alpha blending" width="270"></a><br><a href="examples/rt_particles.ts"><b>Ray Traced Particles</b></a><br><sub>Billboard and intersection particles traced with ray queries and multi-layer alpha blending.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/bindless_rendering.ts"><img src="docs/screenshots/bindless_rendering.jpg" alt="Bindless Rendering (TypeScript, DirectX 12 / Vulkan). Sponza drawn with no vertex buffers bound: vertices and textures fetched bindlessly" width="270"></a><br><a href="examples/bindless_rendering.ts"><b>Bindless Rendering</b></a><br><sub>Sponza drawn with no vertex buffers bound: vertices and textures fetched bindlessly.</sub></td><td valign="top" width="33%"><a href="examples/variable_shading.ts"><img src="docs/screenshots/variable_shading.jpg" alt="Variable Rate Shading (TypeScript, DirectX 12 / Vulkan). Sponza with a compute-generated shading rate surface" width="270"></a><br><a href="examples/variable_shading.ts"><b>Variable Rate Shading</b></a><br><sub>Sponza with a compute-generated shading rate surface.</sub></td><td valign="top" width="33%"><a href="examples/work_graphs.ts"><img src="docs/screenshots/work_graphs.jpg" alt="Work Graphs (TypeScript, DirectX 12 / Vulkan). Deferred shading driven by a D3D12 work graph (shader model 6.8)" width="270"></a><br><a href="examples/work_graphs.ts"><b>Work Graphs</b></a><br><sub>Deferred shading driven by a D3D12 work graph (shader model 6.8).</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/feature_demo.ts"><img src="docs/screenshots/feature_demo.jpg" alt="Feature Demo (TypeScript, DirectX 12 / Vulkan). Donut's full renderer: deferred/forward, cascaded shadows, SSAO, TAA, bloom, tone mapping, light probes" width="270"></a><br><a href="examples/feature_demo.ts"><b>Feature Demo</b></a><br><sub>Donut's full renderer: deferred/forward, cascaded shadows, SSAO, TAA, bloom, tone mapping, light probes.</sub></td><td valign="top" width="33%"><a href="examples/headless.ts"><b>Headless</b></a><br><sub>Compute only, no window: runs a compute shader and checks its result (no screenshot).</sub></td></tr>
+</table>
+
+### Vulkan-Samples ports
+
+Ported from [Khronos Vulkan-Samples](https://github.com/KhronosGroup/Vulkan-Samples).
+
+<table>
+<tr><td valign="top" width="33%"><a href="examples/compute_nbody.ts"><img src="docs/screenshots/compute_nbody.jpg" alt="Compute N-Body (TypeScript, DirectX 12 / Vulkan). An N-body gravity simulation in compute shaders, drawn as additive sprites" width="270"></a><br><a href="examples/compute_nbody.ts"><b>Compute N-Body</b></a><br><sub>An N-body gravity simulation in compute shaders, drawn as additive sprites.</sub></td><td valign="top" width="33%"><a href="examples/terrain_tessellation.ts"><img src="docs/screenshots/terrain_tessellation.jpg" alt="Terrain Tessellation (TypeScript, DirectX 12 / Vulkan). A heightmap terrain of patches tessellated by their size on screen" width="270"></a><br><a href="examples/terrain_tessellation.ts"><b>Terrain Tessellation</b></a><br><sub>A heightmap terrain of patches tessellated by their size on screen.</sub></td><td valign="top" width="33%"><a href="examples/instancing.ts"><img src="docs/screenshots/instancing.jpg" alt="Instancing (TypeScript, DirectX 12 / Vulkan). Thousands of rocks around a planet in one instanced draw" width="270"></a><br><a href="examples/instancing.ts"><b>Instancing</b></a><br><sub>Thousands of rocks around a planet in one instanced draw.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/hdr.ts"><img src="docs/screenshots/hdr.jpg" alt="HDR (TypeScript, DirectX 12 / Vulkan). A reflective object in an HDR environment with exposure and two-pass bloom" width="270"></a><br><a href="examples/hdr.ts"><b>HDR</b></a><br><sub>A reflective object in an HDR environment with exposure and two-pass bloom.</sub></td><td valign="top" width="33%"><a href="examples/ray_tracing_extended.ts"><img src="docs/screenshots/ray_tracing_extended.jpg" alt="Ray Tracing Extended (TypeScript, DirectX 12 / Vulkan). Sponza ray traced with shadows, AO, a refracting sheet and per-frame BLAS/TLAS updates" width="270"></a><br><a href="examples/ray_tracing_extended.ts"><b>Ray Tracing Extended</b></a><br><sub>Sponza ray traced with shadows, AO, a refracting sheet and per-frame BLAS/TLAS updates.</sub></td><td valign="top" width="33%"><a href="examples/ray_tracing_invocation_reorder.ts"><img src="docs/screenshots/ray_tracing_invocation_reorder.jpg" alt="Ray Tracing Invocation Reorder (TypeScript, DirectX 12 / Vulkan). Shader execution reordering of primary rays (SM 6.9 hit objects / SPV_NV_shader_invocation_reorder)" width="270"></a><br><a href="examples/ray_tracing_invocation_reorder.ts"><b>Ray Tracing Invocation Reorder</b></a><br><sub>Shader execution reordering of primary rays (SM 6.9 hit objects / SPV_NV_shader_invocation_reorder).</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/ray_tracing_position_fetch.ts"><img src="docs/screenshots/ray_tracing_position_fetch.jpg" alt="Ray Tracing Position Fetch (TypeScript, DirectX 12 / Vulkan). Closest-hit shaders reading vertex positions from the acceleration structure (Vulkan)" width="270"></a><br><a href="examples/ray_tracing_position_fetch.ts"><b>Ray Tracing Position Fetch</b></a><br><sub>Closest-hit shaders reading vertex positions from the acceleration structure (Vulkan).</sub></td><td valign="top" width="33%"><a href="examples/ray_tracing_reflection.ts"><img src="docs/screenshots/ray_tracing_reflection.jpg" alt="Ray Tracing Reflection (TypeScript, DirectX 12 / Vulkan). Cubes between two mirrors, reflection rays bounced up to 64 times" width="270"></a><br><a href="examples/ray_tracing_reflection.ts"><b>Ray Tracing Reflection</b></a><br><sub>Cubes between two mirrors, reflection rays bounced up to 64 times.</sub></td><td valign="top" width="33%"><a href="examples/ray_queries.ts"><img src="docs/screenshots/ray_queries.jpg" alt="Ray Queries (TypeScript, DirectX 12 / Vulkan). Rasterized Sponza shaded by inline ray queries: ambient occlusion and shadows" width="270"></a><br><a href="examples/ray_queries.ts"><b>Ray Queries</b></a><br><sub>Rasterized Sponza shaded by inline ray queries: ambient occlusion and shadows.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/multi_draw_indirect.ts"><img src="docs/screenshots/multi_draw_indirect.jpg" alt="Multi-Draw Indirect (TypeScript, DirectX 12 / Vulkan). 225 meshes in one indirect draw, culled on the CPU or in a compute shader" width="270"></a><br><a href="examples/multi_draw_indirect.ts"><b>Multi-Draw Indirect</b></a><br><sub>225 meshes in one indirect draw, culled on the CPU or in a compute shader.</sub></td><td valign="top" width="33%"><a href="examples/async_compute_bloom.ts"><img src="docs/screenshots/async_compute_bloom.jpg" alt="Async Compute Bloom (TypeScript, DirectX 12 / Vulkan). A 4K HDR forward pass with bloom computed on the async compute queue" width="270"></a><br><a href="examples/async_compute_bloom.ts"><b>Async Compute Bloom</b></a><br><sub>A 4K HDR forward pass with bloom computed on the async compute queue.</sub></td><td valign="top" width="33%"><a href="examples/oit_linked_lists.ts"><img src="docs/screenshots/oit_linked_lists.jpg" alt="OIT Linked Lists (TypeScript, DirectX 12 / Vulkan). Order-independent transparency with per-pixel fragment linked lists" width="270"></a><br><a href="examples/oit_linked_lists.ts"><b>OIT Linked Lists</b></a><br><sub>Order-independent transparency with per-pixel fragment linked lists.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/oit_depth_peeling.ts"><img src="docs/screenshots/oit_depth_peeling.jpg" alt="OIT Depth Peeling (TypeScript, DirectX 12 / Vulkan). Order-independent transparency by depth peeling, up to 8 layers" width="270"></a><br><a href="examples/oit_depth_peeling.ts"><b>OIT Depth Peeling</b></a><br><sub>Order-independent transparency by depth peeling, up to 8 layers.</sub></td><td valign="top" width="33%"><a href="examples/gshader_to_mshader.ts"><img src="docs/screenshots/gshader_to_mshader.jpg" alt="Geometry Shader to Mesh Shader (TypeScript, DirectX 12 / Vulkan). Normals drawn by a geometry shader or by an equivalent mesh shader" width="270"></a><br><a href="examples/gshader_to_mshader.ts"><b>Geometry Shader to Mesh Shader</b></a><br><sub>Normals drawn by a geometry shader or by an equivalent mesh shader.</sub></td><td valign="top" width="33%"><a href="examples/mesh_shading.ts"><img src="docs/screenshots/mesh_shading.jpg" alt="Mesh Shading (TypeScript, DirectX 12 / Vulkan). A single mesh shader workgroup outputs a triangle" width="270"></a><br><a href="examples/mesh_shading.ts"><b>Mesh Shading</b></a><br><sub>A single mesh shader workgroup outputs a triangle.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/mesh_shader_culling.ts"><img src="docs/screenshots/mesh_shader_culling.jpg" alt="Mesh Shader Culling (TypeScript, DirectX 12 / Vulkan). Task (amplification) shaders cull meshlets before mesh shading" width="270"></a><br><a href="examples/mesh_shader_culling.ts"><b>Mesh Shader Culling</b></a><br><sub>Task (amplification) shaders cull meshlets before mesh shading.</sub></td><td valign="top" width="33%"><a href="examples/sparse_image.ts"><img src="docs/screenshots/sparse_image.jpg" alt="Sparse Image (TypeScript, DirectX 12 / Vulkan). A huge texture whose pages are mapped and streamed in as the view needs them" width="270"></a><br><a href="examples/sparse_image.ts"><b>Sparse Image</b></a><br><sub>A huge texture whose pages are mapped and streamed in as the view needs them.</sub></td><td valign="top" width="33%"><a href="examples/conservative_rasterization.ts"><img src="docs/screenshots/conservative_rasterization.jpg" alt="Conservative Rasterization (TypeScript, DirectX 12 / Vulkan). A low-resolution triangle with and without conservative rasterization" width="270"></a><br><a href="examples/conservative_rasterization.ts"><b>Conservative Rasterization</b></a><br><sub>A low-resolution triangle with and without conservative rasterization.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/conditional_rendering.ts"><img src="docs/screenshots/conditional_rendering.jpg" alt="Conditional Rendering (TypeScript, DirectX 12 / Vulkan). glTF nodes drawn or skipped by GPU predication" width="270"></a><br><a href="examples/conditional_rendering.ts"><b>Conditional Rendering</b></a><br><sub>glTF nodes drawn or skipped by GPU predication.</sub></td><td valign="top" width="33%"><a href="examples/rasterization_order_attachment_access.ts"><img src="docs/screenshots/rasterization_order_attachment_access.jpg" alt="Rasterization Order Attachment Access (TypeScript, DirectX 12 / Vulkan). Programmable blending ordered by rasterizer ordered views / fragment shader interlock" width="270"></a><br><a href="examples/rasterization_order_attachment_access.ts"><b>Rasterization Order Attachment Access</b></a><br><sub>Programmable blending ordered by rasterizer ordered views / fragment shader interlock.</sub></td><td valign="top" width="33%"><a href="examples/fragment_shader_barycentric.ts"><img src="docs/screenshots/fragment_shader_barycentric.jpg" alt="Fragment Shader Barycentric (TypeScript, DirectX 12 / Vulkan). Pixel shaders reading barycentrics and per-vertex attributes" width="270"></a><br><a href="examples/fragment_shader_barycentric.ts"><b>Fragment Shader Barycentric</b></a><br><sub>Pixel shaders reading barycentrics and per-vertex attributes.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/16bit_arithmetic.ts"><img src="docs/screenshots/16bit_arithmetic.jpg" alt="16-bit Arithmetic (TypeScript, DirectX 12 / Vulkan). A compute shader rendering blobs in FP32 or native FP16" width="270"></a><br><a href="examples/16bit_arithmetic.ts"><b>16-bit Arithmetic</b></a><br><sub>A compute shader rendering blobs in FP32 or native FP16.</sub></td><td valign="top" width="33%"><a href="examples/compute_shader_derivatives.ts"><img src="docs/screenshots/compute_shader_derivatives.jpg" alt="Compute Shader Derivatives (TypeScript, DirectX 12 / Vulkan). Derivatives in compute shaders (SM 6.6) to find a pattern's edges" width="270"></a><br><a href="examples/compute_shader_derivatives.ts"><b>Compute Shader Derivatives</b></a><br><sub>Derivatives in compute shaders (SM 6.6) to find a pattern's edges.</sub></td><td valign="top" width="33%"><a href="examples/logic_op_dynamic_state.ts"><img src="docs/screenshots/logic_op_dynamic_state.jpg" alt="Logic Op Dynamic State (TypeScript, DirectX 12 / Vulkan). A cube combined with the background by a framebuffer logic operation" width="270"></a><br><a href="examples/logic_op_dynamic_state.ts"><b>Logic Op Dynamic State</b></a><br><sub>A cube combined with the background by a framebuffer logic operation.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/render_octomap.ts"><img src="docs/screenshots/render_octomap.jpg" alt="Render Octomap (TypeScript, DirectX 12 / Vulkan). A SLAM map as instanced voxels, a glTF mesh and Gaussian splats" width="270"></a><br><a href="examples/render_octomap.ts"><b>Render Octomap</b></a><br><sub>A SLAM map as instanced voxels, a glTF mesh and Gaussian splats.</sub></td><td valign="top" width="33%"><a href="examples/msaa.ts"><img src="docs/screenshots/msaa.jpg" alt="MSAA (TypeScript, DirectX 12 / Vulkan). Multisample anti-aliasing with color and depth resolves" width="270"></a><br><a href="examples/msaa.ts"><b>MSAA</b></a><br><sub>Multisample anti-aliasing with color and depth resolves.</sub></td><td valign="top" width="33%"><a href="examples/dynamic_blending.ts"><img src="docs/screenshots/dynamic_blending.jpg" alt="Dynamic Blending (TypeScript, DirectX 12 / Vulkan). Blend state, advanced blend operations and color write masks switched live" width="270"></a><br><a href="examples/dynamic_blending.ts"><b>Dynamic Blending</b></a><br><sub>Blend state, advanced blend operations and color write masks switched live.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/texture_mipmap_generation.ts"><img src="docs/screenshots/texture_mipmap_generation.jpg" alt="Texture Mipmap Generation (TypeScript, DirectX 12 / Vulkan). A mip chain generated on the GPU, compared with no mips and anisotropic filtering" width="270"></a><br><a href="examples/texture_mipmap_generation.ts"><b>Texture Mipmap Generation</b></a><br><sub>A mip chain generated on the GPU, compared with no mips and anisotropic filtering.</sub></td><td valign="top" width="33%"><a href="examples/fragment_shading_rate.ts"><img src="docs/screenshots/fragment_shading_rate.jpg" alt="Fragment Shading Rate (TypeScript, DirectX 12 / Vulkan). Variable rate shading from a CPU-made shading rate image" width="270"></a><br><a href="examples/fragment_shading_rate.ts"><b>Fragment Shading Rate</b></a><br><sub>Variable rate shading from a CPU-made shading rate image.</sub></td><td valign="top" width="33%"><a href="examples/fragment_shading_rate_dynamic.ts"><img src="docs/screenshots/fragment_shading_rate_dynamic.jpg" alt="Dynamic Fragment Shading Rate (TypeScript, DirectX 12 / Vulkan). A shading rate image computed each frame from the scene's frequency content" width="270"></a><br><a href="examples/fragment_shading_rate_dynamic.ts"><b>Dynamic Fragment Shading Rate</b></a><br><sub>A shading rate image computed each frame from the scene's frequency content.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/texture_compression_comparison.ts"><img src="docs/screenshots/texture_compression_comparison.jpg" alt="Texture Compression Comparison (TypeScript, DirectX 12 / Vulkan). Sponza with Basis Universal KTX 2 textures transcoded at load into BC7, BC3 or RGBA8" width="270"></a><br><a href="examples/texture_compression_comparison.ts"><b>Texture Compression Comparison</b></a><br><sub>Sponza with Basis Universal KTX 2 textures transcoded at load into BC7, BC3 or RGBA8.</sub></td><td valign="top" width="33%"><a href="examples/texture_compression_basisu.ts"><img src="docs/screenshots/texture_compression_basisu.jpg" alt="Basis Universal Textures (TypeScript, DirectX 12 / Vulkan). UASTC and ETC1S KTX 2 images transcoded on the CPU, timed" width="270"></a><br><a href="examples/texture_compression_basisu.ts"><b>Basis Universal Textures</b></a><br><sub>UASTC and ETC1S KTX 2 images transcoded on the CPU, timed.</sub></td><td valign="top" width="33%"><a href="examples/shader_quad_control.ts"><img src="docs/screenshots/shader_quad_control.jpg" alt="Shader Quad Control (TypeScript, DirectX 12 / Vulkan). Pixel shaders running in full quads with quad operations" width="270"></a><br><a href="examples/shader_quad_control.ts"><b>Shader Quad Control</b></a><br><sub>Pixel shaders running in full quads with quad operations.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/dynamic_line_rasterization.ts"><img src="docs/screenshots/dynamic_line_rasterization.jpg" alt="Dynamic Line Rasterization (TypeScript, DirectX 12 / Vulkan). Rectangular, Bresenham and smooth lines with width and stipple" width="270"></a><br><a href="examples/dynamic_line_rasterization.ts"><b>Dynamic Line Rasterization</b></a><br><sub>Rectangular, Bresenham and smooth lines with width and stipple.</sub></td><td valign="top" width="33%"><a href="examples/extended_dynamic_state2.ts"><img src="docs/screenshots/extended_dynamic_state2.jpg" alt="Extended Dynamic State 2 (TypeScript, DirectX 12 / Vulkan). Depth bias, rasterizer discard and primitive restart switched live" width="270"></a><br><a href="examples/extended_dynamic_state2.ts"><b>Extended Dynamic State 2</b></a><br><sub>Depth bias, rasterizer discard and primitive restart switched live.</sub></td><td valign="top" width="33%"><a href="examples/memory_budget.ts"><img src="docs/screenshots/memory_budget.jpg" alt="Memory Budget (TypeScript, DirectX 12 / Vulkan). Instanced rocks with the memory heaps' usage and budget" width="270"></a><br><a href="examples/memory_budget.ts"><b>Memory Budget</b></a><br><sub>Instanced rocks with the memory heaps' usage and budget.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/mobile_nerf.ts"><img src="docs/screenshots/mobile_nerf.jpg" alt="Mobile NeRF (TypeScript, DirectX 12 / Vulkan). Neural radiance fields baked into meshes, decoded by a small MLP in the pixel shader" width="270"></a><br><a href="examples/mobile_nerf.ts"><b>Mobile NeRF</b></a><br><sub>Neural radiance fields baked into meshes, decoded by a small MLP in the pixel shader.</sub></td><td valign="top" width="33%"><a href="examples/mobile_nerf_rayquery.ts"><img src="docs/screenshots/mobile_nerf_rayquery.jpg" alt="Mobile NeRF Ray Query (TypeScript, DirectX 12 / Vulkan). MobileNeRF models found by inline ray queries instead of rasterization" width="270"></a><br><a href="examples/mobile_nerf_rayquery.ts"><b>Mobile NeRF Ray Query</b></a><br><sub>MobileNeRF models found by inline ray queries instead of rasterization.</sub></td><td valign="top" width="33%"><a href="examples/dynamic_primitive_clipping.ts"><img src="docs/screenshots/dynamic_primitive_clipping.jpg" alt="Dynamic Primitive Clipping (TypeScript, DirectX 12 / Vulkan). User clip distances (SV_ClipDistance) and depth clipping" width="270"></a><br><a href="examples/dynamic_primitive_clipping.ts"><b>Dynamic Primitive Clipping</b></a><br><sub>User clip distances (SV_ClipDistance) and depth clipping.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/timestamp_queries.ts"><img src="docs/screenshots/timestamp_queries.jpg" alt="Timestamp Queries (TypeScript, DirectX 12 / Vulkan). GPU time of each render pass measured with timer queries" width="270"></a><br><a href="examples/timestamp_queries.ts"><b>Timestamp Queries</b></a><br><sub>GPU time of each render pass measured with timer queries.</sub></td><td valign="top" width="33%"><a href="examples/patch_control_points.ts"><img src="docs/screenshots/patch_control_points.jpg" alt="Patch Control Points (TypeScript, DirectX 12 / Vulkan). Tessellated wireframe terrain with dynamic patch control points" width="270"></a><br><a href="examples/patch_control_points.ts"><b>Patch Control Points</b></a><br><sub>Tessellated wireframe terrain with dynamic patch control points.</sub></td><td valign="top" width="33%"><a href="examples/descriptor_indexing.ts"><img src="docs/screenshots/descriptor_indexing.jpg" alt="Descriptor Indexing (TypeScript, DirectX 12 / Vulkan). Bindless texture arrays: non-uniform indexing and update-after-bind" width="270"></a><br><a href="examples/descriptor_indexing.ts"><b>Descriptor Indexing</b></a><br><sub>Bindless texture arrays: non-uniform indexing and update-after-bind.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/timeline_semaphore.ts"><img src="docs/screenshots/timeline_semaphore.jpg" alt="Timeline Semaphore (TypeScript, DirectX 12 / Vulkan). Conway's Game of Life on the compute queue, drawn by the graphics queue" width="270"></a><br><a href="examples/timeline_semaphore.ts"><b>Timeline Semaphore</b></a><br><sub>Conway's Game of Life on the compute queue, drawn by the graphics queue.</sub></td><td valign="top" width="33%"><a href="examples/color_write_enable.ts"><img src="docs/screenshots/color_write_enable.jpg" alt="Color Write Enable (TypeScript, DirectX 12 / Vulkan). Per-target color write enables combined into one image" width="270"></a><br><a href="examples/color_write_enable.ts"><b>Color Write Enable</b></a><br><sub>Per-target color write enables combined into one image.</sub></td><td valign="top" width="33%"><a href="examples/dynamic_multisample_rasterization.ts"><img src="docs/screenshots/dynamic_multisample_rasterization.jpg" alt="Dynamic Multisample Rasterization (TypeScript, DirectX 12 / Vulkan). The Space Module scene drawn with a sample count picked at run time" width="270"></a><br><a href="examples/dynamic_multisample_rasterization.ts"><b>Dynamic Multisample Rasterization</b></a><br><sub>The Space Module scene drawn with a sample count picked at run time.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/vertex_dynamic_state.ts"><img src="docs/screenshots/vertex_dynamic_state.jpg" alt="Vertex Dynamic State (TypeScript, DirectX 12 / Vulkan). Two vertex layouts drawn with dynamic vertex input" width="270"></a><br><a href="examples/vertex_dynamic_state.ts"><b>Vertex Dynamic State</b></a><br><sub>Two vertex layouts drawn with dynamic vertex input.</sub></td><td valign="top" width="33%"><a href="examples/dynamic_rendering.ts"><img src="docs/screenshots/dynamic_rendering.jpg" alt="Dynamic Rendering (TypeScript, DirectX 12 / Vulkan). A reflective geosphere in a skybox, rendered without render pass objects" width="270"></a><br><a href="examples/dynamic_rendering.ts"><b>Dynamic Rendering</b></a><br><sub>A reflective geosphere in a skybox, rendered without render pass objects.</sub></td><td valign="top" width="33%"><a href="examples/graphics_pipeline_library.ts"><img src="docs/screenshots/graphics_pipeline_library.jpg" alt="Graphics Pipeline Library (TypeScript, DirectX 12 / Vulkan). Teapots, each with its own pipeline and a random lighting model; &quot;Add pipeline&quot; adds more" width="270"></a><br><a href="examples/graphics_pipeline_library.ts"><b>Graphics Pipeline Library</b></a><br><sub>Teapots, each with its own pipeline and a random lighting model; "Add pipeline" adds more.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/dynamic_uniform_buffers.ts"><img src="docs/screenshots/dynamic_uniform_buffers.jpg" alt="Dynamic Uniform Buffers (TypeScript, DirectX 12 / Vulkan). 125 cubes with model matrices in slices of one uniform buffer" width="270"></a><br><a href="examples/dynamic_uniform_buffers.ts"><b>Dynamic Uniform Buffers</b></a><br><sub>125 cubes with model matrices in slices of one uniform buffer.</sub></td><td valign="top" width="33%"><a href="examples/texture_loading.ts"><img src="docs/screenshots/texture_loading.jpg" alt="Texture Loading (TypeScript, DirectX 12 / Vulkan). A mipmapped texture with an adjustable level-of-detail bias" width="270"></a><br><a href="examples/texture_loading.ts"><b>Texture Loading</b></a><br><sub>A mipmapped texture with an adjustable level-of-detail bias.</sub></td><td valign="top" width="33%"><a href="examples/separate_image_sampler.ts"><img src="docs/screenshots/separate_image_sampler.jpg" alt="Separate Image Sampler (TypeScript, DirectX 12 / Vulkan). A sampler bound apart from its image, linear or nearest filtering" width="270"></a><br><a href="examples/separate_image_sampler.ts"><b>Separate Image Sampler</b></a><br><sub>A sampler bound apart from its image, linear or nearest filtering.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/dynamic_rendering_local_read.ts"><img src="docs/screenshots/dynamic_rendering_local_read.jpg" alt="Dynamic Rendering Local Read (TypeScript, DirectX 12 / Vulkan). Deferred shading with 64 point lights, then forward-rendered glass" width="270"></a><br><a href="examples/dynamic_rendering_local_read.ts"><b>Dynamic Rendering Local Read</b></a><br><sub>Deferred shading with 64 point lights, then forward-rendered glass.</sub></td><td valign="top" width="33%"><a href="examples/shader_object.ts"><img src="docs/screenshots/shader_object.jpg" alt="Shader Object (TypeScript, DirectX 12 / Vulkan). Vertex, geometry and fragment shaders combined at draw time, then post-processed" width="270"></a><br><a href="examples/shader_object.ts"><b>Shader Object</b></a><br><sub>Vertex, geometry and fragment shaders combined at draw time, then post-processed.</sub></td></tr>
+</table>
+
+### DirectX-Graphics-Samples ports
+
+Ported from [Microsoft DirectX-Graphics-Samples](https://github.com/microsoft/DirectX-Graphics-Samples).
+
+<table>
+<tr><td valign="top" width="33%"><a href="examples/procedural_geometry.ts"><img src="docs/screenshots/procedural_geometry.jpg" alt="Raytracing Procedural Geometry (TypeScript, DirectX 12 / Vulkan). Analytic shapes, metaballs, SDFs and a fractal intersected by intersection shaders" width="270"></a><br><a href="examples/procedural_geometry.ts"><b>Raytracing Procedural Geometry</b></a><br><sub>Analytic shapes, metaballs, SDFs and a fractal intersected by intersection shaders.</sub></td><td valign="top" width="33%"><a href="examples/opacity_micromaps.ts"><img src="docs/screenshots/opacity_micromaps.jpg" alt="Raytracing Opacity Micromaps (TypeScript, DirectX 12 / Vulkan). An alpha-tested tree whose leaves skip the any-hit shader thanks to opacity micromaps (DXR 1.2)" width="270"></a><br><a href="examples/opacity_micromaps.ts"><b>Raytracing Opacity Micromaps</b></a><br><sub>An alpha-tested tree whose leaves skip the any-hit shader thanks to opacity micromaps (DXR 1.2).</sub></td><td valign="top" width="33%"><a href="examples/wave_intrinsics.ts"><img src="docs/screenshots/wave_intrinsics.jpg" alt="SM6 Wave Intrinsics (TypeScript, DirectX 12 / Vulkan). Wave intrinsics visualized per pixel: lane indices, reductions, prefix sums, quad shuffles" width="270"></a><br><a href="examples/wave_intrinsics.ts"><b>SM6 Wave Intrinsics</b></a><br><sub>Wave intrinsics visualized per pixel: lane indices, reductions, prefix sums, quad shuffles.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/depth_bounds_test.ts"><img src="docs/screenshots/depth_bounds_test.jpg" alt="Depth Bounds Test (TypeScript, DirectX 12 / Vulkan). A triangle clipped by an animated depth bounds test" width="270"></a><br><a href="examples/depth_bounds_test.ts"><b>Depth Bounds Test</b></a><br><sub>A triangle clipped by an animated depth bounds test.</sub></td><td valign="top" width="33%"><a href="examples/predication_queries.ts"><img src="docs/screenshots/predication_queries.jpg" alt="Predication Queries (TypeScript, DirectX 12 / Vulkan). A quad drawn only if last frame's occlusion query saw it" width="270"></a><br><a href="examples/predication_queries.ts"><b>Predication Queries</b></a><br><sub>A quad drawn only if last frame's occlusion query saw it.</sub></td><td valign="top" width="33%"><a href="examples/small_resources.ts"><img src="docs/screenshots/small_resources.jpg" alt="Small Resources (TypeScript, DirectX 12 / Vulkan). 77 small textures placed at 4 KB alignment vs committed at 64 KB" width="270"></a><br><a href="examples/small_resources.ts"><b>Small Resources</b></a><br><sub>77 small textures placed at 4 KB alignment vs committed at 64 KB.</sub></td></tr>
+</table>
+
+### Xbox ATG Samples ports
+
+Ported from [Microsoft Xbox-ATG-Samples](https://github.com/microsoft/Xbox-ATG-Samples).
+
+<table>
+<tr><td valign="top" width="33%"><a href="examples/fast_block_compress.ts"><img src="docs/screenshots/fast_block_compress.jpg" alt="Fast Block Compress (TypeScript, DirectX 12 / Vulkan). BC1, BC3 and BC5 texture compression at run time in compute shaders or on the CPU" width="270"></a><br><a href="examples/fast_block_compress.ts"><b>Fast Block Compress</b></a><br><sub>BC1, BC3 and BC5 texture compression at run time in compute shaders or on the CPU.</sub></td><td valign="top" width="33%"><a href="examples/simple_hdr.ts"><img src="docs/screenshots/simple_hdr.jpg" alt="Simple HDR (TypeScript, DirectX 12 / Vulkan). HDR10 output (Rec.2020, ST.2084) with blocks brighter than paper white" width="270"></a><br><a href="examples/simple_hdr.ts"><b>Simple HDR</b></a><br><sub>HDR10 output (Rec.2020, ST.2084) with blocks brighter than paper white.</sub></td><td valign="top" width="33%"><a href="examples/bokeh.ts"><img src="docs/screenshots/bokeh.jpg" alt="Bokeh (TypeScript, DirectX 12 / Vulkan). Depth of field with bokeh sprites expanded by a geometry shader" width="270"></a><br><a href="examples/bokeh.ts"><b>Bokeh</b></a><br><sub>Depth of field with bokeh sprites expanded by a geometry shader.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/raytracing_ao.ts"><img src="docs/screenshots/raytracing_ao.jpg" alt="Raytracing AO (TypeScript, DirectX 12 / Vulkan). Ray traced ambient occlusion side by side with MiniEngine's SSAO" width="270"></a><br><a href="examples/raytracing_ao.ts"><b>Raytracing AO</b></a><br><sub>Ray traced ambient occlusion side by side with MiniEngine's SSAO.</sub></td><td valign="top" width="33%"><a href="examples/simple_pbr.ts"><img src="docs/screenshots/simple_pbr.jpg" alt="Simple PBR (TypeScript, DirectX 12 / Vulkan). Physically based rendering with image based lighting and ACES tone mapping" width="270"></a><br><a href="examples/simple_pbr.ts"><b>Simple PBR</b></a><br><sub>Physically based rendering with image based lighting and ACES tone mapping.</sub></td><td valign="top" width="33%"><a href="examples/simple_compute.ts"><img src="docs/screenshots/simple_compute.jpg" alt="Simple Compute (TypeScript, DirectX 12 / Vulkan). A Mandelbrot fractal by a compute shader, synchronous or on the async compute queue" width="270"></a><br><a href="examples/simple_compute.ts"><b>Simple Compute</b></a><br><sub>A Mandelbrot fractal by a compute shader, synchronous or on the async compute queue.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/simple_bezier.ts"><img src="docs/screenshots/simple_bezier.jpg" alt="Simple Bezier (TypeScript, DirectX 12 / Vulkan). A Mobius strip of Bezier patches tessellated by hull and domain shaders" width="270"></a><br><a href="examples/simple_bezier.ts"><b>Simple Bezier</b></a><br><sub>A Mobius strip of Bezier patches tessellated by hull and domain shaders.</sub></td><td valign="top" width="33%"><a href="examples/mouse_cursor.ts"><img src="docs/screenshots/mouse_cursor.jpg" alt="Mouse Cursor (TypeScript, DirectX 12 / Vulkan). Absolute, relative (captured) and custom mouse cursor modes" width="270"></a><br><a href="examples/mouse_cursor.ts"><b>Mouse Cursor</b></a><br><sub>Absolute, relative (captured) and custom mouse cursor modes.</sub></td><td valign="top" width="33%"><a href="examples/collision.ts"><img src="docs/screenshots/collision.jpg" alt="Collision (TypeScript, DirectX 12 / Vulkan). DirectXMath collision tests between frustums, boxes, spheres, triangles and rays" width="270"></a><br><a href="examples/collision.ts"><b>Collision</b></a><br><sub>DirectXMath collision tests between frustums, boxes, spheres, triangles and rays.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/video_texture.ts"><img src="docs/screenshots/video_texture.jpg" alt="Video Texture (TypeScript, DirectX 12 / Vulkan). A video decoded by Media Foundation into a texture on a spinning cube" width="270"></a><br><a href="examples/video_texture.ts"><b>Video Texture</b></a><br><sub>A video decoded by Media Foundation into a texture on a spinning cube.</sub></td></tr>
+</table>
+
+### NVIDIA DXR Tutorials port
+
+Ported from [NVIDIA DxrTutorials](https://github.com/NVIDIAGameWorks/DxrTutorials).
+
+<table>
+<tr><td valign="top" width="33%"><a href="examples/dxr_refit.ts"><img src="docs/screenshots/dxr_refit.jpg" alt="DXR Refit (TypeScript, DirectX 12 / Vulkan). Rotating triangles with shadow rays; the top-level acceleration structure refitted every frame" width="270"></a><br><a href="examples/dxr_refit.ts"><b>DXR Refit</b></a><br><sub>Rotating triangles with shadow rays; the top-level acceleration structure refitted every frame.</sub></td></tr>
+</table>
+
+### Original examples
+
+<table>
+<tr><td valign="top" width="33%"><a href="examples/compute_nbody_collisions.ts"><img src="docs/screenshots/compute_nbody_collisions.jpg" alt="Compute N-Body Collisions (TypeScript, DirectX 12 / Vulkan). compute_nbody with a third compute pass: particles bounce off each other" width="270"></a><br><a href="examples/compute_nbody_collisions.ts"><b>Compute N-Body Collisions</b></a><br><sub>compute_nbody with a third compute pass: particles bounce off each other.</sub></td><td valign="top" width="33%"><a href="examples/environment_map.ts"><img src="docs/screenshots/environment_map.jpg" alt="Environment Map (TypeScript, DirectX 12 / Vulkan). Sponza under an environment map with planar shadow maps, DDS or KTX 2" width="270"></a><br><a href="examples/environment_map.ts"><b>Environment Map</b></a><br><sub>Sponza under an environment map with planar shadow maps, DDS or KTX 2.</sub></td></tr>
+</table>
+
+## External assets
+
+Some examples render scenes too large for this repository. Point CMake at a checkout of the
+original samples' assets and they are copied (or converted to DDS) next to the executables at
+build time:
+
+| CMake variable | What it is | Examples that need it |
+| --- | --- | --- |
+| `DONUT_SAMPLES_MEDIA_DIR` | Donut-Samples `media` folder (glTF-Sample-Assets, fonts) | Sponza scenes, `feature_demo`, the ATG ports' text |
+| `VULKAN_SAMPLES_ASSETS_DIR` | Khronos Vulkan-Samples `assets` folder | most Vulkan-Samples ports |
+| `XBOX_ATG_SAMPLES_DIR` | Xbox-ATG-Samples checkout | `fast_block_compress`, `bokeh`, `raytracing_ao`, `simple_pbr`, `mouse_cursor`, `video_texture` |
+| `DIRECTX_GRAPHICS_SAMPLES_DIR` | DirectX-Graphics-Samples checkout | `opacity_micromaps` |
+
+```
+cmake --preset default -DVULKAN_SAMPLES_ASSETS_DIR=E:/Vulkan-Samples/assets
+```
+
+## Repository layout
+
+```
+native_ts_graphics/
+├── CMakeLists.txt        # the TSLANG language, Donut, and one add_tslang_example() per example
+├── CMakePresets.json     # default, release, dlss, android-x86_64, android-arm64
+├── cmake/                # CMake language support for .ts (CMakeDetermineTSLANGCompiler.cmake, ...)
+├── core/                 # donut.ts (TypeScript classes) over donut_interop.cpp (flat C API over Donut)
+├── examples/             # one .ts file per example
+├── shaders/              # HLSL shaders and ShaderMake configs, compiled to DXIL, DXBC and SPIR-V
+├── media/                # small assets shipped with the repository
+├── patches/              # local patches to Donut, NVRHI and GLFW
+├── tools/                # Android build/test script, smoke test, screenshot capture, asset tools
+└── external/Donut        # NVIDIA Donut (submodule)
+```
+
+## How the TypeScript build works
+
+The project registers a CMake *language* (`TSLANG`) that:
 
 - owns its own source extension (`.ts`),
 - is built with **tslang --emit=obj**,
 - produces `.obj` files that CMake links automatically alongside regular C++.
 
-CMake then handles dependency tracking and incremental builds for `.ts`
-sources the same way it does for `.cpp`.
+CMake then handles dependency tracking and incremental builds for `.ts` sources the same way it
+does for `.cpp`.
 
-TypeScript is a trademark of Microsoft; this project is not affiliated with or
-endorsed by Microsoft.
+- `enable_language(TSLANG)` runs `CMakeDetermineTSLANGCompiler.cmake`, which finds `tslang`, then
+  loads `CMakeTSLANGInformation.cmake`, which registers the compile rule
+  (`CMAKE_TSLANG_COMPILE_OBJECT` — *tslang --emit=obj*).
+- Because `CMAKE_TSLANG_SOURCE_FILE_EXTENSIONS` contains `ts`, any `.ts` source is routed to
+  tslang and compiled to a `.obj`.
+- That `.obj` is added to the target and linked with the C++ objects using the C++ linker
+  (`CMAKE_TSLANG_LINK_EXECUTABLE`).
+- Change one example's `.ts` and only it recompiles.
+- tslang can't write a depfile, so the files a `.ts` imports or references aren't tracked for it:
+  list them as its `OBJECT_DEPENDS`, as `CMakeLists.txt` does for `core/`.
 
-## Layout
+The examples can also run under tslang's JIT, against the shared build of the interop layer:
 
 ```
-custom_lang/
-├── CMakeLists.txt
-├── cmake/
-│   ├── CMakeDetermineTSLANGCompiler.cmake
-│   ├── CMakeTSLANGCompiler.cmake.in
-│   ├── CMakeTSLANGInformation.cmake
-│   └── CMakeTestTSLANGCompiler.cmake
-├── main.cpp
-└── mycode.ts
+tslang --emit=jit --shared-libs=build/bin/donut_interop.dll examples/basic_triangle.ts
 ```
 
-## How it works
-
-- `enable_language(TSLANG)` runs `CMakeDetermineTSLANGCompiler.cmake`, which finds
-  `tslangc`, then loads `CMakeTSLANGInformation.cmake`, which registers the compile
-  rule (`CMAKE_TSLANG_COMPILE_OBJECT` — *tslang --emit=obj*).
-- Because `CMAKE_TSLANG_SOURCE_FILE_EXTENSIONS` contains `tslang`, any `.ts` source
-  is routed to your command and compiled to a `.obj`.
-- That `.obj` is added to the target and linked with `main.cpp`'s object using
-  the C++ linker (`CMAKE_TSLANG_LINK_EXECUTABLE`).
-- Change `mycode.ts` and only it recompiles.
-- tslang can't write a depfile, so the files a `.ts` imports or references aren't tracked
-  for it: list them as its `OBJECT_DEPENDS`, as `CMakeLists.txt` does for `core/`.
-- Compile: `cmake --preset default && cmake --build --preset default`
-
-## Passing flags
+### Passing flags
 
 ```cmake
 set(CMAKE_TSLANG_FLAGS "--opt_level=3")                       # global
 set_source_files_properties(mycode.ts PROPERTIES
     COMPILE_OPTIONS "--define;TSLANG=1")                      # per-file
 ```
+
+### Using it without a first-class language
+
+If you don't need a first-class language, either:
+
+- Mark a file as an already-built object and just link it:
+  `set_source_files_properties(mycode.obj PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)`
+  and add it to `add_executable`, producing it with `add_custom_command`; or
+- Compile a differently-named file *as C++*:
+  `set_source_files_properties(mycode.tslang PROPERTIES LANGUAGE CXX)`.
+
+Use the `TSLANG` language setup when `.ts` is a source type you compile often and want CMake to
+treat as first-class.
 
 ## Memory model
 
@@ -173,15 +345,27 @@ It prints `Test PASSED`. A native crash shows in logcat under `DEBUG`; the APKs 
 library, and the build folder's `android/<example>/lib<example>.so` keeps the symbols for
 `ndk-stack -sym build-android-x86_64/android/<example>`.
 
-## Minimal alternative
+## Screenshots and smoke tests
 
-If you don't need a first-class language, either:
+```
+pwsh -File tools/smoke_examples.ps1 [-Examples basic_triangle,compute_nbody] [-Apis dx12,vk]
+pwsh -File tools/capture_screenshots.ps1 [-Examples basic_triangle,compute_nbody] [-Api dx12]
+```
 
-- Mark a file as an already-built object and just link it:
-  `set_source_files_properties(mycode.obj PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)`
-  and add it to `add_executable`, producing it with `add_custom_command`; or
-- Compile a differently-named file *as C++*:
-  `set_source_files_properties(mycode.tslang PROPERTIES LANGUAGE CXX)`.
+`smoke_examples.ps1` starts each built example on each API with the debug layers and reports
+crashes and validation errors. `capture_screenshots.ps1` regenerates the gallery images in
+`docs/screenshots`. Both open real windows: leave the desktop alone while they run, as an example
+renders only while its window has focus.
 
-Use the typescript-language setup below when `.ts` is a source type you
-compile often and want CMake to treat as first-class.
+## Credits
+
+- [NVIDIA Donut](https://github.com/NVIDIA-RTX/Donut), [NVRHI](https://github.com/NVIDIA-RTX/NVRHI)
+  and [Donut-Samples](https://github.com/NVIDIA-RTX/Donut-Samples)
+- [Khronos Vulkan-Samples](https://github.com/KhronosGroup/Vulkan-Samples)
+- [Microsoft DirectX-Graphics-Samples](https://github.com/microsoft/DirectX-Graphics-Samples)
+  and [Xbox-ATG-Samples](https://github.com/microsoft/Xbox-ATG-Samples)
+- [NVIDIA DXR Tutorials](https://github.com/NVIDIAGameWorks/DxrTutorials)
+- [tslang, the TypeScript native compiler](https://github.com/ASDAlexander77/TypeScriptCompiler)
+
+Each port keeps the original sample's algorithm and look; see the comment above its
+`add_tslang_example` in `CMakeLists.txt` for what differs.
