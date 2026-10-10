@@ -136,6 +136,7 @@ METHOD_NAMES = {
 RETURNS = {
     "Donut_EnumerateAdapters": "AdapterList",
     "Donut_CreateHeadlessApp": "App",
+    "Donut_CreateHeadlessAppWithOptions": "App",
     "Donut_CreateDeferredCommandList": "CommandList",
     "Donut_CreateComputeQueueCommandList": "CommandList",
     "Donut_GetFrameCommandList": "CommandList",

@@ -142,21 +142,27 @@ namespace ThreadedRendering {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("threaded_rendering");
 
-        if (Donut_GetGraphicsAPIFromCommandLine(argc, argv) == GraphicsAPI.D3D11) {
+        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
+        if (api == GraphicsAPI.D3D11) {
             console.log("The Threaded Rendering example does not support D3D11.");
             return 1;
         }
 
+        // -debug: the graphics API's debug layer and NVRHI's validation layer.
         // --scene <path>: relative to the executable's directory, or absolute.
+        let options = AppOptions.None;
         let scenePath = DEFAULT_SCENE;
-        for (let i = 1; i + 1 < argc; i++) {
-            if (Donut_GetArg(argv, i) == "--scene") {
+        for (let i = 1; i < argc; i++) {
+            const arg = Donut_GetArg(argv, i);
+            if (arg == "-debug") {
+                options = AppOptions.DebugRuntime;
+            } else if (arg == "--scene" && i + 1 < argc) {
                 scenePath = Donut_GetArg(argv, i + 1);
             }
         }
 
         // The window size matches the layout of the rendered cube faces.
-        const app = App.create(argc, argv, WINDOW_TITLE, 1024, 768);
+        const app = App.createWithOptions(api, WINDOW_TITLE, 1024, 768, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;

@@ -112,6 +112,7 @@ namespace Headless {
 
         const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
         let adapterIndex = -1;
+        let options = AppOptions.None;
 
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
@@ -121,8 +122,13 @@ namespace Headless {
  -dx12            Use DX12 API (default)
  -vk              Use Vulkan API
  --list-adapters  Enumerate the graphics adapters present in the system
- --adapter <n>    Use graphics adapter with index <n> as reported by --list-adapters`);
+ --adapter <n>    Use graphics adapter with index <n> as reported by --list-adapters
+ -debug           Enable the graphics API's debug layer and NVRHI's validation layer`);
                 return 0;
+            }
+
+            if (arg == "-debug") {
+                options = AppOptions.DebugRuntime;
             }
 
             if (arg == "--list-adapters") {
@@ -139,7 +145,7 @@ namespace Headless {
             }
         }
 
-        const app = App.createHeadless(api, adapterIndex);
+        const app = App.createHeadlessWithOptions(api, adapterIndex, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;

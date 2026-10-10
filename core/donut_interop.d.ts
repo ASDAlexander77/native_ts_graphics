@@ -297,7 +297,7 @@ enum TemporalTexture {
     MotionVectors = 3
 }
 
-// Bits of Donut_CreateAppWithOptions' options.
+// Bits of Donut_CreateAppWithOptions' and Donut_CreateHeadlessAppWithOptions' options.
 enum AppOptions {
     None = 0,
     // Enables the Vulkan ray tracing extensions (D3D12 has them built in).
@@ -503,6 +503,8 @@ declare function Donut_CreateAppWithOptions(api: GraphicsAPI, title: string, wid
 // Device without a window, for compute work; adapterIndex -1 picks the default adapter. It has
 // no passes: run work with the command list functions. Returns null on failure.
 declare function Donut_CreateHeadlessApp(api: GraphicsAPI, adapterIndex: int): Opaque;
+// Same, with AppOptions bits; the device's apply (RayTracing, ComputeQueue, DebugRuntime).
+declare function Donut_CreateHeadlessAppWithOptions(api: GraphicsAPI, adapterIndex: int, options: AppOptions): Opaque;
 
 // Adapters of one graphics API; null (after logging why) on failure.
 declare function Donut_EnumerateAdapters(api: GraphicsAPI): Opaque;

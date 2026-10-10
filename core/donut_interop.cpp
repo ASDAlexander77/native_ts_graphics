@@ -2054,9 +2054,10 @@ extern "C"
     }
 
     // Creates a device without a window or swap chain, for compute work; adapterIndex -1 picks
-    // the default adapter. Such an app has no passes: run work with Donut_*CommandList. Returns
+    // the default adapter. Such an app has no passes: run work with Donut_*CommandList. Of the
+    // AppOptions bits, the device's apply (ray tracing, compute queue, debug runtime). Returns
     // null on failure.
-    void* Donut_CreateHeadlessApp(int graphicsApi, int adapterIndex)
+    void* Donut_CreateHeadlessAppWithOptions(int graphicsApi, int adapterIndex, int options)
     {
         donut::log::ConsoleApplicationMode();
 
@@ -2067,11 +2068,21 @@ extern "C"
 
         donut::app::DeviceCreationParameters params;
         params.adapterIndex = adapterIndex;
+        params.enableRayTracingExtensions = (options & AppOption_RayTracing) != 0;
+        params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
+        params.enableDebugRuntime = (options & AppOption_DebugRuntime) != 0;
+        params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
 
         if (!deviceManager->CreateHeadlessDevice(params))
             return nullptr;
 
         return MakeApp(std::move(deviceManager), api);
+    }
+
+    // Same, with no options.
+    void* Donut_CreateHeadlessApp(int graphicsApi, int adapterIndex)
+    {
+        return Donut_CreateHeadlessAppWithOptions(graphicsApi, adapterIndex, 0);
     }
 
     // Lists the adapters for graphicsApi. Returns null (after logging why) on failure.
