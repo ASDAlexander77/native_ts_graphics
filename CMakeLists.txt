@@ -2592,6 +2592,28 @@ add_tslang_example(meshlet_instancing core/directx_math.ts core/meshlet_model.cp
 add_dxgs_media(meshlet_instancing meshlet_instancing Samples/Desktop/D3D12MeshShaders/src/Assets/ToyRobot.bin)
 add_tslang_example_test(meshlet_instancing)
 
+# Port of DirectX-Graphics-Samples' D3D12MeshShaders DynamicLOD: a cube of dragons, an amplification
+# shader thread per dragon culling it and picking one of six levels of detail by its size on screen,
+# then mesh shader groups reading that LOD's meshlets from arrays of buffers. Its models are the
+# sample's (core/meshlet_model.cpp), from DIRECTX_GRAPHICS_SAMPLES_DIR. Mesh shaders need D3D12 or
+# Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET dynamic_lod_shaders
+    PROJECT_NAME "Dynamic LOD"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_lod.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_lod.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_lod/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_lod/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+add_tslang_example(dynamic_lod core/directx_math.ts core/meshlet_model.cpp MEDIA dynamic_lod)
+set(dynamic_lod_media)
+foreach(level RANGE 0 5)
+    list(APPEND dynamic_lod_media "Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD${level}.bin")
+endforeach()
+add_dxgs_media(dynamic_lod dynamic_lod ${dynamic_lod_media})
+add_tslang_example_test(dynamic_lod)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse

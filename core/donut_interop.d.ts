@@ -1266,6 +1266,10 @@ declare function Donut_BindRawBufferSRV(bindingSetDesc: BindingSetDescHandle, sl
 declare function Donut_BindRawBufferUAV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // Element arrayElement of a Donut_LayoutTextureSRVArray array of Texture2D at t<slot>.
 declare function Donut_BindTextureSRVArrayElement(bindingSetDesc: BindingSetDescHandle, slot: int, arrayElement: int, texture: TextureHandle): void;
+// Element arrayElement of a Donut_LayoutConstantBufferArray / RawBufferSRVArray / StructuredBufferSRVArray array.
+declare function Donut_BindConstantBufferArrayElement(bindingSetDesc: BindingSetDescHandle, slot: int, arrayElement: int, constantBuffer: BufferHandle): void;
+declare function Donut_BindRawBufferSRVArrayElement(bindingSetDesc: BindingSetDescHandle, slot: int, arrayElement: int, buffer: BufferHandle): void;
+declare function Donut_BindStructuredBufferSRVArrayElement(bindingSetDesc: BindingSetDescHandle, slot: int, arrayElement: int, buffer: BufferHandle): void;
 // Push constants (Donut_LayoutPushConstants) at b<slot>; their values come with each dispatch or
 // draw (Donut_DispatchWithPushConstants, Donut_DrawIndexedWithPushConstants).
 declare function Donut_BindPushConstants(bindingSetDesc: BindingSetDescHandle, slot: int, byteSize: int): void;
@@ -1307,6 +1311,12 @@ declare function Donut_LayoutRawBufferUAV(bindingLayoutDesc: BindingLayoutDescHa
 // An array of `count` Texture2D at t<slot> (t<slot> .. t<slot + count - 1> on D3D12, one binding on
 // Vulkan); not on D3D11.
 declare function Donut_LayoutTextureSRVArray(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, count: int): void;
+// Arrays of `count` buffers: ConstantBuffer<...> at b<slot>, ByteAddressBuffer and StructuredBuffer<...>
+// at t<slot> (D3D12: consecutive registers; Vulkan: one binding); not on D3D11. Each element bound
+// with the matching Donut_Bind*ArrayElement.
+declare function Donut_LayoutConstantBufferArray(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, count: int): void;
+declare function Donut_LayoutRawBufferSRVArray(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, count: int): void;
+declare function Donut_LayoutStructuredBufferSRVArray(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, count: int): void;
 // Register space of the layout's items (D3D12 only; 0 by default).
 declare function Donut_SetBindingLayoutRegisterSpace(bindingLayoutDesc: BindingLayoutDescHandle, space: int): void;
 
