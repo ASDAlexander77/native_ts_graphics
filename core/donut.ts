@@ -2189,6 +2189,19 @@ export class BindingSetDesc {
         Donut_BindTextureSRVArrayElement(this.handle, slot, arrayElement, texture);
     }
 
+    // Element arrayElement of a Donut_LayoutConstantBufferArray / RawBufferSRVArray / StructuredBufferSRVArray array.
+    bindConstantBufferArrayElement(slot: int, arrayElement: int, constantBuffer: BufferHandle): void {
+        Donut_BindConstantBufferArrayElement(this.handle, slot, arrayElement, constantBuffer);
+    }
+
+    bindRawBufferSRVArrayElement(slot: int, arrayElement: int, buffer: BufferHandle): void {
+        Donut_BindRawBufferSRVArrayElement(this.handle, slot, arrayElement, buffer);
+    }
+
+    bindStructuredBufferSRVArrayElement(slot: int, arrayElement: int, buffer: BufferHandle): void {
+        Donut_BindStructuredBufferSRVArrayElement(this.handle, slot, arrayElement, buffer);
+    }
+
     // Push constants (Donut_LayoutPushConstants) at b<slot>; their values come with each dispatch or
     // draw (Donut_DispatchWithPushConstants, Donut_DrawIndexedWithPushConstants).
     bindPushConstants(slot: int, byteSize: int): void {
@@ -2327,6 +2340,21 @@ export class BindingLayoutDesc {
     // Vulkan); not on D3D11.
     layoutTextureSRVArray(slot: int, count: int): void {
         Donut_LayoutTextureSRVArray(this.handle, slot, count);
+    }
+
+    // Arrays of `count` buffers: ConstantBuffer<...> at b<slot>, ByteAddressBuffer and StructuredBuffer<...>
+    // at t<slot> (D3D12: consecutive registers; Vulkan: one binding); not on D3D11. Each element bound
+    // with the matching Donut_Bind*ArrayElement.
+    layoutConstantBufferArray(slot: int, count: int): void {
+        Donut_LayoutConstantBufferArray(this.handle, slot, count);
+    }
+
+    layoutRawBufferSRVArray(slot: int, count: int): void {
+        Donut_LayoutRawBufferSRVArray(this.handle, slot, count);
+    }
+
+    layoutStructuredBufferSRVArray(slot: int, count: int): void {
+        Donut_LayoutStructuredBufferSRVArray(this.handle, slot, count);
     }
 
     // Register space of the layout's items (D3D12 only; 0 by default).

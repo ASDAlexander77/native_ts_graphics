@@ -117,10 +117,10 @@ namespace
         MeshletModelData_CullData,
     };
 
-    // DirectXMath's XMVector3Length, as its SSE path computes it.
+    // DirectXMath's XMVector3Length, as its SSE2 path computes it: (x^2 + z^2) + y^2.
     float Length3(float x, float y, float z)
     {
-        return std::sqrt((x * x + y * y) + z * z);
+        return std::sqrt((x * x + z * z) + y * y);
     }
 
     // DirectXCollision's BoundingSphere::CreateFromPoints: the farthest apart of the min / max x, y

@@ -3493,6 +3493,27 @@ extern "C"
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
     }
 
+    // Arrays of `count` buffers: ConstantBuffer<...> at b<slot>, ByteAddressBuffer and
+    // StructuredBuffer<...> at t<slot> (b / t<slot> .. <slot + count - 1> on D3D12, one binding on
+    // Vulkan); not on D3D11. Each element is bound with the matching Donut_Bind*ArrayElement.
+    void Donut_LayoutConstantBufferArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
+    {
+        bindingLayoutDesc->addItem(
+            nvrhi::BindingLayoutItem::ConstantBuffer(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
+    }
+
+    void Donut_LayoutRawBufferSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
+    {
+        bindingLayoutDesc->addItem(
+            nvrhi::BindingLayoutItem::RawBuffer_SRV(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
+    }
+
+    void Donut_LayoutStructuredBufferSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
+    {
+        bindingLayoutDesc->addItem(
+            nvrhi::BindingLayoutItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
+    }
+
     // Layout visible to the stages in shaderType (nvrhi::ShaderType bits), in register space 0
     // unless set with Donut_SetBindingLayoutRegisterSpace. Returns null on failure.
     nvrhi::IBindingLayout* Donut_CreateBindingLayout(App* app, nvrhi::BindingLayoutDesc* bindingLayoutDesc, int shaderType)
@@ -4317,6 +4338,29 @@ extern "C"
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture)
+                .setArrayElement(static_cast<uint32_t>(arrayElement)));
+    }
+
+    // Element arrayElement of a Donut_LayoutConstantBufferArray, Donut_LayoutRawBufferSRVArray or
+    // Donut_LayoutStructuredBufferSRVArray array at b / t<slot>.
+    void Donut_BindConstantBufferArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* constantBuffer)
+    {
+        bindingSetDesc->addItem(
+            nvrhi::BindingSetItem::ConstantBuffer(static_cast<uint32_t>(slot), constantBuffer)
+                .setArrayElement(static_cast<uint32_t>(arrayElement)));
+    }
+
+    void Donut_BindRawBufferSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* buffer)
+    {
+        bindingSetDesc->addItem(
+            nvrhi::BindingSetItem::RawBuffer_SRV(static_cast<uint32_t>(slot), buffer)
+                .setArrayElement(static_cast<uint32_t>(arrayElement)));
+    }
+
+    void Donut_BindStructuredBufferSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* buffer)
+    {
+        bindingSetDesc->addItem(
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot), buffer)
                 .setArrayElement(static_cast<uint32_t>(arrayElement)));
     }
 
