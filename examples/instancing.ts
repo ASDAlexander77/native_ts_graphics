@@ -40,8 +40,9 @@ namespace Instancing {
 
     // --- Math ---------------------------------------------------------------------------------
 
+    // glm::radians(float): in float32, as every use in the sample is.
     function radians(degrees: number): number {
-        return degrees * Math.PI / 180.0;
+        return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
     }
 
     // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
@@ -53,14 +54,19 @@ namespace Instancing {
 
     // The sample's glm::perspective(fov, aspect, 256, 0.1) (near and far swapped for reversed
     // depth), in Donut's row-vector convention, with view space z forward.
+    // In float32, in glm's order of operations.
     function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
-        const yScale = 1.0 / Math.tan(0.5 * verticalFOV);
-        const xScale = yScale / aspect;
+        const near = Math.fround(zNear);
+        const far = Math.fround(zFar);
+        const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
+        const xScale = Math.fround(1.0 / Math.fround(Math.fround(aspect) * tanHalfFovy));
+        const yScale = Math.fround(1.0 / tanHalfFovy);
+        const depthRange = Math.fround(far - near);
         return [
-            xScale, 0.0,    0.0,                              0.0,
-            0.0,    yScale, 0.0,                              0.0,
-            0.0,    0.0,    -zNear / (zFar - zNear),          1.0,
-            0.0,    0.0,    zFar * zNear / (zFar - zNear),    0.0,
+            xScale, 0.0,    0.0,                                            0.0,
+            0.0,    yScale, 0.0,                                            0.0,
+            0.0,    0.0,    -Math.fround(near / depthRange),                1.0,
+            0.0,    0.0,    Math.fround(Math.fround(far * near) / depthRange), 0.0,
         ];
     }
 

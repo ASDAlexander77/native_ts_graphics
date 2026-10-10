@@ -46,15 +46,18 @@ namespace FeatureDemoExample {
 
     // --- Math ---------------------------------------------------------------------------------
 
+    // dm::radians(float): in float32, as every use in the sample is.
     function radians(degrees: number): number {
-        return degrees * Math.PI / 180.0;
+        return Math.fround(Math.fround(degrees) * Math.fround(Math.fround(Math.PI) / 180.0));
     }
 
     // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse-Z, infinite far plane;
     // row-major, row-vector convention, into 16 floats.
+    // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
+    // edges by a pixel here and there).
     function perspProjD3DStyleReverse(dst: f32[], verticalFOV: number, aspect: number, zNear: number): void {
-        const yScale = 1.0 / Math.tan(0.5 * verticalFOV);
-        const xScale = yScale / aspect;
+        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
+        const xScale = Math.fround(yScale / Math.fround(aspect));
         for (let i = 0; i < 16; i++) {
             dst[i] = 0.0;
         }

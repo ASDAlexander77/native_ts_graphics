@@ -131,8 +131,9 @@ namespace DeferredShading {
     // The donut::math functions the C++ sample uses, on row-major 4x4 matrices (16 numbers) with
     // Donut's row-vector convention: `mul(a, b)` applies a, then b.
 
+    // math::radians(float): in float32, as every use in the sample is.
     function radians(degrees: number): number {
-        return degrees * Math.PI / 180.0;
+        return Math.fround(Math.fround(degrees) * Math.fround(Math.fround(Math.PI) / 180.0));
     }
 
     function mul(a: number[], b: number[]): number[] {
@@ -177,15 +178,19 @@ namespace DeferredShading {
     }
 
     // math::perspProjD3DStyle(verticalFOV, aspect, zNear, zFar).
+    // In float32 as Donut's (computed in double, the terms differ in the last bit, which moves
+    // edges by a pixel here and there).
     function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
-        const yScale = 1.0 / Math.tan(0.5 * verticalFOV);
-        const xScale = yScale / aspect;
-        const zScale = 1.0 / (zFar - zNear);
+        const near = Math.fround(zNear);
+        const far = Math.fround(zFar);
+        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
+        const xScale = Math.fround(yScale / Math.fround(aspect));
+        const zScale = Math.fround(1.0 / Math.fround(far - near));
         return [
-            xScale, 0.0,    0.0,                    0.0,
-            0.0,    yScale, 0.0,                    0.0,
-            0.0,    0.0,    zFar * zScale,          1.0,
-            0.0,    0.0,    -zNear * zFar * zScale, 0.0,
+            xScale, 0.0,    0.0,                                         0.0,
+            0.0,    yScale, 0.0,                                         0.0,
+            0.0,    0.0,    Math.fround(far * zScale),                   1.0,
+            0.0,    0.0,    Math.fround(Math.fround(-near * far) * zScale), 0.0,
         ];
     }
 

@@ -19,7 +19,8 @@ namespace WorkGraphs {
     const CAMERA_TARGET_RADIUS_RATIO = 0.1;
     const CAMERA_CLIMB_SPEED = 0.1;
     const CAMERA_CLIMB_RATIO = 0.6;
-    const CAMERA_VERTICAL_FOV = (Math.PI / 4.0) * 1.15; // In radians.
+    // In radians; (dm::PI_f / 4.0f) * 1.15f, in float32.
+    const CAMERA_VERTICAL_FOV = Math.fround(Math.fround(Math.fround(Math.PI) / 4.0) * Math.fround(1.15));
     const CAMERA_NEAR_CLIP_DISTANCE = 0.5;
 
     // Frames of GPU timer queries in flight.
@@ -191,15 +192,19 @@ namespace WorkGraphs {
     }
 
     // math::perspProjD3DStyle(verticalFOV, aspect, zNear, zFar).
+    // In float32 as Donut's (computed in double, the terms differ in the last bit, which moves
+    // edges by a pixel here and there).
     function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
-        const yScale = 1.0 / Math.tan(0.5 * verticalFOV);
-        const xScale = yScale / aspect;
-        const zScale = 1.0 / (zFar - zNear);
+        const near = Math.fround(zNear);
+        const far = Math.fround(zFar);
+        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
+        const xScale = Math.fround(yScale / Math.fround(aspect));
+        const zScale = Math.fround(1.0 / Math.fround(far - near));
         return [
-            xScale, 0.0,    0.0,                    0.0,
-            0.0,    yScale, 0.0,                    0.0,
-            0.0,    0.0,    zFar * zScale,          1.0,
-            0.0,    0.0,    -zNear * zFar * zScale, 0.0,
+            xScale, 0.0,    0.0,                                         0.0,
+            0.0,    yScale, 0.0,                                         0.0,
+            0.0,    0.0,    Math.fround(far * zScale),                   1.0,
+            0.0,    0.0,    Math.fround(Math.fround(-near * far) * zScale), 0.0,
         ];
     }
 
@@ -1033,7 +1038,8 @@ namespace WorkGraphs {
 
             const aspectRatio = this.targetsWidth / this.targetsHeight;
             const view = lookToD3DStyle(camPosition, camTarget, new Float3(0.0, 1.0, 0.0));
-            const proj = perspProjD3DStyle(CAMERA_VERTICAL_FOV, aspectRatio, CAMERA_NEAR_CLIP_DISTANCE, sceneSize * 1.2);
+            const proj = perspProjD3DStyle(CAMERA_VERTICAL_FOV, aspectRatio, CAMERA_NEAR_CLIP_DISTANCE,
+                Math.fround(Math.fround(sceneSize) * Math.fround(1.2)));
             const viewProj = multiplyMatrices(view, proj);
             const viewProjInverse = invertMatrix(viewProj);
 
