@@ -653,6 +653,12 @@ export class App {
         return new BinaryFile(Donut_LoadBinaryFile(this.handle, path));
     }
 
+    // A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file from
+    // fileOffset, uploaded by an open command list. Null (after logging why) on failure.
+    createStaticBufferFromBinaryFile(commandList: CommandList, binaryFile: BinaryFile, fileOffset: int, byteSize: int, isIndexBuffer: int, debugName: string): BufferHandle {
+        return Donut_CreateStaticBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
+    }
+
     // Image file, path relative to the executable's directory, uploaded by an open command list.
     // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
     loadTexture(commandList: CommandList, path: string, sRGB: int): TextureHandle {
@@ -970,6 +976,21 @@ export class App {
     // For recording on another thread and executing later.
     createDeferredCommandList(): CommandList {
         return new CommandList(Donut_CreateDeferredCommandList(this.handle));
+    }
+
+    // Indexed draws described up front, to record into command lists on worker threads (where tslang
+    // code mustn't run): one pipeline, framebuffer (its whole viewport), vertex buffer (slot 0) and
+    // R32_UINT index buffer; binding sets every draw uses, then per draw an optional binding set of
+    // its own and its index range.
+    createDrawBatch(pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, vertexBuffer: BufferHandle, indexBuffer: BufferHandle): DrawBatch {
+        return new DrawBatch(Donut_CreateDrawBatch(this.handle, pipeline, framebuffer, vertexBuffer, indexBuffer));
+    }
+
+    // Same as Donut_RecordDrawBatch, as a task on the app's thread pool: wait with
+    // Donut_WaitForTasks before executing the command list (Donut_CreateDeferredCommandList; one
+    // per concurrent task).
+    recordDrawBatchAsync(drawBatch: DrawBatch, commandList: CommandList, first: int, step: int): void {
+        Donut_RecordDrawBatchAsync(this.handle, drawBatch.handle, commandList.handle, first, step);
     }
 
     // Donut's first person camera: WASD / arrows move, dragging with the left button looks around.
@@ -2390,6 +2411,12 @@ export class BindingLayoutDesc {
         Donut_SetBindingLayoutRegisterSpace(this.handle, space);
     }
 
+    // Same, on Vulkan too, where the space is the descriptor set: the layout must be the pipeline's
+    // binding layout of that index (e.g. space 1 for the second).
+    setDescriptorSet(space: int): void {
+        Donut_SetBindingLayoutDescriptorSet(this.handle, space);
+    }
+
     // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
     layoutPushConstants(slot: int, byteSize: int): void {
         Donut_LayoutPushConstants(this.handle, slot, byteSize);
@@ -2509,7 +2536,8 @@ export class GraphicsPipelineDesc {
     // freed by Donut_CreateGraphicsPipelineFromDesc. It starts as a triangle list with NVRHI's default
     // render state: depth test (less) and writes, back faces culled (clockwise triangles are front
     // faces), solid fill, no blending.
-    static create(vertexShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineDesc {
+    // A null pixel shader: depth only (e.g. a shadow map's pass).
+    static create(vertexShader: ShaderHandle, pixelShader: ShaderHandle | null): GraphicsPipelineDesc {
         return new GraphicsPipelineDesc(Donut_CreateGraphicsPipelineDesc(vertexShader, pixelShader));
     }
 
@@ -3342,6 +3370,39 @@ export class CubemapTarget {
     }
 }
 
+export class DrawBatch {
+    readonly handle: DrawBatchHandle;
+
+    constructor(handle: DrawBatchHandle | null) {
+        this.handle = handle as DrawBatchHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // A binding set every draw uses, in the pipeline's binding layout order; add them before the draws.
+    addBindingSet(bindingSet: BindingSet): void {
+        Donut_DrawBatchAddBindingSet(this.handle, bindingSet.handle);
+    }
+
+    // A draw of indexCount indices from startIndex, offset by baseVertex, with its own binding set
+    // (null for none) after the shared ones.
+    addDraw(bindingSet: BindingSet | null, indexCount: int, startIndex: int, baseVertex: int): void {
+        Donut_DrawBatchAddDraw(this.handle, bindingSet ? (bindingSet as BindingSet).handle : null, indexCount, startIndex, baseVertex);
+    }
+
+    getDrawCount(): int {
+        return Donut_GetDrawBatchDrawCount(this.handle);
+    }
+
+    // Records the batch's draws first, first + step, ... into commandList, opening and closing it.
+    record(commandList: CommandList, first: int, step: int): void {
+        Donut_RecordDrawBatch(this.handle, commandList.handle, first, step);
+    }
+}
+
 export class GBufferTargets {
     readonly handle: GBufferTargetsHandle;
 
@@ -3975,6 +4036,13 @@ export class BinaryFile {
     // into an open command list (e.g. a model's vertices from the middle of its file).
     writeBufferFromBinaryFile(commandList: CommandList, buffer: BufferHandle, bufferOffset: int, fileOffset: int, byteSize: int): void {
         Donut_WriteBufferFromBinaryFile(this.handle, commandList.handle, buffer, bufferOffset, fileOffset, byteSize);
+    }
+
+    // A texture level (Donut_CreateTextureWithLevels) from the file's bytes at fileOffset, its rows (of
+    // 4 x 4 blocks for block-compressed formats) rowPitch bytes apart, copied during the call into an
+    // open command list.
+    writeTextureLevelFromBinaryFile(commandList: CommandList, texture: TextureHandle, mipLevel: int, fileOffset: int, rowPitch: int): void {
+        Donut_WriteTextureLevelFromBinaryFile(this.handle, commandList.handle, texture, mipLevel, fileOffset, rowPitch);
     }
 
     // The usage counts of an opacity micromap array by a geometry's triangles

@@ -92,6 +92,7 @@ HANDLES = {
     "StringList": "StringListHandle",
     "DynamicMesh": "DynamicMeshHandle",
     "CubemapTarget": "CubemapTargetHandle",
+    "DrawBatch": "DrawBatchHandle",
     "GBufferTargets": "GBufferTargetsHandle",
     "TemporalTargets": "TemporalTargetsHandle",
     "SceneRenderTargets": "SceneRenderTargetsHandle",

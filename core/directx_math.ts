@@ -100,6 +100,14 @@ export function transform3(a: number[], m: number[]): number[] {
     return vadd(vmul(splat(a, 0), row(m, 0)), r);
 }
 
+// XMVector4Transform: (x, y, z, w) * M, from w's row up.
+export function transform4(a: number[], m: number[]): number[] {
+    let r = vmul(splat(a, 3), row(m, 3));
+    r = vadd(vmul(splat(a, 2), row(m, 2)), r);
+    r = vadd(vmul(splat(a, 1), row(m, 1)), r);
+    return vadd(vmul(splat(a, 0), row(m, 0)), r);
+}
+
 // XMVector3TransformNormal: (x, y, z, 0) * M.
 export function transformNormal3(a: number[], m: number[]): number[] {
     let r = vmul(splat(a, 2), row(m, 2));
@@ -288,6 +296,28 @@ export function matrixTranslation(x: number, y: number, z: number): number[] {
     return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
 }
 
+// XMMatrixRotationAxis: XMMatrixRotationNormal about the normalized axis.
+export function matrixRotationAxis(axis: number[], angle: number): number[] {
+    const n = normalize3(axis);
+    const sinCos = scalarSinCos(angle);
+    const c2 = Math.fround(1.0 - sinCos[1]);
+    const vc2 = [c2, c2, c2, c2];
+    const vc1 = [sinCos[1], sinCos[1], sinCos[1], sinCos[1]];
+    const vc0 = [sinCos[0], sinCos[0], sinCos[0], sinCos[0]];
+    let v0 = vmul(vmul(vc2, permute(n, 3, 0, 2, 1)), permute(n, 3, 1, 0, 2));
+    const r0 = vadd(vmul(vmul(vc2, n), n), vc1);
+    const r1 = vadd(vmul(vc0, n), v0);
+    const r2 = vsub(v0, vmul(vc0, n));
+    v0 = [r0[0], r0[1], r0[2], 0.0];
+    const v1 = permute(shuffle(r1, r2, 2, 1, 2, 0), 0, 3, 2, 1);
+    const v2 = permute(shuffle(r1, r2, 0, 0, 1, 1), 2, 0, 2, 0);
+    return fromRows(
+        permute(shuffle(v0, v1, 1, 0, 3, 0), 1, 3, 2, 0),
+        permute(shuffle(v0, v1, 3, 2, 3, 1), 1, 3, 0, 2),
+        shuffle(v2, v0, 3, 2, 1, 0),
+        [0.0, 0.0, 0.0, 1.0]);
+}
+
 // XMMatrixRotationY.
 export function matrixRotationY(angle: number): number[] {
     const sinCos = scalarSinCos(angle);
@@ -313,6 +343,11 @@ export function matrixLookToLH(eye: number[], eyeDirection: number[], up: number
         r2[0], r2[1], r2[2], dot3(r2, negEye),
         0.0, 0.0, 0.0, 1.0,
     ]);
+}
+
+// XMMatrixLookAtRH: XMMatrixLookToLH along eye - at.
+export function matrixLookAtRH(eye: number[], at: number[], up: number[]): number[] {
+    return matrixLookToLH(eye, vsub(eye, at), up);
 }
 
 // XMMatrixLookToRH: XMMatrixLookToLH looking the other way.

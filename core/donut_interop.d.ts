@@ -1000,7 +1000,8 @@ declare function Donut_CreateGraphicsPipelineForFramebuffer(app: AppHandle, fram
 // freed by Donut_CreateGraphicsPipelineFromDesc. It starts as a triangle list with NVRHI's default
 // render state: depth test (less) and writes, back faces culled (clockwise triangles are front
 // faces), solid fill, no blending.
-declare function Donut_CreateGraphicsPipelineDesc(vertexShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineDescHandle;
+// A null pixel shader: depth only (e.g. a shadow map's pass).
+declare function Donut_CreateGraphicsPipelineDesc(vertexShader: ShaderHandle, pixelShader: ShaderHandle | null): GraphicsPipelineDescHandle;
 // Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (null for none),
 // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the mesh
 // shader outputs (its outputtopology).
@@ -1123,6 +1124,15 @@ declare function Donut_CopyBinaryFileUInts(binaryFile: BinaryFileHandle, offset:
 // into an open command list (e.g. a model's vertices from the middle of its file).
 declare function Donut_WriteBufferFromBinaryFile(binaryFile: BinaryFileHandle, commandList: CommandListHandle, buffer: BufferHandle, bufferOffset: int,
     fileOffset: int, byteSize: int): void;
+// A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file from
+// fileOffset, uploaded by an open command list. Null (after logging why) on failure.
+declare function Donut_CreateStaticBufferFromBinaryFile(app: AppHandle, commandList: CommandListHandle, binaryFile: BinaryFileHandle,
+    fileOffset: int, byteSize: int, isIndexBuffer: int, debugName: string): BufferHandle;
+// A texture level (Donut_CreateTextureWithLevels) from the file's bytes at fileOffset, its rows (of
+// 4 x 4 blocks for block-compressed formats) rowPitch bytes apart, copied during the call into an
+// open command list.
+declare function Donut_WriteTextureLevelFromBinaryFile(binaryFile: BinaryFileHandle, commandList: CommandListHandle, texture: TextureHandle, mipLevel: int,
+    fileOffset: int, rowPitch: int): void;
 // The usage counts of an opacity micromap array by a geometry's triangles
 // (Donut_SetTriangleBlasGeometryOpacityMicromap) from the file's data: indexCount OMM indices
 // (indexFormat R16_UINT or R32_UINT) at indexOffset, indexing descCount per-OMM descs at descOffset
@@ -1366,6 +1376,9 @@ declare function Donut_LayoutRawBufferSRVArray(bindingLayoutDesc: BindingLayoutD
 declare function Donut_LayoutStructuredBufferSRVArray(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, count: int): void;
 // Register space of the layout's items (D3D12 only; 0 by default).
 declare function Donut_SetBindingLayoutRegisterSpace(bindingLayoutDesc: BindingLayoutDescHandle, space: int): void;
+// Same, on Vulkan too, where the space is the descriptor set: the layout must be the pipeline's
+// binding layout of that index (e.g. space 1 for the second).
+declare function Donut_SetBindingLayoutDescriptorSet(bindingLayoutDesc: BindingLayoutDescHandle, space: int): void;
 
 // Ray tracing pipelines of any shape: a description built with the Donut_RtPipeline* functions,
 // freed by Donut_CreateRayTracingPipelineFromDesc. maxRecursionDepth 1 = no rays from hit shaders.
@@ -1664,6 +1677,23 @@ declare function Donut_RenderCubemapFaceAsync(app: AppHandle, cubemapTarget: Cub
 declare function Donut_WaitForTasks(app: AppHandle): void;
 // For recording on another thread and executing later.
 declare function Donut_CreateDeferredCommandList(app: AppHandle): CommandListHandle;
+// Indexed draws described up front, to record into command lists on worker threads (where tslang
+// code mustn't run): one pipeline, framebuffer (its whole viewport), vertex buffer (slot 0) and
+// R32_UINT index buffer; binding sets every draw uses, then per draw an optional binding set of
+// its own and its index range.
+declare function Donut_CreateDrawBatch(app: AppHandle, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle,
+    vertexBuffer: BufferHandle, indexBuffer: BufferHandle): DrawBatchHandle;
+// A binding set every draw uses, in the pipeline's binding layout order; add them before the draws.
+declare function Donut_DrawBatchAddBindingSet(drawBatch: DrawBatchHandle, bindingSet: BindingSetHandle): void;
+// A draw of indexCount indices from startIndex, offset by baseVertex, with its own binding set
+// (null for none) after the shared ones.
+declare function Donut_DrawBatchAddDraw(drawBatch: DrawBatchHandle, bindingSet: BindingSetHandle | null, indexCount: int, startIndex: int, baseVertex: int): void;
+declare function Donut_GetDrawBatchDrawCount(drawBatch: DrawBatchHandle): int;
+// Records the batch's draws first, first + step, ... into commandList, opening and closing it.
+declare function Donut_RecordDrawBatch(drawBatch: DrawBatchHandle, commandList: CommandListHandle, first: int, step: int): void;
+// Same, as a task on the app's thread pool: wait with Donut_WaitForTasks before executing the
+// command list (Donut_CreateDeferredCommandList; one per concurrent task).
+declare function Donut_RecordDrawBatchAsync(app: AppHandle, drawBatch: DrawBatchHandle, commandList: CommandListHandle, first: int, step: int): void;
 
 // Donut's first person camera: WASD / arrows move, dragging with the left button looks around.
 declare function Donut_CreateFirstPersonCamera(app: AppHandle): CameraHandle;

@@ -62,6 +62,7 @@ declare class SceneLoaderHandle extends ObjectHandle { private readonly __sceneL
 declare class StringListHandle extends ObjectHandle { private readonly __stringList: int; }
 declare class DynamicMeshHandle extends ObjectHandle { private readonly __dynamicMesh: int; }
 declare class CubemapTargetHandle extends ObjectHandle { private readonly __cubemapTarget: int; }
+declare class DrawBatchHandle extends ObjectHandle { private readonly __drawBatch: int; }
 declare class GBufferTargetsHandle extends ObjectHandle { private readonly __gbufferTargets: int; }
 declare class TemporalTargetsHandle extends ObjectHandle { private readonly __temporalTargets: int; }
 declare class SceneRenderTargetsHandle extends ObjectHandle { private readonly __sceneRenderTargets: int; }

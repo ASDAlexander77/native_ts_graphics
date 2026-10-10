@@ -2728,6 +2728,24 @@ add_tslang_example_test(denoised_rtao)
 add_tslang_example_test(denoised_rtao SUFFIX raw ARGS -raw)
 add_tslang_example_test(denoised_rtao SUFFIX shaded ARGS -shaded)
 
+# Port of DirectX-Graphics-Samples' D3D12Multithreading: a room of 1025 draws lit by three moving
+# spotlights, the first casting shadows, its shadow pass and scene pass recorded by three worker
+# threads into command lists of their own (DrawBatch in core/donut_interop.cpp). Its data file
+# (SquidRoom.bin: the mesh and 74 textures; core/squid_room.ts says where) is the sample's, from
+# DIRECTX_GRAPHICS_SAMPLES_DIR. Command lists recorded on other threads: D3D12 or Vulkan.
+donut_compile_shaders(
+    TARGET multithreading_shaders
+    PROJECT_NAME "Multithreading"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/multithreading.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/multithreading.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multithreading/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multithreading/spirv
+)
+add_tslang_example(multithreading core/directx_math.ts core/squid_room.ts MEDIA multithreading)
+add_dxgs_media(multithreading multithreading Samples/Desktop/D3D12Multithreading/src/SquidRoom.bin)
+add_tslang_example_test(multithreading)
+add_tslang_example_test(multithreading SUFFIX single_threaded ARGS -singleThreaded)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse
