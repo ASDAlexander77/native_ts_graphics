@@ -2897,7 +2897,7 @@ In `CMakeLists.txt`'s `add_custom_command` for the check, add `--strict` after t
 - [ ] **Step 4: Nothing untyped left in TypeScript**
 
 Run: `python tools/find_untyped_handles.py`
-Expected: `find_untyped_handles: 0 place(s)`, exit 0.
+Expected: `find_untyped_handles: 0 place(s)`, exit 0, except for lines where both sides are raw memory. For example, an `Opaque | null` pointer to floats passed to an `Opaque` raw-memory parameter, which the finder flags because `Opaque` is a class for it. Those aren't handle problems. Narrow the `null` away where that's natural; otherwise list each remaining one in the PR description as raw memory. Any line naming an `XxxHandle` or a wrapper class must be gone.
 
 Run the tsc check (Global Constraints). Expected: only the TS2367 line.
 
