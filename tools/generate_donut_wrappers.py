@@ -171,6 +171,7 @@ RETURNS = {
     "Donut_GetStereoLeftView": "View",
     "Donut_GetLightProbeCaptureView": "View",
     "Donut_CreateCascadedShadowMap": "ShadowMap",
+    "Donut_CreatePlanarShadowMap": "ShadowMap",
     "Donut_CreateShadowDepthPass": "DepthPass",
     "Donut_CreateSceneTemporalAntiAliasingPass": "TemporalAntiAliasingPass",
 }

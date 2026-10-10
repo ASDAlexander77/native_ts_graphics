@@ -40,35 +40,42 @@ namespace TimestampQueries {
 
     // --- Math ---------------------------------------------------------------------------------
 
+    // glm::radians(float): in float32, as every use in the sample is.
     function radians(degrees: number): number {
-        return degrees * Math.PI / 180.0;
+        return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
     }
 
     // The sample's glm::perspective(fov, aspect, 256, 0.1) (near and far swapped for reversed
     // depth; right-handed, depth from 0 to 1), for row vectors, with clip y negated: the sample's
     // clip space has y down on the screen (Vulkan's), Donut's y up.
+    // In float32, in glm's order of operations.
     function samplePerspective(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
-        const tanHalfFovy = Math.tan(0.5 * verticalFOV);
+        const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
         // glm's near and far, swapped.
-        const n = zFar;
-        const f = zNear;
+        const n = Math.fround(zFar);
+        const f = Math.fround(zNear);
         return [
-            1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                  0.0,
-            0.0,                          -1.0 / tanHalfFovy, 0.0,                  0.0,
-            0.0,                          0.0,                f / (n - f),          -1.0,
-            0.0,                          0.0,                -(f * n) / (f - n),   0.0,
+            Math.fround(1.0 / Math.fround(Math.fround(aspect) * tanHalfFovy)), 0.0, 0.0, 0.0,
+            0.0, -Math.fround(1.0 / tanHalfFovy), 0.0, 0.0,
+            0.0, 0.0, Math.fround(f / Math.fround(n - f)), -1.0,
+            0.0, 0.0, Math.fround(-Math.fround(f * n) / Math.fround(f - n)), 0.0,
         ];
     }
 
     // The same projection in Donut's conventions (view space z forward), for Donut's camera.
+    // In float32, in glm's order of operations.
     function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
-        const yScale = 1.0 / Math.tan(0.5 * verticalFOV);
-        const xScale = yScale / aspect;
+        const near = Math.fround(zNear);
+        const far = Math.fround(zFar);
+        const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
+        const xScale = Math.fround(1.0 / Math.fround(Math.fround(aspect) * tanHalfFovy));
+        const yScale = Math.fround(1.0 / tanHalfFovy);
+        const depthRange = Math.fround(far - near);
         return [
-            xScale, 0.0,    0.0,                              0.0,
-            0.0,    yScale, 0.0,                              0.0,
-            0.0,    0.0,    -zNear / (zFar - zNear),          1.0,
-            0.0,    0.0,    zFar * zNear / (zFar - zNear),    0.0,
+            xScale, 0.0,    0.0,                                            0.0,
+            0.0,    yScale, 0.0,                                            0.0,
+            0.0,    0.0,    -Math.fround(near / depthRange),                1.0,
+            0.0,    0.0,    Math.fround(Math.fround(far * near) / depthRange), 0.0,
         ];
     }
 

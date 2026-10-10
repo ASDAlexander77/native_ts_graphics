@@ -71,9 +71,11 @@ namespace RtParticles {
 
     // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane,
     // row-major with Donut's row-vector convention.
+    // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
+    // edges by a pixel here and there).
     function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
-        const yScale = 1.0 / Math.tan(0.5 * verticalFOV);
-        const xScale = yScale / aspect;
+        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
+        const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
             xScale, 0.0,    0.0,   0.0,
             0.0,    yScale, 0.0,   0.0,
@@ -578,7 +580,7 @@ namespace RtParticles {
             }
 
             this.camera.getWorldToView(Ref(this.viewMatrix[0]));
-            const verticalFovRadians = Math.PI * 0.25;
+            const verticalFovRadians = Math.fround(Math.PI * 0.25);
             const projection = perspProjD3DStyleReverse(verticalFovRadians, width / height, 0.1);
             for (let i = 0; i < 16; i++) {
                 this.projMatrix[i] = projection[i];

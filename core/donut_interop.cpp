@@ -46,6 +46,7 @@
 #include <donut/render/DepthPass.h>
 #include <donut/render/DLSS.h>
 #include <donut/render/DrawStrategy.h>
+#include <donut/render/EnvironmentMapPass.h>
 #include <donut/render/ForwardShadingPass.h>
 #include <donut/render/GBuffer.h>
 #include <donut/render/GBufferFillPass.h>
@@ -53,6 +54,7 @@
 #include <donut/render/LightProbeProcessingPass.h>
 #include <donut/render/MipMapGenPass.h>
 #include <donut/render/PixelReadbackPass.h>
+#include <donut/render/PlanarShadowMap.h>
 #include <donut/render/SkyPass.h>
 #include <donut/render/SsaoPass.h>
 #include <donut/render/TemporalAntiAliasingPass.h>
@@ -308,6 +310,8 @@ namespace
         int computeShaderDerivatives = 0;
         // Whether blend states can do logic operations (Donut_HasLogicOps).
         bool logicOps = false;
+        // Whether pipelines can test the depth target against bounds (Donut_HasDepthBoundsTest).
+        bool depthBoundsTest = false;
         // ShaderExecutionReordering value (Donut_GetShaderExecutionReordering).
         int shaderExecutionReordering = 0;
         // Whether shaders can compute with 16-bit types and read them from buffers
@@ -713,10 +717,19 @@ namespace
     };
 
     // A cascaded shadow map and the framebuffer its depth pass renders into.
+    // A cascaded or a planar shadow map (one of the two set), and a framebuffer over its texture.
     struct ShadowMapTarget
     {
-        std::shared_ptr<donut::render::CascadedShadowMap> shadowMap;
+        std::shared_ptr<donut::render::CascadedShadowMap> cascaded;
+        std::shared_ptr<donut::render::PlanarShadowMap> planar;
         std::shared_ptr<donut::engine::FramebufferFactory> framebuffer;
+
+        std::shared_ptr<donut::engine::IShadowMap> shadowMap() const
+        {
+            if (cascaded)
+                return cascaded;
+            return planar;
+        }
     };
 
     // Light probes sharing one diffuse and one specular cube map array (a cube per probe).
@@ -1245,6 +1258,10 @@ namespace
     {
         nvrhi::rt::AccelStructDesc desc;
         nvrhi::rt::AccelStructHandle accelStruct;
+        // The opacity micromap arrays its geometries use (Donut_SetTriangleBlasGeometryOpacityMicromap),
+        // kept for as long as the BLAS, and their usage counts, which the geometries point to.
+        std::vector<nvrhi::rt::OpacityMicromapHandle> opacityMicromaps;
+        std::vector<std::unique_ptr<std::vector<nvrhi::rt::OpacityMicromapUsageCount>>> ommUsageCounts;
     };
 
 #if DONUT_WITH_DX12
@@ -1370,6 +1387,9 @@ namespace
         // Chained into the device's creation when VK_EXT_line_rasterization is enabled.
         VkPhysicalDeviceLineRasterizationFeaturesEXT lineRasterization{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT };
+        // Chained into the device's creation when VK_EXT_opacity_micromap is enabled.
+        VkPhysicalDeviceOpacityMicromapFeaturesEXT opacityMicromap{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT };
     };
 
     // Device creation callback: enables multi-draw indirect, a first instance in indirect draws,
@@ -1397,6 +1417,7 @@ namespace
         features.shaderResourceResidency = available.shaderResourceResidency;
         features.pipelineStatisticsQuery = available.pipelineStatisticsQuery;
         features.logicOp = available.logicOp;
+        features.depthBounds = available.depthBounds;
         features.wideLines = available.wideLines;
         // SV_ClipDistance and SV_CullDistance.
         features.shaderClipDistance = available.shaderClipDistance;
@@ -1554,6 +1575,22 @@ namespace
                     result.computeShaderDerivatives.computeDerivativeGroupLinear = available2.computeDerivativeGroupLinear;
                     result.computeShaderDerivatives.pNext = const_cast<void*>(info.pNext);
                     info.pNext = &result.computeShaderDerivatives;
+                }
+                continue;
+            }
+            if (strcmp(info.ppEnabledExtensionNames[i], VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME) == 0)
+            {
+                VkPhysicalDeviceOpacityMicromapFeaturesEXT available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                if (available2.micromap)
+                {
+                    result.opacityMicromap.micromap = VK_TRUE;
+                    result.opacityMicromap.pNext = const_cast<void*>(info.pNext);
+                    info.pNext = &result.opacityMicromap;
                 }
                 continue;
             }
@@ -1727,6 +1764,10 @@ extern "C"
         // Donut chains its feature, on).
         if ((options & AppOption_RayTracing) != 0)
             params.optionalVulkanDeviceExtensions.push_back("VK_KHR_ray_tracing_position_fetch");
+        // Opacity micromaps in BLASes (Feature.RayTracingOpacityMicromap; its feature chained by
+        // EnableCoreFeatures).
+        if ((options & AppOption_RayTracing) != 0)
+            params.optionalVulkanDeviceExtensions.push_back("VK_EXT_opacity_micromap");
         // Advanced blend operations (Donut_GetAdvancedBlendOperations).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_blend_operation_advanced");
         // Quad control in shaders (Donut_HasShaderQuadControl), which needs maximal reconvergence.
@@ -1831,6 +1872,9 @@ extern "C"
             app->rasterizerOrderedViews = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)))
                 && options.ROVsSupported;
             app->logicOps = options.OutputMergerLogicOp != FALSE;
+            D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2 = {};
+            app->depthBoundsTest = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS2, &options2, sizeof(options2)))
+                && options2.DepthBoundsTestSupported;
             D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3 = {};
             app->barycentrics = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3)))
                 && options3.BarycentricsSupported;
@@ -1860,6 +1904,8 @@ extern "C"
         app->pipelineStatisticsQuery = api == nvrhi::GraphicsAPI::VULKAN && vulkanFeatures->features.pipelineStatisticsQuery;
         if (api == nvrhi::GraphicsAPI::VULKAN)
             app->logicOps = vulkanFeatures->features.logicOp == VK_TRUE;
+        if (api == nvrhi::GraphicsAPI::VULKAN)
+            app->depthBoundsTest = vulkanFeatures->features.depthBounds == VK_TRUE;
         if (api == nvrhi::GraphicsAPI::VULKAN)
         {
             app->conditionalRendering = vulkanFeatures->conditionalRendering.conditionalRendering == VK_TRUE;
@@ -2130,6 +2176,26 @@ extern "C"
         return AsApp(app)->device()->queryFeatureSupport(static_cast<nvrhi::Feature>(feature)) ? 1 : 0;
     }
 
+    // The fewest and most lanes a wave (subgroup) has (D3D12's WaveLaneCountMin / Max; Vulkan's one
+    // subgroupSize for both); 0 without wave intrinsics (D3D11).
+    static nvrhi::WaveLaneCountMinMaxFeatureInfo GetWaveLaneCounts(void* app)
+    {
+        nvrhi::WaveLaneCountMinMaxFeatureInfo info{};
+        if (!AsApp(app)->device()->queryFeatureSupport(nvrhi::Feature::WaveLaneCountMinMax, &info, sizeof(info)))
+            return {};
+        return info;
+    }
+
+    int Donut_GetWaveLaneCountMin(void* app)
+    {
+        return static_cast<int>(GetWaveLaneCounts(app).minWaveLaneCount);
+    }
+
+    int Donut_GetWaveLaneCountMax(void* app)
+    {
+        return static_cast<int>(GetWaveLaneCounts(app).maxWaveLaneCount);
+    }
+
     const char* Donut_GetRendererString(void* app)
     {
         return AsApp(app)->deviceManager->GetRendererString();
@@ -2345,6 +2411,41 @@ extern "C"
             .setBindingLayout(static_cast<nvrhi::IBindingLayout*>(localBindingLayout)));
     }
 
+    // A procedural primitive hit group, for AABB geometries: intersection, closest-hit and any-hit
+    // shaders by entry name ("" for no closest-hit / any-hit shader), and an optional local binding
+    // layout as above.
+    void Donut_RtPipelineAddProceduralHitGroup(void* pipelineDesc, void* shaderLibrary, const char* exportName,
+        const char* intersectionEntry, const char* closestHitEntry, const char* anyHitEntry, void* localBindingLayout)
+    {
+        auto* library = static_cast<nvrhi::IShaderLibrary*>(shaderLibrary);
+        auto entryShader = [library](const char* entry, nvrhi::ShaderType type) -> nvrhi::ShaderHandle {
+            return entry && *entry ? library->getShader(entry, type) : nullptr;
+        };
+
+        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->hitGroups.push_back(nvrhi::rt::PipelineHitGroupDesc()
+            .setExportName(exportName)
+            .setIntersectionShader(entryShader(intersectionEntry, nvrhi::ShaderType::Intersection))
+            .setClosestHitShader(entryShader(closestHitEntry, nvrhi::ShaderType::ClosestHit))
+            .setAnyHitShader(entryShader(anyHitEntry, nvrhi::ShaderType::AnyHit))
+            .setBindingLayout(static_cast<nvrhi::IBindingLayout*>(localBindingLayout))
+            .setIsProceduralPrimitive(true));
+    }
+
+    // The largest hit attribute structure the shaders report (D3D12's MaxAttributeSizeInBytes;
+    // NVRHI's default is 8 bytes, two floats of triangle barycentrics).
+    void Donut_RtPipelineSetMaxAttributeSize(void* pipelineDesc, int byteSize)
+    {
+        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->maxAttributeSize = static_cast<uint32_t>(byteSize);
+    }
+
+    // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (D3D12's
+    // D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS, Vulkan's
+    // VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT); off by default.
+    void Donut_RtPipelineSetAllowOpacityMicromaps(void* pipelineDesc, int allow)
+    {
+        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->allowOpacityMicromaps = allow != 0;
+    }
+
     // Returns null on failure.
     void* Donut_CreateRayTracingPipelineFromDesc(void* app, void* pipelineDesc)
     {
@@ -2415,6 +2516,21 @@ extern "C"
             .setIsAccelStructBuildInput(true)
             .setDebugName(debugName)
             .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = AsApp(app);
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
+    // Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
+    void* Donut_CreateAccelStructInputRawBuffer(void* app, int byteSize, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(static_cast<uint64_t>(byteSize))
+            .setCanHaveRawViews(true)
+            .setIsAccelStructBuildInput(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput)
             .setKeepInitialState(true);
 
         App* a = AsApp(app);
@@ -2523,6 +2639,113 @@ extern "C"
         static_cast<TriangleBlas*>(triangleBlas)->desc.addBottomLevelGeometry(geometry);
     }
 
+    // Adds opaque procedural primitives to an unbuilt BLAS instead: aabbCount boxes
+    // (nvrhi::rt::GeometryAABB: min x y z, max x y z) aabbStride bytes apart from byteOffset of
+    // aabbBuffer (created for acceleration structure builds). A BLAS holds triangles or AABBs, not
+    // both.
+    void Donut_AddTriangleBlasAabbGeometry(void* triangleBlas, void* aabbBuffer, int byteOffset, int aabbCount,
+        int aabbStride)
+    {
+        auto aabbs = nvrhi::rt::GeometryAABBs()
+            .setBuffer(AsBuffer(aabbBuffer))
+            .setOffset(static_cast<uint64_t>(byteOffset))
+            .setCount(static_cast<uint32_t>(aabbCount))
+            .setStride(static_cast<uint32_t>(aabbStride));
+        static_cast<TriangleBlas*>(triangleBlas)->desc.addBottomLevelGeometry(nvrhi::rt::GeometryDesc()
+            .setAABBs(aabbs)
+            .setFlags(nvrhi::rt::GeometryFlags::Opaque));
+    }
+
+    // An unbuilt BLAS's geometryIndex-th geometry's nvrhi::rt::GeometryFlags (1 opaque, the default;
+    // 0 for any-hit shaders to run; 2 no duplicate any-hit invocations).
+    void Donut_SetTriangleBlasGeometryFlags(void* triangleBlas, int geometryIndex, int flags)
+    {
+        auto& geometries = static_cast<TriangleBlas*>(triangleBlas)->desc.bottomLevelGeometries;
+        if (geometryIndex < 0 || size_t(geometryIndex) >= geometries.size())
+            return;
+        geometries[geometryIndex].setFlags(static_cast<nvrhi::rt::GeometryFlags>(flags));
+    }
+
+    // Links an unbuilt BLAS's geometryIndex-th (triangle) geometry to an opacity micromap array
+    // (Donut_CreateOpacityMicromap): an OMM index per triangle, ommIndexFormat (R16_UINT or
+    // R32_UINT) values at ommIndexOffset of ommIndexBuffer (an acceleration structure input
+    // buffer); usageCounts (Ref of an int array) holds numUsageCounts entries of three ints, how
+    // many triangles use OMMs of a subdivision level and format (Donut_CountOpacityMicromapUsage).
+    // The BLAS keeps the array alive.
+    void Donut_SetTriangleBlasGeometryOpacityMicromap(void* triangleBlas, int geometryIndex, void* opacityMicromap,
+        void* ommIndexBuffer, int ommIndexOffset, int ommIndexFormat, const int* usageCounts, int numUsageCounts)
+    {
+        auto* blas = static_cast<TriangleBlas*>(triangleBlas);
+        auto& geometries = blas->desc.bottomLevelGeometries;
+        if (geometryIndex < 0 || size_t(geometryIndex) >= geometries.size()
+            || geometries[geometryIndex].geometryType != nvrhi::rt::GeometryType::Triangles)
+            return;
+
+        auto counts = std::make_unique<std::vector<nvrhi::rt::OpacityMicromapUsageCount>>();
+        for (int i = 0; i < numUsageCounts; i++)
+        {
+            nvrhi::rt::OpacityMicromapUsageCount count{};
+            count.count = uint32_t(usageCounts[i * 3]);
+            count.subdivisionLevel = uint32_t(usageCounts[i * 3 + 1]);
+            count.format = static_cast<nvrhi::rt::OpacityMicromapFormat>(usageCounts[i * 3 + 2]);
+            counts->push_back(count);
+        }
+
+        auto* omm = static_cast<nvrhi::rt::IOpacityMicromap*>(opacityMicromap);
+        geometries[geometryIndex].geometryData.triangles
+            .setOpacityMicromap(omm)
+            .setOmmIndexBuffer(AsBuffer(ommIndexBuffer))
+            .setOmmIndexBufferOffset(uint64_t(ommIndexOffset))
+            .setOmmIndexFormat(static_cast<nvrhi::Format>(ommIndexFormat))
+            .setPOmmUsageCounts(counts->data())
+            .setNumOmmUsageCounts(uint32_t(counts->size()));
+        blas->opacityMicromaps.push_back(omm);
+        blas->ommUsageCounts.push_back(std::move(counts));
+    }
+
+    // An opacity micromap array (requires Feature.RayTracingOpacityMicromap), built into an open
+    // command list from inputBuffer's raw OMM data at inputOffset and perOmmDescs' descs at
+    // descsOffset (both acceleration structure input buffers; the descs as
+    // Donut_CountOpacityMicromapUsage reads them); usageCounts (Ref of an int array) holds
+    // numUsageCounts entries of three ints, how many OMMs the array has of a subdivision level and
+    // format (D3D12's histogram). buildFlags: nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast
+    // trace, 2 fast build). Returns null on failure.
+    void* Donut_CreateOpacityMicromap(void* app, void* commandList, void* inputBuffer, int inputOffset,
+        void* perOmmDescs, int descsOffset, const int* usageCounts, int numUsageCounts, int buildFlags,
+        const char* debugName)
+    {
+        nvrhi::rt::OpacityMicromapDesc desc;
+        desc.setDebugName(debugName)
+            .setFlags(static_cast<nvrhi::rt::OpacityMicromapBuildFlags>(buildFlags))
+            .setInputBuffer(AsBuffer(inputBuffer))
+            .setInputBufferOffset(uint64_t(inputOffset))
+            .setPerOmmDescs(AsBuffer(perOmmDescs))
+            .setPerOmmDescsOffset(uint64_t(descsOffset));
+        for (int i = 0; i < numUsageCounts; i++)
+        {
+            nvrhi::rt::OpacityMicromapUsageCount count{};
+            count.count = uint32_t(usageCounts[i * 3]);
+            count.subdivisionLevel = uint32_t(usageCounts[i * 3 + 1]);
+            count.format = static_cast<nvrhi::rt::OpacityMicromapFormat>(usageCounts[i * 3 + 2]);
+            desc.counts.push_back(count);
+        }
+
+        App* a = AsApp(app);
+        nvrhi::rt::OpacityMicromapHandle omm = a->device()->createOpacityMicromap(desc);
+        if (!omm)
+            return nullptr;
+        AsCommandList(commandList)->buildOpacityMicromap(omm, desc);
+        return a->Own(omm);
+    }
+
+    // Builds a Donut_CreateOpacityMicromap array again, in place, from its inputs' current contents,
+    // into an open command list.
+    void Donut_BuildOpacityMicromap(void* commandList, void* opacityMicromap)
+    {
+        auto* omm = static_cast<nvrhi::rt::IOpacityMicromap*>(opacityMicromap);
+        AsCommandList(commandList)->buildOpacityMicromap(omm, omm->getDesc());
+    }
+
     // Creates the BLAS of the geometries added (AccelStructBuildFlags bits: e.g. PreferFastTrace,
     // AllowDataAccess for hit shaders to read its vertex positions) and records its build into an
     // open command list. Returns 0 on failure.
@@ -2535,6 +2758,15 @@ extern "C"
             return 0;
         nvrhi::utils::BuildBottomLevelAccelStruct(AsCommandList(commandList), blas->accelStruct, blas->desc);
         return 1;
+    }
+
+    // Builds a Donut_BuildTriangleBlas BLAS again, in place (not an update), from its geometries'
+    // current contents, into an open command list.
+    void Donut_RebuildTriangleBlas(void* triangleBlas, void* commandList)
+    {
+        auto* blas = static_cast<TriangleBlas*>(triangleBlas);
+        if (blas->accelStruct)
+            nvrhi::utils::BuildBottomLevelAccelStruct(AsCommandList(commandList), blas->accelStruct, blas->desc);
     }
 
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
@@ -3266,6 +3498,90 @@ extern "C"
             const size_t index = size_t(offset) + size_t(i);
             dst[i] = index < bytes.size() ? bytes[index] : 0;
         }
+    }
+
+    // count little-endian 32-bit values from byte offset into dst (Ref of an int array element),
+    // as ints; those past the end of the file as 0.
+    void Donut_CopyBinaryFileUInts(void* binaryFile, int offset, int count, int* dst)
+    {
+        const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
+        for (int i = 0; i < count; i++)
+        {
+            const size_t index = size_t(offset) + size_t(i) * 4;
+            uint32_t value = 0;
+            if (index + 4 <= bytes.size())
+                memcpy(&value, &bytes[index], 4);
+            dst[i] = static_cast<int>(value);
+        }
+    }
+
+    // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the
+    // call into an open command list (e.g. a model's vertices from the middle of its file).
+    void Donut_WriteBufferFromBinaryFile(void* binaryFile, void* commandList, void* buffer, int bufferOffset,
+        int fileOffset, int byteSize)
+    {
+        const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
+        if (fileOffset < 0 || byteSize < 0 || size_t(fileOffset) + size_t(byteSize) > bytes.size())
+        {
+            donut::log::error("Donut_WriteBufferFromBinaryFile: bytes %d..%d are past the end of the file (%d bytes)",
+                fileOffset, fileOffset + byteSize, int(bytes.size()));
+            return;
+        }
+        AsCommandList(commandList)->writeBuffer(AsBuffer(buffer), bytes.data() + fileOffset, size_t(byteSize),
+            uint64_t(bufferOffset));
+    }
+
+    // The usage counts of an opacity micromap array by the triangles of a geometry
+    // (Donut_SetTriangleBlasGeometryOpacityMicromap; Vulkan's BLAS builds need them): indexCount
+    // OMM indices (indexFormat R16_UINT or R32_UINT; one per triangle, negative ones the special
+    // fully opaque / transparent indices) at indexOffset of the file, indexing descCount per-OMM
+    // descs (D3D12_RAYTRACING_OPACITY_MICROMAP_DESC, VkMicromapTriangleEXT: 32-bit data offset,
+    // 16-bit subdivision level, 16-bit format) at descOffset. Writes up to maxEntries entries of
+    // three ints (count, subdivision level, format) into dst; returns how many there are.
+    int Donut_CountOpacityMicromapUsage(void* binaryFile, int indexOffset, int indexCount, int indexFormat,
+        int descOffset, int descCount, int* dst, int maxEntries)
+    {
+        const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
+        const bool index16 = static_cast<nvrhi::Format>(indexFormat) == nvrhi::Format::R16_UINT;
+        const size_t indexSize = index16 ? 2 : 4;
+        if (size_t(indexOffset) + size_t(indexCount) * indexSize > bytes.size()
+            || size_t(descOffset) + size_t(descCount) * 8 > bytes.size())
+        {
+            donut::log::error("Donut_CountOpacityMicromapUsage: the indices or descs are past the end of the file");
+            return 0;
+        }
+        std::map<std::pair<uint32_t, uint32_t>, uint32_t> counts;
+        for (int i = 0; i < indexCount; i++)
+        {
+            int32_t index;
+            if (index16)
+            {
+                int16_t value;
+                memcpy(&value, &bytes[size_t(indexOffset) + size_t(i) * 2], 2);
+                index = value;
+            }
+            else
+            {
+                memcpy(&index, &bytes[size_t(indexOffset) + size_t(i) * 4], 4);
+            }
+            if (index < 0 || index >= descCount)
+                continue;
+            uint16_t levelAndFormat[2];
+            memcpy(levelAndFormat, &bytes[size_t(descOffset) + size_t(index) * 8 + 4], 4);
+            counts[{ levelAndFormat[0], levelAndFormat[1] }]++;
+        }
+        int entries = 0;
+        for (const auto& [key, count] : counts)
+        {
+            if (entries < maxEntries)
+            {
+                dst[entries * 3] = int(count);
+                dst[entries * 3 + 1] = int(key.first);
+                dst[entries * 3 + 2] = int(key.second);
+            }
+            entries++;
+        }
+        return entries;
     }
 
     // Writes byteSize bytes of data to a file (path as given: absolute, or relative to the current
@@ -4224,6 +4540,168 @@ extern "C"
         return a->Own(a->device()->createHeap(desc));
     }
 
+    // A heap that textures are placed in (Donut_CreatePlacedTexture): D3D12's own ID3D12Heap (NVRHI
+    // creates its heaps for MSAA alignment and places textures at the default 64 KB one), NVRHI's
+    // heap on Vulkan.
+    struct TextureHeap
+    {
+        nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::D3D12;
+        uint64_t capacity = 0;
+#if DONUT_WITH_DX12
+        Microsoft::WRL::ComPtr<ID3D12Heap> d3dHeap;
+#endif
+        nvrhi::HeapHandle heap;
+    };
+
+    // (Filled in place: a function in the extern "C" block can't return a C++ type.)
+    static void PlacedTextureDesc(nvrhi::TextureDesc& desc, int width, int height, int format, const char* debugName)
+    {
+        desc = nvrhi::TextureDesc()
+            .setWidth(uint32_t(width))
+            .setHeight(uint32_t(height))
+            .setFormat(static_cast<nvrhi::Format>(format))
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+    }
+
+#if DONUT_WITH_DX12
+    // The D3D12 resource desc of a placed texture, and its allocation: small textures (whose most
+    // detailed level fits in 64 KB) at the 4 KB small resource alignment when the device grants it.
+    static D3D12_RESOURCE_DESC PlacedTextureD3D12Desc(ID3D12Device* device, int width, int height, int format,
+        D3D12_RESOURCE_ALLOCATION_INFO& info)
+    {
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+        desc.Width = UINT64(width);
+        desc.Height = UINT(height);
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = nvrhi::d3d12::convertFormat(static_cast<nvrhi::Format>(format));
+        desc.SampleDesc.Count = 1;
+        info = device->GetResourceAllocationInfo(0, 1, &desc);
+        if (info.Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT)
+        {
+            // Not granted: the alignment D3D12 picks.
+            desc.Alignment = 0;
+            info = device->GetResourceAllocationInfo(0, 1, &desc);
+        }
+        return desc;
+    }
+#endif
+
+    // The bytes a width x height, one level texture of `format` takes in a texture heap
+    // (Donut_CreatePlacedTexture), its alignment included: D3D12's small resource alignment (4 KB)
+    // where it's granted, Vulkan's memory requirements.
+    double Donut_GetPlacedTextureSize(void* app, int width, int height, int format)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+#if DONUT_WITH_DX12
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            D3D12_RESOURCE_ALLOCATION_INFO info;
+            PlacedTextureD3D12Desc(device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device), width, height, format, info);
+            return double(info.SizeInBytes);
+        }
+#endif
+        nvrhi::TextureDesc desc;
+        PlacedTextureDesc(desc, width, height, format, "PlacedTextureSize");
+        desc.isVirtual = true;
+        nvrhi::TextureHandle texture = device->createTexture(desc);
+        if (!texture)
+            return 0.0;
+        const nvrhi::MemoryRequirements requirements = device->getTextureMemoryRequirements(texture);
+        const uint64_t alignment = requirements.alignment ? requirements.alignment : 1;
+        return double((requirements.size + alignment - 1) / alignment * alignment);
+    }
+
+    // A heap of byteSize bytes of device memory for textures (Donut_CreatePlacedTexture); null on
+    // failure. D3D11 has none.
+    void* Donut_CreateTextureHeap(void* app, double byteSize, const char* debugName)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        auto heap = std::make_shared<TextureHeap>();
+        heap->api = device->getGraphicsAPI();
+        heap->capacity = uint64_t(byteSize);
+#if DONUT_WITH_DX12
+        if (heap->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            D3D12_HEAP_DESC heapDesc = {};
+            heapDesc.SizeInBytes = heap->capacity;
+            heapDesc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+            heapDesc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+            heapDesc.Flags = D3D12_HEAP_FLAG_DENY_BUFFERS | D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES;
+            if (FAILED(d3dDevice->CreateHeap(&heapDesc, IID_PPV_ARGS(&heap->d3dHeap))))
+                return nullptr;
+            if (debugName)
+                heap->d3dHeap->SetName(Widen(debugName).c_str());
+            return a->OwnObject(heap);
+        }
+#endif
+        if (heap->api != nvrhi::GraphicsAPI::VULKAN)
+            return nullptr;
+        nvrhi::HeapDesc desc;
+        desc.capacity = heap->capacity;
+        desc.type = nvrhi::HeapType::DeviceLocal;
+        desc.debugName = debugName;
+        heap->heap = device->createHeap(desc);
+        if (!heap->heap)
+            return nullptr;
+        return a->OwnObject(heap);
+    }
+
+    // A width x height, one level texture of `format` that shaders read, placed in a texture heap
+    // at byteOffset (a multiple of Donut_GetPlacedTextureSize's size); its first use recorded into an
+    // open command list (D3D12's aliasing barrier). Fill it with Donut_WriteTextureLevel. Null on
+    // failure.
+    void* Donut_CreatePlacedTexture(void* app, void* commandList, void* textureHeap, double byteOffset, int width, int height,
+        int format, const char* debugName)
+    {
+        App* a = AsApp(app);
+        nvrhi::IDevice* device = a->device();
+        auto* heap = static_cast<TextureHeap*>(textureHeap);
+        nvrhi::TextureDesc desc;
+        PlacedTextureDesc(desc, width, height, format, debugName);
+#if DONUT_WITH_DX12
+        if (heap->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            D3D12_RESOURCE_ALLOCATION_INFO info;
+            const D3D12_RESOURCE_DESC resourceDesc = PlacedTextureD3D12Desc(d3dDevice, width, height, format, info);
+            if (uint64_t(byteOffset) + info.SizeInBytes > heap->capacity)
+                return nullptr;
+            Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+            if (FAILED(d3dDevice->CreatePlacedResource(heap->d3dHeap.Get(), uint64_t(byteOffset), &resourceDesc,
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&resource))))
+                return nullptr;
+            if (debugName)
+                resource->SetName(Widen(debugName).c_str());
+            // The heap lives as long as the textures in it (as NVRHI's Vulkan textures keep theirs).
+            static const GUID heapReference = { 0x6c1f3a52, 0x8d2e, 0x4b7a, { 0x9e, 0x31, 0x5f, 0x0c, 0x7d, 0x42, 0xa8, 0x19 } };
+            resource->SetPrivateDataInterface(heapReference, heap->d3dHeap.Get());
+            // The resource takes over its memory in the heap.
+            ID3D12GraphicsCommandList* d3dCommandList = AsCommandList(commandList)->getNativeObject(
+                nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            D3D12_RESOURCE_BARRIER barrier = {};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+            barrier.Aliasing.pResourceAfter = resource.Get();
+            d3dCommandList->ResourceBarrier(1, &barrier);
+            return a->Own(device->createHandleForNativeTexture(nvrhi::ObjectTypes::D3D12_Resource,
+                nvrhi::Object(resource.Get()), desc));
+        }
+#endif
+        nvrhi::TextureDesc virtualDesc = desc;
+        virtualDesc.isVirtual = true;
+        nvrhi::TextureHandle texture = device->createTexture(virtualDesc);
+        if (!texture || !heap->heap || !device->bindTextureMemory(texture, heap->heap, uint64_t(byteOffset)))
+            return nullptr;
+        return a->Own(texture);
+    }
+
     // Tile mappings to apply in one go (Donut_ApplyTileMappings).
     struct TileMappings
     {
@@ -4496,6 +4974,13 @@ extern "C"
         state.depthTestEnable = testEnable != 0;
         state.depthWriteEnable = writeEnable != 0;
         state.depthFunc = static_cast<nvrhi::ComparisonFunc>(depthFunc);
+    }
+
+    // The depth bounds test: pixels whose depth target value is outside the draw's bounds
+    // (Donut_DrawSetDepthBounds) are discarded. Requires Donut_HasDepthBoundsTest.
+    void Donut_GraphicsPipelineSetDepthBoundsTest(void* graphicsPipelineDesc, int enable)
+    {
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.depthStencilState.depthBoundsTestEnable = enable != 0;
     }
 
     static_assert(int(nvrhi::RasterCullMode::Back) == 0 && int(nvrhi::RasterCullMode::Front) == 1
@@ -4853,6 +5338,14 @@ extern "C"
     void Donut_WriteBuffer(void* commandList, void* buffer, const void* data, int byteSize)
     {
         AsCommandList(commandList)->writeBuffer(AsBuffer(buffer), data, static_cast<size_t>(byteSize));
+    }
+
+    // byteSize bytes of data into a (non-volatile) buffer at byteOffset, e.g. a constant buffer's
+    // uints after its floats.
+    void Donut_WriteBufferAt(void* commandList, void* buffer, int byteOffset, const void* data, int byteSize)
+    {
+        AsCommandList(commandList)->writeBuffer(AsBuffer(buffer), data, static_cast<size_t>(byteSize),
+            static_cast<uint64_t>(byteOffset));
     }
 
     void Donut_CopyBuffer(void* commandList, void* dst, int dstOffset, void* src, int srcOffset, int byteSize)
@@ -7062,6 +7555,13 @@ extern "C"
     // combined with the primitives' rate by primitiveCombiner, then with the framebuffer's shading
     // rate surface by imageCombiner (nvrhi::ShadingRateCombiner values: Passthrough keeps the rate so
     // far, Override takes the new one).
+    // The depth bounds of the draw (after Donut_BeginDraw) for a pipeline with the depth bounds test:
+    // depth target values from minDepth to maxDepth pass (0 to 1 by default).
+    void Donut_DrawSetDepthBounds(void* frame, double minDepth, double maxDepth)
+    {
+        AsFrame(frame)->draw.setDepthBounds(float(minDepth), float(maxDepth));
+    }
+
     void Donut_DrawSetVariableRateShading(void* frame, int enabled, int shadingRate, int primitiveCombiner,
         int imageCombiner)
     {
@@ -7585,7 +8085,7 @@ extern "C"
     void Donut_SetLightShadowMap(void* light, void* shadowMapTarget)
     {
         static_cast<donut::engine::Light*>(light)->shadowMap = shadowMapTarget
-            ? static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap : nullptr;
+            ? static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap() : nullptr;
     }
 
     // Cameras defined in the scene file.
@@ -7711,6 +8211,18 @@ extern "C"
     void* Donut_GetMeshInstanceNode(void* sceneGraph, int index)
     {
         return AsSceneGraph(sceneGraph)->GetMeshInstances()[index]->GetNode();
+    }
+
+    // The geometries of the index-th mesh instance's mesh, and how many indices one of them has:
+    // what drawing them from the scene's bindless buffers takes (GeometryData::numIndices).
+    int Donut_GetMeshInstanceGeometryCount(void* sceneGraph, int index)
+    {
+        return static_cast<int>(AsSceneGraph(sceneGraph)->GetMeshInstances()[index]->GetMesh()->geometries.size());
+    }
+
+    int Donut_GetMeshInstanceGeometryIndexCount(void* sceneGraph, int index, int geometry)
+    {
+        return static_cast<int>(AsSceneGraph(sceneGraph)->GetMeshInstances()[index]->GetMesh()->geometries[geometry]->numIndices);
     }
 
     // --- Views ----------------------------------------------------------------------------------
@@ -8300,19 +8812,71 @@ extern "C"
     {
         App* a = AsApp(app);
         auto target = std::make_shared<ShadowMapTarget>();
-        target->shadowMap = std::make_shared<donut::render::CascadedShadowMap>(a->device(), resolution, numCascades, 0,
+        target->cascaded = std::make_shared<donut::render::CascadedShadowMap>(a->device(), resolution, numCascades, 0,
             ChooseDepthFormat(a->device()));
-        target->shadowMap->SetupProxyViews();
+        target->cascaded->SetupProxyViews();
 
         target->framebuffer = std::make_shared<donut::engine::FramebufferFactory>(a->device());
-        target->framebuffer->DepthTarget = target->shadowMap->GetTexture();
+        target->framebuffer->DepthTarget = target->cascaded->GetTexture();
         return a->OwnObject(target);
     }
 
-    // The depth texture, one array slice per cascade.
+    // A planar shadow map of resolution x resolution: one orthographic view for a directional
+    // light (Donut_SetupPlanarShadowMapForScene), no cascades. Works wherever a cascaded one does,
+    // except the Donut_SetupShadowMapFor* fitting functions, which leave it unchanged.
+    void* Donut_CreatePlanarShadowMap(void* app, int resolution)
+    {
+        App* a = AsApp(app);
+        auto target = std::make_shared<ShadowMapTarget>();
+        target->planar = std::make_shared<donut::render::PlanarShadowMap>(a->device(), resolution,
+            ChooseDepthFormat(a->device()));
+        target->planar->SetupProxyView();
+
+        target->framebuffer = std::make_shared<donut::engine::FramebufferFactory>(a->device());
+        target->framebuffer->DepthTarget = target->planar->GetTexture();
+        return a->OwnObject(target);
+    }
+
+    // Fits a planar shadow map's view to a directional light and the whole scene graph's bounds;
+    // shadows fade out over fadeRangeWorld (world units) at its edges. Returns 1 if the view
+    // changed (the shadow map needs rendering again), 0 if not or for a cascaded shadow map.
+    //
+    // Not with PlanarShadowMap::SetupWholeSceneDirectionalLightView: it passes the scene's depth
+    // range along the light negated (-max .. -min, not min .. max) to orthoProjD3DStyle, which is
+    // right only for scenes centered on the light's node along its direction. Elsewhere geometry
+    // falls out of the depth range: D3D clamps it to the near plane, Vulkan clips it away (NVRHI
+    // turns depth clipping off only with VK_EXT_depth_clip_enable, which the app doesn't enable).
+    // SetupDynamicDirectionalLightView's box, centered on an anchor, doesn't depend on that: here
+    // the box around the scene's bounds as seen from the light, grown by 1% of their diagonal so
+    // that geometry on them (Sponza's flat roofs) isn't on its near or far plane.
+    int Donut_SetupPlanarShadowMapForScene(void* shadowMapTarget, void* light, void* sceneGraph, double fadeRangeWorld)
+    {
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        if (!target->planar)
+            return 0;
+        const auto& directionalLight = *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light));
+
+        dm::box3 bounds = AsSceneGraph(sceneGraph)->GetRootNode()->GetGlobalBoundingBox();
+        bounds = bounds.grow(dm::float3(0.01f * dm::length(bounds.diagonal())));
+
+        // The light's view rotation, as SetupDynamicDirectionalLightView makes it.
+        dm::daffine3 viewToWorld = directionalLight.GetNode()->GetLocalToWorldTransform();
+        viewToWorld.m_translation = dm::double3(0.0);
+        viewToWorld = dm::scaling(dm::double3(1.0, 1.0, -1.0)) * viewToWorld;
+        const dm::affine3 worldToView = dm::affine3(dm::inverse(viewToWorld));
+
+        // Square texels: the same extent along X and Y.
+        dm::float3 halfSize = (bounds * worldToView).diagonal() * 0.5f;
+        halfSize.x = halfSize.y = std::max(halfSize.x, halfSize.y);
+
+        return target->planar->SetupDynamicDirectionalLightView(directionalLight, bounds.center(), halfSize,
+            dm::float3(0.f), float(fadeRangeWorld)) ? 1 : 0;
+    }
+
+    // The depth texture, one array slice per cascade (one for a planar shadow map).
     void* Donut_GetShadowMapTexture(void* shadowMapTarget)
     {
-        return static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->GetTexture();
+        return static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap()->GetTexture();
     }
 
     // Fits the cascades to a directional light and the first planar view of `view`, out to
@@ -8321,16 +8885,31 @@ extern "C"
     void Donut_SetupShadowMapForView(void* shadowMapTarget, void* light, void* view, double maxShadowDistance,
         double zRange, double exponent)
     {
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        if (!target->cascaded)
+            return;
         donut::engine::IView* v = AsView(view);
         const dm::affine3 viewMatrixInv = v->GetChildView(donut::engine::ViewType::PLANAR, 0)->GetInverseViewMatrix();
-        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->SetupForPlanarViewStable(
+        target->cascaded->SetupForPlanarViewStable(
             *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light)),
             v->GetProjectionFrustum(), viewMatrixInv, float(maxShadowDistance), float(zRange), float(zRange), float(exponent));
     }
 
     void Donut_ClearShadowMap(void* commandList, void* shadowMapTarget)
     {
-        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->Clear(AsCommandList(commandList));
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        if (target->cascaded)
+        {
+            target->cascaded->Clear(AsCommandList(commandList));
+        }
+        else
+        {
+            // PlanarShadowMap::Clear clears with clearTextureFloat, which NVRHI refuses for depth
+            // textures: as CascadedShadowMap::Clear does, to the far depth 1.
+            nvrhi::ITexture* texture = target->planar->GetTexture();
+            AsCommandList(commandList)->clearDepthStencilTexture(texture, target->planar->GetPlanarView()->GetSubresources(),
+                true, 1.f, nvrhi::getFormatInfo(texture->getDesc().format).hasStencil, 0);
+        }
     }
 
     // Donut's depth-only pass, with depth biases for shadow maps.
@@ -8357,7 +8936,7 @@ extern "C"
         auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
         donut::render::InstancedOpaqueDrawStrategy strategy;
         donut::render::DepthPass::Context context;
-        donut::render::RenderCompositeView(AsCommandList(commandList), &target->shadowMap->GetView(), nullptr,
+        donut::render::RenderCompositeView(AsCommandList(commandList), &target->shadowMap()->GetView(), nullptr,
             *target->framebuffer, AsSceneGraph(sceneGraph)->GetRootNode(), strategy,
             *static_cast<donut::render::DepthPass*>(depthPass), context, "ShadowMap", materialEvents != 0);
     }
@@ -8530,6 +9109,22 @@ extern "C"
             AsFramebufferFactory(framebuffer), *AsView(view)));
     }
 
+    // Donut's environment map background: a lat-long (2D) or cube map texture drawn where the
+    // framebuffer's depth is still clear. The view must be set up first (its depth direction picks
+    // the pipeline).
+    void* Donut_CreateEnvironmentMapPass(void* app, void* framebuffer, void* view, void* environmentMap)
+    {
+        App* a = AsApp(app);
+        return a->OwnObject(std::make_shared<donut::render::EnvironmentMapPass>(a->device(), a->shaderFactory,
+            a->sharedCommonPasses(), AsFramebufferFactory(framebuffer), *AsView(view),
+            static_cast<nvrhi::ITexture*>(environmentMap)));
+    }
+
+    void Donut_RenderEnvironmentMap(void* commandList, void* environmentMapPass, void* view)
+    {
+        static_cast<donut::render::EnvironmentMapPass*>(environmentMapPass)->Render(AsCommandList(commandList), *AsView(view));
+    }
+
     // Draws the sky around a directional light; the SkyParameters not given keep their defaults.
     void Donut_RenderSky(void* commandList, void* skyPass, void* view, void* light, double brightness,
         double glowSize, double glowSharpness, double glowIntensity, double horizonSize)
@@ -8625,12 +9220,14 @@ extern "C"
         static_cast<donut::render::ToneMappingPass*>(toneMappingPass)->ResetExposure(AsCommandList(commandList), float(initialExposure));
     }
 
-    // Tone maps an HDR texture with default parameters; freezeEyeAdaptation != 0 keeps the
-    // current exposure (e.g. right after Donut_ResetExposure).
-    void Donut_RenderToneMapping(void* commandList, void* toneMappingPass, void* view, void* sourceTexture, int freezeEyeAdaptation)
+    // Tone maps an HDR texture with default parameters. instantAdaptation != 0 sets the exposure
+    // to this frame's at once (eye adaptation speeds 0, as Donut's feature demo does right after
+    // Donut_ResetExposure); otherwise it adapts at the default speeds over the frame time of
+    // Donut_AdvanceToneMappingFrame, and stays as it is while that is 0 (never advanced).
+    void Donut_RenderToneMapping(void* commandList, void* toneMappingPass, void* view, void* sourceTexture, int instantAdaptation)
     {
         donut::render::ToneMappingParameters params;
-        if (freezeEyeAdaptation)
+        if (instantAdaptation)
         {
             params.eyeAdaptationSpeedUp = 0.f;
             params.eyeAdaptationSpeedDown = 0.f;
@@ -8920,7 +9517,10 @@ extern "C"
         double cullDistance, double zRange, double exponent)
     {
         auto* capture = static_cast<LightProbeCapture*>(lightProbeCapture);
-        static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap->SetupForCubemapView(
+        auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
+        if (!target->cascaded)
+            return;
+        target->cascaded->SetupForCubemapView(
             *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light)),
             capture->view.GetViewOrigin(), float(cullDistance), float(zRange), float(zRange), float(exponent));
     }
@@ -9353,6 +9953,11 @@ extern "C"
         return AsApp(app)->logicOps ? 1 : 0;
     }
 
+    int Donut_HasDepthBoundsTest(void* app)
+    {
+        return AsApp(app)->depthBoundsTest ? 1 : 0;
+    }
+
     // The device's memory heaps now (their count): this process's usage of each and its budget, the
     // memory it can use before the system has to page or fail allocations. Vulkan's memory heaps,
     // with VK_EXT_memory_budget (without it the usage is 0 and the budget the heap's size); D3D's
@@ -9638,6 +10243,266 @@ extern "C"
         }
 #endif
         ctx->commandList->drawIndexed(args);
+    }
+
+    // Binary occlusion queries resolved on the GPU into values that predicate draws
+    // (Donut_CreateOcclusionPredication): D3D12's occlusion query heap resolved into a predication
+    // buffer, Vulkan's occlusion query pool copied into a conditional rendering buffer.
+    struct OcclusionPredication
+    {
+        nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::D3D12;
+        uint32_t count = 0;
+#if DONUT_WITH_DX12
+        Microsoft::WRL::ComPtr<ID3D12QueryHeap> queryHeap;
+        Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+#endif
+#if DONUT_WITH_VULKAN
+        VkDevice device = VK_NULL_HANDLE;
+        VkQueryPool queryPool = VK_NULL_HANDLE;
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        // Its values are zeroed by the first command list that uses it.
+        bool cleared = false;
+#endif
+
+        ~OcclusionPredication()
+        {
+#if DONUT_WITH_VULKAN
+            if (queryPool != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyQueryPool(device, queryPool, nullptr);
+            if (buffer != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyBuffer(device, buffer, nullptr);
+            if (memory != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkFreeMemory(device, memory, nullptr);
+#endif
+        }
+    };
+
+    // count binary occlusion queries (Donut_DrawVerticesWithOcclusionQuery) and their resolved
+    // results (Donut_ResolveOcclusionQueries), which predicate draws
+    // (Donut_DrawVerticesOcclusionPredicated); every result starts as 0, occluded. Requires
+    // Donut_HasConditionalRendering; null otherwise or on failure.
+    void* Donut_CreateOcclusionPredication(void* app, int count)
+    {
+        App* a = AsApp(app);
+        if (!a->conditionalRendering || count <= 0)
+            return nullptr;
+        nvrhi::IDevice* device = a->device();
+        auto occlusion = std::make_shared<OcclusionPredication>();
+        occlusion->api = device->getGraphicsAPI();
+        occlusion->count = static_cast<uint32_t>(count);
+        const uint64_t byteSize = sizeof(uint64_t) * occlusion->count;
+#if DONUT_WITH_DX12
+        if (occlusion->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            D3D12_QUERY_HEAP_DESC heapDesc = {};
+            heapDesc.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
+            heapDesc.Count = occlusion->count;
+            D3D12_HEAP_PROPERTIES heapProperties = {};
+            heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+            D3D12_RESOURCE_DESC bufferDesc = {};
+            bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            bufferDesc.Width = byteSize;
+            bufferDesc.Height = 1;
+            bufferDesc.DepthOrArraySize = 1;
+            bufferDesc.MipLevels = 1;
+            bufferDesc.SampleDesc.Count = 1;
+            bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            // A committed resource's memory starts zeroed.
+            if (FAILED(d3dDevice->CreateQueryHeap(&heapDesc, IID_PPV_ARGS(&occlusion->queryHeap)))
+                || FAILED(d3dDevice->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+                    D3D12_RESOURCE_STATE_PREDICATION, nullptr, IID_PPV_ARGS(&occlusion->resource))))
+                return nullptr;
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (occlusion->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            occlusion->device = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            VkQueryPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+            poolInfo.queryType = VK_QUERY_TYPE_OCCLUSION;
+            poolInfo.queryCount = occlusion->count;
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateQueryPool(occlusion->device, &poolInfo, nullptr, &occlusion->queryPool) != VK_SUCCESS)
+                return nullptr;
+            VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            bufferInfo.size = byteSize;
+            bufferInfo.usage = VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateBuffer(occlusion->device, &bufferInfo, nullptr, &occlusion->buffer) != VK_SUCCESS)
+                return nullptr;
+            VkMemoryRequirements requirements;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetBufferMemoryRequirements(occlusion->device, occlusion->buffer, &requirements);
+            VkPhysicalDeviceMemoryProperties memoryProperties;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceMemoryProperties(
+                DeviceManagerVKAccess::PhysicalDevice(static_cast<DeviceManager_VK*>(a->deviceManager.get())), &memoryProperties);
+            uint32_t memoryType = UINT32_MAX;
+            for (uint32_t i = 0; i < memoryProperties.memoryTypeCount && memoryType == UINT32_MAX; i++)
+            {
+                if ((requirements.memoryTypeBits & (1u << i))
+                    && (memoryProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+                    memoryType = i;
+            }
+            VkMemoryAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+            allocateInfo.allocationSize = requirements.size;
+            allocateInfo.memoryTypeIndex = memoryType;
+            if (memoryType == UINT32_MAX
+                || VULKAN_HPP_DEFAULT_DISPATCHER.vkAllocateMemory(occlusion->device, &allocateInfo, nullptr, &occlusion->memory) != VK_SUCCESS
+                || VULKAN_HPP_DEFAULT_DISPATCHER.vkBindBufferMemory(occlusion->device, occlusion->buffer, occlusion->memory, 0) != VK_SUCCESS)
+                return nullptr;
+        }
+#endif
+        return a->OwnObject(occlusion);
+    }
+
+#if DONUT_WITH_VULKAN
+    // Ends NVRHI's render pass (its next draw begins another, loading the targets) for commands
+    // Vulkan takes outside render passes only, and zeroes the results the first time.
+    static VkCommandBuffer BeginOcclusionCommands(FrameContext* ctx, OcclusionPredication* occlusion)
+    {
+        ctx->commandList->clearState();
+        VkCommandBuffer commandBuffer = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+        if (!occlusion->cleared)
+        {
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdFillBuffer(commandBuffer, occlusion->buffer, 0, VK_WHOLE_SIZE, 0);
+            VkMemoryBarrier barrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT | VK_ACCESS_TRANSFER_WRITE_BIT;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+            occlusion->cleared = true;
+        }
+        return commandBuffer;
+    }
+#endif
+
+    // Draws vertexCount vertices (Donut_DrawVertices) inside binary occlusion query `index`: its
+    // result says whether any of their samples passed the depth and stencil tests.
+    void Donut_DrawVerticesWithOcclusionQuery(void* frame, int vertexCount, void* occlusionPredication, int index)
+    {
+        auto* occlusion = static_cast<OcclusionPredication*>(occlusionPredication);
+        FrameContext* ctx = AsFrame(frame);
+        if (index < 0 || uint32_t(index) >= occlusion->count)
+            return;
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(vertexCount);
+#if DONUT_WITH_DX12
+        if (occlusion->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ctx->commandList->setGraphicsState(ctx->draw);
+            ID3D12GraphicsCommandList* d3dCommandList = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            d3dCommandList->BeginQuery(occlusion->queryHeap.Get(), D3D12_QUERY_TYPE_BINARY_OCCLUSION, UINT(index));
+            ctx->commandList->draw(args);
+            d3dCommandList->EndQuery(occlusion->queryHeap.Get(), D3D12_QUERY_TYPE_BINARY_OCCLUSION, UINT(index));
+            return;
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (occlusion->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            // Reset outside the render pass, then the query within the one the draw begins.
+            VkCommandBuffer commandBuffer = BeginOcclusionCommands(ctx, occlusion);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdResetQueryPool(commandBuffer, occlusion->queryPool, uint32_t(index), 1);
+            ctx->commandList->setGraphicsState(ctx->draw);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginQuery(commandBuffer, occlusion->queryPool, uint32_t(index), 0);
+            ctx->commandList->draw(args);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndQuery(commandBuffer, occlusion->queryPool, uint32_t(index));
+            return;
+        }
+#endif
+    }
+
+    // Resolves the queries into the predication values for the draws after it: 1 where samples
+    // passed, 0 where none did (the GPU waits for the queries).
+    void Donut_ResolveOcclusionQueries(void* frame, void* occlusionPredication)
+    {
+        auto* occlusion = static_cast<OcclusionPredication*>(occlusionPredication);
+        FrameContext* ctx = AsFrame(frame);
+#if DONUT_WITH_DX12
+        if (occlusion->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12GraphicsCommandList* d3dCommandList = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            D3D12_RESOURCE_BARRIER barrier = {};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = occlusion->resource.Get();
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PREDICATION;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+            d3dCommandList->ResourceBarrier(1, &barrier);
+            d3dCommandList->ResolveQueryData(occlusion->queryHeap.Get(), D3D12_QUERY_TYPE_BINARY_OCCLUSION, 0,
+                occlusion->count, occlusion->resource.Get(), 0);
+            std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+            d3dCommandList->ResourceBarrier(1, &barrier);
+            return;
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (occlusion->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            VkCommandBuffer commandBuffer = BeginOcclusionCommands(ctx, occlusion);
+            // After the predicated draws that read the old values.
+            VkMemoryBarrier before = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+            before.srcAccessMask = VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+            before.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
+            // 32-bit results 8 bytes apart, as D3D12's; conditional rendering reads 32 bits.
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdCopyQueryPoolResults(commandBuffer, occlusion->queryPool, 0, occlusion->count,
+                occlusion->buffer, 0, sizeof(uint64_t), VK_QUERY_RESULT_WAIT_BIT);
+            VkMemoryBarrier after = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+            after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            after.dstAccessMask = VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT, 0, 1, &after, 0, nullptr, 0, nullptr);
+            return;
+        }
+#endif
+    }
+
+    // Draws vertexCount vertices (Donut_DrawVertices) only if resolved result `index` isn't 0 when
+    // the GPU gets to it.
+    void Donut_DrawVerticesOcclusionPredicated(void* frame, int vertexCount, void* occlusionPredication, int index)
+    {
+        auto* occlusion = static_cast<OcclusionPredication*>(occlusionPredication);
+        FrameContext* ctx = AsFrame(frame);
+        if (index < 0 || uint32_t(index) >= occlusion->count)
+            return;
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+#if DONUT_WITH_VULKAN
+        // Zeroed outside the render pass the draw begins.
+        if (occlusion->api == nvrhi::GraphicsAPI::VULKAN && !occlusion->cleared)
+            BeginOcclusionCommands(ctx, occlusion);
+#endif
+        ctx->commandList->setGraphicsState(ctx->draw);
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(vertexCount);
+        const uint64_t offset = sizeof(uint64_t) * static_cast<uint64_t>(index);
+#if DONUT_WITH_DX12
+        if (occlusion->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12GraphicsCommandList* d3dCommandList = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            d3dCommandList->SetPredication(occlusion->resource.Get(), offset, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            ctx->commandList->draw(args);
+            d3dCommandList->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+            return;
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (occlusion->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            VkCommandBuffer commandBuffer = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            VkConditionalRenderingBeginInfoEXT beginInfo = { VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT };
+            beginInfo.buffer = occlusion->buffer;
+            beginInfo.offset = offset;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginConditionalRenderingEXT(commandBuffer, &beginInfo);
+            ctx->commandList->draw(args);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndConditionalRenderingEXT(commandBuffer);
+            return;
+        }
+#endif
     }
 
     // The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
