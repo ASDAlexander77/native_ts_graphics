@@ -8800,6 +8800,35 @@ extern "C"
         dst[1] = static_cast<int>(luid.HighPart);
         return found ? 1 : 0;
     }
+#else
+    // Shared textures and adapter LUIDs are Windows-only; the wrappers in donut.ts call these on
+    // every platform, so elsewhere they exist and report that there is none.
+    SharedTexture* Donut_CreateSharedTexture(App* app, int width, int height, int format, const char* debugName)
+    {
+        (void)app, (void)width, (void)height, (void)format, (void)debugName;
+        donut::log::error("Donut_CreateSharedTexture: shared textures need Windows");
+        return nullptr;
+    }
+
+    nvrhi::ITexture* Donut_GetSharedTexture(SharedTexture* sharedTexture)
+    {
+        (void)sharedTexture;
+        return nullptr;
+    }
+
+    void* Donut_GetSharedTextureHandle(SharedTexture* sharedTexture)
+    {
+        (void)sharedTexture;
+        return nullptr;
+    }
+
+    int Donut_GetAdapterLuid(App* app, int* dst)
+    {
+        (void)app;
+        dst[0] = 0;
+        dst[1] = 0;
+        return 0;
+    }
 #endif
 
     // The color space of what the back buffers hold, a donut::app::SwapChainColorSpace value (0 sRGB,
