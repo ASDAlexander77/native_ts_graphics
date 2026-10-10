@@ -55,6 +55,7 @@ CLASSES = {
     "camera": "Camera",
     "view": "View",
     "cubemapTarget": "CubemapTarget",
+    "drawBatch": "DrawBatch",
     "gbufferTargets": "GBufferTargets",
     "temporalTargets": "TemporalTargets",
     "sceneRenderTargets": "SceneRenderTargets",

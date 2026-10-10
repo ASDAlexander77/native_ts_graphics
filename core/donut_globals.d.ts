@@ -68,6 +68,8 @@ declare global {
     var View: typeof Donut.View;
     type CubemapTarget = Donut.CubemapTarget;
     var CubemapTarget: typeof Donut.CubemapTarget;
+    type DrawBatch = Donut.DrawBatch;
+    var DrawBatch: typeof Donut.DrawBatch;
     type GBufferTargets = Donut.GBufferTargets;
     var GBufferTargets: typeof Donut.GBufferTargets;
     type TemporalTargets = Donut.TemporalTargets;

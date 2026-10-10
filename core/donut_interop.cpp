@@ -3509,6 +3509,14 @@ extern "C"
         bindingLayoutDesc->registerSpace = static_cast<uint32_t>(space);
     }
 
+    // Register space of the layout's items, on Vulkan too: there the space is the descriptor set,
+    // so the layout must be the pipeline's binding layout of that index.
+    void Donut_SetBindingLayoutDescriptorSet(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int space)
+    {
+        bindingLayoutDesc->registerSpace = static_cast<uint32_t>(space);
+        bindingLayoutDesc->registerSpaceIsDescriptorSet = true;
+    }
+
     // Buffer<T> at t<slot>.
     void Donut_LayoutTypedBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
@@ -3912,6 +3920,49 @@ extern "C"
         }
         commandList->writeBuffer(buffer, bytes.data() + fileOffset, size_t(byteSize),
             uint64_t(bufferOffset));
+    }
+
+    // A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file
+    // from fileOffset, uploaded by an open command list. Returns null (after logging why) on failure.
+    nvrhi::IBuffer* Donut_CreateStaticBufferFromBinaryFile(App* app, nvrhi::ICommandList* commandList, BinaryFile* binaryFile,
+        int fileOffset, int byteSize, int isIndexBuffer, const char* debugName)
+    {
+        const std::vector<uint8_t>& bytes = binaryFile->bytes;
+        if (fileOffset < 0 || byteSize <= 0 || size_t(fileOffset) + size_t(byteSize) > bytes.size())
+        {
+            donut::log::error("Donut_CreateStaticBufferFromBinaryFile: bytes %d..%d are past the end of the file (%d bytes)",
+                fileOffset, fileOffset + byteSize, int(bytes.size()));
+            return nullptr;
+        }
+        auto desc = nvrhi::BufferDesc().setDebugName(debugName);
+        if (isIndexBuffer)
+            desc.setIsIndexBuffer(true);
+        else
+            desc.setIsVertexBuffer(true);
+        return CreateStaticBuffer(app, commandList, desc,
+            isIndexBuffer ? nvrhi::ResourceStates::IndexBuffer : nvrhi::ResourceStates::VertexBuffer,
+            bytes.data() + fileOffset, byteSize);
+    }
+
+    // A texture level (Donut_CreateTextureWithLevels) from the file's bytes at fileOffset, its rows
+    // (of 4 x 4 blocks for block-compressed formats) rowPitch bytes apart, copied during the call
+    // into an open command list.
+    void Donut_WriteTextureLevelFromBinaryFile(BinaryFile* binaryFile, nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int mipLevel,
+        int fileOffset, int rowPitch)
+    {
+        const std::vector<uint8_t>& bytes = binaryFile->bytes;
+        const nvrhi::TextureDesc& desc = texture->getDesc();
+        const nvrhi::FormatInfo& info = nvrhi::getFormatInfo(desc.format);
+        const uint32_t height = std::max(desc.height >> mipLevel, 1u);
+        const size_t rows = (height + info.blockSize - 1) / info.blockSize;
+        if (fileOffset < 0 || rowPitch <= 0 || size_t(fileOffset) + rows * size_t(rowPitch) > bytes.size())
+        {
+            donut::log::error("Donut_WriteTextureLevelFromBinaryFile: %d rows of %d bytes from %d are past the end of the file (%d bytes)",
+                int(rows), rowPitch, fileOffset, int(bytes.size()));
+            return;
+        }
+        commandList->writeTexture(texture, 0, static_cast<uint32_t>(mipLevel), bytes.data() + fileOffset,
+            static_cast<size_t>(rowPitch));
     }
 
     // The usage counts of an opacity micromap array by the triangles of a geometry
@@ -7167,6 +7218,101 @@ extern "C"
         auto* sc = scene;
         auto* fwd = forwardShadingPass;
         app->threadPool()->AddTask([=]() { RenderCubemapFace(target, face, cl, sc, fwd); });
+    }
+
+    // Indexed draws described up front, for recording into command lists on worker threads, where
+    // tslang code mustn't run: one pipeline, framebuffer, vertex buffer and R32_UINT index buffer,
+    // binding sets shared by every draw, and per draw an optional binding set of its own (after the
+    // shared ones) and its index range.
+    struct DrawBatch
+    {
+        nvrhi::GraphicsState state;
+        size_t sharedBindingSetCount = 0;
+        struct Draw
+        {
+            nvrhi::BindingSetHandle bindingSet;
+            uint32_t indexCount = 0;
+            uint32_t startIndex = 0;
+            int32_t baseVertex = 0;
+        };
+        std::vector<Draw> draws;
+    };
+
+    // Records draws first, first + step, ... of a batch into commandList, opening and closing it.
+    // Only touches C++ objects, so it can run on worker threads.
+    void RecordDrawBatch(DrawBatch* batch, nvrhi::ICommandList* commandList, int first, int step)
+    {
+        commandList->open();
+        nvrhi::GraphicsState state = batch->state;
+        for (size_t i = size_t(first); i < batch->draws.size(); i += size_t(step))
+        {
+            const DrawBatch::Draw& draw = batch->draws[i];
+            state.bindings.resize(batch->sharedBindingSetCount);
+            if (draw.bindingSet)
+                state.bindings.push_back(draw.bindingSet);
+            // NVRHI skips the parts of the state that haven't changed since the previous draw.
+            commandList->setGraphicsState(state);
+
+            nvrhi::DrawArguments args;
+            args.vertexCount = draw.indexCount;
+            args.startIndexLocation = draw.startIndex;
+            args.startVertexLocation = static_cast<uint32_t>(draw.baseVertex);
+            commandList->drawIndexed(args);
+        }
+        commandList->close();
+    }
+
+    DrawBatch* Donut_CreateDrawBatch(App* app, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer,
+        nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer)
+    {
+        auto batch = std::make_shared<DrawBatch>();
+        batch->state.pipeline = pipeline;
+        batch->state.framebuffer = framebuffer;
+        batch->state.viewport.addViewportAndScissorRect(framebuffer->getFramebufferInfo().getViewport());
+        batch->state.vertexBuffers.push_back({ vertexBuffer, 0, 0 });
+        batch->state.indexBuffer = { indexBuffer, nvrhi::Format::R32_UINT, 0 };
+        return app->OwnObject(batch);
+    }
+
+    // A binding set every draw uses, in the pipeline's binding layout order; add them before the
+    // draws' own.
+    void Donut_DrawBatchAddBindingSet(DrawBatch* drawBatch, nvrhi::IBindingSet* bindingSet)
+    {
+        drawBatch->state.bindings.push_back(bindingSet);
+        drawBatch->sharedBindingSetCount = drawBatch->state.bindings.size();
+    }
+
+    // A draw of indexCount indices from startIndex, offset by baseVertex, with its own binding set
+    // (null for none) after the shared ones.
+    void Donut_DrawBatchAddDraw(DrawBatch* drawBatch, nvrhi::IBindingSet* bindingSet, int indexCount, int startIndex, int baseVertex)
+    {
+        DrawBatch::Draw draw;
+        draw.bindingSet = bindingSet;
+        draw.indexCount = static_cast<uint32_t>(indexCount);
+        draw.startIndex = static_cast<uint32_t>(startIndex);
+        draw.baseVertex = baseVertex;
+        drawBatch->draws.push_back(draw);
+    }
+
+    int Donut_GetDrawBatchDrawCount(DrawBatch* drawBatch)
+    {
+        return int(drawBatch->draws.size());
+    }
+
+    // Records the batch's draws first, first + step, ... into commandList (opening and closing it).
+    void Donut_RecordDrawBatch(DrawBatch* drawBatch, nvrhi::ICommandList* commandList, int first, int step)
+    {
+        RecordDrawBatch(drawBatch, commandList, first, step);
+    }
+
+    // Same, as a task on the app's thread pool; call Donut_WaitForTasks before executing the
+    // command list (Donut_CreateDeferredCommandList). Each concurrent task needs its own command
+    // list.
+    void Donut_RecordDrawBatchAsync(App* app, DrawBatch* drawBatch, nvrhi::ICommandList* commandList, int first, int step)
+    {
+        auto* batch = drawBatch;
+        auto* cl = commandList;
+        app->threadPool()->AddTask([=]() { RecordDrawBatch(batch, cl, first, step); });
     }
 
     // Blocks until all tasks queued on the app's thread pool have finished.
