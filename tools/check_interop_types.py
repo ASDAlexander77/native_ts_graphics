@@ -146,7 +146,31 @@ CPP_ONLY = {"Donut_SetExecutablePath"}
 
 # (function, parameter) pairs that are raw memory and stay void* under --strict; a parameter name
 # of "*" stands for the return value.
-RAW_MEMORY = set()
+RAW_MEMORY = {
+    ("Donut_CopyGltfModelIndices", "dst"),
+    ("Donut_CopyGltfModelNodeTransform", "dst"),
+    ("Donut_CopyGltfModelVertices", "dst"),
+    ("Donut_FillLightConstants", "dst"),
+    ("Donut_FillPlanarViewConstants", "dst"),
+    ("Donut_GetCameraDirection", "dst"),
+    ("Donut_GetCameraPosition", "dst"),
+    ("Donut_GetCameraUp", "dst"),
+    ("Donut_GetCameraWorldToView", "dst"),
+    ("Donut_GetNodeBoundingBox", "dst"),
+    ("Donut_GetSceneCameraViewToWorld", "dst"),
+    ("Donut_GetSceneCameraWorldToView", "dst"),
+    ("Donut_GetSceneLoadingStats", "dst"),
+    ("Donut_GetSceneNodePosition", "dst"),
+    ("Donut_GetSharedTextureHandle", "*"),
+    ("Donut_GetTemporalPixelOffset", "dst"),
+    ("Donut_ImGuiDragFloat3", "values"),
+    ("Donut_ReadBuffer", "dst"),
+    ("Donut_ReadPixelUInts", "dst"),
+    ("Donut_ReadTextureLevel", "dst"),
+    ("Donut_StoreBufferDeviceAddress", "dst"),
+    ("Donut_StoreInt32", "dst"),
+    ("Donut_TransferVideoFrame", "sharedHandle"),
+}
 
 
 class Problem(Exception):

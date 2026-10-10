@@ -358,12 +358,13 @@ add_library(donut_interop STATIC core/donut_interop.cpp)
 configure_donut_interop(donut_interop)
 
 # core/donut_interop.d.ts declares the functions core/*.cpp define, by hand: check that each
-# declaration matches its definition, handle types included, before building the C++.
+# declaration matches its definition, handle types included, and that no handle is a void*,
+# before building the C++.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 file(GLOB INTEROP_CPP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp")
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/check_interop_types.stamp"
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_interop_types.py"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_interop_types.py" --strict
         --stamp "${CMAKE_CURRENT_BINARY_DIR}/check_interop_types.stamp"
     DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_interop_types.py"

@@ -1,6 +1,6 @@
 # Typed interop handles
 
-Date: 2026-10-10. Status: approved; revised while planning (see "Revisions" at the end).
+Date: 2026-10-10. Status: implemented on typed-handles; revised while planning (see "Revisions" at the end).
 
 ## Goal
 
