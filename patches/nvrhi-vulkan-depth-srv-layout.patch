@@ -1,0 +1,37 @@
+diff --git a/src/vulkan/vulkan-state-tracking.cpp b/src/vulkan/vulkan-state-tracking.cpp
+index 9a6a0d6..a8bbc7d 100644
+--- a/src/vulkan/vulkan-state-tracking.cpp
++++ b/src/vulkan/vulkan-state-tracking.cpp
+@@ -218,15 +218,27 @@ namespace nvrhi::vulkan
+ 
+         for (const TextureBarrier& barrier : m_StateTracker.getTextureBarriers())
+         {
+-            ResourceStateMapping before = convertResourceState(barrier.stateBefore, true);
+-            ResourceStateMapping after = convertResourceState(barrier.stateAfter, true);
+-
+-            assert(after.imageLayout != vk::ImageLayout::eUndefined);
+-
+             Texture* texture = static_cast<Texture*>(barrier.texture);
+ 
+             const FormatInfo& formatInfo = getFormatInfo(texture->desc.format);
+ 
++            // Depth/stencil SRV descriptors declare eDepthStencilReadOnlyOptimal (see vulkan-resource-bindings.cpp),
++            // so a depth/stencil texture in a shader resource state must be in that layout however it got there.
++            // Binding sets add DepthRead themselves (setResourceStatesForBindingSet), but permanent states
++            // (e.g. Donut's CommonRenderPasses black depth textures), setTextureState and bindless tables
++            // pass ShaderResource alone, which would leave the image in eShaderReadOnlyOptimal.
++            auto addDepthReadForShaderResource = [&formatInfo](ResourceStates state)
++            {
++                if ((formatInfo.hasDepth || formatInfo.hasStencil) && uint32_t(state & ResourceStates::ShaderResource) != 0)
++                    return state | ResourceStates::DepthRead;
++                return state;
++            };
++
++            ResourceStateMapping before = convertResourceState(addDepthReadForShaderResource(barrier.stateBefore), true);
++            ResourceStateMapping after = convertResourceState(addDepthReadForShaderResource(barrier.stateAfter), true);
++
++            assert(after.imageLayout != vk::ImageLayout::eUndefined);
++
+             vk::ImageAspectFlags aspectMask = (vk::ImageAspectFlagBits)0;
+             if (formatInfo.hasDepth) aspectMask |= vk::ImageAspectFlagBits::eDepth;
+             if (formatInfo.hasStencil) aspectMask |= vk::ImageAspectFlagBits::eStencil;
