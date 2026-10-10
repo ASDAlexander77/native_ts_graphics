@@ -296,8 +296,12 @@ namespace DxrRefit {
             const created = this.createAccelerationStructures(commandList);
             commandList.close();
             this.app.executeCommandList(commandList);
-            // Only needed for the builds: NVRHI keeps everything a submitted command list uses alive
-            // until the GPU is done with it.
+            // On D3D12 the command list holds the BLAS builds' scratch memory, which its submission
+            // doesn't keep alive: releasing it while the GPU still builds removes the device. Like the
+            // tutorial, this waits for the GPU.
+            this.app.waitForIdle();
+
+            // Only needed for the builds.
             for (let i = 0; i < this.inputBuffers.length; i++) {
                 this.app.releaseResource(this.inputBuffers[i]);
             }

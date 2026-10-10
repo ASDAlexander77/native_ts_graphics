@@ -621,8 +621,12 @@ namespace ProceduralGeometry {
             const created = this.createAccelerationStructures(commandList);
             commandList.close();
             this.app.executeCommandList(commandList);
-            // The AABBs are only needed for the build: NVRHI keeps everything a submitted command
-            // list uses alive until the GPU is done with it.
+            // On D3D12 the command list holds the BLAS builds' scratch memory, which its submission
+            // doesn't keep alive: releasing it while the GPU still builds removes the device. Like the
+            // sample, this waits for the GPU.
+            this.app.waitForIdle();
+
+            // The AABBs are only needed for the build.
             this.app.releaseResource(this.aabbBuffer);
             this.app.releaseResource(commandList.handle);
             if (!created) {
