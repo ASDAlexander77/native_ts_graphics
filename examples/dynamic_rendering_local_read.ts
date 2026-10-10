@@ -318,8 +318,8 @@ namespace DynamicRenderingLocalRead {
         private opaqueBindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
         private lightsBuffer: BufferHandle;
-        private glassTexture: Opaque;
-        private glassSampler: Opaque;
+        private glassTexture: TextureHandle;
+        private glassSampler: SamplerHandle;
         private opaqueScene: Scene;
         private transparentScene: Scene;
         // -benchmark: the lights' random engine seeded with 0 (the framework's
@@ -332,11 +332,11 @@ namespace DynamicRenderingLocalRead {
         // The G-buffer and depth, the framebuffers (the G-buffer's, and per back buffer with and
         // without the depth), the binding sets reading the G-buffer, for the back buffers' size;
         // the pipelines made for them.
-        private resources: Opaque[];
-        private positionDepth: Opaque;
-        private normal: Opaque;
-        private albedo: Opaque;
-        private depth: Opaque;
+        private resources: ResourceHandle[];
+        private positionDepth: TextureHandle;
+        private normal: TextureHandle;
+        private albedo: TextureHandle;
+        private depth: TextureHandle;
         private gbufferFramebuffer: Opaque;
         private compositionFramebuffers: Opaque[];
         private transparentFramebuffers: Opaque[];
@@ -413,7 +413,7 @@ namespace DynamicRenderingLocalRead {
             this.targetHeight = 0;
         }
 
-        own(resource: Opaque): Opaque {
+        own<T extends ResourceHandle>(resource: T): T {
             this.resources.push(resource);
             return resource;
         }
@@ -425,13 +425,13 @@ namespace DynamicRenderingLocalRead {
             this.normal = this.own(this.app.createRenderTargetTexture(width, height, Format.RGBA16_FLOAT, "Normal"));
             this.albedo = this.own(this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "Albedo"));
             this.depth = this.own(this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth"));
-            this.gbufferFramebuffer = this.own(this.app.createFramebufferWithThreeTargets(this.positionDepth, this.normal, this.albedo,
+            this.gbufferFramebuffer = this.own<ResourceHandle>(this.app.createFramebufferWithThreeTargets(this.positionDepth, this.normal, this.albedo,
                 this.depth));
             const count = this.app.getBackBufferCount();
             for (let i = 0; i < count; i++) {
                 const backBuffer = this.app.getBackBuffer(i);
-                this.compositionFramebuffers.push(this.own(this.app.createFramebuffer(backBuffer, null)));
-                this.transparentFramebuffers.push(this.own(this.app.createFramebuffer(backBuffer, this.depth)));
+                this.compositionFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(backBuffer, null)));
+                this.transparentFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(backBuffer, this.depth)));
             }
 
             const compositionDesc = BindingSetDesc.create();
@@ -440,7 +440,7 @@ namespace DynamicRenderingLocalRead {
             compositionDesc.bindTextureSRV(2, this.albedo);
             compositionDesc.bindStructuredBufferSRV(3, this.lightsBuffer);
             this.compositionBindingSet = this.app.createBindingSetForLayout(compositionDesc, this.compositionBindingLayout);
-            this.own(this.compositionBindingSet.handle);
+            this.own<ResourceHandle>(this.compositionBindingSet.handle);
             const transparentDesc = BindingSetDesc.create();
             transparentDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
             transparentDesc.bindPushConstants(1, PUSH_SIZE);
@@ -448,7 +448,7 @@ namespace DynamicRenderingLocalRead {
             transparentDesc.bindTextureSRV(4, this.glassTexture);
             transparentDesc.bindSampler(0, this.glassSampler);
             this.transparentBindingSet = this.app.createBindingSetForLayout(transparentDesc, this.transparentBindingLayout);
-            this.own(this.transparentBindingSet.handle);
+            this.own<ResourceHandle>(this.transparentBindingSet.handle);
 
             if (!this.pipelinesCreated) {
                 // The opaque scene: back faces culled (counter-clockwise front faces), depth tested

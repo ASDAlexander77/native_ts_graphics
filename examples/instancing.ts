@@ -98,8 +98,8 @@ namespace Instancing {
         private planetBindingSet: BindingSet;
 
         // Created on the first frame (the size of the back buffer), dropped on resize.
-        private colorBuffer: Opaque | null;
-        private depthBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
+        private depthBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private rocksPipeline: Opaque | null;
         private planetPipeline: Opaque | null;
@@ -170,7 +170,7 @@ namespace Instancing {
         }
 
         releaseTargets(): void {
-            const resources: ResourceHandle[] = [this.rocksPipeline, this.planetPipeline, this.starfieldPipeline,
+            const resources: (ResourceHandle | null)[] = [this.rocksPipeline, this.planetPipeline, this.starfieldPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
@@ -334,7 +334,7 @@ namespace Instancing {
                 INSTANCE_COUNT * INSTANCE_SIZE, "InstanceBuffer");
         }
 
-        createBindingSet(texture: Opaque): BindingSet {
+        createBindingSet(texture: TextureHandle): BindingSet {
             const setDesc = BindingSetDesc.create();
             setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
             setDesc.bindTextureSRV(0, texture);

@@ -38,7 +38,7 @@ namespace TimelineSemaphore {
         private renderVS: Opaque;
         private renderPS: Opaque;
         private computeCommandList: CommandList | null;
-        private images: Opaque[];
+        private images: TextureHandle[];
         // Per image: the compute binding set writing it (reading the other), and the graphics one
         // reading it.
         private storageBindingSets: BindingSet[];

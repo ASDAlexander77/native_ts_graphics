@@ -237,8 +237,8 @@ namespace MouseCursor {
         materialColors: number[];
         materialSpecular: number[];
         materialEmissive: number[];
-        materialTextures: Opaque[];
-        materialTextures2: Opaque[];
+        materialTextures: TextureHandle[];
+        materialTextures2: TextureHandle[];
         // Per material, the binding set (the parameters, its textures, the sampler).
         materialBindingSets: BindingSet[];
 
@@ -353,7 +353,7 @@ namespace MouseCursor {
                     console.log(`${file}: cannot load the material's texture ${textureName}`);
                     ok = false;
                 } else {
-                    this.materialTextures.push(texture as Opaque);
+                    this.materialTextures.push(texture as TextureHandle);
                 }
                 if (dualTexture) {
                     // The SDKMESH material's specular texture (Donut_GetSdkMeshMaterialTexture's 2).
@@ -363,7 +363,7 @@ namespace MouseCursor {
                         console.log(`${file}: cannot load the material's second texture ${texture2Name}`);
                         ok = false;
                     } else {
-                        this.materialTextures2.push(texture2 as Opaque);
+                        this.materialTextures2.push(texture2 as TextureHandle);
                     }
                 }
             }
@@ -448,14 +448,14 @@ namespace MouseCursor {
 
         private modelFPS: Model;
         private modelRTS: Model;
-        private backgroundTexture: Opaque;
-        private tileTexture: Opaque;
-        private tileBorderTexture: Opaque;
+        private backgroundTexture: TextureHandle;
+        private tileTexture: TextureHandle;
+        private tileBorderTexture: TextureHandle;
 
         private spriteVS: Opaque;
         private spritePS: Opaque;
         private spriteLayout: Opaque;
-        private spriteSampler: Opaque;
+        private spriteSampler: SamplerHandle;
         private backgroundBindingSet: BindingSet;
         private tileBindingSet: BindingSet;
         private tileBorderBindingSet: BindingSet;
@@ -472,7 +472,7 @@ namespace MouseCursor {
 
         // The depth buffer (D24S8, as the sample's) and a framebuffer per back buffer, for the back
         // buffers' size, and the pipelines made for them.
-        private depth: Opaque;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private pipelinesCreated: boolean;
         private spritePipeline: Opaque;
@@ -962,7 +962,7 @@ namespace MouseCursor {
         }
 
         // A sprite texture (CreateWICTextureFromFile: as stored, UNORM) and its binding set.
-        loadSprite(commandList: CommandList, file: string): Opaque | null {
+        loadSprite(commandList: CommandList, file: string): TextureHandle | null {
             const texture = this.app.loadTexture(commandList, MEDIA_DIR + file, 0);
             if (!texture) {
                 console.log(`Cannot load ${file}: set XBOX_ATG_SAMPLES_DIR when configuring`);
@@ -970,7 +970,7 @@ namespace MouseCursor {
             return texture;
         }
 
-        spriteBindingSet(texture: Opaque): BindingSet {
+        spriteBindingSet(texture: TextureHandle): BindingSet {
             const desc = BindingSetDesc.create();
             desc.bindPushConstants(0, SPRITE_FLOATS * 4);
             desc.bindTextureSRV(0, texture);
@@ -980,7 +980,7 @@ namespace MouseCursor {
 
         // Each material's binding set: the parameters, its texture(s) (the first again where
         // there's no second), Model::Draw's LinearWrap sampler.
-        createMaterialBindingSets(model: Model, sampler: Opaque, dualTexture: boolean): void {
+        createMaterialBindingSets(model: Model, sampler: SamplerHandle, dualTexture: boolean): void {
             for (let m = 0; m < model.materialTextures.length; m++) {
                 const desc = BindingSetDesc.create();
                 desc.bindEntireConstantBuffer(0, this.parametersBuffer);
@@ -1039,9 +1039,9 @@ namespace MouseCursor {
             if (!ok || !background || !tile || !tileBorder) {
                 return false;
             }
-            this.backgroundTexture = background as Opaque;
-            this.tileTexture = tile as Opaque;
-            this.tileBorderTexture = tileBorder as Opaque;
+            this.backgroundTexture = background as TextureHandle;
+            this.tileTexture = tile as TextureHandle;
+            this.tileBorderTexture = tileBorder as TextureHandle;
 
             const spriteLayoutDesc = BindingLayoutDesc.create();
             spriteLayoutDesc.layoutPushConstants(0, SPRITE_FLOATS * 4);

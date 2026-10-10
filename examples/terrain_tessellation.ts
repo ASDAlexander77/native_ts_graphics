@@ -90,9 +90,9 @@ namespace TerrainTessellation {
         private skyPS: Opaque;
         private bindingLayout: Opaque;
         private constantBuffer: BufferHandle;
-        private heightmap: Opaque;
-        private terrainLayers: Opaque;
-        private sky: Opaque;
+        private heightmap: TextureHandle;
+        private terrainLayers: TextureHandle;
+        private sky: TextureHandle;
         // Equal, but one each: NVRHI's D3D11 backend rebinds resources only when the binding sets
         // (or the framebuffer) change, not the pipeline, so with one set for both the terrain's hull
         // and domain shaders would be left with the sky pipeline's bindings (none).
@@ -100,8 +100,8 @@ namespace TerrainTessellation {
         private terrainBindingSet: BindingSet;
 
         // Created on the first frame (the size of the back buffer), dropped on resize.
-        private colorBuffer: Opaque | null;
-        private depthBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
+        private depthBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private terrainPipeline: Opaque | null;
         private wireframePipeline: Opaque | null;
@@ -158,7 +158,7 @@ namespace TerrainTessellation {
         }
 
         releaseTargets(): void {
-            const resources: ResourceHandle[] = [this.terrainPipeline, this.wireframePipeline, this.skyPipeline,
+            const resources: (ResourceHandle | null)[] = [this.terrainPipeline, this.wireframePipeline, this.skyPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];

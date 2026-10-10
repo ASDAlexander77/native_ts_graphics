@@ -275,9 +275,9 @@ namespace SimplePbr {
         partStartIndices: int[];
         partVertexOffsets: int[];
         vertexStride: int;
-        albedo: Opaque;
-        normal: Opaque;
-        rma: Opaque;
+        albedo: TextureHandle;
+        normal: TextureHandle;
+        rma: TextureHandle;
 
         constructor() {
             this.vertexBuffers = [];
@@ -343,9 +343,9 @@ namespace SimplePbr {
             if (!albedo || !normal || !rma) {
                 return false;
             }
-            this.albedo = albedo as Opaque;
-            this.normal = normal as Opaque;
-            this.rma = rma as Opaque;
+            this.albedo = albedo as TextureHandle;
+            this.normal = normal as TextureHandle;
+            this.rma = rma as TextureHandle;
             return ok;
         }
     }
@@ -581,12 +581,12 @@ namespace SimplePbr {
     class SimplePbrSample {
         private app: App;
         private models: Model[];
-        private radianceTexture: Opaque;
-        private irradianceTexture: Opaque;
+        private radianceTexture: TextureHandle;
+        private irradianceTexture: TextureHandle;
         private numRadianceMips: int;
-        private surfaceSampler: Opaque;
-        private linearWrapSampler: Opaque;
-        private pointClampSampler: Opaque;
+        private surfaceSampler: SamplerHandle;
+        private linearWrapSampler: SamplerHandle;
+        private pointClampSampler: SamplerHandle;
         private pbrBuffer: BufferHandle;
         private skyBuffer: BufferHandle;
         private toneMapBuffer: BufferHandle;
@@ -611,8 +611,8 @@ namespace SimplePbr {
         private skyIndices: BufferHandle;
         private skyIndexCount: int;
         // Frame-sized, made on the first frame and after each resize.
-        private hdrScene: Opaque | null;
-        private depth: Opaque | null;
+        private hdrScene: TextureHandle | null;
+        private depth: TextureHandle | null;
         private sceneFramebuffer: Opaque | null;
         private toneMapBindingSet: BindingSet;
         private pbrPipeline: Opaque | null;
@@ -885,7 +885,7 @@ namespace SimplePbr {
             commandList.writeBuffer(this.skyBuffer, Ref(this.skyConstants[0]), 256);
 
             // Sample::Clear clears the depth (the sky box covers the scene's background).
-            commandList.clearDepth(this.depth as Opaque, 1.0);
+            commandList.clearDepth(this.depth as TextureHandle, 1.0);
 
             // Model Draw
             for (let m = 0; m < this.models.length; m++) {
@@ -1012,8 +1012,8 @@ namespace SimplePbr {
                 console.log("Cannot load the sample's models and textures: set XBOX_ATG_SAMPLES_DIR when configuring");
                 return false;
             }
-            this.radianceTexture = radiance as Opaque;
-            this.irradianceTexture = irradiance as Opaque;
+            this.radianceTexture = radiance as TextureHandle;
+            this.irradianceTexture = irradiance as TextureHandle;
 
             // ATG::VertexPositionNormalTextureTangent's input layout; the sky box's positions.
             const stride = this.models[0].vertexStride;

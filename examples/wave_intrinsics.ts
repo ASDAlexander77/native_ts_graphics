@@ -61,12 +61,12 @@ namespace WaveIntrinsics {
         private triangleBuffer: BufferHandle;
         private quadBuffer: BufferHandle;
         private constantBuffer: BufferHandle;
-        private sampler: Opaque;
+        private sampler: SamplerHandle;
         // The size-dependent ones, made on the first frame and on resizes.
         private hasTargets: boolean;
-        private sceneTexture: Opaque;
+        private sceneTexture: TextureHandle;
         private sceneFramebuffer: Opaque;
-        private uiTexture: Opaque;
+        private uiTexture: TextureHandle;
         private uiFramebuffer: Opaque;
         private wavePipeline: Opaque;
         private hasComposePipeline: boolean;

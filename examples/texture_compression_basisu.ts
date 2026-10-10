@@ -212,20 +212,20 @@ namespace TextureCompressionBasisu {
         private ps: Opaque;
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
-        private sampler: Opaque;
+        private sampler: SamplerHandle;
         private uniformBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
         private stats: f32[];
 
         // The transcoded texture and its binding set.
-        private texture: Opaque;
+        private texture: TextureHandle;
         private bindingSet: BindingSet;
         private textureCreated: boolean;
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
         // pipeline made for them.
-        private depth: Opaque;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private targetWidth: int;
         private targetHeight: int;

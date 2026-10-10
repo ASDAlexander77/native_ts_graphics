@@ -248,9 +248,9 @@ namespace FragmentShadingRateDynamic {
         private computePipeline: Opaque;
         private computeBindingLayout: Opaque;
         private uniformBuffer: BufferHandle;
-        private skysphereTexture: Opaque;
-        private sceneTexture: Opaque;
-        private textureSampler: Opaque;
+        private skysphereTexture: TextureHandle;
+        private sceneTexture: TextureHandle;
+        private textureSampler: SamplerHandle;
 
         // The targets, for the back buffers' size and the subpass ratio (width 0: none yet): per
         // back buffer, its shading rate image, the compute shader's copy of it, its frequency
@@ -260,16 +260,16 @@ namespace FragmentShadingRateDynamic {
         private targetHeight: int;
         private targetRatio: int;
         private resources: ResourceHandle[];
-        private shadingRateImages: Opaque[];
-        private shadingRateComputeImages: Opaque[];
-        private frequencyImages: Opaque[];
+        private shadingRateImages: TextureHandle[];
+        private shadingRateComputeImages: TextureHandle[];
+        private frequencyImages: TextureHandle[];
         private framebuffers: Opaque[];
         private renderBindingSets: BindingSet[];
         private computeBindingSets: BindingSet[];
-        private depth: Opaque;
-        private smallColor: Opaque;
-        private smallFrequency: Opaque;
-        private smallDepth: Opaque;
+        private depth: TextureHandle;
+        private smallColor: TextureHandle;
+        private smallFrequency: TextureHandle;
+        private smallDepth: TextureHandle;
         private smallFramebuffer: Opaque;
         private subpassWidth: int;
         private subpassHeight: int;
@@ -364,7 +364,7 @@ namespace FragmentShadingRateDynamic {
             this.targetWidth = 0;
         }
 
-        own(resource: Opaque): Opaque {
+        own<T extends ResourceHandle>(resource: T): T {
             this.resources.push(resource);
             return resource;
         }
@@ -393,7 +393,7 @@ namespace FragmentShadingRateDynamic {
                 const frequency = this.own(this.app.createRenderTargetUAVTexture(width, height, Format.RG8_UINT, `Frequency ${i}`));
                 commandList.clearTextureUInt(frequency, 0);
                 this.frequencyImages.push(frequency);
-                this.framebuffers.push(this.own(this.app.createFramebufferWithShadingRate(this.app.getBackBuffer(i), frequency,
+                this.framebuffers.push(this.own<ResourceHandle>(this.app.createFramebufferWithShadingRate(this.app.getBackBuffer(i), frequency,
                     this.depth, shadingRateImage)));
             }
 
@@ -404,7 +404,7 @@ namespace FragmentShadingRateDynamic {
                 Format.RG8_UINT, "Subpass Frequency"));
             this.smallDepth = this.own(this.app.createDepthTexture(this.subpassWidth, this.subpassHeight, Format.D32, 0.0,
                 "Subpass Depth"));
-            this.smallFramebuffer = this.own(this.app.createFramebufferWithShadingRate(this.smallColor, this.smallFrequency,
+            this.smallFramebuffer = this.own<ResourceHandle>(this.app.createFramebufferWithShadingRate(this.smallColor, this.smallFrequency,
                 this.smallDepth, null));
 
             // The compute shader's parameters: the frequency (reduced size) and shading rate images'
@@ -430,7 +430,7 @@ namespace FragmentShadingRateDynamic {
                 computeSetDesc.bindTextureUAV(1, this.shadingRateComputeImages[i]);
                 computeSetDesc.bindStructuredBufferSRV(0, paramsBuffer);
                 const computeSet = this.app.createBindingSetForLayout(computeSetDesc, this.computeBindingLayout);
-                this.own(computeSet.handle);
+                this.own<ResourceHandle>(computeSet.handle);
                 this.computeBindingSets.push(computeSet);
 
                 // The previous back buffer's frequency content, to show.
@@ -444,7 +444,7 @@ namespace FragmentShadingRateDynamic {
                 renderSetDesc.bindTextureUAV(0, this.frequencyImages[previous]);
                 renderSetDesc.bindPushConstants(1, PUSH_SIZE);
                 const renderSet = this.app.createBindingSetForLayout(renderSetDesc, this.renderBindingLayout);
-                this.own(renderSet.handle);
+                this.own<ResourceHandle>(renderSet.handle);
                 this.renderBindingSets.push(renderSet);
             }
 

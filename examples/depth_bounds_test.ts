@@ -22,8 +22,8 @@ namespace DepthBoundsTest {
         private inputLayout: Opaque;
         private vertexBuffer: BufferHandle;
         private hasTargets: boolean;
-        private colorBuffer: Opaque;
-        private depthBuffer: Opaque;
+        private colorBuffer: TextureHandle;
+        private depthBuffer: TextureHandle;
         private framebuffer: Opaque;
         private depthOnlyPipeline: Opaque;
         private boundsPipeline: Opaque;

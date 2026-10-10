@@ -79,7 +79,7 @@ namespace SimpleCompute {
     class SimpleComputePass {
         private app: App;
         private computePipeline: Opaque;
-        private syncTexture: Opaque;
+        private syncTexture: TextureHandle;
         private syncBindingSet: BindingSet;
         private computeLoop: AsyncComputeLoop;
         private held: boolean[];
@@ -264,7 +264,7 @@ namespace SimpleCompute {
 
         // A color map texture of 8 texels, uploaded by an open command list. It rests at
         // NonPixelShaderResource, which the compute queue can use.
-        createColorMap(commandList: CommandList, texels: int[], name: string): Opaque {
+        createColorMap(commandList: CommandList, texels: int[], name: string): TextureHandle {
             const texture = this.app.createComputeTexture(COLOR_MAP_SIZE, 1, Format.RGBA8_UNORM, name);
             commandList.writeTextureLevel(texture, 0, Ref(texels[0]), COLOR_MAP_SIZE * 4);
             return texture;

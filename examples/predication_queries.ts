@@ -33,8 +33,8 @@ namespace PredicationQueries {
         private nearQuadBindingSet: BindingSet;
         private occlusion: Opaque;
         private hasTargets: boolean;
-        private colorBuffer: Opaque;
-        private depthBuffer: Opaque;
+        private colorBuffer: TextureHandle;
+        private depthBuffer: TextureHandle;
         private framebuffer: Opaque;
         private pipeline: Opaque;
         private queryPipeline: Opaque;

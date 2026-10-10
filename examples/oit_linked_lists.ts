@@ -192,7 +192,7 @@ namespace OitLinkedLists {
         private width: int;
         private height: int;
         private fragmentMaxCount: int;
-        private linkedListHead: Opaque;
+        private linkedListHead: TextureHandle;
         private fragmentBuffer: BufferHandle;
         private fragmentCounter: BufferHandle;
         private gatherBindingSet: BindingSet;
@@ -273,7 +273,7 @@ namespace OitLinkedLists {
             if (this.width == 0) {
                 return;
             }
-            const resources: ResourceHandle[] = [this.gatherBindingSet.handle, this.combineBindingSet.handle, this.linkedListHead,
+            const resources: (ResourceHandle | null)[] = [this.gatherBindingSet.handle, this.combineBindingSet.handle, this.linkedListHead,
                 this.fragmentBuffer, this.fragmentCounter];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];

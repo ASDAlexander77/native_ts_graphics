@@ -51,7 +51,7 @@ namespace BindlessRendering {
         private instanceConstants: int[];
         // The sample draws into the device manager's D24S8 depth buffer; here a depth texture and a
         // framebuffer per back buffer, created on the first frame and dropped on resize.
-        private depth: Opaque | null;
+        private depth: TextureHandle | null;
         private framebuffers: Opaque[];
         // Created with the framebuffers (the sample drops it on resize too).
         private pipeline: Opaque | null;
@@ -155,7 +155,7 @@ namespace BindlessRendering {
             const commandList = frame.getCommandList();
             const index = this.app.getCurrentBackBufferIndex();
             commandList.clearTextureFloat(this.app.getBackBuffer(index), 0.0, 0.0, 0.0, 0.0);
-            commandList.clearDepth(this.depth as Opaque, 0.0);
+            commandList.clearDepth(this.depth as TextureHandle, 0.0);
 
             this.view.fillPlanarViewConstants(Ref(this.viewConstantsData[0]));
             commandList.writeBuffer(this.viewConstants, Ref(this.viewConstantsData[0]), this.viewConstantsSize);

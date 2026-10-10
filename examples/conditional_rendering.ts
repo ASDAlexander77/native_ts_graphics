@@ -130,8 +130,8 @@ namespace ConditionalRendering {
         private indexBuffer: BufferHandle;
 
         // The back buffer's size: color (sRGB, as the sample's swapchain) and depth targets.
-        private colorBuffer: Opaque | null;
-        private depthBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
+        private depthBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private pipeline: Opaque | null;
 
@@ -212,7 +212,7 @@ namespace ConditionalRendering {
         }
 
         releaseTargets(): void {
-            const resources: ResourceHandle[] = [this.pipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
+            const resources: (ResourceHandle | null)[] = [this.pipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {

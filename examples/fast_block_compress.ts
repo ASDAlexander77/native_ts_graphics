@@ -119,17 +119,17 @@ namespace FastBlockCompress {
         levels: int;
         // Donut_FbcDecodeDds's levels.
         rgba: Opaque;
-        source: Opaque;
-        offlineBC: Opaque;
-        offlineBC7: Opaque;
+        source: TextureHandle;
+        offlineBC: TextureHandle;
+        offlineBC7: TextureHandle;
         // GPU compression: the blocks of each level (R32G32_UINT or R32G32B32A32_UINT, a texel per
         // block), copied into gpuBC; its dispatches, the top level alone first.
-        intermediates: Opaque[];
-        gpuBC: Opaque;
+        intermediates: TextureHandle[];
+        gpuBC: TextureHandle;
         topPass: CompressPass;
         passes: CompressPass[];
         // CPU compression's result.
-        cpuBC: Opaque;
+        cpuBC: TextureHandle;
         // RMS error binding sets (source and each method's texture) and display ones (the
         // original twice, then each method's texture with the original).
         rmsSets: BindingSet[];
@@ -162,7 +162,7 @@ namespace FastBlockCompress {
     class FastBlockCompressPass {
         private app: App;
         images: Image[];
-        private pointSampler: Opaque;
+        private pointSampler: SamplerHandle;
         // [format][kind]: format 0 BC1, 1 BC3, 2 BC5.
         private compressPipelines: Opaque[];
         private compressLayouts: Opaque[];
@@ -251,7 +251,7 @@ namespace FastBlockCompress {
         }
 
         // The texture the current method shows.
-        compressedTexture(image: Image): Opaque {
+        compressedTexture(image: Image): TextureHandle {
             const method = this.currentMethod;
             return method == RTC_GPU ? image.gpuBC : method == RTC_CPU ? image.cpuBC
                 : method == OFFLINE ? image.offlineBC : image.offlineBC7;

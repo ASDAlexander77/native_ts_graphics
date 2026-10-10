@@ -107,11 +107,11 @@ namespace Hdr {
         private modelsBindingSet: BindingSet;
 
         // Created on the first frame (the size of the back buffer), dropped on resize.
-        private offscreenColor0: Opaque | null;
-        private offscreenColor1: Opaque | null;
-        private offscreenDepth: Opaque | null;
+        private offscreenColor0: TextureHandle | null;
+        private offscreenColor1: TextureHandle | null;
+        private offscreenDepth: TextureHandle | null;
         private offscreenFramebuffer: Opaque | null;
-        private filterColor: Opaque | null;
+        private filterColor: TextureHandle | null;
         private filterFramebuffer: Opaque | null;
         private skyboxPipeline: Opaque | null;
         private reflectPipeline: Opaque | null;
@@ -201,7 +201,7 @@ namespace Hdr {
             this.bloomFilterBindingSet = new BindingSet(null);
             this.compositionBindingSet = new BindingSet(null);
 
-            const resources: ResourceHandle[] = [this.skyboxPipeline, this.reflectPipeline, this.bloomFilterPipeline,
+            const resources: (ResourceHandle | null)[] = [this.skyboxPipeline, this.reflectPipeline, this.bloomFilterPipeline,
                 this.compositionPipeline, this.bloomCompositePipeline, this.offscreenFramebuffer,
                 this.filterFramebuffer, this.offscreenColor0, this.offscreenColor1, this.offscreenDepth,
                 this.filterColor];
@@ -241,7 +241,7 @@ namespace Hdr {
             return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        createPostBindingSet(texture0: Opaque, texture1: Opaque): BindingSet {
+        createPostBindingSet(texture0: TextureHandle, texture1: TextureHandle): BindingSet {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, texture0);
             setDesc.bindTextureSRV(1, texture1);

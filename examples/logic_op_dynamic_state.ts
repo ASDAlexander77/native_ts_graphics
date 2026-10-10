@@ -146,8 +146,8 @@ namespace LogicOpDynamicState {
 
         // The back buffer's size: color (typeless SRGBA8, see above) and depth targets, as UNORM
         // and as the cube's logic operation takes them (UINT on D3D).
-        private colorBuffer: Opaque | null;
-        private depthBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
+        private depthBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private uintFramebuffer: Opaque | null;
         private backgroundPipeline: Opaque | null;
@@ -245,7 +245,7 @@ namespace LogicOpDynamicState {
                 }
                 this.baselinePipelines[i] = null;
             }
-            const resources: ResourceHandle[] = [this.backgroundPipeline, this.framebuffer, this.uintFramebuffer, this.colorBuffer, this.depthBuffer];
+            const resources: (ResourceHandle | null)[] = [this.backgroundPipeline, this.framebuffer, this.uintFramebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {

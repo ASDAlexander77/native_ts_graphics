@@ -236,7 +236,7 @@ namespace Bokeh {
         partVertexOffsets: int[];
         // Per material: the diffuse color (RGB) and alpha, the diffuse texture (null if none).
         materialColors: number[];
-        materialTextures: Opaque[];
+        materialTextures: TextureHandle[];
         vertexStride: int;
 
         constructor() {
@@ -318,7 +318,7 @@ namespace Bokeh {
                     console.log(`${file}: cannot load the material's texture ${textureName}`);
                     ok = false;
                 } else {
-                    this.materialTextures.push(texture as Opaque);
+                    this.materialTextures.push(texture as TextureHandle);
                 }
             }
 
@@ -360,12 +360,12 @@ namespace Bokeh {
     class BokehPass {
         private app: App;
         private models: Model[];
-        private irisTexture: Opaque;
-        private energiesTexture: Opaque;
+        private irisTexture: TextureHandle;
+        private energiesTexture: TextureHandle;
         private scratchBuffer: BufferHandle;
-        private anisotropicSampler: Opaque;
-        private bokehSampler: Opaque;
-        private bilinearBorderSampler: Opaque;
+        private anisotropicSampler: SamplerHandle;
+        private bokehSampler: SamplerHandle;
+        private bilinearBorderSampler: SamplerHandle;
         private bokehBuffer: BufferHandle;
         private parametersBuffer: BufferHandle;
         private bokehConstants: f32[];
@@ -393,11 +393,11 @@ namespace Bokeh {
         private energyBindingSet: BindingSet;
         private objectBindingSets: BindingSet[];
         // Frame-sized, made on the first frame and after each resize.
-        private sceneColor: Opaque | null;
-        private sceneDepth: Opaque | null;
-        private dofColor: Opaque | null;
-        private rgbzCopy: Opaque | null;
-        private rgbzHalfCopy: Opaque | null;
+        private sceneColor: TextureHandle | null;
+        private sceneDepth: TextureHandle | null;
+        private dofColor: TextureHandle | null;
+        private rgbzCopy: TextureHandle | null;
+        private rgbzHalfCopy: TextureHandle | null;
         private sceneFramebuffer: Opaque | null;
         private sceneColorFramebuffer: Opaque | null;
         private dofFramebuffer: Opaque | null;
@@ -672,8 +672,9 @@ namespace Bokeh {
             this.recombineBindingSet = new BindingSet(null);
             this.copyBindingSet = new BindingSet(null);
 
-            const framebuffers = [this.sceneFramebuffer, this.sceneColorFramebuffer, this.dofFramebuffer, this.rgbzFramebuffer,
-                this.rgbzHalfFramebuffer, this.sceneColor, this.sceneDepth, this.dofColor, this.rgbzCopy, this.rgbzHalfCopy];
+            const framebuffers: (ResourceHandle | null)[] = [this.sceneFramebuffer, this.sceneColorFramebuffer,
+                this.dofFramebuffer, this.rgbzFramebuffer, this.rgbzHalfFramebuffer, this.sceneColor, this.sceneDepth,
+                this.dofColor, this.rgbzCopy, this.rgbzHalfCopy];
             for (let i = 0; i < framebuffers.length; i++) {
                 const resource = framebuffers[i];
                 if (resource) {
@@ -709,11 +710,11 @@ namespace Bokeh {
             this.rgbzCopy = this.app.createRenderTargetTexture(width, height, Format.RGBA16_FLOAT, "SourceColorTextureRGBZCopy");
             this.rgbzHalfCopy = this.app.createRenderTargetTexture(Math.floor(width / FIRST_DOWNSAMPLE), Math.floor(height / FIRST_DOWNSAMPLE),
                 Format.RGBA16_FLOAT, "SourceColorTextureRGBZHalfCopy");
-            const sceneColor = this.sceneColor as Opaque;
-            const sceneDepth = this.sceneDepth as Opaque;
-            const dofColor = this.dofColor as Opaque;
-            const rgbzCopy = this.rgbzCopy as Opaque;
-            const rgbzHalfCopy = this.rgbzHalfCopy as Opaque;
+            const sceneColor = this.sceneColor as TextureHandle;
+            const sceneDepth = this.sceneDepth as TextureHandle;
+            const dofColor = this.dofColor as TextureHandle;
+            const rgbzCopy = this.rgbzCopy as TextureHandle;
+            const rgbzHalfCopy = this.rgbzHalfCopy as TextureHandle;
             this.sceneFramebuffer = this.app.createFramebuffer(sceneColor, sceneDepth);
             this.sceneColorFramebuffer = this.app.createFramebuffer(sceneColor, null);
             this.dofFramebuffer = this.app.createFramebuffer(dofColor, null);
@@ -956,9 +957,9 @@ namespace Bokeh {
 
             //------------------------------
             // Scene
-            const sceneColor = this.sceneColor as Opaque;
+            const sceneColor = this.sceneColor as TextureHandle;
             commandList.clearTextureFloat(sceneColor, 0.0, 0.0, 0.0, 0.0);
-            commandList.clearDepth(this.sceneDepth as Opaque, 1.0);
+            commandList.clearDepth(this.sceneDepth as TextureHandle, 1.0);
             commandList.beginTimerQuery(this.timer(TI_SCENE));
             // render the city and microscopes
             for (let o = 0; o < OBJECT_COUNT; o++) {
@@ -985,7 +986,7 @@ namespace Bokeh {
             // find iris texture weights
             commandList.dispatch(this.energyPipeline, this.energyBindingSet, NUM_RADII_WEIGHTS / 8, NUM_RADII_WEIGHTS / 8, NUM_RADII_WEIGHTS);
 
-            commandList.clearTextureFloat(this.dofColor as Opaque, 0.0, 0.0, 0.0, 0.0);
+            commandList.clearTextureFloat(this.dofColor as TextureHandle, 0.0, 0.0, 0.0, 0.0);
 
             // copy out the source
             frame.beginDrawToFramebuffer(this.rgbzPipeline as Opaque, this.rgbzFramebuffer as Opaque);
@@ -1127,7 +1128,7 @@ namespace Bokeh {
                 console.log("Cannot load the sample's models and textures: set XBOX_ATG_SAMPLES_DIR when configuring");
                 return false;
             }
-            this.irisTexture = irisTexture as Opaque;
+            this.irisTexture = irisTexture as TextureHandle;
 
             // The models' vertices: position, normal, texture coordinates.
             const stride = this.models[0].vertexStride;

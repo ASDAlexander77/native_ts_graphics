@@ -157,8 +157,8 @@ namespace MultiDrawIndirect {
         private frameIndex: int;
 
         // Created on the first frame (the size of the back buffer), dropped on resize.
-        private colorBuffer: Opaque | null;
-        private depthBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
+        private depthBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private drawPipeline: Opaque | null;
 
@@ -221,7 +221,7 @@ namespace MultiDrawIndirect {
         }
 
         releaseTargets(): void {
-            const resources: ResourceHandle[] = [this.drawPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
+            const resources: (ResourceHandle | null)[] = [this.drawPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {
@@ -411,7 +411,7 @@ namespace MultiDrawIndirect {
         // triangles in one vertex and one index buffer, recorded into an open command list. As the
         // sample, the vertices are mirrored in y (into its world), but not the bounding spheres,
         // computed from the vertices as read: so its culling tests mirrored spheres.
-        loadScene(commandList: CommandList, sampler: Opaque): boolean {
+        loadScene(commandList: CommandList, sampler: SamplerHandle): boolean {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;

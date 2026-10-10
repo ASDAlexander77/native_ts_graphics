@@ -365,7 +365,7 @@ export class App {
     // Submits its own command list and waits for it: call it while no other one is open (not in a
     // render callback). Not for textures the texture cache loaded (Donut_LoadTexture: they stay
     // shader resources, and can't be copied from). Returns the bytes copied, 0 on failure.
-    readTextureLevel(texture: Opaque, mipLevel: int, dst: Opaque, byteSize: int): int {
+    readTextureLevel(texture: TextureHandle, mipLevel: int, dst: Opaque, byteSize: int): int {
         return Donut_ReadTextureLevel(this.handle, texture, mipLevel, dst, byteSize);
     }
 
@@ -392,32 +392,32 @@ export class App {
 
     // RGBA8_UNORM texture that compute shaders write (RWTexture2D<float4>) and pixel shaders read;
     // NVRHI tracks its state.
-    createUAVTexture(width: int, height: int, debugName: string): Opaque {
+    createUAVTexture(width: int, height: int, debugName: string): TextureHandle {
         return Donut_CreateUAVTexture(this.handle, width, height, debugName);
     }
 
     // Render target that shaders can also read (resting at ShaderResource). A depth format (D32)
     // makes a depth buffer, cleared to 1 by default, read by shaders as Texture2D<float>.
-    createRenderTargetTexture(width: int, height: int, format: Format, debugName: string): Opaque {
+    createRenderTargetTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateRenderTargetTexture(this.handle, width, height, format, debugName);
     }
 
     // Texture of width x height with mipLevels levels (block-compressed formats too) for shaders to
     // read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
-    createTextureWithLevels(width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque {
+    createTextureWithLevels(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateTextureWithLevels(this.handle, width, height, mipLevels, format, debugName);
     }
 
     // Render target that shaders also read and write as a UAV (RWTexture2D<...>), resting at
     // UnorderedAccess.
-    createRenderTargetUAVTexture(width: int, height: int, format: Format, debugName: string): Opaque {
+    createRenderTargetUAVTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateRenderTargetUAVTexture(this.handle, width, height, format, debugName);
     }
 
     // Same, with mipLevels levels (draw into one with Donut_CreateFramebufferForMip, read another with
     // Donut_BindTextureSRVMip), typeless: copies of other formats of its family land (RGBA8_UNORM data
     // into SRGBA8_UNORM).
-    createMipmappedRenderTarget(width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque {
+    createMipmappedRenderTarget(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateMipmappedRenderTarget(this.handle, width, height, mipLevels, format, debugName);
     }
 
@@ -425,80 +425,80 @@ export class App {
     // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
     // without sRGB encoding) or RGBA8_UINT (logic operations, which D3D12 has on UINT targets only);
     // shaders read it in `format`.
-    createTypelessRenderTargetTexture(width: int, height: int, format: Format, debugName: string): Opaque {
+    createTypelessRenderTargetTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateTypelessRenderTargetTexture(this.handle, width, height, format, debugName);
     }
 
     // Depth buffer (a depth format) whose clears to clearDepth are fast (e.g. 0 for reversed depth),
     // read by shaders as Texture2D<float>; resting at ShaderResource.
-    createDepthTexture(width: int, height: int, format: Format, clearDepth: number, debugName: string): Opaque {
+    createDepthTexture(width: int, height: int, format: Format, clearDepth: number, debugName: string): TextureHandle {
         return Donut_CreateDepthTexture(this.handle, width, height, format, clearDepth, debugName);
     }
 
     // Textures that compute shaders on the compute queue use too (they rest at NonPixelShaderResource):
     // a render target that shaders read, and a texture that compute shaders write
     // (RWTexture2D<float4>) and shaders read.
-    createComputeReadableRenderTarget(width: int, height: int, format: Format, debugName: string): Opaque {
+    createComputeReadableRenderTarget(width: int, height: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateComputeReadableRenderTarget(this.handle, width, height, format, debugName);
     }
 
-    createComputeTexture(width: int, height: int, format: Format, debugName: string): Opaque {
+    createComputeTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateComputeTexture(this.handle, width, height, format, debugName);
     }
 
     // Texture in `format` that shaders write and read as a UAV (RWTexture2D<...>), resting at
     // UnorderedAccess; clear it with Donut_ClearTextureUInt / Donut_ClearTextureFloat.
-    createUAVTextureWithFormat(width: int, height: int, format: Format, debugName: string): Opaque {
+    createUAVTextureWithFormat(width: int, height: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateUAVTextureWithFormat(this.handle, width, height, format, debugName);
     }
 
     // Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read: the bind
     // functions bind all slices).
-    createUAVTextureArray(width: int, height: int, arraySize: int, format: Format, debugName: string): Opaque {
+    createUAVTextureArray(width: int, height: int, arraySize: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateUAVTextureArray(this.handle, width, height, arraySize, format, debugName);
     }
 
     // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
-    createFramebuffer(colorTexture: Opaque, depthTexture: Opaque | null): Opaque {
+    createFramebuffer(colorTexture: TextureHandle, depthTexture: TextureHandle | null): Opaque {
         return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
     }
 
     // Same, the color target seen in colorFormat (a format of its family, for a typeless texture:
     // Donut_CreateTypelessRenderTargetTexture).
-    createFramebufferWithColorFormat(colorTexture: Opaque, colorFormat: Format, depthTexture: Opaque | null): Opaque {
+    createFramebufferWithColorFormat(colorTexture: TextureHandle, colorFormat: Format, depthTexture: TextureHandle | null): Opaque {
         return Donut_CreateFramebufferWithColorFormat(this.handle, colorTexture, colorFormat, depthTexture);
     }
 
     // A depth target alone (e.g. a shadow map).
-    createDepthFramebuffer(depthTexture: Opaque): Opaque {
+    createDepthFramebuffer(depthTexture: TextureHandle): Opaque {
         return Donut_CreateDepthFramebuffer(this.handle, depthTexture);
     }
 
     // Same, with two color targets (SV_Target0 and SV_Target1).
-    createFramebufferWithTwoTargets(colorTexture0: Opaque, colorTexture1: Opaque, depthTexture: Opaque | null): Opaque {
+    createFramebufferWithTwoTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, depthTexture: TextureHandle | null): Opaque {
         return Donut_CreateFramebufferWithTwoTargets(this.handle, colorTexture0, colorTexture1, depthTexture);
     }
 
     // Same, with three color targets (SV_Target0 to SV_Target2).
-    createFramebufferWithThreeTargets(colorTexture0: Opaque, colorTexture1: Opaque, colorTexture2: Opaque, depthTexture: Opaque | null): Opaque {
+    createFramebufferWithThreeTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, colorTexture2: TextureHandle, depthTexture: TextureHandle | null): Opaque {
         return Donut_CreateFramebufferWithThreeTargets(this.handle, colorTexture0, colorTexture1, colorTexture2, depthTexture);
     }
 
     // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
-    createFramebufferForMip(colorTexture: Opaque, mipLevel: int): Opaque {
+    createFramebufferForMip(colorTexture: TextureHandle, mipLevel: int): Opaque {
         return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
     }
 
     // Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
     // tile from heaps; unmapped tiles read as zeros. It rests as a shader resource, and is a copy source
     // and destination and a render target.
-    createTiledTexture(width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque {
+    createTiledTexture(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
         return Donut_CreateTiledTexture(this.handle, width, height, mipLevels, format, debugName);
     }
 
     // Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
     // levels made of whole tiles, the number of levels packed into the mip tail.
-    getTextureTiling(texture: Opaque, dst: Opaque): void {
+    getTextureTiling(texture: TextureHandle, dst: Opaque): void {
         Donut_GetTextureTiling(this.handle, texture, dst);
     }
 
@@ -521,23 +521,23 @@ export class App {
     // A texture that shaders read placed in a texture heap at byteOffset (a multiple of
     // Donut_GetPlacedTextureSize's size), its first use recorded into an open command list. Fill it with
     // Donut_WriteTextureLevel; release it before the heap. Null on failure.
-    createPlacedTexture(commandList: CommandList, textureHeap: Opaque, byteOffset: number, width: int, height: int, format: Format, debugName: string): Opaque | null {
+    createPlacedTexture(commandList: CommandList, textureHeap: Opaque, byteOffset: number, width: int, height: int, format: Format, debugName: string): TextureHandle | null {
         return Donut_CreatePlacedTexture(this.handle, commandList.handle, textureHeap, byteOffset, width, height, format, debugName);
     }
 
-    createTileHeap(byteSize: number, debugName: string): Opaque {
+    createTileHeap(byteSize: number, debugName: string): HeapHandle {
         return Donut_CreateTileHeap(this.handle, byteSize, debugName);
     }
 
     // On the graphics queue, after the work submitted before (on Vulkan the device is idle before and
     // after: its sparse binding isn't ordered with other work).
-    applyTileMappings(texture: Opaque, tileMappings: TileMappings): void {
+    applyTileMappings(texture: TextureHandle, tileMappings: TileMappings): void {
         Donut_ApplyTileMappings(this.handle, texture, tileMappings.handle);
     }
 
     // The first level of a DDS file (path relative to the executable's directory) in a staging
     // texture: memory on the CPU's side the GPU copies from. Null (after logging why) on failure.
-    loadStagingTexture(path: string): Opaque {
+    loadStagingTexture(path: string): StagingTextureHandle {
         return Donut_LoadStagingTexture(this.handle, path);
     }
 
@@ -625,23 +625,23 @@ export class App {
 
     // Image file, path relative to the executable's directory, uploaded by an open command list.
     // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
-    loadTexture(commandList: CommandList, path: string, sRGB: int): Opaque {
+    loadTexture(commandList: CommandList, path: string, sRGB: int): TextureHandle {
         return Donut_LoadTexture(this.handle, commandList.handle, path, sRGB);
     }
 
-    getCommonSampler(which: CommonSampler): Opaque {
+    getCommonSampler(which: CommonSampler): SamplerHandle {
         return Donut_GetCommonSampler(this.handle, which);
     }
 
     // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
     // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
-    createComparisonSampler(): Opaque {
+    createComparisonSampler(): SamplerHandle {
         return Donut_CreateComparisonSampler(this.handle);
     }
 
     // linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point
     // otherwise); wrap non-zero: repeating (clamped otherwise).
-    createSampler(linearFilter: int, linearMipFilter: int, wrap: int): Opaque {
+    createSampler(linearFilter: int, linearMipFilter: int, wrap: int): SamplerHandle {
         return Donut_CreateSampler(this.handle, linearFilter, linearMipFilter, wrap);
     }
 
@@ -649,13 +649,13 @@ export class App {
     // magnifying and between levels; the address mode of all coordinates; a bias added to the level of
     // detail, the range it's clamped to (maxLod 0: level 0 only), and anisotropic filtering up to
     // maxAnisotropy samples (1: off; Donut_GetMaxSamplerAnisotropy).
-    createSamplerWithDesc(linearMin: int, linearMag: int, linearMip: int, addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): Opaque {
+    createSamplerWithDesc(linearMin: int, linearMag: int, linearMip: int, addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): SamplerHandle {
         return Donut_CreateSamplerWithDesc(this.handle, linearMin, linearMag, linearMip, addressMode, mipBias, minLod, maxLod, maxAnisotropy);
     }
 
     // A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero) or
     // point filtering when minifying, magnifying and between levels, every level.
-    createBorderSampler(linearMin: int, linearMag: int, linearMip: int, r: number, g: number, b: number, a: number): Opaque {
+    createBorderSampler(linearMin: int, linearMag: int, linearMip: int, r: number, g: number, b: number, a: number): SamplerHandle {
         return Donut_CreateBorderSampler(this.handle, linearMin, linearMag, linearMip, r, g, b, a);
     }
 
@@ -685,17 +685,17 @@ export class App {
     }
 
     // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
-    createUAVTextureForFrame(frame: Frame, debugName: string): Opaque {
+    createUAVTextureForFrame(frame: Frame, debugName: string): TextureHandle {
         return Donut_CreateUAVTextureForFrame(this.handle, frame.handle, debugName);
     }
 
     // Same, in another format.
-    createUAVTextureForFrameWithFormat(frame: Frame, debugName: string, format: Format): Opaque {
+    createUAVTextureForFrameWithFormat(frame: Frame, debugName: string, format: Format): TextureHandle {
         return Donut_CreateUAVTextureForFrameWithFormat(this.handle, frame.handle, debugName, format);
     }
 
     // Same, in the back buffer's format without sRGB, for Donut_CopyTextureToFrame (a bit-for-bit copy).
-    createUAVTextureForFrameCopy(frame: Frame, debugName: string): Opaque {
+    createUAVTextureForFrameCopy(frame: Frame, debugName: string): TextureHandle {
         return Donut_CreateUAVTextureForFrameCopy(this.handle, frame.handle, debugName);
     }
 
@@ -797,7 +797,7 @@ export class App {
     // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at once
     // (also into a table bound by command lists still recording or running: the bindless layouts are
     // update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
-    writeDescriptorTableTexture(descriptorTable: Opaque, slot: int, texture: Opaque): int {
+    writeDescriptorTableTexture(descriptorTable: Opaque, slot: int, texture: TextureHandle): int {
         return Donut_WriteDescriptorTableTexture(this.handle, descriptorTable, slot, texture);
     }
 
@@ -1106,7 +1106,7 @@ export class App {
     }
 
     // R8_UINT surface of width x height tiles, written by compute shaders as RWTexture2D<uint>.
-    createShadingRateSurface(width: int, height: int): Opaque {
+    createShadingRateSurface(width: int, height: int): TextureHandle {
         return Donut_CreateShadingRateSurface(this.handle, width, height);
     }
 
@@ -1119,7 +1119,7 @@ export class App {
 
     // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
     // none) whose draws can take their shading rates from shadingRateSurface (null for none).
-    createFramebufferWithShadingRate(colorTexture0: Opaque, colorTexture1: Opaque | null, depthTexture: Opaque | null, shadingRateSurface: Opaque | null): Opaque {
+    createFramebufferWithShadingRate(colorTexture0: TextureHandle, colorTexture1: TextureHandle | null, depthTexture: TextureHandle | null, shadingRateSurface: TextureHandle | null): Opaque {
         return Donut_CreateFramebufferWithShadingRate(this.handle, colorTexture0, colorTexture1, depthTexture, shadingRateSurface);
     }
 
@@ -1139,7 +1139,7 @@ export class App {
 
     // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
     // textures blitted before.
-    blitTexture(frame: Frame, texture: Opaque): void {
+    blitTexture(frame: Frame, texture: TextureHandle): void {
         Donut_BlitTexture(this.handle, frame.handle, texture);
     }
 
@@ -1148,7 +1148,7 @@ export class App {
     }
 
     // One array slice of a texture, stretched into a rectangle of the framebuffer (pixels).
-    blitTextureSlice(frame: Frame, texture: Opaque, arraySlice: int, left: number, top: number, width: number, height: number): void {
+    blitTextureSlice(frame: Frame, texture: TextureHandle, arraySlice: int, left: number, top: number, width: number, height: number): void {
         Donut_BlitTextureSlice(this.handle, frame.handle, texture, arraySlice, left, top, width, height);
     }
 
@@ -1272,7 +1272,7 @@ export class App {
     // Render target (color format) or depth buffer (depth format, cleared to clearDepth) of width x
     // height with sampleCount samples (Texture2DMS when more than 1) that shaders can read and that can
     // be resolved; resting at ShaderResource. Null on failure.
-    createMultisampledTexture(width: int, height: int, format: Format, sampleCount: int, clearDepth: number, debugName: string): Opaque {
+    createMultisampledTexture(width: int, height: int, format: Format, sampleCount: int, clearDepth: number, debugName: string): TextureHandle {
         return Donut_CreateMultisampledTexture(this.handle, width, height, format, sampleCount, clearDepth, debugName);
     }
 
@@ -1280,7 +1280,7 @@ export class App {
     // they end, resolve color into colorResolveTexture and depth into depthResolveTexture by
     // depthResolveMode, where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI ends a render
     // pass at every barrier, so a pass may resolve more than once (with the same result).
-    createResolveFramebuffer(colorTexture: Opaque | null, colorResolveTexture: Opaque | null, depthTexture: Opaque | null, depthResolveTexture: Opaque | null, depthResolveMode: ResolveMode): Opaque {
+    createResolveFramebuffer(colorTexture: TextureHandle | null, colorResolveTexture: TextureHandle | null, depthTexture: TextureHandle | null, depthResolveTexture: TextureHandle | null, depthResolveMode: ResolveMode): Opaque {
         return Donut_CreateResolveFramebuffer(this.handle, colorTexture, colorResolveTexture, depthTexture, depthResolveTexture, depthResolveMode);
     }
 
@@ -1291,7 +1291,7 @@ export class App {
         return Donut_GetBackBufferCount(this.handle);
     }
 
-    getBackBuffer(index: int): Opaque {
+    getBackBuffer(index: int): TextureHandle {
         return Donut_GetBackBuffer(this.handle, index);
     }
 
@@ -1381,7 +1381,7 @@ export class App {
 
     // A lat-long (2D) or cube map environment texture drawn where the framebuffer's depth is still
     // clear; set the view up before creating it (its depth direction picks the pipeline).
-    createEnvironmentMapPass(framebuffer: Opaque, view: View, environmentMap: Opaque): Opaque {
+    createEnvironmentMapPass(framebuffer: Opaque, view: View, environmentMap: TextureHandle): Opaque {
         return Donut_CreateEnvironmentMapPass(this.handle, framebuffer, view.handle, environmentMap);
     }
 
@@ -1405,12 +1405,12 @@ export class App {
     }
 
     // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
-    createPixelReadbackPass(texture: Opaque): PixelReadbackPass {
+    createPixelReadbackPass(texture: TextureHandle): PixelReadbackPass {
         return new PixelReadbackPass(Donut_CreatePixelReadbackPass(this.handle, texture));
     }
 
     // Mip generation for a color texture with mips; Display draws them over the frame.
-    createMipMapGenPass(texture: Opaque): Opaque {
+    createMipMapGenPass(texture: TextureHandle): Opaque {
         return Donut_CreateMipMapGenPass(this.handle, texture);
     }
 
@@ -1583,11 +1583,11 @@ export class Frame {
 
     // The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
     // inside a render callback, Begin and End around the draws.
-    beginD3D12ShadingRateImage(shadingRateSurface: Opaque): void {
+    beginD3D12ShadingRateImage(shadingRateSurface: TextureHandle): void {
         Donut_BeginD3D12ShadingRateImage(this.handle, shadingRateSurface);
     }
 
-    endD3D12ShadingRateImage(shadingRateSurface: Opaque): void {
+    endD3D12ShadingRateImage(shadingRateSurface: TextureHandle): void {
         Donut_EndD3D12ShadingRateImage(this.handle, shadingRateSurface);
     }
 
@@ -1734,7 +1734,7 @@ export class Frame {
 
     // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into the
     // back buffer, as is.
-    copyTextureToFrame(texture: Opaque): void {
+    copyTextureToFrame(texture: TextureHandle): void {
         Donut_CopyTextureToFrame(this.handle, texture);
     }
 
@@ -1802,23 +1802,23 @@ export class CommandList {
 
     // A barrier between the draws or dispatches before and after that write and read a UAV texture
     // (NVRHI only places one where the texture is bound anew).
-    uavBarrier(texture: Opaque): void {
+    uavBarrier(texture: TextureHandle): void {
         Donut_UavBarrier(this.handle, texture);
     }
 
     // Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed formats)
     // rowPitch bytes apart, copied during the call, into an open command list.
-    writeTextureLevel(texture: Opaque, mipLevel: int, data: Opaque, rowPitch: int): void {
+    writeTextureLevel(texture: TextureHandle, mipLevel: int, data: Opaque, rowPitch: int): void {
         Donut_WriteTextureLevel(this.handle, texture, mipLevel, data, rowPitch);
     }
 
     // Copies width x height texels at (srcX, srcY) of a staging texture to (dstX, dstY) of level dstMip.
-    copyStagingTextureRegion(dstTexture: Opaque, dstMip: int, dstX: int, dstY: int, stagingTexture: Opaque, srcX: int, srcY: int, width: int, height: int): void {
+    copyStagingTextureRegion(dstTexture: TextureHandle, dstMip: int, dstX: int, dstY: int, stagingTexture: StagingTextureHandle, srcX: int, srcY: int, width: int, height: int): void {
         Donut_CopyStagingTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, stagingTexture, srcX, srcY, width, height);
     }
 
     // Same, between levels of textures (the same texture's other levels too).
-    copyTextureRegion(dstTexture: Opaque, dstMip: int, dstX: int, dstY: int, srcTexture: Opaque, srcMip: int, srcX: int, srcY: int, width: int, height: int): void {
+    copyTextureRegion(dstTexture: TextureHandle, dstMip: int, dstX: int, dstY: int, srcTexture: TextureHandle, srcMip: int, srcX: int, srcY: int, width: int, height: int): void {
         Donut_CopyTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, srcTexture, srcMip, srcX, srcY, width, height);
     }
 
@@ -1880,12 +1880,12 @@ export class CommandList {
     }
 
     // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
-    clearDepth(depthTexture: Opaque, depth: number): void {
+    clearDepth(depthTexture: TextureHandle, depth: number): void {
         Donut_ClearDepth(this.handle, depthTexture, depth);
     }
 
     // Fills a color texture (Donut_CreateRenderTargetTexture) with r, g, b, a.
-    clearTextureFloat(texture: Opaque, r: number, g: number, b: number, a: number): void {
+    clearTextureFloat(texture: TextureHandle, r: number, g: number, b: number, a: number): void {
         Donut_ClearTextureFloat(this.handle, texture, r, g, b, a);
     }
 
@@ -1919,11 +1919,11 @@ export class CommandList {
     }
 
     // Resolves a multisampled texture's mip 0 / slice 0 into a single-sample one.
-    resolveTexture(dstTexture: Opaque, srcTexture: Opaque): void {
+    resolveTexture(dstTexture: TextureHandle, srcTexture: TextureHandle): void {
         Donut_ResolveTexture(this.handle, dstTexture, srcTexture);
     }
 
-    clearTextureUInt(texture: Opaque, value: int): void {
+    clearTextureUInt(texture: TextureHandle, value: int): void {
         Donut_ClearTextureUInt(this.handle, texture, value);
     }
 
@@ -1987,11 +1987,11 @@ export class CommandList {
 
     // Default parameters. instantAdaptation != 0: the exposure set to this frame's at once (as after
     // Donut_ResetExposure); else adapted over Donut_AdvanceToneMappingFrame's time (kept while that's 0).
-    renderToneMapping(toneMappingPass: ToneMappingPass, view: View, sourceTexture: Opaque, instantAdaptation: int): void {
+    renderToneMapping(toneMappingPass: ToneMappingPass, view: View, sourceTexture: TextureHandle, instantAdaptation: int): void {
         Donut_RenderToneMapping(this.handle, toneMappingPass.handle, view.handle, sourceTexture, instantAdaptation);
     }
 
-    renderBloom(bloomPass: Opaque, framebuffer: Opaque, view: View, sourceTexture: Opaque, sigma: number, alpha: number): void {
+    renderBloom(bloomPass: Opaque, framebuffer: Opaque, view: View, sourceTexture: TextureHandle, sigma: number, alpha: number): void {
         Donut_RenderBloom(this.handle, bloomPass, framebuffer, view.handle, sourceTexture, sigma, alpha);
     }
 
@@ -2150,7 +2150,7 @@ export class BindingSetDesc {
     }
 
     // Element arrayElement of a Donut_LayoutTextureSRVArray array of Texture2D at t<slot>.
-    bindTextureSRVArrayElement(slot: int, arrayElement: int, texture: Opaque): void {
+    bindTextureSRVArrayElement(slot: int, arrayElement: int, texture: TextureHandle): void {
         Donut_BindTextureSRVArrayElement(this.handle, slot, arrayElement, texture);
     }
 
@@ -2161,28 +2161,28 @@ export class BindingSetDesc {
     }
 
     // Texture2D at t<slot>.
-    bindTextureSRV(slot: int, texture: Opaque): void {
+    bindTextureSRV(slot: int, texture: TextureHandle): void {
         Donut_BindTextureSRV(this.handle, slot, texture);
     }
 
     // Same, one level of the texture only.
-    bindTextureSRVMip(slot: int, texture: Opaque, mipLevel: int): void {
+    bindTextureSRVMip(slot: int, texture: TextureHandle, mipLevel: int): void {
         Donut_BindTextureSRVMip(this.handle, slot, texture, mipLevel);
     }
 
     // Same, mipCount levels from firstMip on: the shader's level 0 is firstMip (SampleLevel(..., n)
     // reads level firstMip + n, Load and Gather firstMip).
-    bindTextureSRVMips(slot: int, texture: Opaque, firstMip: int, mipCount: int): void {
+    bindTextureSRVMips(slot: int, texture: TextureHandle, firstMip: int, mipCount: int): void {
         Donut_BindTextureSRVMips(this.handle, slot, texture, firstMip, mipCount);
     }
 
     // SamplerState at s<slot>.
-    bindSampler(slot: int, sampler: Opaque): void {
+    bindSampler(slot: int, sampler: SamplerHandle): void {
         Donut_BindSampler(this.handle, slot, sampler);
     }
 
     // RWTexture2D<float4> at u<slot>.
-    bindTextureUAV(slot: int, texture: Opaque): void {
+    bindTextureUAV(slot: int, texture: TextureHandle): void {
         Donut_BindTextureUAV(this.handle, slot, texture);
     }
 
@@ -2579,13 +2579,13 @@ export class AsyncComputeLoop {
     }
 
     // Before starting it.
-    addTexture(texture: Opaque): void {
+    addTexture(texture: TextureHandle): void {
         Donut_AddAsyncComputeTexture(this.handle, texture);
     }
 
     // Same, with the binding set (from the loop's layout) to write it with: its UAV at u0, the push
     // constants at b0 and anything else the shader reads, instead of the loop's own set of those two.
-    addTextureWithBindingSet(texture: Opaque, bindingSet: BindingSet): void {
+    addTextureWithBindingSet(texture: TextureHandle, bindingSet: BindingSet): void {
         Donut_AddAsyncComputeTextureWithBindingSet(this.handle, texture, bindingSet.handle);
     }
 
@@ -2616,7 +2616,7 @@ export class AsyncComputeLoop {
 
     // In a render callback: switches to the newest finished texture, if any (the frame waits for the
     // compute queue), handing the previous one back. The texture to show; null until the first.
-    acquireTexture(frame: Frame): Opaque | null {
+    acquireTexture(frame: Frame): TextureHandle | null {
         return Donut_AcquireAsyncComputeTexture(this.handle, frame.handle);
     }
 }
@@ -3232,7 +3232,7 @@ export class CubemapTarget {
     }
 
     // One array slice per face; valid as long as the target.
-    getColorTexture(): Opaque {
+    getColorTexture(): TextureHandle {
         return Donut_GetCubemapColorTexture(this.handle);
     }
 
@@ -3259,13 +3259,13 @@ export class GBufferTargets {
     }
 
     // For Donut_BlitTexture, or as a UAV; valid as long as the targets.
-    getShadedColor(): Opaque {
+    getShadedColor(): TextureHandle {
         return Donut_GetGBufferShadedColor(this.handle);
     }
 
     // One of the G-buffer textures, e.g. to bind to a shader decoding the G-buffer; valid as long as
     // the targets.
-    getTexture(which: GBufferTexture): Opaque {
+    getTexture(which: GBufferTexture): TextureHandle {
         return Donut_GetGBufferTexture(this.handle, which);
     }
 }
@@ -3283,13 +3283,13 @@ export class TemporalTargets {
     }
 
     // Valid as long as the targets.
-    getTexture(which: TemporalTexture): Opaque {
+    getTexture(which: TemporalTexture): TextureHandle {
         return Donut_GetTemporalTargetsTexture(this.handle, which);
     }
 
     // Rendering into the targets uses this surface whenever the view enables variable rate shading;
     // set it before the first draw into them.
-    setShadingRateSurface(shadingRateSurface: Opaque): void {
+    setShadingRateSurface(shadingRateSurface: TextureHandle): void {
         Donut_SetTemporalTargetsShadingRateSurface(this.handle, shadingRateSurface);
     }
 }
@@ -3306,7 +3306,7 @@ export class SceneRenderTargets {
         return !this.handle;
     }
 
-    getTexture(which: SceneTexture): Opaque {
+    getTexture(which: SceneTexture): TextureHandle {
         return Donut_GetSceneRenderTargetsTexture(this.handle, which);
     }
 
@@ -3334,7 +3334,7 @@ export class ShadowMap {
     }
 
     // One array slice per cascade (one for a planar shadow map).
-    getTexture(): Opaque {
+    getTexture(): TextureHandle {
         return Donut_GetShadowMapTexture(this.handle);
     }
 
@@ -3798,7 +3798,7 @@ export class TileMappings {
     }
 
     // Maps the tile at column x, row y of level mipLevel to byteOffset in a heap, or unmaps it (null).
-    add(mipLevel: int, x: int, y: int, heap: Opaque | null, byteOffset: number): void {
+    add(mipLevel: int, x: int, y: int, heap: HeapHandle | null, byteOffset: number): void {
         Donut_TileMappingsAdd(this.handle, mipLevel, x, y, heap, byteOffset);
     }
 }

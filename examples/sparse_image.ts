@@ -245,13 +245,13 @@ namespace SparseImage {
     // pages using it (and, while defragmenting, the sectors being emptied) hold references; with
     // none left it is gone (its weak_ptr in the list expired).
     class MemSector {
-        heap: Opaque;
+        heap: HeapHandle;
         // Free page offsets in bytes, and the pages using the others: sorted.
         availableOffsets: int[];
         virtPageIndices: int[];
         references: int;
 
-        constructor(heap: Opaque, pageSize: int) {
+        constructor(heap: HeapHandle, pageSize: int) {
             this.heap = heap;
             this.availableOffsets = [];
             for (let i = 0; i < PAGES_PER_ALLOC; i++) {
@@ -305,8 +305,8 @@ namespace SparseImage {
         private currentMvpTransform: number[];
 
         // The texture and its pages.
-        private texture: Opaque;
-        private stagingTexture: Opaque;
+        private texture: TextureHandle;
+        private stagingTexture: StagingTextureHandle;
         private width: int;
         private height: int;
         private tileWidth: int;
@@ -341,7 +341,7 @@ namespace SparseImage {
         private sectors: MemSector[];
         private sectorList: int[];
         // Heaps of sectors that are gone, released once nothing is mapped to them any more.
-        private heapsToRelease: Opaque[];
+        private heapsToRelease: HeapHandle[];
 
         // Per BLOCK (row-major): the level present and the level needed, and on screen.
         private currentMipLevel: number[];

@@ -213,7 +213,7 @@ namespace RtParticles {
         private computeShader: Opaque | null;
         private computePipeline: Opaque | null;
         // Created on the first frame, dropped on resize.
-        private colorBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
         private bindingSet: BindingSet;
 
         private particles: ParticleEntity[];

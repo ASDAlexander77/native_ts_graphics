@@ -47,7 +47,7 @@ namespace VariableShading {
         private renderTargets: TemporalTargets;
         private forwardPass: ForwardShadingPass;
         private temporalPass: TemporalAntiAliasingPass;
-        private shadingRateSurface: Opaque | null;
+        private shadingRateSurface: TextureHandle | null;
         private bindingSet: BindingSet;
         private pipeline: Opaque | null;
         // Passed to View.setPlanarView, 16 floats each.

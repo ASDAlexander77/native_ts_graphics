@@ -737,8 +737,8 @@ namespace MobileNerfRayQuery {
             const commandList = this.app.createCommandList();
             commandList.open();
             let loaded = this.loadModels(commandList);
-            let features0: Opaque[] = [];
-            let features1: Opaque[] = [];
+            let features0: TextureHandle[] = [];
+            let features1: TextureHandle[] = [];
             for (let m = 0; m < MODELS.length && loaded; m++) {
                 const dir = MEDIA_DIR + MODELS[m] + "/";
                 const feature0 = this.app.loadTexture(commandList, dir + "shape0.pngfeat0.png", 0);

@@ -82,7 +82,7 @@ namespace DxrRefit {
         // The BLAS builds' vertices and indices.
         private inputBuffers: BufferHandle[];
         // Created on the first frame (it has the frame's size), dropped on resize.
-        private storageImage: Opaque | null;
+        private storageImage: TextureHandle | null;
         private bindingSet: BindingSet;
         // A row-major 3x4 instance transform.
         private transform: f32[];

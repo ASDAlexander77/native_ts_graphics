@@ -30,9 +30,9 @@ namespace ColorWriteEnable {
 
         // The sample's three attachments (the back buffer's format, sRGB), their framebuffer and
         // the composition's binding set, for the back buffers' size; a framebuffer per back buffer.
-        private colorR: Opaque;
-        private colorG: Opaque;
-        private colorB: Opaque;
+        private colorR: TextureHandle;
+        private colorG: TextureHandle;
+        private colorB: TextureHandle;
         private targetsFramebuffer: Opaque;
         private compositionBindingSet: BindingSet;
         private framebuffers: Opaque[];

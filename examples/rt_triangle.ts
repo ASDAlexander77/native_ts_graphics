@@ -22,7 +22,7 @@ namespace RtTriangle {
         private bottomLevelAS: Opaque;
         private topLevelAS: Opaque;
         // Created on the first frame (they depend on the framebuffer size), dropped on resize.
-        private renderTarget: Opaque | null;
+        private renderTarget: TextureHandle | null;
         private bindingSet: BindingSet;
 
         constructor(app: App) {

@@ -80,7 +80,7 @@ namespace DescriptorIndexing {
         // The sample's two descriptor sets: the 64 textures, and the streamed one.
         private nonUniformTable: Opaque;
         private updateAfterBindTable: Opaque;
-        private textures: Opaque[];
+        private textures: TextureHandle[];
         private quadIndexBuffer: BufferHandle;
         private descriptorOffset: int;
 

@@ -56,7 +56,7 @@ namespace EnvironmentMap {
         private sunLight: Light;
         private camera: Camera;
         private view: View;
-        private environmentMap: Opaque;
+        private environmentMap: TextureHandle;
         private shadowMap: ShadowMap;
         private shadowDepthPass: DepthPass;
         private shadowMapValid: boolean;

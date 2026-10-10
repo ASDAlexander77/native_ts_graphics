@@ -282,7 +282,7 @@ namespace DynamicBlending {
         private indexBuffer: BufferHandle;
 
         // The depth buffer (reversed) and a framebuffer per back buffer, for the back buffers' size.
-        private depth: Opaque;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private targetWidth: int;
         private targetHeight: int;

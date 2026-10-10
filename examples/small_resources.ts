@@ -60,8 +60,8 @@ namespace SmallResources {
         private pixelShader: Opaque;
         private inputLayout: Opaque;
         private vertexBuffer: BufferHandle;
-        private sampler: Opaque;
-        private textures: Opaque[];
+        private sampler: SamplerHandle;
+        private textures: TextureHandle[];
         private bindingSets: BindingSet[];
         private textureHeap: Opaque;
         private hasTextureHeap: boolean;
@@ -168,9 +168,9 @@ namespace SmallResources {
             const random = new MsvcRandom(100);
             for (let n = 0; n < TEXTURE_COUNT; n++) {
                 const name = `Texture${n}`;
-                const texture: Opaque = this.hasTextureHeap
+                const texture: TextureHandle = this.hasTextureHeap
                     ? this.app.createPlacedTexture(commandList, this.textureHeap, n * placedSize, TEXTURE_WIDTH, TEXTURE_HEIGHT,
-                        Format.RGBA8_UNORM, name) as Opaque
+                        Format.RGBA8_UNORM, name) as TextureHandle
                     : this.app.createTextureWithLevels(TEXTURE_WIDTH, TEXTURE_HEIGHT, 1, Format.RGBA8_UNORM, name);
                 const data = this.generateTexture(random);
                 commandList.writeTextureLevel(texture, 0, Ref(data[0]), TEXTURE_WIDTH * TEXTURE_PIXEL_SIZE);

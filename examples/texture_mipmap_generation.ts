@@ -220,7 +220,7 @@ namespace TextureMipmapGeneration {
         private mesh: GltfMesh;
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size.
-        private depth: Opaque;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private targetWidth: int;
         private targetHeight: int;
@@ -341,7 +341,7 @@ namespace TextureMipmapGeneration {
         // texture with the whole chain (1 + floor(log2(max(width, height))) levels), in sRGB as the
         // sample takes KTX 1 files; then each level drawn from the one above, recorded into an open
         // command list.
-        loadTextureGenerateMipmaps(commandList: CommandList): Opaque | null {
+        loadTextureGenerateMipmaps(commandList: CommandList): TextureHandle | null {
             const staging = this.app.loadStagingTexture(TEXTURE_PATH);
             if (!staging) {
                 return null;
@@ -432,7 +432,7 @@ namespace TextureMipmapGeneration {
             const bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
             const setDesc = BindingSetDesc.create();
             setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindTextureSRV(0, texture as Opaque);
+            setDesc.bindTextureSRV(0, texture as TextureHandle);
             setDesc.bindSampler(0, noMipMaps);
             setDesc.bindSampler(1, mipMaps);
             setDesc.bindSampler(2, anisotropic);

@@ -61,7 +61,7 @@ namespace RtBindless {
         private shaderTable: ShaderTable;
         private computePipeline: Opaque;
         // Created on the first frame, dropped on resize.
-        private colorBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
         private bindingSet: BindingSet;
         private enableAnimations: boolean;
         private wallclockTime: number;

@@ -164,7 +164,7 @@ namespace VertexBuffer {
         private constantBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
-        private texture: Opaque;
+        private texture: TextureHandle;
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSets: BindingSet[];

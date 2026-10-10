@@ -135,17 +135,17 @@ namespace OitDepthPeeling {
         private gatherBindingLayout: Opaque;
         private combineBindingLayout: Opaque;
         private constantBuffer: BufferHandle;
-        private background: Opaque;
+        private background: TextureHandle;
         private object: GltfMesh;
 
         // The back buffer's size: the layers, the depth targets, their framebuffers and binding
         // sets, the color target (sRGB, as the sample's swapchain) and the pipelines.
-        private layers: Opaque[];
-        private depths: Opaque[];
+        private layers: TextureHandle[];
+        private depths: TextureHandle[];
         private gatherFramebuffers: Opaque[];
         private gatherBindingSets: BindingSet[];
         private combineBindingSet: BindingSet;
-        private colorBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private gatherFirstPipeline: Opaque | null;
         private gatherPipeline: Opaque | null;
@@ -240,8 +240,8 @@ namespace OitDepthPeeling {
             this.gatherBindingSets = [];
             this.combineBindingSet = new BindingSet(null);
 
-            const sized = [this.gatherFirstPipeline, this.gatherPipeline, this.backgroundPipeline, this.combinePipeline,
-                this.framebuffer, this.colorBuffer];
+            const sized: (ResourceHandle | null)[] = [this.gatherFirstPipeline, this.gatherPipeline,
+                this.backgroundPipeline, this.combinePipeline, this.framebuffer, this.colorBuffer];
             for (let i = 0; i < sized.length; i++) {
                 const resource = sized[i];
                 if (resource) {

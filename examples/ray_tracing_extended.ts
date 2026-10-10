@@ -243,7 +243,7 @@ namespace RayTracingExtended {
         private flameGenerator: FlameParticleGenerator;
 
         // Created on the first frame (the size of the back buffer), dropped on resize.
-        private storageImage: Opaque | null;
+        private storageImage: TextureHandle | null;
         private bindingSet: BindingSet;
 
         // Seconds since the start, for the refraction model's waves.

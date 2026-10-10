@@ -135,17 +135,17 @@ namespace TextureCompressionComparison {
         private pipeline: Opaque;
         private bindingLayout: Opaque;
         private constantBuffer: BufferHandle;
-        private sampler: Opaque;
+        private sampler: SamplerHandle;
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
-        private depth: Opaque;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private targetWidth: int;
         private targetHeight: int;
 
         // The scene's images (by URI) and, for the current format, their textures and binding sets.
         private imageNames: string[];
-        private textures: Opaque[];
+        private textures: TextureHandle[];
         private bindingSets: BindingSet[];
 
         // The draws, a node's primitive each: index range and base vertex, image (imageNames index),

@@ -224,20 +224,20 @@ namespace AsyncComputeBloom {
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
 
-        private shadowMap: Opaque;
+        private shadowMap: TextureHandle;
         private shadowFramebuffer: Opaque;
         private shadowPipeline: Opaque;
         private shadowBindingSet: BindingSet;
 
-        private hdrTargets: Opaque[];
-        private hdrDepth: Opaque;
+        private hdrTargets: TextureHandle[];
+        private hdrDepth: TextureHandle;
         private hdrFramebuffers: Opaque[];
         private forwardPipeline: Opaque;
         private forwardBlendPipeline: Opaque;
         // One per base color texture.
         private forwardBindingSets: BindingSet[];
 
-        private blurChain: Opaque[];
+        private blurChain: TextureHandle[];
         private thresholdPipeline: Opaque;
         private blurDownPipeline: Opaque;
         private blurUpPipeline: Opaque;
@@ -581,7 +581,7 @@ namespace AsyncComputeBloom {
 
         // The scene's base color textures and its draws: every node's primitives, their vertices and
         // indices in one vertex and one index buffer, recorded into an open command list.
-        loadScene(commandList: CommandList, linearWrap: Opaque, comparisonSampler: Opaque, forwardBindingLayout: Opaque): boolean {
+        loadScene(commandList: CommandList, linearWrap: SamplerHandle, comparisonSampler: SamplerHandle, forwardBindingLayout: Opaque): boolean {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -896,7 +896,7 @@ namespace AsyncComputeBloom {
             return true;
         }
 
-        createBlurBindingSet(layout: Opaque, sampler: Opaque, input: Opaque, output: Opaque): BindingSet {
+        createBlurBindingSet(layout: Opaque, sampler: SamplerHandle, input: TextureHandle, output: TextureHandle): BindingSet {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, input);
             setDesc.bindSampler(0, sampler);

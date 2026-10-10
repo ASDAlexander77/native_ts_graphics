@@ -19,3 +19,7 @@ declare class AdapterListHandle { private readonly __adapterList: int; }
 declare class ResourceHandle { private readonly __resource: int; }
 declare class CommandListHandle extends ResourceHandle { private readonly __commandList: int; }
 declare class BufferHandle extends ResourceHandle { private readonly __buffer: int; }
+declare class TextureHandle extends ResourceHandle { private readonly __texture: int; }
+declare class StagingTextureHandle extends ResourceHandle { private readonly __stagingTexture: int; }
+declare class SamplerHandle extends ResourceHandle { private readonly __sampler: int; }
+declare class HeapHandle extends ResourceHandle { private readonly __heap: int; }

@@ -122,7 +122,7 @@ namespace VideoTexture {
         private videoHeight: int;
         // D3D12 and D3D11: shared with the Media Engine's device; Vulkan: uploaded.
         private sharedTexture: Opaque | null;
-        private videoTexture: Opaque;
+        private videoTexture: TextureHandle;
         private cubeVertices: BufferHandle;
         private cubeIndices: BufferHandle;
         private cubeIndexCount: int;
@@ -138,8 +138,8 @@ namespace VideoTexture {
         private spriteVS: Opaque;
         private spritePS: Opaque;
         // Frame-sized, made on the first frame and after each resize.
-        private colorTarget: Opaque | null;
-        private depthTarget: Opaque | null;
+        private colorTarget: TextureHandle | null;
+        private depthTarget: TextureHandle | null;
         private framebuffer: Opaque | null;
         private cubePipeline: Opaque | null;
         private spritePipeline: Opaque | null;

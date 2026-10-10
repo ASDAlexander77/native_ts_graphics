@@ -124,13 +124,13 @@ namespace SimpleHdr {
         private quadVS: Opaque;
         private hdr10PS: Opaque;
         private sdrPS: Opaque;
-        private pointSampler: Opaque;
+        private pointSampler: SamplerHandle;
         private lineBuffer: BufferHandle;
         private lineVertices: f32[];
         private drawConstants: f32[];
         private convertConstants: f32[];
         // Window-sized, made on the first frame and after each resize.
-        private hdrScene: Opaque | null;
+        private hdrScene: TextureHandle | null;
         private hdrSceneFramebuffer: Opaque | null;
         private sceneBindingSet: BindingSet;
         private convertBindingSet: BindingSet;

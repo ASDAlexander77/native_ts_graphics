@@ -96,8 +96,8 @@ namespace OpacityMicromaps {
         private app: App;
         private bindingLayout: Opaque;
         private shaderTable: ShaderTable;
-        private sampler: Opaque;
-        private textures: Opaque[];
+        private sampler: SamplerHandle;
+        private textures: TextureHandle[];
         private positionBuffer: BufferHandle;
         private normalBuffer: BufferHandle;
         private texCoordBuffer: BufferHandle;
@@ -114,7 +114,7 @@ namespace OpacityMicromaps {
         private hasBlas: boolean;
         private topLevelAS: SceneAccelStructs;
         // Created on the first frame (it has the frame's size), dropped on resize.
-        private storageImage: Opaque;
+        private storageImage: TextureHandle;
         private hasStorageImage: boolean;
         private bindingSet: BindingSet;
         private sceneData: f32[];

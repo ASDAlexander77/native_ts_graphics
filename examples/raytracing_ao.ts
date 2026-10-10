@@ -267,9 +267,9 @@ namespace RaytracingAo {
         indexCount: int;
         vertexCount: int;
         materialBuffer: BufferHandle;
-        diffuseTexture: Opaque;
-        specularTexture: Opaque;
-        normalTexture: Opaque;
+        diffuseTexture: TextureHandle;
+        specularTexture: TextureHandle;
+        normalTexture: TextureHandle;
         blas: TriangleBlas;
         topLevelAS: SceneAccelStructs;
         builtTopLevelAS: boolean;
@@ -282,7 +282,7 @@ namespace RaytracingAo {
 
         // A material texture (DirectXTK's EffectTextureFactory: DDS files as they are), or the
         // placeholder for none.
-        loadTexture(app: App, commandList: CommandList, name: string, placeholder: Opaque): Opaque | null {
+        loadTexture(app: App, commandList: CommandList, name: string, placeholder: TextureHandle): TextureHandle | null {
             if (name == "") {
                 return placeholder;
             }
@@ -294,7 +294,7 @@ namespace RaytracingAo {
         }
 
         // False (after printing why) on failure.
-        load(app: App, commandList: CommandList, file: string, placeholder: Opaque): boolean {
+        load(app: App, commandList: CommandList, file: string, placeholder: TextureHandle): boolean {
             const binaryFile = app.loadBinaryFile(MEDIA_DIR + file);
             if (binaryFile.isNull()) {
                 return false;
@@ -382,9 +382,9 @@ namespace RaytracingAo {
             if (!diffuse || !specular || !normal) {
                 ok = false;
             } else {
-                this.diffuseTexture = diffuse as Opaque;
-                this.specularTexture = specular as Opaque;
-                this.normalTexture = normal as Opaque;
+                this.diffuseTexture = diffuse as TextureHandle;
+                this.specularTexture = specular as TextureHandle;
+                this.normalTexture = normal as TextureHandle;
             }
 
             // AO::BuildAccelerationStructures: opaque geometry, preferring fast tracing.
@@ -435,10 +435,10 @@ namespace RaytracingAo {
     class RaytracingAoSample {
         private app: App;
         private meshes: Mesh[];
-        private placeholderTexture: Opaque;
-        private pointWrapSampler: Opaque;
-        private linearClampSampler: Opaque;
-        private pointClampSampler: Opaque;
+        private placeholderTexture: TextureHandle;
+        private pointWrapSampler: SamplerHandle;
+        private linearClampSampler: SamplerHandle;
+        private pointClampSampler: SamplerHandle;
         private sceneBuffer: BufferHandle;
         private aoBuffer: BufferHandle;
         private aoOptionsBuffer: BufferHandle;
@@ -473,22 +473,22 @@ namespace RaytracingAo {
         // Made for the output's size (the frame's, half its width when split).
         private outputWidth: int;
         private outputHeight: int;
-        private resources: Opaque[];
-        private aoOutput: Opaque | null;
-        private ssaoOutput: Opaque | null;
-        private gbufferNormals: Opaque | null;
-        private gbufferDiffuse: Opaque | null;
-        private gbufferDepth: Opaque | null;
+        private resources: ResourceHandle[];
+        private aoOutput: TextureHandle | null;
+        private ssaoOutput: TextureHandle | null;
+        private gbufferNormals: TextureHandle | null;
+        private gbufferDiffuse: TextureHandle | null;
+        private gbufferDepth: TextureHandle | null;
         private gbufferFramebuffer: Opaque | null;
-        private linearDepth: Opaque | null;
-        private depthDownsize: Opaque[];
-        private depthTiled: Opaque[];
-        private normalDownsize: Opaque[];
-        private normalTiled: Opaque[];
-        private merged: Opaque[];
-        private smooth: Opaque[];
-        private highQuality: Opaque[];
-        private ssao: Opaque | null;
+        private linearDepth: TextureHandle | null;
+        private depthDownsize: TextureHandle[];
+        private depthTiled: TextureHandle[];
+        private normalDownsize: TextureHandle[];
+        private normalTiled: TextureHandle[];
+        private merged: TextureHandle[];
+        private smooth: TextureHandle[];
+        private highQuality: TextureHandle[];
+        private ssao: TextureHandle | null;
         private bufferWidth: int[];
         private bufferHeight: int[];
         private frameBindingSets: BindingSet[];
@@ -893,7 +893,7 @@ namespace RaytracingAo {
             this.releaseFrameResources();
         }
 
-        own(resource: Opaque): Opaque {
+        own<T extends ResourceHandle>(resource: T): T {
             this.resources.push(resource);
             return resource;
         }
@@ -916,8 +916,8 @@ namespace RaytracingAo {
             this.gbufferNormals = this.own(this.app.createRenderTargetTexture(width, height, Format.R11G11B10_FLOAT, "GBufferNormals"));
             this.gbufferDiffuse = this.own(this.app.createRenderTargetTexture(width, height, Format.R11G11B10_FLOAT, "GBufferDiffuse"));
             this.gbufferDepth = this.own(this.app.createDepthTexture(width, height, Format.D32, 1.0, "GBufferDepth"));
-            this.gbufferFramebuffer = this.own(this.app.createFramebufferWithTwoTargets(this.gbufferNormals as Opaque,
-                this.gbufferDiffuse as Opaque, this.gbufferDepth));
+            this.gbufferFramebuffer = this.own<ResourceHandle>(this.app.createFramebufferWithTwoTargets(this.gbufferNormals as TextureHandle,
+                this.gbufferDiffuse as TextureHandle, this.gbufferDepth));
 
             // Buffer sizes: 1/2, 1/4 ... 1/64, rounded up.
             this.bufferWidth = [];
@@ -944,14 +944,14 @@ namespace RaytracingAo {
                 this.highQuality.push(this.own(this.app.createUAVTextureWithFormat(w, h, Format.R8_UNORM, "HighQuality")));
             }
             this.ssao = this.own(this.app.createUAVTextureWithFormat(width, height, Format.R8_UNORM, "SSAO"));
-            const linearDepth = this.linearDepth as Opaque;
-            const gbufferDepth = this.gbufferDepth as Opaque;
+            const linearDepth = this.linearDepth as TextureHandle;
+            const gbufferDepth = this.gbufferDepth as TextureHandle;
 
             // AO: per mesh (its geometry and material are global bindings here).
             for (let m = 0; m < this.meshes.length; m++) {
                 const mesh = this.meshes[m];
                 const desc = BindingSetDesc.create();
-                desc.bindTextureUAV(0, this.aoOutput as Opaque);
+                desc.bindTextureUAV(0, this.aoOutput as TextureHandle);
                 desc.bindAccelStruct(0, mesh.topLevelAS.getTopLevelAS());
                 desc.bindEntireConstantBuffer(0, this.sceneBuffer);
                 desc.bindEntireConstantBuffer(1, this.aoBuffer);
@@ -970,7 +970,7 @@ namespace RaytracingAo {
             // Phase 2: decompress, linearize, downsample and deinterleave the depth buffer.
             const prepare1 = BindingSetDesc.create();
             prepare1.bindTextureSRV(0, gbufferDepth);
-            prepare1.bindTextureSRV(1, this.gbufferNormals as Opaque);
+            prepare1.bindTextureSRV(1, this.gbufferNormals as TextureHandle);
             prepare1.bindTextureUAV(0, linearDepth);
             prepare1.bindTextureUAV(1, this.depthDownsize[0]);
             prepare1.bindTextureUAV(2, this.depthTiled[0]);
@@ -1028,7 +1028,7 @@ namespace RaytracingAo {
                 if (i == 0) {
                     blur.bindTextureSRV(1, linearDepth);
                     blur.bindTextureSRV(2, this.smooth[0]);
-                    blur.bindTextureUAV(0, this.ssao as Opaque);
+                    blur.bindTextureUAV(0, this.ssao as TextureHandle);
                     this.blurSets.push(this.frameSet(blur, this.blurLayout));
                 } else {
                     blur.bindTextureSRV(1, this.depthDownsize[i - 1]);
@@ -1041,10 +1041,10 @@ namespace RaytracingAo {
 
             // Phase 5: the SSAO times the diffuse color.
             const composite = BindingSetDesc.create();
-            composite.bindTextureSRV(0, this.ssao as Opaque);
-            composite.bindTextureSRV(1, this.gbufferDiffuse as Opaque);
+            composite.bindTextureSRV(0, this.ssao as TextureHandle);
+            composite.bindTextureSRV(1, this.gbufferDiffuse as TextureHandle);
             composite.bindTextureSRV(2, gbufferDepth);
-            composite.bindTextureUAV(0, this.ssaoOutput as Opaque);
+            composite.bindTextureUAV(0, this.ssaoOutput as TextureHandle);
             this.compositeSet = this.frameSet(composite, this.compositeLayout);
         }
 
@@ -1071,7 +1071,7 @@ namespace RaytracingAo {
             const mesh = this.meshes[this.meshIndex];
 
             // Phase 1: Render GBuffer.
-            commandList.clearDepth(this.gbufferDepth as Opaque, 1.0);
+            commandList.clearDepth(this.gbufferDepth as TextureHandle, 1.0);
             frame.beginDrawToFramebuffer(this.gbufferPipeline as Opaque, this.gbufferFramebuffer as Opaque);
             frame.drawAddBindingSet(this.meshGBufferSets[this.meshIndex]);
             frame.drawAddVertexBuffer(mesh.vertexBuffer, 0, 0);
@@ -1149,10 +1149,10 @@ namespace RaytracingAo {
                 this.runSsao(frame, commandList);
             }
             if (this.isSplit) {
-                Donut_BlitTextureSlice(this.app.handle, frame.handle, this.ssaoOutput as Opaque, 0, 0.0, 0.0, outputWidth, height);
-                Donut_BlitTextureSlice(this.app.handle, frame.handle, this.aoOutput as Opaque, 0, width - outputWidth, 0.0, outputWidth, height);
+                Donut_BlitTextureSlice(this.app.handle, frame.handle, this.ssaoOutput as TextureHandle, 0, 0.0, 0.0, outputWidth, height);
+                Donut_BlitTextureSlice(this.app.handle, frame.handle, this.aoOutput as TextureHandle, 0, width - outputWidth, 0.0, outputWidth, height);
             } else {
-                Donut_BlitTexture(this.app.handle, frame.handle, (runAo ? this.aoOutput : this.ssaoOutput) as Opaque);
+                Donut_BlitTexture(this.app.handle, frame.handle, (runAo ? this.aoOutput : this.ssaoOutput) as TextureHandle);
             }
         }
 

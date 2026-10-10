@@ -776,16 +776,16 @@ namespace WorkGraphs {
         private constantBuffer: BufferHandle;
         private nullSRVBuffer: BufferHandle;
         private nullUAVBuffer: BufferHandle;
-        private nullSRVTexture: Opaque;
-        private nullUAVTexture: Opaque;
+        private nullSRVTexture: TextureHandle;
+        private nullUAVTexture: TextureHandle;
 
         // Size-dependent (the sample's RenderTargets and what LoadScenePipelines and
         // LoadWorkGraphPipelines create for them): created on the first frame, dropped on resize.
         private targetsWidth: int;
         private targetsHeight: int;
-        private depth: Opaque | null;
-        private gbuffer: Opaque | null;
-        private ldrBuffer: Opaque | null;
+        private depth: TextureHandle | null;
+        private gbuffer: TextureHandle | null;
+        private ldrBuffer: TextureHandle | null;
         private gbufferFramebuffer: Opaque | null;
         private gbufferFillPSO: Opaque | null;
         private culledLightsBuffer: BufferHandle | null;
@@ -948,7 +948,7 @@ namespace WorkGraphs {
 
         // A binding set of the shared layout: every pass fills all its slots, unused ones with null
         // resources. The resource registers must match with assignments used in the shader files.
-        createBindingSet(t0: BufferHandle, t1: Opaque, t2: Opaque, t3: BufferHandle, t4: BufferHandle, u0: BufferHandle, u1: Opaque): BindingSet {
+        createBindingSet(t0: BufferHandle, t1: TextureHandle, t2: TextureHandle, t3: BufferHandle, t4: BufferHandle, u0: BufferHandle, u1: TextureHandle): BindingSet {
             const desc = BindingSetDesc.create();
             desc.bindPushConstants(0, PUSH_CONSTANTS_SIZE);
             desc.bindEntireConstantBuffer(1, this.constantBuffer);
@@ -1093,7 +1093,7 @@ namespace WorkGraphs {
             this.forceResetAnimation = false; // Animation buffer initialized, no need to redo it again in subsequent frames.
         }
 
-        populateGBufferPass(frame: Frame, commandList: CommandList, depth: Opaque, framebuffer: Opaque, pipeline: Opaque,
+        populateGBufferPass(frame: Frame, commandList: CommandList, depth: TextureHandle, framebuffer: Opaque, pipeline: Opaque,
             bindingSet: BindingSet): void {
             // It is enough to clear the depth-buffer without the g-buffer. Depth buffer values of 1 mean "sky".
             commandList.clearDepth(depth, 1.0);

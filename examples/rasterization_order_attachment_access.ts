@@ -166,8 +166,8 @@ namespace RasterizationOrderAttachmentAccess {
         private displayBindingLayout: Opaque;
         private constantBuffer: BufferHandle;
         private instanceBuffer: BufferHandle;
-        private background: Opaque;
-        private sampler: Opaque;
+        private background: TextureHandle;
+        private sampler: SamplerHandle;
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
         private indexCount: int;
@@ -184,7 +184,7 @@ namespace RasterizationOrderAttachmentAccess {
         // The back buffer's size: the color texture and the binding sets that use it.
         private width: int;
         private height: int;
-        private colorTexture: Opaque;
+        private colorTexture: TextureHandle;
         private backgroundBindingSet: BindingSet;
         private blendBindingSet: BindingSet;
         private displayBindingSet: BindingSet;
@@ -266,7 +266,7 @@ namespace RasterizationOrderAttachmentAccess {
             if (this.width == 0) {
                 return;
             }
-            const resources: ResourceHandle[] = [this.backgroundBindingSet.handle, this.blendBindingSet.handle, this.displayBindingSet.handle,
+            const resources: (ResourceHandle | null)[] = [this.backgroundBindingSet.handle, this.blendBindingSet.handle, this.displayBindingSet.handle,
                 this.colorTexture];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];

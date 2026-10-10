@@ -2904,15 +2904,15 @@ extern "C"
 
     // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>; show
     // it with Donut_BlitTexture. Returns null on failure.
-    void* Donut_CreateUAVTextureForFrameWithFormat(App* app, FrameContext* frame, const char* debugName, int format);
+    nvrhi::ITexture* Donut_CreateUAVTextureForFrameWithFormat(App* app, FrameContext* frame, const char* debugName, int format);
 
-    void* Donut_CreateUAVTextureForFrame(App* app, FrameContext* frame, const char* debugName)
+    nvrhi::ITexture* Donut_CreateUAVTextureForFrame(App* app, FrameContext* frame, const char* debugName)
     {
         return Donut_CreateUAVTextureForFrameWithFormat(app, frame, debugName, static_cast<int>(nvrhi::Format::RGBA8_UNORM));
     }
 
     // Same, in `format` (an nvrhi::Format value).
-    void* Donut_CreateUAVTextureForFrameWithFormat(App* app, FrameContext* frame, const char* debugName, int format)
+    nvrhi::ITexture* Donut_CreateUAVTextureForFrameWithFormat(App* app, FrameContext* frame, const char* debugName, int format)
     {
         nvrhi::TextureDesc desc = frame->framebuffer->getDesc().colorAttachments[0].texture->getDesc();
         desc.isUAV = true;
@@ -2928,7 +2928,7 @@ extern "C"
 
     // Same, in the back buffer's format without sRGB (RGBA8_UNORM with D3D12, BGRA8_UNORM with
     // Vulkan): Donut_CopyTextureToFrame copies it to the back buffer bit for bit.
-    void* Donut_CreateUAVTextureForFrameCopy(App* app, FrameContext* frame, const char* debugName)
+    nvrhi::ITexture* Donut_CreateUAVTextureForFrameCopy(App* app, FrameContext* frame, const char* debugName)
     {
         nvrhi::Format format = frame->framebuffer->getDesc().colorAttachments[0].texture->getDesc().format;
         if (format == nvrhi::Format::SRGBA8_UNORM)
@@ -3052,10 +3052,10 @@ extern "C"
     // that it waits for: call it while no other immediate command list is open. Not for the
     // texture cache's textures (permanently shader resources). Returns the bytes copied, 0 on
     // failure.
-    int Donut_ReadTextureLevel(App* app, void* texture, int mipLevel, void* dst, int byteSize)
+    int Donut_ReadTextureLevel(App* app, nvrhi::ITexture* texture, int mipLevel, void* dst, int byteSize)
     {
         nvrhi::IDevice* device = app->device();
-        auto* source = static_cast<nvrhi::ITexture*>(texture);
+        auto* source = texture;
         const nvrhi::TextureDesc& sourceDesc = source->getDesc();
 
         const nvrhi::FormatInfo& info = nvrhi::getFormatInfo(sourceDesc.format);
@@ -3153,10 +3153,10 @@ extern "C"
 
     // Texture created by Donut_CreateUAVTextureForFrame, written by the shader as
     // RWTexture2D<float4> at u<slot>.
-    void Donut_BindTextureUAV(void* bindingSetDesc, int slot, void* texture)
+    void Donut_BindTextureUAV(void* bindingSetDesc, int slot, nvrhi::ITexture* texture)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::Texture_UAV(static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture)));
+            nvrhi::BindingSetItem::Texture_UAV(static_cast<uint32_t>(slot), texture));
     }
 
     // Top-level acceleration structure, read by the shader as RaytracingAccelerationStructure
@@ -3926,7 +3926,7 @@ extern "C"
     // Loads an image file (path relative to the executable's directory) and records its upload
     // into an open command list; sRGB != 0 treats the data as sRGB. Returns null (after logging
     // why) if the file can't be loaded.
-    void* Donut_LoadTexture(App* app, nvrhi::ICommandList* commandList, const char* path, int sRGB)
+    nvrhi::ITexture* Donut_LoadTexture(App* app, nvrhi::ICommandList* commandList, const char* path, int sRGB)
     {
         App* a = app;
         donut::engine::TextureLoadOptions options;
@@ -3948,7 +3948,7 @@ extern "C"
         CommonSampler_AnisotropicWrap = 3,
     };
 
-    void* Donut_GetCommonSampler(App* app, int which)
+    nvrhi::ISampler* Donut_GetCommonSampler(App* app, int which)
     {
         App* a = app;
         donut::engine::CommonRenderPasses* passes = a->commonPasses();
@@ -3964,7 +3964,7 @@ extern "C"
 
     // A sampler: linearFilter / linearMipFilter non-zero for linear filtering within / between
     // levels (point otherwise), wrap non-zero to repeat (clamp otherwise). Returns null on failure.
-    void* Donut_CreateSampler(App* app, int linearFilter, int linearMipFilter, int wrap)
+    nvrhi::ISampler* Donut_CreateSampler(App* app, int linearFilter, int linearMipFilter, int wrap)
     {
         auto desc = nvrhi::SamplerDesc()
             .setMinFilter(linearFilter != 0)
@@ -3981,7 +3981,7 @@ extern "C"
     // nvrhi::SamplerAddressMode value); a bias added to the level of detail, the range it's clamped
     // to (maxLod 0: level 0 only), and anisotropic filtering up to maxAnisotropy samples (1: off;
     // see Donut_GetMaxSamplerAnisotropy). Returns null on failure.
-    void* Donut_CreateSamplerWithDesc(App* app, int linearMin, int linearMag, int linearMip, int addressMode,
+    nvrhi::ISampler* Donut_CreateSamplerWithDesc(App* app, int linearMin, int linearMag, int linearMip, int addressMode,
         double mipBias, double minLod, double maxLod, double maxAnisotropy)
     {
         auto desc = nvrhi::SamplerDesc()
@@ -3999,7 +3999,7 @@ extern "C"
 
     // A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero)
     // or point filtering when minifying, magnifying and between levels, every level.
-    void* Donut_CreateBorderSampler(App* app, int linearMin, int linearMag, int linearMip, double r, double g,
+    nvrhi::ISampler* Donut_CreateBorderSampler(App* app, int linearMin, int linearMag, int linearMip, double r, double g,
         double b, double a)
     {
         auto desc = nvrhi::SamplerDesc()
@@ -4035,7 +4035,7 @@ extern "C"
     // A comparison sampler (SamplerComparisonState) for depth textures: bilinear, clamped to the
     // edges. NVRHI fixes its comparison at "less": SampleCmp returns the filtered fraction of texels
     // whose depth is greater than the reference. Returns null on failure.
-    void* Donut_CreateComparisonSampler(App* app)
+    nvrhi::ISampler* Donut_CreateComparisonSampler(App* app)
     {
         auto desc = nvrhi::SamplerDesc()
             .setAllFilters(true)
@@ -4084,10 +4084,10 @@ extern "C"
     }
 
     // Element arrayElement of a Donut_LayoutTextureSRVArray array at t<slot>.
-    void Donut_BindTextureSRVArrayElement(void* bindingSetDesc, int slot, int arrayElement, void* texture)
+    void Donut_BindTextureSRVArrayElement(void* bindingSetDesc, int slot, int arrayElement, nvrhi::ITexture* texture)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture))
+            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture)
                 .setArrayElement(static_cast<uint32_t>(arrayElement)));
     }
 
@@ -4108,33 +4108,33 @@ extern "C"
     }
 
     // Texture2D at t<slot>.
-    void Donut_BindTextureSRV(void* bindingSetDesc, int slot, void* texture)
+    void Donut_BindTextureSRV(void* bindingSetDesc, int slot, nvrhi::ITexture* texture)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture)));
+            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture));
     }
 
     // Same, one level of the texture only (e.g. the level above the one a pass draws into).
-    void Donut_BindTextureSRVMip(void* bindingSetDesc, int slot, void* texture, int mipLevel)
+    void Donut_BindTextureSRVMip(void* bindingSetDesc, int slot, nvrhi::ITexture* texture, int mipLevel)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::Texture_SRV(
-            static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture), nvrhi::Format::UNKNOWN,
+            static_cast<uint32_t>(slot), texture, nvrhi::Format::UNKNOWN,
             nvrhi::TextureSubresourceSet(uint32_t(mipLevel), 1, 0, 1)));
     }
 
     // Same, mipCount levels from firstMip on (the shader's level 0 is firstMip).
-    void Donut_BindTextureSRVMips(void* bindingSetDesc, int slot, void* texture, int firstMip, int mipCount)
+    void Donut_BindTextureSRVMips(void* bindingSetDesc, int slot, nvrhi::ITexture* texture, int firstMip, int mipCount)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::Texture_SRV(
-            static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture), nvrhi::Format::UNKNOWN,
+            static_cast<uint32_t>(slot), texture, nvrhi::Format::UNKNOWN,
             nvrhi::TextureSubresourceSet(uint32_t(firstMip), uint32_t(mipCount), 0, 1)));
     }
 
     // SamplerState at s<slot>.
-    void Donut_BindSampler(void* bindingSetDesc, int slot, void* sampler)
+    void Donut_BindSampler(void* bindingSetDesc, int slot, nvrhi::ISampler* sampler)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::Sampler(static_cast<uint32_t>(slot), static_cast<nvrhi::ISampler*>(sampler)));
+            nvrhi::BindingSetItem::Sampler(static_cast<uint32_t>(slot), sampler));
     }
 
     // The layout a binding set was created with; valid as long as the binding set. Use it for
@@ -4259,7 +4259,7 @@ extern "C"
     // RGBA8_UNORM texture of width x height that compute shaders write as RWTexture2D<float4> and
     // pixel shaders read; NVRHI tracks its state, which rests at NonPixelShaderResource. Returns
     // null on failure.
-    void* Donut_CreateUAVTexture(App* app, int width, int height, const char* debugName)
+    nvrhi::ITexture* Donut_CreateUAVTexture(App* app, int width, int height, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(nvrhi::Format::RGBA8_UNORM)
@@ -4276,13 +4276,13 @@ extern "C"
     // Render target (for Donut_CreateFramebuffer) of width x height in `format` (an nvrhi::Format
     // value) that shaders can also read; resting at ShaderResource. A depth format makes a depth
     // buffer, cleared to 1 by default, whose shader view reads the depth. Returns null on failure.
-    void* Donut_CreateRenderTargetTexture(App* app, int width, int height, int format, const char* debugName);
+    nvrhi::ITexture* Donut_CreateRenderTargetTexture(App* app, int width, int height, int format, const char* debugName);
 
     // Same, typeless: framebuffers can see it in other formats of its family
     // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
     // without sRGB encoding) or RGBA8_UINT (for logic operations, which D3D12 has on UINT targets
     // only); shaders read it in `format`.
-    void* Donut_CreateTypelessRenderTargetTexture(App* app, int width, int height, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateTypelessRenderTargetTexture(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -4303,7 +4303,7 @@ extern "C"
     // shaders read with all its levels; typeless, so that copies from textures of other formats of
     // its family land (e.g. RGBA8_UNORM data into SRGBA8_UNORM). Resting at ShaderResource. Returns
     // null on failure.
-    void* Donut_CreateMipmappedRenderTarget(App* app, int width, int height, int mipLevels, int format,
+    nvrhi::ITexture* Donut_CreateMipmappedRenderTarget(App* app, int width, int height, int mipLevels, int format,
         const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
@@ -4324,7 +4324,7 @@ extern "C"
     // Texture of width x height with mipLevels levels in `format` (block-compressed formats too) for
     // shaders to read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
     // Returns null on failure.
-    void* Donut_CreateTextureWithLevels(App* app, int width, int height, int mipLevels, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateTextureWithLevels(App* app, int width, int height, int mipLevels, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -4341,16 +4341,16 @@ extern "C"
 
     // Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed
     // formats) rowPitch bytes apart, copied during the call, recorded into an open command list.
-    void Donut_WriteTextureLevel(nvrhi::ICommandList* commandList, void* texture, int mipLevel, const void* data, int rowPitch)
+    void Donut_WriteTextureLevel(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int mipLevel, const void* data, int rowPitch)
     {
-        commandList->writeTexture(static_cast<nvrhi::ITexture*>(texture), 0, static_cast<uint32_t>(mipLevel),
+        commandList->writeTexture(texture, 0, static_cast<uint32_t>(mipLevel),
             data, static_cast<size_t>(rowPitch));
     }
 
     // Render target of width x height in `format` that shaders also read and write as a UAV
     // (RWTexture2D<...>), e.g. one pass's output another's compute shaders read; resting at
     // UnorderedAccess. Returns null on failure.
-    void* Donut_CreateRenderTargetUAVTexture(App* app, int width, int height, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateRenderTargetUAVTexture(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -4366,7 +4366,7 @@ extern "C"
         return a->Own(a->device()->createTexture(desc));
     }
 
-    void* Donut_CreateRenderTargetTexture(App* app, int width, int height, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateRenderTargetTexture(App* app, int width, int height, int format, const char* debugName)
     {
         const auto textureFormat = static_cast<nvrhi::Format>(format);
         auto desc = nvrhi::TextureDesc()
@@ -4390,7 +4390,7 @@ extern "C"
     // Depth buffer of width x height in `format` (a depth nvrhi::Format value), optimized for
     // clears to clearDepth (e.g. 0 for reversed depth), that shaders can also read (resting at
     // ShaderResource). Returns null on failure.
-    void* Donut_CreateDepthTexture(App* app, int width, int height, int format, double clearDepth, const char* debugName)
+    nvrhi::ITexture* Donut_CreateDepthTexture(App* app, int width, int height, int format, double clearDepth, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -4410,7 +4410,7 @@ extern "C"
     // Texture of width x height in `format` (an nvrhi::Format value) that shaders write and read as
     // a UAV (RWTexture2D<...>), resting at UnorderedAccess; clear it with Donut_ClearTextureUInt or
     // Donut_ClearTextureFloat. Returns null on failure.
-    void* Donut_CreateUAVTextureWithFormat(App* app, int width, int height, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateUAVTextureWithFormat(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -4426,7 +4426,7 @@ extern "C"
     }
 
     // Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read).
-    void* Donut_CreateUAVTextureArray(App* app, int width, int height, int arraySize, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateUAVTextureArray(App* app, int width, int height, int arraySize, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setDimension(nvrhi::TextureDimension::Texture2DArray)
@@ -4449,7 +4449,7 @@ extern "C"
 
     // Render target of width x height in `format` (an nvrhi::Format value) that shaders read.
     // Returns null on failure.
-    void* Donut_CreateComputeReadableRenderTarget(App* app, int width, int height, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateComputeReadableRenderTarget(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -4466,7 +4466,7 @@ extern "C"
 
     // Texture of width x height in `format` that compute shaders write (RWTexture2D<float4>) and
     // shaders read. Returns null on failure.
-    void* Donut_CreateComputeTexture(App* app, int width, int height, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateComputeTexture(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -4484,11 +4484,11 @@ extern "C"
     // Framebuffer of one color target and an optional depth target (null for none), textures from
     // Donut_CreateRenderTargetTexture. Draw into it with Donut_BeginDrawToFramebuffer. Returns null
     // on failure.
-    void* Donut_CreateFramebuffer(App* app, void* colorTexture, void* depthTexture)
+    void* Donut_CreateFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* depthTexture)
     {
-        auto desc = nvrhi::FramebufferDesc().addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture));
+        auto desc = nvrhi::FramebufferDesc().addColorAttachment(colorTexture);
         if (depthTexture)
-            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+            desc.setDepthAttachment(depthTexture);
 
         App* a = app;
         return a->Own(a->device()->createFramebuffer(desc));
@@ -4497,50 +4497,50 @@ extern "C"
     // Same, the color target seen in colorFormat (an nvrhi::Format value of the texture's family:
     // e.g. RGBA8_UINT or RGBA8_UNORM for a typeless SRGBA8_UNORM texture,
     // Donut_CreateTypelessRenderTargetTexture).
-    void* Donut_CreateFramebufferWithColorFormat(App* app, void* colorTexture, int colorFormat, void* depthTexture)
+    void* Donut_CreateFramebufferWithColorFormat(App* app, nvrhi::ITexture* colorTexture, int colorFormat, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
-            .setTexture(static_cast<nvrhi::ITexture*>(colorTexture))
+            .setTexture(colorTexture)
             .setFormat(static_cast<nvrhi::Format>(colorFormat)));
         if (depthTexture)
-            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+            desc.setDepthAttachment(depthTexture);
 
         App* a = app;
         return a->Own(a->device()->createFramebuffer(desc));
     }
 
     // Framebuffer of a depth target alone (e.g. a shadow map). Returns null on failure.
-    void* Donut_CreateDepthFramebuffer(App* app, void* depthTexture)
+    void* Donut_CreateDepthFramebuffer(App* app, nvrhi::ITexture* depthTexture)
     {
-        auto desc = nvrhi::FramebufferDesc().setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+        auto desc = nvrhi::FramebufferDesc().setDepthAttachment(depthTexture);
 
         App* a = app;
         return a->Own(a->device()->createFramebuffer(desc));
     }
 
     // Same, with two color targets (SV_Target0 and SV_Target1).
-    void* Donut_CreateFramebufferWithTwoTargets(App* app, void* colorTexture0, void* colorTexture1, void* depthTexture)
+    void* Donut_CreateFramebufferWithTwoTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc()
-            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture0))
-            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture1));
+            .addColorAttachment(colorTexture0)
+            .addColorAttachment(colorTexture1);
         if (depthTexture)
-            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+            desc.setDepthAttachment(depthTexture);
 
         App* a = app;
         return a->Own(a->device()->createFramebuffer(desc));
     }
 
     // Same, with three color targets (SV_Target0 to SV_Target2).
-    void* Donut_CreateFramebufferWithThreeTargets(App* app, void* colorTexture0, void* colorTexture1, void* colorTexture2,
-        void* depthTexture)
+    void* Donut_CreateFramebufferWithThreeTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* colorTexture2,
+        nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc()
-            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture0))
-            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture1))
-            .addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture2));
+            .addColorAttachment(colorTexture0)
+            .addColorAttachment(colorTexture1)
+            .addColorAttachment(colorTexture2);
         if (depthTexture)
-            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+            desc.setDepthAttachment(depthTexture);
 
         App* a = app;
         return a->Own(a->device()->createFramebuffer(desc));
@@ -4548,10 +4548,10 @@ extern "C"
 
     // Framebuffer of one level of a color target (e.g. of Donut_CreateTiledTexture), to draw into
     // while sampling another level (Donut_BindTextureSRVMip). Returns null on failure.
-    void* Donut_CreateFramebufferForMip(App* app, void* colorTexture, int mipLevel)
+    void* Donut_CreateFramebufferForMip(App* app, nvrhi::ITexture* colorTexture, int mipLevel)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
-            .setTexture(static_cast<nvrhi::ITexture*>(colorTexture))
+            .setTexture(colorTexture)
             .setSubresources(nvrhi::TextureSubresourceSet(uint32_t(mipLevel), 1, 0, 1)));
 
         App* a = app;
@@ -4565,7 +4565,7 @@ extern "C"
     // zeros, and shaders can tell (CheckAccessFullyMapped). It rests as a shader resource, and is a
     // copy source and destination and a render target (e.g. to fill a level from the one above it).
     // Requires Donut_HasSparseResidency. Returns null on failure.
-    void* Donut_CreateTiledTexture(App* app, int width, int height, int mipLevels, int format, const char* debugName)
+    nvrhi::ITexture* Donut_CreateTiledTexture(App* app, int width, int height, int mipLevels, int format, const char* debugName)
     {
         nvrhi::TextureDesc desc;
         desc.width = static_cast<uint32_t>(width);
@@ -4586,13 +4586,13 @@ extern "C"
     // A tiled texture's tiling, into dst (Ref of a `let` int array of 4): the tile's width and
     // height in texels, the number of levels made of whole tiles, and the number of levels packed
     // into the mip tail after them.
-    void Donut_GetTextureTiling(App* app, void* texture, int* dst)
+    void Donut_GetTextureTiling(App* app, nvrhi::ITexture* texture, int* dst)
     {
         uint32_t numTiles = 0;
         nvrhi::PackedMipDesc packedMips;
         nvrhi::TileShape tileShape;
         uint32_t subresourceTilingsNum = 0;
-        app->device()->getTextureTiling(static_cast<nvrhi::ITexture*>(texture), &numTiles, &packedMips, &tileShape,
+        app->device()->getTextureTiling(texture, &numTiles, &packedMips, &tileShape,
             &subresourceTilingsNum, nullptr);
         dst[0] = static_cast<int>(tileShape.widthInTexels);
         dst[1] = static_cast<int>(tileShape.heightInTexels);
@@ -4603,7 +4603,7 @@ extern "C"
     // Device memory to map tiles of tiled textures into: byteSize bytes, a multiple of the 64 KiB
     // tile. Release it (Donut_ReleaseResource) once no tile is mapped to it any more and the GPU is
     // done with what used it. Returns null on failure.
-    void* Donut_CreateTileHeap(App* app, double byteSize, const char* debugName)
+    nvrhi::IHeap* Donut_CreateTileHeap(App* app, double byteSize, const char* debugName)
     {
         nvrhi::HeapDesc desc;
         desc.capacity = static_cast<uint64_t>(byteSize);
@@ -4732,7 +4732,7 @@ extern "C"
     // at byteOffset (a multiple of Donut_GetPlacedTextureSize's size); its first use recorded into an
     // open command list (D3D12's aliasing barrier). Fill it with Donut_WriteTextureLevel. Null on
     // failure.
-    void* Donut_CreatePlacedTexture(App* app, nvrhi::ICommandList* commandList, void* textureHeap, double byteOffset, int width, int height,
+    nvrhi::ITexture* Donut_CreatePlacedTexture(App* app, nvrhi::ICommandList* commandList, void* textureHeap, double byteOffset, int width, int height,
         int format, const char* debugName)
     {
         App* a = app;
@@ -4795,10 +4795,10 @@ extern "C"
 
     // Maps the tile at column x, row y of level mipLevel to byteOffset (a multiple of 64 KiB) in a
     // heap, or unmaps it (heap null).
-    void Donut_TileMappingsAdd(void* tileMappings, int mipLevel, int x, int y, void* heap, double byteOffset)
+    void Donut_TileMappingsAdd(void* tileMappings, int mipLevel, int x, int y, nvrhi::IHeap* heap, double byteOffset)
     {
         TileMappings::Tile tile;
-        tile.heap = static_cast<nvrhi::IHeap*>(heap);
+        tile.heap = heap;
         tile.coordinate.mipLevel = static_cast<uint16_t>(mipLevel);
         tile.coordinate.x = static_cast<uint32_t>(x);
         tile.coordinate.y = static_cast<uint32_t>(y);
@@ -4809,7 +4809,7 @@ extern "C"
     // Applies the mappings to a tiled texture, on the graphics queue, after the work submitted to
     // it before; frees them. Vulkan's sparse binding isn't ordered with the queue's other work: there
     // the device is idle before and after.
-    void Donut_ApplyTileMappings(App* app, void* texture, void* tileMappings)
+    void Donut_ApplyTileMappings(App* app, nvrhi::ITexture* texture, void* tileMappings)
     {
         std::unique_ptr<TileMappings> mappings(static_cast<TileMappings*>(tileMappings));
         nvrhi::IDevice* device = app->device();
@@ -4857,7 +4857,7 @@ extern "C"
         const bool vulkan = device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
         if (vulkan)
             device->waitForIdle();
-        device->updateTextureTileMappings(static_cast<nvrhi::ITexture*>(texture), tilesMappings.data(),
+        device->updateTextureTileMappings(texture, tilesMappings.data(),
             static_cast<uint32_t>(tilesMappings.size()));
         if (vulkan)
             device->waitForIdle();
@@ -4866,7 +4866,7 @@ extern "C"
     // The first level of a DDS file (path relative to the executable's directory) in a staging
     // texture: memory on the CPU's side that the GPU copies from (Donut_CopyStagingTextureRegion).
     // Null (after logging why) on failure.
-    void* Donut_LoadStagingTexture(App* app, const char* path)
+    nvrhi::IStagingTexture* Donut_LoadStagingTexture(App* app, const char* path)
     {
         const std::filesystem::path filePath = GetExecutablePath().parent_path() / path;
         donut::vfs::NativeFileSystem fs;
@@ -4905,20 +4905,20 @@ extern "C"
         return a->Own(staging);
     }
 
-    int Donut_GetStagingTextureWidth(void* stagingTexture)
+    int Donut_GetStagingTextureWidth(nvrhi::IStagingTexture* stagingTexture)
     {
-        return static_cast<int>(static_cast<nvrhi::IStagingTexture*>(stagingTexture)->getDesc().width);
+        return static_cast<int>(stagingTexture->getDesc().width);
     }
 
-    int Donut_GetStagingTextureHeight(void* stagingTexture)
+    int Donut_GetStagingTextureHeight(nvrhi::IStagingTexture* stagingTexture)
     {
-        return static_cast<int>(static_cast<nvrhi::IStagingTexture*>(stagingTexture)->getDesc().height);
+        return static_cast<int>(stagingTexture->getDesc().height);
     }
 
     // Copies width x height texels at (srcX, srcY) of a staging texture's first level to (dstX, dstY)
     // of level dstMip of a texture.
-    void Donut_CopyStagingTextureRegion(nvrhi::ICommandList* commandList, void* dstTexture, int dstMip, int dstX, int dstY,
-        void* stagingTexture, int srcX, int srcY, int width, int height)
+    void Donut_CopyStagingTextureRegion(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, int dstMip, int dstX, int dstY,
+        nvrhi::IStagingTexture* stagingTexture, int srcX, int srcY, int width, int height)
     {
         nvrhi::TextureSlice dst;
         dst.x = static_cast<uint32_t>(dstX);
@@ -4931,13 +4931,13 @@ extern "C"
         src.x = static_cast<uint32_t>(srcX);
         src.y = static_cast<uint32_t>(srcY);
         src.mipLevel = 0;
-        commandList->copyTexture(static_cast<nvrhi::ITexture*>(dstTexture), dst,
-            static_cast<nvrhi::IStagingTexture*>(stagingTexture), src);
+        commandList->copyTexture(dstTexture, dst,
+            stagingTexture, src);
     }
 
     // Same, between levels of textures (the same texture's other levels too).
-    void Donut_CopyTextureRegion(nvrhi::ICommandList* commandList, void* dstTexture, int dstMip, int dstX, int dstY,
-        void* srcTexture, int srcMip, int srcX, int srcY, int width, int height)
+    void Donut_CopyTextureRegion(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, int dstMip, int dstX, int dstY,
+        nvrhi::ITexture* srcTexture, int srcMip, int srcX, int srcY, int width, int height)
     {
         nvrhi::TextureSlice dst;
         dst.x = static_cast<uint32_t>(dstX);
@@ -4950,8 +4950,8 @@ extern "C"
         src.x = static_cast<uint32_t>(srcX);
         src.y = static_cast<uint32_t>(srcY);
         src.mipLevel = static_cast<uint32_t>(srcMip);
-        commandList->copyTexture(static_cast<nvrhi::ITexture*>(dstTexture), dst,
-            static_cast<nvrhi::ITexture*>(srcTexture), src);
+        commandList->copyTexture(dstTexture, dst,
+            srcTexture, src);
     }
 
     // Triangle-list pipeline for a framebuffer's layout (Donut_CreateFramebuffer), with an input
@@ -5278,19 +5278,19 @@ extern "C"
     }
 
     // Adds a texture (e.g. from Donut_CreateUAVTexture) for the loop to write; call before starting it.
-    void Donut_AddAsyncComputeTexture(void* asyncComputeLoop, void* texture)
+    void Donut_AddAsyncComputeTexture(void* asyncComputeLoop, nvrhi::ITexture* texture)
     {
-        static_cast<AsyncComputeLoop*>(asyncComputeLoop)->renderToCompute.Push(static_cast<nvrhi::ITexture*>(texture), 0);
+        static_cast<AsyncComputeLoop*>(asyncComputeLoop)->renderToCompute.Push(texture, 0);
     }
 
     // Same, with the binding set (from the loop's binding layout) to run the compute pipeline with
     // when writing it: the texture's UAV at u0, the push constants at b0, and anything else the
     // shader reads (e.g. a color map), instead of the loop's own set of the first two.
-    void Donut_AddAsyncComputeTextureWithBindingSet(void* asyncComputeLoop, void* texture, void* bindingSet)
+    void Donut_AddAsyncComputeTextureWithBindingSet(void* asyncComputeLoop, nvrhi::ITexture* texture, void* bindingSet)
     {
         auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
-        loop->textureBindingSets[static_cast<nvrhi::ITexture*>(texture)] = static_cast<nvrhi::IBindingSet*>(bindingSet);
-        loop->renderToCompute.Push(static_cast<nvrhi::ITexture*>(texture), 0);
+        loop->textureBindingSets[texture] = static_cast<nvrhi::IBindingSet*>(bindingSet);
+        loop->renderToCompute.Push(texture, 0);
     }
 
     // The push constants of the runs from now on (byteSize bytes from data, copied during the call;
@@ -5330,7 +5330,7 @@ extern "C"
     // Inside a render callback: if the loop finished a texture, switches to it (making the frame's
     // command list wait for the compute queue) and returns the texture shown until then to the
     // loop. Returns the texture to show this frame, null until the first one is ready.
-    void* Donut_AcquireAsyncComputeTexture(void* asyncComputeLoop, FrameContext* frame)
+    nvrhi::ITexture* Donut_AcquireAsyncComputeTexture(void* asyncComputeLoop, FrameContext* frame)
     {
         auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
 
@@ -5474,16 +5474,16 @@ extern "C"
     }
 
     // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
-    void Donut_ClearDepth(nvrhi::ICommandList* commandList, void* depthTexture, double depth)
+    void Donut_ClearDepth(nvrhi::ICommandList* commandList, nvrhi::ITexture* depthTexture, double depth)
     {
-        commandList->clearDepthStencilTexture(static_cast<nvrhi::ITexture*>(depthTexture),
+        commandList->clearDepthStencilTexture(depthTexture,
             nvrhi::AllSubresources, true, float(depth), false, 0);
     }
 
     // Fills a color texture (Donut_CreateRenderTargetTexture) with r, g, b, a.
-    void Donut_ClearTextureFloat(nvrhi::ICommandList* commandList, void* texture, double r, double g, double b, double a)
+    void Donut_ClearTextureFloat(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, double r, double g, double b, double a)
     {
-        commandList->clearTextureFloat(static_cast<nvrhi::ITexture*>(texture), nvrhi::AllSubresources,
+        commandList->clearTextureFloat(texture, nvrhi::AllSubresources,
             nvrhi::Color(float(r), float(g), float(b), float(a)));
     }
 
@@ -6081,10 +6081,10 @@ extern "C"
     // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at
     // once (also into a table bound by command lists still recording or running: the bindless
     // layouts are update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
-    int Donut_WriteDescriptorTableTexture(App* app, void* descriptorTable, int slot, void* texture)
+    int Donut_WriteDescriptorTableTexture(App* app, void* descriptorTable, int slot, nvrhi::ITexture* texture)
     {
         return app->device()->writeDescriptorTable(static_cast<nvrhi::IDescriptorTable*>(descriptorTable),
-            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), static_cast<nvrhi::ITexture*>(texture))) ? 1 : 0;
+            nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture)) ? 1 : 0;
     }
 
     // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples
@@ -6788,7 +6788,7 @@ extern "C"
     }
 
     // The color texture, one array slice per face; valid as long as the target.
-    void* Donut_GetCubemapColorTexture(void* cubemapTarget)
+    nvrhi::ITexture* Donut_GetCubemapColorTexture(void* cubemapTarget)
     {
         return static_cast<CubemapTarget*>(cubemapTarget)->colorBuffer.Get();
     }
@@ -7214,7 +7214,7 @@ extern "C"
 
     // One of the G-buffer textures, e.g. for binding to a shader that decodes the G-buffer;
     // valid as long as the targets.
-    void* Donut_GetGBufferTexture(void* gbufferTargets, int which)
+    nvrhi::ITexture* Donut_GetGBufferTexture(void* gbufferTargets, int which)
     {
         auto* targets = static_cast<GBufferTargets*>(gbufferTargets);
         switch (which)
@@ -7229,7 +7229,7 @@ extern "C"
     }
 
     // The lit result, for Donut_BlitTexture; valid as long as the targets.
-    void* Donut_GetGBufferShadedColor(void* gbufferTargets)
+    nvrhi::ITexture* Donut_GetGBufferShadedColor(void* gbufferTargets)
     {
         return static_cast<GBufferTargets*>(gbufferTargets)->ShadedColor.Get();
     }
@@ -7446,7 +7446,7 @@ extern "C"
     };
 
     // One of the targets' textures; valid as long as the targets.
-    void* Donut_GetTemporalTargetsTexture(void* temporalTargets, int which)
+    nvrhi::ITexture* Donut_GetTemporalTargetsTexture(void* temporalTargets, int which)
     {
         auto* targets = static_cast<TemporalTargets*>(temporalTargets);
         switch (which)
@@ -7461,10 +7461,10 @@ extern "C"
 
     // Makes rendering into the targets use a shading rate surface (Donut_CreateShadingRateSurface)
     // whenever the view enables variable rate shading. Call it before the first draw into them.
-    void Donut_SetTemporalTargetsShadingRateSurface(void* temporalTargets, void* shadingRateSurface)
+    void Donut_SetTemporalTargetsShadingRateSurface(void* temporalTargets, nvrhi::ITexture* shadingRateSurface)
     {
         static_cast<TemporalTargets*>(temporalTargets)->framebuffer->ShadingRateSurface =
-            static_cast<nvrhi::ITexture*>(shadingRateSurface);
+            shadingRateSurface;
     }
 
     // Clears depth (to 0, for reverse Z) and HDR color.
@@ -7654,16 +7654,16 @@ extern "C"
     // for none) whose draws can take their shading rates from shadingRateSurface
     // (Donut_CreateShadingRateSurface, a texel per Donut_GetShadingRateTileSize square of pixels).
     // Returns null on failure.
-    void* Donut_CreateFramebufferWithShadingRate(App* app, void* colorTexture0, void* colorTexture1, void* depthTexture,
-        void* shadingRateSurface)
+    void* Donut_CreateFramebufferWithShadingRate(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture,
+        nvrhi::ITexture* shadingRateSurface)
     {
-        auto desc = nvrhi::FramebufferDesc().addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture0));
+        auto desc = nvrhi::FramebufferDesc().addColorAttachment(colorTexture0);
         if (colorTexture1)
-            desc.addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture1));
+            desc.addColorAttachment(colorTexture1);
         if (depthTexture)
-            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+            desc.setDepthAttachment(depthTexture);
         if (shadingRateSurface)
-            desc.setShadingRateAttachment(static_cast<nvrhi::ITexture*>(shadingRateSurface));
+            desc.setShadingRateAttachment(shadingRateSurface);
 
         App* a = app;
         return a->Own(a->device()->createFramebuffer(desc));
@@ -7671,7 +7671,7 @@ extern "C"
 
     // R8_UINT shading rate surface of width x height tiles, written by compute shaders as
     // RWTexture2D<uint> (D3D12_SHADING_RATE values). Returns null on failure.
-    void* Donut_CreateShadingRateSurface(App* app, int width, int height)
+    nvrhi::ITexture* Donut_CreateShadingRateSurface(App* app, int width, int height)
     {
         nvrhi::TextureDesc desc;
         desc.debugName = "ShadingRateTexture";
@@ -7702,7 +7702,7 @@ extern "C"
     // surface to D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE and binds it, with every combiner at
     // MAX and a 1x1 per-draw rate. Use it instead of Donut_SetTemporalTargetsShadingRateSurface
     // and Donut_SetViewVariableRateShading, and pair it with Donut_EndD3D12ShadingRateImage.
-    void Donut_BeginD3D12ShadingRateImage(FrameContext* frame, void* shadingRateSurface)
+    void Donut_BeginD3D12ShadingRateImage(FrameContext* frame, nvrhi::ITexture* shadingRateSurface)
     {
 #if DONUT_WITH_DX12
         ID3D12GraphicsCommandList* d3dCommandList = frame->commandList->getNativeObject(
@@ -7710,7 +7710,7 @@ extern "C"
         ID3D12GraphicsCommandList5* vrsCommandList = nullptr;
         if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&vrsCommandList))))
             return;
-        ID3D12Resource* vrsResource = static_cast<nvrhi::ITexture*>(shadingRateSurface)->getNativeObject(
+        ID3D12Resource* vrsResource = shadingRateSurface->getNativeObject(
             nvrhi::ObjectTypes::D3D12_Resource);
 
         D3D12_RESOURCE_BARRIER barrier = {};
@@ -7731,7 +7731,7 @@ extern "C"
     }
 
     // Undoes Donut_BeginD3D12ShadingRateImage: full rate, no surface, surface back to UAV state.
-    void Donut_EndD3D12ShadingRateImage(FrameContext* frame, void* shadingRateSurface)
+    void Donut_EndD3D12ShadingRateImage(FrameContext* frame, nvrhi::ITexture* shadingRateSurface)
     {
 #if DONUT_WITH_DX12
         ID3D12GraphicsCommandList* d3dCommandList = frame->commandList->getNativeObject(
@@ -7739,7 +7739,7 @@ extern "C"
         ID3D12GraphicsCommandList5* vrsCommandList = nullptr;
         if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&vrsCommandList))))
             return;
-        ID3D12Resource* vrsResource = static_cast<nvrhi::ITexture*>(shadingRateSurface)->getNativeObject(
+        ID3D12Resource* vrsResource = shadingRateSurface->getNativeObject(
             nvrhi::ObjectTypes::D3D12_Resource);
 
         D3D12_RESOURCE_BARRIER barrier = {};
@@ -8404,7 +8404,7 @@ extern "C"
     };
 
     // Valid as long as the targets.
-    void* Donut_GetSceneRenderTargetsTexture(void* sceneRenderTargets, int which)
+    nvrhi::ITexture* Donut_GetSceneRenderTargetsTexture(void* sceneRenderTargets, int which)
     {
         auto* targets = AsSceneRenderTargets(sceneRenderTargets);
         switch (which)
@@ -8447,17 +8447,17 @@ extern "C"
     }
 
     // Resolves mip 0 / slice 0 of a multisampled texture into a single-sample one.
-    void Donut_ResolveTexture(nvrhi::ICommandList* commandList, void* dstTexture, void* srcTexture)
+    void Donut_ResolveTexture(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, nvrhi::ITexture* srcTexture)
     {
         const auto subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-        commandList->resolveTexture(static_cast<nvrhi::ITexture*>(dstTexture), subresources,
-            static_cast<nvrhi::ITexture*>(srcTexture), subresources);
+        commandList->resolveTexture(dstTexture, subresources,
+            srcTexture, subresources);
     }
 
     // Clears all of an integer texture to value.
-    void Donut_ClearTextureUInt(nvrhi::ICommandList* commandList, void* texture, int value)
+    void Donut_ClearTextureUInt(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int value)
     {
-        commandList->clearTextureUInt(static_cast<nvrhi::ITexture*>(texture), nvrhi::AllSubresources,
+        commandList->clearTextureUInt(texture, nvrhi::AllSubresources,
             static_cast<uint32_t>(value));
     }
 
@@ -8568,7 +8568,7 @@ extern "C"
     // width x height with sampleCount samples (a Texture2DMS when more than 1), that shaders can
     // also read (Texture2DMS<...> there) and that can be resolved; resting at ShaderResource.
     // Returns null on failure.
-    void* Donut_CreateMultisampledTexture(App* app, int width, int height, int format, int sampleCount,
+    nvrhi::ITexture* Donut_CreateMultisampledTexture(App* app, int width, int height, int format, int sampleCount,
         double clearDepth, const char* debugName)
     {
         const auto textureFormat = static_cast<nvrhi::Format>(format);
@@ -8598,22 +8598,22 @@ extern "C"
     // Donut_GetDepthResolveModes) where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI
     // ends a render pass at every barrier, so a pass with several may resolve several times, with
     // the same result. Returns null on failure.
-    void* Donut_CreateResolveFramebuffer(App* app, void* colorTexture, void* colorResolveTexture, void* depthTexture,
-        void* depthResolveTexture, int depthResolveMode)
+    void* Donut_CreateResolveFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* colorResolveTexture, nvrhi::ITexture* depthTexture,
+        nvrhi::ITexture* depthResolveTexture, int depthResolveMode)
     {
         auto desc = nvrhi::FramebufferDesc();
         if (colorTexture)
         {
-            desc.addColorAttachment(static_cast<nvrhi::ITexture*>(colorTexture));
+            desc.addColorAttachment(colorTexture);
             if (colorResolveTexture)
-                desc.addColorResolveAttachment(static_cast<nvrhi::ITexture*>(colorResolveTexture));
+                desc.addColorResolveAttachment(colorResolveTexture);
         }
         if (depthTexture)
         {
-            desc.setDepthAttachment(static_cast<nvrhi::ITexture*>(depthTexture));
+            desc.setDepthAttachment(depthTexture);
             if (depthResolveTexture)
             {
-                desc.setDepthResolveAttachment(static_cast<nvrhi::ITexture*>(depthResolveTexture),
+                desc.setDepthResolveAttachment(depthResolveTexture,
                     static_cast<nvrhi::ResolveMode>(depthResolveMode));
             }
         }
@@ -8629,7 +8629,7 @@ extern "C"
         return static_cast<int>(app->deviceManager->GetBackBufferCount());
     }
 
-    void* Donut_GetBackBuffer(App* app, int index)
+    nvrhi::ITexture* Donut_GetBackBuffer(App* app, int index)
     {
         return app->deviceManager->GetBackBuffer(static_cast<uint32_t>(index));
     }
@@ -8739,7 +8739,7 @@ extern "C"
     }
 
     // The texture, for bindings; valid as long as the shared texture.
-    void* Donut_GetSharedTexture(void* sharedTexture)
+    nvrhi::ITexture* Donut_GetSharedTexture(void* sharedTexture)
     {
         return static_cast<SharedTexture*>(sharedTexture)->texture.Get();
     }
@@ -8935,7 +8935,7 @@ extern "C"
     }
 
     // The depth texture, one array slice per cascade (one for a planar shadow map).
-    void* Donut_GetShadowMapTexture(void* shadowMapTarget)
+    nvrhi::ITexture* Donut_GetShadowMapTexture(void* shadowMapTarget)
     {
         return static_cast<ShadowMapTarget*>(shadowMapTarget)->shadowMap()->GetTexture();
     }
@@ -9165,12 +9165,12 @@ extern "C"
     // Donut's environment map background: a lat-long (2D) or cube map texture drawn where the
     // framebuffer's depth is still clear. The view must be set up first (its depth direction picks
     // the pipeline).
-    void* Donut_CreateEnvironmentMapPass(App* app, void* framebuffer, void* view, void* environmentMap)
+    void* Donut_CreateEnvironmentMapPass(App* app, void* framebuffer, void* view, nvrhi::ITexture* environmentMap)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::EnvironmentMapPass>(a->device(), a->shaderFactory,
             a->sharedCommonPasses(), AsFramebufferFactory(framebuffer), *AsView(view),
-            static_cast<nvrhi::ITexture*>(environmentMap)));
+            environmentMap));
     }
 
     void Donut_RenderEnvironmentMap(nvrhi::ICommandList* commandList, void* environmentMapPass, void* view)
@@ -9277,7 +9277,7 @@ extern "C"
     // to this frame's at once (eye adaptation speeds 0, as Donut's feature demo does right after
     // Donut_ResetExposure); otherwise it adapts at the default speeds over the frame time of
     // Donut_AdvanceToneMappingFrame, and stays as it is while that is 0 (never advanced).
-    void Donut_RenderToneMapping(nvrhi::ICommandList* commandList, void* toneMappingPass, void* view, void* sourceTexture, int instantAdaptation)
+    void Donut_RenderToneMapping(nvrhi::ICommandList* commandList, void* toneMappingPass, void* view, nvrhi::ITexture* sourceTexture, int instantAdaptation)
     {
         donut::render::ToneMappingParameters params;
         if (instantAdaptation)
@@ -9286,7 +9286,7 @@ extern "C"
             params.eyeAdaptationSpeedDown = 0.f;
         }
         static_cast<donut::render::ToneMappingPass*>(toneMappingPass)->SimpleRender(commandList, params,
-            *AsView(view), static_cast<nvrhi::ITexture*>(sourceTexture));
+            *AsView(view), sourceTexture);
     }
 
     // Donut's bloom, blended into a framebuffer's color.
@@ -9298,11 +9298,11 @@ extern "C"
     }
 
     // Blurs sourceTexture (Gaussian sigma in pixels) and adds it to the framebuffer, weighted by alpha.
-    void Donut_RenderBloom(nvrhi::ICommandList* commandList, void* bloomPass, void* framebuffer, void* view, void* sourceTexture,
+    void Donut_RenderBloom(nvrhi::ICommandList* commandList, void* bloomPass, void* framebuffer, void* view, nvrhi::ITexture* sourceTexture,
         double sigma, double alpha)
     {
         static_cast<donut::render::BloomPass*>(bloomPass)->Render(commandList, AsFramebufferFactory(framebuffer),
-            *AsView(view), static_cast<nvrhi::ITexture*>(sourceTexture), float(sigma), float(alpha));
+            *AsView(view), sourceTexture, float(sigma), float(alpha));
     }
 
     // NVIDIA DLSS, loading nvngx_dlss.dll from the executable's directory (donut_interop.dll's under
@@ -9370,11 +9370,11 @@ extern "C"
 
     // Reads back one pixel of a texture (as RGBA32_UINT): Donut_CapturePixel, execute the command
     // list, then Donut_ReadPixelUInts.
-    void* Donut_CreatePixelReadbackPass(App* app, void* texture)
+    void* Donut_CreatePixelReadbackPass(App* app, nvrhi::ITexture* texture)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::PixelReadbackPass>(a->device(), a->shaderFactory,
-            static_cast<nvrhi::ITexture*>(texture), nvrhi::Format::RGBA32_UINT));
+            texture, nvrhi::Format::RGBA32_UINT));
     }
 
     void Donut_CapturePixel(nvrhi::ICommandList* commandList, void* pixelReadbackPass, int x, int y)
@@ -9391,11 +9391,11 @@ extern "C"
     }
 
     // Donut's mip generation (compute) for a color texture with mips.
-    void* Donut_CreateMipMapGenPass(App* app, void* texture)
+    void* Donut_CreateMipMapGenPass(App* app, nvrhi::ITexture* texture)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::MipMapGenPass>(a->device(), a->shaderFactory,
-            static_cast<nvrhi::ITexture*>(texture), donut::render::MipMapGenPass::MODE_COLOR));
+            texture, donut::render::MipMapGenPass::MODE_COLOR));
     }
 
     void Donut_DispatchMipMapGen(nvrhi::ICommandList* commandList, void* mipMapGenPass)
@@ -9742,16 +9742,16 @@ extern "C"
 
     // Copies a texture over the whole framebuffer, stretched, with Donut's CommonRenderPasses.
     // Call Donut_ClearBindingCache when textures blitted before are released.
-    void Donut_BlitTexture(App* app, FrameContext* frame, void* texture)
+    void Donut_BlitTexture(App* app, FrameContext* frame, nvrhi::ITexture* texture)
     {
         App* a = app;
         FrameContext* ctx = frame;
         a->commonPasses()->BlitTexture(ctx->commandList, ctx->framebuffer,
-            static_cast<nvrhi::ITexture*>(texture), a->bindingCache());
+            texture, a->bindingCache());
     }
 
     // Copies one array slice of a texture, stretched, into a rectangle of the framebuffer (pixels).
-    void Donut_BlitTextureSlice(App* app, FrameContext* frame, void* texture, int arraySlice,
+    void Donut_BlitTextureSlice(App* app, FrameContext* frame, nvrhi::ITexture* texture, int arraySlice,
         double left, double top, double width, double height)
     {
         App* a = app;
@@ -9760,7 +9760,7 @@ extern "C"
         donut::engine::BlitParameters params;
         params.targetFramebuffer = ctx->framebuffer;
         params.targetViewport = nvrhi::Viewport(float(left), float(left + width), float(top), float(top + height), 0.f, 1.f);
-        params.sourceTexture = static_cast<nvrhi::ITexture*>(texture);
+        params.sourceTexture = texture;
         params.sourceArraySlice = static_cast<uint32_t>(arraySlice);
         a->commonPasses()->BlitTexture(ctx->commandList, params, a->bindingCache());
     }
@@ -10155,10 +10155,10 @@ extern "C"
 
     // A barrier between the draws or dispatches before and after that write and read a UAV
     // texture: NVRHI only places one where the texture is bound anew.
-    void Donut_UavBarrier(nvrhi::ICommandList* commandList, void* texture)
+    void Donut_UavBarrier(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture)
     {
         nvrhi::ICommandList* cl = commandList;
-        cl->setTextureState(static_cast<nvrhi::ITexture*>(texture), nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        cl->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         cl->commitBarriers();
     }
 
@@ -10578,11 +10578,11 @@ extern "C"
 
     // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into
     // the back buffer, without conversion.
-    void Donut_CopyTextureToFrame(FrameContext* frame, void* texture)
+    void Donut_CopyTextureToFrame(FrameContext* frame, nvrhi::ITexture* texture)
     {
         FrameContext* ctx = frame;
         ctx->commandList->copyTexture(ctx->framebuffer->getDesc().colorAttachments[0].texture, nvrhi::TextureSlice(),
-            static_cast<nvrhi::ITexture*>(texture), nvrhi::TextureSlice());
+            texture, nvrhi::TextureSlice());
     }
 
     // Same as Donut_DrawIndexed, without an index buffer: vertexCount vertices.

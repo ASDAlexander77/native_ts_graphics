@@ -188,8 +188,8 @@ namespace FragmentShadingRate {
         // depth buffer, a framebuffer per back buffer, and the pipelines made for them.
         private targetWidth: int;
         private targetHeight: int;
-        private shadingRateImage: Opaque;
-        private depth: Opaque;
+        private shadingRateImage: TextureHandle;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private skyspherePipeline: Opaque;
         private cubePipeline: Opaque;

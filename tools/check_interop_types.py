@@ -50,6 +50,10 @@ HANDLES = {
     "nvrhi::IResource": "ResourceHandle",
     "nvrhi::ICommandList": "CommandListHandle",
     "nvrhi::IBuffer": "BufferHandle",
+    "nvrhi::ITexture": "TextureHandle",
+    "nvrhi::IStagingTexture": "StagingTextureHandle",
+    "nvrhi::ISampler": "SamplerHandle",
+    "nvrhi::IHeap": "HeapHandle",
 }
 
 # Parameters declared narrower than their C++ type: (function, parameter) -> (C++ type, TypeScript

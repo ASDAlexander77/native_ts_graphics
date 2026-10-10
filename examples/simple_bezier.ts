@@ -248,7 +248,7 @@ namespace SimpleBezier {
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
         // pipelines ([wireframe][partition mode]) made for them.
-        private depth: Opaque;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private pipelines: Opaque[];
         frameWidth: int;

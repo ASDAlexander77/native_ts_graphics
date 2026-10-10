@@ -181,7 +181,7 @@ namespace GraphicsPipelineLibrary {
         benchmark: boolean;
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size.
-        private depth: Opaque;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private targetWidth: int;
         private targetHeight: int;

@@ -271,7 +271,7 @@ namespace RayTracingReflection {
         private topLevelASBuilt: boolean;
 
         // The storage image (the frame's size) and the binding set with it.
-        private storageImage: Opaque | null;
+        private storageImage: TextureHandle | null;
         private bindingSet: BindingSet;
 
         // Upload buffers.

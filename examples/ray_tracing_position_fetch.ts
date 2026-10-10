@@ -193,7 +193,7 @@ namespace RayTracingPositionFetch {
         private shaderTable: ShaderTable;
         private uniformBuffer: BufferHandle;
         // Created on the first frame (the back buffer's size and channel order), dropped on resize.
-        private storageImage: Opaque | null;
+        private storageImage: TextureHandle | null;
         private bindingSet: BindingSet;
 
         // Upload buffers.
@@ -286,7 +286,7 @@ namespace RayTracingPositionFetch {
             frame.dispatchRays(this.shaderTable, this.bindingSet, width, height);
             // Without conversion, as the sample's copy: the UNORM values become the back buffer's
             // (sRGB) encoded ones.
-            frame.copyTextureToFrame(storageImage as Opaque);
+            frame.copyTextureToFrame(storageImage as TextureHandle);
         }
 
         // The sample's create_bottom_level_acceleration_structure: every mesh's triangles (in mesh

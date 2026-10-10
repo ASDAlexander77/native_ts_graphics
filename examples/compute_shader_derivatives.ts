@@ -23,14 +23,14 @@ namespace ComputeShaderDerivatives {
 
         private computePipeline: Opaque;
         private computeBindingSet: BindingSet;
-        private image: Opaque;
+        private image: TextureHandle;
         private fullscreenVS: Opaque;
         private fullscreenPS: Opaque;
         private graphicsBindingLayout: Opaque;
         private graphicsBindingSet: BindingSet;
 
         // The back buffer's size: color (sRGB, as the sample's swapchain).
-        private colorBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private graphicsPipeline: Opaque | null;
 
@@ -47,7 +47,7 @@ namespace ComputeShaderDerivatives {
         }
 
         releaseTargets(): void {
-            const resources: ResourceHandle[] = [this.graphicsPipeline, this.framebuffer, this.colorBuffer];
+            const resources: (ResourceHandle | null)[] = [this.graphicsPipeline, this.framebuffer, this.colorBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {

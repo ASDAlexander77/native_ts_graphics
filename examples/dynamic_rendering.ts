@@ -184,7 +184,7 @@ namespace DynamicRendering {
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
         // pipelines made for them: the skybox's and the object's.
-        private depth: Opaque;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private targetWidth: int;
         private targetHeight: int;

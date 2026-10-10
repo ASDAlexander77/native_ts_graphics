@@ -143,7 +143,7 @@ namespace ProceduralGeometry {
         private materialBuffer: BufferHandle;
         private aabbConstantBuffer: BufferHandle;
         // Created on the first frame (it has the frame's size), dropped on resize.
-        private storageImage: Opaque | null;
+        private storageImage: TextureHandle | null;
         private bindingSet: BindingSet;
         private timerQuery: Opaque;
         private timerQueryInFlight: boolean;

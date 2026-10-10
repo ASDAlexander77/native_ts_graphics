@@ -207,9 +207,9 @@ namespace DynamicMultisampleRasterization {
         private drawPush: f32[];
 
         // The targets and pipelines, for builtSampleCount (0: none yet) and the back buffers' size.
-        private resources: Opaque[];
-        private msColor: Opaque;
-        private depth: Opaque;
+        private resources: ResourceHandle[];
+        private msColor: TextureHandle;
+        private depth: TextureHandle;
         private framebuffers: Opaque[];
         private pipelines: Opaque[];
         private builtSampleCount: int;
@@ -276,7 +276,7 @@ namespace DynamicMultisampleRasterization {
             this.builtSampleCount = 0;
         }
 
-        own(resource: Opaque): Opaque {
+        own<T extends ResourceHandle>(resource: T): T {
             this.resources.push(resource);
             return resource;
         }
@@ -299,15 +299,15 @@ namespace DynamicMultisampleRasterization {
             const count = this.app.getBackBufferCount();
             if (!msaa) {
                 for (let i = 0; i < count; i++) {
-                    this.framebuffers.push(this.own(this.app.createFramebuffer(this.app.getBackBuffer(i), this.depth)));
+                    this.framebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(this.app.getBackBuffer(i), this.depth)));
                 }
             } else if (this.renderPassResolve) {
                 for (let i = 0; i < count; i++) {
-                    this.framebuffers.push(this.own(this.app.createResolveFramebuffer(this.msColor, this.app.getBackBuffer(i),
+                    this.framebuffers.push(this.own<ResourceHandle>(this.app.createResolveFramebuffer(this.msColor, this.app.getBackBuffer(i),
                         this.depth, null, ResolveMode.None)));
                 }
             } else {
-                this.framebuffers.push(this.own(this.app.createFramebuffer(this.msColor, this.depth)));
+                this.framebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(this.msColor, this.depth)));
             }
 
             for (let group = 0; group < 4; group++) {
@@ -321,7 +321,7 @@ namespace DynamicMultisampleRasterization {
                     desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                         BlendFactor.InvSrcAlpha, BlendFactor.Zero, BlendOp.Add);
                 }
-                this.pipelines.push(this.own(this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0])));
+                this.pipelines.push(this.own<ResourceHandle>(this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0])));
             }
             this.builtSampleCount = this.sampleCount;
             this.builtWidth = width;
@@ -393,7 +393,7 @@ namespace DynamicMultisampleRasterization {
                 console.log(`${SCENE_PATH} has more than ${MAX_TEXTURES} textures`);
                 return false;
             }
-            let lastTexture: Opaque | null = null;
+            let lastTexture: TextureHandle | null = null;
             for (let t = 0; t < textureCount; t++) {
                 const image = scene.getTextureImage(t);
                 const dot = image.lastIndexOf(".");

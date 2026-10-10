@@ -178,11 +178,11 @@ namespace Msaa {
         // The targets, made for the settings: the color (multisampled, or the single-sampled
         // texture the post-processing reads), the depth (multisampled with MSAA), the single-sampled
         // color and depth that the multisampled ones resolve into for the post-processing.
-        private resources: Opaque[];
-        private msColor: Opaque;
-        private depth: Opaque;
-        private resolvedColor: Opaque;
-        private resolvedDepth: Opaque;
+        private resources: ResourceHandle[];
+        private msColor: TextureHandle;
+        private depth: TextureHandle;
+        private resolvedColor: TextureHandle;
+        private resolvedDepth: TextureHandle;
         // Whether the scene renders into the back buffer (one framebuffer per back buffer) rather
         // than into textures (one framebuffer).
         private sceneToBackBuffer: boolean;
@@ -208,11 +208,11 @@ namespace Msaa {
         private postBindingLayout: Opaque;
         private sceneConstantBuffer: BufferHandle;
         private postConstantBuffer: BufferHandle;
-        private linearClamp: Opaque;
+        private linearClamp: SamplerHandle;
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
         // The scene's base color textures.
-        private textures: Opaque[];
+        private textures: TextureHandle[];
         // Created on the first frame (the back buffer's layout), dropped on resize: the outline
         // effect reading single-sampled and multisampled depth.
         private postPipelinesCreated: boolean;
@@ -338,7 +338,7 @@ namespace Msaa {
             this.builtSampleCount = 0;
         }
 
-        own(resource: Opaque): Opaque {
+        own<T extends ResourceHandle>(resource: T): T {
             this.resources.push(resource);
             return resource;
         }
@@ -381,22 +381,22 @@ namespace Msaa {
                 for (let i = 0; i < count; i++) {
                     const backBuffer = this.app.getBackBuffer(i);
                     if (msaa) {
-                        this.sceneFramebuffers.push(this.own(this.app.createResolveFramebuffer(this.msColor, backBuffer, this.depth,
+                        this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createResolveFramebuffer(this.msColor, backBuffer, this.depth,
                             null, ResolveMode.None)));
                     } else {
-                        this.sceneFramebuffers.push(this.own(this.app.createFramebuffer(backBuffer, this.depth)));
+                        this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(backBuffer, this.depth)));
                     }
                 }
             } else if (!msaa) {
-                this.sceneFramebuffers.push(this.own(this.app.createFramebuffer(this.resolvedColor, this.depth)));
+                this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(this.resolvedColor, this.depth)));
             } else if (this.writebackColorResolve || writebackDepthResolve) {
                 // Into the resolved color with post-processing (or separately), and the resolved depth.
                 const colorResolve = this.writebackColorResolve ? this.resolvedColor : null;
                 const depthResolve = writebackDepthResolve ? this.resolvedDepth : null;
-                this.sceneFramebuffers.push(this.own(this.app.createResolveFramebuffer(this.msColor, colorResolve, this.depth,
+                this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createResolveFramebuffer(this.msColor, colorResolve, this.depth,
                     depthResolve, writebackDepthResolve ? this.depthResolveMode : ResolveMode.None)));
             } else {
-                this.sceneFramebuffers.push(this.own(this.app.createFramebuffer(this.msColor, this.depth)));
+                this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(this.msColor, this.depth)));
             }
 
             // The framework's geometry pipeline state: reversed depth (greater), back faces culled,
@@ -411,7 +411,7 @@ namespace Msaa {
                 if (variant == 2) {
                     desc.setBlendMode(BlendMode.AlphaBlend);
                 }
-                const pipeline = this.own(this.app.createGraphicsPipelineFromDesc(desc, this.sceneFramebuffers[0]));
+                const pipeline = this.own<ResourceHandle>(this.app.createGraphicsPipelineFromDesc(desc, this.sceneFramebuffers[0]));
                 if (variant == 0) {
                     this.scenePipeline = pipeline;
                 } else if (variant == 1) {
@@ -429,7 +429,7 @@ namespace Msaa {
                 setDesc.bindTextureSRV(1, this.resolvedDepth);
                 setDesc.bindSampler(0, this.linearClamp);
                 this.postBindingSet = this.app.createBindingSetForLayout(setDesc, this.postBindingLayout);
-                this.own(this.postBindingSet.handle);
+                this.own<ResourceHandle>(this.postBindingSet.handle);
             }
 
             this.builtSampleCount = this.sampleCount;
@@ -615,7 +615,7 @@ namespace Msaa {
 
         // The scene's base color textures and its draws: every node's primitives, their vertices and
         // indices in one vertex and one index buffer, recorded into an open command list.
-        loadScene(commandList: CommandList, linearWrap: Opaque): boolean {
+        loadScene(commandList: CommandList, linearWrap: SamplerHandle): boolean {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;

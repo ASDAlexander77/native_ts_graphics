@@ -279,7 +279,7 @@ namespace ShaderObjectSample {
         private sceneLayout: Opaque;
         private sceneBindingSet: BindingSet;
         private postLayout: Opaque;
-        private postSampler: Opaque;
+        private postSampler: SamplerHandle;
         private uniformBuffer: BufferHandle;
 
         private torus: GltfMesh;
@@ -298,10 +298,10 @@ namespace ShaderObjectSample {
         // For the back buffers' size: an output image per output format, a depth image per depth
         // format, a framebuffer per pair (output * depth count + depth), the post-processing image,
         // its framebuffer, and its binding sets (one per output image read).
-        private outputImages: Opaque[];
-        private depthImages: Opaque[];
+        private outputImages: TextureHandle[];
+        private depthImages: TextureHandle[];
         private framebuffers: Opaque[];
-        private postImage: Opaque;
+        private postImage: TextureHandle;
         private postFramebuffer: Opaque;
         private postBindingSets: BindingSet[];
         private targetWidth: int;

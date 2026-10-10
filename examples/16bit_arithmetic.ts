@@ -101,14 +101,14 @@ namespace Khr16BitArithmetic {
         private computeBindingSet: BindingSet;
         private computeBindingSetFP16: BindingSet;
         private blobBuffer: BufferHandle;
-        private image: Opaque;
+        private image: TextureHandle;
         private visualizeVS: Opaque;
         private visualizePS: Opaque;
         private visualizeBindingLayout: Opaque;
         private visualizeBindingSet: BindingSet;
 
         // The back buffer's size: color (sRGB, as the sample's swapchain).
-        private colorBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private visualizePipeline: Opaque | null;
 
@@ -144,7 +144,7 @@ namespace Khr16BitArithmetic {
         }
 
         releaseTargets(): void {
-            const resources: ResourceHandle[] = [this.visualizePipeline, this.framebuffer, this.colorBuffer];
+            const resources: (ResourceHandle | null)[] = [this.visualizePipeline, this.framebuffer, this.colorBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {

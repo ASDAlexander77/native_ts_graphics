@@ -277,8 +277,8 @@ namespace GshaderToMshader {
         private meshletCount: int;
 
         // The back buffer's size; created on the first frame and after a resize.
-        private colorBuffer: Opaque | null;
-        private depthBuffer: Opaque | null;
+        private colorBuffer: TextureHandle | null;
+        private depthBuffer: TextureHandle | null;
         private framebuffer: Opaque | null;
         private modelPipeline: Opaque | null;
         private geometryPipeline: Opaque | null;
@@ -352,7 +352,7 @@ namespace GshaderToMshader {
         }
 
         releaseTargets(): void {
-            const resources: ResourceHandle[] = [this.modelPipeline, this.geometryPipeline, this.meshPipeline,
+            const resources: (ResourceHandle | null)[] = [this.modelPipeline, this.geometryPipeline, this.meshPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
