@@ -561,6 +561,31 @@ function(add_tslang_example name)
     endif()
 endfunction()
 
+# Headless run tests, run by ctest: add_tslang_example_test(<name> [APIS <api>...] [ARGS <arg>...])
+# runs <name> with -test (its test mode: a headless device, a fixed number of frames at a fixed
+# time step, checks of what it rendered, read back) and -debug on each API (dx12 and vk unless
+# APIS names others), as the tests <name>.<api>, labeled <api>. A test fails on a non-zero exit
+# code, or an error line from Donut, NVRHI's validation or the API's (D3D12's, Vulkan's) layer.
+enable_testing()
+function(add_tslang_example_test name)
+    cmake_parse_arguments(PARSE_ARGV 1 TEST "" "" "APIS;ARGS")
+    if (ANDROID)
+        return()
+    endif()
+    if (NOT TEST_APIS)
+        set(TEST_APIS dx12 vk)
+    endif()
+    foreach(api ${TEST_APIS})
+        add_test(NAME ${name}.${api}
+            COMMAND ${name} -${api} -debug -test ${TEST_ARGS}
+            WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+        set_tests_properties(${name}.${api} PROPERTIES
+            FAIL_REGULAR_EXPRESSION "ERROR|Validation Error|D3D12 ERROR|D3D12 CORRUPTION"
+            LABELS ${api}
+            TIMEOUT 300)
+    endforeach()
+endfunction()
+
 include(external/Donut/compileshaders.cmake)
 
 # Port of Donut-Samples' basic_triangle.
@@ -604,6 +629,12 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/headless
 )
 add_tslang_example(headless)
+if (NOT ANDROID)
+    foreach(api dx12 vk)
+        add_test(NAME headless.${api} COMMAND headless -${api} -debug WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+        set_tests_properties(headless.${api} PROPERTIES PASS_REGULAR_EXPRESSION "Test PASSED" LABELS ${api} TIMEOUT 120)
+    endforeach()
+endif()
 
 # Port of Donut-Samples' rt_triangle. Ray tracing needs D3D12 or Vulkan, so no DXBC.
 donut_compile_shaders(
@@ -2501,6 +2532,23 @@ foreach(level RANGE 1 12)
     list(APPEND omm_media "${omm_dir}/treeOMM_SubD${level}_2State.bin" "${omm_dir}/treeOMM_SubD${level}_4State.bin")
 endforeach()
 add_dxgs_media(opacity_micromaps opacity_micromaps ${omm_media})
+
+# Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletRender: the Stanford dragon drawn by a
+# mesh shader alone (a group per meshlet, no vertex or index buffers bound), each meshlet in a color
+# of its own. Its model is the sample's meshlet file (core/meshlet_model.cpp reads it), from
+# DIRECTX_GRAPHICS_SAMPLES_DIR. Mesh shaders need D3D12 or Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET meshlet_render_shaders
+    PROJECT_NAME "Meshlet Render"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet_render.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet_render.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_render/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_render/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+add_tslang_example(meshlet_render core/directx_math.ts core/meshlet_model.cpp MEDIA meshlet_render)
+add_dxgs_media(meshlet_render meshlet_render Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD0.bin)
+add_tslang_example_test(meshlet_render)
 
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,

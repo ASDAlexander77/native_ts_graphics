@@ -1,7 +1,7 @@
 # Native TypeScript Graphics: DirectX 12 and Vulkan samples in TypeScript
 
 **Real-time 3D graphics, ray tracing, mesh shaders and GPU compute written in TypeScript and
-compiled to native code.** 89 graphics samples for **D3D12 and Vulkan** (and Vulkan on
+compiled to native code.** 90 graphics samples for **D3D12 and Vulkan** (and Vulkan on
 **Android**), built with [tslang](https://github.com/ASDAlexander77/TypeScriptCompiler), a native
 TypeScript compiler (LLVM), on top of NVIDIA's [Donut](https://github.com/NVIDIA-RTX/Donut)
 rendering framework and [NVRHI](https://github.com/NVIDIA-RTX/NVRHI).
@@ -34,7 +34,7 @@ Microsoft.
 - [How the TypeScript build works](#how-the-typescript-build-works)
 - [Memory model](#memory-model)
 - [Android](#android)
-- [Screenshots and smoke tests](#screenshots-and-smoke-tests)
+- [Tests](#tests)
 - [Credits](#credits)
 
 ## Quick start
@@ -115,6 +115,7 @@ Ported from [Microsoft DirectX-Graphics-Samples](https://github.com/microsoft/Di
 <table>
 <tr><td valign="top" width="33%"><a href="examples/procedural_geometry.ts"><img src="docs/screenshots/procedural_geometry.jpg" alt="Raytracing Procedural Geometry (TypeScript, DirectX 12 / Vulkan). Analytic shapes, metaballs, SDFs and a fractal intersected by intersection shaders" width="270"></a><br><a href="examples/procedural_geometry.ts"><b>Raytracing Procedural Geometry</b></a><br><sub>Analytic shapes, metaballs, SDFs and a fractal intersected by intersection shaders.</sub></td><td valign="top" width="33%"><a href="examples/opacity_micromaps.ts"><img src="docs/screenshots/opacity_micromaps.jpg" alt="Raytracing Opacity Micromaps (TypeScript, DirectX 12 / Vulkan). An alpha-tested tree whose leaves skip the any-hit shader thanks to opacity micromaps (DXR 1.2)" width="270"></a><br><a href="examples/opacity_micromaps.ts"><b>Raytracing Opacity Micromaps</b></a><br><sub>An alpha-tested tree whose leaves skip the any-hit shader thanks to opacity micromaps (DXR 1.2).</sub></td><td valign="top" width="33%"><a href="examples/wave_intrinsics.ts"><img src="docs/screenshots/wave_intrinsics.jpg" alt="SM6 Wave Intrinsics (TypeScript, DirectX 12 / Vulkan). Wave intrinsics visualized per pixel: lane indices, reductions, prefix sums, quad shuffles" width="270"></a><br><a href="examples/wave_intrinsics.ts"><b>SM6 Wave Intrinsics</b></a><br><sub>Wave intrinsics visualized per pixel: lane indices, reductions, prefix sums, quad shuffles.</sub></td></tr>
 <tr><td valign="top" width="33%"><a href="examples/depth_bounds_test.ts"><img src="docs/screenshots/depth_bounds_test.jpg" alt="Depth Bounds Test (TypeScript, DirectX 12 / Vulkan). A triangle clipped by an animated depth bounds test" width="270"></a><br><a href="examples/depth_bounds_test.ts"><b>Depth Bounds Test</b></a><br><sub>A triangle clipped by an animated depth bounds test.</sub></td><td valign="top" width="33%"><a href="examples/predication_queries.ts"><img src="docs/screenshots/predication_queries.jpg" alt="Predication Queries (TypeScript, DirectX 12 / Vulkan). A quad drawn only if last frame's occlusion query saw it" width="270"></a><br><a href="examples/predication_queries.ts"><b>Predication Queries</b></a><br><sub>A quad drawn only if last frame's occlusion query saw it.</sub></td><td valign="top" width="33%"><a href="examples/small_resources.ts"><img src="docs/screenshots/small_resources.jpg" alt="Small Resources (TypeScript, DirectX 12 / Vulkan). 77 small textures placed at 4 KB alignment vs committed at 64 KB" width="270"></a><br><a href="examples/small_resources.ts"><b>Small Resources</b></a><br><sub>77 small textures placed at 4 KB alignment vs committed at 64 KB.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/meshlet_render.ts"><img src="docs/screenshots/meshlet_render.jpg" alt="Meshlet Render (TypeScript, DirectX 12 / Vulkan). The Stanford dragon drawn by a mesh shader alone, each meshlet in its own color" width="270"></a><br><a href="examples/meshlet_render.ts"><b>Meshlet Render</b></a><br><sub>The Stanford dragon drawn by a mesh shader alone, each meshlet in its own color.</sub></td></tr>
 </table>
 
 ### Xbox ATG Samples ports
@@ -153,7 +154,7 @@ build time:
 | `DONUT_SAMPLES_MEDIA_DIR` | Donut-Samples `media` folder (glTF-Sample-Assets, fonts) | Sponza scenes, `feature_demo`, the ATG ports' text |
 | `VULKAN_SAMPLES_ASSETS_DIR` | Khronos Vulkan-Samples `assets` folder | most Vulkan-Samples ports |
 | `XBOX_ATG_SAMPLES_DIR` | Xbox-ATG-Samples checkout | `fast_block_compress`, `bokeh`, `raytracing_ao`, `simple_pbr`, `mouse_cursor`, `video_texture` |
-| `DIRECTX_GRAPHICS_SAMPLES_DIR` | DirectX-Graphics-Samples checkout | `opacity_micromaps` |
+| `DIRECTX_GRAPHICS_SAMPLES_DIR` | DirectX-Graphics-Samples checkout | `opacity_micromaps`, `meshlet_render` |
 
 ```
 cmake --preset default -DVULKAN_SAMPLES_ASSETS_DIR=E:/Vulkan-Samples/assets
@@ -345,7 +346,23 @@ It prints `Test PASSED`. A native crash shows in logcat under `DEBUG`; the APKs 
 library, and the build folder's `android/<example>/lib<example>.so` keeps the symbols for
 `ndk-stack -sym build-android-x86_64/android/<example>`.
 
-## Screenshots and smoke tests
+## Tests
+
+Examples with a test mode run headless under CTest, on D3D12 and Vulkan with the debug layers:
+
+```
+ctest --test-dir build
+ctest --test-dir build -R meshlet_render -L vk --output-on-failure
+```
+
+`<example> -test` creates the device without a window, renders a fixed number of frames at a fixed
+time step into offscreen back buffers, reads the last one back and checks it (the clear color where
+nothing is drawn, where the geometry lands, what it is shaded with), printing `Test PASSED` or
+`Test FAILED: <why>`; `-testOutput <file.png>` also saves that frame. A test fails on a non-zero
+exit code or an error line from Donut, NVRHI or the API's validation layer. `headless` is a test
+too.
+
+The other examples are covered by a smoke test, and the gallery has its own script:
 
 ```
 pwsh -File tools/smoke_examples.ps1 [-Examples basic_triangle,compute_nbody] [-Apis dx12,vk]

@@ -68,9 +68,33 @@ export class App {
         return new App(Donut_CreateHeadlessAppWithOptions(api, adapterIndex, options));
     }
 
-    // Blocks until the window is closed.
+    // Blocks until the window is closed; in test mode renders the test's frames and returns.
     run(): void {
         Donut_RunApp(this.handle);
+    }
+
+    // Saves the current back buffer (in test mode after Donut_RunApp, the last frame's) as an image file,
+    // its format from the extension (.png, .bmp, .tga, .jpg). Not in a render callback.
+    saveBackBufferToFile(path: string): int {
+        return Donut_SaveBackBufferToFile(this.handle, path);
+    }
+
+    // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
+    // with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst (pixelCount
+    // ints; Ref of a `let` int array element). 0 on failure or for back buffers not 8-bit RGBA / BGRA.
+    readBackBufferRGBA8(dst: Opaque, pixelCount: int): int {
+        return Donut_ReadBackBufferRGBA8(this.handle, dst, pixelCount);
+    }
+
+    // Ends a test after Donut_RunApp: saves the last frame to -testOutput's file if given, prints "Test
+    // PASSED" if failure is "", else "Test FAILED: <failure>"; returns the exit code (0, 1).
+    finishTest(failure: string): int {
+        return Donut_FinishTest(this.handle, failure);
+    }
+
+    // Non-zero for an app created in test mode.
+    isTestMode(): int {
+        return Donut_IsTestMode(this.handle);
     }
 
     // Destroys the app with all its passes and resources.
@@ -575,6 +599,12 @@ export class App {
     // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
     createDynamicVertexBuffer(byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateDynamicVertexBuffer(this.handle, byteSize, debugName);
+    }
+
+    // A static buffer of byteSize bytes of data for shaders to read: a StructuredBuffer of
+    // structStride-byte elements if structStride > 0, else a ByteAddressBuffer. Null on failure.
+    createStaticShaderBuffer(commandList: CommandList, data: Opaque, byteSize: int, structStride: int, debugName: string): BufferHandle {
+        return Donut_CreateStaticShaderBuffer(this.handle, commandList.handle, data, byteSize, structStride, debugName);
     }
 
     createStaticIndexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
@@ -1762,6 +1792,11 @@ export class Frame {
 
     drawMeshTasks(groupsX: int): void {
         Donut_DrawMeshTasks(this.handle, groupsX);
+    }
+
+    // Same, with byteSize bytes of push constants from data (the binding set's push constants slot).
+    drawMeshTasksWithPushConstants(groupsX: int, data: Opaque, byteSize: int): void {
+        Donut_DrawMeshTasksWithPushConstants(this.handle, groupsX, data, byteSize);
     }
 
     // Same, groupsX x groupsY groups.

@@ -36,6 +36,7 @@
 #include <donut/engine/ShaderFactory.h>
 #include <donut/engine/DDSFile.h>
 #include <donut/engine/TextureCache.h>
+#include <stb_image_write.h>
 #include <donut/engine/FramebufferFactory.h>
 #include <donut/engine/Scene.h>
 #include <donut/engine/ThreadPool.h>
@@ -280,6 +281,16 @@ namespace
         int flags = 0;
     };
 
+    // A test mode app's back buffers, in place of a swap chain's.
+    struct OffscreenBackBuffers
+    {
+        std::vector<nvrhi::TextureHandle> textures;
+        std::vector<nvrhi::FramebufferHandle> framebuffers;
+        uint32_t current = 0;
+        int frameCount = 0;
+        double frameSeconds = 0.0;
+    };
+
     struct App
     {
         std::unique_ptr<DeviceManager> deviceManager;
@@ -330,6 +341,9 @@ namespace
         // (Donut_GetMaxLineWidth).
         int lineRasterizationModes = 0;
         float maxLineWidth = 1.f;
+        // The back buffers of an app created in test mode (Donut_SetTestMode): render targets of
+        // a headless device, which Donut_RunApp renders a set number of frames into.
+        std::unique_ptr<OffscreenBackBuffers> offscreen;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -449,6 +463,7 @@ namespace
             m_TextureCache.reset();
             m_CommonPasses.reset();
             shaderFactory.reset();
+            offscreen.reset();
 
             deviceManager->Shutdown();
         }
@@ -506,6 +521,28 @@ namespace
 
     private:
         App* m_App;
+    };
+
+    // Test mode (Donut_SetTestMode): the frames Donut_RunApp renders, 0 for a window, and the
+    // time each frame advances by.
+    int g_TestFrameCount = 0;
+    double g_TestFrameSeconds = 1.0 / 60.0;
+    // The image file -testOutput names (Donut_ParseTestArgs), empty if none.
+    std::string g_TestOutput;
+
+    // The device manager's render passes and frame index: protected members, reached through
+    // pointers to members named from a derived class (as DeviceManagerVKAccess below).
+    struct DeviceManagerAccess : DeviceManager
+    {
+        static std::list<donut::app::IRenderPass*>& RenderPasses(DeviceManager* deviceManager)
+        {
+            return deviceManager->*(&DeviceManagerAccess::m_vRenderPasses);
+        }
+
+        static uint32_t& FrameIndex(DeviceManager* deviceManager)
+        {
+            return deviceManager->*(&DeviceManagerAccess::m_FrameIndex);
+        }
     };
 
     App* MakeApp(std::unique_ptr<DeviceManager> deviceManager, nvrhi::GraphicsAPI api)
@@ -1872,7 +1909,8 @@ extern "C"
         }
 #endif
 
-        if (!deviceManager->CreateWindowDeviceAndSwapChain(params, title))
+        const bool testMode = g_TestFrameCount > 0;
+        if (testMode ? !deviceManager->CreateHeadlessDevice(params) : !deviceManager->CreateWindowDeviceAndSwapChain(params, title))
         {
             donut::log::error("cannot initialize the graphics device");
             return nullptr;
@@ -1910,6 +1948,35 @@ extern "C"
 #endif
 
         App* app = MakeApp(std::move(deviceManager), api);
+        if (testMode)
+        {
+            // The swap chain's: its format (BGRA on Vulkan, as Donut's device manager makes it)
+            // and buffer count, as render targets that can be copied from to read them.
+            nvrhi::Format format = params.swapChainFormat;
+            if (api == nvrhi::GraphicsAPI::VULKAN && format == nvrhi::Format::SRGBA8_UNORM)
+                format = nvrhi::Format::SBGRA8_UNORM;
+            else if (api == nvrhi::GraphicsAPI::VULKAN && format == nvrhi::Format::RGBA8_UNORM)
+                format = nvrhi::Format::BGRA8_UNORM;
+            auto offscreen = std::make_unique<OffscreenBackBuffers>();
+            offscreen->frameCount = g_TestFrameCount;
+            offscreen->frameSeconds = g_TestFrameSeconds;
+            for (uint32_t i = 0; i < params.swapChainBufferCount; i++)
+            {
+                nvrhi::TextureDesc desc;
+                desc.width = params.backBufferWidth;
+                desc.height = params.backBufferHeight;
+                desc.format = format;
+                desc.isRenderTarget = true;
+                desc.initialState = nvrhi::ResourceStates::RenderTarget;
+                desc.keepInitialState = true;
+                desc.debugName = "OffscreenBackBuffer";
+                nvrhi::TextureHandle texture = app->device()->createTexture(desc);
+                offscreen->framebuffers.push_back(app->device()->createFramebuffer(
+                    nvrhi::FramebufferDesc().addColorAttachment(texture)));
+                offscreen->textures.push_back(texture);
+            }
+            app->offscreen = std::move(offscreen);
+        }
         // D3D12 runs pixel shaders in whole quads, helper lanes taking part in quad operations.
         app->shaderQuadControl = api == nvrhi::GraphicsAPI::D3D12;
         // D3D's line algorithms (Donut_GraphicsPipelineSetLineRasterization): quadrilateral lines
@@ -2238,10 +2305,71 @@ extern "C"
         donut::log::SetMinSeverity(static_cast<donut::log::Severity>(severity));
     }
 
-    // Blocks until the window is closed.
+    // Blocks until the window is closed. In test mode, renders the frames Donut_SetTestMode
+    // asked for into the offscreen back buffers instead, each one advancing the time by the same
+    // step (Animate, then Render, of every pass, as the device manager's frames), waits for the
+    // GPU and returns; Donut_GetCurrentBackBufferIndex is then the last frame's back buffer.
     void Donut_RunApp(App* app)
     {
-        app->deviceManager->RunMessageLoop();
+        OffscreenBackBuffers* offscreen = app->offscreen.get();
+        if (!offscreen)
+        {
+            app->deviceManager->RunMessageLoop();
+            return;
+        }
+
+        DeviceManager* deviceManager = app->deviceManager.get();
+        for (int frame = 0; frame < offscreen->frameCount; frame++)
+        {
+            if (frame > 0)
+                offscreen->current = (offscreen->current + 1) % uint32_t(offscreen->textures.size());
+            // Copied: a pass may add or remove passes.
+            const std::list<donut::app::IRenderPass*> passes = DeviceManagerAccess::RenderPasses(deviceManager);
+            for (donut::app::IRenderPass* pass : passes)
+                pass->Animate(float(offscreen->frameSeconds));
+            for (donut::app::IRenderPass* pass : passes)
+                pass->Render(offscreen->framebuffers[offscreen->current]);
+            app->device()->runGarbageCollection();
+            DeviceManagerAccess::FrameIndex(deviceManager)++;
+        }
+        app->device()->waitForIdle();
+        app->device()->runGarbageCollection();
+    }
+
+    // Test mode for the apps created after it: a headless device that Donut_RunApp renders
+    // frameCount frames with, each frameSeconds long, into back buffers that can be read back
+    // (Donut_ReadTextureLevel of Donut_GetBackBuffer); no window, so no input and no title. Also
+    // makes stdout unbuffered.
+    void Donut_SetTestMode(int frameCount, double frameSeconds)
+    {
+        g_TestFrameCount = std::max(frameCount, 0);
+        g_TestFrameSeconds = frameSeconds;
+        // What a test prints reaches its log even if it then crashes.
+        setvbuf(stdout, nullptr, _IONBF, 0);
+    }
+
+    // The examples' test options in main's argv: -test renders frameCount frames, frameSeconds each,
+    // without a window (Donut_SetTestMode, for the app created next); -testOutput <file> names an
+    // image file for the last one (Donut_FinishTest). Non-zero if -test is given.
+    int Donut_ParseTestArgs(int argc, const char* const* argv, int frameCount, double frameSeconds)
+    {
+        bool test = false;
+        for (int i = 1; i < argc; i++)
+        {
+            if (strcmp(argv[i], "-test") == 0)
+                test = true;
+            else if (strcmp(argv[i], "-testOutput") == 0 && i + 1 < argc)
+                g_TestOutput = argv[++i];
+        }
+        if (test)
+            Donut_SetTestMode(frameCount, frameSeconds);
+        return test ? 1 : 0;
+    }
+
+    // Non-zero for an app created in test mode.
+    int Donut_IsTestMode(App* app)
+    {
+        return app->offscreen ? 1 : 0;
     }
 
     // Destroys the app with all its passes and resources; their handles are invalid afterwards.
@@ -2283,18 +2411,24 @@ extern "C"
 
     void Donut_SetWindowTitle(App* app, const char* title)
     {
+        if (app->offscreen)
+            return;
         app->deviceManager->SetWindowTitle(title);
     }
 
     // Sets "<title> (<graphics API>, <fps> FPS)"; cheap enough to call every frame.
     void Donut_SetInformativeWindowTitle(App* app, const char* title)
     {
+        if (app->offscreen)
+            return;
         app->deviceManager->SetInformativeWindowTitle(title);
     }
 
     // Same, with extraInfo appended.
     void Donut_SetInformativeWindowTitleWithInfo(App* app, const char* title, const char* extraInfo)
     {
+        if (app->offscreen)
+            return;
         app->deviceManager->SetInformativeWindowTitle(title, true, extraInfo);
     }
 
@@ -2314,6 +2448,8 @@ extern "C"
     // Makes Donut_RunApp return after the current frame.
     void Donut_CloseWindow(App* app)
     {
+        if (app->offscreen)
+            return;
         glfwSetWindowShouldClose(app->deviceManager->GetWindow(), GLFW_TRUE);
     }
 
@@ -2323,6 +2459,8 @@ extern "C"
     void Donut_SetCursorMode(App* app, int mode)
     {
         GLFWwindow* window = app->deviceManager->GetWindow();
+        if (!window)
+            return;
         const int modes[] = { GLFW_CURSOR_NORMAL, GLFW_CURSOR_HIDDEN, GLFW_CURSOR_DISABLED };
         glfwSetInputMode(window, GLFW_CURSOR, modes[std::clamp(mode, 0, 2)]);
         if (glfwRawMouseMotionSupported())
@@ -2341,12 +2479,15 @@ extern "C"
             x *= scaleX;
             y *= scaleY;
         }
-        glfwSetCursorPos(deviceManager->GetWindow(), x, y);
+        if (deviceManager->GetWindow())
+            glfwSetCursorPos(deviceManager->GetWindow(), x, y);
     }
 
     // Non-zero while the window has the keyboard focus.
     int Donut_IsWindowFocused(App* app)
     {
+        if (app->offscreen)
+            return 1;
         return glfwGetWindowAttrib(app->deviceManager->GetWindow(), GLFW_FOCUSED);
     }
 
@@ -3118,6 +3259,73 @@ extern "C"
         return static_cast<int>(copied);
     }
 
+    // Saves the current back buffer (in test mode after Donut_RunApp, the last frame's) as an image
+    // file, its format from the extension (.png, .bmp, .tga, .jpg). 8-bit RGBA and BGRA back buffers
+    // go to PNG files as their bytes are (Donut's SaveTextureToFile would blit BGRA into sRGB).
+    // Not in a render callback.
+    int Donut_SaveBackBufferToFile(App* app, const char* path)
+    {
+        nvrhi::ITexture* backBuffer = app->offscreen ? app->offscreen->textures[app->offscreen->current].Get()
+            : app->deviceManager->GetBackBuffer(app->deviceManager->GetCurrentBackBufferIndex());
+        const nvrhi::TextureDesc& desc = backBuffer->getDesc();
+        const bool bgra = desc.format == nvrhi::Format::BGRA8_UNORM || desc.format == nvrhi::Format::SBGRA8_UNORM;
+        const bool rgba = desc.format == nvrhi::Format::RGBA8_UNORM || desc.format == nvrhi::Format::SRGBA8_UNORM;
+        const std::string name = path;
+        if ((bgra || rgba) && name.size() > 4 && name.compare(name.size() - 4, 4, ".png") == 0)
+        {
+            std::vector<uint8_t> pixels(size_t(desc.width) * desc.height * 4);
+            if (!Donut_ReadTextureLevel(app, backBuffer, 0, pixels.data(), int(pixels.size())))
+                return 0;
+            if (bgra)
+                for (size_t i = 0; i < pixels.size(); i += 4)
+                    std::swap(pixels[i], pixels[i + 2]);
+            return stbi_write_png(path, int(desc.width), int(desc.height), 4, pixels.data(), int(desc.width) * 4) != 0 ? 1 : 0;
+        }
+        return donut::engine::SaveTextureToFile(app->device(), app->commonPasses(), backBuffer,
+            nvrhi::ResourceStates::RenderTarget, path) ? 1 : 0;
+    }
+
+    // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int
+    // each with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst
+    // (pixelCount ints, at least width * height). 0 on failure or for back buffers that aren't 8-bit
+    // RGBA or BGRA.
+    int Donut_ReadBackBufferRGBA8(App* app, int* dst, int pixelCount)
+    {
+        nvrhi::ITexture* backBuffer = app->offscreen ? app->offscreen->textures[app->offscreen->current].Get()
+            : app->deviceManager->GetBackBuffer(app->deviceManager->GetCurrentBackBufferIndex());
+        const nvrhi::TextureDesc& desc = backBuffer->getDesc();
+        const bool bgra = desc.format == nvrhi::Format::BGRA8_UNORM || desc.format == nvrhi::Format::SBGRA8_UNORM;
+        const bool rgba = desc.format == nvrhi::Format::RGBA8_UNORM || desc.format == nvrhi::Format::SRGBA8_UNORM;
+        const int count = int(desc.width * desc.height);
+        if ((!bgra && !rgba) || pixelCount < count)
+            return 0;
+        if (!Donut_ReadTextureLevel(app, backBuffer, 0, dst, count * 4))
+            return 0;
+        if (bgra)
+        {
+            auto* bytes = reinterpret_cast<uint8_t*>(dst);
+            for (int i = 0; i < count; i++)
+                std::swap(bytes[i * 4], bytes[i * 4 + 2]);
+        }
+        return 1;
+    }
+
+    // Ends an example's test (after Donut_RunApp in test mode): saves the last frame to the file
+    // -testOutput named, if any; prints "Test PASSED" if failure is empty, else "Test FAILED:
+    // <failure>"; returns the exit code, 0 or 1.
+    int Donut_FinishTest(App* app, const char* failure)
+    {
+        if (!g_TestOutput.empty() && !Donut_SaveBackBufferToFile(app, g_TestOutput.c_str()))
+            printf("Cannot save the frame to %s\n", g_TestOutput.c_str());
+        if (!failure || !*failure)
+        {
+            printf("Test PASSED\n");
+            return 0;
+        }
+        printf("Test FAILED: %s\n", failure);
+        return 1;
+    }
+
     // Binding set descriptions are built up with the Donut_Bind* functions below and then
     // consumed (freed) by Donut_CreateBindingSet.
     nvrhi::BindingSetDesc* Donut_CreateBindingSetDesc()
@@ -3471,6 +3679,20 @@ extern "C"
         const nvrhi::ResourceStates state = (isIndexBuffer ? nvrhi::ResourceStates::IndexBuffer : nvrhi::ResourceStates::VertexBuffer)
             | nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput;
         return CreateStaticBuffer(app, commandList, desc, state, data, byteSize);
+    }
+
+    // A static buffer of byteSize bytes of data for shaders to read: a StructuredBuffer of
+    // structStride-byte elements if structStride > 0, else a ByteAddressBuffer (byteSize a multiple
+    // of 4). Returns null on failure.
+    nvrhi::IBuffer* Donut_CreateStaticShaderBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, int structStride,
+        const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc().setDebugName(debugName);
+        if (structStride > 0)
+            desc.setStructStride(static_cast<uint32_t>(structStride));
+        else
+            desc.setCanHaveRawViews(true);
+        return CreateStaticBuffer(app, commandList, desc, nvrhi::ResourceStates::ShaderResource, data, byteSize);
     }
 
     // Same, for an index buffer.
@@ -8628,17 +8850,23 @@ extern "C"
     // buffers are resized: recreate what refers to them in the back buffer resizing callback).
     int Donut_GetBackBufferCount(App* app)
     {
+        if (app->offscreen)
+            return static_cast<int>(app->offscreen->textures.size());
         return static_cast<int>(app->deviceManager->GetBackBufferCount());
     }
 
     nvrhi::ITexture* Donut_GetBackBuffer(App* app, int index)
     {
+        if (app->offscreen)
+            return app->offscreen->textures[static_cast<size_t>(index)];
         return app->deviceManager->GetBackBuffer(static_cast<uint32_t>(index));
     }
 
     // The index of the back buffer the current frame renders into (in a render callback).
     int Donut_GetCurrentBackBufferIndex(App* app)
     {
+        if (app->offscreen)
+            return static_cast<int>(app->offscreen->current);
         return static_cast<int>(app->deviceManager->GetCurrentBackBufferIndex());
     }
 
@@ -8646,7 +8874,7 @@ extern "C"
     // Vulkan).
     int Donut_GetBackBufferFormat(App* app)
     {
-        return static_cast<int>(app->deviceManager->GetBackBuffer(0)->getDesc().format);
+        return static_cast<int>(Donut_GetBackBuffer(app, 0)->getDesc().format);
     }
 
 #ifdef _WIN32
@@ -10686,6 +10914,24 @@ extern "C"
         state.viewport = ctx->draw.viewport;
         state.bindings = ctx->draw.bindings;
         ctx->commandList->setMeshletState(state);
+        ctx->commandList->dispatchMesh(static_cast<uint32_t>(groupsX));
+    }
+
+    // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
+    // slot), e.g. what the draw's mesh shader reads of the mesh.
+    void Donut_DrawMeshTasksWithPushConstants(FrameContext* frame, int groupsX, const void* data, int byteSize)
+    {
+        FrameContext* ctx = frame;
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+
+        nvrhi::MeshletState state;
+        state.pipeline = ctx->meshletPipeline;
+        state.framebuffer = ctx->draw.framebuffer;
+        state.viewport = ctx->draw.viewport;
+        state.bindings = ctx->draw.bindings;
+        ctx->commandList->setMeshletState(state);
+        ctx->commandList->setPushConstants(data, static_cast<size_t>(byteSize));
         ctx->commandList->dispatchMesh(static_cast<uint32_t>(groupsX));
     }
 
