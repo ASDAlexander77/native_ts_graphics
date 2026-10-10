@@ -115,12 +115,9 @@ namespace RtTriangle {
 
             commandList.close();
             this.app.executeCommandList(commandList);
-            // On D3D12 the command list holds the builds' scratch memory and the TLAS's instance array,
-            // which its submission doesn't keep alive: releasing it while the GPU still builds removes
-            // the device. The sample keeps its command list; this one waits instead.
-            this.app.waitForIdle();
 
-            // Only needed for the builds.
+            // Only needed for the builds: the command list references them, and the app holds it
+            // until the GPU is done with it.
             this.app.releaseResource(indexBuffer);
             this.app.releaseResource(vertexBuffer);
             this.app.releaseResource(commandList.handle);

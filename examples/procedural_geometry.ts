@@ -621,8 +621,8 @@ namespace ProceduralGeometry {
             const created = this.createAccelerationStructures(commandList);
             commandList.close();
             this.app.executeCommandList(commandList);
-            // The AABBs are only needed for the build: NVRHI keeps everything a submitted command
-            // list uses alive until the GPU is done with it.
+            // The AABBs are only needed for the build: the command list references them, and the app
+            // holds it until the GPU is done with it.
             this.app.releaseResource(this.aabbBuffer);
             this.app.releaseResource(commandList.handle);
             if (!created) {

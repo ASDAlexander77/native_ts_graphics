@@ -1338,6 +1338,9 @@ declare function Donut_AcquireAsyncComputeTexture(asyncComputeLoop: Opaque, fram
 declare function Donut_CreateCommandList(app: Opaque): Opaque;
 declare function Donut_OpenCommandList(commandList: Opaque): void;
 declare function Donut_CloseCommandList(commandList: Opaque): void;
+// The app holds the command list until the GPU has finished it, so it can be released right after
+// (its upload and scratch memory, e.g. for texture uploads and acceleration structure builds, goes
+// with it).
 declare function Donut_ExecuteCommandList(app: Opaque, commandList: Opaque): void;
 // Draws vertexCount vertices (no vertex buffers: e.g. a triangle over the target from SV_VertexID)
 // with a graphics pipeline into all of a framebuffer, with one binding set (null for none): for

@@ -296,7 +296,7 @@ namespace DxrRefit {
             const created = this.createAccelerationStructures(commandList);
             commandList.close();
             this.app.executeCommandList(commandList);
-            // Only needed for the builds: NVRHI keeps everything a submitted command list uses alive
+            // Only needed for the builds: the command list references them, and the app holds it
             // until the GPU is done with it.
             for (let i = 0; i < this.inputBuffers.length; i++) {
                 this.app.releaseResource(this.inputBuffers[i]);
