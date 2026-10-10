@@ -331,6 +331,27 @@ namespace
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
+        // Executes a command list (Donut_ExecuteCommandList) and holds it until the GPU has
+        // finished it: its upload and scratch memory (texture uploads, acceleration structure
+        // builds) belongs to the command list, not to the submission, so TypeScript releasing it
+        // right after executing it would free memory the GPU still reads.
+        void ExecuteCommandList(nvrhi::ICommandList* commandList)
+        {
+            RetireCommandLists();
+            device()->executeCommandList(commandList);
+            nvrhi::EventQueryHandle finished = device()->createEventQuery();
+            device()->setEventQuery(finished, nvrhi::CommandQueue::Graphics);
+            m_PendingCommandLists.push_back({ commandList, finished });
+        }
+
+        // Releases the held command lists the GPU has finished (every frame, and on execution).
+        void RetireCommandLists()
+        {
+            m_PendingCommandLists.erase(std::remove_if(m_PendingCommandLists.begin(), m_PendingCommandLists.end(),
+                [this](const PendingCommandList& pending) { return device()->pollEventQuery(pending.finished); }),
+                m_PendingCommandLists.end());
+        }
+
         template <typename T>
         T* OwnObject(std::shared_ptr<T> object)
         {
@@ -402,6 +423,7 @@ namespace
 
             // Everything created on the device goes before the device itself.
             device()->waitForIdle();
+            m_PendingCommandLists.clear();
 
             for (auto& pass : otherPasses)
                 deviceManager->RemoveRenderPass(pass.get());
@@ -421,6 +443,12 @@ namespace
         }
 
     private:
+        struct PendingCommandList
+        {
+            nvrhi::CommandListHandle commandList;
+            nvrhi::EventQueryHandle finished;
+        };
+        std::vector<PendingCommandList> m_PendingCommandLists;
         std::shared_ptr<donut::engine::CommonRenderPasses> m_CommonPasses;
         std::unique_ptr<donut::engine::BindingCache> m_BindingCache;
         std::shared_ptr<donut::engine::TextureCache> m_TextureCache;
@@ -454,6 +482,21 @@ namespace
 
     // Each example executable loads its shaders from bin/shaders/<executable name>/<api>, and
     // Donut's own from bin/shaders/framework/<api> (DONUT_SHADERS_OUTPUT_DIR in CMakeLists.txt).
+    // Releases the app's finished command lists every frame (App::RetireCommandLists).
+    class RetireCommandListsPass : public donut::app::IRenderPass
+    {
+    public:
+        RetireCommandListsPass(DeviceManager* deviceManager, App* app)
+            : IRenderPass(deviceManager)
+            , m_App(app)
+        { }
+
+        void Animate(float fElapsedTimeSeconds) override { m_App->RetireCommandLists(); }
+
+    private:
+        App* m_App;
+    };
+
     App* MakeApp(std::unique_ptr<DeviceManager> deviceManager, nvrhi::GraphicsAPI api)
     {
         const std::filesystem::path exe = GetExecutablePath();
@@ -468,6 +511,10 @@ namespace
         auto* app = new App();
         app->deviceManager = std::move(deviceManager);
         app->shaderFactory = std::make_shared<donut::engine::ShaderFactory>(app->device(), rootFS, "/shaders");
+
+        auto retirePass = std::make_unique<RetireCommandListsPass>(app->deviceManager.get(), app);
+        app->deviceManager->AddRenderPassToBack(retirePass.get());
+        app->otherPasses.push_back(std::move(retirePass));
         return app;
     }
 
@@ -2933,7 +2980,8 @@ extern "C"
         return a->Own(pipeline);
     }
 
-    // Safe to call while the GPU may still use the resource: NVRHI defers the actual destruction.
+    // Safe to call while the GPU may still use the resource: the command lists using it hold it
+    // until the GPU has finished them (executed ones through the app, Donut_ExecuteCommandList).
     void Donut_ReleaseResource(void* app, void* resource)
     {
         AsApp(app)->resources.erase(static_cast<nvrhi::IResource*>(resource));
@@ -5304,9 +5352,11 @@ extern "C"
         AsCommandList(commandList)->close();
     }
 
+    // The app holds the command list until the GPU has finished it (App::ExecuteCommandList), so
+    // it can be released right after.
     void Donut_ExecuteCommandList(void* app, void* commandList)
     {
-        AsApp(app)->device()->executeCommandList(AsCommandList(commandList));
+        AsApp(app)->ExecuteCommandList(AsCommandList(commandList));
     }
 
     // Draws vertexCount vertices (no vertex buffers, e.g. a triangle over the target from
@@ -5342,7 +5392,9 @@ extern "C"
     // Blocks the CPU until the GPU has finished all submitted work.
     void Donut_WaitForIdle(void* app)
     {
-        AsApp(app)->device()->waitForIdle();
+        App* a = AsApp(app);
+        a->device()->waitForIdle();
+        a->RetireCommandLists();
     }
 
     // Uploads byteSize bytes from data (copied during the call) into buffer.

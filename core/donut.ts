@@ -847,6 +847,9 @@ export class App {
         return new CommandList(Donut_CreateCommandList(this.handle));
     }
 
+    // The app holds the command list until the GPU has finished it, so it can be released right after
+    // (its upload and scratch memory, e.g. for texture uploads and acceleration structure builds, goes
+    // with it).
     executeCommandList(commandList: CommandList): void {
         Donut_ExecuteCommandList(this.handle, commandList.handle);
     }
