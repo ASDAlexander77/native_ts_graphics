@@ -473,11 +473,11 @@ namespace MouseCursor {
         // The depth buffer (D24S8, as the sample's) and a framebuffer per back buffer, for the back
         // buffers' size, and the pipelines made for them.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private pipelinesCreated: boolean;
-        private spritePipeline: Opaque;
-        private dualPipeline: Opaque;
-        private basicPipeline: Opaque;
+        private spritePipeline: GraphicsPipelineHandle;
+        private dualPipeline: GraphicsPipelineHandle;
+        private basicPipeline: GraphicsPipelineHandle;
 
         constructor(app: App) {
             this.app = app;
@@ -858,7 +858,7 @@ namespace MouseCursor {
         }
 
         // SpriteBatch::Draw(texture, destinationRectangle), white.
-        drawSprite(frame: Frame, framebuffer: Opaque, bindingSet: BindingSet, left: number, top: number, right: number, bottom: number): void {
+        drawSprite(frame: Frame, framebuffer: FramebufferHandle, bindingSet: BindingSet, left: number, top: number, right: number, bottom: number): void {
             const c = this.spriteConstants;
             c[0] = left;
             c[1] = top;
@@ -878,7 +878,7 @@ namespace MouseCursor {
         // Model::Draw(context, states, world, view, proj): each part with its material's effect
         // (Model::UpdateEffectMatrices, EffectLights::SetConstants: ambient folded into emissive,
         // diffuse premultiplied by alpha).
-        drawModel(frame: Frame, framebuffer: Opaque, model: Model, pipeline: Opaque): void {
+        drawModel(frame: Frame, framebuffer: FramebufferHandle, model: Model, pipeline: GraphicsPipelineHandle): void {
             const commandList = frame.getCommandList();
             const p = this.parameters;
             const viewInverse = inverse(this.view);

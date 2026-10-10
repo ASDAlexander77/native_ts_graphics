@@ -142,15 +142,15 @@ namespace OitDepthPeeling {
         // sets, the color target (sRGB, as the sample's swapchain) and the pipelines.
         private layers: TextureHandle[];
         private depths: TextureHandle[];
-        private gatherFramebuffers: Opaque[];
+        private gatherFramebuffers: FramebufferHandle[];
         private gatherBindingSets: BindingSet[];
         private combineBindingSet: BindingSet;
         private colorBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private gatherFirstPipeline: Opaque | null;
-        private gatherPipeline: Opaque | null;
-        private backgroundPipeline: Opaque | null;
-        private combinePipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private gatherFirstPipeline: GraphicsPipelineHandle | null;
+        private gatherPipeline: GraphicsPipelineHandle | null;
+        private backgroundPipeline: GraphicsPipelineHandle | null;
+        private combinePipeline: GraphicsPipelineHandle | null;
 
         private constants: f32[];
 
@@ -320,7 +320,7 @@ namespace OitDepthPeeling {
             this.combinePipeline = this.createFullscreenPipeline(framebuffer, this.combinePS, BlendMode.AlphaBlend);
         }
 
-        createGatherPipeline(framebuffer: Opaque, pixelShader: ShaderHandle): Opaque {
+        createGatherPipeline(framebuffer: FramebufferHandle, pixelShader: ShaderHandle): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(this.gatherVS, pixelShader);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.gatherBindingLayout);
@@ -329,7 +329,7 @@ namespace OitDepthPeeling {
             return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        createFullscreenPipeline(framebuffer: Opaque, pixelShader: ShaderHandle, blendMode: BlendMode): Opaque {
+        createFullscreenPipeline(framebuffer: FramebufferHandle, pixelShader: ShaderHandle, blendMode: BlendMode): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(this.fullscreenVS, pixelShader);
             desc.addBindingLayout(this.combineBindingLayout);
             desc.setDepthState(0, 0, ComparisonFunc.Greater);

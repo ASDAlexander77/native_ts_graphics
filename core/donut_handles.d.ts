@@ -35,3 +35,9 @@ declare class BindingLayoutDescHandle { private readonly __bindingLayoutDesc: in
 declare class BindlessLayoutDescHandle { private readonly __bindlessLayoutDesc: int; }
 declare class ObjectHandle { private readonly __object: int; }
 declare class DescriptorTableManagerHandle extends ObjectHandle { private readonly __descriptorTableManager: int; }
+declare class FramebufferHandle extends ResourceHandle { private readonly __framebuffer: int; }
+declare class FramebufferFactoryHandle { private readonly __framebufferFactory: int; }
+declare class GraphicsPipelineHandle extends ResourceHandle { private readonly __graphicsPipeline: int; }
+declare class ComputePipelineHandle extends ResourceHandle { private readonly __computePipeline: int; }
+declare class MeshletPipelineHandle extends ResourceHandle { private readonly __meshletPipeline: int; }
+declare class GraphicsPipelineDescHandle { private readonly __graphicsPipelineDesc: int; }

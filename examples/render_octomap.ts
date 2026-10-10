@@ -457,10 +457,10 @@ namespace RenderOctomap {
         // The back buffer's size: color (sRGB, as the sample's swapchain) and depth targets.
         private colorBuffer: TextureHandle | null;
         private depthBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private octomapPipeline: Opaque | null;
-        private gltfPipeline: Opaque | null;
-        private splatPipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private octomapPipeline: GraphicsPipelineHandle | null;
+        private gltfPipeline: GraphicsPipelineHandle | null;
+        private splatPipeline: GraphicsPipelineHandle | null;
 
         private constants: f32[];
         private pushConstants: f32[];
@@ -659,8 +659,8 @@ namespace RenderOctomap {
             this.app.clearBindingCache();
         }
 
-        createPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle,
-            cullMode: CullMode, depthWrite: int, blendMode: BlendMode, primitiveType: PrimitiveType): Opaque {
+        createPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle,
+            cullMode: CullMode, depthWrite: int, blendMode: BlendMode, primitiveType: PrimitiveType): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(inputLayout);
             desc.addBindingLayout(bindingLayout);

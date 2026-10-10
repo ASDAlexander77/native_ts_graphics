@@ -140,10 +140,10 @@ namespace MultiDrawIndirect {
         private inputLayout: InputLayoutHandle;
         private drawBindingLayout: BindingLayoutHandle;
         private drawBindingSet: BindingSet;
-        private cullPipeline: Opaque;
+        private cullPipeline: ComputePipelineHandle;
         private cullBindingSet: BindingSet;
         // Null without buffer device addresses (then the binding set is unset too).
-        private addressPipeline: Opaque | null;
+        private addressPipeline: ComputePipelineHandle | null;
         private addressBindingSet: BindingSet;
 
         private constantBuffer: BufferHandle;
@@ -159,8 +159,8 @@ namespace MultiDrawIndirect {
         // Created on the first frame (the size of the back buffer), dropped on resize.
         private colorBuffer: TextureHandle | null;
         private depthBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private drawPipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private drawPipeline: GraphicsPipelineHandle | null;
 
         // The models' bounding spheres (x, y, z, radius each), and their draws' commands.
         private spheres: number[];

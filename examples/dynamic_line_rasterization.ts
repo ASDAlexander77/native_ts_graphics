@@ -268,11 +268,11 @@ namespace DynamicLineRasterization {
 
         // Made on the first frame (the back buffer's layout), dropped on resize.
         private pipelinesCreated: boolean;
-        private gridPipeline: Opaque;
-        private fillPipeline: Opaque;
+        private gridPipeline: GraphicsPipelineHandle;
+        private fillPipeline: GraphicsPipelineHandle;
         // The edges' pipelines made so far, by their line state (edgeKey).
         private edgeKeys: string[];
-        private edgePipelines: Opaque[];
+        private edgePipelines: GraphicsPipelineHandle[];
 
         // Upload buffers.
         private cameraConstants: f32[];
@@ -365,7 +365,7 @@ namespace DynamicLineRasterization {
         }
 
         // The edges' pipeline for the line settings.
-        edgePipeline(frame: Frame): Opaque {
+        edgePipeline(frame: Frame): GraphicsPipelineHandle {
             const stipple = this.stippleEnabled && this.canStipple();
             const key = `${this.rasterizationMode} ${this.lineWidth} ${stipple ? 1 : 0} ${this.stippleFactor} ${this.pattern()}`;
             for (let i = 0; i < this.edgeKeys.length; i++) {

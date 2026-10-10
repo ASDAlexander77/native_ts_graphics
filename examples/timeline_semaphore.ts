@@ -32,9 +32,9 @@ namespace TimelineSemaphore {
     class TimelineSemaphorePass {
         private app: App;
 
-        private initPipeline: Opaque;
-        private mutatePipeline: Opaque;
-        private updatePipeline: Opaque;
+        private initPipeline: ComputePipelineHandle;
+        private mutatePipeline: ComputePipelineHandle;
+        private updatePipeline: ComputePipelineHandle;
         private renderVS: ShaderHandle;
         private renderPS: ShaderHandle;
         private computeCommandList: CommandList | null;
@@ -52,10 +52,10 @@ namespace TimelineSemaphore {
         benchmark: boolean;
 
         // A framebuffer per back buffer, for the back buffers' size, and the pipeline made for them.
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
-        private renderPipeline: Opaque;
+        private renderPipeline: GraphicsPipelineHandle;
         private pipelineCreated: boolean;
 
         // Upload buffer.

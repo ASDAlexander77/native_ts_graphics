@@ -49,7 +49,7 @@ namespace VariableShading {
         private temporalPass: TemporalAntiAliasingPass;
         private shadingRateSurface: TextureHandle | null;
         private bindingSet: BindingSet;
-        private pipeline: Opaque | null;
+        private pipeline: ComputePipelineHandle | null;
         // Passed to View.setPlanarView, 16 floats each.
         private viewMatrix: f32[];
         private projMatrix: f32[];

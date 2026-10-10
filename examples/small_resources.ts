@@ -54,7 +54,7 @@ namespace SmallResources {
     class SmallResourcesPass {
         private app: App;
         private bindingLayout: BindingLayoutHandle;
-        private pipeline: Opaque;
+        private pipeline: GraphicsPipelineHandle;
         private hasPipeline: boolean;
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;

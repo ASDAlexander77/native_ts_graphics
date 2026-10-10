@@ -13,7 +13,7 @@ namespace ShaderSpecializations {
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
         // Created on the first frame (they depend on the framebuffer layout), dropped on resize.
-        private pipelines: Opaque[];
+        private pipelines: GraphicsPipelineHandle[];
 
         constructor(app: App) {
             this.app = app;

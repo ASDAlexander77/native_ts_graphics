@@ -186,16 +186,16 @@ namespace Msaa {
         // Whether the scene renders into the back buffer (one framebuffer per back buffer) rather
         // than into textures (one framebuffer).
         private sceneToBackBuffer: boolean;
-        private sceneFramebuffers: Opaque[];
+        private sceneFramebuffers: FramebufferHandle[];
         // Whether the multisampled color is resolved by the scene's render pass, and whether the
         // post-processing reads multisampled depth.
         private writebackColorResolve: boolean;
         private multisampledDepthPost: boolean;
         // The opaque draws' pipelines (front faces counter-clockwise, or clockwise for the nodes
         // that the framework sees as flipped), and the blended draws'.
-        private scenePipeline: Opaque;
-        private sceneFlippedPipeline: Opaque;
-        private sceneBlendPipeline: Opaque;
+        private scenePipeline: GraphicsPipelineHandle;
+        private sceneFlippedPipeline: GraphicsPipelineHandle;
+        private sceneBlendPipeline: GraphicsPipelineHandle;
         private postBindingSet: BindingSet;
 
         private sceneVS: ShaderHandle;
@@ -216,8 +216,8 @@ namespace Msaa {
         // Created on the first frame (the back buffer's layout), dropped on resize: the outline
         // effect reading single-sampled and multisampled depth.
         private postPipelinesCreated: boolean;
-        private postPipeline: Opaque;
-        private postMSPipeline: Opaque;
+        private postPipeline: GraphicsPipelineHandle;
+        private postMSPipeline: GraphicsPipelineHandle;
 
         // The draws, a node's primitive each: index range and base vertex, base color texture,
         // alpha blending (0 or 1), front faces flipped (0 or 1: a node scaled by a negative factor),
@@ -381,22 +381,22 @@ namespace Msaa {
                 for (let i = 0; i < count; i++) {
                     const backBuffer = this.app.getBackBuffer(i);
                     if (msaa) {
-                        this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createResolveFramebuffer(this.msColor, backBuffer, this.depth,
+                        this.sceneFramebuffers.push(this.own(this.app.createResolveFramebuffer(this.msColor, backBuffer, this.depth,
                             null, ResolveMode.None)));
                     } else {
-                        this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(backBuffer, this.depth)));
+                        this.sceneFramebuffers.push(this.own(this.app.createFramebuffer(backBuffer, this.depth)));
                     }
                 }
             } else if (!msaa) {
-                this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(this.resolvedColor, this.depth)));
+                this.sceneFramebuffers.push(this.own(this.app.createFramebuffer(this.resolvedColor, this.depth)));
             } else if (this.writebackColorResolve || writebackDepthResolve) {
                 // Into the resolved color with post-processing (or separately), and the resolved depth.
                 const colorResolve = this.writebackColorResolve ? this.resolvedColor : null;
                 const depthResolve = writebackDepthResolve ? this.resolvedDepth : null;
-                this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createResolveFramebuffer(this.msColor, colorResolve, this.depth,
+                this.sceneFramebuffers.push(this.own(this.app.createResolveFramebuffer(this.msColor, colorResolve, this.depth,
                     depthResolve, writebackDepthResolve ? this.depthResolveMode : ResolveMode.None)));
             } else {
-                this.sceneFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(this.msColor, this.depth)));
+                this.sceneFramebuffers.push(this.own(this.app.createFramebuffer(this.msColor, this.depth)));
             }
 
             // The framework's geometry pipeline state: reversed depth (greater), back faces culled,
@@ -411,7 +411,7 @@ namespace Msaa {
                 if (variant == 2) {
                     desc.setBlendMode(BlendMode.AlphaBlend);
                 }
-                const pipeline = this.own<ResourceHandle>(this.app.createGraphicsPipelineFromDesc(desc, this.sceneFramebuffers[0]));
+                const pipeline = this.own(this.app.createGraphicsPipelineFromDesc(desc, this.sceneFramebuffers[0]));
                 if (variant == 0) {
                     this.scenePipeline = pipeline;
                 } else if (variant == 1) {
@@ -487,7 +487,7 @@ namespace Msaa {
             }
         }
 
-        drawScene(frame: Frame, framebuffer: Opaque): void {
+        drawScene(frame: Frame, framebuffer: FramebufferHandle): void {
             // The draw state's pipeline (0 opaque, 1 opaque flipped, 2 blended; -1 before the first
             // draw) and texture.
             let currentPipeline = -1;

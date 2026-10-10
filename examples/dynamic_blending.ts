@@ -283,12 +283,12 @@ namespace DynamicBlending {
 
         // The depth buffer (reversed) and a framebuffer per back buffer, for the back buffers' size.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
         // The pipelines made so far, by their blend state (pipelineKey).
         private pipelineKeys: string[];
-        private pipelines: Opaque[];
+        private pipelines: GraphicsPipelineHandle[];
 
         // Upload buffers.
         private cameraConstants: f32[];
@@ -392,7 +392,7 @@ namespace DynamicBlending {
 
         // The sample's pipeline with a face's dynamic state: depth test (greater: reversed) and
         // write, no culling, the blend state, the face's color write mask.
-        facePipeline(face: FacePreferences): Opaque {
+        facePipeline(face: FacePreferences): GraphicsPipelineHandle {
             const key = this.pipelineKey(face);
             for (let i = 0; i < this.pipelineKeys.length; i++) {
                 if (this.pipelineKeys[i] == key) {

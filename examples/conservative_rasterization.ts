@@ -147,12 +147,12 @@ namespace ConservativeRasterization {
         // sample's offscreen pass, which a resize leaves as it is) and the pipelines.
         private created: boolean;
         private offscreenColor: TextureHandle;
-        private offscreenFramebuffer: Opaque;
+        private offscreenFramebuffer: FramebufferHandle;
         private fullscreenBindingSet: BindingSet;
-        private trianglePipeline: Opaque;
-        private triangleConservativePipeline: Opaque;
-        private overlayPipeline: Opaque;
-        private fullscreenPipeline: Opaque;
+        private trianglePipeline: GraphicsPipelineHandle;
+        private triangleConservativePipeline: GraphicsPipelineHandle;
+        private overlayPipeline: GraphicsPipelineHandle;
+        private fullscreenPipeline: GraphicsPipelineHandle;
 
         private constants: f32[];
 
@@ -218,7 +218,7 @@ namespace ConservativeRasterization {
 
         // The triangle's pipelines: back faces culled (clockwise triangles are front faces), no
         // depth test; for the low resolution target, without and with conservative rasterization.
-        createTrianglePipeline(conservative: boolean): Opaque {
+        createTrianglePipeline(conservative: boolean): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(this.triangleVS, this.trianglePS);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.sceneBindingLayout);

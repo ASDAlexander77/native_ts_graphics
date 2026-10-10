@@ -210,8 +210,8 @@ namespace DynamicMultisampleRasterization {
         private resources: ResourceHandle[];
         private msColor: TextureHandle;
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
-        private pipelines: Opaque[];
+        private framebuffers: FramebufferHandle[];
+        private pipelines: GraphicsPipelineHandle[];
         private builtSampleCount: int;
         private builtWidth: int;
         private builtHeight: int;
@@ -299,15 +299,15 @@ namespace DynamicMultisampleRasterization {
             const count = this.app.getBackBufferCount();
             if (!msaa) {
                 for (let i = 0; i < count; i++) {
-                    this.framebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(this.app.getBackBuffer(i), this.depth)));
+                    this.framebuffers.push(this.own(this.app.createFramebuffer(this.app.getBackBuffer(i), this.depth)));
                 }
             } else if (this.renderPassResolve) {
                 for (let i = 0; i < count; i++) {
-                    this.framebuffers.push(this.own<ResourceHandle>(this.app.createResolveFramebuffer(this.msColor, this.app.getBackBuffer(i),
+                    this.framebuffers.push(this.own(this.app.createResolveFramebuffer(this.msColor, this.app.getBackBuffer(i),
                         this.depth, null, ResolveMode.None)));
                 }
             } else {
-                this.framebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(this.msColor, this.depth)));
+                this.framebuffers.push(this.own(this.app.createFramebuffer(this.msColor, this.depth)));
             }
 
             for (let group = 0; group < 4; group++) {
@@ -321,7 +321,7 @@ namespace DynamicMultisampleRasterization {
                     desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                         BlendFactor.InvSrcAlpha, BlendFactor.Zero, BlendOp.Add);
                 }
-                this.pipelines.push(this.own<ResourceHandle>(this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0])));
+                this.pipelines.push(this.own(this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0])));
             }
             this.builtSampleCount = this.sampleCount;
             this.builtWidth = width;

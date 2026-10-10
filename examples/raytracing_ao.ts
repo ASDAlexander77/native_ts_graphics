@@ -460,14 +460,14 @@ namespace RaytracingAo {
         private gbufferVS: ShaderHandle;
         private gbufferPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
-        private prepare1Pipeline: Opaque;
-        private prepare2Pipeline: Opaque;
-        private render1Pipeline: Opaque;
-        private render2Pipeline: Opaque;
-        private blurPreMinBlendOutPipeline: Opaque;
-        private blurPreMinPipeline: Opaque;
-        private compositePipeline: Opaque;
-        private gbufferPipeline: Opaque | null;
+        private prepare1Pipeline: ComputePipelineHandle;
+        private prepare2Pipeline: ComputePipelineHandle;
+        private render1Pipeline: ComputePipelineHandle;
+        private render2Pipeline: ComputePipelineHandle;
+        private blurPreMinBlendOutPipeline: ComputePipelineHandle;
+        private blurPreMinPipeline: ComputePipelineHandle;
+        private compositePipeline: ComputePipelineHandle;
+        private gbufferPipeline: GraphicsPipelineHandle | null;
         private meshGBufferSets: BindingSet[];
 
         // Made for the output's size (the frame's, half its width when split).
@@ -479,7 +479,7 @@ namespace RaytracingAo {
         private gbufferNormals: TextureHandle | null;
         private gbufferDiffuse: TextureHandle | null;
         private gbufferDepth: TextureHandle | null;
-        private gbufferFramebuffer: Opaque | null;
+        private gbufferFramebuffer: FramebufferHandle | null;
         private linearDepth: TextureHandle | null;
         private depthDownsize: TextureHandle[];
         private depthTiled: TextureHandle[];
@@ -916,7 +916,7 @@ namespace RaytracingAo {
             this.gbufferNormals = this.own(this.app.createRenderTargetTexture(width, height, Format.R11G11B10_FLOAT, "GBufferNormals"));
             this.gbufferDiffuse = this.own(this.app.createRenderTargetTexture(width, height, Format.R11G11B10_FLOAT, "GBufferDiffuse"));
             this.gbufferDepth = this.own(this.app.createDepthTexture(width, height, Format.D32, 1.0, "GBufferDepth"));
-            this.gbufferFramebuffer = this.own<ResourceHandle>(this.app.createFramebufferWithTwoTargets(this.gbufferNormals as TextureHandle,
+            this.gbufferFramebuffer = this.own(this.app.createFramebufferWithTwoTargets(this.gbufferNormals as TextureHandle,
                 this.gbufferDiffuse as TextureHandle, this.gbufferDepth));
 
             // Buffer sizes: 1/2, 1/4 ... 1/64, rounded up.
@@ -1072,7 +1072,7 @@ namespace RaytracingAo {
 
             // Phase 1: Render GBuffer.
             commandList.clearDepth(this.gbufferDepth as TextureHandle, 1.0);
-            frame.beginDrawToFramebuffer(this.gbufferPipeline as Opaque, this.gbufferFramebuffer as Opaque);
+            frame.beginDrawToFramebuffer(this.gbufferPipeline as GraphicsPipelineHandle, this.gbufferFramebuffer as FramebufferHandle);
             frame.drawAddBindingSet(this.meshGBufferSets[this.meshIndex]);
             frame.drawAddVertexBuffer(mesh.vertexBuffer, 0, 0);
             frame.drawSetIndexBuffer(mesh.indexBuffer);
@@ -1124,7 +1124,7 @@ namespace RaytracingAo {
                 desc.setInputLayout(this.inputLayout);
                 desc.setDepthState(1, 1, ComparisonFunc.Less);
                 desc.setRasterState(CullMode.Back, FillMode.Solid, 0);
-                this.gbufferPipeline = this.app.createGraphicsPipelineFromDesc(desc, this.gbufferFramebuffer as Opaque);
+                this.gbufferPipeline = this.app.createGraphicsPipelineFromDesc(desc, this.gbufferFramebuffer as FramebufferHandle);
             }
             for (let m = 0; m < this.meshes.length; m++) {
                 this.meshes[m].buildTopLevelAS(frame);

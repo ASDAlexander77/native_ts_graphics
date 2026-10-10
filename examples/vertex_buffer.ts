@@ -169,7 +169,7 @@ namespace VertexBuffer {
         private bindingLayout: BindingLayoutHandle;
         private bindingSets: BindingSet[];
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
-        private pipeline: Opaque | null;
+        private pipeline: GraphicsPipelineHandle | null;
         private rotation: number;
         // The constant buffer contents, NUM_VIEWS entries of CONSTANT_BUFFER_ENTRY_FLOATS floats.
         private constants: f32[];

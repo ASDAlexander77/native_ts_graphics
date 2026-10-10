@@ -767,10 +767,10 @@ namespace WorkGraphs {
         private workGraphLibrary: ShaderLibraryHandle;
 
         // Pipeline state objects.
-        private animateObjectsPSO: Opaque;
-        private animateLightsPSO: Opaque;
-        private cullLightsPSO: Opaque;
-        private shadePSO: Opaque;
+        private animateObjectsPSO: ComputePipelineHandle;
+        private animateLightsPSO: ComputePipelineHandle;
+        private cullLightsPSO: ComputePipelineHandle;
+        private shadePSO: ComputePipelineHandle;
 
         // Resources.
         private constantBuffer: BufferHandle;
@@ -786,8 +786,8 @@ namespace WorkGraphs {
         private depth: TextureHandle | null;
         private gbuffer: TextureHandle | null;
         private ldrBuffer: TextureHandle | null;
-        private gbufferFramebuffer: Opaque | null;
-        private gbufferFillPSO: Opaque | null;
+        private gbufferFramebuffer: FramebufferHandle | null;
+        private gbufferFillPSO: GraphicsPipelineHandle | null;
         private culledLightsBuffer: BufferHandle | null;
         private animateObjectsBindings: BindingSet;
         private animateLightsBindings: BindingSet;
@@ -1068,7 +1068,7 @@ namespace WorkGraphs {
         }
 
         // Enough thread groups of the animation shaders for `count` elements, laid out as the sample does.
-        dispatchAnimation(commandList: CommandList, pipeline: Opaque, bindingSet: BindingSet, count: int): void {
+        dispatchAnimation(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet, count: int): void {
             const totalDispatchSize: int = Math.floor((count + ANIMATION_THREADS_X - 1) / ANIMATION_THREADS_X);
             const dispatchY: int = Math.max(Math.floor(totalDispatchSize / D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION), 1);
             const dispatchX: int = Math.max(totalDispatchSize % D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION, 1);
@@ -1093,7 +1093,7 @@ namespace WorkGraphs {
             this.forceResetAnimation = false; // Animation buffer initialized, no need to redo it again in subsequent frames.
         }
 
-        populateGBufferPass(frame: Frame, commandList: CommandList, depth: TextureHandle, framebuffer: Opaque, pipeline: Opaque,
+        populateGBufferPass(frame: Frame, commandList: CommandList, depth: TextureHandle, framebuffer: FramebufferHandle, pipeline: GraphicsPipelineHandle,
             bindingSet: BindingSet): void {
             // It is enough to clear the depth-buffer without the g-buffer. Depth buffer values of 1 mean "sky".
             commandList.clearDepth(depth, 1.0);

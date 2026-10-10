@@ -119,14 +119,14 @@ namespace TimestampQueries {
         private offscreenColor0: TextureHandle | null;
         private offscreenColor1: TextureHandle | null;
         private offscreenDepth: TextureHandle | null;
-        private offscreenFramebuffer: Opaque | null;
+        private offscreenFramebuffer: FramebufferHandle | null;
         private filterColor: TextureHandle | null;
-        private filterFramebuffer: Opaque | null;
-        private skyboxPipeline: Opaque | null;
-        private reflectPipeline: Opaque | null;
-        private bloomFilterPipeline: Opaque | null;
-        private compositionPipeline: Opaque | null;
-        private bloomCompositePipeline: Opaque | null;
+        private filterFramebuffer: FramebufferHandle | null;
+        private skyboxPipeline: GraphicsPipelineHandle | null;
+        private reflectPipeline: GraphicsPipelineHandle | null;
+        private bloomFilterPipeline: GraphicsPipelineHandle | null;
+        private compositionPipeline: GraphicsPipelineHandle | null;
+        private bloomCompositePipeline: GraphicsPipelineHandle | null;
         private bloomFilterBindingSet: BindingSet;
         private compositionBindingSet: BindingSet;
 
@@ -284,8 +284,8 @@ namespace TimestampQueries {
         // The skybox and the object, into the offscreen targets: reversed depth (greater passes),
         // counter-clockwise front faces. The sample's projection keeps its framebuffer
         // coordinates, so its cull modes too.
-        createModelPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, depthTestAndWrite: int,
-            cullMode: CullMode): Opaque {
+        createModelPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, depthTestAndWrite: int,
+            cullMode: CullMode): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.modelsBindingLayout);
@@ -400,7 +400,7 @@ namespace TimestampQueries {
             this.params[PARAMS_EXPOSURE] = this.exposure;
         }
 
-        drawModel(frame: Frame, pipeline: Opaque, framebuffer: Opaque, mesh: GltfMesh): void {
+        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, mesh: GltfMesh): void {
             frame.beginDrawToFramebuffer(pipeline, framebuffer);
             frame.drawAddBindingSet(this.modelsBindingSet);
             frame.drawAddVertexBuffer(mesh.getVertexBuffer(), 0, 0);

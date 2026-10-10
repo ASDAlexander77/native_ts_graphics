@@ -97,13 +97,13 @@ namespace FastBlockCompress {
 
     // One dispatch of the GPU compression.
     class CompressPass {
-        pipeline: Opaque;
+        pipeline: ComputePipelineHandle;
         bindingSet: BindingSet;
         groups: int;
         // BlockCompressConstants: 1 / the level's width.
         constants: f32[];
 
-        constructor(pipeline: Opaque, bindingSet: BindingSet, groups: int, oneOverTextureWidth: number) {
+        constructor(pipeline: ComputePipelineHandle, bindingSet: BindingSet, groups: int, oneOverTextureWidth: number) {
             this.pipeline = pipeline;
             this.bindingSet = bindingSet;
             this.groups = groups;
@@ -164,12 +164,12 @@ namespace FastBlockCompress {
         images: Image[];
         private pointSampler: SamplerHandle;
         // [format][kind]: format 0 BC1, 1 BC3, 2 BC5.
-        private compressPipelines: Opaque[];
+        private compressPipelines: ComputePipelineHandle[];
         private compressLayouts: BindingLayoutHandle[];
         private rmsLayout: BindingLayoutHandle;
         private rmsReduceLayout: BindingLayoutHandle;
-        private rmsErrorPipeline: Opaque;
-        private rmsReducePipeline: Opaque;
+        private rmsErrorPipeline: ComputePipelineHandle;
+        private rmsReducePipeline: ComputePipelineHandle;
         private reduceBufferA: BufferHandle;
         private reduceBufferB: BufferHandle;
         // Reduce passes from A into B, and from B into A.
@@ -181,7 +181,7 @@ namespace FastBlockCompress {
         private quadLayout: BindingLayoutHandle;
         private quadVS: ShaderHandle;
         private quadPS: ShaderHandle;
-        private quadPipeline: Opaque | null;
+        private quadPipeline: GraphicsPipelineHandle | null;
         private quadConstants: f32[];
         private timers: Opaque[];
         private timerPending: boolean[];
@@ -432,7 +432,7 @@ namespace FastBlockCompress {
             Donut_StoreInt32(Ref(this.quadConstants[9]), image.format == Format.BC5_UNORM ? 1 : 0);
 
             const vp = this.viewport(viewportIndex);
-            frame.beginDraw(this.quadPipeline as Opaque);
+            frame.beginDraw(this.quadPipeline as GraphicsPipelineHandle);
             frame.drawAddBindingSet(bindingSet);
             frame.drawSetViewport(vp[0], vp[1], vp[2], vp[3]);
             frame.drawVerticesWithPushConstants(3, Ref(this.quadConstants[0]), QUAD_CONSTANTS_FLOATS * 4);

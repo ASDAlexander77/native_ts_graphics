@@ -32,7 +32,7 @@ namespace AsyncCompute {
         private sampler: SamplerHandle;
         private computeLoop: AsyncComputeLoop;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
-        private graphicsPipeline: Opaque | null;
+        private graphicsPipeline: GraphicsPipelineHandle | null;
 
         constructor(app: App) {
             this.app = app;

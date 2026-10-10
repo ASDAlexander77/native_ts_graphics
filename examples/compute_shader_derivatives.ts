@@ -21,7 +21,7 @@ namespace ComputeShaderDerivatives {
         // Quads of 4 threads in a row rather than 2 x 2.
         useLinear: boolean;
 
-        private computePipeline: Opaque;
+        private computePipeline: ComputePipelineHandle;
         private computeBindingSet: BindingSet;
         private image: TextureHandle;
         private fullscreenVS: ShaderHandle;
@@ -31,8 +31,8 @@ namespace ComputeShaderDerivatives {
 
         // The back buffer's size: color (sRGB, as the sample's swapchain).
         private colorBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private graphicsPipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private graphicsPipeline: GraphicsPipelineHandle | null;
 
         constructor(app: App) {
             this.app = app;

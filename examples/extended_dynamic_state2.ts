@@ -250,14 +250,14 @@ namespace ExtendedDynamicState2 {
         // The depth buffer (reversed) and a framebuffer per back buffer, for the back buffers' size,
         // and the pipelines, made for them.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
-        private backgroundPipeline: Opaque;
-        private baselinePipeline: Opaque;
-        private biasedPipeline: Opaque;
-        private restartPipeline: Opaque;
-        private tessPipeline: Opaque;
+        private backgroundPipeline: GraphicsPipelineHandle;
+        private baselinePipeline: GraphicsPipelineHandle;
+        private biasedPipeline: GraphicsPipelineHandle;
+        private restartPipeline: GraphicsPipelineHandle;
+        private tessPipeline: GraphicsPipelineHandle;
 
         // Upload buffers.
         private commonConstants: f32[];
@@ -443,7 +443,7 @@ namespace ExtendedDynamicState2 {
         }
 
         // A draw of the shared buffers' range with a node's push constants.
-        drawNode(frame: Frame, pipeline: Opaque, framebuffer: Opaque, node: SceneNode, alpha: number): void {
+        drawNode(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, node: SceneNode, alpha: number): void {
             for (let i = 0; i < 16; i++) {
                 this.nodeConstants[i] = node.transform[i];
             }

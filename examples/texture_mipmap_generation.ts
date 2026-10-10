@@ -214,14 +214,14 @@ namespace TextureMipmapGeneration {
         mipLevels: int;
         private timer: number;
 
-        private pipeline: Opaque;
+        private pipeline: GraphicsPipelineHandle;
         private bindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
         private mesh: GltfMesh;
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
 

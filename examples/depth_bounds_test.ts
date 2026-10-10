@@ -24,9 +24,9 @@ namespace DepthBoundsTest {
         private hasTargets: boolean;
         private colorBuffer: TextureHandle;
         private depthBuffer: TextureHandle;
-        private framebuffer: Opaque;
-        private depthOnlyPipeline: Opaque;
-        private boundsPipeline: Opaque;
+        private framebuffer: FramebufferHandle;
+        private depthOnlyPipeline: GraphicsPipelineHandle;
+        private boundsPipeline: GraphicsPipelineHandle;
         // m_frameNumber, and the fraction of a step since.
         private frameNumber: int;
         private stepFraction: number;

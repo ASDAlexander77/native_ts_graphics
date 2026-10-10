@@ -494,10 +494,10 @@ namespace MobileNerfRayQuery {
         private modelOffsets: int[];
 
         // A framebuffer per back buffer, for the back buffers' size, and the pipeline made for them.
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
-        private pipeline: Opaque;
+        private pipeline: GraphicsPipelineHandle;
         private pipelineCreated: boolean;
 
         // Upload buffers.

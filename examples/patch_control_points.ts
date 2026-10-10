@@ -229,11 +229,11 @@ namespace PatchControlPoints {
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
         // pipelines made for them.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
-        private staticPipeline: Opaque;
-        private dynamicPipeline: Opaque;
+        private staticPipeline: GraphicsPipelineHandle;
+        private dynamicPipeline: GraphicsPipelineHandle;
         private pipelinesCreated: boolean;
 
         // Upload buffers.
@@ -297,7 +297,7 @@ namespace PatchControlPoints {
 
         // The sample's create_pipelines: patches of 3 control points, wireframe, front faces
         // (counter-clockwise) culled, alpha blended, reversed depth (greater).
-        createPipeline(): Opaque {
+        createPipeline(): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(this.vs, this.ps);
             desc.setTessellation(this.hs, this.ds, 3);
             desc.setInputLayout(this.inputLayout);
@@ -325,7 +325,7 @@ namespace PatchControlPoints {
             this.targetHeight = height;
         }
 
-        drawModel(frame: Frame, pipeline: Opaque, framebuffer: Opaque, bindingSet: BindingSet, model: int): void {
+        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, bindingSet: BindingSet, model: int): void {
             for (let i = 0; i < 3; i++) {
                 this.push[i] = DIRECTIONS[model * 3 + i];
             }

@@ -242,10 +242,10 @@ namespace FragmentShadingRateDynamic {
         private inputLayout: InputLayoutHandle;
         private skysphereMesh: GltfMesh;
         private sceneMesh: GltfMesh;
-        private skyspherePipeline: Opaque;
-        private cubePipeline: Opaque;
+        private skyspherePipeline: GraphicsPipelineHandle;
+        private cubePipeline: GraphicsPipelineHandle;
         private renderBindingLayout: BindingLayoutHandle;
-        private computePipeline: Opaque;
+        private computePipeline: ComputePipelineHandle;
         private computeBindingLayout: BindingLayoutHandle;
         private uniformBuffer: BufferHandle;
         private skysphereTexture: TextureHandle;
@@ -263,14 +263,14 @@ namespace FragmentShadingRateDynamic {
         private shadingRateImages: TextureHandle[];
         private shadingRateComputeImages: TextureHandle[];
         private frequencyImages: TextureHandle[];
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private renderBindingSets: BindingSet[];
         private computeBindingSets: BindingSet[];
         private depth: TextureHandle;
         private smallColor: TextureHandle;
         private smallFrequency: TextureHandle;
         private smallDepth: TextureHandle;
-        private smallFramebuffer: Opaque;
+        private smallFramebuffer: FramebufferHandle;
         private subpassWidth: int;
         private subpassHeight: int;
         private shadingRateWidth: int;
@@ -393,7 +393,7 @@ namespace FragmentShadingRateDynamic {
                 const frequency = this.own(this.app.createRenderTargetUAVTexture(width, height, Format.RG8_UINT, `Frequency ${i}`));
                 commandList.clearTextureUInt(frequency, 0);
                 this.frequencyImages.push(frequency);
-                this.framebuffers.push(this.own<ResourceHandle>(this.app.createFramebufferWithShadingRate(this.app.getBackBuffer(i), frequency,
+                this.framebuffers.push(this.own(this.app.createFramebufferWithShadingRate(this.app.getBackBuffer(i), frequency,
                     this.depth, shadingRateImage)));
             }
 
@@ -404,7 +404,7 @@ namespace FragmentShadingRateDynamic {
                 Format.RG8_UINT, "Subpass Frequency"));
             this.smallDepth = this.own(this.app.createDepthTexture(this.subpassWidth, this.subpassHeight, Format.D32, 0.0,
                 "Subpass Depth"));
-            this.smallFramebuffer = this.own<ResourceHandle>(this.app.createFramebufferWithShadingRate(this.smallColor, this.smallFrequency,
+            this.smallFramebuffer = this.own(this.app.createFramebufferWithShadingRate(this.smallColor, this.smallFrequency,
                 this.smallDepth, null));
 
             // The compute shader's parameters: the frequency (reduced size) and shading rate images'
@@ -479,7 +479,7 @@ namespace FragmentShadingRateDynamic {
 
         // The sample's build_command_buffer for one target: the sky sphere (if shown) and the three
         // cubes, each draw's shading rate the attachment's (Override) or the pipeline's 1x1.
-        drawScene(frame: Frame, framebuffer: Opaque, bindingSet: BindingSet, useAttachment: boolean): void {
+        drawScene(frame: Frame, framebuffer: FramebufferHandle, bindingSet: BindingSet, useAttachment: boolean): void {
             const imageCombiner = useAttachment ? ShadingRateCombiner.Override : ShadingRateCombiner.Passthrough;
             if (this.displaySkySphere) {
                 frame.beginDrawToFramebuffer(this.skyspherePipeline, framebuffer);

@@ -15,7 +15,7 @@ namespace MeshShading {
         private app: App;
         private meshShader: ShaderHandle;
         private pixelShader: ShaderHandle;
-        private pipeline: Opaque;
+        private pipeline: MeshletPipelineHandle;
         private pipelineCreated: boolean;
 
         constructor(app: App) {

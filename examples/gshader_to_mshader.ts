@@ -279,10 +279,10 @@ namespace GshaderToMshader {
         // The back buffer's size; created on the first frame and after a resize.
         private colorBuffer: TextureHandle | null;
         private depthBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private modelPipeline: Opaque | null;
-        private geometryPipeline: Opaque | null;
-        private meshPipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private modelPipeline: GraphicsPipelineHandle | null;
+        private geometryPipeline: GraphicsPipelineHandle | null;
+        private meshPipeline: MeshletPipelineHandle | null;
 
         // The UBO contents.
         private constants: f32[];

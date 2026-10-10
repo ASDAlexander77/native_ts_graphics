@@ -94,8 +94,8 @@ namespace Khr16BitArithmetic {
         native16Bit: boolean;
         private native16BitConstants: boolean;
 
-        private computeFP32: Opaque;
-        private computeFP16: Opaque | null;
+        private computeFP32: ComputePipelineHandle;
+        private computeFP16: ComputePipelineHandle | null;
         private computeBindingLayout: BindingLayoutHandle;
         private computeBindingLayoutFP16: BindingLayoutHandle;
         private computeBindingSet: BindingSet;
@@ -109,8 +109,8 @@ namespace Khr16BitArithmetic {
 
         // The back buffer's size: color (sRGB, as the sample's swapchain).
         private colorBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private visualizePipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private visualizePipeline: GraphicsPipelineHandle | null;
 
         private frameCount: int;
         private push32: f32[];

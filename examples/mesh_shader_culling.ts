@@ -71,7 +71,7 @@ namespace MeshShaderCulling {
         private meshShader: ShaderHandle;
         private pixelShader: ShaderHandle;
         private pipelineCreated: boolean;
-        private pipeline: Opaque;
+        private pipeline: MeshletPipelineHandle;
 
         private constants: f32[];
 

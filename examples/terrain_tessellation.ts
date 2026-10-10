@@ -102,10 +102,10 @@ namespace TerrainTessellation {
         // Created on the first frame (the size of the back buffer), dropped on resize.
         private colorBuffer: TextureHandle | null;
         private depthBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private terrainPipeline: Opaque | null;
-        private wireframePipeline: Opaque | null;
-        private skyPipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private terrainPipeline: GraphicsPipelineHandle | null;
+        private wireframePipeline: GraphicsPipelineHandle | null;
+        private skyPipeline: GraphicsPipelineHandle | null;
 
         // The TerrainConstants contents.
         private constants: f32[];
@@ -181,7 +181,7 @@ namespace TerrainTessellation {
         }
 
         // The terrain pipeline: quad patches, reversed depth (greater passes), back faces culled.
-        createTerrainPipeline(framebuffer: Opaque, fillMode: FillMode): Opaque {
+        createTerrainPipeline(framebuffer: FramebufferHandle, fillMode: FillMode): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(this.terrainVS, this.terrainPS);
             desc.setTessellation(this.terrainHS, this.terrainDS, PATCH_VERTICES);
             desc.addBindingLayout(this.bindingLayout);

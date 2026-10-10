@@ -33,17 +33,17 @@ namespace ColorWriteEnable {
         private colorR: TextureHandle;
         private colorG: TextureHandle;
         private colorB: TextureHandle;
-        private targetsFramebuffer: Opaque;
+        private targetsFramebuffer: FramebufferHandle;
         private compositionBindingSet: BindingSet;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
 
         // The triangle's pipelines by the enabled targets (bit 0 red, 1 green, 2 blue), made when
         // first needed; the composition's.
-        private trianglePipelines: Opaque[];
+        private trianglePipelines: (GraphicsPipelineHandle | null)[];
         private trianglePipelineMade: boolean[];
-        private compositionPipeline: Opaque;
+        private compositionPipeline: GraphicsPipelineHandle;
         private compositionPipelineMade: boolean;
 
         constructor(app: App) {
@@ -114,7 +114,7 @@ namespace ColorWriteEnable {
 
         // The sample's color pipeline: back faces (clockwise front faces) culled, no depth, no
         // blending; each target written in its one channel, or not at all when disabled.
-        trianglePipeline(enabled: int): Opaque {
+        trianglePipeline(enabled: int): GraphicsPipelineHandle {
             if (!this.trianglePipelineMade[enabled]) {
                 const desc = GraphicsPipelineDesc.create(this.triangleVS, this.trianglePS);
                 desc.setDepthState(0, 0, ComparisonFunc.Always);
@@ -125,7 +125,7 @@ namespace ColorWriteEnable {
                 this.trianglePipelines[enabled] = this.app.createGraphicsPipelineFromDesc(desc, this.targetsFramebuffer);
                 this.trianglePipelineMade[enabled] = true;
             }
-            return this.trianglePipelines[enabled];
+            return this.trianglePipelines[enabled] as GraphicsPipelineHandle;
         }
 
         onRender(frameHandle: FrameHandle): void {
@@ -170,7 +170,7 @@ namespace ColorWriteEnable {
             }
             for (let i = 0; i < 8; i++) {
                 this.trianglePipelineMade.push(false);
-                this.trianglePipelines.push(this.triangleVS);
+                this.trianglePipelines.push(null);
             }
 
             const layoutDesc = BindingLayoutDesc.create();

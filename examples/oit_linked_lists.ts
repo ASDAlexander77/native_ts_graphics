@@ -183,9 +183,9 @@ namespace OitLinkedLists {
 
         // Created on the first frame (the back buffer's layout).
         private pipelinesCreated: boolean;
-        private gatherPipeline: Opaque;
-        private backgroundPipeline: Opaque;
-        private combinePipeline: Opaque;
+        private gatherPipeline: GraphicsPipelineHandle;
+        private backgroundPipeline: GraphicsPipelineHandle;
+        private combinePipeline: GraphicsPipelineHandle;
 
         // The back buffer's size: the lists and the fragment buffer (0 x 0 until the first frame,
         // and after a resize).

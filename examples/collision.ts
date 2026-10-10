@@ -486,7 +486,7 @@ namespace Collision {
         private inputLayout: InputLayoutHandle;
         private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
-        private pipeline: Opaque | null;
+        private pipeline: GraphicsPipelineHandle | null;
         private constants: f32[];
 
         constructor(app: App) {
@@ -1036,7 +1036,7 @@ namespace Collision {
                 this.constants[i] = viewProjection[i];
             }
             frame.getCommandList().writeBuffer(this.vertexBuffer, Ref(this.vertices[0]), this.vertexCount * VERTEX_FLOATS * 4);
-            frame.beginDraw(this.pipeline as Opaque);
+            frame.beginDraw(this.pipeline as GraphicsPipelineHandle);
             frame.drawAddBindingSet(this.bindingSet);
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
             frame.drawVerticesWithPushConstants(this.vertexCount, Ref(this.constants[0]), 64);

@@ -132,14 +132,14 @@ namespace TextureCompressionComparison {
         compressTimeMs: number;
         totalBytes: number;
 
-        private pipeline: Opaque;
+        private pipeline: GraphicsPipelineHandle;
         private bindingLayout: BindingLayoutHandle;
         private constantBuffer: BufferHandle;
         private sampler: SamplerHandle;
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
 

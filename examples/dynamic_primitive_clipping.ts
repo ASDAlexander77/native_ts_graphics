@@ -183,10 +183,10 @@ namespace DynamicPrimitiveClipping {
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
         // pipelines without and with depth clipping, made for them.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
-        private pipelines: Opaque[];
+        private pipelines: GraphicsPipelineHandle[];
 
         // Upload buffer.
         private ubo: f32[];

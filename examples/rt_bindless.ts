@@ -59,7 +59,7 @@ namespace RtBindless {
         private shaderLibrary: ShaderLibraryHandle;
         // One of these two, depending on useRayQuery.
         private shaderTable: ShaderTable;
-        private computePipeline: Opaque;
+        private computePipeline: ComputePipelineHandle;
         // Created on the first frame, dropped on resize.
         private colorBuffer: TextureHandle | null;
         private bindingSet: BindingSet;

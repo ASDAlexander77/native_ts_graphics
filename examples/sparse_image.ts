@@ -378,11 +378,11 @@ namespace SparseImage {
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
         // Per level: a framebuffer of it (from 1), and a binding set reading it (to 3).
-        private mipFramebuffers: Opaque[];
+        private mipFramebuffers: FramebufferHandle[];
         private mipBindingSets: BindingSet[];
-        private mipPipeline: Opaque;
+        private mipPipeline: GraphicsPipelineHandle;
         private scenePipelineCreated: boolean;
-        private scenePipeline: Opaque;
+        private scenePipeline: GraphicsPipelineHandle;
         // The frame's command list holds work not executed yet.
         private pendingCommands: boolean;
         private started: boolean;

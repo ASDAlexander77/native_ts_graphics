@@ -65,12 +65,12 @@ namespace WaveIntrinsics {
         // The size-dependent ones, made on the first frame and on resizes.
         private hasTargets: boolean;
         private sceneTexture: TextureHandle;
-        private sceneFramebuffer: Opaque;
+        private sceneFramebuffer: FramebufferHandle;
         private uiTexture: TextureHandle;
-        private uiFramebuffer: Opaque;
-        private wavePipeline: Opaque;
+        private uiFramebuffer: FramebufferHandle;
+        private wavePipeline: GraphicsPipelineHandle;
         private hasComposePipeline: boolean;
-        private composePipeline: Opaque;
+        private composePipeline: GraphicsPipelineHandle;
         private sceneBindingSet: BindingSet;
         private composeBindingSet: BindingSet;
         private constants: f32[];

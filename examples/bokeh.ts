@@ -389,7 +389,7 @@ namespace Bokeh {
         private quadPointPS: ShaderHandle;
         private recombinePS: ShaderHandle;
         private copyPS: ShaderHandle;
-        private energyPipeline: Opaque;
+        private energyPipeline: ComputePipelineHandle;
         private energyBindingSet: BindingSet;
         private objectBindingSets: BindingSet[];
         // Frame-sized, made on the first frame and after each resize.
@@ -398,24 +398,24 @@ namespace Bokeh {
         private dofColor: TextureHandle | null;
         private rgbzCopy: TextureHandle | null;
         private rgbzHalfCopy: TextureHandle | null;
-        private sceneFramebuffer: Opaque | null;
-        private sceneColorFramebuffer: Opaque | null;
-        private dofFramebuffer: Opaque | null;
-        private rgbzFramebuffer: Opaque | null;
-        private rgbzHalfFramebuffer: Opaque | null;
+        private sceneFramebuffer: FramebufferHandle | null;
+        private sceneColorFramebuffer: FramebufferHandle | null;
+        private dofFramebuffer: FramebufferHandle | null;
+        private rgbzFramebuffer: FramebufferHandle | null;
+        private rgbzHalfFramebuffer: FramebufferHandle | null;
         private rgbzBindingSet: BindingSet;
         private downsampleBindingSet: BindingSet;
         private quadPointBindingSet: BindingSet;
         private recombineBindingSet: BindingSet;
         private copyBindingSet: BindingSet;
         // Made once, on the first frame.
-        private scenePipeline: Opaque | null;
-        private rgbzPipeline: Opaque | null;
-        private downsamplePipeline: Opaque | null;
-        private quadPointPipeline: Opaque | null;
-        private quadPointFastPipeline: Opaque | null;
-        private recombinePipeline: Opaque | null;
-        private copyPipeline: Opaque | null;
+        private scenePipeline: GraphicsPipelineHandle | null;
+        private rgbzPipeline: GraphicsPipelineHandle | null;
+        private downsamplePipeline: GraphicsPipelineHandle | null;
+        private quadPointPipeline: GraphicsPipelineHandle | null;
+        private quadPointFastPipeline: GraphicsPipelineHandle | null;
+        private recombinePipeline: GraphicsPipelineHandle | null;
+        private copyPipeline: GraphicsPipelineHandle | null;
         private dofHeight: int;
         private timers: Opaque[];
         private timerPending: boolean[];
@@ -773,14 +773,14 @@ namespace Bokeh {
             sceneDesc.setInputLayout(this.inputLayout);
             sceneDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
             sceneDesc.setRasterState(CullMode.Back, FillMode.Solid, 0);
-            this.scenePipeline = this.app.createGraphicsPipelineFromDesc(sceneDesc, this.sceneFramebuffer as Opaque);
+            this.scenePipeline = this.app.createGraphicsPipelineFromDesc(sceneDesc, this.sceneFramebuffer as FramebufferHandle);
 
             this.rgbzPipeline = this.app.createGraphicsPipelineFromDesc(this.fullScreenDesc(this.createRgbzPS, this.rgbzLayout),
-                this.rgbzFramebuffer as Opaque);
+                this.rgbzFramebuffer as FramebufferHandle);
             this.downsamplePipeline = this.app.createGraphicsPipelineFromDesc(
-                this.fullScreenDesc(this.downsampleRgbzPS, this.downsampleLayout), this.rgbzHalfFramebuffer as Opaque);
+                this.fullScreenDesc(this.downsampleRgbzPS, this.downsampleLayout), this.rgbzHalfFramebuffer as FramebufferHandle);
             this.recombinePipeline = this.app.createGraphicsPipelineFromDesc(
-                this.fullScreenDesc(this.recombinePS, this.recombineLayout), this.sceneColorFramebuffer as Opaque);
+                this.fullScreenDesc(this.recombinePS, this.recombineLayout), this.sceneColorFramebuffer as FramebufferHandle);
             this.copyPipeline = this.app.createGraphicsPipelineFromDescForFrame(this.fullScreenDesc(this.copyPS, this.copyLayout), frame);
 
             // The quad point PSOs: points expanded by the geometry shader, added together (One + One).
@@ -792,7 +792,7 @@ namespace Bokeh {
                 desc.setDepthState(0, 0, ComparisonFunc.Always);
                 desc.setRasterState(CullMode.None, FillMode.Solid, 0);
                 desc.setBlendState(1, BlendFactor.One, BlendFactor.One, BlendOp.Add, BlendFactor.One, BlendFactor.One, BlendOp.Add);
-                const pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.dofFramebuffer as Opaque);
+                const pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.dofFramebuffer as FramebufferHandle);
                 if (i == 0) {
                     this.quadPointPipeline = pipeline;
                 } else {
@@ -965,7 +965,7 @@ namespace Bokeh {
             for (let o = 0; o < OBJECT_COUNT; o++) {
                 const model = this.models[OBJECT_MODELS[o]];
                 for (let p = 0; p < model.partIndexCounts.length; p++) {
-                    frame.beginDrawToFramebuffer(this.scenePipeline as Opaque, this.sceneFramebuffer as Opaque);
+                    frame.beginDrawToFramebuffer(this.scenePipeline as GraphicsPipelineHandle, this.sceneFramebuffer as FramebufferHandle);
                     frame.drawAddBindingSet(this.objectBindingSets[o]);
                     frame.drawAddVertexBuffer(model.vertexBuffers[model.partVertexBuffers[p]], 0, 0);
                     const ib = model.partIndexBuffers[p];
@@ -989,18 +989,18 @@ namespace Bokeh {
             commandList.clearTextureFloat(this.dofColor as TextureHandle, 0.0, 0.0, 0.0, 0.0);
 
             // copy out the source
-            frame.beginDrawToFramebuffer(this.rgbzPipeline as Opaque, this.rgbzFramebuffer as Opaque);
+            frame.beginDrawToFramebuffer(this.rgbzPipeline as GraphicsPipelineHandle, this.rgbzFramebuffer as FramebufferHandle);
             frame.drawAddBindingSet(this.rgbzBindingSet);
             frame.drawVertices(3);
 
             // downsample
-            frame.beginDrawToFramebuffer(this.downsamplePipeline as Opaque, this.rgbzHalfFramebuffer as Opaque);
+            frame.beginDrawToFramebuffer(this.downsamplePipeline as GraphicsPipelineHandle, this.rgbzHalfFramebuffer as FramebufferHandle);
             frame.drawAddBindingSet(this.downsampleBindingSet);
             frame.drawVertices(3);
 
             // prepare the multi-viewport dof render target: split into slices, do the CoC DOF
-            frame.beginDrawToFramebuffer((this.useFastShader ? this.quadPointFastPipeline : this.quadPointPipeline) as Opaque,
-                this.dofFramebuffer as Opaque);
+            frame.beginDrawToFramebuffer((this.useFastShader ? this.quadPointFastPipeline : this.quadPointPipeline) as GraphicsPipelineHandle,
+                this.dofFramebuffer as FramebufferHandle);
             frame.drawAddBindingSet(this.quadPointBindingSet);
             for (let i = 0; i < 6; i++) {
                 frame.drawAddViewport(this.viewportValue(i, 0, width, height), this.viewportValue(i, 1, width, height),
@@ -1010,7 +1010,7 @@ namespace Bokeh {
             frame.drawVertices(Math.floor(width * height / (FIRST_DOWNSAMPLE * FIRST_DOWNSAMPLE * 2 * 2)));
 
             // combine the resulting viewports
-            frame.beginDrawToFramebuffer(this.recombinePipeline as Opaque, this.sceneColorFramebuffer as Opaque);
+            frame.beginDrawToFramebuffer(this.recombinePipeline as GraphicsPipelineHandle, this.sceneColorFramebuffer as FramebufferHandle);
             frame.drawAddBindingSet(this.recombineBindingSet);
             frame.drawVertices(3);
 
@@ -1019,7 +1019,7 @@ namespace Bokeh {
             //------------------------------
             // Copy
             commandList.beginTimerQuery(this.timer(TI_COPY));
-            frame.beginDraw(this.copyPipeline as Opaque);
+            frame.beginDraw(this.copyPipeline as GraphicsPipelineHandle);
             frame.drawAddBindingSet(this.copyBindingSet);
             frame.drawVertices(3);
             commandList.endTimerQuery(this.timer(TI_COPY));

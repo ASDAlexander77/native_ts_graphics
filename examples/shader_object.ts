@@ -300,18 +300,18 @@ namespace ShaderObjectSample {
         // its framebuffer, and its binding sets (one per output image read).
         private outputImages: TextureHandle[];
         private depthImages: TextureHandle[];
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private postImage: TextureHandle;
-        private postFramebuffer: Opaque;
+        private postFramebuffer: FramebufferHandle;
         private postBindingSets: BindingSet[];
         private targetWidth: int;
         private targetHeight: int;
 
         // The pipelines made so far: pipelineIndex[key] into pipelineList, -1 until made (key: the
         // combination, the output and depth formats, wireframe); post-processing's, made once.
-        private pipelineList: Opaque[];
+        private pipelineList: GraphicsPipelineHandle[];
         private pipelineIndex: int[];
-        private postPipelines: Opaque[];
+        private postPipelines: GraphicsPipelineHandle[];
         private postPipelinesCreated: boolean;
 
         // The sample's state.
@@ -592,7 +592,7 @@ namespace ShaderObjectSample {
         // A scene pipeline: the sample's set_initial_state (counter-clockwise front faces, depth
         // tested greater: reversed, the polygon mode) with the draw's shaders, cull mode and depth
         // writes; depth clipped, as Vulkan does.
-        getPipeline(combo: int, framebuffer: Opaque): Opaque {
+        getPipeline(combo: int, framebuffer: FramebufferHandle): GraphicsPipelineHandle {
             const wireframe: int = this.wireframeMode ? 1 : 0;
             const key = ((combo * this.outputFormats.length + this.currentOutputFormat) * this.depthFormats.length
                 + this.currentDepthFormat) * 2 + wireframe;
@@ -644,7 +644,7 @@ namespace ShaderObjectSample {
             }
         }
 
-        drawMesh(frame: Frame, combo: int, framebuffer: Opaque, mesh: GltfMesh): void {
+        drawMesh(frame: Frame, combo: int, framebuffer: FramebufferHandle, mesh: GltfMesh): void {
             frame.beginDrawToFramebuffer(this.getPipeline(combo, framebuffer), framebuffer);
             frame.drawAddBindingSet(this.sceneBindingSet);
             frame.drawSetIndexBuffer(mesh.getIndexBuffer());
@@ -654,14 +654,14 @@ namespace ShaderObjectSample {
 
         // The sample's bind_material_shader: its vertex, geometry (if the geometry pass is
         // enabled) and fragment shaders.
-        drawMaterial(frame: Frame, framebuffer: Opaque, index: int, mesh: GltfMesh, model: number[]): void {
+        drawMaterial(frame: Frame, framebuffer: FramebufferHandle, index: int, mesh: GltfMesh, model: number[]): void {
             this.setModel(model);
             const geo = this.enableGeometryPass ? this.currentMaterialGeo[index] : GEOMETRY_NONE;
             const combo = COMBO_MATERIAL + (this.currentMaterialVert[index] * 4 + geo) * 4 + this.currentMaterialFrag[index];
             this.drawMesh(frame, combo, framebuffer, mesh);
         }
 
-        drawBasic(frame: Frame, framebuffer: Opaque, index: int, mesh: GltfMesh, model: number[]): void {
+        drawBasic(frame: Frame, framebuffer: FramebufferHandle, index: int, mesh: GltfMesh, model: number[]): void {
             this.setModel(model);
             this.drawMesh(frame, COMBO_BASIC + this.currentBasicLinkedShaders[index], framebuffer, mesh);
         }

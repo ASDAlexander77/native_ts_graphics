@@ -190,9 +190,9 @@ namespace FragmentShadingRate {
         private targetHeight: int;
         private shadingRateImage: TextureHandle;
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
-        private skyspherePipeline: Opaque;
-        private cubePipeline: Opaque;
+        private framebuffers: FramebufferHandle[];
+        private skyspherePipeline: GraphicsPipelineHandle;
+        private cubePipeline: GraphicsPipelineHandle;
         private pipelinesCreated: boolean;
 
         // Upload buffers.

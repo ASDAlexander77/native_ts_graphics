@@ -78,7 +78,7 @@ namespace SimpleCompute {
     // modes), shown until the worker's first run after a switch to async compute.
     class SimpleComputePass {
         private app: App;
-        private computePipeline: Opaque;
+        private computePipeline: ComputePipelineHandle;
         private syncTexture: TextureHandle;
         private syncBindingSet: BindingSet;
         private computeLoop: AsyncComputeLoop;

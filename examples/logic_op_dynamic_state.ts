@@ -148,11 +148,11 @@ namespace LogicOpDynamicState {
         // and as the cube's logic operation takes them (UINT on D3D).
         private colorBuffer: TextureHandle | null;
         private depthBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private uintFramebuffer: Opaque | null;
-        private backgroundPipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private uintFramebuffer: FramebufferHandle | null;
+        private backgroundPipeline: GraphicsPipelineHandle | null;
         // A pipeline per logic operation, created when first drawn.
-        private baselinePipelines: (Opaque | null)[];
+        private baselinePipelines: (GraphicsPipelineHandle | null)[];
 
         private constants: f32[];
         private baselineConstants: f32[];
@@ -289,7 +289,7 @@ namespace LogicOpDynamicState {
 
         // The cube's pipeline for a logic operation, for its view of the color target (UINT on D3D):
         // clockwise front faces, the logic operation instead of blending.
-        getBaselinePipeline(framebuffer: Opaque, logicOp: int): Opaque | null {
+        getBaselinePipeline(framebuffer: FramebufferHandle, logicOp: int): GraphicsPipelineHandle | null {
             const existing = this.baselinePipelines[logicOp];
             if (existing) {
                 return existing;

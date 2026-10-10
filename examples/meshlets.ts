@@ -14,7 +14,7 @@ namespace Meshlets {
         private meshShader: ShaderHandle;
         private pixelShader: ShaderHandle;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
-        private pipeline: Opaque | null;
+        private pipeline: MeshletPipelineHandle | null;
 
         constructor(app: App) {
             this.app = app;

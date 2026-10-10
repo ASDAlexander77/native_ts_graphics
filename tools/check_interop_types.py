@@ -65,6 +65,12 @@ HANDLES = {
     "nvrhi::BindingLayoutDesc": "BindingLayoutDescHandle",
     "nvrhi::BindlessLayoutDesc": "BindlessLayoutDescHandle",
     "donut::engine::DescriptorTableManager": "DescriptorTableManagerHandle",
+    "nvrhi::IFramebuffer": "FramebufferHandle",
+    "FramebufferFactoryRef": "FramebufferFactoryHandle",
+    "nvrhi::IGraphicsPipeline": "GraphicsPipelineHandle",
+    "nvrhi::IComputePipeline": "ComputePipelineHandle",
+    "nvrhi::IMeshletPipeline": "MeshletPipelineHandle",
+    "PipelineDesc": "GraphicsPipelineDescHandle",
 }
 
 # Parameters declared narrower than their C++ type: (function, parameter) -> (C++ type, TypeScript

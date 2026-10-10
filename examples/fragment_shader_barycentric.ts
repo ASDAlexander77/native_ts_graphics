@@ -126,9 +126,9 @@ namespace FragmentShaderBarycentric {
         // The back buffer's size: color (sRGB, as the sample's swapchain) and depth targets.
         private colorBuffer: TextureHandle | null;
         private depthBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private skyboxPipeline: Opaque | null;
-        private objectPipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private skyboxPipeline: GraphicsPipelineHandle | null;
+        private objectPipeline: GraphicsPipelineHandle | null;
 
         private constants: f32[];
         private pushConstants: int[];
@@ -216,7 +216,7 @@ namespace FragmentShaderBarycentric {
         // The sample's pipelines: no depth test or writes (the skybox is drawn first),
         // counter-clockwise front faces; back faces culled for the skybox, front faces for the
         // object. The sample's projection keeps its framebuffer coordinates, so its cull modes too.
-        createPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, cullMode: CullMode): Opaque {
+        createPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, cullMode: CullMode): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.bindingLayout);
@@ -255,7 +255,7 @@ namespace FragmentShaderBarycentric {
             }
         }
 
-        drawModel(frame: Frame, pipeline: Opaque, framebuffer: Opaque, bindingSet: BindingSet, mesh: GltfMesh): void {
+        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, bindingSet: BindingSet, mesh: GltfMesh): void {
             frame.beginDrawToFramebuffer(pipeline, framebuffer);
             frame.drawAddBindingSet(bindingSet);
             frame.drawAddVertexBuffer(mesh.getVertexBuffer(), 0, 0);

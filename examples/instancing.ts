@@ -100,10 +100,10 @@ namespace Instancing {
         // Created on the first frame (the size of the back buffer), dropped on resize.
         private colorBuffer: TextureHandle | null;
         private depthBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private rocksPipeline: Opaque | null;
-        private planetPipeline: Opaque | null;
-        private starfieldPipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private rocksPipeline: GraphicsPipelineHandle | null;
+        private planetPipeline: GraphicsPipelineHandle | null;
+        private starfieldPipeline: GraphicsPipelineHandle | null;
 
         // The UBO contents.
         private constants: f32[];
@@ -193,7 +193,7 @@ namespace Instancing {
         }
 
         // The rocks and the planet: reversed depth (greater passes), back faces culled.
-        createMeshPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle): Opaque {
+        createMeshPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(inputLayout);
             desc.addBindingLayout(this.bindingLayout);

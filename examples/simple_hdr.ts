@@ -131,13 +131,13 @@ namespace SimpleHdr {
         private convertConstants: f32[];
         // Window-sized, made on the first frame and after each resize.
         private hdrScene: TextureHandle | null;
-        private hdrSceneFramebuffer: Opaque | null;
+        private hdrSceneFramebuffer: FramebufferHandle | null;
         private sceneBindingSet: BindingSet;
         private convertBindingSet: BindingSet;
-        private rectPipeline: Opaque | null;
-        private linePipeline: Opaque | null;
-        private hdr10Pipeline: Opaque | null;
-        private sdrPipeline: Opaque | null;
+        private rectPipeline: GraphicsPipelineHandle | null;
+        private linePipeline: GraphicsPipelineHandle | null;
+        private hdr10Pipeline: GraphicsPipelineHandle | null;
+        private sdrPipeline: GraphicsPipelineHandle | null;
         private lastWidth: int;
         private lastHeight: int;
         private colorSpaceCheck: number;
@@ -305,7 +305,7 @@ namespace SimpleHdr {
             this.drawConstants[9] = Math.fround(-2.0 / LAYOUT_HEIGHT);
             this.drawConstants[10] = -1.0;
             this.drawConstants[11] = 1.0;
-            frame.beginDrawToFramebuffer(this.rectPipeline as Opaque, this.hdrSceneFramebuffer as Opaque);
+            frame.beginDrawToFramebuffer(this.rectPipeline as GraphicsPipelineHandle, this.hdrSceneFramebuffer as FramebufferHandle);
             frame.drawAddBindingSet(this.sceneBindingSet);
             frame.drawVerticesWithPushConstants(6, Ref(this.drawConstants[0]), DRAW_CONSTANTS_FLOATS * 4);
         }
@@ -389,7 +389,7 @@ namespace SimpleHdr {
             this.drawConstants[9] = Math.fround(reciprocalHeight + reciprocalHeight);
             this.drawConstants[10] = Math.fround(-viewportWidth * reciprocalWidth);
             this.drawConstants[11] = Math.fround(-viewportHeight * reciprocalHeight);
-            frame.beginDrawToFramebuffer(this.linePipeline as Opaque, this.hdrSceneFramebuffer as Opaque);
+            frame.beginDrawToFramebuffer(this.linePipeline as GraphicsPipelineHandle, this.hdrSceneFramebuffer as FramebufferHandle);
             frame.drawAddBindingSet(this.sceneBindingSet);
             frame.drawSetViewport(startX * scale, startY * scale, viewportWidth, viewportHeight);
             frame.drawVerticesWithPushConstants(n, Ref(this.drawConstants[0]), DRAW_CONSTANTS_FLOATS * 4);
@@ -407,7 +407,7 @@ namespace SimpleHdr {
             rectDesc.addBindingLayout(this.sceneLayout);
             rectDesc.setDepthState(0, 0, ComparisonFunc.Always);
             rectDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
-            this.rectPipeline = this.app.createGraphicsPipelineFromDesc(rectDesc, this.hdrSceneFramebuffer as Opaque);
+            this.rectPipeline = this.app.createGraphicsPipelineFromDesc(rectDesc, this.hdrSceneFramebuffer as FramebufferHandle);
 
             const lineDesc = GraphicsPipelineDesc.create(this.lineVS, this.colorPS);
             lineDesc.addBindingLayout(this.sceneLayout);
@@ -419,7 +419,7 @@ namespace SimpleHdr {
             }
             lineDesc.setDepthState(0, 0, ComparisonFunc.Always);
             lineDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
-            this.linePipeline = this.app.createGraphicsPipelineFromDesc(lineDesc, this.hdrSceneFramebuffer as Opaque);
+            this.linePipeline = this.app.createGraphicsPipelineFromDesc(lineDesc, this.hdrSceneFramebuffer as FramebufferHandle);
 
             for (let i = 0; i < 2; i++) {
                 const desc = GraphicsPipelineDesc.create(this.quadVS, i == 0 ? this.hdr10PS : this.sdrPS);
@@ -495,7 +495,7 @@ namespace SimpleHdr {
             if (!pipeline || this.convertBindingSet.isNull()) {
                 return;
             }
-            frame.beginDraw(pipeline as Opaque);
+            frame.beginDraw(pipeline as GraphicsPipelineHandle);
             frame.drawAddBindingSet(this.convertBindingSet);
             frame.drawVerticesWithPushConstants(3, Ref(this.convertConstants[0]), 16);
         }

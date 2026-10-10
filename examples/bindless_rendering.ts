@@ -52,9 +52,9 @@ namespace BindlessRendering {
         // The sample draws into the device manager's D24S8 depth buffer; here a depth texture and a
         // framebuffer per back buffer, created on the first frame and dropped on resize.
         private depth: TextureHandle | null;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         // Created with the framebuffers (the sample drops it on resize too).
-        private pipeline: Opaque | null;
+        private pipeline: GraphicsPipelineHandle | null;
         // Passed to View.setPlanarView, 16 floats each.
         private viewMatrix: f32[];
         private projMatrix: f32[];
@@ -160,7 +160,7 @@ namespace BindlessRendering {
             this.view.fillPlanarViewConstants(Ref(this.viewConstantsData[0]));
             commandList.writeBuffer(this.viewConstants, Ref(this.viewConstantsData[0]), this.viewConstantsSize);
 
-            const pipeline = this.pipeline as Opaque;
+            const pipeline = this.pipeline as GraphicsPipelineHandle;
             const framebuffer = this.framebuffers[index];
             const constants = this.instanceConstants;
             const instanceCount = this.sceneGraph.getMeshInstanceCount();

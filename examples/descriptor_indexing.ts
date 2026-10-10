@@ -90,11 +90,11 @@ namespace DescriptorIndexing {
         benchmark: boolean;
 
         // A framebuffer per back buffer, for the back buffers' size, and the pipelines made for them.
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
-        private nonUniformPipeline: Opaque;
-        private updateAfterBindPipeline: Opaque;
+        private nonUniformPipeline: GraphicsPipelineHandle;
+        private updateAfterBindPipeline: GraphicsPipelineHandle;
         private pipelinesCreated: boolean;
 
         // Upload buffer.
@@ -136,7 +136,7 @@ namespace DescriptorIndexing {
         }
 
         // The sample's pipelines: triangle strips, no culling, no depth, no blending.
-        createPipeline(vs: ShaderHandle, ps: ShaderHandle): Opaque {
+        createPipeline(vs: ShaderHandle, ps: ShaderHandle): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.setPrimitiveType(PrimitiveType.TriangleStrip);
             desc.addBindingLayout(this.bindingLayout);

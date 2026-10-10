@@ -35,9 +35,9 @@ namespace PredicationQueries {
         private hasTargets: boolean;
         private colorBuffer: TextureHandle;
         private depthBuffer: TextureHandle;
-        private framebuffer: Opaque;
-        private pipeline: Opaque;
-        private queryPipeline: Opaque;
+        private framebuffer: FramebufferHandle;
+        private pipeline: GraphicsPipelineHandle;
+        private queryPipeline: GraphicsPipelineHandle;
         private nearOffset: f32[];
         // The far quad's: no offset.
         private farOffset: f32[];
@@ -124,7 +124,7 @@ namespace PredicationQueries {
         }
 
         // A quad: four vertices from `first` of the vertex buffer, with a quad's constants.
-        beginQuad(frame: Frame, pipeline: Opaque, bindingSet: BindingSet, first: int): void {
+        beginQuad(frame: Frame, pipeline: GraphicsPipelineHandle, bindingSet: BindingSet, first: int): void {
             frame.beginDrawToFramebuffer(pipeline, this.framebuffer);
             frame.drawAddBindingSet(bindingSet);
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, first * VERTEX_STRIDE);

@@ -337,16 +337,16 @@ namespace DynamicRenderingLocalRead {
         private normal: TextureHandle;
         private albedo: TextureHandle;
         private depth: TextureHandle;
-        private gbufferFramebuffer: Opaque;
-        private compositionFramebuffers: Opaque[];
-        private transparentFramebuffers: Opaque[];
+        private gbufferFramebuffer: FramebufferHandle;
+        private compositionFramebuffers: FramebufferHandle[];
+        private transparentFramebuffers: FramebufferHandle[];
         private compositionBindingSet: BindingSet;
         private transparentBindingSet: BindingSet;
         private targetWidth: int;
         private targetHeight: int;
-        private opaquePipeline: Opaque;
-        private compositionPipeline: Opaque;
-        private transparentPipeline: Opaque;
+        private opaquePipeline: GraphicsPipelineHandle;
+        private compositionPipeline: GraphicsPipelineHandle;
+        private transparentPipeline: GraphicsPipelineHandle;
         private pipelinesCreated: boolean;
 
         // Upload buffers.
@@ -425,13 +425,13 @@ namespace DynamicRenderingLocalRead {
             this.normal = this.own(this.app.createRenderTargetTexture(width, height, Format.RGBA16_FLOAT, "Normal"));
             this.albedo = this.own(this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "Albedo"));
             this.depth = this.own(this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth"));
-            this.gbufferFramebuffer = this.own<ResourceHandle>(this.app.createFramebufferWithThreeTargets(this.positionDepth, this.normal, this.albedo,
+            this.gbufferFramebuffer = this.own(this.app.createFramebufferWithThreeTargets(this.positionDepth, this.normal, this.albedo,
                 this.depth));
             const count = this.app.getBackBufferCount();
             for (let i = 0; i < count; i++) {
                 const backBuffer = this.app.getBackBuffer(i);
-                this.compositionFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(backBuffer, null)));
-                this.transparentFramebuffers.push(this.own<ResourceHandle>(this.app.createFramebuffer(backBuffer, this.depth)));
+                this.compositionFramebuffers.push(this.own(this.app.createFramebuffer(backBuffer, null)));
+                this.transparentFramebuffers.push(this.own(this.app.createFramebuffer(backBuffer, this.depth)));
             }
 
             const compositionDesc = BindingSetDesc.create();
@@ -507,7 +507,7 @@ namespace DynamicRenderingLocalRead {
             this.lightsDirty = true;
         }
 
-        drawScene(frame: Frame, scene: Scene, pipeline: Opaque, framebuffer: Opaque, bindingSet: BindingSet): void {
+        drawScene(frame: Frame, scene: Scene, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, bindingSet: BindingSet): void {
             for (let d = 0; d < scene.indexCount.length; d++) {
                 for (let i = 0; i < PUSH_FLOATS; i++) {
                     this.push[i] = scene.push[d * PUSH_FLOATS + i];

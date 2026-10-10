@@ -176,10 +176,10 @@ namespace RasterizationOrderAttachmentAccess {
 
         // Created on the first frame (the back buffer's layout).
         private pipelinesCreated: boolean;
-        private backgroundPipeline: Opaque;
-        private blendPipeline: Opaque;
-        private blendRovPipeline: Opaque;
-        private displayPipeline: Opaque;
+        private backgroundPipeline: GraphicsPipelineHandle;
+        private blendPipeline: GraphicsPipelineHandle;
+        private blendRovPipeline: GraphicsPipelineHandle;
+        private displayPipeline: GraphicsPipelineHandle;
 
         // The back buffer's size: the color texture and the binding sets that use it.
         private width: int;

@@ -191,12 +191,12 @@ namespace VertexDynamicState {
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
         // pipelines made for them: the skybox's, and the object's for each vertex layout.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
-        private skyboxPipeline: Opaque;
-        private modelPipeline: Opaque;
-        private sampleModelPipeline: Opaque;
+        private skyboxPipeline: GraphicsPipelineHandle;
+        private modelPipeline: GraphicsPipelineHandle;
+        private sampleModelPipeline: GraphicsPipelineHandle;
         private pipelinesCreated: boolean;
 
         // Upload buffer.
@@ -250,7 +250,7 @@ namespace VertexDynamicState {
         // The sample's create_pipeline: the skybox without depth, back faces culled
         // (counter-clockwise front faces); the object with depth tested (greater: reversed) and
         // written, front faces culled.
-        createPipeline(vs: ShaderHandle, ps: ShaderHandle, inputLayout: InputLayoutHandle, object: boolean): Opaque {
+        createPipeline(vs: ShaderHandle, ps: ShaderHandle, inputLayout: InputLayoutHandle, object: boolean): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.setInputLayout(inputLayout);
             desc.addBindingLayout(this.bindingLayout);
@@ -276,7 +276,7 @@ namespace VertexDynamicState {
             this.targetHeight = height;
         }
 
-        draw(frame: Frame, pipeline: Opaque, framebuffer: Opaque, vertexBuffer: BufferHandle, indexBuffer: BufferHandle, indexCount: int): void {
+        draw(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, vertexBuffer: BufferHandle, indexBuffer: BufferHandle, indexCount: int): void {
             frame.beginDrawToFramebuffer(pipeline, framebuffer);
             frame.drawAddBindingSet(this.bindingSet);
             frame.drawSetIndexBuffer(indexBuffer);

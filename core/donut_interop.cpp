@@ -835,10 +835,6 @@ namespace
     donut::engine::IView* AsView(void* view) { return static_cast<donut::engine::IView*>(view); }
     donut::engine::SceneGraph* AsSceneGraph(void* sceneGraph) { return static_cast<donut::engine::SceneGraph*>(sceneGraph); }
     SceneRenderTargets* AsSceneRenderTargets(void* targets) { return static_cast<SceneRenderTargets*>(targets); }
-    const std::shared_ptr<donut::engine::FramebufferFactory>& AsFramebufferFactory(void* framebuffer)
-    {
-        return *static_cast<std::shared_ptr<donut::engine::FramebufferFactory>*>(framebuffer);
-    }
 
     // Returned strings that aren't stored in a Donut object stay valid until the next call of the
     // same function.
@@ -2940,7 +2936,7 @@ extern "C"
 
     // Triangle-list pipeline without depth test, for the frame's framebuffer layout; recreate it
     // after the back buffer is resized. Returns null on failure.
-    void* Donut_CreateGraphicsPipeline(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
+    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipeline(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
     {
         nvrhi::GraphicsPipelineDesc desc;
         desc.VS = vertexShader;
@@ -2980,7 +2976,7 @@ extern "C"
     // Amplification + mesh + pixel shader pipeline (triangle list, no depth test) for the frame's
     // framebuffer layout; recreate it after the back buffer is resized. Requires
     // nvrhi::Feature::Meshlets. Returns null on failure.
-    void* Donut_CreateMeshletPipeline(App* app, FrameContext* frame, nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
+    nvrhi::IMeshletPipeline* Donut_CreateMeshletPipeline(App* app, FrameContext* frame, nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
     {
         nvrhi::MeshletPipelineDesc desc;
         desc.AS = amplificationShader;
@@ -3289,7 +3285,7 @@ extern "C"
     }
 
     // Compute pipeline with one binding layout (Donut_CreateBindingLayout). Returns null on failure.
-    void* Donut_CreateComputePipelineWithLayout(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout)
+    nvrhi::IComputePipeline* Donut_CreateComputePipelineWithLayout(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
@@ -3300,7 +3296,7 @@ extern "C"
     }
 
     // Same, with a second binding layout (e.g. a bindless layout; null for none).
-    void* Donut_CreateComputePipelineWithLayouts(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout)
+    nvrhi::IComputePipeline* Donut_CreateComputePipelineWithLayouts(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
@@ -3313,7 +3309,7 @@ extern "C"
     }
 
     // Compute pipeline using the layout of bindingSet. Returns null on failure.
-    void* Donut_CreateComputePipeline(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingSet* bindingSet)
+    nvrhi::IComputePipeline* Donut_CreateComputePipeline(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingSet* bindingSet)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
@@ -4146,7 +4142,7 @@ extern "C"
 
     // Triangle list, no depth test, for the frame's framebuffer layout, with an input layout
     // and one binding layout. Returns null on failure.
-    void* Donut_CreateGraphicsPipelineWithLayouts(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithLayouts(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout)
     {
         nvrhi::GraphicsPipelineDesc desc;
@@ -4164,7 +4160,7 @@ extern "C"
     // Pipeline without depth test for the frame's framebuffer layout, drawing primitiveType (an
     // nvrhi::PrimitiveType value), with an optional input layout and an optional binding layout
     // (null for either means none). Returns null on failure.
-    void* Donut_CreateGraphicsPipelineWithTopology(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithTopology(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout, int primitiveType)
     {
         nvrhi::GraphicsPipelineDesc desc;
@@ -4239,7 +4235,7 @@ extern "C"
 
     // Same, blending into the framebuffer with blendMode (a BlendMode value, see SetBlendMode).
     // Returns null on failure.
-    void* Donut_CreateGraphicsPipelineWithBlend(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithBlend(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout, int primitiveType, int blendMode)
     {
         nvrhi::GraphicsPipelineDesc desc;
@@ -4484,7 +4480,7 @@ extern "C"
     // Framebuffer of one color target and an optional depth target (null for none), textures from
     // Donut_CreateRenderTargetTexture. Draw into it with Donut_BeginDrawToFramebuffer. Returns null
     // on failure.
-    void* Donut_CreateFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* depthTexture)
+    nvrhi::IFramebuffer* Donut_CreateFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(colorTexture);
         if (depthTexture)
@@ -4497,7 +4493,7 @@ extern "C"
     // Same, the color target seen in colorFormat (an nvrhi::Format value of the texture's family:
     // e.g. RGBA8_UINT or RGBA8_UNORM for a typeless SRGBA8_UNORM texture,
     // Donut_CreateTypelessRenderTargetTexture).
-    void* Donut_CreateFramebufferWithColorFormat(App* app, nvrhi::ITexture* colorTexture, int colorFormat, nvrhi::ITexture* depthTexture)
+    nvrhi::IFramebuffer* Donut_CreateFramebufferWithColorFormat(App* app, nvrhi::ITexture* colorTexture, int colorFormat, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
             .setTexture(colorTexture)
@@ -4510,7 +4506,7 @@ extern "C"
     }
 
     // Framebuffer of a depth target alone (e.g. a shadow map). Returns null on failure.
-    void* Donut_CreateDepthFramebuffer(App* app, nvrhi::ITexture* depthTexture)
+    nvrhi::IFramebuffer* Donut_CreateDepthFramebuffer(App* app, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().setDepthAttachment(depthTexture);
 
@@ -4519,7 +4515,7 @@ extern "C"
     }
 
     // Same, with two color targets (SV_Target0 and SV_Target1).
-    void* Donut_CreateFramebufferWithTwoTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture)
+    nvrhi::IFramebuffer* Donut_CreateFramebufferWithTwoTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc()
             .addColorAttachment(colorTexture0)
@@ -4532,7 +4528,7 @@ extern "C"
     }
 
     // Same, with three color targets (SV_Target0 to SV_Target2).
-    void* Donut_CreateFramebufferWithThreeTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* colorTexture2,
+    nvrhi::IFramebuffer* Donut_CreateFramebufferWithThreeTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* colorTexture2,
         nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc()
@@ -4548,7 +4544,7 @@ extern "C"
 
     // Framebuffer of one level of a color target (e.g. of Donut_CreateTiledTexture), to draw into
     // while sampling another level (Donut_BindTextureSRVMip). Returns null on failure.
-    void* Donut_CreateFramebufferForMip(App* app, nvrhi::ITexture* colorTexture, int mipLevel)
+    nvrhi::IFramebuffer* Donut_CreateFramebufferForMip(App* app, nvrhi::ITexture* colorTexture, int mipLevel)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
             .setTexture(colorTexture)
@@ -4958,7 +4954,7 @@ extern "C"
     // layout and one binding layout, and NVRHI's default render state: depth test (less) and
     // depth writes on, back faces culled (clockwise triangles are front faces). Returns null on
     // failure.
-    void* Donut_CreateGraphicsPipelineForFramebuffer(App* app, void* framebuffer, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineForFramebuffer(App* app, nvrhi::IFramebuffer* framebuffer, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout)
     {
         nvrhi::GraphicsPipelineDesc desc;
@@ -4970,14 +4966,14 @@ extern "C"
 
         App* a = app;
         return a->Own(a->device()->createGraphicsPipeline(desc,
-            static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo()));
+            framebuffer->getFramebufferInfo()));
     }
 
     // Graphics pipelines of any shape: a description built up with the Donut_GraphicsPipeline*
     // functions below, then consumed (freed) by Donut_CreateGraphicsPipelineFromDesc. It starts as
     // a triangle list with NVRHI's default render state: depth test (less) and depth writes on,
     // back faces culled (clockwise triangles are front faces), solid fill, no blending.
-    void* Donut_CreateGraphicsPipelineDesc(nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
+    PipelineDesc* Donut_CreateGraphicsPipelineDesc(nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
     {
         auto* desc = new PipelineDesc();
         desc->VS = vertexShader;
@@ -4989,7 +4985,7 @@ extern "C"
     // Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (optional),
     // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the
     // mesh shader outputs (its outputtopology).
-    void* Donut_CreateMeshletPipelineDesc(nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
+    PipelineDesc* Donut_CreateMeshletPipelineDesc(nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
     {
         auto* desc = new PipelineDesc();
         desc->AS = amplificationShader;
@@ -4999,39 +4995,34 @@ extern "C"
         return desc;
     }
 
-    static PipelineDesc* AsGraphicsPipelineDesc(void* graphicsPipelineDesc)
-    {
-        return static_cast<PipelineDesc*>(graphicsPipelineDesc);
-    }
-
     // A geometry shader between the vertex (or domain) shader and the rasterizer.
-    void Donut_GraphicsPipelineSetGeometryShader(void* graphicsPipelineDesc, nvrhi::IShader* geometryShader)
+    void Donut_GraphicsPipelineSetGeometryShader(PipelineDesc* graphicsPipelineDesc, nvrhi::IShader* geometryShader)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->GS = geometryShader;
+        graphicsPipelineDesc->GS = geometryShader;
     }
 
-    void Donut_GraphicsPipelineAddBindingLayout(void* graphicsPipelineDesc, nvrhi::IBindingLayout* bindingLayout)
+    void Donut_GraphicsPipelineAddBindingLayout(PipelineDesc* graphicsPipelineDesc, nvrhi::IBindingLayout* bindingLayout)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->bindingLayouts.push_back(
+        graphicsPipelineDesc->bindingLayouts.push_back(
             bindingLayout);
     }
 
-    void Donut_GraphicsPipelineSetInputLayout(void* graphicsPipelineDesc, nvrhi::IInputLayout* inputLayout)
+    void Donut_GraphicsPipelineSetInputLayout(PipelineDesc* graphicsPipelineDesc, nvrhi::IInputLayout* inputLayout)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->inputLayout = inputLayout;
+        graphicsPipelineDesc->inputLayout = inputLayout;
     }
 
     // primitiveType: an nvrhi::PrimitiveType value.
-    void Donut_GraphicsPipelineSetPrimitiveType(void* graphicsPipelineDesc, int primitiveType)
+    void Donut_GraphicsPipelineSetPrimitiveType(PipelineDesc* graphicsPipelineDesc, int primitiveType)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
+        graphicsPipelineDesc->primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
     }
 
     // Hull and domain shaders, drawing patches of controlPoints vertices.
-    void Donut_GraphicsPipelineSetTessellation(void* graphicsPipelineDesc, nvrhi::IShader* hullShader, nvrhi::IShader* domainShader,
+    void Donut_GraphicsPipelineSetTessellation(PipelineDesc* graphicsPipelineDesc, nvrhi::IShader* hullShader, nvrhi::IShader* domainShader,
         int controlPoints)
     {
-        PipelineDesc* desc = AsGraphicsPipelineDesc(graphicsPipelineDesc);
+        PipelineDesc* desc = graphicsPipelineDesc;
         desc->HS =hullShader;
         desc->DS = domainShader;
         desc->primType = nvrhi::PrimitiveType::PatchList;
@@ -5042,9 +5033,9 @@ extern "C"
         && int(nvrhi::ComparisonFunc::Always) == 8);
 
     // depthFunc: an nvrhi::ComparisonFunc value.
-    void Donut_GraphicsPipelineSetDepthState(void* graphicsPipelineDesc, int testEnable, int writeEnable, int depthFunc)
+    void Donut_GraphicsPipelineSetDepthState(PipelineDesc* graphicsPipelineDesc, int testEnable, int writeEnable, int depthFunc)
     {
-        nvrhi::DepthStencilState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.depthStencilState;
+        nvrhi::DepthStencilState& state = graphicsPipelineDesc->renderState.depthStencilState;
         state.depthTestEnable = testEnable != 0;
         state.depthWriteEnable = writeEnable != 0;
         state.depthFunc = static_cast<nvrhi::ComparisonFunc>(depthFunc);
@@ -5052,9 +5043,9 @@ extern "C"
 
     // The depth bounds test: pixels whose depth target value is outside the draw's bounds
     // (Donut_DrawSetDepthBounds) are discarded. Requires Donut_HasDepthBoundsTest.
-    void Donut_GraphicsPipelineSetDepthBoundsTest(void* graphicsPipelineDesc, int enable)
+    void Donut_GraphicsPipelineSetDepthBoundsTest(PipelineDesc* graphicsPipelineDesc, int enable)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.depthStencilState.depthBoundsTestEnable = enable != 0;
+        graphicsPipelineDesc->renderState.depthStencilState.depthBoundsTestEnable = enable != 0;
     }
 
     static_assert(int(nvrhi::RasterCullMode::Back) == 0 && int(nvrhi::RasterCullMode::Front) == 1
@@ -5062,10 +5053,10 @@ extern "C"
     static_assert(int(nvrhi::RasterFillMode::Solid) == 0 && int(nvrhi::RasterFillMode::Wireframe) == 1);
 
     // cullMode, fillMode: nvrhi::RasterCullMode and nvrhi::RasterFillMode values.
-    void Donut_GraphicsPipelineSetRasterState(void* graphicsPipelineDesc, int cullMode, int fillMode,
+    void Donut_GraphicsPipelineSetRasterState(PipelineDesc* graphicsPipelineDesc, int cullMode, int fillMode,
         int frontCounterClockwise)
     {
-        nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
+        nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
         state.cullMode = static_cast<nvrhi::RasterCullMode>(cullMode);
         state.fillMode = static_cast<nvrhi::RasterFillMode>(fillMode);
         state.frontCounterClockwise = frontCounterClockwise != 0;
@@ -5074,17 +5065,17 @@ extern "C"
     // Whether primitives are clipped at the near and far planes (Vulkan's default, as without
     // VK_EXT_depth_clip_enable) or not (NVRHI's default: on D3D, depth beyond them is clamped and
     // what's between the eye and the near plane drawn). Off by default.
-    void Donut_GraphicsPipelineSetDepthClip(void* graphicsPipelineDesc, int enable)
+    void Donut_GraphicsPipelineSetDepthClip(PipelineDesc* graphicsPipelineDesc, int enable)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState.depthClipEnable = enable != 0;
+        graphicsPipelineDesc->renderState.rasterState.depthClipEnable = enable != 0;
     }
 
     // Depth bias: depthBias units of the depth format's resolution, plus slopeScaledDepthBias times
     // the triangle's depth slope, clamped to depthBiasClamp in magnitude (0 for no clamp).
-    void Donut_GraphicsPipelineSetDepthBias(void* graphicsPipelineDesc, int depthBias, double depthBiasClamp,
+    void Donut_GraphicsPipelineSetDepthBias(PipelineDesc* graphicsPipelineDesc, int depthBias, double depthBiasClamp,
         double slopeScaledDepthBias)
     {
-        nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
+        nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
         state.depthBias = depthBias;
         state.depthBiasClamp = float(depthBiasClamp);
         state.slopeScaledDepthBias = float(slopeScaledDepthBias);
@@ -5094,9 +5085,9 @@ extern "C"
     // pixel a triangle touches at all is drawn. extraOverestimation enlarges the triangles further,
     // in pixels, on Vulkan (extraPrimitiveOverestimationSize, clamped to the device's maximum); D3D
     // has no such setting.
-    void Donut_GraphicsPipelineSetConservativeRaster(void* graphicsPipelineDesc, int enable, double extraOverestimation)
+    void Donut_GraphicsPipelineSetConservativeRaster(PipelineDesc* graphicsPipelineDesc, int enable, double extraOverestimation)
     {
-        nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
+        nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
         state.conservativeRasterEnable = enable != 0;
         state.conservativeRasterExtraOverestimation = float(extraOverestimation);
     }
@@ -5104,9 +5095,9 @@ extern "C"
     // Primitive restart: strips restart at the largest index of indexFormat (Format R16_UINT:
     // 0xFFFF, R32_UINT: 0xFFFFFFFF; UNKNOWN for none), the format of the index buffers the pipeline
     // draws with (D3D12 needs it; D3D11 always restarts strips).
-    void Donut_GraphicsPipelineSetPrimitiveRestart(void* graphicsPipelineDesc, int indexFormat)
+    void Donut_GraphicsPipelineSetPrimitiveRestart(PipelineDesc* graphicsPipelineDesc, int indexFormat)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->primitiveRestartIndexFormat = static_cast<nvrhi::Format>(indexFormat);
+        graphicsPipelineDesc->primitiveRestartIndexFormat = static_cast<nvrhi::Format>(indexFormat);
     }
 
     // How lines are drawn: their rasterization mode (LineRasterizationMode: 0 default, 1
@@ -5115,10 +5106,10 @@ extern "C"
     // 16-bit pattern, from the lowest, a run of stippleFactor pixels drawn if set). D3D draws
     // rectangular lines as quadrilateral lines (multisampling on), Bresenham ones aliased, smooth ones
     // alpha antialiased; it has no width or stipple.
-    void Donut_GraphicsPipelineSetLineRasterization(void* graphicsPipelineDesc, int mode, double width, int stippleEnable,
+    void Donut_GraphicsPipelineSetLineRasterization(PipelineDesc* graphicsPipelineDesc, int mode, double width, int stippleEnable,
         int stippleFactor, int stipplePattern)
     {
-        nvrhi::RasterState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.rasterState;
+        nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
         state.lineRasterizationMode = static_cast<nvrhi::LineRasterizationMode>(mode);
         state.lineWidth = float(width);
         state.setLineStipple(stippleEnable != 0, uint32_t(stippleFactor), uint16_t(stipplePattern));
@@ -5128,43 +5119,43 @@ extern "C"
 
     // Which channels every color target writes: ColorMask bits (red 1, green 2, blue 4, alpha 8; 0 for
     // none, e.g. for a pass whose pixel shader only writes UAVs).
-    void Donut_GraphicsPipelineSetColorWriteMask(void* graphicsPipelineDesc, int mask)
+    void Donut_GraphicsPipelineSetColorWriteMask(PipelineDesc* graphicsPipelineDesc, int mask)
     {
-        for (nvrhi::BlendState::RenderTarget& target : AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets)
+        for (nvrhi::BlendState::RenderTarget& target : graphicsPipelineDesc->renderState.blendState.targets)
             target.setColorWriteMask(static_cast<nvrhi::ColorMask>(mask));
     }
 
     // The channels one render target (SV_Target<target>) is written in (ColorMask bits; 0 writes
     // nothing to it).
-    void Donut_GraphicsPipelineSetTargetColorWriteMask(void* graphicsPipelineDesc, int target, int mask)
+    void Donut_GraphicsPipelineSetTargetColorWriteMask(PipelineDesc* graphicsPipelineDesc, int target, int mask)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets[target]
+        graphicsPipelineDesc->renderState.blendState.targets[target]
             .setColorWriteMask(static_cast<nvrhi::ColorMask>(mask));
     }
 
     // A logic operation (a LogicOp value: nvrhi::LogicOp, Vulkan's order) between the pixel shader's
     // output and the targets' bits, instead of blending (Donut_HasLogicOps; UINT and UNORM targets).
-    void Donut_GraphicsPipelineSetLogicOp(void* graphicsPipelineDesc, int enable, int logicOp)
+    void Donut_GraphicsPipelineSetLogicOp(PipelineDesc* graphicsPipelineDesc, int enable, int logicOp)
     {
-        nvrhi::BlendState& state = AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState;
+        nvrhi::BlendState& state = graphicsPipelineDesc->renderState.blendState;
         state.logicOpEnable = enable != 0;
         state.logicOp = static_cast<nvrhi::LogicOp>(logicOp);
     }
 
     // Blending of every color target with blendMode (a BlendMode value, see SetBlendMode).
-    void Donut_GraphicsPipelineSetBlendMode(void* graphicsPipelineDesc, int blendMode)
+    void Donut_GraphicsPipelineSetBlendMode(PipelineDesc* graphicsPipelineDesc, int blendMode)
     {
-        for (nvrhi::BlendState::RenderTarget& target : AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets)
+        for (nvrhi::BlendState::RenderTarget& target : graphicsPipelineDesc->renderState.blendState.targets)
             SetBlendMode(target, blendMode);
     }
 
     // Blending of every color target, on or off (enable), by blend factors (nvrhi::BlendFactor
     // values) and operations (nvrhi::BlendOp values) of the color and of the alpha. The color
     // write mask stays.
-    void Donut_GraphicsPipelineSetBlendState(void* graphicsPipelineDesc, int enable, int srcBlend, int destBlend,
+    void Donut_GraphicsPipelineSetBlendState(PipelineDesc* graphicsPipelineDesc, int enable, int srcBlend, int destBlend,
         int blendOp, int srcBlendAlpha, int destBlendAlpha, int blendOpAlpha)
     {
-        for (nvrhi::BlendState::RenderTarget& target : AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.targets)
+        for (nvrhi::BlendState::RenderTarget& target : graphicsPipelineDesc->renderState.blendState.targets)
         {
             target
                 .setBlendEnable(enable != 0)
@@ -5182,34 +5173,34 @@ extern "C"
     // VK_BLEND_OP_ZERO_EXT (0 Zero, 1 Src, ... 45 Blue; -1 for none), whether the source and the
     // destination colors are premultiplied by their alpha, and their overlap (VkBlendOverlapEXT:
     // 0 uncorrelated, 1 disjoint, 2 conjoint).
-    void Donut_GraphicsPipelineSetAdvancedBlendOp(void* graphicsPipelineDesc, int advancedBlendOp, int srcPremultiplied,
+    void Donut_GraphicsPipelineSetAdvancedBlendOp(PipelineDesc* graphicsPipelineDesc, int advancedBlendOp, int srcPremultiplied,
         int dstPremultiplied, int overlap)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->renderState.blendState.setAdvancedBlendOp(
+        graphicsPipelineDesc->renderState.blendState.setAdvancedBlendOp(
             static_cast<int8_t>(advancedBlendOp), srcPremultiplied != 0, dstPremultiplied != 0, static_cast<uint8_t>(overlap));
     }
 
     // For a framebuffer's layout (Donut_CreateFramebuffer); frees the description. Returns null on
     // failure.
-    void* Donut_CreateGraphicsPipelineFromDesc(App* app, void* graphicsPipelineDesc, void* framebuffer)
+    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineFromDesc(App* app, PipelineDesc* graphicsPipelineDesc, nvrhi::IFramebuffer* framebuffer)
     {
-        std::unique_ptr<PipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        std::unique_ptr<PipelineDesc> desc(graphicsPipelineDesc);
         App* a = app;
         return a->Own(a->device()->createGraphicsPipeline(*desc,
-            static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo()));
+            framebuffer->getFramebufferInfo()));
     }
 
     // Same, for the frame's framebuffer (the back buffer's layout); frees the description. Returns
     // null on failure.
-    void* Donut_CreateGraphicsPipelineFromDescForFrame(App* app, void* graphicsPipelineDesc, FrameContext* frame)
+    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineFromDescForFrame(App* app, PipelineDesc* graphicsPipelineDesc, FrameContext* frame)
     {
-        std::unique_ptr<PipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        std::unique_ptr<PipelineDesc> desc(graphicsPipelineDesc);
         App* a = app;
         return a->Own(a->device()->createGraphicsPipeline(*desc, frame->framebuffer->getFramebufferInfo()));
     }
 
     // Owned by the app; null on failure.
-    static void* CreateMeshletPipeline(App* a, const PipelineDesc& desc, const nvrhi::FramebufferInfo& framebufferInfo)
+    static nvrhi::IMeshletPipeline* CreateMeshletPipeline(App* a, const PipelineDesc& desc, const nvrhi::FramebufferInfo& framebufferInfo)
     {
         nvrhi::MeshletPipelineDesc meshletDesc;
         meshletDesc.primType = desc.primType;
@@ -5223,16 +5214,16 @@ extern "C"
 
     // A meshlet pipeline from a Donut_CreateMeshletPipelineDesc description (which it frees), for a
     // framebuffer's layout; requires nvrhi::Feature::Meshlets. Returns null on failure.
-    void* Donut_CreateMeshletPipelineFromDesc(App* app, void* graphicsPipelineDesc, void* framebuffer)
+    nvrhi::IMeshletPipeline* Donut_CreateMeshletPipelineFromDesc(App* app, PipelineDesc* graphicsPipelineDesc, nvrhi::IFramebuffer* framebuffer)
     {
-        std::unique_ptr<PipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
-        return CreateMeshletPipeline(app, *desc, static_cast<nvrhi::IFramebuffer*>(framebuffer)->getFramebufferInfo());
+        std::unique_ptr<PipelineDesc> desc(graphicsPipelineDesc);
+        return CreateMeshletPipeline(app, *desc, framebuffer->getFramebufferInfo());
     }
 
     // Same, for the frame's framebuffer (the back buffer's layout).
-    void* Donut_CreateMeshletPipelineFromDescForFrame(App* app, void* graphicsPipelineDesc, FrameContext* frame)
+    nvrhi::IMeshletPipeline* Donut_CreateMeshletPipelineFromDescForFrame(App* app, PipelineDesc* graphicsPipelineDesc, FrameContext* frame)
     {
-        std::unique_ptr<PipelineDesc> desc(AsGraphicsPipelineDesc(graphicsPipelineDesc));
+        std::unique_ptr<PipelineDesc> desc(graphicsPipelineDesc);
         return CreateMeshletPipeline(app, *desc, frame->framebuffer->getFramebufferInfo());
     }
 
@@ -5252,7 +5243,7 @@ extern "C"
     // counting from 0) as push constants at b0; the binding layout must hold exactly those two.
     // Give it textures with Donut_AddAsyncComputeTexture, then start it. Returns null if the
     // device has no compute queue.
-    void* Donut_CreateAsyncComputeLoop(App* app, void* computePipeline, nvrhi::IBindingLayout* bindingLayout,
+    void* Donut_CreateAsyncComputeLoop(App* app, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingLayout* bindingLayout,
         int groupsX, int groupsY, int intervalMicroseconds)
     {
         App* a = app;
@@ -5262,7 +5253,7 @@ extern "C"
 
         auto loop = std::make_shared<AsyncComputeLoop>();
         loop->device = device;
-        loop->pipeline = static_cast<nvrhi::IComputePipeline*>(computePipeline);
+        loop->pipeline = computePipeline;
         loop->bindingLayout = bindingLayout;
         loop->groupsX = static_cast<uint32_t>(groupsX);
         loop->groupsY = static_cast<uint32_t>(groupsY);
@@ -5377,11 +5368,11 @@ extern "C"
     // Draws vertexCount vertices (no vertex buffers, e.g. a triangle over the target from
     // SV_VertexID) with a graphics pipeline into a framebuffer, all of it, with one binding set:
     // for drawing outside the frames, e.g. into a texture's levels at load time.
-    void Donut_CommandListDraw(nvrhi::ICommandList* commandList, void* pipeline, void* framebuffer, nvrhi::IBindingSet* bindingSet, int vertexCount)
+    void Donut_CommandListDraw(nvrhi::ICommandList* commandList, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer, nvrhi::IBindingSet* bindingSet, int vertexCount)
     {
-        auto* fb = static_cast<nvrhi::IFramebuffer*>(framebuffer);
+        auto* fb = framebuffer;
         nvrhi::GraphicsState state;
-        state.pipeline = static_cast<nvrhi::IGraphicsPipeline*>(pipeline);
+        state.pipeline = pipeline;
         state.framebuffer = fb;
         state.viewport.addViewportAndScissorRect(fb->getFramebufferInfo().getViewport());
         if (bindingSet)
@@ -5434,11 +5425,11 @@ extern "C"
 
     // Same as Donut_Dispatch, with a descriptor table (Donut_GetDescriptorTable) bound after the
     // binding set, for pipelines with a bindless layout second.
-    void Donut_DispatchWithDescriptorTable(nvrhi::ICommandList* commandList, void* computePipeline, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
+    void Donut_DispatchWithDescriptorTable(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
         int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
-            .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
+            .setPipeline(computePipeline)
             .addBindingSet(bindingSet)
             .addBindingSet(descriptorTable);
 
@@ -5447,10 +5438,10 @@ extern "C"
         cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
     }
 
-    void Donut_Dispatch(nvrhi::ICommandList* commandList, void* computePipeline, nvrhi::IBindingSet* bindingSet, int groupsX, int groupsY, int groupsZ)
+    void Donut_Dispatch(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet, int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
-            .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
+            .setPipeline(computePipeline)
             .addBindingSet(bindingSet);
 
         nvrhi::ICommandList* cl = commandList;
@@ -5460,11 +5451,11 @@ extern "C"
 
     // Same, with byteSize bytes of push constants from data (the binding set's
     // Donut_BindPushConstants item).
-    void Donut_DispatchWithPushConstants(nvrhi::ICommandList* commandList, void* computePipeline, nvrhi::IBindingSet* bindingSet,
+    void Donut_DispatchWithPushConstants(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
         const void* data, int byteSize, int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
-            .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
+            .setPipeline(computePipeline)
             .addBindingSet(bindingSet);
 
         nvrhi::ICommandList* cl = commandList;
@@ -5618,9 +5609,9 @@ extern "C"
     // Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the
     // back buffer, from the next frame on; null: the back buffer again. Passes added after the
     // ImGui pass draw after it (e.g. one that takes that framebuffer's texture to the back buffer).
-    void Donut_SetImGuiPassFramebuffer(void* imguiPass, void* framebuffer)
+    void Donut_SetImGuiPassFramebuffer(void* imguiPass, nvrhi::IFramebuffer* framebuffer)
     {
-        static_cast<TsImGuiPass*>(imguiPass)->m_Framebuffer = static_cast<nvrhi::IFramebuffer*>(framebuffer);
+        static_cast<TsImGuiPass*>(imguiPass)->m_Framebuffer = framebuffer;
     }
 
     // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space to activate, Escape),
@@ -7623,9 +7614,9 @@ extern "C"
     // Variable rate shading in a graphics pipeline (Feature::VariableRateShading): its draws take
     // their shading rate from the draw state (Donut_DrawSetVariableRateShading), combined with a
     // framebuffer's shading rate surface.
-    void Donut_GraphicsPipelineSetVariableRateShading(void* graphicsPipelineDesc, int enabled)
+    void Donut_GraphicsPipelineSetVariableRateShading(PipelineDesc* graphicsPipelineDesc, int enabled)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->shadingRateState.setEnabled(enabled != 0);
+        graphicsPipelineDesc->shadingRateState.setEnabled(enabled != 0);
     }
 
     // The draw state's shading rate (after Donut_BeginDraw*; its pipeline needs
@@ -7654,7 +7645,7 @@ extern "C"
     // for none) whose draws can take their shading rates from shadingRateSurface
     // (Donut_CreateShadingRateSurface, a texel per Donut_GetShadingRateTileSize square of pixels).
     // Returns null on failure.
-    void* Donut_CreateFramebufferWithShadingRate(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture,
+    nvrhi::IFramebuffer* Donut_CreateFramebufferWithShadingRate(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture,
         nvrhi::ITexture* shadingRateSurface)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(colorTexture0);
@@ -7784,7 +7775,7 @@ extern "C"
     // broadcasting entry node entryNodeName overridden with gridX x gridY x gridZ. Creates its
     // backing memory too. Release it with Donut_ReleaseObject. Returns null (after logging why) on
     // failure.
-    void* Donut_CreateD3D12WorkGraph(App* app, nvrhi::IShaderLibrary* shaderLibrary, void* computePipeline, const char* programName,
+    void* Donut_CreateD3D12WorkGraph(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IComputePipeline* computePipeline, const char* programName,
         const char* entryNodeName, int gridX, int gridY, int gridZ)
     {
 #if DONUT_WITH_DX12
@@ -7808,7 +7799,7 @@ extern "C"
         const std::wstring entryNode = Widen(entryNodeName);
         D3D12_SHADER_BYTECODE libraryCode = {};
         shaderLibrary->getBytecode(&libraryCode.pShaderBytecode, &libraryCode.BytecodeLength);
-        ID3D12RootSignature* rootSignature = static_cast<nvrhi::IComputePipeline*>(computePipeline)->getNativeObject(
+        ID3D12RootSignature* rootSignature = computePipeline->getNativeObject(
             nvrhi::ObjectTypes::D3D12_RootSignature);
 
         // The state object: the library, the graph (every node in the library), and the root
@@ -7870,7 +7861,7 @@ extern "C"
     // record no more dispatches with it after the graph in the command list (NVRHI believes it is
     // still bound). initializeBackingMemory: non-zero the first time the graph's backing memory is
     // used, or after another graph used it.
-    void Donut_DispatchD3D12WorkGraph(nvrhi::ICommandList* commandList, void* workGraph, void* computePipeline, nvrhi::IBindingSet* bindingSet,
+    void Donut_DispatchD3D12WorkGraph(nvrhi::ICommandList* commandList, void* workGraph, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
         const void* data, int byteSize, int initializeBackingMemory)
     {
 #if DONUT_WITH_DX12
@@ -7879,7 +7870,7 @@ extern "C"
 
         // Bindings (and the barriers they need) through NVRHI.
         cl->setComputeState(nvrhi::ComputeState()
-            .setPipeline(static_cast<nvrhi::IComputePipeline*>(computePipeline))
+            .setPipeline(computePipeline)
             .addBindingSet(bindingSet));
         if (byteSize > 0)
             cl->setPushConstants(data, static_cast<size_t>(byteSize));
@@ -8431,7 +8422,7 @@ extern "C"
         SceneFramebuffer_MaterialIDs = 5, // material IDs and depth
     };
 
-    void* Donut_GetSceneRenderTargetsFramebuffer(void* sceneRenderTargets, int which)
+    FramebufferFactoryRef* Donut_GetSceneRenderTargetsFramebuffer(void* sceneRenderTargets, int which)
     {
         auto* targets = AsSceneRenderTargets(sceneRenderTargets);
         switch (which)
@@ -8598,7 +8589,7 @@ extern "C"
     // Donut_GetDepthResolveModes) where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI
     // ends a render pass at every barrier, so a pass with several may resolve several times, with
     // the same result. Returns null on failure.
-    void* Donut_CreateResolveFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* colorResolveTexture, nvrhi::ITexture* depthTexture,
+    nvrhi::IFramebuffer* Donut_CreateResolveFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* colorResolveTexture, nvrhi::ITexture* depthTexture,
         nvrhi::ITexture* depthResolveTexture, int depthResolveMode)
     {
         auto desc = nvrhi::FramebufferDesc();
@@ -9041,7 +9032,7 @@ extern "C"
     // pass into a framebuffer, as seen by view; previousView (or null) is for motion vectors.
     // `name` labels the GPU marker; materialEvents != 0 adds one per material.
     void Donut_RenderForward(nvrhi::ICommandList* commandList, void* forwardShadingPass, void* forwardShadingContext, void* view,
-        void* previousView, void* framebuffer, void* sceneGraph, int transparent, const char* name, int materialEvents)
+        void* previousView, FramebufferFactoryRef* framebuffer, void* sceneGraph, int transparent, const char* name, int materialEvents)
     {
         donut::render::InstancedOpaqueDrawStrategy opaqueStrategy;
         donut::render::TransparentDrawStrategy transparentStrategy;
@@ -9049,7 +9040,7 @@ extern "C"
             ? static_cast<donut::render::IDrawStrategy&>(transparentStrategy) : opaqueStrategy;
 
         donut::render::RenderCompositeView(commandList, AsView(view),
-            previousView ? AsView(previousView) : nullptr, *AsFramebufferFactory(framebuffer),
+            previousView ? AsView(previousView) : nullptr, **framebuffer,
             AsSceneGraph(sceneGraph)->GetRootNode(), strategy, *static_cast<donut::render::ForwardShadingPass*>(forwardShadingPass),
             *static_cast<donut::render::ForwardShadingPass::Context*>(forwardShadingContext), name, materialEvents != 0);
     }
@@ -9155,21 +9146,21 @@ extern "C"
     }
 
     // Donut's procedural sky, drawn where the framebuffer's depth is still clear.
-    void* Donut_CreateSkyPass(App* app, void* framebuffer, void* view)
+    void* Donut_CreateSkyPass(App* app, FramebufferFactoryRef* framebuffer, void* view)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::SkyPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
-            AsFramebufferFactory(framebuffer), *AsView(view)));
+            *framebuffer, *AsView(view)));
     }
 
     // Donut's environment map background: a lat-long (2D) or cube map texture drawn where the
     // framebuffer's depth is still clear. The view must be set up first (its depth direction picks
     // the pipeline).
-    void* Donut_CreateEnvironmentMapPass(App* app, void* framebuffer, void* view, nvrhi::ITexture* environmentMap)
+    void* Donut_CreateEnvironmentMapPass(App* app, FramebufferFactoryRef* framebuffer, void* view, nvrhi::ITexture* environmentMap)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::EnvironmentMapPass>(a->device(), a->shaderFactory,
-            a->sharedCommonPasses(), AsFramebufferFactory(framebuffer), *AsView(view),
+            a->sharedCommonPasses(), *framebuffer, *AsView(view),
             environmentMap));
     }
 
@@ -9252,14 +9243,14 @@ extern "C"
 
     // Donut's tone mapping with eye adaptation, into a framebuffer. Pass the tone mapping pass
     // this one replaces (or null) to keep its adapted exposure.
-    void* Donut_CreateToneMappingPass(App* app, void* framebuffer, void* view, void* previousToneMappingPass)
+    void* Donut_CreateToneMappingPass(App* app, FramebufferFactoryRef* framebuffer, void* view, void* previousToneMappingPass)
     {
         App* a = app;
         donut::render::ToneMappingPass::CreateParameters params;
         if (previousToneMappingPass)
             params.exposureBufferOverride = static_cast<donut::render::ToneMappingPass*>(previousToneMappingPass)->GetExposureBuffer();
         return a->OwnObject(std::make_shared<donut::render::ToneMappingPass>(a->device(), a->shaderFactory,
-            a->sharedCommonPasses(), AsFramebufferFactory(framebuffer), *AsView(view), params));
+            a->sharedCommonPasses(), *framebuffer, *AsView(view), params));
     }
 
     // Once per frame, with the frame time in seconds (for eye adaptation).
@@ -9290,18 +9281,18 @@ extern "C"
     }
 
     // Donut's bloom, blended into a framebuffer's color.
-    void* Donut_CreateBloomPass(App* app, void* framebuffer, void* view)
+    void* Donut_CreateBloomPass(App* app, FramebufferFactoryRef* framebuffer, void* view)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::BloomPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
-            AsFramebufferFactory(framebuffer), *AsView(view)));
+            *framebuffer, *AsView(view)));
     }
 
     // Blurs sourceTexture (Gaussian sigma in pixels) and adds it to the framebuffer, weighted by alpha.
-    void Donut_RenderBloom(nvrhi::ICommandList* commandList, void* bloomPass, void* framebuffer, void* view, nvrhi::ITexture* sourceTexture,
+    void Donut_RenderBloom(nvrhi::ICommandList* commandList, void* bloomPass, FramebufferFactoryRef* framebuffer, void* view, nvrhi::ITexture* sourceTexture,
         double sigma, double alpha)
     {
-        static_cast<donut::render::BloomPass*>(bloomPass)->Render(commandList, AsFramebufferFactory(framebuffer),
+        static_cast<donut::render::BloomPass*>(bloomPass)->Render(commandList, *framebuffer,
             *AsView(view), sourceTexture, float(sigma), float(alpha));
     }
 
@@ -9550,7 +9541,7 @@ extern "C"
         return view;
     }
 
-    void* Donut_GetLightProbeCaptureFramebuffer(void* lightProbeCapture)
+    FramebufferFactoryRef* Donut_GetLightProbeCaptureFramebuffer(void* lightProbeCapture)
     {
         return &static_cast<LightProbeCapture*>(lightProbeCapture)->framebuffer;
     }
@@ -9677,12 +9668,12 @@ extern "C"
     }
 
     // Draws vertexCount vertices with no vertex buffers, over the whole framebuffer.
-    void Donut_Draw(FrameContext* frame, void* pipeline, int vertexCount)
+    void Donut_Draw(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline, int vertexCount)
     {
         FrameContext* ctx = frame;
 
         nvrhi::GraphicsState state;
-        state.pipeline = static_cast<nvrhi::IGraphicsPipeline*>(pipeline);
+        state.pipeline = pipeline;
         state.framebuffer = ctx->framebuffer;
         state.viewport.addViewportAndScissorRect(ctx->framebuffer->getFramebufferInfo().getViewport());
         ctx->commandList->setGraphicsState(state);
@@ -9693,12 +9684,12 @@ extern "C"
     }
 
     // Launches groupsX amplification-shader groups of a meshlet pipeline, over the whole framebuffer.
-    void Donut_DispatchMesh(FrameContext* frame, void* meshletPipeline, int groupsX)
+    void Donut_DispatchMesh(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline, int groupsX)
     {
         FrameContext* ctx = frame;
 
         nvrhi::MeshletState state;
-        state.pipeline = static_cast<nvrhi::IMeshletPipeline*>(meshletPipeline);
+        state.pipeline = meshletPipeline;
         state.framebuffer = ctx->framebuffer;
         state.viewport.addViewportAndScissorRect(ctx->framebuffer->getFramebufferInfo().getViewport());
         ctx->commandList->setMeshletState(state);
@@ -9781,21 +9772,21 @@ extern "C"
 
     // Starts describing a draw with a graphics pipeline, over the whole framebuffer; add to it
     // with the Donut_Draw* functions, then issue it with Donut_DrawIndexed.
-    void Donut_BeginDraw(FrameContext* frame, void* pipeline)
+    void Donut_BeginDraw(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline)
     {
         FrameContext* ctx = frame;
         ctx->draw = nvrhi::GraphicsState();
-        ctx->draw.pipeline = static_cast<nvrhi::IGraphicsPipeline*>(pipeline);
+        ctx->draw.pipeline = pipeline;
         ctx->draw.framebuffer = ctx->framebuffer;
     }
 
     // Same, into another framebuffer (Donut_CreateFramebuffer; the pipeline must be for its layout).
-    void Donut_BeginDrawToFramebuffer(FrameContext* frame, void* pipeline, void* framebuffer)
+    void Donut_BeginDrawToFramebuffer(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer)
     {
         FrameContext* ctx = frame;
         ctx->draw = nvrhi::GraphicsState();
-        ctx->draw.pipeline = static_cast<nvrhi::IGraphicsPipeline*>(pipeline);
-        ctx->draw.framebuffer = static_cast<nvrhi::IFramebuffer*>(framebuffer);
+        ctx->draw.pipeline = pipeline;
+        ctx->draw.framebuffer = framebuffer;
     }
 
     void Donut_DrawAddBindingSet(FrameContext* frame, nvrhi::IBindingSet* bindingSet)
@@ -10625,21 +10616,21 @@ extern "C"
     // Starts describing a mesh shader draw with a meshlet pipeline, over the whole framebuffer; add
     // binding sets and a viewport with the Donut_Draw* functions, then issue it with
     // Donut_DrawMeshTasks.
-    void Donut_BeginMeshDraw(FrameContext* frame, void* meshletPipeline)
+    void Donut_BeginMeshDraw(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline)
     {
         FrameContext* ctx = frame;
         ctx->draw = nvrhi::GraphicsState();
         ctx->draw.framebuffer = ctx->framebuffer;
-        ctx->meshletPipeline = static_cast<nvrhi::IMeshletPipeline*>(meshletPipeline);
+        ctx->meshletPipeline = meshletPipeline;
     }
 
     // Same, into another framebuffer (the pipeline must be for its layout).
-    void Donut_BeginMeshDrawToFramebuffer(FrameContext* frame, void* meshletPipeline, void* framebuffer)
+    void Donut_BeginMeshDrawToFramebuffer(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline, nvrhi::IFramebuffer* framebuffer)
     {
         FrameContext* ctx = frame;
         ctx->draw = nvrhi::GraphicsState();
-        ctx->draw.framebuffer = static_cast<nvrhi::IFramebuffer*>(framebuffer);
-        ctx->meshletPipeline = static_cast<nvrhi::IMeshletPipeline*>(meshletPipeline);
+        ctx->draw.framebuffer = framebuffer;
+        ctx->meshletPipeline = meshletPipeline;
     }
 
     // Launches groupsX x 1 x 1 groups of the draw's first shader (amplification, or mesh without one).

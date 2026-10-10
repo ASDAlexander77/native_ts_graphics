@@ -314,27 +314,27 @@ export class App {
     }
 
     // Triangle list, no depth test, for the frame's framebuffer layout.
-    createGraphicsPipeline(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle): Opaque {
+    createGraphicsPipeline(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipeline(this.handle, frame.handle, vertexShader, pixelShader);
     }
 
     // Same, with an input layout and one binding layout.
-    createGraphicsPipelineWithLayouts(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle): Opaque {
+    createGraphicsPipelineWithLayouts(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipelineWithLayouts(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout);
     }
 
     // Same, drawing primitiveType, with each layout optional (null for none).
-    createGraphicsPipelineWithTopology(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: BindingLayoutHandle | null, primitiveType: PrimitiveType): Opaque {
+    createGraphicsPipelineWithTopology(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: BindingLayoutHandle | null, primitiveType: PrimitiveType): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipelineWithTopology(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout, primitiveType);
     }
 
     // Same, blending into the framebuffer with blendMode.
-    createGraphicsPipelineWithBlend(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: BindingLayoutHandle | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque {
+    createGraphicsPipelineWithBlend(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: BindingLayoutHandle | null, primitiveType: PrimitiveType, blendMode: BlendMode): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipelineWithBlend(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout, primitiveType, blendMode);
     }
 
     // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
-    createMeshletPipeline(frame: Frame, amplificationShader: ShaderHandle, meshShader: ShaderHandle, pixelShader: ShaderHandle): Opaque {
+    createMeshletPipeline(frame: Frame, amplificationShader: ShaderHandle, meshShader: ShaderHandle, pixelShader: ShaderHandle): MeshletPipelineHandle {
         return Donut_CreateMeshletPipeline(this.handle, frame.handle, amplificationShader, meshShader, pixelShader);
     }
 
@@ -459,33 +459,33 @@ export class App {
     }
 
     // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
-    createFramebuffer(colorTexture: TextureHandle, depthTexture: TextureHandle | null): Opaque {
+    createFramebuffer(colorTexture: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
         return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
     }
 
     // Same, the color target seen in colorFormat (a format of its family, for a typeless texture:
     // Donut_CreateTypelessRenderTargetTexture).
-    createFramebufferWithColorFormat(colorTexture: TextureHandle, colorFormat: Format, depthTexture: TextureHandle | null): Opaque {
+    createFramebufferWithColorFormat(colorTexture: TextureHandle, colorFormat: Format, depthTexture: TextureHandle | null): FramebufferHandle {
         return Donut_CreateFramebufferWithColorFormat(this.handle, colorTexture, colorFormat, depthTexture);
     }
 
     // A depth target alone (e.g. a shadow map).
-    createDepthFramebuffer(depthTexture: TextureHandle): Opaque {
+    createDepthFramebuffer(depthTexture: TextureHandle): FramebufferHandle {
         return Donut_CreateDepthFramebuffer(this.handle, depthTexture);
     }
 
     // Same, with two color targets (SV_Target0 and SV_Target1).
-    createFramebufferWithTwoTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, depthTexture: TextureHandle | null): Opaque {
+    createFramebufferWithTwoTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
         return Donut_CreateFramebufferWithTwoTargets(this.handle, colorTexture0, colorTexture1, depthTexture);
     }
 
     // Same, with three color targets (SV_Target0 to SV_Target2).
-    createFramebufferWithThreeTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, colorTexture2: TextureHandle, depthTexture: TextureHandle | null): Opaque {
+    createFramebufferWithThreeTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, colorTexture2: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
         return Donut_CreateFramebufferWithThreeTargets(this.handle, colorTexture0, colorTexture1, colorTexture2, depthTexture);
     }
 
     // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
-    createFramebufferForMip(colorTexture: TextureHandle, mipLevel: int): Opaque {
+    createFramebufferForMip(colorTexture: TextureHandle, mipLevel: int): FramebufferHandle {
         return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
     }
 
@@ -543,27 +543,27 @@ export class App {
 
     // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
     // writes, back faces culled (clockwise triangles are front faces).
-    createGraphicsPipelineForFramebuffer(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle): Opaque {
+    createGraphicsPipelineForFramebuffer(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipelineForFramebuffer(this.handle, framebuffer, vertexShader, pixelShader, inputLayout, bindingLayout);
     }
 
     // For a framebuffer's layout.
-    createGraphicsPipelineFromDesc(graphicsPipelineDesc: GraphicsPipelineDesc, framebuffer: Opaque): Opaque {
+    createGraphicsPipelineFromDesc(graphicsPipelineDesc: GraphicsPipelineDesc, framebuffer: FramebufferHandle): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipelineFromDesc(this.handle, graphicsPipelineDesc.handle, framebuffer);
     }
 
     // Same, for the frame's framebuffer (the back buffer's layout).
-    createGraphicsPipelineFromDescForFrame(graphicsPipelineDesc: GraphicsPipelineDesc, frame: Frame): Opaque {
+    createGraphicsPipelineFromDescForFrame(graphicsPipelineDesc: GraphicsPipelineDesc, frame: Frame): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipelineFromDescForFrame(this.handle, graphicsPipelineDesc.handle, frame.handle);
     }
 
     // A meshlet pipeline from a Donut_CreateMeshletPipelineDesc description, for a framebuffer's layout,
     // or the frame's; requires Feature.Meshlets.
-    createMeshletPipelineFromDesc(graphicsPipelineDesc: GraphicsPipelineDesc, framebuffer: Opaque): Opaque {
+    createMeshletPipelineFromDesc(graphicsPipelineDesc: GraphicsPipelineDesc, framebuffer: FramebufferHandle): MeshletPipelineHandle {
         return Donut_CreateMeshletPipelineFromDesc(this.handle, graphicsPipelineDesc.handle, framebuffer);
     }
 
-    createMeshletPipelineFromDescForFrame(graphicsPipelineDesc: GraphicsPipelineDesc, frame: Frame): Opaque {
+    createMeshletPipelineFromDescForFrame(graphicsPipelineDesc: GraphicsPipelineDesc, frame: Frame): MeshletPipelineHandle {
         return Donut_CreateMeshletPipelineFromDescForFrame(this.handle, graphicsPipelineDesc.handle, frame.handle);
     }
 
@@ -814,17 +814,17 @@ export class App {
     }
 
     // Uses the layout of bindingSet.
-    createComputePipeline(computeShader: ShaderHandle, bindingSet: BindingSet): Opaque {
+    createComputePipeline(computeShader: ShaderHandle, bindingSet: BindingSet): ComputePipelineHandle {
         return Donut_CreateComputePipeline(this.handle, computeShader, bindingSet.handle);
     }
 
     // Same, from a binding layout.
-    createComputePipelineWithLayout(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle): Opaque {
+    createComputePipelineWithLayout(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle): ComputePipelineHandle {
         return Donut_CreateComputePipelineWithLayout(this.handle, computeShader, bindingLayout);
     }
 
     // Same, with a second binding layout (e.g. bindless; null for none).
-    createComputePipelineWithLayouts(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle, secondBindingLayout: BindingLayoutHandle | null): Opaque {
+    createComputePipelineWithLayouts(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle, secondBindingLayout: BindingLayoutHandle | null): ComputePipelineHandle {
         return Donut_CreateComputePipelineWithLayouts(this.handle, computeShader, bindingLayout, secondBindingLayout);
     }
 
@@ -839,7 +839,7 @@ export class App {
     // its textures (RWTexture2D at u0, the run index as a uint push constant at b0; the layout must
     // hold exactly those), and hands it to the render thread. A null handle if there's no compute
     // queue.
-    createAsyncComputeLoop(computePipeline: Opaque, bindingLayout: BindingLayoutHandle, groupsX: int, groupsY: int, intervalMicroseconds: int): AsyncComputeLoop {
+    createAsyncComputeLoop(computePipeline: ComputePipelineHandle, bindingLayout: BindingLayoutHandle, groupsX: int, groupsY: int, intervalMicroseconds: int): AsyncComputeLoop {
         return new AsyncComputeLoop(Donut_CreateAsyncComputeLoop(this.handle, computePipeline, bindingLayout, groupsX, groupsY, intervalMicroseconds));
     }
 
@@ -1119,7 +1119,7 @@ export class App {
 
     // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
     // none) whose draws can take their shading rates from shadingRateSurface (null for none).
-    createFramebufferWithShadingRate(colorTexture0: TextureHandle, colorTexture1: TextureHandle | null, depthTexture: TextureHandle | null, shadingRateSurface: TextureHandle | null): Opaque {
+    createFramebufferWithShadingRate(colorTexture0: TextureHandle, colorTexture1: TextureHandle | null, depthTexture: TextureHandle | null, shadingRateSurface: TextureHandle | null): FramebufferHandle {
         return Donut_CreateFramebufferWithShadingRate(this.handle, colorTexture0, colorTexture1, depthTexture, shadingRateSurface);
     }
 
@@ -1133,7 +1133,7 @@ export class App {
     // A work graph program of all the nodes of a shader library (lib_6_8), with computePipeline's
     // root signature, and its broadcasting entry node's dispatch grid set to gridX x gridY x gridZ;
     // plus its backing memory. Release it with Donut_ReleaseObject. Null (after logging why) on failure.
-    createD3D12WorkGraph(shaderLibrary: ShaderLibraryHandle, computePipeline: Opaque, programName: string, entryNodeName: string, gridX: int, gridY: int, gridZ: int): Opaque | null {
+    createD3D12WorkGraph(shaderLibrary: ShaderLibraryHandle, computePipeline: ComputePipelineHandle, programName: string, entryNodeName: string, gridX: int, gridY: int, gridZ: int): Opaque | null {
         return Donut_CreateD3D12WorkGraph(this.handle, shaderLibrary, computePipeline, programName, entryNodeName, gridX, gridY, gridZ);
     }
 
@@ -1280,7 +1280,7 @@ export class App {
     // they end, resolve color into colorResolveTexture and depth into depthResolveTexture by
     // depthResolveMode, where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI ends a render
     // pass at every barrier, so a pass may resolve more than once (with the same result).
-    createResolveFramebuffer(colorTexture: TextureHandle | null, colorResolveTexture: TextureHandle | null, depthTexture: TextureHandle | null, depthResolveTexture: TextureHandle | null, depthResolveMode: ResolveMode): Opaque {
+    createResolveFramebuffer(colorTexture: TextureHandle | null, colorResolveTexture: TextureHandle | null, depthTexture: TextureHandle | null, depthResolveTexture: TextureHandle | null, depthResolveMode: ResolveMode): FramebufferHandle {
         return Donut_CreateResolveFramebuffer(this.handle, colorTexture, colorResolveTexture, depthTexture, depthResolveTexture, depthResolveMode);
     }
 
@@ -1375,13 +1375,13 @@ export class App {
         return Donut_CreateSsaoPass(this.handle, sceneRenderTargets.handle);
     }
 
-    createSkyPass(framebuffer: Opaque, view: View): Opaque {
+    createSkyPass(framebuffer: FramebufferFactoryHandle, view: View): Opaque {
         return Donut_CreateSkyPass(this.handle, framebuffer, view.handle);
     }
 
     // A lat-long (2D) or cube map environment texture drawn where the framebuffer's depth is still
     // clear; set the view up before creating it (its depth direction picks the pipeline).
-    createEnvironmentMapPass(framebuffer: Opaque, view: View, environmentMap: TextureHandle): Opaque {
+    createEnvironmentMapPass(framebuffer: FramebufferFactoryHandle, view: View, environmentMap: TextureHandle): Opaque {
         return Donut_CreateEnvironmentMapPass(this.handle, framebuffer, view.handle, environmentMap);
     }
 
@@ -1390,11 +1390,11 @@ export class App {
     }
 
     // Pass the tone mapping pass this one replaces (or null) to keep its adapted exposure.
-    createToneMappingPass(framebuffer: Opaque, view: View, previousToneMappingPass: ToneMappingPass | null): ToneMappingPass {
+    createToneMappingPass(framebuffer: FramebufferFactoryHandle, view: View, previousToneMappingPass: ToneMappingPass | null): ToneMappingPass {
         return new ToneMappingPass(Donut_CreateToneMappingPass(this.handle, framebuffer, view.handle, previousToneMappingPass ? (previousToneMappingPass as ToneMappingPass).handle : null));
     }
 
-    createBloomPass(framebuffer: Opaque, view: View): Opaque {
+    createBloomPass(framebuffer: FramebufferFactoryHandle, view: View): Opaque {
         return Donut_CreateBloomPass(this.handle, framebuffer, view.handle);
     }
 
@@ -1597,12 +1597,12 @@ export class Frame {
     }
 
     // Draws vertexCount vertices with no vertex buffers, over the whole framebuffer.
-    draw(pipeline: Opaque, vertexCount: int): void {
+    draw(pipeline: GraphicsPipelineHandle, vertexCount: int): void {
         Donut_Draw(this.handle, pipeline, vertexCount);
     }
 
     // Launches groupsX amplification-shader groups of a meshlet pipeline, over the whole framebuffer.
-    dispatchMesh(meshletPipeline: Opaque, groupsX: int): void {
+    dispatchMesh(meshletPipeline: MeshletPipelineHandle, groupsX: int): void {
         Donut_DispatchMesh(this.handle, meshletPipeline, groupsX);
     }
 
@@ -1623,12 +1623,12 @@ export class Frame {
     }
 
     // A draw: begin with a pipeline (whole framebuffer by default), add state, then issue it.
-    beginDraw(pipeline: Opaque): void {
+    beginDraw(pipeline: GraphicsPipelineHandle): void {
         Donut_BeginDraw(this.handle, pipeline);
     }
 
     // Same, into another framebuffer (Donut_CreateFramebuffer; a pipeline for its layout).
-    beginDrawToFramebuffer(pipeline: Opaque, framebuffer: Opaque): void {
+    beginDrawToFramebuffer(pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle): void {
         Donut_BeginDrawToFramebuffer(this.handle, pipeline, framebuffer);
     }
 
@@ -1752,11 +1752,11 @@ export class Frame {
     // A mesh shader draw: begin with a meshlet pipeline (whole framebuffer by default), add binding sets
     // (Donut_DrawAddBindingSet) and a viewport, then launch groupsX groups of its first shader
     // (amplification, or mesh without one).
-    beginMeshDraw(meshletPipeline: Opaque): void {
+    beginMeshDraw(meshletPipeline: MeshletPipelineHandle): void {
         Donut_BeginMeshDraw(this.handle, meshletPipeline);
     }
 
-    beginMeshDrawToFramebuffer(meshletPipeline: Opaque, framebuffer: Opaque): void {
+    beginMeshDrawToFramebuffer(meshletPipeline: MeshletPipelineHandle, framebuffer: FramebufferHandle): void {
         Donut_BeginMeshDrawToFramebuffer(this.handle, meshletPipeline, framebuffer);
     }
 
@@ -1844,7 +1844,7 @@ export class CommandList {
     // Draws vertexCount vertices (no vertex buffers: e.g. a triangle over the target from SV_VertexID)
     // with a graphics pipeline into all of a framebuffer, with one binding set (null for none): for
     // drawing outside the frames, e.g. into a texture's levels at load time.
-    draw(pipeline: Opaque, framebuffer: Opaque, bindingSet: BindingSet | null, vertexCount: int): void {
+    draw(pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, bindingSet: BindingSet | null, vertexCount: int): void {
         Donut_CommandListDraw(this.handle, pipeline, framebuffer, bindingSet ? (bindingSet as BindingSet).handle : null, vertexCount);
     }
 
@@ -1864,18 +1864,18 @@ export class CommandList {
         Donut_CopyBuffer(this.handle, dst, dstOffset, src, srcOffset, byteSize);
     }
 
-    dispatch(computePipeline: Opaque, bindingSet: BindingSet, groupsX: int, groupsY: int, groupsZ: int): void {
+    dispatch(computePipeline: ComputePipelineHandle, bindingSet: BindingSet, groupsX: int, groupsY: int, groupsZ: int): void {
         Donut_Dispatch(this.handle, computePipeline, bindingSet.handle, groupsX, groupsY, groupsZ);
     }
 
     // Same, with a descriptor table bound after the binding set.
-    dispatchWithDescriptorTable(computePipeline: Opaque, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, groupsX: int, groupsY: int, groupsZ: int): void {
+    dispatchWithDescriptorTable(computePipeline: ComputePipelineHandle, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, groupsX: int, groupsY: int, groupsZ: int): void {
         Donut_DispatchWithDescriptorTable(this.handle, computePipeline, bindingSet.handle, descriptorTable, groupsX, groupsY, groupsZ);
     }
 
     // Same as Donut_Dispatch, with byteSize bytes of push constants from data (Ref of a `let` array
     // element) for the binding set's Donut_BindPushConstants item.
-    dispatchWithPushConstants(computePipeline: Opaque, bindingSet: BindingSet, data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void {
+    dispatchWithPushConstants(computePipeline: ComputePipelineHandle, bindingSet: BindingSet, data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void {
         Donut_DispatchWithPushConstants(this.handle, computePipeline, bindingSet.handle, data, byteSize, groupsX, groupsY, groupsZ);
     }
 
@@ -1910,7 +1910,7 @@ export class CommandList {
     // from data as its root arguments, set through computePipeline (one with the same root signature;
     // don't dispatch with it after the graph in the same command list). initializeBackingMemory
     // non-zero on the backing memory's first use, or after another graph used it.
-    dispatchD3D12WorkGraph(workGraph: Opaque, computePipeline: Opaque, bindingSet: BindingSet, data: Opaque, byteSize: int, initializeBackingMemory: int): void {
+    dispatchD3D12WorkGraph(workGraph: Opaque, computePipeline: ComputePipelineHandle, bindingSet: BindingSet, data: Opaque, byteSize: int, initializeBackingMemory: int): void {
         Donut_DispatchD3D12WorkGraph(this.handle, workGraph, computePipeline, bindingSet.handle, data, byteSize, initializeBackingMemory);
     }
 
@@ -1942,7 +1942,7 @@ export class CommandList {
     }
 
     // Opaque (transparent == 0) or transparent meshes into a framebuffer; previousView may be null.
-    renderForward(forwardShadingPass: ForwardShadingPass, forwardShadingContext: Opaque, view: View, previousView: View | null, framebuffer: Opaque, sceneGraph: SceneGraph, transparent: int, name: string, materialEvents: int): void {
+    renderForward(forwardShadingPass: ForwardShadingPass, forwardShadingContext: Opaque, view: View, previousView: View | null, framebuffer: FramebufferFactoryHandle, sceneGraph: SceneGraph, transparent: int, name: string, materialEvents: int): void {
         Donut_RenderForward(this.handle, forwardShadingPass.handle, forwardShadingContext, view.handle, previousView ? (previousView as View).handle : null, framebuffer, sceneGraph.handle, transparent, name, materialEvents);
     }
 
@@ -1991,7 +1991,7 @@ export class CommandList {
         Donut_RenderToneMapping(this.handle, toneMappingPass.handle, view.handle, sourceTexture, instantAdaptation);
     }
 
-    renderBloom(bloomPass: Opaque, framebuffer: Opaque, view: View, sourceTexture: TextureHandle, sigma: number, alpha: number): void {
+    renderBloom(bloomPass: Opaque, framebuffer: FramebufferFactoryHandle, view: View, sourceTexture: TextureHandle, sigma: number, alpha: number): void {
         Donut_RenderBloom(this.handle, bloomPass, framebuffer, view.handle, sourceTexture, sigma, alpha);
     }
 
@@ -2403,10 +2403,10 @@ export class RtPipelineDesc {
 }
 
 export class GraphicsPipelineDesc {
-    readonly handle: Opaque;
+    readonly handle: GraphicsPipelineDescHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: GraphicsPipelineDescHandle | null) {
+        this.handle = handle as GraphicsPipelineDescHandle;
     }
 
     // True if the function that returned it failed.
@@ -2636,7 +2636,7 @@ export class ImGuiPass {
     // Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the back
     // buffer; null: the back buffer again. Passes added after the ImGui pass draw after it (e.g. one
     // that takes that framebuffer's texture to the back buffer).
-    setFramebuffer(framebuffer: Opaque | null): void {
+    setFramebuffer(framebuffer: FramebufferHandle | null): void {
         Donut_SetImGuiPassFramebuffer(this.handle, framebuffer);
     }
 
@@ -3310,7 +3310,7 @@ export class SceneRenderTargets {
         return Donut_GetSceneRenderTargetsTexture(this.handle, which);
     }
 
-    getFramebuffer(which: SceneFramebuffer): Opaque {
+    getFramebuffer(which: SceneFramebuffer): FramebufferFactoryHandle {
         return Donut_GetSceneRenderTargetsFramebuffer(this.handle, which);
     }
 }
@@ -3561,7 +3561,7 @@ export class LightProbeCapture {
         return new View(Donut_GetLightProbeCaptureView(this.handle));
     }
 
-    getFramebuffer(): Opaque {
+    getFramebuffer(): FramebufferFactoryHandle {
         return Donut_GetLightProbeCaptureFramebuffer(this.handle);
     }
 }

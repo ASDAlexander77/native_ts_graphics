@@ -168,7 +168,7 @@ namespace GraphicsPipelineLibrary {
         private colors: f32[];
 
         // The pipelines made so far (their lighting models), and the grid's size.
-        private pipelines: Opaque[];
+        private pipelines: GraphicsPipelineHandle[];
         lightingModels: int[];
         private splitX: int;
         private splitY: int;
@@ -182,7 +182,7 @@ namespace GraphicsPipelineLibrary {
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
+        private framebuffers: FramebufferHandle[];
         private targetWidth: int;
         private targetHeight: int;
 

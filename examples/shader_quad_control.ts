@@ -18,8 +18,8 @@ namespace ShaderQuadControl {
         private broadcastPS: ShaderHandle;
         // Created on the first frame (the back buffer's layout), dropped on resize.
         private pipelinesCreated: boolean;
-        private plainPipeline: Opaque;
-        private broadcastPipeline: Opaque;
+        private plainPipeline: GraphicsPipelineHandle;
+        private broadcastPipeline: GraphicsPipelineHandle;
 
         // The README's quad broadcast, from the UI.
         broadcast: boolean;

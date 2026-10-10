@@ -86,9 +86,9 @@ namespace ComputeNBodyCollisions {
 
         private particleBuffer: BufferHandle;
         private contactBuffer: BufferHandle;
-        private calculatePipeline: Opaque;
-        private collidePipeline: Opaque;
-        private integratePipeline: Opaque;
+        private calculatePipeline: ComputePipelineHandle;
+        private collidePipeline: ComputePipelineHandle;
+        private integratePipeline: ComputePipelineHandle;
         private computeBindingSet: BindingSet;
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
@@ -96,7 +96,7 @@ namespace ComputeNBodyCollisions {
         private drawBindingSet: BindingSet;
         private viewConstantBuffer: BufferHandle;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
-        private graphicsPipeline: Opaque | null;
+        private graphicsPipeline: GraphicsPipelineHandle | null;
 
         // The SimulationConstants push constants.
         private simulationConstants: f32[];

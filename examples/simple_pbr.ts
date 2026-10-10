@@ -613,12 +613,12 @@ namespace SimplePbr {
         // Frame-sized, made on the first frame and after each resize.
         private hdrScene: TextureHandle | null;
         private depth: TextureHandle | null;
-        private sceneFramebuffer: Opaque | null;
+        private sceneFramebuffer: FramebufferHandle | null;
         private toneMapBindingSet: BindingSet;
-        private pbrPipeline: Opaque | null;
-        private skyPipeline: Opaque | null;
-        private acesPipeline: Opaque | null;
-        private hdr10Pipeline: Opaque | null;
+        private pbrPipeline: GraphicsPipelineHandle | null;
+        private skyPipeline: GraphicsPipelineHandle | null;
+        private acesPipeline: GraphicsPipelineHandle | null;
+        private hdr10Pipeline: GraphicsPipelineHandle | null;
         private colorSpaceCheck: number;
         private hasPrevious: boolean;
 
@@ -826,7 +826,7 @@ namespace SimplePbr {
             pbrDesc.setInputLayout(this.pbrInputLayout);
             pbrDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
             pbrDesc.setRasterState(CullMode.Back, FillMode.Solid, 1);
-            this.pbrPipeline = this.app.createGraphicsPipelineFromDesc(pbrDesc, this.sceneFramebuffer as Opaque);
+            this.pbrPipeline = this.app.createGraphicsPipelineFromDesc(pbrDesc, this.sceneFramebuffer as FramebufferHandle);
 
             // DX::Skybox: DepthRead (less or equal, no writes), CullClockwise.
             const skyDesc = GraphicsPipelineDesc.create(this.skyVS, this.skyPS);
@@ -834,7 +834,7 @@ namespace SimplePbr {
             skyDesc.setInputLayout(this.skyInputLayout);
             skyDesc.setDepthState(1, 0, ComparisonFunc.LessOrEqual);
             skyDesc.setRasterState(CullMode.Back, FillMode.Solid, 1);
-            this.skyPipeline = this.app.createGraphicsPipelineFromDesc(skyDesc, this.sceneFramebuffer as Opaque);
+            this.skyPipeline = this.app.createGraphicsPipelineFromDesc(skyDesc, this.sceneFramebuffer as FramebufferHandle);
 
             for (let i = 0; i < 2; i++) {
                 const desc = GraphicsPipelineDesc.create(this.quadVS, i == 0 ? this.acesPS : this.hdr10PS);
@@ -891,7 +891,7 @@ namespace SimplePbr {
             for (let m = 0; m < this.models.length; m++) {
                 const model = this.models[m];
                 for (let p = 0; p < model.partIndexCounts.length; p++) {
-                    frame.beginDrawToFramebuffer(this.pbrPipeline as Opaque, this.sceneFramebuffer as Opaque);
+                    frame.beginDrawToFramebuffer(this.pbrPipeline as GraphicsPipelineHandle, this.sceneFramebuffer as FramebufferHandle);
                     frame.drawAddBindingSet(this.modelBindingSets[m]);
                     frame.drawAddVertexBuffer(model.vertexBuffers[model.partVertexBuffers[p]], 0, 0);
                     const ib = model.partIndexBuffers[p];
@@ -905,7 +905,7 @@ namespace SimplePbr {
             }
 
             // Sky box
-            frame.beginDrawToFramebuffer(this.skyPipeline as Opaque, this.sceneFramebuffer as Opaque);
+            frame.beginDrawToFramebuffer(this.skyPipeline as GraphicsPipelineHandle, this.sceneFramebuffer as FramebufferHandle);
             frame.drawAddBindingSet(this.skyBindingSet);
             frame.drawAddVertexBuffer(this.skyVertices, 0, 0);
             frame.drawSetIndexBuffer(this.skyIndices);
@@ -922,7 +922,7 @@ namespace SimplePbr {
                 return;
             }
             frame.getCommandList().writeBuffer(this.toneMapBuffer, Ref(this.toneMapConstants[0]), 256);
-            frame.beginDraw(pipeline as Opaque);
+            frame.beginDraw(pipeline as GraphicsPipelineHandle);
             frame.drawAddBindingSet(this.toneMapBindingSet);
             frame.drawVertices(3);
         }

@@ -132,8 +132,8 @@ namespace ConditionalRendering {
         // The back buffer's size: color (sRGB, as the sample's swapchain) and depth targets.
         private colorBuffer: TextureHandle | null;
         private depthBuffer: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private pipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private pipeline: GraphicsPipelineHandle | null;
 
         private constants: f32[];
         private nodeConstants: f32[];

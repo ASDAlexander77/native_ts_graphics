@@ -249,8 +249,8 @@ namespace SimpleBezier {
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
         // pipelines ([wireframe][partition mode]) made for them.
         private depth: TextureHandle;
-        private framebuffers: Opaque[];
-        private pipelines: Opaque[];
+        private framebuffers: FramebufferHandle[];
+        private pipelines: GraphicsPipelineHandle[];
         frameWidth: int;
         frameHeight: int;
 
@@ -350,7 +350,7 @@ namespace SimpleBezier {
 
         // The sample's PSOs: 16 control point patches, no culling, depth clip on, depth tested
         // (less) and written; solid with BezierPS or wireframe with SolidColorPS.
-        createPipeline(wireframe: int, partitionMode: int): Opaque {
+        createPipeline(wireframe: int, partitionMode: int): GraphicsPipelineHandle {
             const desc = GraphicsPipelineDesc.create(this.vs, this.pixelShaders[wireframe]);
             desc.setTessellation(this.hullShaders[partitionMode], this.ds, PATCH_SIZE);
             desc.setInputLayout(this.inputLayout);

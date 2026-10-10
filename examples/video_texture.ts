@@ -140,9 +140,9 @@ namespace VideoTexture {
         // Frame-sized, made on the first frame and after each resize.
         private colorTarget: TextureHandle | null;
         private depthTarget: TextureHandle | null;
-        private framebuffer: Opaque | null;
-        private cubePipeline: Opaque | null;
-        private spritePipeline: Opaque | null;
+        private framebuffer: FramebufferHandle | null;
+        private cubePipeline: GraphicsPipelineHandle | null;
+        private spritePipeline: GraphicsPipelineHandle | null;
         private time: number;
 
         show3D: boolean;
@@ -279,13 +279,13 @@ namespace VideoTexture {
                 cubeDesc.addBindingLayout(this.cubeLayout);
                 cubeDesc.setDepthState(1, 1, ComparisonFunc.Less);
                 cubeDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
-                this.cubePipeline = this.app.createGraphicsPipelineFromDesc(cubeDesc, this.framebuffer as Opaque);
+                this.cubePipeline = this.app.createGraphicsPipelineFromDesc(cubeDesc, this.framebuffer as FramebufferHandle);
 
                 const spriteDesc = GraphicsPipelineDesc.create(this.spriteVS, this.spritePS);
                 spriteDesc.addBindingLayout(this.spriteLayout);
                 spriteDesc.setDepthState(0, 0, ComparisonFunc.Always);
                 spriteDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
-                this.spritePipeline = this.app.createGraphicsPipelineFromDesc(spriteDesc, this.framebuffer as Opaque);
+                this.spritePipeline = this.app.createGraphicsPipelineFromDesc(spriteDesc, this.framebuffer as FramebufferHandle);
             }
 
             // Clear
@@ -295,7 +295,7 @@ namespace VideoTexture {
             if (this.show3D) {
                 this.updateParameters();
                 commandList.writeBuffer(this.parametersBuffer, Ref(this.parameters[0]), PARAMETERS_FLOATS * 4);
-                frame.beginDrawToFramebuffer(this.cubePipeline as Opaque, this.framebuffer as Opaque);
+                frame.beginDrawToFramebuffer(this.cubePipeline as GraphicsPipelineHandle, this.framebuffer as FramebufferHandle);
                 frame.drawAddBindingSet(this.cubeBindingSet);
                 frame.drawSetIndexBuffer(this.cubeIndices);
                 frame.drawIndexed(this.cubeIndexCount);
@@ -309,7 +309,7 @@ namespace VideoTexture {
                 this.spriteConstants[3] = top + this.videoHeight;
                 this.spriteConstants[4] = this.frameWidth;
                 this.spriteConstants[5] = this.frameHeight;
-                frame.beginDrawToFramebuffer(this.spritePipeline as Opaque, this.framebuffer as Opaque);
+                frame.beginDrawToFramebuffer(this.spritePipeline as GraphicsPipelineHandle, this.framebuffer as FramebufferHandle);
                 frame.drawAddBindingSet(this.spriteBindingSet);
                 frame.drawVerticesWithPushConstants(6, Ref(this.spriteConstants[0]), SPRITE_CONSTANTS_FLOATS * 4);
             }

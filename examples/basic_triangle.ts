@@ -13,7 +13,7 @@ namespace BasicTriangle {
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
-        private pipeline: Opaque | null;
+        private pipeline: GraphicsPipelineHandle | null;
 
         constructor(app: App) {
             this.app = app;

@@ -225,22 +225,22 @@ namespace AsyncComputeBloom {
         private indexBuffer: BufferHandle;
 
         private shadowMap: TextureHandle;
-        private shadowFramebuffer: Opaque;
-        private shadowPipeline: Opaque;
+        private shadowFramebuffer: FramebufferHandle;
+        private shadowPipeline: GraphicsPipelineHandle;
         private shadowBindingSet: BindingSet;
 
         private hdrTargets: TextureHandle[];
         private hdrDepth: TextureHandle;
-        private hdrFramebuffers: Opaque[];
-        private forwardPipeline: Opaque;
-        private forwardBlendPipeline: Opaque;
+        private hdrFramebuffers: FramebufferHandle[];
+        private forwardPipeline: GraphicsPipelineHandle;
+        private forwardBlendPipeline: GraphicsPipelineHandle;
         // One per base color texture.
         private forwardBindingSets: BindingSet[];
 
         private blurChain: TextureHandle[];
-        private thresholdPipeline: Opaque;
-        private blurDownPipeline: Opaque;
-        private blurUpPipeline: Opaque;
+        private thresholdPipeline: ComputePipelineHandle;
+        private blurDownPipeline: ComputePipelineHandle;
+        private blurUpPipeline: ComputePipelineHandle;
         // The threshold pass from each HDR target, the blur down passes into blur levels 1 ..
         // BLUR_LEVELS - 1 (index level - 1), the blur up passes into levels BLUR_LEVELS - 2 .. 1
         // (index BLUR_LEVELS - 2 - level).
@@ -253,7 +253,7 @@ namespace AsyncComputeBloom {
         private compositeBindingLayout: BindingLayoutHandle;
         private compositeBindingSets: BindingSet[];
         // Created on the first frame (the back buffer's layout), dropped on resize.
-        private compositePipeline: Opaque | null;
+        private compositePipeline: GraphicsPipelineHandle | null;
 
         // The draws, a node's primitive each: index range and base vertex, base color texture
         // (forwardBindingSets index), alpha blending, node transform (MODEL_FLOATS each, from
@@ -449,7 +449,7 @@ namespace AsyncComputeBloom {
             }
         }
 
-        drawScene(frame: Frame, pipeline: Opaque, blendPipeline: Opaque, framebuffer: Opaque, forward: boolean): void {
+        drawScene(frame: Frame, pipeline: GraphicsPipelineHandle, blendPipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, forward: boolean): void {
             // The draw state's blending (-1 before the first draw) and texture.
             let currentBlend = -1;
             let currentTexture = -1;
@@ -505,7 +505,7 @@ namespace AsyncComputeBloom {
         }
 
         // One bloom pass: a thread per texel of the destination.
-        dispatchBlurPass(commandList: CommandList, pipeline: Opaque, bindingSet: BindingSet,
+        dispatchBlurPass(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet,
             width: int, height: int, inputWidth: int, inputHeight: int): void {
             const b = this.blurConstants;
             Donut_StoreInt32(Ref(b[0]), width);
