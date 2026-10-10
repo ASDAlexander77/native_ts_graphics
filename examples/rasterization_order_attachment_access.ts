@@ -171,7 +171,7 @@ namespace RasterizationOrderAttachmentAccess {
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
         private indexCount: int;
-        private timerQuery: Opaque;
+        private timerQuery: TimerQueryHandle;
         private timerQueryInFlight: boolean;
 
         // Created on the first frame (the back buffer's layout).

@@ -31,7 +31,7 @@ namespace PredicationQueries {
         private nearQuadConstants: BufferHandle;
         private farQuadBindingSet: BindingSet;
         private nearQuadBindingSet: BindingSet;
-        private occlusion: Opaque;
+        private occlusion: OcclusionPredicationHandle;
         private hasTargets: boolean;
         private colorBuffer: TextureHandle;
         private depthBuffer: TextureHandle;
@@ -167,7 +167,7 @@ namespace PredicationQueries {
                 console.log("The graphics device has no predication (D3D12, or Vulkan with VK_EXT_conditional_rendering)");
                 return false;
             }
-            this.occlusion = occlusion as Opaque;
+            this.occlusion = occlusion as OcclusionPredicationHandle;
 
             this.vertexShader = this.app.createShader("predication_queries.hlsl", "VSMain", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("predication_queries.hlsl", "PSMain", ShaderType.Pixel);

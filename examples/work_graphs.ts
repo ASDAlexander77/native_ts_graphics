@@ -795,15 +795,15 @@ namespace WorkGraphs {
         private lightCullingBindings: BindingSet;
         private deferredShadingBindings: BindingSet;
         private workGraphBindings: BindingSet;
-        private workGraph: Opaque | null;
+        private workGraph: D3D12WorkGraphHandle | null;
 
         // State.
         private currentTechnique: int;
         private initWorkGraphBackingMemory: boolean;
 
         // Timing.
-        private frameTimers: Opaque[];
-        private shadingTimers: Opaque[];
+        private frameTimers: TimerQueryHandle[];
+        private shadingTimers: TimerQueryHandle[];
         private nextTimerToUse: int;
         private timeInSeconds: number;
         private timeDiffThisFrame: number;
@@ -856,7 +856,7 @@ namespace WorkGraphs {
         }
 
         // The newest GPU time (in ms) of a set of timers that the GPU has finished; -1 if none.
-        getLastValidQueryTimer(timers: Opaque[]): number {
+        getLastValidQueryTimer(timers: TimerQueryHandle[]): number {
             for (let i = this.nextTimerToUse - 1; i >= 0; i--) {
                 if (this.app.pollTimerQuery(timers[i]) != 0) {
                     return this.app.getTimerQueryTime(timers[i]) * 1000.0;
@@ -1149,7 +1149,7 @@ namespace WorkGraphs {
             commandList.endMarker();
         }
 
-        populateDeferredShadingWorkGraph(commandList: CommandList, workGraph: Opaque, bindingSet: BindingSet): void {
+        populateDeferredShadingWorkGraph(commandList: CommandList, workGraph: D3D12WorkGraphHandle, bindingSet: BindingSet): void {
             commandList.beginMarker("Deferred Shading Work Graph");
 
             this.rootConstants[0] = this.scene.lights.length;

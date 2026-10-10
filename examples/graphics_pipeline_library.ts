@@ -164,7 +164,7 @@ namespace GraphicsPipelineLibrary {
         private bindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
         private model: GltfMesh;
-        private rng: Opaque;
+        private rng: RandomEngineHandle;
         private colors: f32[];
 
         // The pipelines made so far (their lighting models), and the grid's size.

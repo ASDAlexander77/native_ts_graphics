@@ -137,7 +137,7 @@ namespace TimestampQueries {
         // Timer queries: TIMED_PASSES per frame of TIMER_FRAMES, the frame measuring next, which
         // frames hold measurements not read yet (and whether bloom was on then), and the latest
         // times read (milliseconds).
-        private timers: Opaque[];
+        private timers: TimerQueryHandle[];
         private timerFrame: int;
         private timerPending: boolean[];
         private timerBloom: boolean[];
@@ -214,7 +214,7 @@ namespace TimestampQueries {
             this.timerBloom[this.timerFrame] = this.bloom;
         }
 
-        timer(pass: int): Opaque {
+        timer(pass: int): TimerQueryHandle {
             return this.timers[this.timerFrame * TIMED_PASSES + pass];
         }
 

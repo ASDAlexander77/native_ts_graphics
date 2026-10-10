@@ -117,11 +117,11 @@ namespace VideoTexture {
     // back buffers don't have: the scene renders into a color + depth target copied to the frame.
     class VideoTexturePass {
         private app: App;
-        private player: Opaque;
+        private player: VideoPlayerHandle;
         private videoWidth: int;
         private videoHeight: int;
         // D3D12 and D3D11: shared with the Media Engine's device; Vulkan: uploaded.
-        private sharedTexture: Opaque | null;
+        private sharedTexture: SharedTextureHandle | null;
         private videoTexture: TextureHandle;
         private cubeVertices: BufferHandle;
         private cubeIndices: BufferHandle;
@@ -368,7 +368,7 @@ namespace VideoTexture {
                 console.log("Cannot play the sample's video: set XBOX_ATG_SAMPLES_DIR when configuring");
                 return false;
             }
-            this.player = player as Opaque;
+            this.player = player as VideoPlayerHandle;
             this.videoWidth = Donut_GetVideoWidth(this.player);
             this.videoHeight = Donut_GetVideoHeight(this.player);
             console.log(`Video Size ${this.videoWidth} x ${this.videoHeight}`);
@@ -377,7 +377,7 @@ namespace VideoTexture {
             const shared = this.app.createSharedTexture(this.videoWidth, this.videoHeight, Format.BGRA8_UNORM, "Video");
             if (shared) {
                 this.sharedTexture = shared;
-                this.videoTexture = Donut_GetSharedTexture(shared as Opaque);
+                this.videoTexture = Donut_GetSharedTexture(shared as SharedTextureHandle);
             } else {
                 this.videoTexture = this.app.createTextureWithLevels(this.videoWidth, this.videoHeight, 1, Format.BGRA8_UNORM, "Video");
             }

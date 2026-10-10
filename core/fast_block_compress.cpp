@@ -143,7 +143,7 @@ extern "C"
     // aligned, natural pitches, the 2x2 and 1x1 levels replicated to 4x4 (their top-left 2x2 / 1x1
     // texels are the level). Returns null (after printing why) on failure; free it with
     // Donut_DestroyFbcTexture.
-    void* Donut_FbcDecodeDds(const void* data, int byteSize)
+    FbcTexture* Donut_FbcDecodeDds(const void* data, int byteSize)
     {
         const auto* bytes = static_cast<const uint8_t*>(data);
         auto u32 = [bytes](size_t offset)
@@ -216,9 +216,9 @@ extern "C"
     // timed; stats gets the milliseconds of each (Ref of a `let` f32 array of 2). Returns the levels
     // compressed (rows of 4x4 blocks), or null (after printing why) on failure; free it with
     // Donut_DestroyFbcTexture.
-    void* Donut_FbcCompressCpu(void* fbcTexture, int format, float* stats)
+    FbcTexture* Donut_FbcCompressCpu(FbcTexture* fbcTexture, int format, float* stats)
     {
-        const auto* image = static_cast<const FbcTexture*>(fbcTexture);
+        const FbcTexture* image = fbcTexture;
         const DXGI_FORMAT bcFormat = ToDxgiFormat(format);
         const uint32_t levels = static_cast<uint32_t>(image->levels.size());
 
@@ -255,30 +255,30 @@ extern "C"
         return result;
     }
 
-    int Donut_GetFbcTextureWidth(void* fbcTexture)
+    int Donut_GetFbcTextureWidth(FbcTexture* fbcTexture)
     {
-        return static_cast<int>(static_cast<FbcTexture*>(fbcTexture)->width);
+        return static_cast<int>(fbcTexture->width);
     }
 
-    int Donut_GetFbcTextureLevelCount(void* fbcTexture)
+    int Donut_GetFbcTextureLevelCount(FbcTexture* fbcTexture)
     {
-        return static_cast<int>(static_cast<FbcTexture*>(fbcTexture)->levels.size());
+        return static_cast<int>(fbcTexture->levels.size());
     }
 
     // A level's data, its rows (of pixels, or of 4x4 blocks) rowPitch bytes apart, valid until the
     // texture is freed.
-    const void* Donut_GetFbcTextureLevelData(void* fbcTexture, int level)
+    const void* Donut_GetFbcTextureLevelData(FbcTexture* fbcTexture, int level)
     {
-        return static_cast<FbcTexture*>(fbcTexture)->levels[size_t(level)].pData;
+        return fbcTexture->levels[size_t(level)].pData;
     }
 
-    int Donut_GetFbcTextureLevelRowPitch(void* fbcTexture, int level)
+    int Donut_GetFbcTextureLevelRowPitch(FbcTexture* fbcTexture, int level)
     {
-        return static_cast<int>(static_cast<FbcTexture*>(fbcTexture)->levels[size_t(level)].RowPitch);
+        return static_cast<int>(fbcTexture->levels[size_t(level)].RowPitch);
     }
 
-    void Donut_DestroyFbcTexture(void* fbcTexture)
+    void Donut_DestroyFbcTexture(FbcTexture* fbcTexture)
     {
-        delete static_cast<FbcTexture*>(fbcTexture);
+        delete fbcTexture;
     }
 }

@@ -275,7 +275,7 @@ namespace MouseCursor {
                 console.log(`${file}: not a SDKMESH file`);
                 return false;
             }
-            const mesh = loaded as Opaque;
+            const mesh = loaded as SdkMeshHandle;
 
             // Position, normal, texture coordinates (and a second set for the dual texture effect).
             let ok = true;

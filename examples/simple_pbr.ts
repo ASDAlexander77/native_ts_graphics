@@ -302,7 +302,7 @@ namespace SimplePbr {
                 app.releaseObject(binaryFile.handle);
                 return false;
             }
-            const mesh = loaded as Opaque;
+            const mesh = loaded as SdkMeshHandle;
             let ok = true;
             this.vertexStride = Donut_GetSdkMeshVertexBufferStride(mesh, 0);
             for (let i = 0; i < Donut_GetSdkMeshVertexBufferCount(mesh); i++) {

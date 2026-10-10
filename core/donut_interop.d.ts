@@ -53,114 +53,114 @@ enum TranscodeFormat {
 // transcoded into format, every level, kept on the CPU; stats gets the milliseconds it took and
 // the bytes (Ref of a `let` f32 array of 2). Null on failure; free it with
 // Donut_DestroyTranscodedTexture.
-declare function Donut_TranscodeKtx2(data: Opaque, byteSize: int, format: TranscodeFormat, stats: Opaque): Opaque | null;
-declare function Donut_GetTranscodedWidth(transcodedTexture: Opaque): int;
-declare function Donut_GetTranscodedHeight(transcodedTexture: Opaque): int;
-declare function Donut_GetTranscodedLevelCount(transcodedTexture: Opaque): int;
+declare function Donut_TranscodeKtx2(data: Opaque, byteSize: int, format: TranscodeFormat, stats: Opaque): TranscodedTextureHandle | null;
+declare function Donut_GetTranscodedWidth(transcodedTexture: TranscodedTextureHandle): int;
+declare function Donut_GetTranscodedHeight(transcodedTexture: TranscodedTextureHandle): int;
+declare function Donut_GetTranscodedLevelCount(transcodedTexture: TranscodedTextureHandle): int;
 // A level's data, block (or pixel) rows rowPitch bytes apart, valid until the texture is freed.
-declare function Donut_GetTranscodedLevelData(transcodedTexture: Opaque, level: int): Opaque;
-declare function Donut_GetTranscodedLevelRowPitch(transcodedTexture: Opaque, level: int): int;
-declare function Donut_DestroyTranscodedTexture(transcodedTexture: Opaque): void;
+declare function Donut_GetTranscodedLevelData(transcodedTexture: TranscodedTextureHandle, level: int): Opaque;
+declare function Donut_GetTranscodedLevelRowPitch(transcodedTexture: TranscodedTextureHandle, level: int): int;
+declare function Donut_DestroyTranscodedTexture(transcodedTexture: TranscodedTextureHandle): void;
 
 // The Xbox ATG FastBlockCompress sample's CPU side (core/fast_block_compress.cpp with the sample's
 // CPU compressor, core/fbc_cpu.cpp, linked only into the examples that list them). A DDS file in
 // memory (square, a power of two, 32-bit BGRA / BGRX / RGBA) decoded to RGBA8 levels in the
 // sample's CPU compressor layout (16-byte aligned, natural pitches, 2x2 and 1x1 replicated to 4x4;
 // X8 alpha read as 255). Null on failure; free it with Donut_DestroyFbcTexture.
-declare function Donut_FbcDecodeDds(data: Opaque, byteSize: int): Opaque | null;
+declare function Donut_FbcDecodeDds(data: Opaque, byteSize: int): FbcTextureHandle | null;
 // The sample's CPU compression of such an image into BC1_UNORM, BC3_UNORM or BC5_UNORM: its top
 // level alone, then every level; stats gets the milliseconds of each (Ref of a `let` f32 array of
 // 2). Null on failure; free it with Donut_DestroyFbcTexture.
-declare function Donut_FbcCompressCpu(fbcTexture: Opaque, format: Format, stats: Opaque): Opaque | null;
-declare function Donut_GetFbcTextureWidth(fbcTexture: Opaque): int;
-declare function Donut_GetFbcTextureLevelCount(fbcTexture: Opaque): int;
+declare function Donut_FbcCompressCpu(fbcTexture: FbcTextureHandle, format: Format, stats: Opaque): FbcTextureHandle | null;
+declare function Donut_GetFbcTextureWidth(fbcTexture: FbcTextureHandle): int;
+declare function Donut_GetFbcTextureLevelCount(fbcTexture: FbcTextureHandle): int;
 // A level's data, its rows (of pixels, or of 4x4 blocks) rowPitch bytes apart, valid until the
 // texture is freed.
-declare function Donut_GetFbcTextureLevelData(fbcTexture: Opaque, level: int): Opaque;
-declare function Donut_GetFbcTextureLevelRowPitch(fbcTexture: Opaque, level: int): int;
-declare function Donut_DestroyFbcTexture(fbcTexture: Opaque): void;
+declare function Donut_GetFbcTextureLevelData(fbcTexture: FbcTextureHandle, level: int): Opaque;
+declare function Donut_GetFbcTextureLevelRowPitch(fbcTexture: FbcTextureHandle, level: int): int;
+declare function Donut_DestroyFbcTexture(fbcTexture: FbcTextureHandle): void;
 
 // The Xbox ATG VideoTexturePC12 sample's MediaEnginePlayer (core/video_player.cpp, linked only into
 // the examples that list it; Windows): Media Foundation's Media Engine playing a video file (path
 // relative to the executable's directory) on a D3D11 device of the adapter with this LUID
 // (Donut_GetAdapterLuid; 0, 0: any), muted or not, playing as soon as it can. Null (after printing
 // why) on failure; free it with Donut_DestroyVideoPlayer.
-declare function Donut_CreateVideoPlayer(path: string, luidLow: int, luidHigh: int, muted: int): Opaque | null;
-declare function Donut_GetVideoWidth(videoPlayer: Opaque): int;
-declare function Donut_GetVideoHeight(videoPlayer: Opaque): int;
+declare function Donut_CreateVideoPlayer(path: string, luidLow: int, luidHigh: int, muted: int): VideoPlayerHandle | null;
+declare function Donut_GetVideoWidth(videoPlayer: VideoPlayerHandle): int;
+declare function Donut_GetVideoHeight(videoPlayer: VideoPlayerHandle): int;
 // Non-zero once it played to its end.
-declare function Donut_IsVideoFinished(videoPlayer: Opaque): int;
+declare function Donut_IsVideoFinished(videoPlayer: VideoPlayerHandle): int;
 // The current frame, if there is a new one, into a shared texture (Donut_GetSharedTextureHandle),
 // as the sample's TransferFrame; 1 if it drew one.
-declare function Donut_TransferVideoFrame(videoPlayer: Opaque, sharedHandle: Opaque): int;
+declare function Donut_TransferVideoFrame(videoPlayer: VideoPlayerHandle, sharedHandle: Opaque): int;
 // The same into memory, for APIs that can't share textures with D3D11 (Vulkan): BGRA8 rows
 // (Donut_GetVideoFrameData, rowPitch bytes apart), valid until the next transfer.
-declare function Donut_TransferVideoFrameToMemory(videoPlayer: Opaque): int;
-declare function Donut_GetVideoFrameData(videoPlayer: Opaque): Opaque;
-declare function Donut_GetVideoFrameRowPitch(videoPlayer: Opaque): int;
+declare function Donut_TransferVideoFrameToMemory(videoPlayer: VideoPlayerHandle): int;
+declare function Donut_GetVideoFrameData(videoPlayer: VideoPlayerHandle): Opaque;
+declare function Donut_GetVideoFrameRowPitch(videoPlayer: VideoPlayerHandle): int;
 // Moves playback to `seconds` into the video.
-declare function Donut_SetVideoTime(videoPlayer: Opaque, seconds: number): void;
-declare function Donut_DestroyVideoPlayer(videoPlayer: Opaque): void;
+declare function Donut_SetVideoTime(videoPlayer: VideoPlayerHandle, seconds: number): void;
+declare function Donut_DestroyVideoPlayer(videoPlayer: VideoPlayerHandle): void;
 
 // SDKMESH files, the legacy DirectX SDK's mesh format the Xbox ATG samples load with DirectXTK
 // (core/sdkmesh.cpp, linked only into the examples that list it). A file in memory (e.g.
 // Donut_GetBinaryFileData; byteSize bytes, copied), checked as DirectXTK's Model::CreateFromSDKMESH
 // checks it; its buffers, meshes, subsets, materials and frames as the file has them. Null (after
 // printing why) on failure; free it with Donut_DestroySdkMesh. Strings are valid as long as the mesh.
-declare function Donut_LoadSdkMesh(data: Opaque, byteSize: int): Opaque | null;
-declare function Donut_DestroySdkMesh(sdkMesh: Opaque): void;
+declare function Donut_LoadSdkMesh(data: Opaque, byteSize: int): SdkMeshHandle | null;
+declare function Donut_DestroySdkMesh(sdkMesh: SdkMeshHandle): void;
 // 101, or 200 for files with PBR materials.
-declare function Donut_GetSdkMeshVersion(sdkMesh: Opaque): int;
+declare function Donut_GetSdkMeshVersion(sdkMesh: SdkMeshHandle): int;
 // Vertex buffers: their data (valid until the mesh is freed), size in bytes, stride, vertex count.
-declare function Donut_GetSdkMeshVertexBufferCount(sdkMesh: Opaque): int;
-declare function Donut_GetSdkMeshVertexBufferData(sdkMesh: Opaque, vertexBuffer: int): Opaque;
-declare function Donut_GetSdkMeshVertexBufferSize(sdkMesh: Opaque, vertexBuffer: int): int;
-declare function Donut_GetSdkMeshVertexBufferStride(sdkMesh: Opaque, vertexBuffer: int): int;
-declare function Donut_GetSdkMeshVertexBufferVertexCount(sdkMesh: Opaque, vertexBuffer: int): int;
+declare function Donut_GetSdkMeshVertexBufferCount(sdkMesh: SdkMeshHandle): int;
+declare function Donut_GetSdkMeshVertexBufferData(sdkMesh: SdkMeshHandle, vertexBuffer: int): Opaque;
+declare function Donut_GetSdkMeshVertexBufferSize(sdkMesh: SdkMeshHandle, vertexBuffer: int): int;
+declare function Donut_GetSdkMeshVertexBufferStride(sdkMesh: SdkMeshHandle, vertexBuffer: int): int;
+declare function Donut_GetSdkMeshVertexBufferVertexCount(sdkMesh: SdkMeshHandle, vertexBuffer: int): int;
 // The byte offset in a vertex and the D3DDECLTYPE (2 FLOAT3, 1 FLOAT2...) of a vertex element by its
 // D3DDECLUSAGE (0 position, 3 normal, 5 texture coordinates, 6 tangent, 7 binormal, 10 color) and
 // usage index; -1 if the vertices have none.
-declare function Donut_GetSdkMeshVertexElementOffset(sdkMesh: Opaque, vertexBuffer: int, usage: int, usageIndex: int): int;
-declare function Donut_GetSdkMeshVertexElementType(sdkMesh: Opaque, vertexBuffer: int, usage: int, usageIndex: int): int;
+declare function Donut_GetSdkMeshVertexElementOffset(sdkMesh: SdkMeshHandle, vertexBuffer: int, usage: int, usageIndex: int): int;
+declare function Donut_GetSdkMeshVertexElementType(sdkMesh: SdkMeshHandle, vertexBuffer: int, usage: int, usageIndex: int): int;
 // Index buffers: their data, size in bytes, index count, and whether the indices are 32-bit (16-bit
 // otherwise).
-declare function Donut_GetSdkMeshIndexBufferCount(sdkMesh: Opaque): int;
-declare function Donut_GetSdkMeshIndexBufferData(sdkMesh: Opaque, indexBuffer: int): Opaque;
-declare function Donut_GetSdkMeshIndexBufferSize(sdkMesh: Opaque, indexBuffer: int): int;
-declare function Donut_GetSdkMeshIndexBufferIndexCount(sdkMesh: Opaque, indexBuffer: int): int;
-declare function Donut_IsSdkMeshIndexBuffer32Bit(sdkMesh: Opaque, indexBuffer: int): int;
+declare function Donut_GetSdkMeshIndexBufferCount(sdkMesh: SdkMeshHandle): int;
+declare function Donut_GetSdkMeshIndexBufferData(sdkMesh: SdkMeshHandle, indexBuffer: int): Opaque;
+declare function Donut_GetSdkMeshIndexBufferSize(sdkMesh: SdkMeshHandle, indexBuffer: int): int;
+declare function Donut_GetSdkMeshIndexBufferIndexCount(sdkMesh: SdkMeshHandle, indexBuffer: int): int;
+declare function Donut_IsSdkMeshIndexBuffer32Bit(sdkMesh: SdkMeshHandle, indexBuffer: int): int;
 // Meshes: their name, vertex and index buffers, subsets (indices into the file's subsets), and
 // bounding box (center, then extents: 6 floats into dst, Ref of a `let` f32 array element).
-declare function Donut_GetSdkMeshMeshCount(sdkMesh: Opaque): int;
-declare function Donut_GetSdkMeshMeshName(sdkMesh: Opaque, mesh: int): string;
-declare function Donut_GetSdkMeshMeshVertexBuffer(sdkMesh: Opaque, mesh: int): int;
-declare function Donut_GetSdkMeshMeshIndexBuffer(sdkMesh: Opaque, mesh: int): int;
-declare function Donut_GetSdkMeshMeshSubsetCount(sdkMesh: Opaque, mesh: int): int;
-declare function Donut_GetSdkMeshMeshSubset(sdkMesh: Opaque, mesh: int, index: int): int;
-declare function Donut_CopySdkMeshMeshBounds(sdkMesh: Opaque, mesh: int, dst: Opaque): void;
+declare function Donut_GetSdkMeshMeshCount(sdkMesh: SdkMeshHandle): int;
+declare function Donut_GetSdkMeshMeshName(sdkMesh: SdkMeshHandle, mesh: int): string;
+declare function Donut_GetSdkMeshMeshVertexBuffer(sdkMesh: SdkMeshHandle, mesh: int): int;
+declare function Donut_GetSdkMeshMeshIndexBuffer(sdkMesh: SdkMeshHandle, mesh: int): int;
+declare function Donut_GetSdkMeshMeshSubsetCount(sdkMesh: SdkMeshHandle, mesh: int): int;
+declare function Donut_GetSdkMeshMeshSubset(sdkMesh: SdkMeshHandle, mesh: int, index: int): int;
+declare function Donut_CopySdkMeshMeshBounds(sdkMesh: SdkMeshHandle, mesh: int, dst: Opaque): void;
 // Subsets: their material, primitive type (0 triangle list, 1 triangle strip, 2 line list, 3 line
 // strip, 4 point list...), and ranges of their mesh's index and vertex buffers.
-declare function Donut_GetSdkMeshSubsetMaterial(sdkMesh: Opaque, subset: int): int;
-declare function Donut_GetSdkMeshSubsetPrimitiveType(sdkMesh: Opaque, subset: int): int;
-declare function Donut_GetSdkMeshSubsetIndexStart(sdkMesh: Opaque, subset: int): int;
-declare function Donut_GetSdkMeshSubsetIndexCount(sdkMesh: Opaque, subset: int): int;
-declare function Donut_GetSdkMeshSubsetVertexStart(sdkMesh: Opaque, subset: int): int;
-declare function Donut_GetSdkMeshSubsetVertexCount(sdkMesh: Opaque, subset: int): int;
+declare function Donut_GetSdkMeshSubsetMaterial(sdkMesh: SdkMeshHandle, subset: int): int;
+declare function Donut_GetSdkMeshSubsetPrimitiveType(sdkMesh: SdkMeshHandle, subset: int): int;
+declare function Donut_GetSdkMeshSubsetIndexStart(sdkMesh: SdkMeshHandle, subset: int): int;
+declare function Donut_GetSdkMeshSubsetIndexCount(sdkMesh: SdkMeshHandle, subset: int): int;
+declare function Donut_GetSdkMeshSubsetVertexStart(sdkMesh: SdkMeshHandle, subset: int): int;
+declare function Donut_GetSdkMeshSubsetVertexCount(sdkMesh: SdkMeshHandle, subset: int): int;
 // Materials: their name, a texture's file name ("" if none: which 0 diffuse, or albedo in version
 // 200; 1 normal; 2 specular, or roughness / metallic / ambient occlusion in version 200; 3 emissive,
 // version 200 only), and their colors into dst: version 101's diffuse, ambient, specular and
 // emissive (RGBA each) and specular power (17 floats), version 200's alpha (1 float).
-declare function Donut_GetSdkMeshMaterialCount(sdkMesh: Opaque): int;
-declare function Donut_GetSdkMeshMaterialName(sdkMesh: Opaque, material: int): string;
-declare function Donut_GetSdkMeshMaterialTexture(sdkMesh: Opaque, material: int, which: int): string;
-declare function Donut_CopySdkMeshMaterialColors(sdkMesh: Opaque, material: int, dst: Opaque): void;
+declare function Donut_GetSdkMeshMaterialCount(sdkMesh: SdkMeshHandle): int;
+declare function Donut_GetSdkMeshMaterialName(sdkMesh: SdkMeshHandle, material: int): string;
+declare function Donut_GetSdkMeshMaterialTexture(sdkMesh: SdkMeshHandle, material: int, which: int): string;
+declare function Donut_CopySdkMeshMaterialColors(sdkMesh: SdkMeshHandle, material: int, dst: Opaque): void;
 // Frames (the meshes' hierarchy): their name, mesh and parent frame (-1 for none), and transform
 // relative to the parent (16 floats into dst, row-major for mul(vector, matrix) as DirectXMath).
-declare function Donut_GetSdkMeshFrameCount(sdkMesh: Opaque): int;
-declare function Donut_GetSdkMeshFrameName(sdkMesh: Opaque, frame: int): string;
-declare function Donut_GetSdkMeshFrameMesh(sdkMesh: Opaque, frame: int): int;
-declare function Donut_GetSdkMeshFrameParent(sdkMesh: Opaque, frame: int): int;
-declare function Donut_CopySdkMeshFrameMatrix(sdkMesh: Opaque, frame: int, dst: Opaque): void;
+declare function Donut_GetSdkMeshFrameCount(sdkMesh: SdkMeshHandle): int;
+declare function Donut_GetSdkMeshFrameName(sdkMesh: SdkMeshHandle, frame: int): string;
+declare function Donut_GetSdkMeshFrameMesh(sdkMesh: SdkMeshHandle, frame: int): int;
+declare function Donut_GetSdkMeshFrameParent(sdkMesh: SdkMeshHandle, frame: int): int;
+declare function Donut_CopySdkMeshFrameMatrix(sdkMesh: SdkMeshHandle, frame: int, dst: Opaque): void;
 
 // DirectXMath's collision types (core/directx_collision.cpp, linked only into the examples that
 // list it), shapes passed as floats: CollisionShape says which, and how many.
@@ -858,20 +858,20 @@ declare function Donut_GetTextureTiling(app: AppHandle, texture: TextureHandle, 
 // 64 KB), Vulkan's memory requirements.
 declare function Donut_GetPlacedTextureSize(app: AppHandle, width: int, height: int, format: Format): number;
 // A heap of byteSize bytes of device memory for placed textures (D3D12, Vulkan); null on failure.
-declare function Donut_CreateTextureHeap(app: AppHandle, byteSize: number, debugName: string): Opaque | null;
+declare function Donut_CreateTextureHeap(app: AppHandle, byteSize: number, debugName: string): TextureHeapHandle | null;
 // A texture that shaders read placed in a texture heap at byteOffset (a multiple of
 // Donut_GetPlacedTextureSize's size), its first use recorded into an open command list. Fill it with
 // Donut_WriteTextureLevel; release it before the heap. Null on failure.
-declare function Donut_CreatePlacedTexture(app: AppHandle, commandList: CommandListHandle, textureHeap: Opaque, byteOffset: number,
+declare function Donut_CreatePlacedTexture(app: AppHandle, commandList: CommandListHandle, textureHeap: TextureHeapHandle, byteOffset: number,
     width: int, height: int, format: Format, debugName: string): TextureHandle | null;
 declare function Donut_CreateTileHeap(app: AppHandle, byteSize: number, debugName: string): HeapHandle;
 // Tile mappings, applied in one go (and freed) by Donut_ApplyTileMappings.
-declare function Donut_CreateTileMappings(): Opaque;
+declare function Donut_CreateTileMappings(): TileMappingsHandle;
 // Maps the tile at column x, row y of level mipLevel to byteOffset in a heap, or unmaps it (null).
-declare function Donut_TileMappingsAdd(tileMappings: Opaque, mipLevel: int, x: int, y: int, heap: HeapHandle | null, byteOffset: number): void;
+declare function Donut_TileMappingsAdd(tileMappings: TileMappingsHandle, mipLevel: int, x: int, y: int, heap: HeapHandle | null, byteOffset: number): void;
 // On the graphics queue, after the work submitted before (on Vulkan the device is idle before and
 // after: its sparse binding isn't ordered with other work).
-declare function Donut_ApplyTileMappings(app: AppHandle, texture: TextureHandle, tileMappings: Opaque): void;
+declare function Donut_ApplyTileMappings(app: AppHandle, texture: TextureHandle, tileMappings: TileMappingsHandle): void;
 // The first level of a DDS file (path relative to the executable's directory) in a staging
 // texture: memory on the CPU's side the GPU copies from. Null (after logging why) on failure.
 declare function Donut_LoadStagingTexture(app: AppHandle, path: string): StagingTextureHandle;
@@ -985,72 +985,72 @@ declare function Donut_SetBufferWrittenByShaders(commandList: CommandListHandle,
 // the Vulkan-Samples framework loads it: float3 position, float3 normal and float2 texture
 // coordinates interleaved (32 bytes), R32_UINT indices, the nodes' transforms ignored. Uploaded by
 // an open command list. Null (after logging why) on failure.
-declare function Donut_LoadGltfMesh(app: AppHandle, commandList: CommandListHandle, path: string): Opaque;
+declare function Donut_LoadGltfMesh(app: AppHandle, commandList: CommandListHandle, path: string): GltfMeshHandle;
 // Valid as long as the mesh.
-declare function Donut_GetGltfMeshVertexBuffer(gltfMesh: Opaque): BufferHandle;
-declare function Donut_GetGltfMeshIndexBuffer(gltfMesh: Opaque): BufferHandle;
-declare function Donut_GetGltfMeshIndexCount(gltfMesh: Opaque): int;
+declare function Donut_GetGltfMeshVertexBuffer(gltfMesh: GltfMeshHandle): BufferHandle;
+declare function Donut_GetGltfMeshIndexBuffer(gltfMesh: GltfMeshHandle): BufferHandle;
+declare function Donut_GetGltfMeshIndexCount(gltfMesh: GltfMeshHandle): int;
 // Every primitive of a glTF file's meshes (path relative to the executable's directory), in mesh
 // and primitive order, as the Vulkan-Samples framework's scene loader reads them into submeshes:
 // vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms ignored), int indices,
 // and the base color image's URI ("" if none). Kept on the CPU. Null (after logging why) on failure.
-declare function Donut_LoadGltfModel(app: AppHandle, path: string): Opaque;
+declare function Donut_LoadGltfModel(app: AppHandle, path: string): GltfModelHandle;
 // A file read whole (path relative to the executable's directory), for TypeScript to parse: its
 // size, and bytes [offset, offset + count) into dst, an int (0..255) each (0 past the end).
-declare function Donut_LoadBinaryFile(app: AppHandle, path: string): Opaque;
-declare function Donut_GetBinaryFileSize(binaryFile: Opaque): int;
+declare function Donut_LoadBinaryFile(app: AppHandle, path: string): BinaryFileHandle;
+declare function Donut_GetBinaryFileSize(binaryFile: BinaryFileHandle): int;
 // The file's bytes, valid as long as the file (e.g. for Donut_TranscodeKtx2).
-declare function Donut_GetBinaryFileData(binaryFile: Opaque): Opaque;
-declare function Donut_CopyBinaryFileBytes(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
+declare function Donut_GetBinaryFileData(binaryFile: BinaryFileHandle): Opaque;
+declare function Donut_CopyBinaryFileBytes(binaryFile: BinaryFileHandle, offset: int, count: int, dst: Opaque): void;
 // count little-endian 32-bit values from byte offset into dst (Ref of a `let` int array element)
 // as ints; those past the end of the file as 0.
-declare function Donut_CopyBinaryFileUInts(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
+declare function Donut_CopyBinaryFileUInts(binaryFile: BinaryFileHandle, offset: int, count: int, dst: Opaque): void;
 // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the call
 // into an open command list (e.g. a model's vertices from the middle of its file).
-declare function Donut_WriteBufferFromBinaryFile(binaryFile: Opaque, commandList: CommandListHandle, buffer: BufferHandle, bufferOffset: int,
+declare function Donut_WriteBufferFromBinaryFile(binaryFile: BinaryFileHandle, commandList: CommandListHandle, buffer: BufferHandle, bufferOffset: int,
     fileOffset: int, byteSize: int): void;
 // The usage counts of an opacity micromap array by a geometry's triangles
 // (Donut_SetTriangleBlasGeometryOpacityMicromap) from the file's data: indexCount OMM indices
 // (indexFormat R16_UINT or R32_UINT) at indexOffset, indexing descCount per-OMM descs at descOffset
 // (as Donut_CreateOpacityMicromap takes them). Writes up to maxEntries entries of three ints (count,
 // subdivision level, format) into dst (Ref of a `let` int array); returns how many there are.
-declare function Donut_CountOpacityMicromapUsage(binaryFile: Opaque, indexOffset: int, indexCount: int, indexFormat: Format,
+declare function Donut_CountOpacityMicromapUsage(binaryFile: BinaryFileHandle, indexOffset: int, indexCount: int, indexFormat: Format,
     descOffset: int, descCount: int, dst: Opaque, maxEntries: int): int;
 // Writes byteSize bytes of data (Ref of a `let` array element, or a Donut data pointer) to a file
 // (path as given: absolute, or relative to the current directory). 1 on success.
 declare function Donut_WriteBinaryFile(path: string, data: Opaque, byteSize: int): int;
-declare function Donut_GetGltfModelPrimitiveCount(gltfModel: Opaque): int;
-declare function Donut_GetGltfModelVertexCount(gltfModel: Opaque, primitive: int): int;
-declare function Donut_GetGltfModelIndexCount(gltfModel: Opaque, primitive: int): int;
+declare function Donut_GetGltfModelPrimitiveCount(gltfModel: GltfModelHandle): int;
+declare function Donut_GetGltfModelVertexCount(gltfModel: GltfModelHandle, primitive: int): int;
+declare function Donut_GetGltfModelIndexCount(gltfModel: GltfModelHandle, primitive: int): int;
 // Into dst: Ref(arr[0]) of a `let` f32 array of 8 x the vertex count / int array of the index count.
-declare function Donut_CopyGltfModelVertices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
+declare function Donut_CopyGltfModelVertices(gltfModel: GltfModelHandle, primitive: int, dst: Opaque): void;
 // A primitive's vertex attribute by its name in the file ("COLOR_0",
 // "KHR_gaussian_splatting:ROTATION"...): its elements (0 if none), floats per element, and the
 // floats themselves (normalized integers converted; count * components into dst).
-declare function Donut_GetGltfModelAttributeCount(gltfModel: Opaque, primitive: int, name: string): int;
-declare function Donut_GetGltfModelAttributeComponents(gltfModel: Opaque, primitive: int, name: string): int;
-declare function Donut_CopyGltfModelAttribute(gltfModel: Opaque, primitive: int, name: string, dst: Opaque): void;
-declare function Donut_CopyGltfModelIndices(gltfModel: Opaque, primitive: int, dst: Opaque): void;
-declare function Donut_GetGltfModelBaseColorImage(gltfModel: Opaque, primitive: int): string;
+declare function Donut_GetGltfModelAttributeCount(gltfModel: GltfModelHandle, primitive: int, name: string): int;
+declare function Donut_GetGltfModelAttributeComponents(gltfModel: GltfModelHandle, primitive: int, name: string): int;
+declare function Donut_CopyGltfModelAttribute(gltfModel: GltfModelHandle, primitive: int, name: string, dst: Opaque): void;
+declare function Donut_CopyGltfModelIndices(gltfModel: GltfModelHandle, primitive: int, dst: Opaque): void;
+declare function Donut_GetGltfModelBaseColorImage(gltfModel: GltfModelHandle, primitive: int): string;
 // The name of the primitive's mesh ("" if none).
 // A primitive's material's base color factor (RGBA) into dst (Ref of a `let` f32 array of 4).
-declare function Donut_CopyGltfModelBaseColorFactor(gltfModel: Opaque, primitive: int, dst: Opaque): void;
-declare function Donut_GetGltfModelMeshName(gltfModel: Opaque, primitive: int): string;
+declare function Donut_CopyGltfModelBaseColorFactor(gltfModel: GltfModelHandle, primitive: int, dst: Opaque): void;
+declare function Donut_GetGltfModelMeshName(gltfModel: GltfModelHandle, primitive: int): string;
 // The index of the primitive's mesh, and its material's alpha mode.
-declare function Donut_GetGltfModelPrimitiveMesh(gltfModel: Opaque, primitive: int): int;
-declare function Donut_GetGltfModelPrimitiveAlphaMode(gltfModel: Opaque, primitive: int): AlphaMode;
+declare function Donut_GetGltfModelPrimitiveMesh(gltfModel: GltfModelHandle, primitive: int): int;
+declare function Donut_GetGltfModelPrimitiveAlphaMode(gltfModel: GltfModelHandle, primitive: int): AlphaMode;
 // The nodes that instantiate meshes, in node order: their mesh, and their world transform (16
 // floats, column-major as glm) into dst (Ref of a `let` f32 array element).
 // A primitive's material's texture (0 base color, 1 normal, 2 metallic-roughness) as an index into
 // the file's textures (-1 if none), and its metallic (0) or roughness (1) factor.
-declare function Donut_GetGltfModelMaterialTexture(gltfModel: Opaque, primitive: int, which: int): int;
-declare function Donut_GetGltfModelMaterialFactor(gltfModel: Opaque, primitive: int, which: int): number;
+declare function Donut_GetGltfModelMaterialTexture(gltfModel: GltfModelHandle, primitive: int, which: int): int;
+declare function Donut_GetGltfModelMaterialFactor(gltfModel: GltfModelHandle, primitive: int, which: int): number;
 // The file's textures, and a texture's image URI ("" if none).
-declare function Donut_GetGltfModelTextureCount(gltfModel: Opaque): int;
-declare function Donut_GetGltfModelTextureImage(gltfModel: Opaque, texture: int): string;
-declare function Donut_GetGltfModelNodeCount(gltfModel: Opaque): int;
-declare function Donut_GetGltfModelNodeMesh(gltfModel: Opaque, node: int): int;
-declare function Donut_CopyGltfModelNodeTransform(gltfModel: Opaque, node: int, dst: Opaque): void;
+declare function Donut_GetGltfModelTextureCount(gltfModel: GltfModelHandle): int;
+declare function Donut_GetGltfModelTextureImage(gltfModel: GltfModelHandle, texture: int): string;
+declare function Donut_GetGltfModelNodeCount(gltfModel: GltfModelHandle): int;
+declare function Donut_GetGltfModelNodeMesh(gltfModel: GltfModelHandle, node: int): int;
+declare function Donut_CopyGltfModelNodeTransform(gltfModel: GltfModelHandle, node: int, dst: Opaque): void;
 // Image file, path relative to the executable's directory, uploaded by an open command list.
 // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
 declare function Donut_LoadTexture(app: AppHandle, commandList: CommandListHandle, path: string, sRGB: int): TextureHandle;
@@ -1286,15 +1286,15 @@ declare function Donut_WriteDescriptorTableTexture(app: AppHandle, descriptorTab
 // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
 // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
 // (different every run).
-declare function Donut_CreateRandomEngine(app: AppHandle, seed: int): Opaque;
+declare function Donut_CreateRandomEngine(app: AppHandle, seed: int): RandomEngineHandle;
 // The engine's next number from std::uniform_real_distribution<float>(a, b).
-declare function Donut_RandomUniformFloat(randomEngine: Opaque, a: number, b: number): number;
+declare function Donut_RandomUniformFloat(randomEngine: RandomEngineHandle, a: number, b: number): number;
 // The engine's next number from std::uniform_int_distribution<int>(a, b).
-declare function Donut_RandomUniformInt(randomEngine: Opaque, a: int, b: int): int;
+declare function Donut_RandomUniformInt(randomEngine: RandomEngineHandle, a: int, b: int): int;
 // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
 // (Ref of a `let` f32 array element): one distribution object, as the samples keep one (MSVC's makes
 // values in pairs and keeps the second).
-declare function Donut_RandomNormalFloats(randomEngine: Opaque, mean: number, stddev: number, count: int, dst: Opaque): void;
+declare function Donut_RandomNormalFloats(randomEngine: RandomEngineHandle, mean: number, stddev: number, count: int, dst: Opaque): void;
 // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
 declare function Donut_LayoutPushConstants(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, byteSize: int): void;
 // Register space 0, visible to shaderType's stages.
@@ -1315,25 +1315,25 @@ declare function Donut_GetCachedBindingSet(app: AppHandle, bindingSetDesc: Bindi
 // its textures (RWTexture2D at u0, the run index as a uint push constant at b0; the layout must
 // hold exactly those), and hands it to the render thread. Null if there's no compute queue.
 declare function Donut_CreateAsyncComputeLoop(app: AppHandle, computePipeline: ComputePipelineHandle, bindingLayout: BindingLayoutHandle,
-    groupsX: int, groupsY: int, intervalMicroseconds: int): Opaque;
+    groupsX: int, groupsY: int, intervalMicroseconds: int): AsyncComputeLoopHandle;
 // Before starting it.
-declare function Donut_AddAsyncComputeTexture(asyncComputeLoop: Opaque, texture: TextureHandle): void;
+declare function Donut_AddAsyncComputeTexture(asyncComputeLoop: AsyncComputeLoopHandle, texture: TextureHandle): void;
 // Same, with the binding set (from the loop's layout) to write it with: its UAV at u0, the push
 // constants at b0 and anything else the shader reads, instead of the loop's own set of those two.
-declare function Donut_AddAsyncComputeTextureWithBindingSet(asyncComputeLoop: Opaque, texture: TextureHandle, bindingSet: BindingSetHandle): void;
+declare function Donut_AddAsyncComputeTextureWithBindingSet(asyncComputeLoop: AsyncComputeLoopHandle, texture: TextureHandle, bindingSet: BindingSetHandle): void;
 // The push constants of the runs from now on, instead of the run index: byteSize bytes from data
 // (Ref of a `let` array element), copied during the call; the layout's push constants' size.
-declare function Donut_SetAsyncComputePushConstants(asyncComputeLoop: Opaque, data: Opaque, byteSize: int): void;
+declare function Donut_SetAsyncComputePushConstants(asyncComputeLoop: AsyncComputeLoopHandle, data: Opaque, byteSize: int): void;
 // Non-zero: no more runs start until resumed (one under way finishes).
-declare function Donut_SetAsyncComputeLoopPaused(asyncComputeLoop: Opaque, paused: int): void;
+declare function Donut_SetAsyncComputeLoopPaused(asyncComputeLoop: AsyncComputeLoopHandle, paused: int): void;
 // Runs submitted so far.
-declare function Donut_GetAsyncComputeRunCount(asyncComputeLoop: Opaque): int;
-declare function Donut_StartAsyncComputeLoop(asyncComputeLoop: Opaque): void;
+declare function Donut_GetAsyncComputeRunCount(asyncComputeLoop: AsyncComputeLoopHandle): int;
+declare function Donut_StartAsyncComputeLoop(asyncComputeLoop: AsyncComputeLoopHandle): void;
 // Joins the worker thread; call before Donut_DestroyApp.
-declare function Donut_StopAsyncComputeLoop(asyncComputeLoop: Opaque): void;
+declare function Donut_StopAsyncComputeLoop(asyncComputeLoop: AsyncComputeLoopHandle): void;
 // In a render callback: switches to the newest finished texture, if any (the frame waits for the
 // compute queue), handing the previous one back. The texture to show; null until the first.
-declare function Donut_AcquireAsyncComputeTexture(asyncComputeLoop: Opaque, frame: FrameHandle): TextureHandle | null;
+declare function Donut_AcquireAsyncComputeTexture(asyncComputeLoop: AsyncComputeLoopHandle, frame: FrameHandle): TextureHandle | null;
 
 // Command lists, for work outside render passes (e.g. in a headless app).
 declare function Donut_CreateCommandList(app: AppHandle): CommandListHandle;
@@ -1377,15 +1377,15 @@ declare function Donut_BeginMarker(commandList: CommandListHandle, name: string)
 declare function Donut_EndMarker(commandList: CommandListHandle): void;
 
 // GPU timer queries: the GPU time between Begin and End, readable once polled.
-declare function Donut_CreateTimerQuery(app: AppHandle): Opaque;
+declare function Donut_CreateTimerQuery(app: AppHandle): TimerQueryHandle;
 // Before measuring again.
-declare function Donut_ResetTimerQuery(app: AppHandle, timerQuery: Opaque): void;
-declare function Donut_BeginTimerQuery(commandList: CommandListHandle, timerQuery: Opaque): void;
-declare function Donut_EndTimerQuery(commandList: CommandListHandle, timerQuery: Opaque): void;
+declare function Donut_ResetTimerQuery(app: AppHandle, timerQuery: TimerQueryHandle): void;
+declare function Donut_BeginTimerQuery(commandList: CommandListHandle, timerQuery: TimerQueryHandle): void;
+declare function Donut_EndTimerQuery(commandList: CommandListHandle, timerQuery: TimerQueryHandle): void;
 // Non-zero once the GPU has finished the measured commands.
-declare function Donut_PollTimerQuery(app: AppHandle, timerQuery: Opaque): int;
+declare function Donut_PollTimerQuery(app: AppHandle, timerQuery: TimerQueryHandle): int;
 // Seconds; waits for the GPU unless polled first.
-declare function Donut_GetTimerQueryTime(app: AppHandle, timerQuery: Opaque): number;
+declare function Donut_GetTimerQueryTime(app: AppHandle, timerQuery: TimerQueryHandle): number;
 
 // Passes are owned by the app; later passes draw on top and get input first.
 declare function Donut_AddPass(app: AppHandle): PassHandle;
@@ -1405,11 +1405,11 @@ declare function Donut_SetMouseScrollCallback(pass: PassHandle, handler: MouseSc
 // Donut's ImGui renderer as a pass drawn after the ones added before (on top) and seeing input
 // before them; buildUI builds the UI every frame with the Donut_ImGui* functions (only valid in
 // it). Null if the renderer can't be initialized.
-declare function Donut_AddImGuiPass(app: AppHandle, buildUI: VoidCallback): Opaque | null;
+declare function Donut_AddImGuiPass(app: AppHandle, buildUI: VoidCallback): ImGuiPassHandle | null;
 // Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the back
 // buffer; null: the back buffer again. Passes added after the ImGui pass draw after it (e.g. one
 // that takes that framebuffer's texture to the back buffer).
-declare function Donut_SetImGuiPassFramebuffer(imguiPass: Opaque, framebuffer: FramebufferHandle | null): void;
+declare function Donut_SetImGuiPassFramebuffer(imguiPass: ImGuiPassHandle, framebuffer: FramebufferHandle | null): void;
 declare function Donut_ImGuiSetNextWindowPos(x: number, y: number): void;
 // autoResize != 0: the window fits its contents. Pair with Donut_ImGuiEnd.
 declare function Donut_ImGuiBegin(title: string, autoResize: int): void;
@@ -1488,8 +1488,8 @@ declare function Donut_ImGuiSetItemDefaultFocus(): void;
 declare function Donut_ImGuiGetFontSize(): number;
 // A TrueType font (path relative to the executable's directory) at a size in pixels; call right
 // after Donut_AddImGuiPass (imguiPass is what it returned). Null if the file can't be read.
-declare function Donut_ImGuiCreateFont(imguiPass: Opaque, path: string, size: number): Opaque;
-declare function Donut_ImGuiPushFont(font: Opaque): void;
+declare function Donut_ImGuiCreateFont(imguiPass: ImGuiPassHandle, path: string, size: number): ImGuiFontHandle;
+declare function Donut_ImGuiPushFont(font: ImGuiFontHandle): void;
 declare function Donut_ImGuiPopFont(): void;
 // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in
 // the current font and color, behind the windows (no window needed).
@@ -1500,9 +1500,9 @@ declare function Donut_ImGuiDrawRect(x0: number, y0: number, x1: number, y1: num
 // The width of a line of text in the current font, in UI coordinates.
 declare function Donut_ImGuiCalcTextWidth(text: string): number;
 // A borderless window over the whole screen, with text centered on it (may span lines).
-declare function Donut_ImGuiBeginFullScreenWindow(imguiPass: Opaque): void;
-declare function Donut_ImGuiDrawScreenCenteredText(imguiPass: Opaque, text: string): void;
-declare function Donut_ImGuiEndFullScreenWindow(imguiPass: Opaque): void;
+declare function Donut_ImGuiBeginFullScreenWindow(imguiPass: ImGuiPassHandle): void;
+declare function Donut_ImGuiDrawScreenCenteredText(imguiPass: ImGuiPassHandle, text: string): void;
+declare function Donut_ImGuiEndFullScreenWindow(imguiPass: ImGuiPassHandle): void;
 // Donut's material / light editor widgets, for a scene material / light; non-zero if it changed.
 declare function Donut_ImGuiMaterialEditor(material: MaterialHandle, allowDomainChanges: int): int;
 declare function Donut_ImGuiLightEditor(light: LightHandle): int;
@@ -1788,12 +1788,12 @@ declare function Donut_GetD3D12WorkGraphsTier(app: AppHandle): int;
 // root signature, and its broadcasting entry node's dispatch grid set to gridX x gridY x gridZ;
 // plus its backing memory. Release it with Donut_ReleaseObject. Null (after logging why) on failure.
 declare function Donut_CreateD3D12WorkGraph(app: AppHandle, shaderLibrary: ShaderLibraryHandle, computePipeline: ComputePipelineHandle, programName: string,
-    entryNodeName: string, gridX: int, gridY: int, gridZ: int): Opaque | null;
+    entryNodeName: string, gridX: int, gridY: int, gridZ: int): D3D12WorkGraphHandle | null;
 // Launches the graph with one empty entry record, bindingSet and byteSize bytes of push constants
 // from data as its root arguments, set through computePipeline (one with the same root signature;
 // don't dispatch with it after the graph in the same command list). initializeBackingMemory
 // non-zero on the backing memory's first use, or after another graph used it.
-declare function Donut_DispatchD3D12WorkGraph(commandList: CommandListHandle, workGraph: Opaque, computePipeline: ComputePipelineHandle, bindingSet: BindingSetHandle,
+declare function Donut_DispatchD3D12WorkGraph(commandList: CommandListHandle, workGraph: D3D12WorkGraphHandle, computePipeline: ComputePipelineHandle, bindingSet: BindingSetHandle,
     data: Opaque, byteSize: int, initializeBackingMemory: int): void;
 
 // Valid only inside a render callback.
@@ -1849,25 +1849,25 @@ declare function Donut_DrawIndexedWithPushConstants(frame: FrameHandle, indexCou
 // Values that decide whether draws happen (D3D12 predication, Vulkan conditional rendering): count
 // of them, each 0 (skip) or not (draw), all 1 at first, in memory the CPU writes and the GPU reads
 // when it executes the draws. Requires Donut_HasConditionalRendering. Null on failure.
-declare function Donut_CreatePredicationBuffer(app: AppHandle, count: int): Opaque | null;
-declare function Donut_SetPredicationValue(predicationBuffer: Opaque, index: int, value: int): void;
+declare function Donut_CreatePredicationBuffer(app: AppHandle, count: int): PredicationBufferHandle | null;
+declare function Donut_SetPredicationValue(predicationBuffer: PredicationBufferHandle, index: int, value: int): void;
 // Binary occlusion queries whose results the GPU resolves into predication values (the CPU's
 // Donut_SetPredicationValue's are the predication buffer's): count queries, every result 0
 // (occluded) at first. D3D12's occlusion query heap and predication, Vulkan's occlusion query pool
 // and conditional rendering (requires Donut_HasConditionalRendering). Null otherwise.
-declare function Donut_CreateOcclusionPredication(app: AppHandle, count: int): Opaque | null;
+declare function Donut_CreateOcclusionPredication(app: AppHandle, count: int): OcclusionPredicationHandle | null;
 // Donut_DrawVertices inside occlusion query `index`: whether any of the vertices' samples pass the
 // depth and stencil tests.
-declare function Donut_DrawVerticesWithOcclusionQuery(frame: FrameHandle, vertexCount: int, occlusionPredication: Opaque, index: int): void;
+declare function Donut_DrawVerticesWithOcclusionQuery(frame: FrameHandle, vertexCount: int, occlusionPredication: OcclusionPredicationHandle, index: int): void;
 // The queries' results into the predication values (1: samples passed; 0: none did) for the draws
 // after it, e.g. the next frame's.
-declare function Donut_ResolveOcclusionQueries(frame: FrameHandle, occlusionPredication: Opaque): void;
+declare function Donut_ResolveOcclusionQueries(frame: FrameHandle, occlusionPredication: OcclusionPredicationHandle): void;
 // Donut_DrawVertices, skipped if resolved result `index` is 0 when the GPU gets to it.
-declare function Donut_DrawVerticesOcclusionPredicated(frame: FrameHandle, vertexCount: int, occlusionPredication: Opaque, index: int): void;
+declare function Donut_DrawVerticesOcclusionPredicated(frame: FrameHandle, vertexCount: int, occlusionPredication: OcclusionPredicationHandle, index: int): void;
 // Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of the predication buffer
 // isn't 0 when the GPU gets to it.
 declare function Donut_DrawIndexedRangeWithPushConstantsPredicated(frame: FrameHandle, indexCount: int, startIndex: int, baseVertex: int,
-    data: Opaque, byteSize: int, predicationBuffer: Opaque, index: int): void;
+    data: Opaque, byteSize: int, predicationBuffer: PredicationBufferHandle, index: int): void;
 // Same, instanceCount times.
 declare function Donut_DrawIndexedInstancedWithPushConstants(frame: FrameHandle, indexCount: int, instanceCount: int, data: Opaque, byteSize: int): void;
 // Same, indexCount indices from startIndex of the index buffer, added to baseVertex.
@@ -1898,13 +1898,13 @@ declare function Donut_DrawMeshTasks2D(frame: FrameHandle, groupsX: int, groupsY
 // back a few frames late without waiting. Null when the device can't count mesh shader work (D3D11,
 // D3D12 without MeshShaderPipelineStatsSupported, Vulkan without pipelineStatisticsQuery and
 // meshShaderQueries).
-declare function Donut_CreateMeshPipelineStatistics(app: AppHandle): Opaque | null;
+declare function Donut_CreateMeshPipelineStatistics(app: AppHandle): MeshPipelineStatisticsHandle | null;
 // Before the frame's first draw: reads back the results of the query the frame reuses.
-declare function Donut_BeginMeshPipelineStatisticsFrame(frame: FrameHandle, meshPipelineStatistics: Opaque): void;
+declare function Donut_BeginMeshPipelineStatisticsFrame(frame: FrameHandle, meshPipelineStatistics: MeshPipelineStatisticsHandle): void;
 // Donut_DrawMeshTasks2D, counted by the frame's statistics.
-declare function Donut_DrawMeshTasksWithStatistics(frame: FrameHandle, groupsX: int, groupsY: int, meshPipelineStatistics: Opaque): void;
+declare function Donut_DrawMeshTasksWithStatistics(frame: FrameHandle, groupsX: int, groupsY: int, meshPipelineStatistics: MeshPipelineStatisticsHandle): void;
 // The latest results: which 0 for pixel, 1 for amplification (task), 2 for mesh shader invocations.
-declare function Donut_GetMeshPipelineStatistic(meshPipelineStatistics: Opaque, which: int): number;
+declare function Donut_GetMeshPipelineStatistic(meshPipelineStatistics: MeshPipelineStatisticsHandle, which: int): number;
 declare function Donut_GetFrameWidth(frame: FrameHandle): int;
 declare function Donut_GetFrameHeight(frame: FrameHandle): int;
 
@@ -2108,10 +2108,10 @@ declare function Donut_GetSwapChainColorSpace(app: AppHandle): SwapChainColorSpa
 // frames: Donut_TransferVideoFrame): a render target shared through an NT handle (on D3D12 with
 // simultaneous access), resting at ShaderResource. D3D12 and D3D11 only (Windows): null with other
 // APIs, and (after logging why) on failure.
-declare function Donut_CreateSharedTexture(app: AppHandle, width: int, height: int, format: Format, debugName: string): Opaque | null;
+declare function Donut_CreateSharedTexture(app: AppHandle, width: int, height: int, format: Format, debugName: string): SharedTextureHandle | null;
 // Its texture (valid as long as it) and NT handle.
-declare function Donut_GetSharedTexture(sharedTexture: Opaque): TextureHandle;
-declare function Donut_GetSharedTextureHandle(sharedTexture: Opaque): Opaque;
+declare function Donut_GetSharedTexture(sharedTexture: SharedTextureHandle): TextureHandle;
+declare function Donut_GetSharedTextureHandle(sharedTexture: SharedTextureHandle): Opaque;
 // The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
 // make another API's device on the same GPU. 0 if the API doesn't give it.
 declare function Donut_GetAdapterLuid(app: AppHandle, dst: Opaque): int;

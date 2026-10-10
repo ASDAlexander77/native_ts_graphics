@@ -118,7 +118,7 @@ namespace FastBlockCompress {
         width: int;
         levels: int;
         // Donut_FbcDecodeDds's levels.
-        rgba: Opaque;
+        rgba: FbcTextureHandle;
         source: TextureHandle;
         offlineBC: TextureHandle;
         offlineBC7: TextureHandle;
@@ -183,7 +183,7 @@ namespace FastBlockCompress {
         private quadPS: ShaderHandle;
         private quadPipeline: GraphicsPipelineHandle | null;
         private quadConstants: f32[];
-        private timers: Opaque[];
+        private timers: TimerQueryHandle[];
         private timerPending: boolean[];
         private cpuStats: f32[];
         private frameIndex: int;
@@ -363,7 +363,7 @@ namespace FastBlockCompress {
             if (!result) {
                 return;
             }
-            const compressed = result as Opaque;
+            const compressed = result as FbcTextureHandle;
             this.times[0] = this.cpuStats[0];
             this.times[1] = this.cpuStats[1];
             for (let level = 0; level < image.levels; level++) {
@@ -498,7 +498,7 @@ namespace FastBlockCompress {
             if (!rgba) {
                 return null;
             }
-            image.rgba = rgba as Opaque;
+            image.rgba = rgba as FbcTextureHandle;
             image.width = Donut_GetFbcTextureWidth(image.rgba);
             image.levels = Donut_GetFbcTextureLevelCount(image.rgba);
             const width = image.width;

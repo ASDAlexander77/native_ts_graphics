@@ -315,7 +315,7 @@ namespace ShaderObjectSample {
         private postPipelinesCreated: boolean;
 
         // The sample's state.
-        private rng: Opaque;
+        private rng: RandomEngineHandle;
         private elapsedTime: number;
         private elapsedIterationTime: number;
         currentBasicLinkedShaders: int[];

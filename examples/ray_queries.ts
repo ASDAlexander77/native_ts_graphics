@@ -446,7 +446,7 @@ namespace RayQueries {
                     }
                 }
             }
-            this.app.releaseResource(scene.handle);
+            this.app.releaseObject(scene.handle);
 
             const vertexCount = vertices.length / VERTEX_FLOATS;
             this.indexCount = indices.length;

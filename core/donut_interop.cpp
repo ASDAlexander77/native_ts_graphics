@@ -1754,7 +1754,15 @@ namespace
     using StringList = std::vector<std::string>;
     using RandomEngine = std::default_random_engine;
     using FramebufferFactoryRef = std::shared_ptr<donut::engine::FramebufferFactory>;
+
+    // Defined only for D3D12 (#if DONUT_WITH_DX12); the functions taking it are compiled
+    // everywhere.
+    struct D3D12WorkGraph;
 }
+
+// Defined (in the extern "C" block) only on Windows; the functions taking it are compiled
+// everywhere.
+struct SharedTexture;
 
 extern "C"
 {
@@ -3477,7 +3485,7 @@ extern "C"
     // directory), as the Vulkan-Samples framework's load_model reads it: positions, normals and
     // texture coordinates interleaved, 32-bit indices, the nodes' transforms ignored. Uploaded by
     // an open command list. Returns null (after logging why) on failure.
-    void* Donut_LoadGltfMesh(App* app, nvrhi::ICommandList* commandList, const char* path)
+    GltfMesh* Donut_LoadGltfMesh(App* app, nvrhi::ICommandList* commandList, const char* path)
     {
         GltfFile file;
         if (!file.Read(path))
@@ -3511,19 +3519,19 @@ extern "C"
     }
 
     // Valid as long as the mesh.
-    nvrhi::IBuffer* Donut_GetGltfMeshVertexBuffer(void* gltfMesh)
+    nvrhi::IBuffer* Donut_GetGltfMeshVertexBuffer(GltfMesh* gltfMesh)
     {
-        return static_cast<GltfMesh*>(gltfMesh)->vertexBuffer.Get();
+        return gltfMesh->vertexBuffer.Get();
     }
 
-    nvrhi::IBuffer* Donut_GetGltfMeshIndexBuffer(void* gltfMesh)
+    nvrhi::IBuffer* Donut_GetGltfMeshIndexBuffer(GltfMesh* gltfMesh)
     {
-        return static_cast<GltfMesh*>(gltfMesh)->indexBuffer.Get();
+        return gltfMesh->indexBuffer.Get();
     }
 
-    int Donut_GetGltfMeshIndexCount(void* gltfMesh)
+    int Donut_GetGltfMeshIndexCount(GltfMesh* gltfMesh)
     {
-        return static_cast<GltfMesh*>(gltfMesh)->indexCount;
+        return gltfMesh->indexCount;
     }
 
     // A file's bytes (Donut_LoadBinaryFile).
@@ -3534,7 +3542,7 @@ extern "C"
 
     // A file read whole (path relative to the executable's directory), for TypeScript to parse
     // (Donut_CopyBinaryFileBytes). Returns null (after logging why) on failure.
-    void* Donut_LoadBinaryFile(App* app, const char* path)
+    BinaryFile* Donut_LoadBinaryFile(App* app, const char* path)
     {
         const std::filesystem::path filePath = GetExecutablePath().parent_path() / path;
         donut::vfs::NativeFileSystem fs;
@@ -3551,21 +3559,21 @@ extern "C"
     }
 
     // The file's bytes, valid as long as the file, e.g. for Donut_TranscodeKtx2.
-    const void* Donut_GetBinaryFileData(void* binaryFile)
+    const void* Donut_GetBinaryFileData(BinaryFile* binaryFile)
     {
-        return static_cast<BinaryFile*>(binaryFile)->bytes.data();
+        return binaryFile->bytes.data();
     }
 
-    int Donut_GetBinaryFileSize(void* binaryFile)
+    int Donut_GetBinaryFileSize(BinaryFile* binaryFile)
     {
-        return static_cast<int>(static_cast<BinaryFile*>(binaryFile)->bytes.size());
+        return static_cast<int>(binaryFile->bytes.size());
     }
 
     // Bytes [offset, offset + count) into dst, one int (0..255) each, e.g. Ref of an int array
     // element; those past the end of the file as 0.
-    void Donut_CopyBinaryFileBytes(void* binaryFile, int offset, int count, int* dst)
+    void Donut_CopyBinaryFileBytes(BinaryFile* binaryFile, int offset, int count, int* dst)
     {
-        const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
+        const std::vector<uint8_t>& bytes = binaryFile->bytes;
         for (int i = 0; i < count; i++)
         {
             const size_t index = size_t(offset) + size_t(i);
@@ -3575,9 +3583,9 @@ extern "C"
 
     // count little-endian 32-bit values from byte offset into dst (Ref of an int array element),
     // as ints; those past the end of the file as 0.
-    void Donut_CopyBinaryFileUInts(void* binaryFile, int offset, int count, int* dst)
+    void Donut_CopyBinaryFileUInts(BinaryFile* binaryFile, int offset, int count, int* dst)
     {
-        const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
+        const std::vector<uint8_t>& bytes = binaryFile->bytes;
         for (int i = 0; i < count; i++)
         {
             const size_t index = size_t(offset) + size_t(i) * 4;
@@ -3590,10 +3598,10 @@ extern "C"
 
     // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the
     // call into an open command list (e.g. a model's vertices from the middle of its file).
-    void Donut_WriteBufferFromBinaryFile(void* binaryFile, nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int bufferOffset,
+    void Donut_WriteBufferFromBinaryFile(BinaryFile* binaryFile, nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int bufferOffset,
         int fileOffset, int byteSize)
     {
-        const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
+        const std::vector<uint8_t>& bytes = binaryFile->bytes;
         if (fileOffset < 0 || byteSize < 0 || size_t(fileOffset) + size_t(byteSize) > bytes.size())
         {
             donut::log::error("Donut_WriteBufferFromBinaryFile: bytes %d..%d are past the end of the file (%d bytes)",
@@ -3611,10 +3619,10 @@ extern "C"
     // descs (D3D12_RAYTRACING_OPACITY_MICROMAP_DESC, VkMicromapTriangleEXT: 32-bit data offset,
     // 16-bit subdivision level, 16-bit format) at descOffset. Writes up to maxEntries entries of
     // three ints (count, subdivision level, format) into dst; returns how many there are.
-    int Donut_CountOpacityMicromapUsage(void* binaryFile, int indexOffset, int indexCount, int indexFormat,
+    int Donut_CountOpacityMicromapUsage(BinaryFile* binaryFile, int indexOffset, int indexCount, int indexFormat,
         int descOffset, int descCount, int* dst, int maxEntries)
     {
-        const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
+        const std::vector<uint8_t>& bytes = binaryFile->bytes;
         const bool index16 = static_cast<nvrhi::Format>(indexFormat) == nvrhi::Format::R16_UINT;
         const size_t indexSize = index16 ? 2 : 4;
         if (size_t(indexOffset) + size_t(indexCount) * indexSize > bytes.size()
@@ -3677,7 +3685,7 @@ extern "C"
     // submeshes: vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms
     // ignored), indices, and the base color image's URI. Kept on the CPU, to copy out with the
     // functions below. Returns null (after logging why) on failure.
-    void* Donut_LoadGltfModel(App* app, const char* path)
+    GltfModel* Donut_LoadGltfModel(App* app, const char* path)
     {
         GltfFile file;
         if (!file.Read(path))
@@ -3750,135 +3758,135 @@ extern "C"
         return app->OwnObject(model);
     }
 
-    int Donut_GetGltfModelPrimitiveCount(void* gltfModel)
+    int Donut_GetGltfModelPrimitiveCount(GltfModel* gltfModel)
     {
-        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->primitives.size());
+        return static_cast<int>(gltfModel->primitives.size());
     }
 
-    int Donut_GetGltfModelVertexCount(void* gltfModel, int primitive)
+    int Donut_GetGltfModelVertexCount(GltfModel* gltfModel, int primitive)
     {
-        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->primitives[primitive].vertices.size() / 8);
+        return static_cast<int>(gltfModel->primitives[primitive].vertices.size() / 8);
     }
 
-    int Donut_GetGltfModelIndexCount(void* gltfModel, int primitive)
+    int Donut_GetGltfModelIndexCount(GltfModel* gltfModel, int primitive)
     {
-        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->primitives[primitive].indices.size());
+        return static_cast<int>(gltfModel->primitives[primitive].indices.size());
     }
 
     // The elements of a primitive's vertex attribute named `name` (as in the file: "COLOR_0",
     // "KHR_gaussian_splatting:ROTATION"...); 0 if it has none.
-    int Donut_GetGltfModelAttributeCount(void* gltfModel, int primitive, const char* name)
+    int Donut_GetGltfModelAttributeCount(GltfModel* gltfModel, int primitive, const char* name)
     {
-        const auto& attributes = static_cast<GltfModel*>(gltfModel)->primitives[primitive].attributes;
+        const auto& attributes = gltfModel->primitives[primitive].attributes;
         auto it = attributes.find(name);
         return it == attributes.end() || it->second.components == 0 ? 0
             : static_cast<int>(it->second.data.size() / size_t(it->second.components));
     }
 
     // Its floats per element (1 for SCALAR, 3 for VEC3...); 0 if it has none.
-    int Donut_GetGltfModelAttributeComponents(void* gltfModel, int primitive, const char* name)
+    int Donut_GetGltfModelAttributeComponents(GltfModel* gltfModel, int primitive, const char* name)
     {
-        const auto& attributes = static_cast<GltfModel*>(gltfModel)->primitives[primitive].attributes;
+        const auto& attributes = gltfModel->primitives[primitive].attributes;
         auto it = attributes.find(name);
         return it == attributes.end() ? 0 : it->second.components;
     }
 
     // Its elements as floats (normalized integers converted) into dst, e.g. Ref of an f32 array
     // element: count * components of them.
-    void Donut_CopyGltfModelAttribute(void* gltfModel, int primitive, const char* name, float* dst)
+    void Donut_CopyGltfModelAttribute(GltfModel* gltfModel, int primitive, const char* name, float* dst)
     {
-        const auto& attributes = static_cast<GltfModel*>(gltfModel)->primitives[primitive].attributes;
+        const auto& attributes = gltfModel->primitives[primitive].attributes;
         auto it = attributes.find(name);
         if (it != attributes.end())
             memcpy(dst, it->second.data.data(), it->second.data.size() * sizeof(float));
     }
 
     // A primitive's vertices (8 floats each) into dst, e.g. Ref of an f32 array element.
-    void Donut_CopyGltfModelVertices(void* gltfModel, int primitive, void* dst)
+    void Donut_CopyGltfModelVertices(GltfModel* gltfModel, int primitive, void* dst)
     {
-        const std::vector<float>& vertices = static_cast<GltfModel*>(gltfModel)->primitives[primitive].vertices;
+        const std::vector<float>& vertices = gltfModel->primitives[primitive].vertices;
         memcpy(dst, vertices.data(), vertices.size() * sizeof(float));
     }
 
     // A primitive's indices into dst, e.g. Ref of an int array element.
-    void Donut_CopyGltfModelIndices(void* gltfModel, int primitive, void* dst)
+    void Donut_CopyGltfModelIndices(GltfModel* gltfModel, int primitive, void* dst)
     {
-        const std::vector<uint32_t>& indices = static_cast<GltfModel*>(gltfModel)->primitives[primitive].indices;
+        const std::vector<uint32_t>& indices = gltfModel->primitives[primitive].indices;
         memcpy(dst, indices.data(), indices.size() * sizeof(uint32_t));
     }
 
     // Valid as long as the model.
-    const char* Donut_GetGltfModelBaseColorImage(void* gltfModel, int primitive)
+    const char* Donut_GetGltfModelBaseColorImage(GltfModel* gltfModel, int primitive)
     {
-        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].baseColorImage.c_str();
+        return gltfModel->primitives[primitive].baseColorImage.c_str();
     }
 
     // A primitive's material's base color factor (RGBA) into dst (Ref of a `let` f32 array of 4).
-    void Donut_CopyGltfModelBaseColorFactor(void* gltfModel, int primitive, float* dst)
+    void Donut_CopyGltfModelBaseColorFactor(GltfModel* gltfModel, int primitive, float* dst)
     {
-        memcpy(dst, static_cast<GltfModel*>(gltfModel)->primitives[primitive].baseColorFactor, 4 * sizeof(float));
+        memcpy(dst, gltfModel->primitives[primitive].baseColorFactor, 4 * sizeof(float));
     }
 
     // The name of a primitive's mesh ("" if it has none); valid as long as the model.
-    const char* Donut_GetGltfModelMeshName(void* gltfModel, int primitive)
+    const char* Donut_GetGltfModelMeshName(GltfModel* gltfModel, int primitive)
     {
-        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].meshName.c_str();
+        return gltfModel->primitives[primitive].meshName.c_str();
     }
 
     // The index of a primitive's mesh.
-    int Donut_GetGltfModelPrimitiveMesh(void* gltfModel, int primitive)
+    int Donut_GetGltfModelPrimitiveMesh(GltfModel* gltfModel, int primitive)
     {
-        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].mesh;
+        return gltfModel->primitives[primitive].mesh;
     }
 
     // The alpha mode of a primitive's material: 0 opaque (also without a material), 1 mask, 2 blend.
-    int Donut_GetGltfModelPrimitiveAlphaMode(void* gltfModel, int primitive)
+    int Donut_GetGltfModelPrimitiveAlphaMode(GltfModel* gltfModel, int primitive)
     {
-        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].alphaMode;
+        return gltfModel->primitives[primitive].alphaMode;
     }
 
     // The nodes that instantiate meshes, in node order.
     // A primitive's material's texture (0 base color, 1 normal, 2 metallic-roughness) as an index
     // into the file's textures; -1 if it has none.
-    int Donut_GetGltfModelMaterialTexture(void* gltfModel, int primitive, int which)
+    int Donut_GetGltfModelMaterialTexture(GltfModel* gltfModel, int primitive, int which)
     {
-        return static_cast<GltfModel*>(gltfModel)->primitives[primitive].materialTextures[which];
+        return gltfModel->primitives[primitive].materialTextures[which];
     }
 
     // A primitive's material's metallic (which 0) or roughness (1) factor.
-    double Donut_GetGltfModelMaterialFactor(void* gltfModel, int primitive, int which)
+    double Donut_GetGltfModelMaterialFactor(GltfModel* gltfModel, int primitive, int which)
     {
-        const GltfModel::Primitive& p = static_cast<GltfModel*>(gltfModel)->primitives[primitive];
+        const GltfModel::Primitive& p = gltfModel->primitives[primitive];
         return which == 0 ? p.metallicFactor : p.roughnessFactor;
     }
 
     // The file's textures, and a texture's image URI ("" if none).
-    int Donut_GetGltfModelTextureCount(void* gltfModel)
+    int Donut_GetGltfModelTextureCount(GltfModel* gltfModel)
     {
-        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->textureImages.size());
+        return static_cast<int>(gltfModel->textureImages.size());
     }
 
-    const char* Donut_GetGltfModelTextureImage(void* gltfModel, int texture)
+    const char* Donut_GetGltfModelTextureImage(GltfModel* gltfModel, int texture)
     {
-        return static_cast<GltfModel*>(gltfModel)->textureImages[texture].c_str();
+        return gltfModel->textureImages[texture].c_str();
     }
 
-    int Donut_GetGltfModelNodeCount(void* gltfModel)
+    int Donut_GetGltfModelNodeCount(GltfModel* gltfModel)
     {
-        return static_cast<int>(static_cast<GltfModel*>(gltfModel)->nodes.size());
+        return static_cast<int>(gltfModel->nodes.size());
     }
 
     // The index of a node's mesh.
-    int Donut_GetGltfModelNodeMesh(void* gltfModel, int node)
+    int Donut_GetGltfModelNodeMesh(GltfModel* gltfModel, int node)
     {
-        return static_cast<GltfModel*>(gltfModel)->nodes[node].mesh;
+        return gltfModel->nodes[node].mesh;
     }
 
     // A node's world transform (16 floats, column-major as glm) into dst, e.g. Ref of an f32 array
     // element.
-    void Donut_CopyGltfModelNodeTransform(void* gltfModel, int node, void* dst)
+    void Donut_CopyGltfModelNodeTransform(GltfModel* gltfModel, int node, void* dst)
     {
-        memcpy(dst, static_cast<GltfModel*>(gltfModel)->nodes[node].transform, sizeof(float) * 16);
+        memcpy(dst, gltfModel->nodes[node].transform, sizeof(float) * 16);
     }
 
     // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
@@ -4692,7 +4700,7 @@ extern "C"
 
     // A heap of byteSize bytes of device memory for textures (Donut_CreatePlacedTexture); null on
     // failure. D3D11 has none.
-    void* Donut_CreateTextureHeap(App* app, double byteSize, const char* debugName)
+    TextureHeap* Donut_CreateTextureHeap(App* app, double byteSize, const char* debugName)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -4731,12 +4739,12 @@ extern "C"
     // at byteOffset (a multiple of Donut_GetPlacedTextureSize's size); its first use recorded into an
     // open command list (D3D12's aliasing barrier). Fill it with Donut_WriteTextureLevel. Null on
     // failure.
-    nvrhi::ITexture* Donut_CreatePlacedTexture(App* app, nvrhi::ICommandList* commandList, void* textureHeap, double byteOffset, int width, int height,
+    nvrhi::ITexture* Donut_CreatePlacedTexture(App* app, nvrhi::ICommandList* commandList, TextureHeap* textureHeap, double byteOffset, int width, int height,
         int format, const char* debugName)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
-        auto* heap = static_cast<TextureHeap*>(textureHeap);
+        auto* heap = textureHeap;
         nvrhi::TextureDesc desc;
         PlacedTextureDesc(desc, width, height, format, debugName);
 #if DONUT_WITH_DX12
@@ -4787,14 +4795,14 @@ extern "C"
         std::vector<Tile> tiles;
     };
 
-    void* Donut_CreateTileMappings()
+    TileMappings* Donut_CreateTileMappings()
     {
         return new TileMappings();
     }
 
     // Maps the tile at column x, row y of level mipLevel to byteOffset (a multiple of 64 KiB) in a
     // heap, or unmaps it (heap null).
-    void Donut_TileMappingsAdd(void* tileMappings, int mipLevel, int x, int y, nvrhi::IHeap* heap, double byteOffset)
+    void Donut_TileMappingsAdd(TileMappings* tileMappings, int mipLevel, int x, int y, nvrhi::IHeap* heap, double byteOffset)
     {
         TileMappings::Tile tile;
         tile.heap = heap;
@@ -4802,15 +4810,15 @@ extern "C"
         tile.coordinate.x = static_cast<uint32_t>(x);
         tile.coordinate.y = static_cast<uint32_t>(y);
         tile.byteOffset = static_cast<uint64_t>(byteOffset);
-        static_cast<TileMappings*>(tileMappings)->tiles.push_back(tile);
+        tileMappings->tiles.push_back(tile);
     }
 
     // Applies the mappings to a tiled texture, on the graphics queue, after the work submitted to
     // it before; frees them. Vulkan's sparse binding isn't ordered with the queue's other work: there
     // the device is idle before and after.
-    void Donut_ApplyTileMappings(App* app, nvrhi::ITexture* texture, void* tileMappings)
+    void Donut_ApplyTileMappings(App* app, nvrhi::ITexture* texture, TileMappings* tileMappings)
     {
-        std::unique_ptr<TileMappings> mappings(static_cast<TileMappings*>(tileMappings));
+        std::unique_ptr<TileMappings> mappings(tileMappings);
         nvrhi::IDevice* device = app->device();
 
         // A mapping per heap (and one for the tiles to unmap), in the order the tiles came.
@@ -5246,7 +5254,7 @@ extern "C"
     // counting from 0) as push constants at b0; the binding layout must hold exactly those two.
     // Give it textures with Donut_AddAsyncComputeTexture, then start it. Returns null if the
     // device has no compute queue.
-    void* Donut_CreateAsyncComputeLoop(App* app, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingLayout* bindingLayout,
+    AsyncComputeLoop* Donut_CreateAsyncComputeLoop(App* app, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingLayout* bindingLayout,
         int groupsX, int groupsY, int intervalMicroseconds)
     {
         App* a = app;
@@ -5272,61 +5280,61 @@ extern "C"
     }
 
     // Adds a texture (e.g. from Donut_CreateUAVTexture) for the loop to write; call before starting it.
-    void Donut_AddAsyncComputeTexture(void* asyncComputeLoop, nvrhi::ITexture* texture)
+    void Donut_AddAsyncComputeTexture(AsyncComputeLoop* asyncComputeLoop, nvrhi::ITexture* texture)
     {
-        static_cast<AsyncComputeLoop*>(asyncComputeLoop)->renderToCompute.Push(texture, 0);
+        asyncComputeLoop->renderToCompute.Push(texture, 0);
     }
 
     // Same, with the binding set (from the loop's binding layout) to run the compute pipeline with
     // when writing it: the texture's UAV at u0, the push constants at b0, and anything else the
     // shader reads (e.g. a color map), instead of the loop's own set of the first two.
-    void Donut_AddAsyncComputeTextureWithBindingSet(void* asyncComputeLoop, nvrhi::ITexture* texture, nvrhi::IBindingSet* bindingSet)
+    void Donut_AddAsyncComputeTextureWithBindingSet(AsyncComputeLoop* asyncComputeLoop, nvrhi::ITexture* texture, nvrhi::IBindingSet* bindingSet)
     {
-        auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
+        auto* loop = asyncComputeLoop;
         loop->textureBindingSets[texture] = bindingSet;
         loop->renderToCompute.Push(texture, 0);
     }
 
     // The push constants of the runs from now on (byteSize bytes from data, copied during the call;
     // the binding layout's push constants must be that size), instead of the run index.
-    void Donut_SetAsyncComputePushConstants(void* asyncComputeLoop, const void* data, int byteSize)
+    void Donut_SetAsyncComputePushConstants(AsyncComputeLoop* asyncComputeLoop, const void* data, int byteSize)
     {
-        auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
+        auto* loop = asyncComputeLoop;
         std::lock_guard lock(loop->pushConstantsMutex);
         loop->pushConstants.assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + byteSize);
     }
 
     // Non-zero: the worker starts no more runs until resumed (the run under way finishes).
-    void Donut_SetAsyncComputeLoopPaused(void* asyncComputeLoop, int paused)
+    void Donut_SetAsyncComputeLoopPaused(AsyncComputeLoop* asyncComputeLoop, int paused)
     {
-        static_cast<AsyncComputeLoop*>(asyncComputeLoop)->paused = paused != 0;
+        asyncComputeLoop->paused = paused != 0;
     }
 
     // Runs the worker has submitted so far.
-    int Donut_GetAsyncComputeRunCount(void* asyncComputeLoop)
+    int Donut_GetAsyncComputeRunCount(AsyncComputeLoop* asyncComputeLoop)
     {
-        return static_cast<int>(static_cast<AsyncComputeLoop*>(asyncComputeLoop)->runCount.load());
+        return static_cast<int>(asyncComputeLoop->runCount.load());
     }
 
-    void Donut_StartAsyncComputeLoop(void* asyncComputeLoop)
+    void Donut_StartAsyncComputeLoop(AsyncComputeLoop* asyncComputeLoop)
     {
-        auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
+        auto* loop = asyncComputeLoop;
         loop->thread = std::thread([loop]() { loop->ThreadProc(); });
     }
 
     // Stops and joins the worker thread; call it before Donut_DestroyApp (releasing or destroying
     // the loop also does).
-    void Donut_StopAsyncComputeLoop(void* asyncComputeLoop)
+    void Donut_StopAsyncComputeLoop(AsyncComputeLoop* asyncComputeLoop)
     {
-        static_cast<AsyncComputeLoop*>(asyncComputeLoop)->Stop();
+        asyncComputeLoop->Stop();
     }
 
     // Inside a render callback: if the loop finished a texture, switches to it (making the frame's
     // command list wait for the compute queue) and returns the texture shown until then to the
     // loop. Returns the texture to show this frame, null until the first one is ready.
-    nvrhi::ITexture* Donut_AcquireAsyncComputeTexture(void* asyncComputeLoop, FrameContext* frame)
+    nvrhi::ITexture* Donut_AcquireAsyncComputeTexture(AsyncComputeLoop* asyncComputeLoop, FrameContext* frame)
     {
-        auto* loop = static_cast<AsyncComputeLoop*>(asyncComputeLoop);
+        auto* loop = asyncComputeLoop;
 
         nvrhi::TextureHandle newTexture;
         uint64_t newTextureLastUse = 0;
@@ -5496,38 +5504,38 @@ extern "C"
 
     // Measures the GPU time between Donut_BeginTimerQuery and Donut_EndTimerQuery. Returns null on
     // failure.
-    void* Donut_CreateTimerQuery(App* app)
+    nvrhi::ITimerQuery* Donut_CreateTimerQuery(App* app)
     {
         App* a = app;
         return a->Own(a->device()->createTimerQuery());
     }
 
     // Makes a query that has been read (or never used) ready to measure again.
-    void Donut_ResetTimerQuery(App* app, void* timerQuery)
+    void Donut_ResetTimerQuery(App* app, nvrhi::ITimerQuery* timerQuery)
     {
-        app->device()->resetTimerQuery(static_cast<nvrhi::ITimerQuery*>(timerQuery));
+        app->device()->resetTimerQuery(timerQuery);
     }
 
-    void Donut_BeginTimerQuery(nvrhi::ICommandList* commandList, void* timerQuery)
+    void Donut_BeginTimerQuery(nvrhi::ICommandList* commandList, nvrhi::ITimerQuery* timerQuery)
     {
-        commandList->beginTimerQuery(static_cast<nvrhi::ITimerQuery*>(timerQuery));
+        commandList->beginTimerQuery(timerQuery);
     }
 
-    void Donut_EndTimerQuery(nvrhi::ICommandList* commandList, void* timerQuery)
+    void Donut_EndTimerQuery(nvrhi::ICommandList* commandList, nvrhi::ITimerQuery* timerQuery)
     {
-        commandList->endTimerQuery(static_cast<nvrhi::ITimerQuery*>(timerQuery));
+        commandList->endTimerQuery(timerQuery);
     }
 
     // Non-zero once the GPU has finished the measured commands.
-    int Donut_PollTimerQuery(App* app, void* timerQuery)
+    int Donut_PollTimerQuery(App* app, nvrhi::ITimerQuery* timerQuery)
     {
-        return app->device()->pollTimerQuery(static_cast<nvrhi::ITimerQuery*>(timerQuery)) ? 1 : 0;
+        return app->device()->pollTimerQuery(timerQuery) ? 1 : 0;
     }
 
     // The measured time in seconds; waits for the GPU unless Donut_PollTimerQuery returned non-zero.
-    double Donut_GetTimerQueryTime(App* app, void* timerQuery)
+    double Donut_GetTimerQueryTime(App* app, nvrhi::ITimerQuery* timerQuery)
     {
-        return app->device()->getTimerQueryTime(static_cast<nvrhi::ITimerQuery*>(timerQuery));
+        return app->device()->getTimerQueryTime(timerQuery);
     }
 
     // --- Render passes -----------------------------------------------------------------------
@@ -5595,7 +5603,7 @@ extern "C"
     // Adds Donut's ImGui renderer as a pass drawn after the previously added ones (on top), which
     // sees input before them; buildUI is called every frame to build the UI with the Donut_ImGui*
     // functions below. Returns null if the renderer can't be initialized.
-    void* Donut_AddImGuiPass(App* app, VoidFn buildUI, void* thisVal)
+    TsImGuiPass* Donut_AddImGuiPass(App* app, VoidFn buildUI, void* thisVal)
     {
         App* a = app;
         auto pass = std::make_unique<TsImGuiPass>(a->deviceManager.get());
@@ -5612,9 +5620,9 @@ extern "C"
     // Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the
     // back buffer, from the next frame on; null: the back buffer again. Passes added after the
     // ImGui pass draw after it (e.g. one that takes that framebuffer's texture to the back buffer).
-    void Donut_SetImGuiPassFramebuffer(void* imguiPass, nvrhi::IFramebuffer* framebuffer)
+    void Donut_SetImGuiPassFramebuffer(TsImGuiPass* imguiPass, nvrhi::IFramebuffer* framebuffer)
     {
-        static_cast<TsImGuiPass*>(imguiPass)->m_Framebuffer = framebuffer;
+        imguiPass->m_Framebuffer = framebuffer;
     }
 
     // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space to activate, Escape),
@@ -5903,17 +5911,17 @@ extern "C"
     // Loads a TrueType font (path relative to the executable's directory) at a size in pixels,
     // for Donut_ImGuiPushFont. Call right after Donut_AddImGuiPass, before the first frame.
     // Returns null if the file can't be read.
-    void* Donut_ImGuiCreateFont(void* imguiPass, const char* path, double size)
+    donut::app::RegisteredFont* Donut_ImGuiCreateFont(TsImGuiPass* imguiPass, const char* path, double size)
     {
         donut::vfs::NativeFileSystem fs;
-        auto font = static_cast<TsImGuiPass*>(imguiPass)->CreateFontFromFile(fs, GetExecutablePath().parent_path() / path, float(size));
+        auto font = imguiPass->CreateFontFromFile(fs, GetExecutablePath().parent_path() / path, float(size));
         return font.get();
     }
 
     // Draws with a font from Donut_ImGuiCreateFont until Donut_ImGuiPopFont.
-    void Donut_ImGuiPushFont(void* font)
+    void Donut_ImGuiPushFont(donut::app::RegisteredFont* font)
     {
-        ImGui::PushFont(static_cast<donut::app::RegisteredFont*>(font)->GetScaledFont());
+        ImGui::PushFont(font->GetScaledFont());
     }
 
     void Donut_ImGuiPopFont()
@@ -5949,20 +5957,20 @@ extern "C"
 
     // A borderless window covering the screen, e.g. for a loading message; pair with
     // Donut_ImGuiEndFullScreenWindow.
-    void Donut_ImGuiBeginFullScreenWindow(void* imguiPass)
+    void Donut_ImGuiBeginFullScreenWindow(TsImGuiPass* imguiPass)
     {
-        static_cast<TsImGuiPass*>(imguiPass)->BeginFullScreenWindow();
+        imguiPass->BeginFullScreenWindow();
     }
 
     // Text (may span lines) centered on the screen, inside the full-screen window.
-    void Donut_ImGuiDrawScreenCenteredText(void* imguiPass, const char* text)
+    void Donut_ImGuiDrawScreenCenteredText(TsImGuiPass* imguiPass, const char* text)
     {
-        static_cast<TsImGuiPass*>(imguiPass)->DrawScreenCenteredText(text);
+        imguiPass->DrawScreenCenteredText(text);
     }
 
-    void Donut_ImGuiEndFullScreenWindow(void* imguiPass)
+    void Donut_ImGuiEndFullScreenWindow(TsImGuiPass* imguiPass)
     {
-        static_cast<TsImGuiPass*>(imguiPass)->EndFullScreenWindow();
+        imguiPass->EndFullScreenWindow();
     }
 
     // Donut's material editor widgets, for a scene material; allowDomainChanges != 0 lets it
@@ -6084,7 +6092,7 @@ extern "C"
     // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples
     // make with one: the same seed gives the same numbers; a negative seed takes one from
     // std::random_device (different every run).
-    void* Donut_CreateRandomEngine(App* app, int seed)
+    RandomEngine* Donut_CreateRandomEngine(App* app, int seed)
     {
         const auto value = seed >= 0 ? static_cast<std::default_random_engine::result_type>(seed)
                                      : static_cast<std::default_random_engine::result_type>(std::random_device()());
@@ -6094,27 +6102,27 @@ extern "C"
     // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
     // (Ref of a `let` f32 array element): one distribution object, as the samples keep it (MSVC's
     // makes values in pairs and keeps the second).
-    void Donut_RandomNormalFloats(void* randomEngine, double mean, double stddev, int count, float* dst)
+    void Donut_RandomNormalFloats(RandomEngine* randomEngine, double mean, double stddev, int count, float* dst)
     {
         std::normal_distribution<float> distribution(static_cast<float>(mean), static_cast<float>(stddev));
-        auto& engine = *static_cast<std::default_random_engine*>(randomEngine);
+        auto& engine = *randomEngine;
         for (int i = 0; i < count; i++)
             dst[i] = distribution(engine);
     }
 
     // The engine's next number from std::uniform_real_distribution<float>(a, b) (a and b rounded to
     // float as the sample's literals are).
-    double Donut_RandomUniformFloat(void* randomEngine, double a, double b)
+    double Donut_RandomUniformFloat(RandomEngine* randomEngine, double a, double b)
     {
         return std::uniform_real_distribution<float>(static_cast<float>(a), static_cast<float>(b))(
-            *static_cast<std::default_random_engine*>(randomEngine));
+            *randomEngine);
     }
 
     // The engine's next number from std::uniform_int_distribution<int>(a, b) (a fresh distribution
     // object per call, as samples that make one per use).
-    int Donut_RandomUniformInt(void* randomEngine, int a, int b)
+    int Donut_RandomUniformInt(RandomEngine* randomEngine, int a, int b)
     {
-        return std::uniform_int_distribution<int>(a, b)(*static_cast<std::default_random_engine*>(randomEngine));
+        return std::uniform_int_distribution<int>(a, b)(*randomEngine);
     }
 
     // Same as Donut_LoadScene, also registering the scene's vertex / index buffers and textures in
@@ -7778,7 +7786,7 @@ extern "C"
     // broadcasting entry node entryNodeName overridden with gridX x gridY x gridZ. Creates its
     // backing memory too. Release it with Donut_ReleaseObject. Returns null (after logging why) on
     // failure.
-    void* Donut_CreateD3D12WorkGraph(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IComputePipeline* computePipeline, const char* programName,
+    D3D12WorkGraph* Donut_CreateD3D12WorkGraph(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IComputePipeline* computePipeline, const char* programName,
         const char* entryNodeName, int gridX, int gridY, int gridZ)
     {
 #if DONUT_WITH_DX12
@@ -7864,11 +7872,11 @@ extern "C"
     // record no more dispatches with it after the graph in the command list (NVRHI believes it is
     // still bound). initializeBackingMemory: non-zero the first time the graph's backing memory is
     // used, or after another graph used it.
-    void Donut_DispatchD3D12WorkGraph(nvrhi::ICommandList* commandList, void* workGraph, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
+    void Donut_DispatchD3D12WorkGraph(nvrhi::ICommandList* commandList, D3D12WorkGraph* workGraph, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
         const void* data, int byteSize, int initializeBackingMemory)
     {
 #if DONUT_WITH_DX12
-        const auto* graph = static_cast<D3D12WorkGraph*>(workGraph);
+        const auto* graph = workGraph;
         nvrhi::ICommandList* cl = commandList;
 
         // Bindings (and the barriers they need) through NVRHI.
@@ -8658,7 +8666,7 @@ extern "C"
     };
 
     // D3D12 and D3D11 only: null with other APIs, and (after logging why) on failure.
-    void* Donut_CreateSharedTexture(App* app, int width, int height, int format, const char* debugName)
+    SharedTexture* Donut_CreateSharedTexture(App* app, int width, int height, int format, const char* debugName)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -8733,15 +8741,15 @@ extern "C"
     }
 
     // The texture, for bindings; valid as long as the shared texture.
-    nvrhi::ITexture* Donut_GetSharedTexture(void* sharedTexture)
+    nvrhi::ITexture* Donut_GetSharedTexture(SharedTexture* sharedTexture)
     {
-        return static_cast<SharedTexture*>(sharedTexture)->texture.Get();
+        return sharedTexture->texture.Get();
     }
 
     // Its NT handle, for the other device's OpenSharedResource1.
-    void* Donut_GetSharedTextureHandle(void* sharedTexture)
+    void* Donut_GetSharedTextureHandle(SharedTexture* sharedTexture)
     {
-        return static_cast<SharedTexture*>(sharedTexture)->handle;
+        return sharedTexture->handle;
     }
 
     // The LUID of the device's adapter into dst (2 ints: low, high part), e.g. for another API's
@@ -10166,7 +10174,7 @@ extern "C"
 
     // count values, each 0 (skip) or not (draw), all 1 at first. Requires
     // Donut_HasConditionalRendering. Returns null on failure.
-    void* Donut_CreatePredicationBuffer(App* app, int count)
+    PredicationBuffer* Donut_CreatePredicationBuffer(App* app, int count)
     {
         App* a = app;
         if (!a->conditionalRendering || count <= 0)
@@ -10240,9 +10248,9 @@ extern "C"
 
     // Value `index`: 0 skips the draws it decides, anything else lets them happen. Seen by the GPU
     // when it executes the draws (not when they are recorded).
-    void Donut_SetPredicationValue(void* predicationBuffer, int index, int value)
+    void Donut_SetPredicationValue(PredicationBuffer* predicationBuffer, int index, int value)
     {
-        auto* predication = static_cast<PredicationBuffer*>(predicationBuffer);
+        auto* predication = predicationBuffer;
         if (index >= 0 && uint32_t(index) < predication->count)
             predication->values[index] = value != 0 ? 1 : 0;
     }
@@ -10250,9 +10258,9 @@ extern "C"
     // Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of a predication buffer
     // isn't 0 when the GPU gets to it.
     void Donut_DrawIndexedRangeWithPushConstantsPredicated(FrameContext* frame, int indexCount, int startIndex, int baseVertex,
-        const void* data, int byteSize, void* predicationBuffer, int index)
+        const void* data, int byteSize, PredicationBuffer* predicationBuffer, int index)
     {
-        auto* predication = static_cast<PredicationBuffer*>(predicationBuffer);
+        auto* predication = predicationBuffer;
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
             ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
@@ -10329,7 +10337,7 @@ extern "C"
     // results (Donut_ResolveOcclusionQueries), which predicate draws
     // (Donut_DrawVerticesOcclusionPredicated); every result starts as 0, occluded. Requires
     // Donut_HasConditionalRendering; null otherwise or on failure.
-    void* Donut_CreateOcclusionPredication(App* app, int count)
+    OcclusionPredication* Donut_CreateOcclusionPredication(App* app, int count)
     {
         App* a = app;
         if (!a->conditionalRendering || count <= 0)
@@ -10425,9 +10433,9 @@ extern "C"
 
     // Draws vertexCount vertices (Donut_DrawVertices) inside binary occlusion query `index`: its
     // result says whether any of their samples passed the depth and stencil tests.
-    void Donut_DrawVerticesWithOcclusionQuery(FrameContext* frame, int vertexCount, void* occlusionPredication, int index)
+    void Donut_DrawVerticesWithOcclusionQuery(FrameContext* frame, int vertexCount, OcclusionPredication* occlusionPredication, int index)
     {
-        auto* occlusion = static_cast<OcclusionPredication*>(occlusionPredication);
+        auto* occlusion = occlusionPredication;
         FrameContext* ctx = frame;
         if (index < 0 || uint32_t(index) >= occlusion->count)
             return;
@@ -10463,9 +10471,9 @@ extern "C"
 
     // Resolves the queries into the predication values for the draws after it: 1 where samples
     // passed, 0 where none did (the GPU waits for the queries).
-    void Donut_ResolveOcclusionQueries(FrameContext* frame, void* occlusionPredication)
+    void Donut_ResolveOcclusionQueries(FrameContext* frame, OcclusionPredication* occlusionPredication)
     {
-        auto* occlusion = static_cast<OcclusionPredication*>(occlusionPredication);
+        auto* occlusion = occlusionPredication;
         FrameContext* ctx = frame;
 #if DONUT_WITH_DX12
         if (occlusion->api == nvrhi::GraphicsAPI::D3D12)
@@ -10510,9 +10518,9 @@ extern "C"
 
     // Draws vertexCount vertices (Donut_DrawVertices) only if resolved result `index` isn't 0 when
     // the GPU gets to it.
-    void Donut_DrawVerticesOcclusionPredicated(FrameContext* frame, int vertexCount, void* occlusionPredication, int index)
+    void Donut_DrawVerticesOcclusionPredicated(FrameContext* frame, int vertexCount, OcclusionPredication* occlusionPredication, int index)
     {
-        auto* occlusion = static_cast<OcclusionPredication*>(occlusionPredication);
+        auto* occlusion = occlusionPredication;
         FrameContext* ctx = frame;
         if (index < 0 || uint32_t(index) >= occlusion->count)
             return;
@@ -10700,7 +10708,7 @@ extern "C"
     // Null when the device can't count mesh shader work: D3D11, D3D12 without
     // MeshShaderPipelineStatsSupported, Vulkan without pipelineStatisticsQuery and meshShaderQueries
     // (or without mesh shaders).
-    void* Donut_CreateMeshPipelineStatistics(App* app)
+    MeshPipelineStatistics* Donut_CreateMeshPipelineStatistics(App* app)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -10772,9 +10780,9 @@ extern "C"
 
     // Starts the frame's statistics, before the frame's first draw (Vulkan resets queries outside
     // render passes): reads back the results of the query this frame reuses, if it was used.
-    void Donut_BeginMeshPipelineStatisticsFrame(FrameContext* frame, void* meshPipelineStatistics)
+    void Donut_BeginMeshPipelineStatisticsFrame(FrameContext* frame, MeshPipelineStatistics* meshPipelineStatistics)
     {
-        auto* stats = static_cast<MeshPipelineStatistics*>(meshPipelineStatistics);
+        auto* stats = meshPipelineStatistics;
         nvrhi::ICommandList* commandList = frame->commandList;
         stats->slot = (stats->slot + 1) % MeshPipelineStatistics::Slots;
         const uint32_t slot = stats->slot;
@@ -10814,9 +10822,9 @@ extern "C"
     }
 
     // Same as Donut_DrawMeshTasks2D, counted by the frame's statistics.
-    void Donut_DrawMeshTasksWithStatistics(FrameContext* frame, int groupsX, int groupsY, void* meshPipelineStatistics)
+    void Donut_DrawMeshTasksWithStatistics(FrameContext* frame, int groupsX, int groupsY, MeshPipelineStatistics* meshPipelineStatistics)
     {
-        auto* stats = static_cast<MeshPipelineStatistics*>(meshPipelineStatistics);
+        auto* stats = meshPipelineStatistics;
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
             ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
@@ -10855,9 +10863,9 @@ extern "C"
 
     // The latest results read back: which 0 for pixel shader invocations, 1 for amplification
     // (task) shader invocations, 2 for mesh shader invocations.
-    double Donut_GetMeshPipelineStatistic(void* meshPipelineStatistics, int which)
+    double Donut_GetMeshPipelineStatistic(MeshPipelineStatistics* meshPipelineStatistics, int which)
     {
-        auto* stats = static_cast<MeshPipelineStatistics*>(meshPipelineStatistics);
+        auto* stats = meshPipelineStatistics;
         return which >= 0 && which < 3 ? double(stats->values[which]) : 0.0;
     }
 

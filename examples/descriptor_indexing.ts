@@ -29,7 +29,7 @@ namespace DescriptorIndexing {
     // The sample's create_image: 16 x 16 RGBA8, a pattern picked by the seed (a checkerboard,
     // stripes or diagonals of 4-texel cells) in the color, the dark cells at a quarter, each
     // channel plus noise in [0, 0.1) from the sample's random engine; packed 4 bytes per int.
-    function createImageData(rgb: number[], imageSeed: int, rng: Opaque): int[] {
+    function createImageData(rgb: number[], imageSeed: int, rng: RandomEngineHandle): int[] {
         let texels: int[] = [];
         for (let y = 0; y < IMAGE_SIZE; y++) {
             for (let x = 0; x < IMAGE_SIZE; x++) {

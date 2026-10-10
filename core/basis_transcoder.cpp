@@ -58,7 +58,7 @@ extern "C"
     // the Vulkan-Samples framework's ktxTexture2_TranscodeBasis. stats gets the time the transcoding
     // took, in milliseconds, and the transcoded bytes (Ref of a `let` f32 array of 2). Returns null
     // (after printing why) on failure; free it with Donut_DestroyTranscodedTexture.
-    void* Donut_TranscodeKtx2(const void* data, int byteSize, int format, float* stats)
+    TranscodedTexture* Donut_TranscodeKtx2(const void* data, int byteSize, int format, float* stats)
     {
         static std::once_flag initialized;
         std::call_once(initialized, [] { basist::basisu_transcoder_init(); });
@@ -106,34 +106,34 @@ extern "C"
         return texture.release();
     }
 
-    int Donut_GetTranscodedWidth(void* transcodedTexture)
+    int Donut_GetTranscodedWidth(TranscodedTexture* transcodedTexture)
     {
-        return static_cast<int>(static_cast<TranscodedTexture*>(transcodedTexture)->width);
+        return static_cast<int>(transcodedTexture->width);
     }
 
-    int Donut_GetTranscodedHeight(void* transcodedTexture)
+    int Donut_GetTranscodedHeight(TranscodedTexture* transcodedTexture)
     {
-        return static_cast<int>(static_cast<TranscodedTexture*>(transcodedTexture)->height);
+        return static_cast<int>(transcodedTexture->height);
     }
 
-    int Donut_GetTranscodedLevelCount(void* transcodedTexture)
+    int Donut_GetTranscodedLevelCount(TranscodedTexture* transcodedTexture)
     {
-        return static_cast<int>(static_cast<TranscodedTexture*>(transcodedTexture)->levels.size());
+        return static_cast<int>(transcodedTexture->levels.size());
     }
 
     // A level's data, block (or pixel) rows rowPitch bytes apart; valid until the texture is freed.
-    const void* Donut_GetTranscodedLevelData(void* transcodedTexture, int level)
+    const void* Donut_GetTranscodedLevelData(TranscodedTexture* transcodedTexture, int level)
     {
-        return static_cast<TranscodedTexture*>(transcodedTexture)->levels[static_cast<size_t>(level)].data.data();
+        return transcodedTexture->levels[static_cast<size_t>(level)].data.data();
     }
 
-    int Donut_GetTranscodedLevelRowPitch(void* transcodedTexture, int level)
+    int Donut_GetTranscodedLevelRowPitch(TranscodedTexture* transcodedTexture, int level)
     {
-        return static_cast<int>(static_cast<TranscodedTexture*>(transcodedTexture)->levels[static_cast<size_t>(level)].rowPitch);
+        return static_cast<int>(transcodedTexture->levels[static_cast<size_t>(level)].rowPitch);
     }
 
-    void Donut_DestroyTranscodedTexture(void* transcodedTexture)
+    void Donut_DestroyTranscodedTexture(TranscodedTexture* transcodedTexture)
     {
-        delete static_cast<TranscodedTexture*>(transcodedTexture);
+        delete transcodedTexture;
     }
 }

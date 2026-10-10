@@ -119,7 +119,7 @@ namespace Khr16BitArithmetic {
         // The compute shader's GPU time.
         gpuTimeMs: number;
         hasGpuTime: boolean;
-        private timerQuery: Opaque;
+        private timerQuery: TimerQueryHandle;
         private timerQueryInFlight: boolean;
 
         constructor(app: App) {

@@ -304,7 +304,7 @@ namespace RaytracingAo {
                 app.releaseObject(binaryFile.handle);
                 return false;
             }
-            const mesh = loaded as Opaque;
+            const mesh = loaded as SdkMeshHandle;
 
             // Mesh::Mesh's checks.
             let ok = true;

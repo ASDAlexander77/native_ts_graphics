@@ -281,7 +281,7 @@ namespace TextureCompressionComparison {
                     loaded = false;
                     break;
                 }
-                const image = transcoded as Opaque;
+                const image = transcoded as TranscodedTextureHandle;
                 time += this.stats[0];
                 bytes += this.stats[1];
 

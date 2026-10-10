@@ -496,7 +496,7 @@ namespace DynamicMultisampleRasterization {
                     }
                 }
             }
-            this.app.releaseResource(scene.handle);
+            this.app.releaseObject(scene.handle);
 
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
             this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");

@@ -63,7 +63,7 @@ namespace SmallResources {
         private sampler: SamplerHandle;
         private textures: TextureHandle[];
         private bindingSets: BindingSet[];
-        private textureHeap: Opaque;
+        private textureHeap: TextureHeapHandle;
         private hasTextureHeap: boolean;
         private recreate: boolean;
 
@@ -159,7 +159,7 @@ namespace SmallResources {
                 placedSize = this.app.getPlacedTextureSize(TEXTURE_WIDTH, TEXTURE_HEIGHT, Format.RGBA8_UNORM);
                 const heap = this.app.createTextureHeap(TEXTURE_COUNT * placedSize, "Texture Heap");
                 if (heap) {
-                    this.textureHeap = heap as Opaque;
+                    this.textureHeap = heap as TextureHeapHandle;
                     this.hasTextureHeap = true;
                 }
             }

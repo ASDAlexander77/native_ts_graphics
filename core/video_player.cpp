@@ -185,7 +185,7 @@ extern "C"
     // (luidLow, luidHigh) (Donut_GetAdapterLuid; any adapter if both 0), decoding to BGRA8, muted if
     // asked; it waits for the video's metadata (its size), and starts playing when it can. Null
     // (after printing why) on failure.
-    void* Donut_CreateVideoPlayer(const char* path, int luidLow, int luidHigh, int muted)
+    VideoPlayer* Donut_CreateVideoPlayer(const char* path, int luidLow, int luidHigh, int muted)
     {
         // mfplat.dll is delay-loaded (Windows N editions lack it without the Media Feature Pack).
         if (!LoadLibraryExW(L"mfplat.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32))
@@ -287,28 +287,28 @@ extern "C"
         return player;
     }
 
-    int Donut_GetVideoWidth(void* videoPlayer)
+    int Donut_GetVideoWidth(VideoPlayer* videoPlayer)
     {
-        return static_cast<int>(static_cast<VideoPlayer*>(videoPlayer)->width);
+        return static_cast<int>(videoPlayer->width);
     }
 
-    int Donut_GetVideoHeight(void* videoPlayer)
+    int Donut_GetVideoHeight(VideoPlayer* videoPlayer)
     {
-        return static_cast<int>(static_cast<VideoPlayer*>(videoPlayer)->height);
+        return static_cast<int>(videoPlayer->height);
     }
 
     // Non-zero once the video has played to its end.
-    int Donut_IsVideoFinished(void* videoPlayer)
+    int Donut_IsVideoFinished(VideoPlayer* videoPlayer)
     {
-        return static_cast<VideoPlayer*>(videoPlayer)->isFinished ? 1 : 0;
+        return videoPlayer->isFinished ? 1 : 0;
     }
 
     // The sample's TransferFrame: the video's current frame, if there is a new one, into a texture
     // shared with this device through an NT handle (Donut_GetSharedTextureHandle), the whole video
     // into its top-left corner. Returns 1 if it drew one.
-    int Donut_TransferVideoFrame(void* videoPlayer, void* sharedHandle)
+    int Donut_TransferVideoFrame(VideoPlayer* videoPlayer, void* sharedHandle)
     {
-        auto* player = static_cast<VideoPlayer*>(videoPlayer);
+        auto* player = videoPlayer;
         if (!player->mediaEngine || !player->isPlaying)
             return 0;
         LONGLONG pts;
@@ -325,9 +325,9 @@ extern "C"
     // The same into memory (for APIs that can't share textures with D3D11 here): BGRA8 rows,
     // Donut_GetVideoFrameData / Donut_GetVideoFrameRowPitch, valid until the next transfer. Returns 1
     // if there was a new frame.
-    int Donut_TransferVideoFrameToMemory(void* videoPlayer)
+    int Donut_TransferVideoFrameToMemory(VideoPlayer* videoPlayer)
     {
-        auto* player = static_cast<VideoPlayer*>(videoPlayer);
+        auto* player = videoPlayer;
         if (!player->mediaEngine || !player->isPlaying)
             return 0;
         LONGLONG pts;
@@ -371,26 +371,26 @@ extern "C"
         return 1;
     }
 
-    const void* Donut_GetVideoFrameData(void* videoPlayer)
+    const void* Donut_GetVideoFrameData(VideoPlayer* videoPlayer)
     {
-        return static_cast<VideoPlayer*>(videoPlayer)->frameData.data();
+        return videoPlayer->frameData.data();
     }
 
-    int Donut_GetVideoFrameRowPitch(void* videoPlayer)
+    int Donut_GetVideoFrameRowPitch(VideoPlayer* videoPlayer)
     {
-        return static_cast<VideoPlayer*>(videoPlayer)->frameRowPitch;
+        return videoPlayer->frameRowPitch;
     }
 
     // Moves playback to `seconds` into the video (IMFMediaEngine::SetCurrentTime).
-    void Donut_SetVideoTime(void* videoPlayer, double seconds)
+    void Donut_SetVideoTime(VideoPlayer* videoPlayer, double seconds)
     {
-        auto* player = static_cast<VideoPlayer*>(videoPlayer);
+        auto* player = videoPlayer;
         if (player->mediaEngine)
             player->mediaEngine->SetCurrentTime(seconds);
     }
 
-    void Donut_DestroyVideoPlayer(void* videoPlayer)
+    void Donut_DestroyVideoPlayer(VideoPlayer* videoPlayer)
     {
-        delete static_cast<VideoPlayer*>(videoPlayer);
+        delete videoPlayer;
     }
 }

@@ -514,14 +514,14 @@ export class App {
     }
 
     // A heap of byteSize bytes of device memory for placed textures (D3D12, Vulkan); null on failure.
-    createTextureHeap(byteSize: number, debugName: string): Opaque | null {
+    createTextureHeap(byteSize: number, debugName: string): TextureHeapHandle | null {
         return Donut_CreateTextureHeap(this.handle, byteSize, debugName);
     }
 
     // A texture that shaders read placed in a texture heap at byteOffset (a multiple of
     // Donut_GetPlacedTextureSize's size), its first use recorded into an open command list. Fill it with
     // Donut_WriteTextureLevel; release it before the heap. Null on failure.
-    createPlacedTexture(commandList: CommandList, textureHeap: Opaque, byteOffset: number, width: int, height: int, format: Format, debugName: string): TextureHandle | null {
+    createPlacedTexture(commandList: CommandList, textureHeap: TextureHeapHandle, byteOffset: number, width: int, height: int, format: Format, debugName: string): TextureHandle | null {
         return Donut_CreatePlacedTexture(this.handle, commandList.handle, textureHeap, byteOffset, width, height, format, debugName);
     }
 
@@ -804,7 +804,7 @@ export class App {
     // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
     // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
     // (different every run).
-    createRandomEngine(seed: int): Opaque {
+    createRandomEngine(seed: int): RandomEngineHandle {
         return Donut_CreateRandomEngine(this.handle, seed);
     }
 
@@ -867,22 +867,22 @@ export class App {
     }
 
     // GPU timer queries: the GPU time between Begin and End, readable once polled.
-    createTimerQuery(): Opaque {
+    createTimerQuery(): TimerQueryHandle {
         return Donut_CreateTimerQuery(this.handle);
     }
 
     // Before measuring again.
-    resetTimerQuery(timerQuery: Opaque): void {
+    resetTimerQuery(timerQuery: TimerQueryHandle): void {
         Donut_ResetTimerQuery(this.handle, timerQuery);
     }
 
     // Non-zero once the GPU has finished the measured commands.
-    pollTimerQuery(timerQuery: Opaque): int {
+    pollTimerQuery(timerQuery: TimerQueryHandle): int {
         return Donut_PollTimerQuery(this.handle, timerQuery);
     }
 
     // Seconds; waits for the GPU unless polled first.
-    getTimerQueryTime(timerQuery: Opaque): number {
+    getTimerQueryTime(timerQuery: TimerQueryHandle): number {
         return Donut_GetTimerQueryTime(this.handle, timerQuery);
     }
 
@@ -1133,7 +1133,7 @@ export class App {
     // A work graph program of all the nodes of a shader library (lib_6_8), with computePipeline's
     // root signature, and its broadcasting entry node's dispatch grid set to gridX x gridY x gridZ;
     // plus its backing memory. Release it with Donut_ReleaseObject. Null (after logging why) on failure.
-    createD3D12WorkGraph(shaderLibrary: ShaderLibraryHandle, computePipeline: ComputePipelineHandle, programName: string, entryNodeName: string, gridX: int, gridY: int, gridZ: int): Opaque | null {
+    createD3D12WorkGraph(shaderLibrary: ShaderLibraryHandle, computePipeline: ComputePipelineHandle, programName: string, entryNodeName: string, gridX: int, gridY: int, gridZ: int): D3D12WorkGraphHandle | null {
         return Donut_CreateD3D12WorkGraph(this.handle, shaderLibrary, computePipeline, programName, entryNodeName, gridX, gridY, gridZ);
     }
 
@@ -1164,7 +1164,7 @@ export class App {
     // Donut_SetPredicationValue's are the predication buffer's): count queries, every result 0
     // (occluded) at first. D3D12's occlusion query heap and predication, Vulkan's occlusion query pool
     // and conditional rendering (requires Donut_HasConditionalRendering). Null otherwise.
-    createOcclusionPredication(count: int): Opaque | null {
+    createOcclusionPredication(count: int): OcclusionPredicationHandle | null {
         return Donut_CreateOcclusionPredication(this.handle, count);
     }
 
@@ -1311,7 +1311,7 @@ export class App {
     // frames: Donut_TransferVideoFrame): a render target shared through an NT handle (on D3D12 with
     // simultaneous access), resting at ShaderResource. D3D12 and D3D11 only (Windows): null with other
     // APIs, and (after logging why) on failure.
-    createSharedTexture(width: int, height: int, format: Format, debugName: string): Opaque | null {
+    createSharedTexture(width: int, height: int, format: Format, debugName: string): SharedTextureHandle | null {
         return Donut_CreateSharedTexture(this.handle, width, height, format, debugName);
     }
 
@@ -1696,18 +1696,18 @@ export class Frame {
 
     // Donut_DrawVertices inside occlusion query `index`: whether any of the vertices' samples pass the
     // depth and stencil tests.
-    drawVerticesWithOcclusionQuery(vertexCount: int, occlusionPredication: Opaque, index: int): void {
+    drawVerticesWithOcclusionQuery(vertexCount: int, occlusionPredication: OcclusionPredicationHandle, index: int): void {
         Donut_DrawVerticesWithOcclusionQuery(this.handle, vertexCount, occlusionPredication, index);
     }
 
     // The queries' results into the predication values (1: samples passed; 0: none did) for the draws
     // after it, e.g. the next frame's.
-    resolveOcclusionQueries(occlusionPredication: Opaque): void {
+    resolveOcclusionQueries(occlusionPredication: OcclusionPredicationHandle): void {
         Donut_ResolveOcclusionQueries(this.handle, occlusionPredication);
     }
 
     // Donut_DrawVertices, skipped if resolved result `index` is 0 when the GPU gets to it.
-    drawVerticesOcclusionPredicated(vertexCount: int, occlusionPredication: Opaque, index: int): void {
+    drawVerticesOcclusionPredicated(vertexCount: int, occlusionPredication: OcclusionPredicationHandle, index: int): void {
         Donut_DrawVerticesOcclusionPredicated(this.handle, vertexCount, occlusionPredication, index);
     }
 
@@ -1898,11 +1898,11 @@ export class CommandList {
         Donut_EndMarker(this.handle);
     }
 
-    beginTimerQuery(timerQuery: Opaque): void {
+    beginTimerQuery(timerQuery: TimerQueryHandle): void {
         Donut_BeginTimerQuery(this.handle, timerQuery);
     }
 
-    endTimerQuery(timerQuery: Opaque): void {
+    endTimerQuery(timerQuery: TimerQueryHandle): void {
         Donut_EndTimerQuery(this.handle, timerQuery);
     }
 
@@ -1910,7 +1910,7 @@ export class CommandList {
     // from data as its root arguments, set through computePipeline (one with the same root signature;
     // don't dispatch with it after the graph in the same command list). initializeBackingMemory
     // non-zero on the backing memory's first use, or after another graph used it.
-    dispatchD3D12WorkGraph(workGraph: Opaque, computePipeline: ComputePipelineHandle, bindingSet: BindingSet, data: Opaque, byteSize: int, initializeBackingMemory: int): void {
+    dispatchD3D12WorkGraph(workGraph: D3D12WorkGraphHandle, computePipeline: ComputePipelineHandle, bindingSet: BindingSet, data: Opaque, byteSize: int, initializeBackingMemory: int): void {
         Donut_DispatchD3D12WorkGraph(this.handle, workGraph, computePipeline, bindingSet.handle, data, byteSize, initializeBackingMemory);
     }
 
@@ -2567,10 +2567,10 @@ export class ShaderTable {
 }
 
 export class AsyncComputeLoop {
-    readonly handle: Opaque;
+    readonly handle: AsyncComputeLoopHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: AsyncComputeLoopHandle | null) {
+        this.handle = handle as AsyncComputeLoopHandle;
     }
 
     // True if the function that returned it failed.
@@ -2622,10 +2622,10 @@ export class AsyncComputeLoop {
 }
 
 export class ImGuiPass {
-    readonly handle: Opaque;
+    readonly handle: ImGuiPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: ImGuiPassHandle | null) {
+        this.handle = handle as ImGuiPassHandle;
     }
 
     // True if the function that returned it failed.
@@ -2662,10 +2662,10 @@ export class ImGuiPass {
 }
 
 export class ImGuiFont {
-    readonly handle: Opaque;
+    readonly handle: ImGuiFontHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: ImGuiFontHandle | null) {
+        this.handle = handle as ImGuiFontHandle;
     }
 
     // True if the function that returned it failed.
@@ -3584,10 +3584,10 @@ export class LightProbeProcessingPass {
 }
 
 export class GltfMesh {
-    readonly handle: Opaque;
+    readonly handle: GltfMeshHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: GltfMeshHandle | null) {
+        this.handle = handle as GltfMeshHandle;
     }
 
     // True if the function that returned it failed.
@@ -3610,10 +3610,10 @@ export class GltfMesh {
 }
 
 export class GltfModel {
-    readonly handle: Opaque;
+    readonly handle: GltfModelHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: GltfModelHandle | null) {
+        this.handle = handle as GltfModelHandle;
     }
 
     // True if the function that returned it failed.
@@ -3781,10 +3781,10 @@ export class TriangleBlas {
 }
 
 export class TileMappings {
-    readonly handle: Opaque;
+    readonly handle: TileMappingsHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: TileMappingsHandle | null) {
+        this.handle = handle as TileMappingsHandle;
     }
 
     // True if the function that returned it failed.
@@ -3804,10 +3804,10 @@ export class TileMappings {
 }
 
 export class MeshPipelineStatistics {
-    readonly handle: Opaque;
+    readonly handle: MeshPipelineStatisticsHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: MeshPipelineStatisticsHandle | null) {
+        this.handle = handle as MeshPipelineStatisticsHandle;
     }
 
     // True if the function that returned it failed.
@@ -3822,10 +3822,10 @@ export class MeshPipelineStatistics {
 }
 
 export class PredicationBuffer {
-    readonly handle: Opaque;
+    readonly handle: PredicationBufferHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: PredicationBufferHandle | null) {
+        this.handle = handle as PredicationBufferHandle;
     }
 
     // True if the function that returned it failed.
@@ -3839,10 +3839,10 @@ export class PredicationBuffer {
 }
 
 export class BinaryFile {
-    readonly handle: Opaque;
+    readonly handle: BinaryFileHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: BinaryFileHandle | null) {
+        this.handle = handle as BinaryFileHandle;
     }
 
     // True if the function that returned it failed.

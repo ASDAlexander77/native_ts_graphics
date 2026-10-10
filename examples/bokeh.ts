@@ -267,7 +267,7 @@ namespace Bokeh {
                 app.releaseObject(binaryFile.handle);
                 return false;
             }
-            const mesh = loaded as Opaque;
+            const mesh = loaded as SdkMeshHandle;
 
             // The sample's models are position, normal and texture coordinates (DirectXTK's
             // VertexPositionNormalTexture layout), which bokeh_scene.hlsl reads.
@@ -417,7 +417,7 @@ namespace Bokeh {
         private recombinePipeline: GraphicsPipelineHandle | null;
         private copyPipeline: GraphicsPipelineHandle | null;
         private dofHeight: int;
-        private timers: Opaque[];
+        private timers: TimerQueryHandle[];
         private timerPending: boolean[];
         private timerFrame: int;
         private timerSums: number[];
@@ -919,7 +919,7 @@ namespace Bokeh {
             this.timerPending[this.timerFrame] = true;
         }
 
-        timer(index: int): Opaque {
+        timer(index: int): TimerQueryHandle {
             return this.timers[this.timerFrame * TIMER_COUNT + index];
         }
 

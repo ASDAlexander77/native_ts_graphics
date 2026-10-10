@@ -684,7 +684,7 @@ namespace MobileNerfRayQuery {
                         indices.push(vertexStart + gltfIndices[i]);
                     }
                 }
-                this.app.releaseResource(scene.handle);
+                this.app.releaseObject(scene.handle);
                 firstVertices.push(firstVertex);
                 firstIndices.push(firstIndex);
                 counts.push(vertices.length / VERTEX_FLOATS - firstVertex);

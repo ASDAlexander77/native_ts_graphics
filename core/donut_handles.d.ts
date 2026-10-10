@@ -84,3 +84,22 @@ declare class SkyPassHandle extends ObjectHandle { private readonly __skyPass: i
 declare class BloomPassHandle extends ObjectHandle { private readonly __bloomPass: int; }
 declare class LightProbeProcessingPassHandle extends ObjectHandle { private readonly __lightProbeProcessingPass: int; }
 declare class DlssHandle extends ObjectHandle { private readonly __dlss: int; }
+declare class ImGuiPassHandle { private readonly __imguiPass: int; }
+declare class ImGuiFontHandle { private readonly __imguiFont: int; }
+declare class VideoPlayerHandle { private readonly __videoPlayer: int; }
+declare class SdkMeshHandle { private readonly __sdkMesh: int; }
+declare class GltfModelHandle extends ObjectHandle { private readonly __gltfModel: int; }
+declare class GltfMeshHandle extends ObjectHandle { private readonly __gltfMesh: int; }
+declare class BinaryFileHandle extends ObjectHandle { private readonly __binaryFile: int; }
+declare class TranscodedTextureHandle { private readonly __transcodedTexture: int; }
+declare class FbcTextureHandle { private readonly __fbcTexture: int; }
+declare class AsyncComputeLoopHandle extends ObjectHandle { private readonly __asyncComputeLoop: int; }
+declare class TileMappingsHandle { private readonly __tileMappings: int; }
+declare class TextureHeapHandle extends ObjectHandle { private readonly __textureHeap: int; }
+declare class SharedTextureHandle extends ObjectHandle { private readonly __sharedTexture: int; }
+declare class D3D12WorkGraphHandle extends ObjectHandle { private readonly __workGraph: int; }
+declare class OcclusionPredicationHandle extends ObjectHandle { private readonly __occlusionPredication: int; }
+declare class PredicationBufferHandle extends ObjectHandle { private readonly __predicationBuffer: int; }
+declare class MeshPipelineStatisticsHandle extends ObjectHandle { private readonly __meshPipelineStatistics: int; }
+declare class RandomEngineHandle extends ObjectHandle { private readonly __randomEngine: int; }
+declare class TimerQueryHandle extends ResourceHandle { private readonly __timerQuery: int; }

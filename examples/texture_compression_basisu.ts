@@ -323,7 +323,7 @@ namespace TextureCompressionBasisu {
             if (!transcoded) {
                 return false;
             }
-            const image = transcoded as Opaque;
+            const image = transcoded as TranscodedTextureHandle;
             this.lastTranscodeTime = this.stats[0];
 
             if (this.textureCreated) {

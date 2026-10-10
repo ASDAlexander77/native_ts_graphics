@@ -145,7 +145,7 @@ namespace ProceduralGeometry {
         // Created on the first frame (it has the frame's size), dropped on resize.
         private storageImage: TextureHandle | null;
         private bindingSet: BindingSet;
-        private timerQuery: Opaque;
+        private timerQuery: TimerQueryHandle;
         private timerQueryInFlight: boolean;
 
         // The scene (InitializeScene): the AABBs' min x y z, max x y z; the camera; the light.

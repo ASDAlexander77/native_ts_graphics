@@ -282,7 +282,7 @@ namespace DynamicRenderingLocalRead {
                     }
                 }
             }
-            app.releaseResource(model.handle);
+            app.releaseObject(model.handle);
 
             this.vertexBuffer = app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
             this.indexBuffer = app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
