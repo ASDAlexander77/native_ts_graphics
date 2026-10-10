@@ -124,6 +124,12 @@ set(DONUT_PATCHES
     # chains in sRGB, HDR10 (ST.2084, Rec.2020) or scRGB, through SetColorSpace1 on D3D11 and D3D12
     # and the surface's color space on Vulkan; changes go through the resize path (simple_hdr).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-swap-chain-color-space.patch"
+    # PlanarShadowMap::Clear cleared its depth texture with clearTextureFloat, which NVRHI refuses
+    # for depth textures; and SetupWholeSceneDirectionalLightView gave the projection the scene's
+    # depth range along the light negated, right only for scenes centered on the light's node (D3D
+    # clamps the rest to the near or far plane, Vulkan clips it away). environment_map uses both.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-planar-shadow-map-clear.patch"
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-planar-shadow-map-whole-scene-depth-range.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of

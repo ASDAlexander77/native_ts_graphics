@@ -8903,37 +8903,20 @@ extern "C"
     // Fits a planar shadow map's view to a directional light and the whole scene graph's bounds;
     // shadows fade out over fadeRangeWorld (world units) at its edges. Returns 1 if the view
     // changed (the shadow map needs rendering again), 0 if not or for a cascaded shadow map.
-    //
-    // Not with PlanarShadowMap::SetupWholeSceneDirectionalLightView: it passes the scene's depth
-    // range along the light negated (-max .. -min, not min .. max) to orthoProjD3DStyle, which is
-    // right only for scenes centered on the light's node along its direction. Elsewhere geometry
-    // falls out of the depth range: D3D clamps it to the near plane, Vulkan clips it away (NVRHI
-    // turns depth clipping off only with VK_EXT_depth_clip_enable, which the app doesn't enable).
-    // SetupDynamicDirectionalLightView's box, centered on an anchor, doesn't depend on that: here
-    // the box around the scene's bounds as seen from the light, grown by 1% of their diagonal so
-    // that geometry on them (Sponza's flat roofs) isn't on its near or far plane.
+    // (patches/Donut-planar-shadow-map-whole-scene-depth-range.patch fixes its depth range.) The
+    // bounds grow by 1% of their diagonal first, so that geometry on them (Sponza's flat roofs) isn't
+    // on the light's near or far plane: D3D clamps depth there, Vulkan clips (NVRHI turns depth
+    // clipping off only with VK_EXT_depth_clip_enable, which the app doesn't enable).
     int Donut_SetupPlanarShadowMapForScene(void* shadowMapTarget, void* light, void* sceneGraph, double fadeRangeWorld)
     {
         auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
         if (!target->planar)
             return 0;
-        const auto& directionalLight = *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light));
-
         dm::box3 bounds = AsSceneGraph(sceneGraph)->GetRootNode()->GetGlobalBoundingBox();
         bounds = bounds.grow(dm::float3(0.01f * dm::length(bounds.diagonal())));
-
-        // The light's view rotation, as SetupDynamicDirectionalLightView makes it.
-        dm::daffine3 viewToWorld = directionalLight.GetNode()->GetLocalToWorldTransform();
-        viewToWorld.m_translation = dm::double3(0.0);
-        viewToWorld = dm::scaling(dm::double3(1.0, 1.0, -1.0)) * viewToWorld;
-        const dm::affine3 worldToView = dm::affine3(dm::inverse(viewToWorld));
-
-        // Square texels: the same extent along X and Y.
-        dm::float3 halfSize = (bounds * worldToView).diagonal() * 0.5f;
-        halfSize.x = halfSize.y = std::max(halfSize.x, halfSize.y);
-
-        return target->planar->SetupDynamicDirectionalLightView(directionalLight, bounds.center(), halfSize,
-            dm::float3(0.f), float(fadeRangeWorld)) ? 1 : 0;
+        return target->planar->SetupWholeSceneDirectionalLightView(
+            *static_cast<donut::engine::DirectionalLight*>(static_cast<donut::engine::Light*>(light)),
+            bounds, float(fadeRangeWorld)) ? 1 : 0;
     }
 
     // The depth texture, one array slice per cascade (one for a planar shadow map).
@@ -8962,17 +8945,9 @@ extern "C"
     {
         auto* target = static_cast<ShadowMapTarget*>(shadowMapTarget);
         if (target->cascaded)
-        {
             target->cascaded->Clear(AsCommandList(commandList));
-        }
         else
-        {
-            // PlanarShadowMap::Clear clears with clearTextureFloat, which NVRHI refuses for depth
-            // textures: as CascadedShadowMap::Clear does, to the far depth 1.
-            nvrhi::ITexture* texture = target->planar->GetTexture();
-            AsCommandList(commandList)->clearDepthStencilTexture(texture, target->planar->GetPlanarView()->GetSubresources(),
-                true, 1.f, nvrhi::getFormatInfo(texture->getDesc().format).hasStencil, 0);
-        }
+            target->planar->Clear(AsCommandList(commandList));
     }
 
     // Donut's depth-only pass, with depth biases for shadow maps.

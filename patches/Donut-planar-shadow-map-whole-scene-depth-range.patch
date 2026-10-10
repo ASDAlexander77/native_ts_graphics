@@ -1,0 +1,15 @@
+diff --git a/src/render/PlanarShadowMap.cpp b/src/render/PlanarShadowMap.cpp
+index a396133..4feab62 100644
+--- a/src/render/PlanarShadowMap.cpp
++++ b/src/render/PlanarShadowMap.cpp
+@@ -94,8 +94,8 @@ bool PlanarShadowMap::SetupWholeSceneDirectionalLightView(const DirectionalLight
+         boundsView.m_maxs.x,
+         boundsView.m_mins.y,
+         boundsView.m_maxs.y,
+-        -boundsView.m_maxs.z,
+-        -boundsView.m_mins.z);
++        boundsView.m_mins.z,
++        boundsView.m_maxs.z);
+ 
+     bool viewIsModified = m_View->GetViewMatrix() != worldToView || any(m_View->GetProjectionMatrix(false) != projection);
+ 
