@@ -138,6 +138,55 @@ declare function Donut_GetSdkMeshMeshIndexBuffer(sdkMesh: SdkMeshHandle, mesh: i
 declare function Donut_GetSdkMeshMeshSubsetCount(sdkMesh: SdkMeshHandle, mesh: int): int;
 declare function Donut_GetSdkMeshMeshSubset(sdkMesh: SdkMeshHandle, mesh: int, index: int): int;
 declare function Donut_CopySdkMeshMeshBounds(sdkMesh: SdkMeshHandle, mesh: int, dst: Opaque): void;
+
+// Donut_GetMeshletModelAttributeBuffer's attributes.
+enum MeshletAttribute {
+    Position = 0,
+    Normal = 1,
+    TexCoord = 2,
+    Tangent = 3,
+    Bitangent = 4,
+}
+
+// Donut_GetMeshletModelData's parts of a mesh.
+enum MeshletModelData {
+    Indices = 0,
+    IndexSubsets = 1,
+    Meshlets = 2,
+    MeshletSubsets = 3,
+    UniqueVertexIndices = 4,
+    PrimitiveIndices = 5,
+    CullData = 6,
+}
+
+// Meshlet model files, the ".bin" files DirectX-Graphics-Samples' D3D12MeshShaders samples load
+// (core/meshlet_model.cpp, linked only into the examples that list it): meshes of vertices,
+// indices, meshlets (vertex count, vertex offset, primitive count, primitive offset: 4 uints), unique
+// vertex indices, packed primitives (three 10-bit indices a uint), meshlet subsets (offset, count)
+// and per-meshlet culling data. A file in memory (byteSize bytes, copied), checked as the samples'
+// loader checks it; null (after printing why) on failure. Free it with Donut_DestroyMeshletModel.
+declare function Donut_LoadMeshletModel(data: Opaque, byteSize: int): MeshletModelHandle | null;
+declare function Donut_DestroyMeshletModel(meshletModel: MeshletModelHandle): void;
+declare function Donut_GetMeshletModelMeshCount(meshletModel: MeshletModelHandle): int;
+// A mesh's vertex buffers (data valid until the model is freed, size in bytes, stride) and vertex count.
+declare function Donut_GetMeshletModelVertexBufferCount(meshletModel: MeshletModelHandle, mesh: int): int;
+declare function Donut_GetMeshletModelVertexBufferData(meshletModel: MeshletModelHandle, mesh: int, vertexBuffer: int): Opaque;
+declare function Donut_GetMeshletModelVertexBufferSize(meshletModel: MeshletModelHandle, mesh: int, vertexBuffer: int): int;
+declare function Donut_GetMeshletModelVertexBufferStride(meshletModel: MeshletModelHandle, mesh: int, vertexBuffer: int): int;
+declare function Donut_GetMeshletModelVertexCount(meshletModel: MeshletModelHandle, mesh: int): int;
+// The vertex buffer an attribute (MeshletAttribute) is in, -1 if the mesh hasn't it; its byte offset.
+declare function Donut_GetMeshletModelAttributeBuffer(meshletModel: MeshletModelHandle, mesh: int, attribute: MeshletAttribute): int;
+declare function Donut_GetMeshletModelAttributeOffset(meshletModel: MeshletModelHandle, mesh: int, attribute: MeshletAttribute): int;
+// Bytes per index (2 or 4) of the mesh's indices and unique vertex indices.
+declare function Donut_GetMeshletModelIndexSize(meshletModel: MeshletModelHandle, mesh: int): int;
+// A part of a mesh: its data (valid until the model is freed), size in bytes and element count.
+declare function Donut_GetMeshletModelData(meshletModel: MeshletModelHandle, mesh: int, which: MeshletModelData): Opaque;
+declare function Donut_GetMeshletModelDataSize(meshletModel: MeshletModelHandle, mesh: int, which: MeshletModelData): int;
+declare function Donut_GetMeshletModelDataCount(meshletModel: MeshletModelHandle, mesh: int, which: MeshletModelData): int;
+// Copies a part of a mesh into dst (Donut_GetMeshletModelDataSize bytes; Ref of a `let` array element).
+declare function Donut_CopyMeshletModelData(meshletModel: MeshletModelHandle, mesh: int, which: MeshletModelData, dst: Opaque): void;
+// The bounding sphere (center, radius: 4 floats into dst) of a mesh, or with mesh -1 of the model.
+declare function Donut_CopyMeshletModelBoundingSphere(meshletModel: MeshletModelHandle, mesh: int, dst: Opaque): void;
 // Subsets: their material, primitive type (0 triangle list, 1 triangle strip, 2 line list, 3 line
 // strip, 4 point list...), and ranges of their mesh's index and vertex buffers.
 declare function Donut_GetSdkMeshSubsetMaterial(sdkMesh: SdkMeshHandle, subset: int): int;
@@ -513,8 +562,27 @@ declare function Donut_GetAdapterCount(adapterList: AdapterListHandle): int;
 declare function Donut_GetAdapterName(adapterList: AdapterListHandle, index: int): string;
 declare function Donut_GetAdapterMemoryMB(adapterList: AdapterListHandle, index: int): int;
 declare function Donut_DestroyAdapterList(adapterList: AdapterListHandle): void;
-// Blocks until the window is closed.
+// Blocks until the window is closed; in test mode renders the test's frames and returns.
 declare function Donut_RunApp(app: AppHandle): void;
+// Test mode for the apps created after it: a headless device rendering frameCount frames, each
+// frameSeconds long, into back buffers that can be read back; no window, input or title.
+declare function Donut_SetTestMode(frameCount: int, frameSeconds: number): void;
+// Saves the current back buffer (in test mode after Donut_RunApp, the last frame's) as an image file,
+// its format from the extension (.png, .bmp, .tga, .jpg). Not in a render callback.
+declare function Donut_SaveBackBufferToFile(app: AppHandle, path: string): int;
+// The examples' test options: -test renders frameCount frames, frameSeconds each, without a window
+// (Donut_SetTestMode, for the app created next); -testOutput <file> names an image file for the last
+// one (Donut_FinishTest). Non-zero if -test is given.
+declare function Donut_ParseTestArgs(argc: int, argv: Ref<string>, frameCount: int, frameSeconds: number): int;
+// The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
+// with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst (pixelCount
+// ints; Ref of a `let` int array element). 0 on failure or for back buffers not 8-bit RGBA / BGRA.
+declare function Donut_ReadBackBufferRGBA8(app: AppHandle, dst: Opaque, pixelCount: int): int;
+// Ends a test after Donut_RunApp: saves the last frame to -testOutput's file if given, prints "Test
+// PASSED" if failure is "", else "Test FAILED: <failure>"; returns the exit code (0, 1).
+declare function Donut_FinishTest(app: AppHandle, failure: string): int;
+// Non-zero for an app created in test mode.
+declare function Donut_IsTestMode(app: AppHandle): int;
 // Destroys the app with all its passes and resources.
 declare function Donut_DestroyApp(app: AppHandle): void;
 declare function Donut_IsFeatureSupported(app: AppHandle, feature: Feature): int;
@@ -963,6 +1031,9 @@ declare function Donut_CreateMeshletPipelineFromDescForFrame(app: AppHandle, gra
 declare function Donut_CreateStaticVertexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): BufferHandle;
 // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
 declare function Donut_CreateDynamicVertexBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
+// A static buffer of byteSize bytes of data for shaders to read: a StructuredBuffer of
+// structStride-byte elements if structStride > 0, else a ByteAddressBuffer. Null on failure.
+declare function Donut_CreateStaticShaderBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, structStride: int, debugName: string): BufferHandle;
 declare function Donut_CreateStaticIndexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): BufferHandle;
 // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
 // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
@@ -1892,6 +1963,8 @@ declare function Donut_SubmitFrameCommandList(app: AppHandle, frame: FrameHandle
 declare function Donut_BeginMeshDraw(frame: FrameHandle, meshletPipeline: MeshletPipelineHandle): void;
 declare function Donut_BeginMeshDrawToFramebuffer(frame: FrameHandle, meshletPipeline: MeshletPipelineHandle, framebuffer: FramebufferHandle): void;
 declare function Donut_DrawMeshTasks(frame: FrameHandle, groupsX: int): void;
+// Same, with byteSize bytes of push constants from data (the binding set's push constants slot).
+declare function Donut_DrawMeshTasksWithPushConstants(frame: FrameHandle, groupsX: int, data: Opaque, byteSize: int): void;
 // Same, groupsX x groupsY groups.
 declare function Donut_DrawMeshTasks2D(frame: FrameHandle, groupsX: int, groupsY: int): void;
 // Pipeline statistics of mesh shader draws (pixel, amplification and mesh shader invocations), read

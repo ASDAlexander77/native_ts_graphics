@@ -1,5 +1,6 @@
 # Starts built examples briefly on each graphics API with the debug layers and reports the ones
-# that crash, exit with an error, or log errors (Donut's "ERROR:" lines, validation messages).
+# that crash, exit with an error, or log errors (Donut's "ERROR:" lines, validation messages: Donut
+# logs all of Vulkan's validation layer's as warnings).
 #
 #   pwsh -File tools/smoke_examples.ps1 [-Examples basic_triangle,compute_nbody] [-Apis dx12,vk] [-Seconds 8]
 #
@@ -57,7 +58,7 @@ foreach ($example in $exampleList) {
             $problem = "exited with code $($p.ExitCode)"
         }
         $errors = @(Get-Content $out, $err -ErrorAction SilentlyContinue |
-            Where-Object { $_ -match "ERROR|Validation Error|D3D12 ERROR|D3D11 ERROR" })
+            Where-Object { $_ -match "ERROR|Validation Error|D3D12 ERROR|D3D11 ERROR|layerPrefix='Validation'" })
         if ($errors.Count -gt 0) {
             $problem = (@($problem) + "$($errors.Count) error line(s), first: $($errors[0])" | Where-Object { $_ }) -join "; "
         }

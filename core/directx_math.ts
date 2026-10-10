@@ -279,7 +279,12 @@ export function matrixRotationY(angle: number): number[] {
 
 // XMMatrixLookAtLH.
 export function matrixLookAtLH(eye: number[], at: number[], up: number[]): number[] {
-    const r2 = normalize3(vsub(at, eye));
+    return matrixLookToLH(eye, vsub(at, eye), up);
+}
+
+// XMMatrixLookToLH.
+export function matrixLookToLH(eye: number[], eyeDirection: number[], up: number[]): number[] {
+    const r2 = normalize3(eyeDirection);
     const r0 = normalize3(cross3(up, r2));
     const r1 = cross3(r2, r0);
     const negEye = [-eye[0], -eye[1], -eye[2], -eye[3]];
@@ -289,6 +294,26 @@ export function matrixLookAtLH(eye: number[], at: number[], up: number[]): numbe
         r2[0], r2[1], r2[2], dot3(r2, negEye),
         0.0, 0.0, 0.0, 1.0,
     ]);
+}
+
+// XMMatrixLookToRH: XMMatrixLookToLH looking the other way.
+export function matrixLookToRH(eye: number[], eyeDirection: number[], up: number[]): number[] {
+    return matrixLookToLH(eye, [-eyeDirection[0], -eyeDirection[1], -eyeDirection[2], -eyeDirection[3]], up);
+}
+
+// XMMatrixPerspectiveFovRH.
+export function matrixPerspectiveFovRH(fovAngleY: number, aspectRatio: number, nearZ: number, farZ: number): number[] {
+    const sinCos = scalarSinCos(Math.fround(0.5 * fovAngleY));
+    const near = Math.fround(nearZ);
+    const far = Math.fround(farZ);
+    const range = Math.fround(far / Math.fround(near - far));
+    const height = Math.fround(sinCos[1] / sinCos[0]);
+    return [
+        Math.fround(height / aspectRatio), 0.0, 0.0, 0.0,
+        0.0, height, 0.0, 0.0,
+        0.0, 0.0, range, -1.0,
+        0.0, 0.0, Math.fround(range * near), 0.0,
+    ];
 }
 
 // XMMatrixPerspectiveFovLH.
