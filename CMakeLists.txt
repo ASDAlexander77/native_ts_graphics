@@ -2684,6 +2684,50 @@ donut_compile_shaders(
 add_tslang_example(n_body_gravity core/directx_math.ts)
 add_tslang_example_test(n_body_gravity)
 
+# Copies a folder of the DirectX-Graphics-Samples checkout into an example's media folder, whole.
+function(add_dxgs_media_directory target dir source_dir)
+    if (NOT DIRECTX_GRAPHICS_SAMPLES_DIR)
+        return()
+    endif()
+    get_filename_component(name "${source_dir}" NAME)
+    set(stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}_${name}_media.stamp")
+    file(GLOB_RECURSE sources "${DIRECTX_GRAPHICS_SAMPLES_DIR}/${source_dir}/*")
+    add_custom_command(OUTPUT "${stamp}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${DIRECTX_GRAPHICS_SAMPLES_DIR}/${source_dir}"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/${dir}/${name}"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
+        DEPENDS ${sources}
+        COMMENT "Copying ${name}"
+        VERBATIM)
+    add_custom_target(${target}_${name}_media DEPENDS "${stamp}")
+    add_dependencies(${target} ${target}_${name}_media)
+endfunction()
+
+# Port of DirectX-Graphics-Samples' D3D12RaytracingRealTimeDenoisedAmbientOcclusion: ray traced
+# ambient occlusion at one ray per pixel, denoised spatio-temporally (reverse reprojection into a
+# temporal cache, variance-guided blending, an edge-stopping a-trous filter, a disocclusion blur),
+# over a scene of PBRT models (a house, cars, a dragon, a spaceship: the sample's parser, in
+# core/pbrt) and procedural grass a compute shader regenerates every frame; a specular path tracer
+# makes the G-buffer. Its assets (~140 MB) are the sample's, from DIRECTX_GRAPHICS_SAMPLES_DIR.
+# Ray tracing pipelines: D3D12 or Vulkan.
+file(GLOB DENOISED_RTAO_SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/denoised_rtao/*)
+donut_compile_shaders(
+    TARGET denoised_rtao_shaders
+    PROJECT_NAME "Denoised RTAO"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/denoised_rtao.cfg
+    SOURCES ${DENOISED_RTAO_SHADER_SOURCES}
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/denoised_rtao/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/denoised_rtao/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--vulkanMemoryLayout dx"
+)
+add_tslang_example(denoised_rtao core/directx_math.ts core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
+    MEDIA denoised_rtao)
+add_dxgs_media_directory(denoised_rtao denoised_rtao
+    Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingRealTimeDenoisedAmbientOcclusion/Assets)
+add_tslang_example_test(denoised_rtao)
+add_tslang_example_test(denoised_rtao SUFFIX raw ARGS -raw)
+add_tslang_example_test(denoised_rtao SUFFIX shaded ARGS -shaded)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse

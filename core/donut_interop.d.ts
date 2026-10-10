@@ -212,6 +212,42 @@ declare function Donut_GetSdkMeshFrameName(sdkMesh: SdkMeshHandle, frame: int): 
 declare function Donut_GetSdkMeshFrameMesh(sdkMesh: SdkMeshHandle, frame: int): int;
 declare function Donut_GetSdkMeshFrameParent(sdkMesh: SdkMeshHandle, frame: int): int;
 declare function Donut_CopySdkMeshFrameMatrix(sdkMesh: SdkMeshHandle, frame: int, dst: Opaque): void;
+// --- PBRT scenes and RTAO sample sets (core/denoised_rtao.cpp; the denoised_rtao example links it) ---
+// Loads a PBRT scene (DirectX-Graphics-Samples' D3D12RaytracingRealTimeDenoisedAmbientOcclusion's
+// subset: shapes in PLY files, named materials, image map textures, transforms) with that sample's
+// parser: the meshes with vertices and indices, positions and normals transformed by their
+// transform. Null (after printing why) on failure; free it with Donut_DestroyPbrtScene.
+declare function Donut_LoadPbrtScene(path: string): PbrtSceneHandle | null;
+declare function Donut_DestroyPbrtScene(pbrtScene: PbrtSceneHandle): void;
+declare function Donut_GetPbrtSceneMeshCount(pbrtScene: PbrtSceneHandle): int;
+declare function Donut_GetPbrtMeshVertexCount(pbrtScene: PbrtSceneHandle, mesh: int): int;
+declare function Donut_GetPbrtMeshIndexCount(pbrtScene: PbrtSceneHandle, mesh: int): int;
+// Copies a mesh's vertices into dst (Ref of a `let` f32 array element): 11 floats each (position,
+// normal, texture coordinates, tangent: the sample's VertexPositionNormalTextureTangent).
+declare function Donut_CopyPbrtMeshVertices(pbrtScene: PbrtSceneHandle, mesh: int, dst: Opaque): void;
+// Copies a mesh's 32-bit indices into dst (Ref of a `let` int array element).
+declare function Donut_CopyPbrtMeshIndices(pbrtScene: PbrtSceneHandle, mesh: int, dst: Opaque): void;
+// Copies a mesh's material into dst (Ref of a `let` f32 array element): the sample's
+// PrimitiveMaterialBuffer, 24 values (Kd, Ks, Kr, Kt, opacity, eta as float3s, roughness, then the
+// int bits of hasDiffuseTexture, hasNormalTexture, hasPerVertexTangents, type, and padding).
+declare function Donut_CopyPbrtMeshMaterial(pbrtScene: PbrtSceneHandle, mesh: int, dst: Opaque): void;
+// Non-zero if a mesh is opaque as the sample flags its geometry: unless see-through (opacity
+// below 0.99) or a perfect mirror (AO rays skip those).
+declare function Donut_IsPbrtMeshOpaque(pbrtScene: PbrtSceneHandle, mesh: int): int;
+// A mesh's diffuse / normal map texture file as the scene names it (its directory prepended), ""
+// for none. Valid as long as the scene.
+declare function Donut_GetPbrtMeshDiffuseTexture(pbrtScene: PbrtSceneHandle, mesh: int): string;
+declare function Donut_GetPbrtMeshNormalTexture(pbrtScene: PbrtSceneHandle, mesh: int): string;
+// Decodes an image file with WIC into 8-bit RGBA, as DirectXTK's WIC texture loader does (its JPEG
+// decoder differs a little from Donut's): width x height x 4 bytes into dst (Ref of a `let` int
+// array element; null for only the size). Returns width | height << 16, 0 on failure.
+declare function Donut_DecodeWicImageRGBA8(path: string, dst: Opaque | null): int;
+// The sample's RTAO sample sets: numSampleSets sets of samplesPerSet multi-jittered samples on the
+// cosine-weighted hemisphere (its Samplers::MultiJittered, seeded with 1729), in the order the
+// sample fills its buffer with them: 4 floats each (x, y, z, 0) into dst (Ref of a `let` f32 array
+// element).
+declare function Donut_GenerateRtaoHemisphereSamples(samplesPerSet: int, numSampleSets: int, dst: Opaque): void;
+
 
 // DirectXMath's collision types (core/directx_collision.cpp, linked only into the examples that
 // list it), shapes passed as floats: CollisionShape says which, and how many.
@@ -745,6 +781,7 @@ enum Format {
     SBGRA8_UNORM = 24,
     R10G10B10A2_UNORM = 26,
     R11G11B10_FLOAT = 27,
+    RG16_FLOAT = 32,
     R32_UINT = 33,
     R32_SINT = 34,
     R32_FLOAT = 35,
@@ -1167,6 +1204,9 @@ declare function Donut_CreateAccelStructInputBuffer(app: AppHandle, byteSize: in
 declare function Donut_CreateAccelStructInputRawBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
 // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
 declare function Donut_CreateAccelStructInputStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): BufferHandle;
+// Same, that compute shaders also write (RWStructuredBuffer): e.g. vertices animated on the GPU
+// each frame before the BLAS over them is rebuilt.
+declare function Donut_CreateRWAccelStructInputStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): BufferHandle;
 // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
 declare function Donut_CreateUAVTextureForFrame(app: AppHandle, frame: FrameHandle, debugName: string): TextureHandle;
 // Same, in another format.
@@ -1231,6 +1271,9 @@ declare function Donut_BuildTriangleBlas(triangleBlas: TriangleBlasHandle, app: 
 // Builds a built one again, in place (not an update), from its geometries' current contents, into
 // an open command list.
 declare function Donut_RebuildTriangleBlas(triangleBlas: TriangleBlasHandle, commandList: CommandListHandle): void;
+// Points a BLAS's geometryIndex-th triangle geometry at another vertex buffer (same layout and
+// vertex count, from byte 0) for the next rebuild: e.g. ping-ponged vertex buffers.
+declare function Donut_SetTriangleBlasGeometryVertexBuffer(triangleBlas: TriangleBlasHandle, geometryIndex: int, vertexBuffer: BufferHandle): void;
 // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
 declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: TriangleBlasHandle): AccelStructHandle;
 
@@ -1378,6 +1421,9 @@ declare function Donut_CreateRandomEngine(app: AppHandle, seed: int): RandomEngi
 declare function Donut_RandomUniformFloat(randomEngine: RandomEngineHandle, a: number, b: number): number;
 // The engine's next number from std::uniform_int_distribution<int>(a, b).
 declare function Donut_RandomUniformInt(randomEngine: RandomEngineHandle, a: int, b: int): int;
+// The engine's next number from std::uniform_int_distribution<unsigned>(a, b): the bounds and the
+// result as unsigned bits in ints (a = 0, b = -1 for the whole range).
+declare function Donut_RandomUniformUInt(randomEngine: RandomEngineHandle, a: int, b: int): int;
 // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
 // (Ref of a `let` f32 array element): one distribution object, as the samples keep one (MSVC's makes
 // values in pairs and keeps the second).

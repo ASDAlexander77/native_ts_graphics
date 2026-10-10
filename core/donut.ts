@@ -714,6 +714,12 @@ export class App {
         return Donut_CreateAccelStructInputStructuredBuffer(this.handle, stride, count, debugName);
     }
 
+    // Same, that compute shaders also write (RWStructuredBuffer): e.g. vertices animated on the GPU
+    // each frame before the BLAS over them is rebuilt.
+    createRWAccelStructInputStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
+        return Donut_CreateRWAccelStructInputStructuredBuffer(this.handle, stride, count, debugName);
+    }
+
     // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
     createUAVTextureForFrame(frame: Frame, debugName: string): TextureHandle {
         return Donut_CreateUAVTextureForFrame(this.handle, frame.handle, debugName);
@@ -3862,6 +3868,12 @@ export class TriangleBlas {
     // an open command list.
     rebuild(commandList: CommandList): void {
         Donut_RebuildTriangleBlas(this.handle, commandList.handle);
+    }
+
+    // Points a BLAS's geometryIndex-th triangle geometry at another vertex buffer (same layout and
+    // vertex count, from byte 0) for the next rebuild: e.g. ping-ponged vertex buffers.
+    setGeometryVertexBuffer(geometryIndex: int, vertexBuffer: BufferHandle): void {
+        Donut_SetTriangleBlasGeometryVertexBuffer(this.handle, geometryIndex, vertexBuffer);
     }
 
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
