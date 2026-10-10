@@ -71,6 +71,13 @@ HANDLES = {
     "nvrhi::IComputePipeline": "ComputePipelineHandle",
     "nvrhi::IMeshletPipeline": "MeshletPipelineHandle",
     "PipelineDesc": "GraphicsPipelineDescHandle",
+    "nvrhi::rt::IAccelStruct": "AccelStructHandle",
+    "nvrhi::rt::IOpacityMicromap": "OpacityMicromapHandle",
+    "nvrhi::rt::IShaderTable": "ShaderTableHandle",
+    "nvrhi::rt::IPipeline": "RtPipelineHandle",
+    "nvrhi::rt::PipelineDesc": "RtPipelineDescHandle",
+    "TriangleBlas": "TriangleBlasHandle",
+    "SceneAccelStructs": "SceneAccelStructsHandle",
 }
 
 # Parameters declared narrower than their C++ type: (function, parameter) -> (C++ type, TypeScript

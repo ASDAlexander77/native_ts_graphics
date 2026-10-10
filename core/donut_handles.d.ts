@@ -41,3 +41,10 @@ declare class GraphicsPipelineHandle extends ResourceHandle { private readonly _
 declare class ComputePipelineHandle extends ResourceHandle { private readonly __computePipeline: int; }
 declare class MeshletPipelineHandle extends ResourceHandle { private readonly __meshletPipeline: int; }
 declare class GraphicsPipelineDescHandle { private readonly __graphicsPipelineDesc: int; }
+declare class AccelStructHandle extends ResourceHandle { private readonly __accelStruct: int; }
+declare class OpacityMicromapHandle extends ResourceHandle { private readonly __opacityMicromap: int; }
+declare class ShaderTableHandle extends ResourceHandle { private readonly __shaderTable: int; }
+declare class RtPipelineHandle extends ResourceHandle { private readonly __rtPipeline: int; }
+declare class RtPipelineDescHandle { private readonly __rtPipelineDesc: int; }
+declare class TriangleBlasHandle extends ObjectHandle { private readonly __triangleBlas: int; }
+declare class SceneAccelStructsHandle extends ObjectHandle { private readonly __sceneAccelStructs: int; }

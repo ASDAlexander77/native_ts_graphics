@@ -201,7 +201,7 @@ namespace RtParticles {
         private constantBuffer: BufferHandle;
         private particleMesh: Opaque;
         private particleInfoBuffer: BufferHandle;
-        private particleIntersectionBLAS: Opaque;
+        private particleIntersectionBLAS: AccelStructHandle;
         private topLevelAS: SceneAccelStructs;
         private environmentMap: LoadedTexture;
         private smokeTexture: LoadedTexture;

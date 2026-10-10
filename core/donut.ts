@@ -701,12 +701,12 @@ export class App {
 
     // Acceleration structures; both record their build into an open command list.
     // Opaque triangles: R32_UINT indices, RGB32_FLOAT vertices.
-    buildTriangleBLAS(commandList: CommandList, indexBuffer: BufferHandle, indexCount: int, vertexBuffer: BufferHandle, vertexCount: int): Opaque {
+    buildTriangleBLAS(commandList: CommandList, indexBuffer: BufferHandle, indexCount: int, vertexBuffer: BufferHandle, vertexCount: int): AccelStructHandle {
         return Donut_BuildTriangleBLAS(this.handle, commandList.handle, indexBuffer, indexCount, vertexBuffer, vertexCount);
     }
 
     // One instance of bottomLevelAS: identity transform, mask 1, counter-clockwise front faces.
-    buildSingleInstanceTLAS(commandList: CommandList, bottomLevelAS: Opaque): Opaque {
+    buildSingleInstanceTLAS(commandList: CommandList, bottomLevelAS: AccelStructHandle): AccelStructHandle {
         return Donut_BuildSingleInstanceTLAS(this.handle, commandList.handle, bottomLevelAS);
     }
 
@@ -731,30 +731,30 @@ export class App {
     // usageCounts (Ref of a `let` int array) holds numUsageCounts entries of three ints, how many OMMs
     // the array has of a subdivision level and format (D3D12's histogram). buildFlags:
     // nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
-    createOpacityMicromap(commandList: CommandList, inputBuffer: BufferHandle, inputOffset: int, perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int, debugName: string): Opaque | null {
+    createOpacityMicromap(commandList: CommandList, inputBuffer: BufferHandle, inputOffset: int, perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int, debugName: string): OpacityMicromapHandle | null {
         return Donut_CreateOpacityMicromap(this.handle, commandList.handle, inputBuffer, inputOffset, perOmmDescs, descsOffset, usageCounts, numUsageCounts, buildFlags, debugName);
     }
 
     // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
     // no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
     // global binding layout.
-    createRayTracingPipeline(shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque {
+    createRayTracingPipeline(shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): RtPipelineHandle {
         return Donut_CreateRayTracingPipeline(this.handle, shaderLibrary, bindingLayout, rayGenEntry, missEntry, hitGroupName, closestHitEntry, maxPayloadSize);
     }
 
     // One ray generation shader, hit group and miss shader, by export name; keeps the pipeline alive.
-    createShaderTable(rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string, missExport: string): ShaderTable {
+    createShaderTable(rayTracingPipeline: RtPipelineHandle, rayGenExport: string, hitGroupExport: string, missExport: string): ShaderTable {
         return new ShaderTable(Donut_CreateShaderTable(this.handle, rayTracingPipeline, rayGenExport, hitGroupExport, missExport));
     }
 
     // Same, kept in GPU memory in up to maxCachedVersions copies instead of re-uploaded on every use.
-    createCachedShaderTable(rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string, missExport: string, maxCachedVersions: int, debugName: string): ShaderTable {
+    createCachedShaderTable(rayTracingPipeline: RtPipelineHandle, rayGenExport: string, hitGroupExport: string, missExport: string, maxCachedVersions: int, debugName: string): ShaderTable {
         return new ShaderTable(Donut_CreateCachedShaderTable(this.handle, rayTracingPipeline, rayGenExport, hitGroupExport, missExport, maxCachedVersions, debugName));
     }
 
     // Like Donut_CreateRayTracingPipeline, with an any-hit shader too (either hit shader may be ""),
     // and a second global binding layout (e.g. bindless; null for none).
-    createRayTracingPipelineWithLayouts(shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle, secondBindingLayout: BindingLayoutHandle | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, anyHitEntry: string, maxPayloadSize: int): Opaque {
+    createRayTracingPipelineWithLayouts(shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle, secondBindingLayout: BindingLayoutHandle | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, anyHitEntry: string, maxPayloadSize: int): RtPipelineHandle {
         return Donut_CreateRayTracingPipelineWithLayouts(this.handle, shaderLibrary, bindingLayout, secondBindingLayout, rayGenEntry, missEntry, hitGroupName, closestHitEntry, anyHitEntry, maxPayloadSize);
     }
 
@@ -768,13 +768,13 @@ export class App {
         return new BindingSet(Donut_CreateBindingSetForLayout(this.handle, bindingSetDesc.handle, bindingLayout));
     }
 
-    createRayTracingPipelineFromDesc(pipelineDesc: RtPipelineDesc): Opaque {
+    createRayTracingPipelineFromDesc(pipelineDesc: RtPipelineDesc): RtPipelineHandle {
         return Donut_CreateRayTracingPipelineFromDesc(this.handle, pipelineDesc.handle);
     }
 
     // Shader tables of any shape, filled with the Donut_ShaderTable* functions; they keep the
     // pipeline alive. The Add functions return the new entry's index.
-    createEmptyShaderTable(rayTracingPipeline: Opaque): ShaderTable {
+    createEmptyShaderTable(rayTracingPipeline: RtPipelineHandle): ShaderTable {
         return new ShaderTable(Donut_CreateEmptyShaderTable(this.handle, rayTracingPipeline));
     }
 
@@ -1019,7 +1019,7 @@ export class App {
     }
 
     // A BLAS of one AABB (-1..1 on each axis), built into an open command list.
-    createUnitAABBBlas(commandList: CommandList, debugName: string): Opaque {
+    createUnitAABBBlas(commandList: CommandList, debugName: string): AccelStructHandle {
         return Donut_CreateUnitAABBBlas(this.handle, commandList.handle, debugName);
     }
 
@@ -1829,7 +1829,7 @@ export class CommandList {
     }
 
     // Builds such an array again, in place, from its inputs' current contents, into an open command list.
-    buildOpacityMicromap(opacityMicromap: Opaque): void {
+    buildOpacityMicromap(opacityMicromap: OpacityMicromapHandle): void {
         Donut_BuildOpacityMicromap(this.handle, opacityMicromap);
     }
 
@@ -2187,7 +2187,7 @@ export class BindingSetDesc {
     }
 
     // RaytracingAccelerationStructure at t<slot>.
-    bindAccelStruct(slot: int, accelStruct: Opaque): void {
+    bindAccelStruct(slot: int, accelStruct: AccelStructHandle): void {
         Donut_BindAccelStruct(this.handle, slot, accelStruct);
     }
 
@@ -2352,10 +2352,10 @@ export class DescriptorTableManager {
 }
 
 export class RtPipelineDesc {
-    readonly handle: Opaque;
+    readonly handle: RtPipelineDescHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: RtPipelineDescHandle | null) {
+        this.handle = handle as RtPipelineDescHandle;
     }
 
     // True if the function that returned it failed.
@@ -2542,10 +2542,10 @@ export class GraphicsPipelineDesc {
 }
 
 export class ShaderTable {
-    readonly handle: Opaque;
+    readonly handle: ShaderTableHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: ShaderTableHandle | null) {
+        this.handle = handle as ShaderTableHandle;
     }
 
     // True if the function that returned it failed.
@@ -3011,10 +3011,10 @@ export class SceneCamera {
 }
 
 export class SceneAccelStructs {
-    readonly handle: Opaque;
+    readonly handle: SceneAccelStructsHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: SceneAccelStructsHandle | null) {
+        this.handle = handle as SceneAccelStructsHandle;
     }
 
     // True if the function that returned it failed.
@@ -3023,7 +3023,7 @@ export class SceneAccelStructs {
     }
 
     // For Donut_BindAccelStruct; valid as long as the acceleration structures.
-    getTopLevelAS(): Opaque {
+    getTopLevelAS(): AccelStructHandle {
         return Donut_GetSceneTopLevelAS(this.handle);
     }
 
@@ -3034,20 +3034,20 @@ export class SceneAccelStructs {
     }
 
     // A BLAS instance scaled by `scale`, then moved to (x, y, z).
-    addInstance(bottomLevelAS: Opaque, instanceMask: int, instanceID: int, scale: number, x: number, y: number, z: number): void {
+    addInstance(bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int, scale: number, x: number, y: number, z: number): void {
         Donut_AddTopLevelASInstance(this.handle, bottomLevelAS, instanceMask, instanceID, scale, x, y, z);
     }
 
     // A BLAS instance with a transform: Ref(arr[0]) of a `let` f32[12], a row-major 3x4 matrix with the
     // translation in the last column (Vulkan's VkTransformMatrixKHR). flags: nvrhi::rt::InstanceFlags bits
     // (1 = no triangle culling).
-    addInstanceWithTransform(bottomLevelAS: Opaque, instanceMask: int, instanceID: int, flags: int, transform: Opaque): void {
+    addInstanceWithTransform(bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int, flags: int, transform: Opaque): void {
         Donut_AddTopLevelASInstanceWithTransform(this.handle, bottomLevelAS, instanceMask, instanceID, flags, transform);
     }
 
     // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex): which of
     // the shader table's hit groups its hits run.
-    addInstanceWithHitGroup(bottomLevelAS: Opaque, instanceMask: int, instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void {
+    addInstanceWithHitGroup(bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void {
         Donut_AddTopLevelASInstanceWithHitGroup(this.handle, bottomLevelAS, instanceMask, instanceID, hitGroupIndex, flags, transform);
     }
 }
@@ -3715,10 +3715,10 @@ export class GltfModel {
 }
 
 export class TriangleBlas {
-    readonly handle: Opaque;
+    readonly handle: TriangleBlasHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: TriangleBlasHandle | null) {
+        this.handle = handle as TriangleBlasHandle;
     }
 
     // True if the function that returned it failed.
@@ -3758,7 +3758,7 @@ export class TriangleBlas {
     // ones the special fully transparent / opaque indices); usageCounts (Ref of a `let` int array)
     // holds numUsageCounts entries of three ints, how many triangles use OMMs of a subdivision level
     // and format (Donut_CountOpacityMicromapUsage; Vulkan's builds need them). The BLAS keeps the array.
-    setGeometryOpacityMicromap(geometryIndex: int, opacityMicromap: Opaque, ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void {
+    setGeometryOpacityMicromap(geometryIndex: int, opacityMicromap: OpacityMicromapHandle, ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void {
         Donut_SetTriangleBlasGeometryOpacityMicromap(this.handle, geometryIndex, opacityMicromap, ommIndexBuffer, ommIndexOffset, ommIndexFormat, usageCounts, numUsageCounts);
     }
 
@@ -3775,7 +3775,7 @@ export class TriangleBlas {
     }
 
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
-    getAccelStruct(): Opaque {
+    getAccelStruct(): AccelStructHandle {
         return Donut_GetTriangleBlasAccelStruct(this.handle);
     }
 }

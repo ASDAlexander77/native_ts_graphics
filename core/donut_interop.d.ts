@@ -1099,42 +1099,42 @@ declare function Donut_CreateUAVTextureForFrameCopy(app: AppHandle, frame: Frame
 
 // Acceleration structures; both record their build into an open command list.
 // Opaque triangles: R32_UINT indices, RGB32_FLOAT vertices.
-declare function Donut_BuildTriangleBLAS(app: AppHandle, commandList: CommandListHandle, indexBuffer: BufferHandle, indexCount: int, vertexBuffer: BufferHandle, vertexCount: int): Opaque;
+declare function Donut_BuildTriangleBLAS(app: AppHandle, commandList: CommandListHandle, indexBuffer: BufferHandle, indexCount: int, vertexBuffer: BufferHandle, vertexCount: int): AccelStructHandle;
 // One instance of bottomLevelAS: identity transform, mask 1, counter-clockwise front faces.
-declare function Donut_BuildSingleInstanceTLAS(app: AppHandle, commandList: CommandListHandle, bottomLevelAS: Opaque): Opaque;
+declare function Donut_BuildSingleInstanceTLAS(app: AppHandle, commandList: CommandListHandle, bottomLevelAS: AccelStructHandle): AccelStructHandle;
 // One opaque triangle geometry: indexCount R32_UINT indices from indexByteOffset of indexBuffer,
 // into vertexCount RGB32_FLOAT positions every vertexStride bytes from vertexByteOffset of
 // vertexBuffer. Build recorded into an open command list, preferring fast tracing, or if
 // updatable != 0 fast builds and updates.
 declare function Donut_CreateTriangleBlas(app: AppHandle, commandList: CommandListHandle, indexBuffer: BufferHandle, indexByteOffset: int,
     indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int,
-    debugName: string): Opaque;
+    debugName: string): TriangleBlasHandle;
 // An updatable one, in place, from its buffers' current contents, into an open command list.
-declare function Donut_UpdateTriangleBlas(triangleBlas: Opaque, commandList: CommandListHandle): void;
+declare function Donut_UpdateTriangleBlas(triangleBlas: TriangleBlasHandle, commandList: CommandListHandle): void;
 // A bottom-level acceleration structure of several geometries: add them with
 // Donut_AddTriangleBlasGeometry, then build it with Donut_BuildTriangleBlas.
-declare function Donut_CreateEmptyTriangleBlas(app: AppHandle, debugName: string): Opaque;
+declare function Donut_CreateEmptyTriangleBlas(app: AppHandle, debugName: string): TriangleBlasHandle;
 // Opaque triangles: indexCount R32_UINT indices at indexByteOffset of indexBuffer, vertexCount
 // RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of vertexBuffer (acceleration
 // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
-declare function Donut_AddTriangleBlasGeometry(triangleBlas: Opaque, indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int,
+declare function Donut_AddTriangleBlasGeometry(triangleBlas: TriangleBlasHandle, indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int,
     vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
 // Opaque procedural primitives instead: aabbCount boxes (6 floats each, min x y z then max x y z),
 // aabbStride bytes apart at byteOffset of aabbBuffer (an acceleration structure input buffer),
 // intersected by the hit groups' intersection shaders (Donut_RtPipelineAddProceduralHitGroup). A
 // BLAS holds triangles or AABBs, not both.
-declare function Donut_AddTriangleBlasAabbGeometry(triangleBlas: Opaque, aabbBuffer: BufferHandle, byteOffset: int, aabbCount: int,
+declare function Donut_AddTriangleBlasAabbGeometry(triangleBlas: TriangleBlasHandle, aabbBuffer: BufferHandle, byteOffset: int, aabbCount: int,
     aabbStride: int): void;
 // An unbuilt BLAS's geometryIndex-th geometry's nvrhi::rt::GeometryFlags (1 opaque, the default; 0
 // for any-hit shaders to run on it; 2 no duplicate any-hit invocations).
-declare function Donut_SetTriangleBlasGeometryFlags(triangleBlas: Opaque, geometryIndex: int, flags: int): void;
+declare function Donut_SetTriangleBlasGeometryFlags(triangleBlas: TriangleBlasHandle, geometryIndex: int, flags: int): void;
 // Links an unbuilt BLAS's geometryIndex-th triangle geometry to an opacity micromap array
 // (Donut_CreateOpacityMicromap): an OMM index per triangle, ommIndexFormat (R16_UINT or R32_UINT)
 // values at ommIndexOffset of ommIndexBuffer (an acceleration structure input buffer; negative
 // ones the special fully transparent / opaque indices); usageCounts (Ref of a `let` int array)
 // holds numUsageCounts entries of three ints, how many triangles use OMMs of a subdivision level
 // and format (Donut_CountOpacityMicromapUsage; Vulkan's builds need them). The BLAS keeps the array.
-declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: Opaque, geometryIndex: int, opacityMicromap: Opaque,
+declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: TriangleBlasHandle, geometryIndex: int, opacityMicromap: OpacityMicromapHandle,
     ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void;
 // An opacity micromap array (requires Feature.RayTracingOpacityMicromap), built into an open
 // command list from inputBuffer's raw OMM data at inputOffset and perOmmDescs' descs at
@@ -1145,33 +1145,33 @@ declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: Opaq
 // nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
 declare function Donut_CreateOpacityMicromap(app: AppHandle, commandList: CommandListHandle, inputBuffer: BufferHandle, inputOffset: int,
     perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int,
-    debugName: string): Opaque | null;
+    debugName: string): OpacityMicromapHandle | null;
 // Builds such an array again, in place, from its inputs' current contents, into an open command list.
-declare function Donut_BuildOpacityMicromap(commandList: CommandListHandle, opacityMicromap: Opaque): void;
+declare function Donut_BuildOpacityMicromap(commandList: CommandListHandle, opacityMicromap: OpacityMicromapHandle): void;
 // Builds the BLAS of the geometries added (AccelStructBuildFlags bits), recorded into an open
 // command list; 0 on failure.
-declare function Donut_BuildTriangleBlas(triangleBlas: Opaque, app: AppHandle, commandList: CommandListHandle, buildFlags: AccelStructBuildFlags): int;
+declare function Donut_BuildTriangleBlas(triangleBlas: TriangleBlasHandle, app: AppHandle, commandList: CommandListHandle, buildFlags: AccelStructBuildFlags): int;
 // Builds a built one again, in place (not an update), from its geometries' current contents, into
 // an open command list.
-declare function Donut_RebuildTriangleBlas(triangleBlas: Opaque, commandList: CommandListHandle): void;
+declare function Donut_RebuildTriangleBlas(triangleBlas: TriangleBlasHandle, commandList: CommandListHandle): void;
 // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
-declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: Opaque): Opaque;
+declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: TriangleBlasHandle): AccelStructHandle;
 
 // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
 // no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
 // global binding layout.
 declare function Donut_CreateRayTracingPipeline(app: AppHandle, shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle,
-    rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque;
+    rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): RtPipelineHandle;
 // One ray generation shader, hit group and miss shader, by export name; keeps the pipeline alive.
-declare function Donut_CreateShaderTable(app: AppHandle, rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string, missExport: string): Opaque;
+declare function Donut_CreateShaderTable(app: AppHandle, rayTracingPipeline: RtPipelineHandle, rayGenExport: string, hitGroupExport: string, missExport: string): ShaderTableHandle;
 // Same, kept in GPU memory in up to maxCachedVersions copies instead of re-uploaded on every use.
-declare function Donut_CreateCachedShaderTable(app: AppHandle, rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string,
-    missExport: string, maxCachedVersions: int, debugName: string): Opaque;
+declare function Donut_CreateCachedShaderTable(app: AppHandle, rayTracingPipeline: RtPipelineHandle, rayGenExport: string, hitGroupExport: string,
+    missExport: string, maxCachedVersions: int, debugName: string): ShaderTableHandle;
 // Like Donut_CreateRayTracingPipeline, with an any-hit shader too (either hit shader may be ""),
 // and a second global binding layout (e.g. bindless; null for none).
 declare function Donut_CreateRayTracingPipelineWithLayouts(app: AppHandle, shaderLibrary: ShaderLibraryHandle, bindingLayout: BindingLayoutHandle,
     secondBindingLayout: BindingLayoutHandle | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string,
-    anyHitEntry: string, maxPayloadSize: int): Opaque;
+    anyHitEntry: string, maxPayloadSize: int): RtPipelineHandle;
 
 // Built up with Donut_Bind*, then consumed (freed) by Donut_CreateBindingSet.
 declare function Donut_CreateBindingSetDesc(): BindingSetDescHandle;
@@ -1208,7 +1208,7 @@ declare function Donut_BindSampler(bindingSetDesc: BindingSetDescHandle, slot: i
 // RWTexture2D<float4> at u<slot>.
 declare function Donut_BindTextureUAV(bindingSetDesc: BindingSetDescHandle, slot: int, texture: TextureHandle): void;
 // RaytracingAccelerationStructure at t<slot>.
-declare function Donut_BindAccelStruct(bindingSetDesc: BindingSetDescHandle, slot: int, accelStruct: Opaque): void;
+declare function Donut_BindAccelStruct(bindingSetDesc: BindingSetDescHandle, slot: int, accelStruct: AccelStructHandle): void;
 // Binding set plus matching layout (register space 0) visible to shaderType's stages.
 declare function Donut_CreateBindingSet(app: AppHandle, bindingSetDesc: BindingSetDescHandle, shaderType: ShaderType): BindingSetHandle;
 // Binding set for an existing layout.
@@ -1239,30 +1239,30 @@ declare function Donut_SetBindingLayoutRegisterSpace(bindingLayoutDesc: BindingL
 
 // Ray tracing pipelines of any shape: a description built with the Donut_RtPipeline* functions,
 // freed by Donut_CreateRayTracingPipelineFromDesc. maxRecursionDepth 1 = no rays from hit shaders.
-declare function Donut_CreateRayTracingPipelineDesc(maxPayloadSize: int, maxRecursionDepth: int): Opaque;
-declare function Donut_RtPipelineAddGlobalBindingLayout(pipelineDesc: Opaque, bindingLayout: BindingLayoutHandle): void;
+declare function Donut_CreateRayTracingPipelineDesc(maxPayloadSize: int, maxRecursionDepth: int): RtPipelineDescHandle;
+declare function Donut_RtPipelineAddGlobalBindingLayout(pipelineDesc: RtPipelineDescHandle, bindingLayout: BindingLayoutHandle): void;
 // A ray generation or miss shader, exported by its entry name.
-declare function Donut_RtPipelineAddShader(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, entryName: string, shaderType: ShaderType): void;
+declare function Donut_RtPipelineAddShader(pipelineDesc: RtPipelineDescHandle, shaderLibrary: ShaderLibraryHandle, entryName: string, shaderType: ShaderType): void;
 // Triangle hit group; "" for no closest-hit / any-hit shader; an optional local binding layout
 // (D3D12 only), whose binding sets come with each shader table entry.
-declare function Donut_RtPipelineAddHitGroup(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, exportName: string,
+declare function Donut_RtPipelineAddHitGroup(pipelineDesc: RtPipelineDescHandle, shaderLibrary: ShaderLibraryHandle, exportName: string,
     closestHitEntry: string, anyHitEntry: string, localBindingLayout: BindingLayoutHandle | null): void;
 // Procedural primitive hit group, for AABB geometries (Donut_AddTriangleBlasAabbGeometry): its
 // intersection shader by entry name, then closest-hit / any-hit shaders as above ("" for none).
-declare function Donut_RtPipelineAddProceduralHitGroup(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, exportName: string,
+declare function Donut_RtPipelineAddProceduralHitGroup(pipelineDesc: RtPipelineDescHandle, shaderLibrary: ShaderLibraryHandle, exportName: string,
     intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: BindingLayoutHandle | null): void;
 // The largest hit attributes the pipeline's shaders pass (ReportHit's attributes; the default is 8
 // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
-declare function Donut_RtPipelineSetMaxAttributeSize(pipelineDesc: Opaque, byteSize: int): void;
+declare function Donut_RtPipelineSetMaxAttributeSize(pipelineDesc: RtPipelineDescHandle, byteSize: int): void;
 // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
-declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: Opaque, allow: int): void;
-declare function Donut_CreateRayTracingPipelineFromDesc(app: AppHandle, pipelineDesc: Opaque): Opaque;
+declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: RtPipelineDescHandle, allow: int): void;
+declare function Donut_CreateRayTracingPipelineFromDesc(app: AppHandle, pipelineDesc: RtPipelineDescHandle): RtPipelineHandle;
 // Shader tables of any shape, filled with the Donut_ShaderTable* functions; they keep the
 // pipeline alive. The Add functions return the new entry's index.
-declare function Donut_CreateEmptyShaderTable(app: AppHandle, rayTracingPipeline: Opaque): Opaque;
-declare function Donut_ShaderTableSetRayGeneration(shaderTable: Opaque, exportName: string): void;
-declare function Donut_ShaderTableAddMiss(shaderTable: Opaque, exportName: string): int;
-declare function Donut_ShaderTableAddHitGroup(shaderTable: Opaque, exportName: string, localBindingSet: BindingSetHandle | null): int;
+declare function Donut_CreateEmptyShaderTable(app: AppHandle, rayTracingPipeline: RtPipelineHandle): ShaderTableHandle;
+declare function Donut_ShaderTableSetRayGeneration(shaderTable: ShaderTableHandle, exportName: string): void;
+declare function Donut_ShaderTableAddMiss(shaderTable: ShaderTableHandle, exportName: string): int;
+declare function Donut_ShaderTableAddHitGroup(shaderTable: ShaderTableHandle, exportName: string, localBindingSet: BindingSetHandle | null): int;
 
 // Bindless: a layout of unbounded resource arrays, one register space each (visible to
 // shaderType's stages), freed by Donut_CreateBindlessLayout.
@@ -1569,9 +1569,9 @@ declare function Donut_GetSceneGraph(scene: Opaque): Opaque;
 declare function Donut_GetRootNode(sceneGraph: Opaque): Opaque;
 // One BLAS per mesh of a loaded scene and a TLAS over its instances, builds recorded into an
 // open command list.
-declare function Donut_BuildSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: Opaque): Opaque;
+declare function Donut_BuildSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: Opaque): SceneAccelStructsHandle;
 // For Donut_BindAccelStruct; valid as long as the acceleration structures.
-declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: Opaque): Opaque;
+declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: SceneAccelStructsHandle): AccelStructHandle;
 // Like Donut_LoadScene, registering the scene's buffers and textures in a descriptor table; the
 // scene's geometry and material buffers index into it.
 declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: DescriptorTableManagerHandle): Opaque;
@@ -1591,7 +1591,7 @@ declare function Donut_BindGeometryMaterialConstants(bindingSetDesc: BindingSetD
 // Like Donut_BuildSceneAccelStructs, for shader tables with hitGroupStride entries per geometry in
 // global geometry index order.
 declare function Donut_BuildSceneAccelStructsWithHitGroupStride(app: AppHandle, commandList: CommandListHandle, scene: Opaque,
-    hitGroupStride: int): Opaque;
+    hitGroupStride: int): SceneAccelStructsHandle;
 // Animations, e.g. glTF skeletal ones. Durations in seconds; apply poses the nodes at `time`.
 declare function Donut_GetSceneAnimationCount(scene: Opaque): int;
 declare function Donut_GetSceneAnimationDuration(scene: Opaque, index: int): number;
@@ -1599,13 +1599,13 @@ declare function Donut_ApplySceneAnimation(scene: Opaque, index: int, time: numb
 // For animated scenes: one BLAS per mesh (alpha-tested geometries non-opaque, static ones
 // compacted later), builds recorded into an open command list, plus a TLAS built every frame by
 // Donut_UpdateSceneAccelStructs. Get the TLAS with Donut_GetSceneTopLevelAS.
-declare function Donut_CreateAnimatedSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: Opaque): Opaque;
+declare function Donut_CreateAnimatedSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: Opaque): SceneAccelStructsHandle;
 // Valid only inside a render callback. Updates the scene graph and GPU buffers (transforms,
 // skinning) after animations.
 declare function Donut_RefreshScene(app: AppHandle, frame: FrameHandle, scene: Opaque): void;
 // Valid only inside a render callback, after Donut_RefreshScene: rebuilds the skinned BLASes,
 // compacts finished static ones and builds the TLAS (instance IDs = instance indices).
-declare function Donut_UpdateSceneAccelStructs(app: AppHandle, frame: FrameHandle, sceneAccelStructs: Opaque, scene: Opaque): void;
+declare function Donut_UpdateSceneAccelStructs(app: AppHandle, frame: FrameHandle, sceneAccelStructs: SceneAccelStructsHandle, scene: Opaque): void;
 
 // A texture file (relative to the executable's directory) loaded and uploaded (mipmaps generated
 // if it has none), registered in a descriptor table for bindless access. It submits its own
@@ -1632,34 +1632,34 @@ declare function Donut_UpdateDynamicMesh(frame: FrameHandle, dynamicMesh: Opaque
 // geometries not in the Opaque material domain are non-opaque.
 declare function Donut_BuildSceneBLASes(app: AppHandle, commandList: CommandListHandle, scene: Opaque): void;
 // A BLAS of one AABB (-1..1 on each axis), built into an open command list.
-declare function Donut_CreateUnitAABBBlas(app: AppHandle, commandList: CommandListHandle, debugName: string): Opaque;
+declare function Donut_CreateUnitAABBBlas(app: AppHandle, commandList: CommandListHandle, debugName: string): AccelStructHandle;
 // A TLAS of up to maxInstances, rebuilt by Donut_BuildTopLevelAS from the instances added since
 // the last build. Get the TLAS with Donut_GetSceneTopLevelAS.
-declare function Donut_CreateTopLevelAS(app: AppHandle, maxInstances: int): Opaque;
+declare function Donut_CreateTopLevelAS(app: AppHandle, maxInstances: int): SceneAccelStructsHandle;
 // Same, built with buildFlags (e.g. AllowUpdate, for Donut_UpdateTopLevelAS).
-declare function Donut_CreateTopLevelASWithFlags(app: AppHandle, maxInstances: int, buildFlags: AccelStructBuildFlags): Opaque;
+declare function Donut_CreateTopLevelASWithFlags(app: AppHandle, maxInstances: int, buildFlags: AccelStructBuildFlags): SceneAccelStructsHandle;
 // The scene's mesh instances (instance ID = instance index) with instanceMask, dynamicMesh's (if
 // not null) with dynamicMeshMask.
-declare function Donut_AddSceneTopLevelASInstances(sceneAccelStructs: Opaque, scene: Opaque, instanceMask: int,
+declare function Donut_AddSceneTopLevelASInstances(sceneAccelStructs: SceneAccelStructsHandle, scene: Opaque, instanceMask: int,
     dynamicMesh: Opaque | null, dynamicMeshMask: int): void;
 // A BLAS instance scaled by `scale`, then moved to (x, y, z).
-declare function Donut_AddTopLevelASInstance(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int, instanceID: int,
+declare function Donut_AddTopLevelASInstance(sceneAccelStructs: SceneAccelStructsHandle, bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int,
     scale: number, x: number, y: number, z: number): void;
 // A BLAS instance with a transform: Ref(arr[0]) of a `let` f32[12], a row-major 3x4 matrix with the
 // translation in the last column (Vulkan's VkTransformMatrixKHR). flags: nvrhi::rt::InstanceFlags bits
 // (1 = no triangle culling).
-declare function Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int,
+declare function Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs: SceneAccelStructsHandle, bottomLevelAS: AccelStructHandle, instanceMask: int,
     instanceID: int, flags: int, transform: Opaque): void;
 // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex): which of
 // the shader table's hit groups its hits run.
-declare function Donut_AddTopLevelASInstanceWithHitGroup(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int,
+declare function Donut_AddTopLevelASInstanceWithHitGroup(sceneAccelStructs: SceneAccelStructsHandle, bottomLevelAS: AccelStructHandle, instanceMask: int,
     instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void;
 // Valid only inside a render callback.
-declare function Donut_BuildTopLevelAS(frame: FrameHandle, sceneAccelStructs: Opaque): void;
+declare function Donut_BuildTopLevelAS(frame: FrameHandle, sceneAccelStructs: SceneAccelStructsHandle): void;
 // Valid only inside a render callback: refits the TLAS in place to the instances added since the
 // last build (new transforms, same instance count) instead of building it anew. Needs an AllowUpdate
 // TLAS; builds it instead the first time or when the instance count changed. 1 if it refitted.
-declare function Donut_UpdateTopLevelAS(frame: FrameHandle, sceneAccelStructs: Opaque): int;
+declare function Donut_UpdateTopLevelAS(frame: FrameHandle, sceneAccelStructs: SceneAccelStructsHandle): int;
 
 // Scenes built in code. Material with a diffuse texture (relative to the executable's directory,
 // sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
@@ -1803,9 +1803,9 @@ declare function Donut_Draw(frame: FrameHandle, pipeline: GraphicsPipelineHandle
 // Launches groupsX amplification-shader groups of a meshlet pipeline, over the whole framebuffer.
 declare function Donut_DispatchMesh(frame: FrameHandle, meshletPipeline: MeshletPipelineHandle, groupsX: int): void;
 // Traces width x height rays with a shader table, with bindingSet as its global bindings.
-declare function Donut_DispatchRays(frame: FrameHandle, shaderTable: Opaque, bindingSet: BindingSetHandle, width: int, height: int): void;
+declare function Donut_DispatchRays(frame: FrameHandle, shaderTable: ShaderTableHandle, bindingSet: BindingSetHandle, width: int, height: int): void;
 // Same, with a descriptor table bound after the binding set.
-declare function Donut_DispatchRaysWithDescriptorTable(frame: FrameHandle, shaderTable: Opaque, bindingSet: BindingSetHandle,
+declare function Donut_DispatchRaysWithDescriptorTable(frame: FrameHandle, shaderTable: ShaderTableHandle, bindingSet: BindingSetHandle,
     descriptorTable: DescriptorTableHandle, width: int, height: int): void;
 // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
 // textures blitted before.

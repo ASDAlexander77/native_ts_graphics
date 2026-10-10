@@ -71,7 +71,7 @@ namespace OpacityMicromaps {
         usage: int[];
         usageCount: int;
         built: boolean;
-        omm: Opaque;
+        omm: OpacityMicromapHandle;
 
         constructor() {
             this.loaded = false;
@@ -333,7 +333,7 @@ namespace OpacityMicromaps {
                 if (!omm) {
                     return false;
                 }
-                set.omm = omm as Opaque;
+                set.omm = omm as OpacityMicromapHandle;
                 set.built = true;
             } else if (!setChanged) {
                 commandList.buildOpacityMicromap(set.omm);

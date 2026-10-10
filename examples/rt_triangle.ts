@@ -19,8 +19,8 @@ namespace RtTriangle {
         private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
         // Kept alive for as long as the TLAS: only the D3D12 backend of NVRHI references it from there.
-        private bottomLevelAS: Opaque;
-        private topLevelAS: Opaque;
+        private bottomLevelAS: AccelStructHandle;
+        private topLevelAS: AccelStructHandle;
         // Created on the first frame (they depend on the framebuffer size), dropped on resize.
         private renderTarget: TextureHandle | null;
         private bindingSet: BindingSet;

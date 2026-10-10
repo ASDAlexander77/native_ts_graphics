@@ -2385,7 +2385,7 @@ extern "C"
     // Ray tracing pipeline with one ray generation shader, one miss shader and one triangle hit
     // group made of a closest-hit shader (none if closestHitEntry is empty), all exported from
     // shaderLibrary by entry name, and one global binding layout. Returns null on failure.
-    void* Donut_CreateRayTracingPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout,
+    nvrhi::rt::IPipeline* Donut_CreateRayTracingPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         int maxPayloadSize)
     {
@@ -2410,7 +2410,7 @@ extern "C"
 
     // Same, with a closest-hit and an any-hit shader in the hit group (either may be ""), and a
     // second global binding layout (e.g. a bindless layout; null for none).
-    void* Donut_CreateRayTracingPipelineWithLayouts(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout,
+    nvrhi::rt::IPipeline* Donut_CreateRayTracingPipelineWithLayouts(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         const char* anyHitEntry, int maxPayloadSize)
     {
@@ -2440,7 +2440,7 @@ extern "C"
     // Ray tracing pipelines of any shape: a description built up with the Donut_RtPipeline*
     // functions below, then consumed (freed) by Donut_CreateRayTracingPipelineFromDesc.
     // maxRecursionDepth: how deeply hit shaders may trace further rays (1 = no recursion).
-    void* Donut_CreateRayTracingPipelineDesc(int maxPayloadSize, int maxRecursionDepth)
+    nvrhi::rt::PipelineDesc* Donut_CreateRayTracingPipelineDesc(int maxPayloadSize, int maxRecursionDepth)
     {
         auto* desc = new nvrhi::rt::PipelineDesc();
         desc->maxPayloadSize = static_cast<uint32_t>(maxPayloadSize);
@@ -2448,16 +2448,16 @@ extern "C"
         return desc;
     }
 
-    void Donut_RtPipelineAddGlobalBindingLayout(void* pipelineDesc, nvrhi::IBindingLayout* bindingLayout)
+    void Donut_RtPipelineAddGlobalBindingLayout(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IBindingLayout* bindingLayout)
     {
-        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->globalBindingLayouts.push_back(
+        pipelineDesc->globalBindingLayouts.push_back(
             bindingLayout);
     }
 
     // A ray generation, miss or callable shader (shaderType), exported by its entry name.
-    void Donut_RtPipelineAddShader(void* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* entryName, int shaderType)
+    void Donut_RtPipelineAddShader(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* entryName, int shaderType)
     {
-        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->shaders.push_back({ "",
+        pipelineDesc->shaders.push_back({ "",
             shaderLibrary->getShader(entryName, static_cast<nvrhi::ShaderType>(shaderType)),
             nullptr });
     }
@@ -2465,7 +2465,7 @@ extern "C"
     // A triangle hit group: closest-hit and any-hit shaders by entry name ("" for none), and an
     // optional local binding layout (D3D12 only; null for none) whose binding sets are given per
     // shader table entry.
-    void Donut_RtPipelineAddHitGroup(void* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
+    void Donut_RtPipelineAddHitGroup(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
         const char* closestHitEntry, const char* anyHitEntry, nvrhi::IBindingLayout* localBindingLayout)
     {
         auto* library = shaderLibrary;
@@ -2473,7 +2473,7 @@ extern "C"
             return entry && *entry ? library->getShader(entry, type) : nullptr;
         };
 
-        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->hitGroups.push_back(nvrhi::rt::PipelineHitGroupDesc()
+        pipelineDesc->hitGroups.push_back(nvrhi::rt::PipelineHitGroupDesc()
             .setExportName(exportName)
             .setClosestHitShader(entryShader(closestHitEntry, nvrhi::ShaderType::ClosestHit))
             .setAnyHitShader(entryShader(anyHitEntry, nvrhi::ShaderType::AnyHit))
@@ -2483,7 +2483,7 @@ extern "C"
     // A procedural primitive hit group, for AABB geometries: intersection, closest-hit and any-hit
     // shaders by entry name ("" for no closest-hit / any-hit shader), and an optional local binding
     // layout as above.
-    void Donut_RtPipelineAddProceduralHitGroup(void* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
+    void Donut_RtPipelineAddProceduralHitGroup(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
         const char* intersectionEntry, const char* closestHitEntry, const char* anyHitEntry, nvrhi::IBindingLayout* localBindingLayout)
     {
         auto* library = shaderLibrary;
@@ -2491,7 +2491,7 @@ extern "C"
             return entry && *entry ? library->getShader(entry, type) : nullptr;
         };
 
-        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->hitGroups.push_back(nvrhi::rt::PipelineHitGroupDesc()
+        pipelineDesc->hitGroups.push_back(nvrhi::rt::PipelineHitGroupDesc()
             .setExportName(exportName)
             .setIntersectionShader(entryShader(intersectionEntry, nvrhi::ShaderType::Intersection))
             .setClosestHitShader(entryShader(closestHitEntry, nvrhi::ShaderType::ClosestHit))
@@ -2502,59 +2502,59 @@ extern "C"
 
     // The largest hit attribute structure the shaders report (D3D12's MaxAttributeSizeInBytes;
     // NVRHI's default is 8 bytes, two floats of triangle barycentrics).
-    void Donut_RtPipelineSetMaxAttributeSize(void* pipelineDesc, int byteSize)
+    void Donut_RtPipelineSetMaxAttributeSize(nvrhi::rt::PipelineDesc* pipelineDesc, int byteSize)
     {
-        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->maxAttributeSize = static_cast<uint32_t>(byteSize);
+        pipelineDesc->maxAttributeSize = static_cast<uint32_t>(byteSize);
     }
 
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (D3D12's
     // D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS, Vulkan's
     // VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT); off by default.
-    void Donut_RtPipelineSetAllowOpacityMicromaps(void* pipelineDesc, int allow)
+    void Donut_RtPipelineSetAllowOpacityMicromaps(nvrhi::rt::PipelineDesc* pipelineDesc, int allow)
     {
-        static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->allowOpacityMicromaps = allow != 0;
+        pipelineDesc->allowOpacityMicromaps = allow != 0;
     }
 
     // Returns null on failure.
-    void* Donut_CreateRayTracingPipelineFromDesc(App* app, void* pipelineDesc)
+    nvrhi::rt::IPipeline* Donut_CreateRayTracingPipelineFromDesc(App* app, nvrhi::rt::PipelineDesc* pipelineDesc)
     {
-        std::unique_ptr<nvrhi::rt::PipelineDesc> desc(static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc));
+        std::unique_ptr<nvrhi::rt::PipelineDesc> desc(pipelineDesc);
         App* a = app;
         return a->Own(a->device()->createRayTracingPipeline(*desc));
     }
 
     // An empty shader table of a pipeline, filled with the Donut_ShaderTable* functions below.
     // It keeps the pipeline alive. Returns null on failure.
-    void* Donut_CreateEmptyShaderTable(App* app, void* rayTracingPipeline)
+    nvrhi::rt::IShaderTable* Donut_CreateEmptyShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline)
     {
-        return app->Own(static_cast<nvrhi::rt::IPipeline*>(rayTracingPipeline)->createShaderTable());
+        return app->Own(rayTracingPipeline->createShaderTable());
     }
 
-    void Donut_ShaderTableSetRayGeneration(void* shaderTable, const char* exportName)
+    void Donut_ShaderTableSetRayGeneration(nvrhi::rt::IShaderTable* shaderTable, const char* exportName)
     {
-        static_cast<nvrhi::rt::IShaderTable*>(shaderTable)->setRayGenerationShader(exportName);
+        shaderTable->setRayGenerationShader(exportName);
     }
 
     // Returns the miss shader's index (TraceRay's MissShaderIndex).
-    int Donut_ShaderTableAddMiss(void* shaderTable, const char* exportName)
+    int Donut_ShaderTableAddMiss(nvrhi::rt::IShaderTable* shaderTable, const char* exportName)
     {
-        return static_cast<nvrhi::rt::IShaderTable*>(shaderTable)->addMissShader(exportName);
+        return shaderTable->addMissShader(exportName);
     }
 
     // Adds an entry for a hit group, with a binding set for its local binding layout (null for
     // none). Returns the entry's index.
-    int Donut_ShaderTableAddHitGroup(void* shaderTable, const char* exportName, nvrhi::IBindingSet* localBindingSet)
+    int Donut_ShaderTableAddHitGroup(nvrhi::rt::IShaderTable* shaderTable, const char* exportName, nvrhi::IBindingSet* localBindingSet)
     {
-        return static_cast<nvrhi::rt::IShaderTable*>(shaderTable)->addHitGroup(exportName,
+        return shaderTable->addHitGroup(exportName,
             localBindingSet);
     }
 
     // Same as Donut_CreateShaderTable, with caching: NVRHI keeps up to maxCachedVersions copies
     // of the table in GPU memory, instead of re-uploading it every time it's used.
-    void* Donut_CreateCachedShaderTable(App* app, void* rayTracingPipeline, const char* rayGenExport,
+    nvrhi::rt::IShaderTable* Donut_CreateCachedShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline, const char* rayGenExport,
         const char* hitGroupExport, const char* missExport, int maxCachedVersions, const char* debugName)
     {
-        nvrhi::rt::ShaderTableHandle table = static_cast<nvrhi::rt::IPipeline*>(rayTracingPipeline)->createShaderTable(
+        nvrhi::rt::ShaderTableHandle table = rayTracingPipeline->createShaderTable(
             nvrhi::rt::ShaderTableDesc().enableCaching(static_cast<uint32_t>(maxCachedVersions)).setDebugName(debugName));
         if (!table)
             return nullptr;
@@ -2566,10 +2566,10 @@ extern "C"
 
     // Shader table of a ray tracing pipeline, with one ray generation shader, one hit group and
     // one miss shader, named by their export names. It keeps the pipeline alive.
-    void* Donut_CreateShaderTable(App* app, void* rayTracingPipeline, const char* rayGenExport,
+    nvrhi::rt::IShaderTable* Donut_CreateShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline, const char* rayGenExport,
         const char* hitGroupExport, const char* missExport)
     {
-        nvrhi::rt::ShaderTableHandle table = static_cast<nvrhi::rt::IPipeline*>(rayTracingPipeline)->createShaderTable();
+        nvrhi::rt::ShaderTableHandle table = rayTracingPipeline->createShaderTable();
         table->setRayGenerationShader(rayGenExport);
         table->addHitGroup(hitGroupExport);
         table->addMissShader(missExport);
@@ -2627,7 +2627,7 @@ extern "C"
     // of interleaved vertices). Its build is recorded into an open command list, preferring fast
     // tracing, or if updatable != 0 fast builds and updates (Donut_UpdateTriangleBlas). Returns
     // null on failure.
-    void* Donut_CreateTriangleBlas(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+    TriangleBlas* Donut_CreateTriangleBlas(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
         nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, int updatable, const char* debugName)
     {
         auto triangles = nvrhi::rt::GeometryTriangles()
@@ -2661,9 +2661,9 @@ extern "C"
 
     // Updates an updatable Donut_CreateTriangleBlas BLAS in place from its buffers' current
     // contents (the vertices may move, the counts stay), into an open command list.
-    void Donut_UpdateTriangleBlas(void* triangleBlas, nvrhi::ICommandList* commandList)
+    void Donut_UpdateTriangleBlas(TriangleBlas* triangleBlas, nvrhi::ICommandList* commandList)
     {
-        auto* blas = static_cast<TriangleBlas*>(triangleBlas);
+        auto* blas = triangleBlas;
         const nvrhi::rt::GeometryDesc& geometry = blas->desc.bottomLevelGeometries[0];
         commandList->buildBottomLevelAccelStruct(blas->accelStruct, &geometry, 1,
             blas->desc.buildFlags | nvrhi::rt::AccelStructBuildFlags::PerformUpdate);
@@ -2671,7 +2671,7 @@ extern "C"
 
     // A bottom-level acceleration structure of several geometries, built up with
     // Donut_AddTriangleBlasGeometry and then built with Donut_BuildTriangleBlas.
-    void* Donut_CreateEmptyTriangleBlas(App* app, const char* debugName)
+    TriangleBlas* Donut_CreateEmptyTriangleBlas(App* app, const char* debugName)
     {
         auto blas = std::make_shared<TriangleBlas>();
         blas->desc.isTopLevel = false;
@@ -2683,7 +2683,7 @@ extern "C"
     // indexBuffer, vertexCount RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of
     // vertexBuffer (both created for acceleration structure builds), with transform (12 floats, 3
     // rows of 4: a VkTransformMatrixKHR) applied to the positions, or none (null).
-    void Donut_AddTriangleBlasGeometry(void* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+    void Donut_AddTriangleBlasGeometry(TriangleBlas* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
         nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
     {
         auto triangles = nvrhi::rt::GeometryTriangles()
@@ -2705,14 +2705,14 @@ extern "C"
             memcpy(affine, transform, sizeof(affine));
             geometry.setTransform(affine);
         }
-        static_cast<TriangleBlas*>(triangleBlas)->desc.addBottomLevelGeometry(geometry);
+        triangleBlas->desc.addBottomLevelGeometry(geometry);
     }
 
     // Adds opaque procedural primitives to an unbuilt BLAS instead: aabbCount boxes
     // (nvrhi::rt::GeometryAABB: min x y z, max x y z) aabbStride bytes apart from byteOffset of
     // aabbBuffer (created for acceleration structure builds). A BLAS holds triangles or AABBs, not
     // both.
-    void Donut_AddTriangleBlasAabbGeometry(void* triangleBlas, nvrhi::IBuffer* aabbBuffer, int byteOffset, int aabbCount,
+    void Donut_AddTriangleBlasAabbGeometry(TriangleBlas* triangleBlas, nvrhi::IBuffer* aabbBuffer, int byteOffset, int aabbCount,
         int aabbStride)
     {
         auto aabbs = nvrhi::rt::GeometryAABBs()
@@ -2720,16 +2720,16 @@ extern "C"
             .setOffset(static_cast<uint64_t>(byteOffset))
             .setCount(static_cast<uint32_t>(aabbCount))
             .setStride(static_cast<uint32_t>(aabbStride));
-        static_cast<TriangleBlas*>(triangleBlas)->desc.addBottomLevelGeometry(nvrhi::rt::GeometryDesc()
+        triangleBlas->desc.addBottomLevelGeometry(nvrhi::rt::GeometryDesc()
             .setAABBs(aabbs)
             .setFlags(nvrhi::rt::GeometryFlags::Opaque));
     }
 
     // An unbuilt BLAS's geometryIndex-th geometry's nvrhi::rt::GeometryFlags (1 opaque, the default;
     // 0 for any-hit shaders to run; 2 no duplicate any-hit invocations).
-    void Donut_SetTriangleBlasGeometryFlags(void* triangleBlas, int geometryIndex, int flags)
+    void Donut_SetTriangleBlasGeometryFlags(TriangleBlas* triangleBlas, int geometryIndex, int flags)
     {
-        auto& geometries = static_cast<TriangleBlas*>(triangleBlas)->desc.bottomLevelGeometries;
+        auto& geometries = triangleBlas->desc.bottomLevelGeometries;
         if (geometryIndex < 0 || size_t(geometryIndex) >= geometries.size())
             return;
         geometries[geometryIndex].setFlags(static_cast<nvrhi::rt::GeometryFlags>(flags));
@@ -2741,10 +2741,10 @@ extern "C"
     // buffer); usageCounts (Ref of an int array) holds numUsageCounts entries of three ints, how
     // many triangles use OMMs of a subdivision level and format (Donut_CountOpacityMicromapUsage).
     // The BLAS keeps the array alive.
-    void Donut_SetTriangleBlasGeometryOpacityMicromap(void* triangleBlas, int geometryIndex, void* opacityMicromap,
+    void Donut_SetTriangleBlasGeometryOpacityMicromap(TriangleBlas* triangleBlas, int geometryIndex, nvrhi::rt::IOpacityMicromap* opacityMicromap,
         nvrhi::IBuffer* ommIndexBuffer, int ommIndexOffset, int ommIndexFormat, const int* usageCounts, int numUsageCounts)
     {
-        auto* blas = static_cast<TriangleBlas*>(triangleBlas);
+        auto* blas = triangleBlas;
         auto& geometries = blas->desc.bottomLevelGeometries;
         if (geometryIndex < 0 || size_t(geometryIndex) >= geometries.size()
             || geometries[geometryIndex].geometryType != nvrhi::rt::GeometryType::Triangles)
@@ -2760,7 +2760,7 @@ extern "C"
             counts->push_back(count);
         }
 
-        auto* omm = static_cast<nvrhi::rt::IOpacityMicromap*>(opacityMicromap);
+        auto* omm = opacityMicromap;
         geometries[geometryIndex].geometryData.triangles
             .setOpacityMicromap(omm)
             .setOmmIndexBuffer(ommIndexBuffer)
@@ -2779,7 +2779,7 @@ extern "C"
     // numUsageCounts entries of three ints, how many OMMs the array has of a subdivision level and
     // format (D3D12's histogram). buildFlags: nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast
     // trace, 2 fast build). Returns null on failure.
-    void* Donut_CreateOpacityMicromap(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* inputBuffer, int inputOffset,
+    nvrhi::rt::IOpacityMicromap* Donut_CreateOpacityMicromap(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* inputBuffer, int inputOffset,
         nvrhi::IBuffer* perOmmDescs, int descsOffset, const int* usageCounts, int numUsageCounts, int buildFlags,
         const char* debugName)
     {
@@ -2809,18 +2809,18 @@ extern "C"
 
     // Builds a Donut_CreateOpacityMicromap array again, in place, from its inputs' current contents,
     // into an open command list.
-    void Donut_BuildOpacityMicromap(nvrhi::ICommandList* commandList, void* opacityMicromap)
+    void Donut_BuildOpacityMicromap(nvrhi::ICommandList* commandList, nvrhi::rt::IOpacityMicromap* opacityMicromap)
     {
-        auto* omm = static_cast<nvrhi::rt::IOpacityMicromap*>(opacityMicromap);
+        auto* omm = opacityMicromap;
         commandList->buildOpacityMicromap(omm, omm->getDesc());
     }
 
     // Creates the BLAS of the geometries added (AccelStructBuildFlags bits: e.g. PreferFastTrace,
     // AllowDataAccess for hit shaders to read its vertex positions) and records its build into an
     // open command list. Returns 0 on failure.
-    int Donut_BuildTriangleBlas(void* triangleBlas, App* app, nvrhi::ICommandList* commandList, int buildFlags)
+    int Donut_BuildTriangleBlas(TriangleBlas* triangleBlas, App* app, nvrhi::ICommandList* commandList, int buildFlags)
     {
-        auto* blas = static_cast<TriangleBlas*>(triangleBlas);
+        auto* blas = triangleBlas;
         blas->desc.buildFlags = static_cast<nvrhi::rt::AccelStructBuildFlags>(buildFlags);
         blas->accelStruct = app->device()->createAccelStruct(blas->desc);
         if (!blas->accelStruct)
@@ -2831,22 +2831,22 @@ extern "C"
 
     // Builds a Donut_BuildTriangleBlas BLAS again, in place (not an update), from its geometries'
     // current contents, into an open command list.
-    void Donut_RebuildTriangleBlas(void* triangleBlas, nvrhi::ICommandList* commandList)
+    void Donut_RebuildTriangleBlas(TriangleBlas* triangleBlas, nvrhi::ICommandList* commandList)
     {
-        auto* blas = static_cast<TriangleBlas*>(triangleBlas);
+        auto* blas = triangleBlas;
         if (blas->accelStruct)
             nvrhi::utils::BuildBottomLevelAccelStruct(commandList, blas->accelStruct, blas->desc);
     }
 
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
-    void* Donut_GetTriangleBlasAccelStruct(void* triangleBlas)
+    nvrhi::rt::IAccelStruct* Donut_GetTriangleBlasAccelStruct(TriangleBlas* triangleBlas)
     {
-        return static_cast<TriangleBlas*>(triangleBlas)->accelStruct.Get();
+        return triangleBlas->accelStruct.Get();
     }
 
     // Creates a bottom-level acceleration structure of opaque triangles (R32_UINT indices,
     // RGB32_FLOAT vertices) and records its build into an open command list.
-    void* Donut_BuildTriangleBLAS(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexCount,
+    nvrhi::rt::IAccelStruct* Donut_BuildTriangleBLAS(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexCount,
         nvrhi::IBuffer* vertexBuffer, int vertexCount)
     {
         nvrhi::rt::GeometryDesc geometry;
@@ -2876,7 +2876,7 @@ extern "C"
     // Creates a top-level acceleration structure holding one instance of bottomLevelAS (identity
     // transform, mask 1, counter-clockwise front faces) and records its build into an open
     // command list.
-    void* Donut_BuildSingleInstanceTLAS(App* app, nvrhi::ICommandList* commandList, void* bottomLevelAS)
+    nvrhi::rt::IAccelStruct* Donut_BuildSingleInstanceTLAS(App* app, nvrhi::ICommandList* commandList, nvrhi::rt::IAccelStruct* bottomLevelAS)
     {
         nvrhi::rt::AccelStructDesc desc;
         desc.isTopLevel = true;
@@ -2888,7 +2888,7 @@ extern "C"
             return nullptr;
 
         nvrhi::rt::InstanceDesc instance;
-        instance.bottomLevelAS = static_cast<nvrhi::rt::IAccelStruct*>(bottomLevelAS);
+        instance.bottomLevelAS = bottomLevelAS;
         instance.instanceMask = 1;
         instance.flags = nvrhi::rt::InstanceFlags::TriangleFrontCounterclockwise;
         const float identity[12] = { 1, 0, 0, 0,   0, 1, 0, 0,   0, 0, 1, 0 };
@@ -3157,11 +3157,11 @@ extern "C"
 
     // Top-level acceleration structure, read by the shader as RaytracingAccelerationStructure
     // at t<slot>.
-    void Donut_BindAccelStruct(nvrhi::BindingSetDesc* bindingSetDesc, int slot, void* accelStruct)
+    void Donut_BindAccelStruct(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::rt::IAccelStruct* accelStruct)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::RayTracingAccelStruct(static_cast<uint32_t>(slot),
-                static_cast<nvrhi::rt::IAccelStruct*>(accelStruct)));
+                accelStruct));
     }
 
     // Creates a binding set for an existing layout (see Donut_CreateBindingLayout) from a
@@ -6252,7 +6252,7 @@ extern "C"
     // Like Donut_BuildSceneAccelStructs (opaque triangles; BLASes kept in the meshes), for shader
     // tables with hitGroupStride entries per geometry, laid out by globalGeometryIndex: each
     // instance's hit groups start at its mesh's first geometry index times hitGroupStride.
-    void* Donut_BuildSceneAccelStructsWithHitGroupStride(App* app, nvrhi::ICommandList* commandList, void* scene, int hitGroupStride)
+    SceneAccelStructs* Donut_BuildSceneAccelStructsWithHitGroupStride(App* app, nvrhi::ICommandList* commandList, void* scene, int hitGroupStride)
     {
         App* a = app;
         nvrhi::ICommandList* cl = commandList;
@@ -6465,7 +6465,7 @@ extern "C"
     // A BLAS of one procedural AABB, (-1, -1, -1) .. (1, 1, 1), built into an open command list;
     // instance it scaled and moved (Donut_AddTopLevelASInstance) for intersection-shader or ray
     // query primitives.
-    void* Donut_CreateUnitAABBBlas(App* app, nvrhi::ICommandList* commandList, const char* debugName)
+    nvrhi::rt::IAccelStruct* Donut_CreateUnitAABBBlas(App* app, nvrhi::ICommandList* commandList, const char* debugName)
     {
         App* a = app;
         nvrhi::ICommandList* cl = commandList;
@@ -6493,7 +6493,7 @@ extern "C"
 
     // A TLAS of up to maxInstances instances, rebuilt from instances added with the functions
     // below by Donut_BuildTopLevelAS. Get the TLAS with Donut_GetSceneTopLevelAS.
-    void* Donut_CreateTopLevelAS(App* app, int maxInstances)
+    SceneAccelStructs* Donut_CreateTopLevelAS(App* app, int maxInstances)
     {
         App* a = app;
         auto accelStructs = std::make_shared<SceneAccelStructs>();
@@ -6506,7 +6506,7 @@ extern "C"
 
     // Same, built with buildFlags (AccelStructBuildFlags bits, e.g. AllowUpdate for
     // Donut_UpdateTopLevelAS, PreferFastBuild).
-    void* Donut_CreateTopLevelASWithFlags(App* app, int maxInstances, int buildFlags)
+    SceneAccelStructs* Donut_CreateTopLevelASWithFlags(App* app, int maxInstances, int buildFlags)
     {
         App* a = app;
         auto accelStructs = std::make_shared<SceneAccelStructs>();
@@ -6522,10 +6522,10 @@ extern "C"
     // Adds all mesh instances of a loaded scene (instance ID = instance index; meshes' BLASes from
     // Donut_BuildSceneBLASes), with instanceMask, except dynamicMesh's (if not null) with
     // dynamicMeshMask.
-    void Donut_AddSceneTopLevelASInstances(void* sceneAccelStructs, void* scene, int instanceMask,
+    void Donut_AddSceneTopLevelASInstances(SceneAccelStructs* sceneAccelStructs, void* scene, int instanceMask,
         void* dynamicMesh, int dynamicMeshMask)
     {
-        auto* accelStructs = static_cast<SceneAccelStructs*>(sceneAccelStructs);
+        auto* accelStructs = sceneAccelStructs;
         const donut::engine::MeshInfo* special = dynamicMesh ? static_cast<DynamicMesh*>(dynamicMesh)->mesh.get() : nullptr;
 
         for (const auto& instance : static_cast<donut::engine::Scene*>(scene)->GetSceneGraph()->GetMeshInstances())
@@ -6540,47 +6540,47 @@ extern "C"
     }
 
     // Adds an instance of a BLAS, uniformly scaled by `scale`, then moved to (x, y, z).
-    void Donut_AddTopLevelASInstance(void* sceneAccelStructs, void* bottomLevelAS, int instanceMask, int instanceID,
+    void Donut_AddTopLevelASInstance(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
         double scale, double x, double y, double z)
     {
         nvrhi::rt::InstanceDesc instanceDesc;
-        instanceDesc.bottomLevelAS = static_cast<nvrhi::rt::IAccelStruct*>(bottomLevelAS);
+        instanceDesc.bottomLevelAS = bottomLevelAS;
         instanceDesc.instanceMask = static_cast<uint32_t>(instanceMask);
         instanceDesc.instanceID = static_cast<uint32_t>(instanceID);
         const dm::affine3 transform = dm::scaling(dm::float3(float(scale))) * dm::translation(dm::float3(float(x), float(y), float(z)));
         dm::affineToColumnMajor(transform, instanceDesc.transform);
-        static_cast<SceneAccelStructs*>(sceneAccelStructs)->pendingInstances.push_back(instanceDesc);
+        sceneAccelStructs->pendingInstances.push_back(instanceDesc);
     }
 
     // Adds an instance of a BLAS with a transform (12 floats: a row-major 3x4 matrix, the
     // translation in the last column, as Vulkan's VkTransformMatrixKHR) and instance flags
     // (nvrhi::rt::InstanceFlags bits, e.g. 1 = no triangle culling).
-    void Donut_AddTopLevelASInstanceWithTransform(void* sceneAccelStructs, void* bottomLevelAS, int instanceMask, int instanceID,
+    void Donut_AddTopLevelASInstanceWithTransform(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
         int flags, const void* transform)
     {
         nvrhi::rt::InstanceDesc instanceDesc;
-        instanceDesc.bottomLevelAS = static_cast<nvrhi::rt::IAccelStruct*>(bottomLevelAS);
+        instanceDesc.bottomLevelAS = bottomLevelAS;
         instanceDesc.instanceMask = static_cast<uint32_t>(instanceMask);
         instanceDesc.instanceID = static_cast<uint32_t>(instanceID);
         instanceDesc.flags = static_cast<nvrhi::rt::InstanceFlags>(flags);
         memcpy(instanceDesc.transform, transform, sizeof(instanceDesc.transform));
-        static_cast<SceneAccelStructs*>(sceneAccelStructs)->pendingInstances.push_back(instanceDesc);
+        sceneAccelStructs->pendingInstances.push_back(instanceDesc);
     }
 
     // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex, Vulkan's
     // instanceShaderBindingTableRecordOffset): which of the shader table's hit groups its hits run.
-    void Donut_AddTopLevelASInstanceWithHitGroup(void* sceneAccelStructs, void* bottomLevelAS, int instanceMask, int instanceID,
+    void Donut_AddTopLevelASInstanceWithHitGroup(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
         int hitGroupIndex, int flags, const void* transform)
     {
         Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs, bottomLevelAS, instanceMask, instanceID, flags, transform);
-        static_cast<SceneAccelStructs*>(sceneAccelStructs)->pendingInstances.back().instanceContributionToHitGroupIndex =
+        sceneAccelStructs->pendingInstances.back().instanceContributionToHitGroupIndex =
             static_cast<uint32_t>(hitGroupIndex);
     }
 
     // Inside a render callback: builds the TLAS from the instances added since the last build.
-    void Donut_BuildTopLevelAS(FrameContext* frame, void* sceneAccelStructs)
+    void Donut_BuildTopLevelAS(FrameContext* frame, SceneAccelStructs* sceneAccelStructs)
     {
-        auto* accelStructs = static_cast<SceneAccelStructs*>(sceneAccelStructs);
+        auto* accelStructs = sceneAccelStructs;
         nvrhi::ICommandList* cl = frame->commandList;
         // The flags it was created with (NVRHI adds AllowUpdate itself): an update must use the
         // same ones as the build it refits.
@@ -6597,9 +6597,9 @@ extern "C"
     // build (new transforms, same instance count), instead of building it anew. Needs a TLAS
     // created with AllowUpdate; builds it instead before its first build or when the instance
     // count changed. Returns 1 if it refitted, 0 if it built.
-    int Donut_UpdateTopLevelAS(FrameContext* frame, void* sceneAccelStructs)
+    int Donut_UpdateTopLevelAS(FrameContext* frame, SceneAccelStructs* sceneAccelStructs)
     {
-        auto* accelStructs = static_cast<SceneAccelStructs*>(sceneAccelStructs);
+        auto* accelStructs = sceneAccelStructs;
         const nvrhi::rt::AccelStructBuildFlags buildFlags = accelStructs->topLevel->getDesc().buildFlags;
         if ((buildFlags & nvrhi::rt::AccelStructBuildFlags::AllowUpdate) == 0)
         {
@@ -6651,7 +6651,7 @@ extern "C"
     // mesh's accelStruct; alpha-tested geometries non-opaque, static ones compacted later) into
     // an open command list, and creates a TLAS for Donut_UpdateSceneAccelStructs to build every
     // frame. Get the TLAS with Donut_GetSceneTopLevelAS.
-    void* Donut_CreateAnimatedSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, void* scene)
+    SceneAccelStructs* Donut_CreateAnimatedSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, void* scene)
     {
         App* a = app;
         nvrhi::ICommandList* cl = commandList;
@@ -6684,7 +6684,7 @@ extern "C"
     // Inside a render callback, after Donut_RefreshScene: rebuilds the BLAS of the skinned mesh
     // instances updated this frame, compacts the static BLASes whose builds have finished, and
     // builds the TLAS from the instances' current transforms (instance IDs = instance indices).
-    void Donut_UpdateSceneAccelStructs(App* app, FrameContext* frame, void* sceneAccelStructs, void* scene)
+    void Donut_UpdateSceneAccelStructs(App* app, FrameContext* frame, SceneAccelStructs* sceneAccelStructs, void* scene)
     {
         nvrhi::ICommandList* cl = frame->commandList;
         const uint32_t frameIndex = app->deviceManager->GetFrameIndex();
@@ -6727,7 +6727,7 @@ extern "C"
         cl->compactBottomLevelAccelStructs();
 
         cl->beginMarker("TLAS Update");
-        cl->buildTopLevelAccelStruct(static_cast<SceneAccelStructs*>(sceneAccelStructs)->topLevel,
+        cl->buildTopLevelAccelStruct(sceneAccelStructs->topLevel,
             instances.data(), instances.size());
         cl->endMarker();
     }
@@ -6948,7 +6948,7 @@ extern "C"
     // Builds one bottom-level acceleration structure per mesh of a scene from Donut_LoadScene (its
     // opaque triangles), and a top-level one over its mesh instances, recording the builds into an
     // open command list. Get the top-level one with Donut_GetSceneTopLevelAS.
-    void* Donut_BuildSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, void* scene)
+    SceneAccelStructs* Donut_BuildSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, void* scene)
     {
         App* a = app;
         nvrhi::ICommandList* cl = commandList;
@@ -7004,9 +7004,9 @@ extern "C"
     }
 
     // For Donut_BindAccelStruct; valid as long as the acceleration structures.
-    void* Donut_GetSceneTopLevelAS(void* sceneAccelStructs)
+    nvrhi::rt::IAccelStruct* Donut_GetSceneTopLevelAS(SceneAccelStructs* sceneAccelStructs)
     {
-        return static_cast<SceneAccelStructs*>(sceneAccelStructs)->topLevel.Get();
+        return sceneAccelStructs->topLevel.Get();
     }
 
     // --- Scenes built in code ----------------------------------------------------------------
@@ -9698,12 +9698,12 @@ extern "C"
     }
 
     // Traces width x height rays with a shader table, with bindingSet as its global bindings.
-    void Donut_DispatchRays(FrameContext* frame, void* shaderTable, nvrhi::IBindingSet* bindingSet, int width, int height)
+    void Donut_DispatchRays(FrameContext* frame, nvrhi::rt::IShaderTable* shaderTable, nvrhi::IBindingSet* bindingSet, int width, int height)
     {
         FrameContext* ctx = frame;
 
         nvrhi::rt::State state;
-        state.shaderTable = static_cast<nvrhi::rt::IShaderTable*>(shaderTable);
+        state.shaderTable = shaderTable;
         state.bindings = { bindingSet };
         ctx->commandList->setRayTracingState(state);
 
@@ -9715,13 +9715,13 @@ extern "C"
 
     // Same as Donut_DispatchRays, with a descriptor table (Donut_GetDescriptorTable) bound after
     // the binding set, for pipelines with a bindless layout second.
-    void Donut_DispatchRaysWithDescriptorTable(FrameContext* frame, void* shaderTable, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
+    void Donut_DispatchRaysWithDescriptorTable(FrameContext* frame, nvrhi::rt::IShaderTable* shaderTable, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
         int width, int height)
     {
         FrameContext* ctx = frame;
 
         nvrhi::rt::State state;
-        state.shaderTable = static_cast<nvrhi::rt::IShaderTable*>(shaderTable);
+        state.shaderTable = shaderTable;
         state.bindings = { bindingSet, descriptorTable };
         ctx->commandList->setRayTracingState(state);
 
