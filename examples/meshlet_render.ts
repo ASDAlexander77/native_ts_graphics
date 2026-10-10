@@ -147,7 +147,13 @@ namespace MeshletRender {
             }
             // Prevent looking too far up or down.
             const quarterPi = Math.fround(XM_PI / 4.0);
-            this.pitch = Math.max(-quarterPi, Math.min(this.pitch, quarterPi));
+            // Not Math.max: tslang's starts from Number.MIN_VALUE, above any negative number.
+            if (this.pitch > quarterPi) {
+                this.pitch = quarterPi;
+            }
+            if (this.pitch < -quarterPi) {
+                this.pitch = -quarterPi;
+            }
 
             // Move the camera in model space.
             const cosYaw = Math.fround(Math.cos(this.yaw));

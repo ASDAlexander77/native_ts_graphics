@@ -100,6 +100,25 @@ export function transform3(a: number[], m: number[]): number[] {
     return vadd(vmul(splat(a, 0), row(m, 0)), r);
 }
 
+// XMVector3TransformNormal: (x, y, z, 0) * M.
+export function transformNormal3(a: number[], m: number[]): number[] {
+    let r = vmul(splat(a, 2), row(m, 2));
+    r = vadd(vmul(splat(a, 1), row(m, 1)), r);
+    return vadd(vmul(splat(a, 0), row(m, 0)), r);
+}
+
+// XMVector3TransformCoord: (x, y, z, 1) * M, divided by its w.
+export function transformCoord3(a: number[], m: number[]): number[] {
+    const r = transform3(a, m);
+    return vdiv(r, splat(r, 3));
+}
+
+// XMPlaneNormalize: the plane divided by its normal's length.
+export function planeNormalize(p: number[]): number[] {
+    const length = Math.fround(Math.sqrt(dot3(p, p)));
+    return vdiv(p, [length, length, length, length]);
+}
+
 export function matrixMultiply(a: number[], b: number[]): number[] {
     let rows: number[][] = [];
     for (let i = 0; i < 4; i++) {

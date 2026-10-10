@@ -173,6 +173,8 @@ declare function Donut_GetMeshletModelVertexBufferCount(meshletModel: MeshletMod
 declare function Donut_GetMeshletModelVertexBufferData(meshletModel: MeshletModelHandle, mesh: int, vertexBuffer: int): Opaque;
 declare function Donut_GetMeshletModelVertexBufferSize(meshletModel: MeshletModelHandle, mesh: int, vertexBuffer: int): int;
 declare function Donut_GetMeshletModelVertexBufferStride(meshletModel: MeshletModelHandle, mesh: int, vertexBuffer: int): int;
+// Copies a vertex buffer into dst (Donut_GetMeshletModelVertexBufferSize bytes; Ref of a `let` array element).
+declare function Donut_CopyMeshletModelVertexBuffer(meshletModel: MeshletModelHandle, mesh: int, vertexBuffer: int, dst: Opaque): void;
 declare function Donut_GetMeshletModelVertexCount(meshletModel: MeshletModelHandle, mesh: int): int;
 // The vertex buffer an attribute (MeshletAttribute) is in, -1 if the mesh hasn't it; its byte offset.
 declare function Donut_GetMeshletModelAttributeBuffer(meshletModel: MeshletModelHandle, mesh: int, attribute: MeshletAttribute): int;
