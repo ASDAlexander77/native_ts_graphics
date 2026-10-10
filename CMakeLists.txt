@@ -2668,6 +2668,22 @@ add_tslang_example_test(hdr_display)
 add_tslang_example_test(hdr_display SUFFIX 10bit ARGS -testFormat 10)
 add_tslang_example_test(hdr_display SUFFIX 16bit ARGS -testFormat 16)
 
+# Port of DirectX-Graphics-Samples' D3D12nBodyGravity: two clusters of 5000 particles, every particle
+# pulling on every other, stepped by a compute shader on the compute queue and drawn as additive point
+# sprites a geometry shader expands.
+donut_compile_shaders(
+    TARGET n_body_gravity_shaders
+    PROJECT_NAME "n-Body Gravity"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/n_body_gravity.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/n_body_gravity_draw.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/n_body_gravity_cs.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/n_body_gravity/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/n_body_gravity/spirv
+)
+add_tslang_example(n_body_gravity core/directx_math.ts)
+add_tslang_example_test(n_body_gravity)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse
