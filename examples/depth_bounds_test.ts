@@ -17,9 +17,9 @@ namespace DepthBoundsTest {
     // in and open up from [0, 1] to about [0.23, 0.77] and back as the frames go by.
     class DepthBoundsTestPass {
         private app: App;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
-        private inputLayout: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private vertexBuffer: BufferHandle;
         private hasTargets: boolean;
         private colorBuffer: TextureHandle;

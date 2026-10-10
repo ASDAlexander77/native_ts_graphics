@@ -365,11 +365,11 @@ namespace SparseImage {
         private screenHeight: int;
 
         // Drawing.
-        private sceneVS: Opaque;
-        private scenePS: Opaque;
-        private mipVS: Opaque;
-        private mipPS: Opaque;
-        private inputLayout: Opaque;
+        private sceneVS: ShaderHandle;
+        private scenePS: ShaderHandle;
+        private mipVS: ShaderHandle;
+        private mipPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private sceneBindingLayout: Opaque;
         private mipBindingLayout: Opaque;
         private mvpBuffer: BufferHandle;

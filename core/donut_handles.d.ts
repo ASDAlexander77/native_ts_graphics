@@ -23,3 +23,7 @@ declare class TextureHandle extends ResourceHandle { private readonly __texture:
 declare class StagingTextureHandle extends ResourceHandle { private readonly __stagingTexture: int; }
 declare class SamplerHandle extends ResourceHandle { private readonly __sampler: int; }
 declare class HeapHandle extends ResourceHandle { private readonly __heap: int; }
+declare class ShaderHandle extends ResourceHandle { private readonly __shader: int; }
+declare class ShaderLibraryHandle extends ResourceHandle { private readonly __shaderLibrary: int; }
+declare class InputLayoutHandle extends ResourceHandle { private readonly __inputLayout: int; }
+declare class InputLayoutDescHandle { private readonly __inputLayoutDesc: int; }

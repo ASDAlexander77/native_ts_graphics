@@ -227,15 +227,15 @@ namespace ExtendedDynamicState2 {
         private parentScaleX: number;
         private scratch: f32[];
 
-        private baselineVS: Opaque;
-        private baselinePS: Opaque;
-        private backgroundVS: Opaque;
-        private backgroundPS: Opaque;
-        private tessVS: Opaque;
-        private tessHS: Opaque;
-        private tessDS: Opaque;
-        private tessPS: Opaque;
-        private inputLayout: Opaque;
+        private baselineVS: ShaderHandle;
+        private baselinePS: ShaderHandle;
+        private backgroundVS: ShaderHandle;
+        private backgroundPS: ShaderHandle;
+        private tessVS: ShaderHandle;
+        private tessHS: ShaderHandle;
+        private tessDS: ShaderHandle;
+        private tessPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private commonBuffer: BufferHandle;
@@ -393,7 +393,7 @@ namespace ExtendedDynamicState2 {
 
         // The sample's pipeline state: depth test (greater: reversed) and write, blending by the
         // source's alpha (the alpha written as is), back faces culled, clockwise front faces.
-        pipelineDesc(vs: Opaque, ps: Opaque): GraphicsPipelineDesc {
+        pipelineDesc(vs: ShaderHandle, ps: ShaderHandle): GraphicsPipelineDesc {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.bindingLayout);

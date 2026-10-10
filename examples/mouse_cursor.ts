@@ -452,19 +452,19 @@ namespace MouseCursor {
         private tileTexture: TextureHandle;
         private tileBorderTexture: TextureHandle;
 
-        private spriteVS: Opaque;
-        private spritePS: Opaque;
+        private spriteVS: ShaderHandle;
+        private spritePS: ShaderHandle;
         private spriteLayout: Opaque;
         private spriteSampler: SamplerHandle;
         private backgroundBindingSet: BindingSet;
         private tileBindingSet: BindingSet;
         private tileBorderBindingSet: BindingSet;
-        private dualVS: Opaque;
-        private dualPS: Opaque;
-        private basicVS: Opaque;
-        private basicPS: Opaque;
-        private dualInputLayout: Opaque;
-        private basicInputLayout: Opaque;
+        private dualVS: ShaderHandle;
+        private dualPS: ShaderHandle;
+        private basicVS: ShaderHandle;
+        private basicPS: ShaderHandle;
+        private dualInputLayout: InputLayoutHandle;
+        private basicInputLayout: InputLayoutHandle;
         private modelLayout: Opaque;
         private parametersBuffer: BufferHandle;
         private spriteConstants: f32[];

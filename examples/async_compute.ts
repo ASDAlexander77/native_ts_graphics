@@ -25,9 +25,9 @@ namespace AsyncCompute {
     // GC doesn't know about. This class creates everything it runs, and does the rendering.
     class AsyncComputePass {
         private app: App;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
-        private computeShader: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
+        private computeShader: ShaderHandle;
         private drawBindingLayout: Opaque;
         private sampler: SamplerHandle;
         private computeLoop: AsyncComputeLoop;

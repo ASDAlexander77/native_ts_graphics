@@ -125,13 +125,13 @@ namespace OitDepthPeeling {
         private mouseX: number;
         private mouseY: number;
 
-        private fullscreenVS: Opaque;
-        private backgroundPS: Opaque;
-        private combinePS: Opaque;
-        private gatherVS: Opaque;
-        private gatherFirstPS: Opaque;
-        private gatherPS: Opaque;
-        private inputLayout: Opaque;
+        private fullscreenVS: ShaderHandle;
+        private backgroundPS: ShaderHandle;
+        private combinePS: ShaderHandle;
+        private gatherVS: ShaderHandle;
+        private gatherFirstPS: ShaderHandle;
+        private gatherPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private gatherBindingLayout: Opaque;
         private combineBindingLayout: Opaque;
         private constantBuffer: BufferHandle;
@@ -320,7 +320,7 @@ namespace OitDepthPeeling {
             this.combinePipeline = this.createFullscreenPipeline(framebuffer, this.combinePS, BlendMode.AlphaBlend);
         }
 
-        createGatherPipeline(framebuffer: Opaque, pixelShader: Opaque): Opaque {
+        createGatherPipeline(framebuffer: Opaque, pixelShader: ShaderHandle): Opaque {
             const desc = GraphicsPipelineDesc.create(this.gatherVS, pixelShader);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.gatherBindingLayout);
@@ -329,7 +329,7 @@ namespace OitDepthPeeling {
             return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        createFullscreenPipeline(framebuffer: Opaque, pixelShader: Opaque, blendMode: BlendMode): Opaque {
+        createFullscreenPipeline(framebuffer: Opaque, pixelShader: ShaderHandle, blendMode: BlendMode): Opaque {
             const desc = GraphicsPipelineDesc.create(this.fullscreenVS, pixelShader);
             desc.addBindingLayout(this.combineBindingLayout);
             desc.setDepthState(0, 0, ComparisonFunc.Greater);

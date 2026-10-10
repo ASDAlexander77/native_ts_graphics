@@ -13,9 +13,9 @@ namespace ShaderQuadControl {
     // from the quad leader" here.
     class ShaderQuadControlPass {
         private app: App;
-        private vs: Opaque;
-        private plainPS: Opaque;
-        private broadcastPS: Opaque;
+        private vs: ShaderHandle;
+        private plainPS: ShaderHandle;
+        private broadcastPS: ShaderHandle;
         // Created on the first frame (the back buffer's layout), dropped on resize.
         private pipelinesCreated: boolean;
         private plainPipeline: Opaque;

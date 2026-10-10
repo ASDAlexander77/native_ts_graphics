@@ -478,8 +478,8 @@ namespace MobileNerfRayQuery {
         private app: App;
         private camera: SampleCamera;
 
-        private vs: Opaque;
-        private ps: Opaque;
+        private vs: ShaderHandle;
+        private ps: ShaderHandle;
         private bindingLayout: Opaque;
         private bindingSet: Opaque;
         private globalBuffer: BufferHandle;

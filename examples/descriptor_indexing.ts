@@ -70,10 +70,10 @@ namespace DescriptorIndexing {
     class DescriptorIndexingPass {
         private app: App;
 
-        private nonUniformVS: Opaque;
-        private nonUniformPS: Opaque;
-        private updateAfterBindVS: Opaque;
-        private updateAfterBindPS: Opaque;
+        private nonUniformVS: ShaderHandle;
+        private nonUniformPS: ShaderHandle;
+        private updateAfterBindVS: ShaderHandle;
+        private updateAfterBindPS: ShaderHandle;
         private bindingLayout: Opaque;
         private bindlessLayout: Opaque;
         private bindingSet: BindingSet;
@@ -136,7 +136,7 @@ namespace DescriptorIndexing {
         }
 
         // The sample's pipelines: triangle strips, no culling, no depth, no blending.
-        createPipeline(vs: Opaque, ps: Opaque): Opaque {
+        createPipeline(vs: ShaderHandle, ps: ShaderHandle): Opaque {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.setPrimitiveType(PrimitiveType.TriangleStrip);
             desc.addBindingLayout(this.bindingLayout);

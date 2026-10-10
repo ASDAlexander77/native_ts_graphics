@@ -213,11 +213,11 @@ namespace PatchControlPoints {
         tessellation: boolean;
         tessLevel: number;
 
-        private vs: Opaque;
-        private hs: Opaque;
-        private ds: Opaque;
-        private ps: Opaque;
-        private inputLayout: Opaque;
+        private vs: ShaderHandle;
+        private hs: ShaderHandle;
+        private ds: ShaderHandle;
+        private ps: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private commonBuffer: BufferHandle;
         private staticTessBuffer: BufferHandle;

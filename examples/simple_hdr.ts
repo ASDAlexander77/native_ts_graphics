@@ -118,12 +118,12 @@ namespace SimpleHdr {
         private app: App;
         private sceneLayout: Opaque;
         private convertLayout: Opaque;
-        private rectVS: Opaque;
-        private lineVS: Opaque;
-        private colorPS: Opaque;
-        private quadVS: Opaque;
-        private hdr10PS: Opaque;
-        private sdrPS: Opaque;
+        private rectVS: ShaderHandle;
+        private lineVS: ShaderHandle;
+        private colorPS: ShaderHandle;
+        private quadVS: ShaderHandle;
+        private hdr10PS: ShaderHandle;
+        private sdrPS: ShaderHandle;
         private pointSampler: SamplerHandle;
         private lineBuffer: BufferHandle;
         private lineVertices: f32[];

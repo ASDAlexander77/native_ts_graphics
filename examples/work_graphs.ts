@@ -761,10 +761,10 @@ namespace WorkGraphs {
         private scene: Scene;
 
         private bindingLayout: Opaque;
-        private inputLayout: Opaque;
-        private gbufferVertexShader: Opaque;
-        private gbufferPixelShader: Opaque;
-        private workGraphLibrary: Opaque;
+        private inputLayout: InputLayoutHandle;
+        private gbufferVertexShader: ShaderHandle;
+        private gbufferPixelShader: ShaderHandle;
+        private workGraphLibrary: ShaderLibraryHandle;
 
         // Pipeline state objects.
         private animateObjectsPSO: Opaque;

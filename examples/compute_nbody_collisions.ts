@@ -90,8 +90,8 @@ namespace ComputeNBodyCollisions {
         private collidePipeline: Opaque;
         private integratePipeline: Opaque;
         private computeBindingSet: BindingSet;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
         private drawBindingLayout: Opaque;
         private drawBindingSet: BindingSet;
         private viewConstantBuffer: BufferHandle;

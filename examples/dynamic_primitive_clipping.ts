@@ -170,9 +170,9 @@ namespace DynamicPrimitiveClipping {
         drawObject: boolean[];
         useDepthClipping: boolean;
 
-        private vs: Opaque;
-        private ps: Opaque;
-        private inputLayout: Opaque;
+        private vs: ShaderHandle;
+        private ps: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private models: GltfMesh[];
         private transforms: number[][];

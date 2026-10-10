@@ -164,13 +164,13 @@ namespace OitLinkedLists {
         private mouseX: number;
         private mouseY: number;
 
-        private gatherVS: Opaque;
-        private gatherPS: Opaque;
-        private fullscreenVS: Opaque;
-        private backgroundPS: Opaque;
-        private combineVS: Opaque;
-        private combinePS: Opaque;
-        private inputLayout: Opaque;
+        private gatherVS: ShaderHandle;
+        private gatherPS: ShaderHandle;
+        private fullscreenVS: ShaderHandle;
+        private backgroundPS: ShaderHandle;
+        private combineVS: ShaderHandle;
+        private combinePS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private gatherBindingLayout: Opaque;
         private backgroundBindingLayout: Opaque;
         private combineBindingLayout: Opaque;

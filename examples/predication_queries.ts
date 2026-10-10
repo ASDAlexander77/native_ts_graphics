@@ -23,9 +23,9 @@ namespace PredicationQueries {
     class PredicationQueriesPass {
         private app: App;
         private bindingLayout: Opaque;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
-        private inputLayout: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private vertexBuffer: BufferHandle;
         private farQuadConstants: BufferHandle;
         private nearQuadConstants: BufferHandle;

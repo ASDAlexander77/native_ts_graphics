@@ -179,8 +179,8 @@ namespace FastBlockCompress {
         private rmsResult: f32[];
         private rmsConstants: f32[];
         private quadLayout: Opaque;
-        private quadVS: Opaque;
-        private quadPS: Opaque;
+        private quadVS: ShaderHandle;
+        private quadPS: ShaderHandle;
         private quadPipeline: Opaque | null;
         private quadConstants: f32[];
         private timers: Opaque[];

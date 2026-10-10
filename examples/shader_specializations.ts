@@ -10,8 +10,8 @@ namespace ShaderSpecializations {
     // Port of Donut-Samples' shader_specializations.cpp.
     class ShaderSpecializationsPass {
         private app: App;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
         // Created on the first frame (they depend on the framebuffer layout), dropped on resize.
         private pipelines: Opaque[];
 

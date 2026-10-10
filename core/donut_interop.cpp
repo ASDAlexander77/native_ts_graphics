@@ -2347,7 +2347,7 @@ extern "C"
 
     // Loads a shader compiled from the example's shaders/<example>.cfg. shaderType is an
     // nvrhi::ShaderType value. Returns null on failure.
-    void* Donut_CreateShader(App* app, const char* fileName, const char* entryName, int shaderType)
+    nvrhi::IShader* Donut_CreateShader(App* app, const char* fileName, const char* entryName, int shaderType)
     {
         App* a = app;
         const std::string path = std::string("app/") + fileName;
@@ -2357,7 +2357,7 @@ extern "C"
     }
 
     // Same, for the permutation compiled with -D defineName=defineValue in the .cfg.
-    void* Donut_CreateShaderWithDefine(App* app, const char* fileName, const char* entryName, int shaderType,
+    nvrhi::IShader* Donut_CreateShaderWithDefine(App* app, const char* fileName, const char* entryName, int shaderType,
         const char* defineName, const char* defineValue)
     {
         App* a = app;
@@ -2369,7 +2369,7 @@ extern "C"
     }
 
     // Shader library permutation compiled with -T lib -D defineName=defineValue. Returns null on failure.
-    void* Donut_CreateShaderLibraryWithDefine(App* app, const char* fileName, const char* defineName, const char* defineValue)
+    nvrhi::IShaderLibrary* Donut_CreateShaderLibraryWithDefine(App* app, const char* fileName, const char* defineName, const char* defineValue)
     {
         App* a = app;
         const std::string path = std::string("app/") + fileName;
@@ -2379,7 +2379,7 @@ extern "C"
 
     // Loads a shader library (compiled with -T lib) from the example's shaders/<example>.cfg.
     // Returns null on failure.
-    void* Donut_CreateShaderLibrary(App* app, const char* fileName)
+    nvrhi::IShaderLibrary* Donut_CreateShaderLibrary(App* app, const char* fileName)
     {
         App* a = app;
         const std::string path = std::string("app/") + fileName;
@@ -2389,11 +2389,11 @@ extern "C"
     // Ray tracing pipeline with one ray generation shader, one miss shader and one triangle hit
     // group made of a closest-hit shader (none if closestHitEntry is empty), all exported from
     // shaderLibrary by entry name, and one global binding layout. Returns null on failure.
-    void* Donut_CreateRayTracingPipeline(App* app, void* shaderLibrary, void* bindingLayout,
+    void* Donut_CreateRayTracingPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, void* bindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         int maxPayloadSize)
     {
-        auto* library = static_cast<nvrhi::IShaderLibrary*>(shaderLibrary);
+        auto* library = shaderLibrary;
 
         nvrhi::rt::PipelineDesc desc;
         desc.globalBindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
@@ -2414,11 +2414,11 @@ extern "C"
 
     // Same, with a closest-hit and an any-hit shader in the hit group (either may be ""), and a
     // second global binding layout (e.g. a bindless layout; null for none).
-    void* Donut_CreateRayTracingPipelineWithLayouts(App* app, void* shaderLibrary, void* bindingLayout, void* secondBindingLayout,
+    void* Donut_CreateRayTracingPipelineWithLayouts(App* app, nvrhi::IShaderLibrary* shaderLibrary, void* bindingLayout, void* secondBindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         const char* anyHitEntry, int maxPayloadSize)
     {
-        auto* library = static_cast<nvrhi::IShaderLibrary*>(shaderLibrary);
+        auto* library = shaderLibrary;
         auto entryShader = [library](const char* entry, nvrhi::ShaderType type) -> nvrhi::ShaderHandle {
             return entry && *entry ? library->getShader(entry, type) : nullptr;
         };
@@ -2459,20 +2459,20 @@ extern "C"
     }
 
     // A ray generation, miss or callable shader (shaderType), exported by its entry name.
-    void Donut_RtPipelineAddShader(void* pipelineDesc, void* shaderLibrary, const char* entryName, int shaderType)
+    void Donut_RtPipelineAddShader(void* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* entryName, int shaderType)
     {
         static_cast<nvrhi::rt::PipelineDesc*>(pipelineDesc)->shaders.push_back({ "",
-            static_cast<nvrhi::IShaderLibrary*>(shaderLibrary)->getShader(entryName, static_cast<nvrhi::ShaderType>(shaderType)),
+            shaderLibrary->getShader(entryName, static_cast<nvrhi::ShaderType>(shaderType)),
             nullptr });
     }
 
     // A triangle hit group: closest-hit and any-hit shaders by entry name ("" for none), and an
     // optional local binding layout (D3D12 only; null for none) whose binding sets are given per
     // shader table entry.
-    void Donut_RtPipelineAddHitGroup(void* pipelineDesc, void* shaderLibrary, const char* exportName,
+    void Donut_RtPipelineAddHitGroup(void* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
         const char* closestHitEntry, const char* anyHitEntry, void* localBindingLayout)
     {
-        auto* library = static_cast<nvrhi::IShaderLibrary*>(shaderLibrary);
+        auto* library = shaderLibrary;
         auto entryShader = [library](const char* entry, nvrhi::ShaderType type) -> nvrhi::ShaderHandle {
             return entry && *entry ? library->getShader(entry, type) : nullptr;
         };
@@ -2487,10 +2487,10 @@ extern "C"
     // A procedural primitive hit group, for AABB geometries: intersection, closest-hit and any-hit
     // shaders by entry name ("" for no closest-hit / any-hit shader), and an optional local binding
     // layout as above.
-    void Donut_RtPipelineAddProceduralHitGroup(void* pipelineDesc, void* shaderLibrary, const char* exportName,
+    void Donut_RtPipelineAddProceduralHitGroup(void* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
         const char* intersectionEntry, const char* closestHitEntry, const char* anyHitEntry, void* localBindingLayout)
     {
-        auto* library = static_cast<nvrhi::IShaderLibrary*>(shaderLibrary);
+        auto* library = shaderLibrary;
         auto entryShader = [library](const char* entry, nvrhi::ShaderType type) -> nvrhi::ShaderHandle {
             return entry && *entry ? library->getShader(entry, type) : nullptr;
         };
@@ -2940,11 +2940,11 @@ extern "C"
 
     // Triangle-list pipeline without depth test, for the frame's framebuffer layout; recreate it
     // after the back buffer is resized. Returns null on failure.
-    void* Donut_CreateGraphicsPipeline(App* app, FrameContext* frame, void* vertexShader, void* pixelShader)
+    void* Donut_CreateGraphicsPipeline(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
     {
         nvrhi::GraphicsPipelineDesc desc;
-        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
-        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc.VS = vertexShader;
+        desc.PS = pixelShader;
         desc.primType = nvrhi::PrimitiveType::TriangleList;
         desc.renderState.depthStencilState.depthTestEnable = false;
 
@@ -2956,36 +2956,36 @@ extern "C"
 
     // Specializes one constant ([[vk::constant_id(constantId)]] in HLSL) of a SPIR-V shader;
     // requires nvrhi::Feature::ShaderSpecializations (Vulkan only). Returns null on failure.
-    void* Donut_SpecializeShaderFloat(App* app, void* shader, int constantId, double value)
+    nvrhi::IShader* Donut_SpecializeShaderFloat(App* app, nvrhi::IShader* shader, int constantId, double value)
     {
         const nvrhi::ShaderSpecialization constant =
             nvrhi::ShaderSpecialization::Float(static_cast<uint32_t>(constantId), float(value));
         App* a = app;
         nvrhi::ShaderHandle specialized = a->device()->createShaderSpecialization(
-            static_cast<nvrhi::IShader*>(shader), &constant, 1);
+            shader, &constant, 1);
         return a->Own(specialized);
     }
 
     // As above, for a uint constant; value's bits are used as-is.
-    void* Donut_SpecializeShaderUInt(App* app, void* shader, int constantId, int value)
+    nvrhi::IShader* Donut_SpecializeShaderUInt(App* app, nvrhi::IShader* shader, int constantId, int value)
     {
         const nvrhi::ShaderSpecialization constant =
             nvrhi::ShaderSpecialization::UInt32(static_cast<uint32_t>(constantId), static_cast<uint32_t>(value));
         App* a = app;
         nvrhi::ShaderHandle specialized = a->device()->createShaderSpecialization(
-            static_cast<nvrhi::IShader*>(shader), &constant, 1);
+            shader, &constant, 1);
         return a->Own(specialized);
     }
 
     // Amplification + mesh + pixel shader pipeline (triangle list, no depth test) for the frame's
     // framebuffer layout; recreate it after the back buffer is resized. Requires
     // nvrhi::Feature::Meshlets. Returns null on failure.
-    void* Donut_CreateMeshletPipeline(App* app, FrameContext* frame, void* amplificationShader, void* meshShader, void* pixelShader)
+    void* Donut_CreateMeshletPipeline(App* app, FrameContext* frame, nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
     {
         nvrhi::MeshletPipelineDesc desc;
-        desc.AS = static_cast<nvrhi::IShader*>(amplificationShader);
-        desc.MS = static_cast<nvrhi::IShader*>(meshShader);
-        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc.AS = amplificationShader;
+        desc.MS = meshShader;
+        desc.PS = pixelShader;
         desc.primType = nvrhi::PrimitiveType::TriangleList;
         desc.renderState.depthStencilState.depthTestEnable = false;
 
@@ -3289,10 +3289,10 @@ extern "C"
     }
 
     // Compute pipeline with one binding layout (Donut_CreateBindingLayout). Returns null on failure.
-    void* Donut_CreateComputePipelineWithLayout(App* app, void* computeShader, void* bindingLayout)
+    void* Donut_CreateComputePipelineWithLayout(App* app, nvrhi::IShader* computeShader, void* bindingLayout)
     {
         auto desc = nvrhi::ComputePipelineDesc()
-            .setComputeShader(static_cast<nvrhi::IShader*>(computeShader))
+            .setComputeShader(computeShader)
             .addBindingLayout(static_cast<nvrhi::IBindingLayout*>(bindingLayout));
 
         App* a = app;
@@ -3300,10 +3300,10 @@ extern "C"
     }
 
     // Same, with a second binding layout (e.g. a bindless layout; null for none).
-    void* Donut_CreateComputePipelineWithLayouts(App* app, void* computeShader, void* bindingLayout, void* secondBindingLayout)
+    void* Donut_CreateComputePipelineWithLayouts(App* app, nvrhi::IShader* computeShader, void* bindingLayout, void* secondBindingLayout)
     {
         auto desc = nvrhi::ComputePipelineDesc()
-            .setComputeShader(static_cast<nvrhi::IShader*>(computeShader))
+            .setComputeShader(computeShader)
             .addBindingLayout(static_cast<nvrhi::IBindingLayout*>(bindingLayout));
         if (secondBindingLayout)
             desc.addBindingLayout(static_cast<nvrhi::IBindingLayout*>(secondBindingLayout));
@@ -3313,10 +3313,10 @@ extern "C"
     }
 
     // Compute pipeline using the layout of bindingSet. Returns null on failure.
-    void* Donut_CreateComputePipeline(App* app, void* computeShader, void* bindingSet)
+    void* Donut_CreateComputePipeline(App* app, nvrhi::IShader* computeShader, void* bindingSet)
     {
         auto desc = nvrhi::ComputePipelineDesc()
-            .setComputeShader(static_cast<nvrhi::IShader*>(computeShader))
+            .setComputeShader(computeShader)
             .addBindingLayout(static_cast<nvrhi::IBindingSet*>(bindingSet)->getLayout());
 
         App* a = app;
@@ -3884,16 +3884,16 @@ extern "C"
 
     // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
     // (freed) by Donut_CreateInputLayout.
-    void* Donut_CreateInputLayoutDesc()
+    InputLayoutDesc* Donut_CreateInputLayoutDesc()
     {
         return new std::vector<nvrhi::VertexAttributeDesc>();
     }
 
     // A vertex shader input with semantic `name`, read from vertex buffer slot bufferIndex at
     // byte offset `offset` of each elementStride-byte element. format is an nvrhi::Format value.
-    void Donut_AddVertexAttribute(void* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
+    void Donut_AddVertexAttribute(InputLayoutDesc* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
     {
-        static_cast<std::vector<nvrhi::VertexAttributeDesc>*>(inputLayoutDesc)->push_back(nvrhi::VertexAttributeDesc()
+        inputLayoutDesc->push_back(nvrhi::VertexAttributeDesc()
             .setName(name)
             .setFormat(static_cast<nvrhi::Format>(format))
             .setOffset(static_cast<uint32_t>(offset))
@@ -3902,9 +3902,9 @@ extern "C"
     }
 
     // Same, read once per instance instead of once per vertex.
-    void Donut_AddInstanceVertexAttribute(void* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
+    void Donut_AddInstanceVertexAttribute(InputLayoutDesc* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
     {
-        static_cast<std::vector<nvrhi::VertexAttributeDesc>*>(inputLayoutDesc)->push_back(nvrhi::VertexAttributeDesc()
+        inputLayoutDesc->push_back(nvrhi::VertexAttributeDesc()
             .setName(name)
             .setFormat(static_cast<nvrhi::Format>(format))
             .setOffset(static_cast<uint32_t>(offset))
@@ -3914,13 +3914,13 @@ extern "C"
     }
 
     // Returns null on failure.
-    void* Donut_CreateInputLayout(App* app, void* inputLayoutDesc, void* vertexShader)
+    nvrhi::IInputLayout* Donut_CreateInputLayout(App* app, InputLayoutDesc* inputLayoutDesc, nvrhi::IShader* vertexShader)
     {
         std::unique_ptr<std::vector<nvrhi::VertexAttributeDesc>> attributes(
-            static_cast<std::vector<nvrhi::VertexAttributeDesc>*>(inputLayoutDesc));
+            inputLayoutDesc);
         App* a = app;
         return a->Own(a->device()->createInputLayout(attributes->data(), static_cast<uint32_t>(attributes->size()),
-            static_cast<nvrhi::IShader*>(vertexShader)));
+            vertexShader));
     }
 
     // Loads an image file (path relative to the executable's directory) and records its upload
@@ -4146,13 +4146,13 @@ extern "C"
 
     // Triangle list, no depth test, for the frame's framebuffer layout, with an input layout
     // and one binding layout. Returns null on failure.
-    void* Donut_CreateGraphicsPipelineWithLayouts(App* app, FrameContext* frame, void* vertexShader, void* pixelShader,
-        void* inputLayout, void* bindingLayout)
+    void* Donut_CreateGraphicsPipelineWithLayouts(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+        nvrhi::IInputLayout* inputLayout, void* bindingLayout)
     {
         nvrhi::GraphicsPipelineDesc desc;
-        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
-        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
-        desc.inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        desc.VS = vertexShader;
+        desc.PS = pixelShader;
+        desc.inputLayout = inputLayout;
         desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
         desc.primType = nvrhi::PrimitiveType::TriangleList;
         desc.renderState.depthStencilState.depthTestEnable = false;
@@ -4164,13 +4164,13 @@ extern "C"
     // Pipeline without depth test for the frame's framebuffer layout, drawing primitiveType (an
     // nvrhi::PrimitiveType value), with an optional input layout and an optional binding layout
     // (null for either means none). Returns null on failure.
-    void* Donut_CreateGraphicsPipelineWithTopology(App* app, FrameContext* frame, void* vertexShader, void* pixelShader,
-        void* inputLayout, void* bindingLayout, int primitiveType)
+    void* Donut_CreateGraphicsPipelineWithTopology(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+        nvrhi::IInputLayout* inputLayout, void* bindingLayout, int primitiveType)
     {
         nvrhi::GraphicsPipelineDesc desc;
-        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
-        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
-        desc.inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        desc.VS = vertexShader;
+        desc.PS = pixelShader;
+        desc.inputLayout = inputLayout;
         if (bindingLayout)
             desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
         desc.primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
@@ -4239,13 +4239,13 @@ extern "C"
 
     // Same, blending into the framebuffer with blendMode (a BlendMode value, see SetBlendMode).
     // Returns null on failure.
-    void* Donut_CreateGraphicsPipelineWithBlend(App* app, FrameContext* frame, void* vertexShader, void* pixelShader,
-        void* inputLayout, void* bindingLayout, int primitiveType, int blendMode)
+    void* Donut_CreateGraphicsPipelineWithBlend(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+        nvrhi::IInputLayout* inputLayout, void* bindingLayout, int primitiveType, int blendMode)
     {
         nvrhi::GraphicsPipelineDesc desc;
-        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
-        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
-        desc.inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        desc.VS = vertexShader;
+        desc.PS = pixelShader;
+        desc.inputLayout = inputLayout;
         if (bindingLayout)
             desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
         desc.primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
@@ -4958,13 +4958,13 @@ extern "C"
     // layout and one binding layout, and NVRHI's default render state: depth test (less) and
     // depth writes on, back faces culled (clockwise triangles are front faces). Returns null on
     // failure.
-    void* Donut_CreateGraphicsPipelineForFramebuffer(App* app, void* framebuffer, void* vertexShader, void* pixelShader,
-        void* inputLayout, void* bindingLayout)
+    void* Donut_CreateGraphicsPipelineForFramebuffer(App* app, void* framebuffer, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+        nvrhi::IInputLayout* inputLayout, void* bindingLayout)
     {
         nvrhi::GraphicsPipelineDesc desc;
-        desc.VS = static_cast<nvrhi::IShader*>(vertexShader);
-        desc.PS = static_cast<nvrhi::IShader*>(pixelShader);
-        desc.inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        desc.VS = vertexShader;
+        desc.PS = pixelShader;
+        desc.inputLayout = inputLayout;
         desc.bindingLayouts = { static_cast<nvrhi::IBindingLayout*>(bindingLayout) };
         desc.primType = nvrhi::PrimitiveType::TriangleList;
 
@@ -4977,11 +4977,11 @@ extern "C"
     // functions below, then consumed (freed) by Donut_CreateGraphicsPipelineFromDesc. It starts as
     // a triangle list with NVRHI's default render state: depth test (less) and depth writes on,
     // back faces culled (clockwise triangles are front faces), solid fill, no blending.
-    void* Donut_CreateGraphicsPipelineDesc(void* vertexShader, void* pixelShader)
+    void* Donut_CreateGraphicsPipelineDesc(nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
     {
         auto* desc = new PipelineDesc();
-        desc->VS = static_cast<nvrhi::IShader*>(vertexShader);
-        desc->PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc->VS = vertexShader;
+        desc->PS = pixelShader;
         desc->primType = nvrhi::PrimitiveType::TriangleList;
         return desc;
     }
@@ -4989,12 +4989,12 @@ extern "C"
     // Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (optional),
     // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the
     // mesh shader outputs (its outputtopology).
-    void* Donut_CreateMeshletPipelineDesc(void* amplificationShader, void* meshShader, void* pixelShader)
+    void* Donut_CreateMeshletPipelineDesc(nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
     {
         auto* desc = new PipelineDesc();
-        desc->AS = static_cast<nvrhi::IShader*>(amplificationShader);
-        desc->MS = static_cast<nvrhi::IShader*>(meshShader);
-        desc->PS = static_cast<nvrhi::IShader*>(pixelShader);
+        desc->AS = amplificationShader;
+        desc->MS = meshShader;
+        desc->PS = pixelShader;
         desc->primType = nvrhi::PrimitiveType::TriangleList;
         return desc;
     }
@@ -5005,9 +5005,9 @@ extern "C"
     }
 
     // A geometry shader between the vertex (or domain) shader and the rasterizer.
-    void Donut_GraphicsPipelineSetGeometryShader(void* graphicsPipelineDesc, void* geometryShader)
+    void Donut_GraphicsPipelineSetGeometryShader(void* graphicsPipelineDesc, nvrhi::IShader* geometryShader)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->GS = static_cast<nvrhi::IShader*>(geometryShader);
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->GS = geometryShader;
     }
 
     void Donut_GraphicsPipelineAddBindingLayout(void* graphicsPipelineDesc, void* bindingLayout)
@@ -5016,9 +5016,9 @@ extern "C"
             static_cast<nvrhi::IBindingLayout*>(bindingLayout));
     }
 
-    void Donut_GraphicsPipelineSetInputLayout(void* graphicsPipelineDesc, void* inputLayout)
+    void Donut_GraphicsPipelineSetInputLayout(void* graphicsPipelineDesc, nvrhi::IInputLayout* inputLayout)
     {
-        AsGraphicsPipelineDesc(graphicsPipelineDesc)->inputLayout = static_cast<nvrhi::IInputLayout*>(inputLayout);
+        AsGraphicsPipelineDesc(graphicsPipelineDesc)->inputLayout = inputLayout;
     }
 
     // primitiveType: an nvrhi::PrimitiveType value.
@@ -5028,12 +5028,12 @@ extern "C"
     }
 
     // Hull and domain shaders, drawing patches of controlPoints vertices.
-    void Donut_GraphicsPipelineSetTessellation(void* graphicsPipelineDesc, void* hullShader, void* domainShader,
+    void Donut_GraphicsPipelineSetTessellation(void* graphicsPipelineDesc, nvrhi::IShader* hullShader, nvrhi::IShader* domainShader,
         int controlPoints)
     {
         PipelineDesc* desc = AsGraphicsPipelineDesc(graphicsPipelineDesc);
-        desc->HS =static_cast<nvrhi::IShader*>(hullShader);
-        desc->DS = static_cast<nvrhi::IShader*>(domainShader);
+        desc->HS =hullShader;
+        desc->DS = domainShader;
         desc->primType = nvrhi::PrimitiveType::PatchList;
         desc->patchControlPoints = static_cast<uint32_t>(controlPoints);
     }
@@ -7784,7 +7784,7 @@ extern "C"
     // broadcasting entry node entryNodeName overridden with gridX x gridY x gridZ. Creates its
     // backing memory too. Release it with Donut_ReleaseObject. Returns null (after logging why) on
     // failure.
-    void* Donut_CreateD3D12WorkGraph(App* app, void* shaderLibrary, void* computePipeline, const char* programName,
+    void* Donut_CreateD3D12WorkGraph(App* app, nvrhi::IShaderLibrary* shaderLibrary, void* computePipeline, const char* programName,
         const char* entryNodeName, int gridX, int gridY, int gridZ)
     {
 #if DONUT_WITH_DX12
@@ -7807,7 +7807,7 @@ extern "C"
         const std::wstring program = Widen(programName);
         const std::wstring entryNode = Widen(entryNodeName);
         D3D12_SHADER_BYTECODE libraryCode = {};
-        static_cast<nvrhi::IShaderLibrary*>(shaderLibrary)->getBytecode(&libraryCode.pShaderBytecode, &libraryCode.BytecodeLength);
+        shaderLibrary->getBytecode(&libraryCode.pShaderBytecode, &libraryCode.BytecodeLength);
         ID3D12RootSignature* rootSignature = static_cast<nvrhi::IComputePipeline*>(computePipeline)->getNativeObject(
             nvrhi::ObjectTypes::D3D12_RootSignature);
 

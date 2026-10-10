@@ -159,13 +159,13 @@ namespace VertexBuffer {
     // Port of Donut-Samples' vertex_buffer.cpp.
     class VertexBufferPass {
         private app: App;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
         private constantBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;
         private indexBuffer: BufferHandle;
         private texture: TextureHandle;
-        private inputLayout: Opaque;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private bindingSets: BindingSet[];
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.

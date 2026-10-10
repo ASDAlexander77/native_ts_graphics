@@ -217,8 +217,8 @@ namespace AsyncComputeBloom {
         private elapsedTime: number;
         private hdrIndex: int;
 
-        private forwardInputLayout: Opaque;
-        private shadowInputLayout: Opaque;
+        private forwardInputLayout: InputLayoutHandle;
+        private shadowInputLayout: InputLayoutHandle;
         private shadowConstantBuffer: BufferHandle;
         private forwardConstantBuffer: BufferHandle;
         private vertexBuffer: BufferHandle;
@@ -248,8 +248,8 @@ namespace AsyncComputeBloom {
         private blurDownBindingSets: BindingSet[];
         private blurUpBindingSets: BindingSet[];
 
-        private compositePS: Opaque;
-        private compositeVS: Opaque;
+        private compositePS: ShaderHandle;
+        private compositeVS: ShaderHandle;
         private compositeBindingLayout: Opaque;
         private compositeBindingSets: BindingSet[];
         // Created on the first frame (the back buffer's layout), dropped on resize.

@@ -377,18 +377,18 @@ namespace Bokeh {
         private recombineLayout: Opaque;
         private copyLayout: Opaque;
         private energyLayout: Opaque;
-        private inputLayout: Opaque;
-        private sceneVS: Opaque;
-        private scenePS: Opaque;
-        private quadVS: Opaque;
-        private createRgbzPS: Opaque;
-        private downsampleRgbzPS: Opaque;
-        private quadPointVS: Opaque;
-        private quadPointGS: Opaque;
-        private quadPointFastGS: Opaque;
-        private quadPointPS: Opaque;
-        private recombinePS: Opaque;
-        private copyPS: Opaque;
+        private inputLayout: InputLayoutHandle;
+        private sceneVS: ShaderHandle;
+        private scenePS: ShaderHandle;
+        private quadVS: ShaderHandle;
+        private createRgbzPS: ShaderHandle;
+        private downsampleRgbzPS: ShaderHandle;
+        private quadPointVS: ShaderHandle;
+        private quadPointGS: ShaderHandle;
+        private quadPointFastGS: ShaderHandle;
+        private quadPointPS: ShaderHandle;
+        private recombinePS: ShaderHandle;
+        private copyPS: ShaderHandle;
         private energyPipeline: Opaque;
         private energyBindingSet: BindingSet;
         private objectBindingSets: BindingSet[];
@@ -757,7 +757,7 @@ namespace Bokeh {
         }
 
         // The full-screen passes: no depth, nothing culled (the triangles face the camera anyway).
-        fullScreenDesc(pixelShader: Opaque, layout: Opaque): GraphicsPipelineDesc {
+        fullScreenDesc(pixelShader: ShaderHandle, layout: Opaque): GraphicsPipelineDesc {
             const desc = GraphicsPipelineDesc.create(this.quadVS, pixelShader);
             desc.addBindingLayout(layout);
             desc.setDepthState(0, 0, ComparisonFunc.Always);

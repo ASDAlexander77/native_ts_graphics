@@ -56,9 +56,9 @@ namespace SmallResources {
         private bindingLayout: Opaque;
         private pipeline: Opaque;
         private hasPipeline: boolean;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
-        private inputLayout: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private vertexBuffer: BufferHandle;
         private sampler: SamplerHandle;
         private textures: TextureHandle[];

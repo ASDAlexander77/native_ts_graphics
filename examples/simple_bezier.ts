@@ -235,11 +235,11 @@ namespace SimpleBezier {
         private cameraEye: number[];
         private held: boolean[];
 
-        private vs: Opaque;
-        private hullShaders: Opaque[];
-        private ds: Opaque;
-        private pixelShaders: Opaque[];
-        private inputLayout: Opaque;
+        private vs: ShaderHandle;
+        private hullShaders: ShaderHandle[];
+        private ds: ShaderHandle;
+        private pixelShaders: ShaderHandle[];
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private constantBuffer: BufferHandle;

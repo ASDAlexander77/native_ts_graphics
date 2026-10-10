@@ -258,14 +258,14 @@ namespace GshaderToMshader {
         private mouseX: number;
         private mouseY: number;
 
-        private modelVS: Opaque;
-        private modelPS: Opaque;
-        private baseVS: Opaque;
-        private normalsGS: Opaque;
-        private basePS: Opaque;
-        private normalsMS: Opaque;
-        private meshPS: Opaque;
-        private inputLayout: Opaque;
+        private modelVS: ShaderHandle;
+        private modelPS: ShaderHandle;
+        private baseVS: ShaderHandle;
+        private normalsGS: ShaderHandle;
+        private basePS: ShaderHandle;
+        private normalsMS: ShaderHandle;
+        private meshPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private meshBindingLayout: Opaque;
         private constantBuffer: BufferHandle;

@@ -154,13 +154,13 @@ namespace RasterizationOrderAttachmentAccess {
         private mouseX: number;
         private mouseY: number;
 
-        private fullscreenVS: Opaque;
-        private backgroundPS: Opaque;
-        private blendVS: Opaque;
-        private blendPS: Opaque;
-        private blendRovPS: Opaque;
-        private displayPS: Opaque;
-        private inputLayout: Opaque;
+        private fullscreenVS: ShaderHandle;
+        private backgroundPS: ShaderHandle;
+        private blendVS: ShaderHandle;
+        private blendPS: ShaderHandle;
+        private blendRovPS: ShaderHandle;
+        private displayPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private backgroundBindingLayout: Opaque;
         private blendBindingLayout: Opaque;
         private displayBindingLayout: Opaque;

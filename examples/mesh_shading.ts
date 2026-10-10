@@ -13,8 +13,8 @@ namespace MeshShading {
     // D3D12 and Vulkan (mesh shaders).
     class MeshShadingPass {
         private app: App;
-        private meshShader: Opaque;
-        private pixelShader: Opaque;
+        private meshShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
         private pipeline: Opaque;
         private pipelineCreated: boolean;
 

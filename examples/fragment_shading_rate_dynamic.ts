@@ -237,9 +237,9 @@ namespace FragmentShadingRateDynamic {
         private rateCount: int;
         private tileSize: int;
 
-        private sceneVS: Opaque;
-        private scenePS: Opaque;
-        private inputLayout: Opaque;
+        private sceneVS: ShaderHandle;
+        private scenePS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private skysphereMesh: GltfMesh;
         private sceneMesh: GltfMesh;
         private skyspherePipeline: Opaque;

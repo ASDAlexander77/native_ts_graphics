@@ -22,10 +22,10 @@ namespace ColorWriteEnable {
         gBitEnabled: boolean;
         bBitEnabled: boolean;
 
-        private triangleVS: Opaque;
-        private trianglePS: Opaque;
-        private compositionVS: Opaque;
-        private compositionPS: Opaque;
+        private triangleVS: ShaderHandle;
+        private trianglePS: ShaderHandle;
+        private compositionVS: ShaderHandle;
+        private compositionPS: ShaderHandle;
         private compositionBindingLayout: Opaque;
 
         // The sample's three attachments (the back buffer's format, sRGB), their framebuffer and

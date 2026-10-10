@@ -41,7 +41,7 @@ namespace VariableShading {
         private view: View;
         private viewPrevious: View;
         private previousViewsValid: boolean;
-        private shadingRateSurfaceShader: Opaque;
+        private shadingRateSurfaceShader: ShaderHandle;
         private vrsTileSize: int;
         // Created on the first frame, dropped on resize.
         private renderTargets: TemporalTargets;

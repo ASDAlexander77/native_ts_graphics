@@ -120,9 +120,9 @@ namespace ConditionalRendering {
         private mouseX: number;
         private mouseY: number;
 
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
-        private inputLayout: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private constantBuffer: BufferHandle;

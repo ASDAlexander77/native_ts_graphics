@@ -175,9 +175,9 @@ namespace FragmentShadingRate {
         private tileSize: int;
         private scratch: f32[];
 
-        private sceneVS: Opaque;
-        private scenePS: Opaque;
-        private inputLayout: Opaque;
+        private sceneVS: ShaderHandle;
+        private scenePS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private skysphereMesh: GltfMesh;
         private sceneMesh: GltfMesh;
         private bindingLayout: Opaque;

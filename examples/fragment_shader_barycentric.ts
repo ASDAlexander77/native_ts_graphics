@@ -111,11 +111,11 @@ namespace FragmentShaderBarycentric {
         private mouseX: number;
         private mouseY: number;
 
-        private skyboxVS: Opaque;
-        private skyboxPS: Opaque;
-        private objectVS: Opaque;
-        private objectPS: Opaque;
-        private inputLayout: Opaque;
+        private skyboxVS: ShaderHandle;
+        private skyboxPS: ShaderHandle;
+        private objectVS: ShaderHandle;
+        private objectPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private constantBuffer: BufferHandle;
         private skybox: GltfMesh;
@@ -216,7 +216,7 @@ namespace FragmentShaderBarycentric {
         // The sample's pipelines: no depth test or writes (the skybox is drawn first),
         // counter-clockwise front faces; back faces culled for the skybox, front faces for the
         // object. The sample's projection keeps its framebuffer coordinates, so its cull modes too.
-        createPipeline(framebuffer: Opaque, vertexShader: Opaque, pixelShader: Opaque, cullMode: CullMode): Opaque {
+        createPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, cullMode: CullMode): Opaque {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.bindingLayout);

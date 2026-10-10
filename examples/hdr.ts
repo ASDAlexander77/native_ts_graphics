@@ -89,15 +89,15 @@ namespace Hdr {
         bloom: boolean;
         displaySkybox: boolean;
 
-        private skyboxVS: Opaque;
-        private skyboxPS: Opaque;
-        private reflectVS: Opaque;
-        private reflectPS: Opaque;
-        private fullscreenVS: Opaque;
-        private compositionPS: Opaque;
-        private bloomFilterPS: Opaque;
-        private bloomCompositePS: Opaque;
-        private inputLayout: Opaque;
+        private skyboxVS: ShaderHandle;
+        private skyboxPS: ShaderHandle;
+        private reflectVS: ShaderHandle;
+        private reflectPS: ShaderHandle;
+        private fullscreenVS: ShaderHandle;
+        private compositionPS: ShaderHandle;
+        private bloomFilterPS: ShaderHandle;
+        private bloomCompositePS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private modelsBindingLayout: Opaque;
         private postBindingLayout: Opaque;
         private matricesBuffer: BufferHandle;
@@ -231,7 +231,7 @@ namespace Hdr {
         // The skybox and the object, into the offscreen targets: reversed depth (greater passes),
         // counter-clockwise front faces. The sample's projection keeps its framebuffer
         // coordinates, so its cull modes too.
-        createModelPipeline(framebuffer: Opaque, vertexShader: Opaque, pixelShader: Opaque, depthTestAndWrite: int,
+        createModelPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, depthTestAndWrite: int,
             cullMode: CullMode): Opaque {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(this.inputLayout);

@@ -164,9 +164,9 @@ namespace SeparateImageSampler {
         // The sample's setting: the sampler in use (0 linear, 1 nearest).
         selectedSampler: int;
 
-        private vs: Opaque;
-        private ps: Opaque;
-        private inputLayout: Opaque;
+        private vs: ShaderHandle;
+        private ps: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private samplerBindingLayout: Opaque;

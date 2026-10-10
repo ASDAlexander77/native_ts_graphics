@@ -10,9 +10,9 @@ namespace Meshlets {
     // Port of Donut-Samples' meshlets.cpp.
     class MeshletPass {
         private app: App;
-        private amplificationShader: Opaque;
-        private meshShader: Opaque;
-        private pixelShader: Opaque;
+        private amplificationShader: ShaderHandle;
+        private meshShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private pipeline: Opaque | null;
 

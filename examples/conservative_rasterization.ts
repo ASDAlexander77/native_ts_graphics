@@ -128,13 +128,13 @@ namespace ConservativeRasterization {
         private mouseX: number;
         private mouseY: number;
 
-        private triangleVS: Opaque;
-        private trianglePS: Opaque;
-        private overlayGS: Opaque;
-        private overlayPS: Opaque;
-        private fullscreenVS: Opaque;
-        private fullscreenPS: Opaque;
-        private inputLayout: Opaque;
+        private triangleVS: ShaderHandle;
+        private trianglePS: ShaderHandle;
+        private overlayGS: ShaderHandle;
+        private overlayPS: ShaderHandle;
+        private fullscreenVS: ShaderHandle;
+        private fullscreenPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private sceneBindingLayout: Opaque;
         private fullscreenBindingLayout: Opaque;
         private constantBuffer: BufferHandle;

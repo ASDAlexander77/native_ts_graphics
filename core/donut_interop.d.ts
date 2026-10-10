@@ -733,29 +733,29 @@ enum ShaderType {
 
 // Resources are owned by the app until released or the app is destroyed; null on failure.
 // Shaders come from the example's shaders/<example>.cfg, compiled at build time.
-declare function Donut_CreateShader(app: AppHandle, fileName: string, entryName: string, shaderType: ShaderType): Opaque;
+declare function Donut_CreateShader(app: AppHandle, fileName: string, entryName: string, shaderType: ShaderType): ShaderHandle;
 // Specializes one constant ([[vk::constant_id(constantId)]] in HLSL) of a SPIR-V shader;
 // requires Feature.ShaderSpecializations (Vulkan only). The UInt variant uses value's bits as-is.
-declare function Donut_SpecializeShaderFloat(app: AppHandle, shader: Opaque, constantId: int, value: number): Opaque;
-declare function Donut_SpecializeShaderUInt(app: AppHandle, shader: Opaque, constantId: int, value: int): Opaque;
+declare function Donut_SpecializeShaderFloat(app: AppHandle, shader: ShaderHandle, constantId: int, value: number): ShaderHandle;
+declare function Donut_SpecializeShaderUInt(app: AppHandle, shader: ShaderHandle, constantId: int, value: int): ShaderHandle;
 // Shader library, compiled with -T lib.
-declare function Donut_CreateShaderLibrary(app: AppHandle, fileName: string): Opaque;
+declare function Donut_CreateShaderLibrary(app: AppHandle, fileName: string): ShaderLibraryHandle;
 // The permutations compiled with -D defineName=defineValue in the .cfg.
 declare function Donut_CreateShaderWithDefine(app: AppHandle, fileName: string, entryName: string, shaderType: ShaderType,
-    defineName: string, defineValue: string): Opaque;
-declare function Donut_CreateShaderLibraryWithDefine(app: AppHandle, fileName: string, defineName: string, defineValue: string): Opaque;
+    defineName: string, defineValue: string): ShaderHandle;
+declare function Donut_CreateShaderLibraryWithDefine(app: AppHandle, fileName: string, defineName: string, defineValue: string): ShaderLibraryHandle;
 // Triangle list, no depth test, for the frame's framebuffer layout.
-declare function Donut_CreateGraphicsPipeline(app: AppHandle, frame: FrameHandle, vertexShader: Opaque, pixelShader: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipeline(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle): Opaque;
 // Same, with an input layout and one binding layout.
-declare function Donut_CreateGraphicsPipelineWithLayouts(app: AppHandle, frame: FrameHandle, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipelineWithLayouts(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque): Opaque;
 // Same, drawing primitiveType, with each layout optional (null for none).
-declare function Donut_CreateGraphicsPipelineWithTopology(app: AppHandle, frame: FrameHandle, vertexShader: Opaque, pixelShader: Opaque,
-    inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque;
+declare function Donut_CreateGraphicsPipelineWithTopology(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle,
+    inputLayout: InputLayoutHandle | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque;
 // Same, blending into the framebuffer with blendMode.
-declare function Donut_CreateGraphicsPipelineWithBlend(app: AppHandle, frame: FrameHandle, vertexShader: Opaque, pixelShader: Opaque,
-    inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque;
+declare function Donut_CreateGraphicsPipelineWithBlend(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle,
+    inputLayout: InputLayoutHandle | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque;
 // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
-declare function Donut_CreateMeshletPipeline(app: AppHandle, frame: FrameHandle, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque;
+declare function Donut_CreateMeshletPipeline(app: AppHandle, frame: FrameHandle, amplificationShader: ShaderHandle, meshShader: ShaderHandle, pixelShader: ShaderHandle): Opaque;
 // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
 declare function Donut_ReleaseResource(app: AppHandle, resource: ResourceHandle): void;
 
@@ -885,24 +885,24 @@ declare function Donut_CopyTextureRegion(commandList: CommandListHandle, dstText
     srcTexture: TextureHandle, srcMip: int, srcX: int, srcY: int, width: int, height: int): void;
 // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
 // writes, back faces culled (clockwise triangles are front faces).
-declare function Donut_CreateGraphicsPipelineForFramebuffer(app: AppHandle, framebuffer: Opaque, vertexShader: Opaque,
-    pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipelineForFramebuffer(app: AppHandle, framebuffer: Opaque, vertexShader: ShaderHandle,
+    pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque): Opaque;
 // Graphics pipelines of any shape: a description built with the Donut_GraphicsPipeline* functions,
 // freed by Donut_CreateGraphicsPipelineFromDesc. It starts as a triangle list with NVRHI's default
 // render state: depth test (less) and writes, back faces culled (clockwise triangles are front
 // faces), solid fill, no blending.
-declare function Donut_CreateGraphicsPipelineDesc(vertexShader: Opaque, pixelShader: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipelineDesc(vertexShader: ShaderHandle, pixelShader: ShaderHandle): Opaque;
 // Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (null for none),
 // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the mesh
 // shader outputs (its outputtopology).
-declare function Donut_CreateMeshletPipelineDesc(amplificationShader: Opaque | null, meshShader: Opaque, pixelShader: Opaque): Opaque;
+declare function Donut_CreateMeshletPipelineDesc(amplificationShader: ShaderHandle | null, meshShader: ShaderHandle, pixelShader: ShaderHandle): Opaque;
 declare function Donut_GraphicsPipelineAddBindingLayout(graphicsPipelineDesc: Opaque, bindingLayout: Opaque): void;
-declare function Donut_GraphicsPipelineSetInputLayout(graphicsPipelineDesc: Opaque, inputLayout: Opaque): void;
+declare function Donut_GraphicsPipelineSetInputLayout(graphicsPipelineDesc: Opaque, inputLayout: InputLayoutHandle): void;
 declare function Donut_GraphicsPipelineSetPrimitiveType(graphicsPipelineDesc: Opaque, primitiveType: PrimitiveType): void;
 // A geometry shader between the vertex (or domain) shader and the rasterizer.
-declare function Donut_GraphicsPipelineSetGeometryShader(graphicsPipelineDesc: Opaque, geometryShader: Opaque): void;
+declare function Donut_GraphicsPipelineSetGeometryShader(graphicsPipelineDesc: Opaque, geometryShader: ShaderHandle): void;
 // Hull and domain shaders, drawing patches of controlPoints vertices.
-declare function Donut_GraphicsPipelineSetTessellation(graphicsPipelineDesc: Opaque, hullShader: Opaque, domainShader: Opaque,
+declare function Donut_GraphicsPipelineSetTessellation(graphicsPipelineDesc: Opaque, hullShader: ShaderHandle, domainShader: ShaderHandle,
     controlPoints: int): void;
 declare function Donut_GraphicsPipelineSetDepthState(graphicsPipelineDesc: Opaque, testEnable: int, writeEnable: int,
     depthFunc: ComparisonFunc): void;
@@ -1076,13 +1076,13 @@ declare function Donut_CreateBorderSampler(app: AppHandle, linearMin: int, linea
 declare function Donut_GetMaxSamplerAnisotropy(app: AppHandle): number;
 
 // Built up with Donut_AddVertexAttribute, then consumed (freed) by Donut_CreateInputLayout.
-declare function Donut_CreateInputLayoutDesc(): Opaque;
+declare function Donut_CreateInputLayoutDesc(): InputLayoutDescHandle;
 // Vertex shader input `name` (its semantic), read from vertex buffer slot bufferIndex at byte
 // offset `offset` of each elementStride-byte element.
-declare function Donut_AddVertexAttribute(inputLayoutDesc: Opaque, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
+declare function Donut_AddVertexAttribute(inputLayoutDesc: InputLayoutDescHandle, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
 // Same, read once per instance instead of once per vertex.
-declare function Donut_AddInstanceVertexAttribute(inputLayoutDesc: Opaque, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
-declare function Donut_CreateInputLayout(app: AppHandle, inputLayoutDesc: Opaque, vertexShader: Opaque): Opaque;
+declare function Donut_AddInstanceVertexAttribute(inputLayoutDesc: InputLayoutDescHandle, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
+declare function Donut_CreateInputLayout(app: AppHandle, inputLayoutDesc: InputLayoutDescHandle, vertexShader: ShaderHandle): InputLayoutHandle;
 
 // Input for acceleration structure builds (index or vertex data).
 declare function Donut_CreateAccelStructInputBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
@@ -1160,7 +1160,7 @@ declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: Opaque): Opaque;
 // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
 // no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
 // global binding layout.
-declare function Donut_CreateRayTracingPipeline(app: AppHandle, shaderLibrary: Opaque, bindingLayout: Opaque,
+declare function Donut_CreateRayTracingPipeline(app: AppHandle, shaderLibrary: ShaderLibraryHandle, bindingLayout: Opaque,
     rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque;
 // One ray generation shader, hit group and miss shader, by export name; keeps the pipeline alive.
 declare function Donut_CreateShaderTable(app: AppHandle, rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string, missExport: string): Opaque;
@@ -1169,7 +1169,7 @@ declare function Donut_CreateCachedShaderTable(app: AppHandle, rayTracingPipelin
     missExport: string, maxCachedVersions: int, debugName: string): Opaque;
 // Like Donut_CreateRayTracingPipeline, with an any-hit shader too (either hit shader may be ""),
 // and a second global binding layout (e.g. bindless; null for none).
-declare function Donut_CreateRayTracingPipelineWithLayouts(app: AppHandle, shaderLibrary: Opaque, bindingLayout: Opaque,
+declare function Donut_CreateRayTracingPipelineWithLayouts(app: AppHandle, shaderLibrary: ShaderLibraryHandle, bindingLayout: Opaque,
     secondBindingLayout: Opaque | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string,
     anyHitEntry: string, maxPayloadSize: int): Opaque;
 
@@ -1242,14 +1242,14 @@ declare function Donut_SetBindingLayoutRegisterSpace(bindingLayoutDesc: Opaque, 
 declare function Donut_CreateRayTracingPipelineDesc(maxPayloadSize: int, maxRecursionDepth: int): Opaque;
 declare function Donut_RtPipelineAddGlobalBindingLayout(pipelineDesc: Opaque, bindingLayout: Opaque): void;
 // A ray generation or miss shader, exported by its entry name.
-declare function Donut_RtPipelineAddShader(pipelineDesc: Opaque, shaderLibrary: Opaque, entryName: string, shaderType: ShaderType): void;
+declare function Donut_RtPipelineAddShader(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, entryName: string, shaderType: ShaderType): void;
 // Triangle hit group; "" for no closest-hit / any-hit shader; an optional local binding layout
 // (D3D12 only), whose binding sets come with each shader table entry.
-declare function Donut_RtPipelineAddHitGroup(pipelineDesc: Opaque, shaderLibrary: Opaque, exportName: string,
+declare function Donut_RtPipelineAddHitGroup(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, exportName: string,
     closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void;
 // Procedural primitive hit group, for AABB geometries (Donut_AddTriangleBlasAabbGeometry): its
 // intersection shader by entry name, then closest-hit / any-hit shaders as above ("" for none).
-declare function Donut_RtPipelineAddProceduralHitGroup(pipelineDesc: Opaque, shaderLibrary: Opaque, exportName: string,
+declare function Donut_RtPipelineAddProceduralHitGroup(pipelineDesc: Opaque, shaderLibrary: ShaderLibraryHandle, exportName: string,
     intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void;
 // The largest hit attributes the pipeline's shaders pass (ReportHit's attributes; the default is 8
 // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
@@ -1300,11 +1300,11 @@ declare function Donut_LayoutPushConstants(bindingLayoutDesc: Opaque, slot: int,
 // Register space 0, visible to shaderType's stages.
 declare function Donut_CreateBindingLayout(app: AppHandle, bindingLayoutDesc: Opaque, shaderType: ShaderType): Opaque;
 // Uses the layout of bindingSet.
-declare function Donut_CreateComputePipeline(app: AppHandle, computeShader: Opaque, bindingSet: Opaque): Opaque;
+declare function Donut_CreateComputePipeline(app: AppHandle, computeShader: ShaderHandle, bindingSet: Opaque): Opaque;
 // Same, from a binding layout.
-declare function Donut_CreateComputePipelineWithLayout(app: AppHandle, computeShader: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateComputePipelineWithLayout(app: AppHandle, computeShader: ShaderHandle, bindingLayout: Opaque): Opaque;
 // Same, with a second binding layout (e.g. bindless; null for none).
-declare function Donut_CreateComputePipelineWithLayouts(app: AppHandle, computeShader: Opaque, bindingLayout: Opaque,
+declare function Donut_CreateComputePipelineWithLayouts(app: AppHandle, computeShader: ShaderHandle, bindingLayout: Opaque,
     secondBindingLayout: Opaque | null): Opaque;
 // A binding set from the app's binding cache (the description is freed): created once, reused for
 // identical descriptions. Valid until Donut_ClearBindingCache.
@@ -1787,7 +1787,7 @@ declare function Donut_GetD3D12WorkGraphsTier(app: AppHandle): int;
 // A work graph program of all the nodes of a shader library (lib_6_8), with computePipeline's
 // root signature, and its broadcasting entry node's dispatch grid set to gridX x gridY x gridZ;
 // plus its backing memory. Release it with Donut_ReleaseObject. Null (after logging why) on failure.
-declare function Donut_CreateD3D12WorkGraph(app: AppHandle, shaderLibrary: Opaque, computePipeline: Opaque, programName: string,
+declare function Donut_CreateD3D12WorkGraph(app: AppHandle, shaderLibrary: ShaderLibraryHandle, computePipeline: Opaque, programName: string,
     entryNodeName: string, gridX: int, gridY: int, gridZ: int): Opaque | null;
 // Launches the graph with one empty entry record, bindingSet and byteSize bytes of push constants
 // from data as its root arguments, set through computePipeline (one with the same root signature;

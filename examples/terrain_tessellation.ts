@@ -82,12 +82,12 @@ namespace TerrainTessellation {
         private ui: UIData;
         private camera: Camera;
 
-        private terrainVS: Opaque;
-        private terrainHS: Opaque;
-        private terrainDS: Opaque;
-        private terrainPS: Opaque;
-        private skyVS: Opaque;
-        private skyPS: Opaque;
+        private terrainVS: ShaderHandle;
+        private terrainHS: ShaderHandle;
+        private terrainDS: ShaderHandle;
+        private terrainPS: ShaderHandle;
+        private skyVS: ShaderHandle;
+        private skyPS: ShaderHandle;
         private bindingLayout: Opaque;
         private constantBuffer: BufferHandle;
         private heightmap: TextureHandle;

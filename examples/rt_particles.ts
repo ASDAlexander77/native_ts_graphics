@@ -210,7 +210,7 @@ namespace RtParticles {
         private appliedParticleTexture: int;
         private materialDirty: boolean;
         // (Re)created when ui.updatePipeline is set.
-        private computeShader: Opaque | null;
+        private computeShader: ShaderHandle | null;
         private computePipeline: Opaque | null;
         // Created on the first frame, dropped on resize.
         private colorBuffer: TextureHandle | null;

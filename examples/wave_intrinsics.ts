@@ -52,12 +52,12 @@ namespace WaveIntrinsics {
         private app: App;
         private sceneLayout: Opaque;
         private composeLayout: Opaque;
-        private waveVS: Opaque;
-        private wavePS: Opaque;
-        private magnifyVS: Opaque;
-        private magnifyPS: Opaque;
-        private waveInputLayout: Opaque;
-        private magnifyInputLayout: Opaque;
+        private waveVS: ShaderHandle;
+        private wavePS: ShaderHandle;
+        private magnifyVS: ShaderHandle;
+        private magnifyPS: ShaderHandle;
+        private waveInputLayout: InputLayoutHandle;
+        private magnifyInputLayout: InputLayoutHandle;
         private triangleBuffer: BufferHandle;
         private quadBuffer: BufferHandle;
         private constantBuffer: BufferHandle;

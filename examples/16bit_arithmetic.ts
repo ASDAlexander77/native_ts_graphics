@@ -102,8 +102,8 @@ namespace Khr16BitArithmetic {
         private computeBindingSetFP16: BindingSet;
         private blobBuffer: BufferHandle;
         private image: TextureHandle;
-        private visualizeVS: Opaque;
-        private visualizePS: Opaque;
+        private visualizeVS: ShaderHandle;
+        private visualizePS: ShaderHandle;
         private visualizeBindingLayout: Opaque;
         private visualizeBindingSet: BindingSet;
 

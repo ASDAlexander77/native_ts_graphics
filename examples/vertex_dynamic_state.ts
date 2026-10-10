@@ -173,12 +173,12 @@ namespace VertexDynamicState {
         private app: App;
         private camera: SampleCamera;
 
-        private skyboxVS: Opaque;
-        private skyboxPS: Opaque;
-        private objectVS: Opaque;
-        private objectPS: Opaque;
-        private gltfLayout: Opaque;
-        private sampleLayout: Opaque;
+        private skyboxVS: ShaderHandle;
+        private skyboxPS: ShaderHandle;
+        private objectVS: ShaderHandle;
+        private objectPS: ShaderHandle;
+        private gltfLayout: InputLayoutHandle;
+        private sampleLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
@@ -250,7 +250,7 @@ namespace VertexDynamicState {
         // The sample's create_pipeline: the skybox without depth, back faces culled
         // (counter-clockwise front faces); the object with depth tested (greater: reversed) and
         // written, front faces culled.
-        createPipeline(vs: Opaque, ps: Opaque, inputLayout: Opaque, object: boolean): Opaque {
+        createPipeline(vs: ShaderHandle, ps: ShaderHandle, inputLayout: InputLayoutHandle, object: boolean): Opaque {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.setInputLayout(inputLayout);
             desc.addBindingLayout(this.bindingLayout);

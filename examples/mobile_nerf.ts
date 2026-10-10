@@ -450,9 +450,9 @@ namespace MobileNerf {
         private app: App;
         private camera: SampleCamera;
 
-        private vs: Opaque;
-        private ps: Opaque;
-        private inputLayout: Opaque;
+        private vs: ShaderHandle;
+        private ps: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private globalBuffer: BufferHandle;
         private instanceBuffer: BufferHandle;

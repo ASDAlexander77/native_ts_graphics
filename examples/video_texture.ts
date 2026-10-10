@@ -133,10 +133,10 @@ namespace VideoTexture {
         private spriteLayout: Opaque;
         private cubeBindingSet: BindingSet;
         private spriteBindingSet: BindingSet;
-        private cubeVS: Opaque;
-        private cubePS: Opaque;
-        private spriteVS: Opaque;
-        private spritePS: Opaque;
+        private cubeVS: ShaderHandle;
+        private cubePS: ShaderHandle;
+        private spriteVS: ShaderHandle;
+        private spritePS: ShaderHandle;
         // Frame-sized, made on the first frame and after each resize.
         private colorTarget: TextureHandle | null;
         private depthTarget: TextureHandle | null;

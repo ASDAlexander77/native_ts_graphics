@@ -271,9 +271,9 @@ namespace DynamicBlending {
         // AdvancedBlend bits.
         advancedBlendOperations: int;
 
-        private vs: Opaque;
-        private ps: Opaque;
-        private inputLayout: Opaque;
+        private vs: ShaderHandle;
+        private ps: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private cameraBuffer: BufferHandle;

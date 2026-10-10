@@ -457,9 +457,9 @@ namespace RaytracingAo {
         private blurLayout: Opaque;
         private compositeLayout: Opaque;
         private shaderTable: ShaderTable;
-        private gbufferVS: Opaque;
-        private gbufferPS: Opaque;
-        private inputLayout: Opaque;
+        private gbufferVS: ShaderHandle;
+        private gbufferPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private prepare1Pipeline: Opaque;
         private prepare2Pipeline: Opaque;
         private render1Pipeline: Opaque;

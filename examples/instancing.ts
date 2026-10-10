@@ -81,14 +81,14 @@ namespace Instancing {
         private view: View;
         private paused: boolean;
 
-        private rocksVS: Opaque;
-        private rocksPS: Opaque;
-        private planetVS: Opaque;
-        private planetPS: Opaque;
-        private starfieldVS: Opaque;
-        private starfieldPS: Opaque;
-        private rocksInputLayout: Opaque;
-        private planetInputLayout: Opaque;
+        private rocksVS: ShaderHandle;
+        private rocksPS: ShaderHandle;
+        private planetVS: ShaderHandle;
+        private planetPS: ShaderHandle;
+        private starfieldVS: ShaderHandle;
+        private starfieldPS: ShaderHandle;
+        private rocksInputLayout: InputLayoutHandle;
+        private planetInputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private constantBuffer: BufferHandle;
         private rock: GltfMesh;
@@ -193,7 +193,7 @@ namespace Instancing {
         }
 
         // The rocks and the planet: reversed depth (greater passes), back faces culled.
-        createMeshPipeline(framebuffer: Opaque, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque): Opaque {
+        createMeshPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle): Opaque {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(inputLayout);
             desc.addBindingLayout(this.bindingLayout);

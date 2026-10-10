@@ -54,6 +54,10 @@ HANDLES = {
     "nvrhi::IStagingTexture": "StagingTextureHandle",
     "nvrhi::ISampler": "SamplerHandle",
     "nvrhi::IHeap": "HeapHandle",
+    "nvrhi::IShader": "ShaderHandle",
+    "nvrhi::IShaderLibrary": "ShaderLibraryHandle",
+    "nvrhi::IInputLayout": "InputLayoutHandle",
+    "InputLayoutDesc": "InputLayoutDescHandle",
 }
 
 # Parameters declared narrower than their C++ type: (function, parameter) -> (C++ type, TypeScript

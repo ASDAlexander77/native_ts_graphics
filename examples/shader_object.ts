@@ -263,19 +263,19 @@ namespace ShaderObjectSample {
         private camera: SampleCamera;
 
         // Shaders by stage, in the sample's order.
-        private skyboxVS: Opaque;
-        private skyboxPS: Opaque;
-        private terrainVS: Opaque;
-        private terrainPS: Opaque;
-        private basicVS: Opaque[];
-        private basicPS: Opaque[];
-        private materialVS: Opaque[];
-        private materialGS: Opaque[];
-        private materialPS: Opaque[];
-        private fsqVS: Opaque;
-        private postPS: Opaque[];
+        private skyboxVS: ShaderHandle;
+        private skyboxPS: ShaderHandle;
+        private terrainVS: ShaderHandle;
+        private terrainPS: ShaderHandle;
+        private basicVS: ShaderHandle[];
+        private basicPS: ShaderHandle[];
+        private materialVS: ShaderHandle[];
+        private materialGS: ShaderHandle[];
+        private materialPS: ShaderHandle[];
+        private fsqVS: ShaderHandle;
+        private postPS: ShaderHandle[];
 
-        private inputLayout: Opaque;
+        private inputLayout: InputLayoutHandle;
         private sceneLayout: Opaque;
         private sceneBindingSet: BindingSet;
         private postLayout: Opaque;

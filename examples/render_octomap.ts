@@ -411,14 +411,14 @@ namespace RenderOctomap {
         private mouseX: number;
         private mouseY: number;
 
-        private renderVS: Opaque;
-        private colorPS: Opaque;
-        private gltfVS: Opaque;
-        private splatVS: Opaque;
-        private splatPS: Opaque;
-        private octomapInputLayout: Opaque;
-        private gltfInputLayout: Opaque;
-        private splatInputLayout: Opaque;
+        private renderVS: ShaderHandle;
+        private colorPS: ShaderHandle;
+        private gltfVS: ShaderHandle;
+        private splatVS: ShaderHandle;
+        private splatPS: ShaderHandle;
+        private octomapInputLayout: InputLayoutHandle;
+        private gltfInputLayout: InputLayoutHandle;
+        private splatInputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private gltfBindingLayout: Opaque;
         private bindingSet: BindingSet;
@@ -659,7 +659,7 @@ namespace RenderOctomap {
             this.app.clearBindingCache();
         }
 
-        createPipeline(framebuffer: Opaque, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque,
+        createPipeline(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque,
             cullMode: CullMode, depthWrite: int, blendMode: BlendMode, primitiveType: PrimitiveType): Opaque {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(inputLayout);

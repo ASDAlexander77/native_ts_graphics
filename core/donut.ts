@@ -285,56 +285,56 @@ export class App {
 
     // Resources are owned by the app until released or the app is destroyed; null on failure.
     // Shaders come from the example's shaders/<example>.cfg, compiled at build time.
-    createShader(fileName: string, entryName: string, shaderType: ShaderType): Opaque {
+    createShader(fileName: string, entryName: string, shaderType: ShaderType): ShaderHandle {
         return Donut_CreateShader(this.handle, fileName, entryName, shaderType);
     }
 
     // Specializes one constant ([[vk::constant_id(constantId)]] in HLSL) of a SPIR-V shader;
     // requires Feature.ShaderSpecializations (Vulkan only). The UInt variant uses value's bits as-is.
-    specializeShaderFloat(shader: Opaque, constantId: int, value: number): Opaque {
+    specializeShaderFloat(shader: ShaderHandle, constantId: int, value: number): ShaderHandle {
         return Donut_SpecializeShaderFloat(this.handle, shader, constantId, value);
     }
 
-    specializeShaderUInt(shader: Opaque, constantId: int, value: int): Opaque {
+    specializeShaderUInt(shader: ShaderHandle, constantId: int, value: int): ShaderHandle {
         return Donut_SpecializeShaderUInt(this.handle, shader, constantId, value);
     }
 
     // Shader library, compiled with -T lib.
-    createShaderLibrary(fileName: string): Opaque {
+    createShaderLibrary(fileName: string): ShaderLibraryHandle {
         return Donut_CreateShaderLibrary(this.handle, fileName);
     }
 
     // The permutations compiled with -D defineName=defineValue in the .cfg.
-    createShaderWithDefine(fileName: string, entryName: string, shaderType: ShaderType, defineName: string, defineValue: string): Opaque {
+    createShaderWithDefine(fileName: string, entryName: string, shaderType: ShaderType, defineName: string, defineValue: string): ShaderHandle {
         return Donut_CreateShaderWithDefine(this.handle, fileName, entryName, shaderType, defineName, defineValue);
     }
 
-    createShaderLibraryWithDefine(fileName: string, defineName: string, defineValue: string): Opaque {
+    createShaderLibraryWithDefine(fileName: string, defineName: string, defineValue: string): ShaderLibraryHandle {
         return Donut_CreateShaderLibraryWithDefine(this.handle, fileName, defineName, defineValue);
     }
 
     // Triangle list, no depth test, for the frame's framebuffer layout.
-    createGraphicsPipeline(frame: Frame, vertexShader: Opaque, pixelShader: Opaque): Opaque {
+    createGraphicsPipeline(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle): Opaque {
         return Donut_CreateGraphicsPipeline(this.handle, frame.handle, vertexShader, pixelShader);
     }
 
     // Same, with an input layout and one binding layout.
-    createGraphicsPipelineWithLayouts(frame: Frame, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque {
+    createGraphicsPipelineWithLayouts(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque): Opaque {
         return Donut_CreateGraphicsPipelineWithLayouts(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout);
     }
 
     // Same, drawing primitiveType, with each layout optional (null for none).
-    createGraphicsPipelineWithTopology(frame: Frame, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque {
+    createGraphicsPipelineWithTopology(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque {
         return Donut_CreateGraphicsPipelineWithTopology(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout, primitiveType);
     }
 
     // Same, blending into the framebuffer with blendMode.
-    createGraphicsPipelineWithBlend(frame: Frame, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque {
+    createGraphicsPipelineWithBlend(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque {
         return Donut_CreateGraphicsPipelineWithBlend(this.handle, frame.handle, vertexShader, pixelShader, inputLayout, bindingLayout, primitiveType, blendMode);
     }
 
     // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
-    createMeshletPipeline(frame: Frame, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque {
+    createMeshletPipeline(frame: Frame, amplificationShader: ShaderHandle, meshShader: ShaderHandle, pixelShader: ShaderHandle): Opaque {
         return Donut_CreateMeshletPipeline(this.handle, frame.handle, amplificationShader, meshShader, pixelShader);
     }
 
@@ -543,7 +543,7 @@ export class App {
 
     // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
     // writes, back faces culled (clockwise triangles are front faces).
-    createGraphicsPipelineForFramebuffer(framebuffer: Opaque, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque {
+    createGraphicsPipelineForFramebuffer(framebuffer: Opaque, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: Opaque): Opaque {
         return Donut_CreateGraphicsPipelineForFramebuffer(this.handle, framebuffer, vertexShader, pixelShader, inputLayout, bindingLayout);
     }
 
@@ -665,7 +665,7 @@ export class App {
         return Donut_GetMaxSamplerAnisotropy(this.handle);
     }
 
-    createInputLayout(inputLayoutDesc: InputLayoutDesc, vertexShader: Opaque): Opaque {
+    createInputLayout(inputLayoutDesc: InputLayoutDesc, vertexShader: ShaderHandle): InputLayoutHandle {
         return Donut_CreateInputLayout(this.handle, inputLayoutDesc.handle, vertexShader);
     }
 
@@ -738,7 +738,7 @@ export class App {
     // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
     // no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
     // global binding layout.
-    createRayTracingPipeline(shaderLibrary: Opaque, bindingLayout: Opaque, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque {
+    createRayTracingPipeline(shaderLibrary: ShaderLibraryHandle, bindingLayout: Opaque, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque {
         return Donut_CreateRayTracingPipeline(this.handle, shaderLibrary, bindingLayout, rayGenEntry, missEntry, hitGroupName, closestHitEntry, maxPayloadSize);
     }
 
@@ -754,7 +754,7 @@ export class App {
 
     // Like Donut_CreateRayTracingPipeline, with an any-hit shader too (either hit shader may be ""),
     // and a second global binding layout (e.g. bindless; null for none).
-    createRayTracingPipelineWithLayouts(shaderLibrary: Opaque, bindingLayout: Opaque, secondBindingLayout: Opaque | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, anyHitEntry: string, maxPayloadSize: int): Opaque {
+    createRayTracingPipelineWithLayouts(shaderLibrary: ShaderLibraryHandle, bindingLayout: Opaque, secondBindingLayout: Opaque | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, anyHitEntry: string, maxPayloadSize: int): Opaque {
         return Donut_CreateRayTracingPipelineWithLayouts(this.handle, shaderLibrary, bindingLayout, secondBindingLayout, rayGenEntry, missEntry, hitGroupName, closestHitEntry, anyHitEntry, maxPayloadSize);
     }
 
@@ -814,17 +814,17 @@ export class App {
     }
 
     // Uses the layout of bindingSet.
-    createComputePipeline(computeShader: Opaque, bindingSet: BindingSet): Opaque {
+    createComputePipeline(computeShader: ShaderHandle, bindingSet: BindingSet): Opaque {
         return Donut_CreateComputePipeline(this.handle, computeShader, bindingSet.handle);
     }
 
     // Same, from a binding layout.
-    createComputePipelineWithLayout(computeShader: Opaque, bindingLayout: Opaque): Opaque {
+    createComputePipelineWithLayout(computeShader: ShaderHandle, bindingLayout: Opaque): Opaque {
         return Donut_CreateComputePipelineWithLayout(this.handle, computeShader, bindingLayout);
     }
 
     // Same, with a second binding layout (e.g. bindless; null for none).
-    createComputePipelineWithLayouts(computeShader: Opaque, bindingLayout: Opaque, secondBindingLayout: Opaque | null): Opaque {
+    createComputePipelineWithLayouts(computeShader: ShaderHandle, bindingLayout: Opaque, secondBindingLayout: Opaque | null): Opaque {
         return Donut_CreateComputePipelineWithLayouts(this.handle, computeShader, bindingLayout, secondBindingLayout);
     }
 
@@ -1133,7 +1133,7 @@ export class App {
     // A work graph program of all the nodes of a shader library (lib_6_8), with computePipeline's
     // root signature, and its broadcasting entry node's dispatch grid set to gridX x gridY x gridZ;
     // plus its backing memory. Release it with Donut_ReleaseObject. Null (after logging why) on failure.
-    createD3D12WorkGraph(shaderLibrary: Opaque, computePipeline: Opaque, programName: string, entryNodeName: string, gridX: int, gridY: int, gridZ: int): Opaque | null {
+    createD3D12WorkGraph(shaderLibrary: ShaderLibraryHandle, computePipeline: Opaque, programName: string, entryNodeName: string, gridX: int, gridY: int, gridZ: int): Opaque | null {
         return Donut_CreateD3D12WorkGraph(this.handle, shaderLibrary, computePipeline, programName, entryNodeName, gridX, gridY, gridZ);
     }
 
@@ -2064,10 +2064,10 @@ export class AdapterList {
 }
 
 export class InputLayoutDesc {
-    readonly handle: Opaque;
+    readonly handle: InputLayoutDescHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: InputLayoutDescHandle | null) {
+        this.handle = handle as InputLayoutDescHandle;
     }
 
     // True if the function that returned it failed.
@@ -2374,19 +2374,19 @@ export class RtPipelineDesc {
     }
 
     // A ray generation or miss shader, exported by its entry name.
-    addShader(shaderLibrary: Opaque, entryName: string, shaderType: ShaderType): void {
+    addShader(shaderLibrary: ShaderLibraryHandle, entryName: string, shaderType: ShaderType): void {
         Donut_RtPipelineAddShader(this.handle, shaderLibrary, entryName, shaderType);
     }
 
     // Triangle hit group; "" for no closest-hit / any-hit shader; an optional local binding layout
     // (D3D12 only), whose binding sets come with each shader table entry.
-    addHitGroup(shaderLibrary: Opaque, exportName: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
+    addHitGroup(shaderLibrary: ShaderLibraryHandle, exportName: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
         Donut_RtPipelineAddHitGroup(this.handle, shaderLibrary, exportName, closestHitEntry, anyHitEntry, localBindingLayout);
     }
 
     // Procedural primitive hit group, for AABB geometries (Donut_AddTriangleBlasAabbGeometry): its
     // intersection shader by entry name, then closest-hit / any-hit shaders as above ("" for none).
-    addProceduralHitGroup(shaderLibrary: Opaque, exportName: string, intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
+    addProceduralHitGroup(shaderLibrary: ShaderLibraryHandle, exportName: string, intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
         Donut_RtPipelineAddProceduralHitGroup(this.handle, shaderLibrary, exportName, intersectionEntry, closestHitEntry, anyHitEntry, localBindingLayout);
     }
 
@@ -2418,14 +2418,14 @@ export class GraphicsPipelineDesc {
     // freed by Donut_CreateGraphicsPipelineFromDesc. It starts as a triangle list with NVRHI's default
     // render state: depth test (less) and writes, back faces culled (clockwise triangles are front
     // faces), solid fill, no blending.
-    static create(vertexShader: Opaque, pixelShader: Opaque): GraphicsPipelineDesc {
+    static create(vertexShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineDesc {
         return new GraphicsPipelineDesc(Donut_CreateGraphicsPipelineDesc(vertexShader, pixelShader));
     }
 
     // Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (null for none),
     // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the mesh
     // shader outputs (its outputtopology).
-    static createMeshlet(amplificationShader: Opaque | null, meshShader: Opaque, pixelShader: Opaque): GraphicsPipelineDesc {
+    static createMeshlet(amplificationShader: ShaderHandle | null, meshShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineDesc {
         return new GraphicsPipelineDesc(Donut_CreateMeshletPipelineDesc(amplificationShader, meshShader, pixelShader));
     }
 
@@ -2433,7 +2433,7 @@ export class GraphicsPipelineDesc {
         Donut_GraphicsPipelineAddBindingLayout(this.handle, bindingLayout);
     }
 
-    setInputLayout(inputLayout: Opaque): void {
+    setInputLayout(inputLayout: InputLayoutHandle): void {
         Donut_GraphicsPipelineSetInputLayout(this.handle, inputLayout);
     }
 
@@ -2442,12 +2442,12 @@ export class GraphicsPipelineDesc {
     }
 
     // A geometry shader between the vertex (or domain) shader and the rasterizer.
-    setGeometryShader(geometryShader: Opaque): void {
+    setGeometryShader(geometryShader: ShaderHandle): void {
         Donut_GraphicsPipelineSetGeometryShader(this.handle, geometryShader);
     }
 
     // Hull and domain shaders, drawing patches of controlPoints vertices.
-    setTessellation(hullShader: Opaque, domainShader: Opaque, controlPoints: int): void {
+    setTessellation(hullShader: ShaderHandle, domainShader: ShaderHandle, controlPoints: int): void {
         Donut_GraphicsPipelineSetTessellation(this.handle, hullShader, domainShader, controlPoints);
     }
 

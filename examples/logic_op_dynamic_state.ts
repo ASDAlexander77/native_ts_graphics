@@ -126,12 +126,12 @@ namespace LogicOpDynamicState {
         private mouseX: number;
         private mouseY: number;
 
-        private backgroundVS: Opaque;
-        private backgroundPS: Opaque;
-        private baselineVS: Opaque;
-        private baselinePS: Opaque;
-        private backgroundInputLayout: Opaque;
-        private baselineInputLayout: Opaque;
+        private backgroundVS: ShaderHandle;
+        private backgroundPS: ShaderHandle;
+        private baselineVS: ShaderHandle;
+        private baselinePS: ShaderHandle;
+        private backgroundInputLayout: InputLayoutHandle;
+        private baselineInputLayout: InputLayoutHandle;
         private backgroundBindingLayout: Opaque;
         private baselineBindingLayout: Opaque;
         private backgroundBindingSet: BindingSet;

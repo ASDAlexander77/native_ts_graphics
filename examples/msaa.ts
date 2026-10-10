@@ -198,12 +198,12 @@ namespace Msaa {
         private sceneBlendPipeline: Opaque;
         private postBindingSet: BindingSet;
 
-        private sceneVS: Opaque;
-        private scenePS: Opaque;
-        private postVS: Opaque;
-        private outlinePS: Opaque;
-        private outlineMSPS: Opaque;
-        private sceneInputLayout: Opaque;
+        private sceneVS: ShaderHandle;
+        private scenePS: ShaderHandle;
+        private postVS: ShaderHandle;
+        private outlinePS: ShaderHandle;
+        private outlineMSPS: ShaderHandle;
+        private sceneInputLayout: InputLayoutHandle;
         private sceneBindingLayout: Opaque;
         private postBindingLayout: Opaque;
         private sceneConstantBuffer: BufferHandle;

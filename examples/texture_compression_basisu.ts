@@ -208,9 +208,9 @@ namespace TextureCompressionBasisu {
         lastTranscodeTime: number;
         transcodeFailed: boolean;
 
-        private vs: Opaque;
-        private ps: Opaque;
-        private inputLayout: Opaque;
+        private vs: ShaderHandle;
+        private ps: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private sampler: SamplerHandle;
         private uniformBuffer: BufferHandle;

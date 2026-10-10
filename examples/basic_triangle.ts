@@ -10,8 +10,8 @@ namespace BasicTriangle {
     // Port of Donut-Samples' basic_triangle.cpp.
     class TrianglePass {
         private app: App;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private pipeline: Opaque | null;
 

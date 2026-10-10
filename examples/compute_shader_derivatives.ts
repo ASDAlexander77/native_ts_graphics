@@ -24,8 +24,8 @@ namespace ComputeShaderDerivatives {
         private computePipeline: Opaque;
         private computeBindingSet: BindingSet;
         private image: TextureHandle;
-        private fullscreenVS: Opaque;
-        private fullscreenPS: Opaque;
+        private fullscreenVS: ShaderHandle;
+        private fullscreenPS: ShaderHandle;
         private graphicsBindingLayout: Opaque;
         private graphicsBindingSet: BindingSet;
 

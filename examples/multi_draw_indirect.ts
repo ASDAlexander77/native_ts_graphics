@@ -135,9 +135,9 @@ namespace MultiDrawIndirect {
         instanceCount: int;
         modelCount: int;
 
-        private drawVS: Opaque;
-        private drawPS: Opaque;
-        private inputLayout: Opaque;
+        private drawVS: ShaderHandle;
+        private drawPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private drawBindingLayout: Opaque;
         private drawBindingSet: BindingSet;
         private cullPipeline: Opaque;

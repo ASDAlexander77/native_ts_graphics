@@ -304,14 +304,14 @@ namespace DynamicRenderingLocalRead {
         private app: App;
         private camera: SampleCamera;
 
-        private opaqueVS: Opaque;
-        private opaquePS: Opaque;
-        private compositionVS: Opaque;
-        private compositionPS: Opaque;
-        private transparentVS: Opaque;
-        private transparentPS: Opaque;
-        private opaqueInputLayout: Opaque;
-        private transparentInputLayout: Opaque;
+        private opaqueVS: ShaderHandle;
+        private opaquePS: ShaderHandle;
+        private compositionVS: ShaderHandle;
+        private compositionPS: ShaderHandle;
+        private transparentVS: ShaderHandle;
+        private transparentPS: ShaderHandle;
+        private opaqueInputLayout: InputLayoutHandle;
+        private transparentInputLayout: InputLayoutHandle;
         private opaqueBindingLayout: Opaque;
         private compositionBindingLayout: Opaque;
         private transparentBindingLayout: Opaque;

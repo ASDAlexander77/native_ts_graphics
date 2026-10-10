@@ -253,11 +253,11 @@ namespace DynamicLineRasterization {
         modes: int;
         maxLineWidth: number;
 
-        private baseVS: Opaque;
-        private basePS: Opaque;
-        private gridVS: Opaque;
-        private gridPS: Opaque;
-        private inputLayout: Opaque;
+        private baseVS: ShaderHandle;
+        private basePS: ShaderHandle;
+        private gridVS: ShaderHandle;
+        private gridPS: ShaderHandle;
+        private inputLayout: InputLayoutHandle;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private cameraBuffer: BufferHandle;
@@ -353,7 +353,7 @@ namespace DynamicLineRasterization {
 
         // The sample's pipeline state: no depth test, no culling, counter-clockwise front faces,
         // blending by the source's alpha (the alpha written as is).
-        pipelineDesc(vs: Opaque, ps: Opaque, primitiveType: PrimitiveType): GraphicsPipelineDesc {
+        pipelineDesc(vs: ShaderHandle, ps: ShaderHandle, primitiveType: PrimitiveType): GraphicsPipelineDesc {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.addBindingLayout(this.bindingLayout);
             desc.setPrimitiveType(primitiveType);

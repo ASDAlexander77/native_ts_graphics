@@ -39,8 +39,8 @@ namespace BindlessRendering {
         private sceneGraph: SceneGraph;
         private camera: Camera;
         private view: View;
-        private vertexShader: Opaque;
-        private pixelShader: Opaque;
+        private vertexShader: ShaderHandle;
+        private pixelShader: ShaderHandle;
         private bindlessLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
