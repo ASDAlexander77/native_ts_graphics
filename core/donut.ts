@@ -1355,7 +1355,7 @@ export class App {
     }
 
     // The lights a forward shading pass renders with, kept between its draws.
-    createForwardShadingContext(): Opaque {
+    createForwardShadingContext(): ForwardShadingContextHandle {
         return Donut_CreateForwardShadingContext(this.handle);
     }
 
@@ -1365,23 +1365,23 @@ export class App {
     }
 
     // Writes each pixel's material ID and instance index.
-    createMaterialIDPass(stencilWriteMask: int): Opaque {
+    createMaterialIDPass(stencilWriteMask: int): MaterialIdPassHandle {
         return Donut_CreateMaterialIDPass(this.handle, stencilWriteMask);
     }
 
     // Post-processing and other passes.
     // Single-sample targets only; renders with default parameters.
-    createSsaoPass(sceneRenderTargets: SceneRenderTargets): Opaque {
+    createSsaoPass(sceneRenderTargets: SceneRenderTargets): SsaoPassHandle {
         return Donut_CreateSsaoPass(this.handle, sceneRenderTargets.handle);
     }
 
-    createSkyPass(framebuffer: FramebufferFactoryHandle, view: View): Opaque {
+    createSkyPass(framebuffer: FramebufferFactoryHandle, view: View): SkyPassHandle {
         return Donut_CreateSkyPass(this.handle, framebuffer, view.handle);
     }
 
     // A lat-long (2D) or cube map environment texture drawn where the framebuffer's depth is still
     // clear; set the view up before creating it (its depth direction picks the pipeline).
-    createEnvironmentMapPass(framebuffer: FramebufferFactoryHandle, view: View, environmentMap: TextureHandle): Opaque {
+    createEnvironmentMapPass(framebuffer: FramebufferFactoryHandle, view: View, environmentMap: TextureHandle): EnvironmentMapPassHandle {
         return Donut_CreateEnvironmentMapPass(this.handle, framebuffer, view.handle, environmentMap);
     }
 
@@ -1394,7 +1394,7 @@ export class App {
         return new ToneMappingPass(Donut_CreateToneMappingPass(this.handle, framebuffer, view.handle, previousToneMappingPass ? (previousToneMappingPass as ToneMappingPass).handle : null));
     }
 
-    createBloomPass(framebuffer: FramebufferFactoryHandle, view: View): Opaque {
+    createBloomPass(framebuffer: FramebufferFactoryHandle, view: View): BloomPassHandle {
         return Donut_CreateBloomPass(this.handle, framebuffer, view.handle);
     }
 
@@ -1410,11 +1410,11 @@ export class App {
     }
 
     // Mip generation for a color texture with mips; Display draws them over the frame.
-    createMipMapGenPass(texture: TextureHandle): Opaque {
+    createMipMapGenPass(texture: TextureHandle): MipMapGenPassHandle {
         return Donut_CreateMipMapGenPass(this.handle, texture);
     }
 
-    displayMipMapGen(frame: Frame, mipMapGenPass: Opaque): void {
+    displayMipMapGen(frame: Frame, mipMapGenPass: MipMapGenPassHandle): void {
         Donut_DisplayMipMapGen(this.handle, frame.handle, mipMapGenPass);
     }
 
@@ -1937,12 +1937,12 @@ export class CommandList {
     }
 
     // A scene graph's lights, top / bottom ambient, and the enabled probes of a set (or null).
-    prepareForwardLights(forwardShadingPass: ForwardShadingPass, forwardShadingContext: Opaque, sceneGraph: SceneGraph, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: LightProbeSet | null): void {
+    prepareForwardLights(forwardShadingPass: ForwardShadingPass, forwardShadingContext: ForwardShadingContextHandle, sceneGraph: SceneGraph, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: LightProbeSet | null): void {
         Donut_PrepareForwardLights(this.handle, forwardShadingPass.handle, forwardShadingContext, sceneGraph.handle, topR, topG, topB, bottomR, bottomG, bottomB, lightProbeSet ? (lightProbeSet as LightProbeSet).handle : null);
     }
 
     // Opaque (transparent == 0) or transparent meshes into a framebuffer; previousView may be null.
-    renderForward(forwardShadingPass: ForwardShadingPass, forwardShadingContext: Opaque, view: View, previousView: View | null, framebuffer: FramebufferFactoryHandle, sceneGraph: SceneGraph, transparent: int, name: string, materialEvents: int): void {
+    renderForward(forwardShadingPass: ForwardShadingPass, forwardShadingContext: ForwardShadingContextHandle, view: View, previousView: View | null, framebuffer: FramebufferFactoryHandle, sceneGraph: SceneGraph, transparent: int, name: string, materialEvents: int): void {
         Donut_RenderForward(this.handle, forwardShadingPass.handle, forwardShadingContext, view.handle, previousView ? (previousView as View).handle : null, framebuffer, sceneGraph.handle, transparent, name, materialEvents);
     }
 
@@ -1950,7 +1950,7 @@ export class CommandList {
         Donut_RenderGBufferFill(this.handle, gbufferFillPass.handle, view.handle, previousView.handle, sceneRenderTargets.handle, sceneGraph.handle, materialEvents);
     }
 
-    renderMaterialIDs(materialIdPass: Opaque, view: View, previousView: View, sceneRenderTargets: SceneRenderTargets, sceneGraph: SceneGraph, transparent: int): void {
+    renderMaterialIDs(materialIdPass: MaterialIdPassHandle, view: View, previousView: View, sceneRenderTargets: SceneRenderTargets, sceneGraph: SceneGraph, transparent: int): void {
         Donut_RenderMaterialIDs(this.handle, materialIdPass, view.handle, previousView.handle, sceneRenderTargets.handle, sceneGraph.handle, transparent);
     }
 
@@ -1960,16 +1960,16 @@ export class CommandList {
         Donut_RenderDeferredLightingToHdr(this.handle, deferredLightingPass.handle, view.handle, sceneRenderTargets.handle, sceneGraph.handle, useAmbientOcclusion, topR, topG, topB, bottomR, bottomG, bottomB, lightProbeSet ? (lightProbeSet as LightProbeSet).handle : null);
     }
 
-    renderSsao(ssaoPass: Opaque, view: View): void {
+    renderSsao(ssaoPass: SsaoPassHandle, view: View): void {
         Donut_RenderSsao(this.handle, ssaoPass, view.handle);
     }
 
-    renderEnvironmentMap(environmentMapPass: Opaque, view: View): void {
+    renderEnvironmentMap(environmentMapPass: EnvironmentMapPassHandle, view: View): void {
         Donut_RenderEnvironmentMap(this.handle, environmentMapPass, view.handle);
     }
 
     // Around a directional light; other SkyParameters keep their defaults.
-    renderSky(skyPass: Opaque, view: View, light: Light, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number): void {
+    renderSky(skyPass: SkyPassHandle, view: View, light: Light, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number): void {
         Donut_RenderSky(this.handle, skyPass, view.handle, light.handle, brightness, glowSize, glowSharpness, glowIntensity, horizonSize);
     }
 
@@ -1991,7 +1991,7 @@ export class CommandList {
         Donut_RenderToneMapping(this.handle, toneMappingPass.handle, view.handle, sourceTexture, instantAdaptation);
     }
 
-    renderBloom(bloomPass: Opaque, framebuffer: FramebufferFactoryHandle, view: View, sourceTexture: TextureHandle, sigma: number, alpha: number): void {
+    renderBloom(bloomPass: BloomPassHandle, framebuffer: FramebufferFactoryHandle, view: View, sourceTexture: TextureHandle, sigma: number, alpha: number): void {
         Donut_RenderBloom(this.handle, bloomPass, framebuffer, view.handle, sourceTexture, sigma, alpha);
     }
 
@@ -2004,7 +2004,7 @@ export class CommandList {
         Donut_CapturePixel(this.handle, pixelReadbackPass.handle, x, y);
     }
 
-    dispatchMipMapGen(mipMapGenPass: Opaque): void {
+    dispatchMipMapGen(mipMapGenPass: MipMapGenPassHandle): void {
         Donut_DispatchMipMapGen(this.handle, mipMapGenPass);
     }
 
@@ -3220,10 +3220,10 @@ export class View {
 }
 
 export class CubemapTarget {
-    readonly handle: Opaque;
+    readonly handle: CubemapTargetHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: CubemapTargetHandle | null) {
+        this.handle = handle as CubemapTargetHandle;
     }
 
     // True if the function that returned it failed.
@@ -3247,10 +3247,10 @@ export class CubemapTarget {
 }
 
 export class GBufferTargets {
-    readonly handle: Opaque;
+    readonly handle: GBufferTargetsHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: GBufferTargetsHandle | null) {
+        this.handle = handle as GBufferTargetsHandle;
     }
 
     // True if the function that returned it failed.
@@ -3271,10 +3271,10 @@ export class GBufferTargets {
 }
 
 export class TemporalTargets {
-    readonly handle: Opaque;
+    readonly handle: TemporalTargetsHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: TemporalTargetsHandle | null) {
+        this.handle = handle as TemporalTargetsHandle;
     }
 
     // True if the function that returned it failed.
@@ -3295,10 +3295,10 @@ export class TemporalTargets {
 }
 
 export class SceneRenderTargets {
-    readonly handle: Opaque;
+    readonly handle: SceneRenderTargetsHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: SceneRenderTargetsHandle | null) {
+        this.handle = handle as SceneRenderTargetsHandle;
     }
 
     // True if the function that returned it failed.
@@ -3316,10 +3316,10 @@ export class SceneRenderTargets {
 }
 
 export class ShadowMap {
-    readonly handle: Opaque;
+    readonly handle: ShadowMapHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: ShadowMapHandle | null) {
+        this.handle = handle as ShadowMapHandle;
     }
 
     // True if the function that returned it failed.
@@ -3349,10 +3349,10 @@ export class ShadowMap {
 }
 
 export class DepthPass {
-    readonly handle: Opaque;
+    readonly handle: DepthPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: DepthPassHandle | null) {
+        this.handle = handle as DepthPassHandle;
     }
 
     // True if the function that returned it failed.
@@ -3366,10 +3366,10 @@ export class DepthPass {
 }
 
 export class ForwardShadingPass {
-    readonly handle: Opaque;
+    readonly handle: ForwardShadingPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: ForwardShadingPassHandle | null) {
+        this.handle = handle as ForwardShadingPassHandle;
     }
 
     // True if the function that returned it failed.
@@ -3383,10 +3383,10 @@ export class ForwardShadingPass {
 }
 
 export class GBufferFillPass {
-    readonly handle: Opaque;
+    readonly handle: GBufferFillPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: GBufferFillPassHandle | null) {
+        this.handle = handle as GBufferFillPassHandle;
     }
 
     // True if the function that returned it failed.
@@ -3400,10 +3400,10 @@ export class GBufferFillPass {
 }
 
 export class DeferredLightingPass {
-    readonly handle: Opaque;
+    readonly handle: DeferredLightingPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: DeferredLightingPassHandle | null) {
+        this.handle = handle as DeferredLightingPassHandle;
     }
 
     // True if the function that returned it failed.
@@ -3418,10 +3418,10 @@ export class DeferredLightingPass {
 }
 
 export class TemporalAntiAliasingPass {
-    readonly handle: Opaque;
+    readonly handle: TemporalAntiAliasingPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: TemporalAntiAliasingPassHandle | null) {
+        this.handle = handle as TemporalAntiAliasingPassHandle;
     }
 
     // True if the function that returned it failed.
@@ -3444,10 +3444,10 @@ export class TemporalAntiAliasingPass {
 }
 
 export class ToneMappingPass {
-    readonly handle: Opaque;
+    readonly handle: ToneMappingPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: ToneMappingPassHandle | null) {
+        this.handle = handle as ToneMappingPassHandle;
     }
 
     // True if the function that returned it failed.
@@ -3461,10 +3461,10 @@ export class ToneMappingPass {
 }
 
 export class PixelReadbackPass {
-    readonly handle: Opaque;
+    readonly handle: PixelReadbackPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: PixelReadbackPassHandle | null) {
+        this.handle = handle as PixelReadbackPassHandle;
     }
 
     // True if the function that returned it failed.
@@ -3478,10 +3478,10 @@ export class PixelReadbackPass {
 }
 
 export class Dlss {
-    readonly handle: Opaque;
+    readonly handle: DlssHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: DlssHandle | null) {
+        this.handle = handle as DlssHandle;
     }
 
     // True if the function that returned it failed.
@@ -3500,10 +3500,10 @@ export class Dlss {
 }
 
 export class LightProbeSet {
-    readonly handle: Opaque;
+    readonly handle: LightProbeSetHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: LightProbeSetHandle | null) {
+        this.handle = handle as LightProbeSetHandle;
     }
 
     // True if the function that returned it failed.
@@ -3542,10 +3542,10 @@ export class LightProbeSet {
 }
 
 export class LightProbeCapture {
-    readonly handle: Opaque;
+    readonly handle: LightProbeCaptureHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: LightProbeCaptureHandle | null) {
+        this.handle = handle as LightProbeCaptureHandle;
     }
 
     // True if the function that returned it failed.
@@ -3567,10 +3567,10 @@ export class LightProbeCapture {
 }
 
 export class LightProbeProcessingPass {
-    readonly handle: Opaque;
+    readonly handle: LightProbeProcessingPassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: LightProbeProcessingPassHandle | null) {
+        this.handle = handle as LightProbeProcessingPassHandle;
     }
 
     // True if the function that returned it failed.

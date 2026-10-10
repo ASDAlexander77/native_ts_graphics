@@ -193,20 +193,20 @@ namespace FeatureDemoExample {
         private renderTargetsHeight: int;
         private renderTargetsSampleCount: int;
         private forwardPass: ForwardShadingPass;
-        private forwardContext: Opaque;
+        private forwardContext: ForwardShadingContextHandle;
         private gbufferPass: GBufferFillPass;
         private deferredLightingPass: DeferredLightingPass;
-        private skyPass: Opaque | null;
+        private skyPass: SkyPassHandle | null;
         private temporalAntiAliasingPass: TemporalAntiAliasingPass;
         // A null handle without DLSS support.
         private dlss: Dlss;
-        private bloomPass: Opaque | null;
+        private bloomPass: BloomPassHandle | null;
         private toneMappingPass: ToneMappingPass;
-        private ssaoPass: Opaque | null;
+        private ssaoPass: SsaoPassHandle | null;
         private lightProbePass: LightProbeProcessingPass;
-        private materialIdPass: Opaque | null;
+        private materialIdPass: MaterialIdPassHandle | null;
         private pixelReadbackPass: PixelReadbackPass;
-        private mipMapGenPass: Opaque | null;
+        private mipMapGenPass: MipMapGenPassHandle | null;
 
         // The views of this frame and the previous one (swapped every frame), planar or stereo.
         private view: View;
@@ -458,7 +458,7 @@ namespace FeatureDemoExample {
             }
         }
 
-        releaseObject(object: Opaque | null): void {
+        releaseObject(object: ObjectHandle | null): void {
             if (object) {
                 this.app.releaseObject(object);
             }
@@ -782,17 +782,17 @@ namespace FeatureDemoExample {
             if (this.pick) {
                 commandList.clearTextureUInt(targets.getTexture(SceneTexture.MaterialIDs), 0xffff);
 
-                commandList.renderMaterialIDs(this.materialIdPass, view, viewPrevious, targets, sceneGraph, 0);
+                commandList.renderMaterialIDs(this.materialIdPass as MaterialIdPassHandle, view, viewPrevious, targets, sceneGraph, 0);
 
                 if (ui.enableTranslucency) {
-                    commandList.renderMaterialIDs(this.materialIdPass, view, viewPrevious, targets, sceneGraph, 1);
+                    commandList.renderMaterialIDs(this.materialIdPass as MaterialIdPassHandle, view, viewPrevious, targets, sceneGraph, 1);
                 }
 
                 commandList.capturePixel(this.pixelReadbackPass, this.pickX, this.pickY);
             }
 
             if (ui.enableProceduralSky) {
-                commandList.renderSky(this.skyPass, view, sunLight, ui.skyBrightness, ui.skyGlowSize,
+                commandList.renderSky(this.skyPass as SkyPassHandle, view, sunLight, ui.skyBrightness, ui.skyGlowSize,
                     ui.skyGlowSharpness, ui.skyGlowIntensity, ui.skyHorizonSize);
             }
 
@@ -832,7 +832,7 @@ namespace FeatureDemoExample {
                 finalHdrColor = targets.getTexture(SceneTexture.ResolvedColor);
 
                 if (ui.enableBloom) {
-                    commandList.renderBloom(this.bloomPass, targets.getFramebuffer(SceneFramebuffer.Resolved),
+                    commandList.renderBloom(this.bloomPass as BloomPassHandle, targets.getFramebuffer(SceneFramebuffer.Resolved),
                         view, finalHdrColor, ui.bloomSigma, ui.bloomAlpha);
                 }
                 this.previousViewsValid = true;
@@ -847,7 +847,7 @@ namespace FeatureDemoExample {
                 }
 
                 if (ui.enableBloom) {
-                    commandList.renderBloom(this.bloomPass, finalHdrFramebuffer, view, finalHdrColor, ui.bloomSigma, ui.bloomAlpha);
+                    commandList.renderBloom(this.bloomPass as BloomPassHandle, finalHdrFramebuffer, view, finalHdrColor, ui.bloomSigma, ui.bloomAlpha);
                 }
 
                 this.previousViewsValid = false;
@@ -858,8 +858,8 @@ namespace FeatureDemoExample {
             app.blitTexture(frame, targets.getTexture(SceneTexture.LdrColor));
 
             if (ui.testMipMapGen) {
-                commandList.dispatchMipMapGen(this.mipMapGenPass);
-                app.displayMipMapGen(frame, this.mipMapGenPass);
+                commandList.dispatchMipMapGen(this.mipMapGenPass as MipMapGenPassHandle);
+                app.displayMipMapGen(frame, this.mipMapGenPass as MipMapGenPassHandle);
             }
 
             if (ui.displayShadowMap) {

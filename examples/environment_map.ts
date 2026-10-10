@@ -62,12 +62,12 @@ namespace EnvironmentMap {
         private shadowMapValid: boolean;
         private enableShadows: boolean;
         private forwardPass: ForwardShadingPass;
-        private forwardContext: Opaque;
+        private forwardContext: ForwardShadingContextHandle;
         // Created on the first frame, again when the window's size changes.
         private renderTargets: SceneRenderTargets;
         private renderTargetsWidth: int;
         private renderTargetsHeight: int;
-        private environmentMapPass: Opaque | null;
+        private environmentMapPass: EnvironmentMapPassHandle | null;
         private toneMappingPass: ToneMappingPass;
         private exposureResetRequired: boolean;
         private useKtx2: boolean;
@@ -199,7 +199,7 @@ namespace EnvironmentMap {
                 targets.getFramebuffer(SceneFramebuffer.Forward), sceneGraph, 0, "ForwardOpaque", 0);
 
             // Behind everything opaque, before what is transparent.
-            commandList.renderEnvironmentMap(this.environmentMapPass as Opaque, this.view);
+            commandList.renderEnvironmentMap(this.environmentMapPass as EnvironmentMapPassHandle, this.view);
 
             commandList.renderForward(this.forwardPass, this.forwardContext, this.view, null,
                 targets.getFramebuffer(SceneFramebuffer.Forward), sceneGraph, 1, "ForwardTransparent", 0);
