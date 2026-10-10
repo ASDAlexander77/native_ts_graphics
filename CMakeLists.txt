@@ -689,6 +689,17 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(compute_nbody)
 
+# compute_nbody with collisions: a third compute pass makes the particles bounce off each other
+# and off the heavy centers.
+donut_compile_shaders_all_platforms(
+    TARGET compute_nbody_collisions_shaders
+    PROJECT_NAME "Compute N-Body Collisions"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody_collisions.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody_collisions.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_nbody_collisions
+)
+add_tslang_example(compute_nbody_collisions)
+
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
 # to DDS next to the executables; point this at a Vulkan-Samples assets folder.
