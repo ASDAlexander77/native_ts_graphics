@@ -225,8 +225,8 @@ namespace MouseCursor {
     // effect's diffuse color, specular color and power, emissive color, and textures (the diffuse texture; the
     // specular texture, which is DualTextureEffect's second texture).
     class Model {
-        vertexBuffers: Opaque[];
-        indexBuffers: Opaque[];
+        vertexBuffers: BufferHandle[];
+        indexBuffers: BufferHandle[];
         index32: boolean[];
         partVertexBuffers: int[];
         partIndexBuffers: int[];
@@ -466,7 +466,7 @@ namespace MouseCursor {
         private dualInputLayout: Opaque;
         private basicInputLayout: Opaque;
         private modelLayout: Opaque;
-        private parametersBuffer: Opaque;
+        private parametersBuffer: BufferHandle;
         private spriteConstants: f32[];
         private parameters: f32[];
 

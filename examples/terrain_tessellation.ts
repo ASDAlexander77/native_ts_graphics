@@ -89,7 +89,7 @@ namespace TerrainTessellation {
         private skyVS: Opaque;
         private skyPS: Opaque;
         private bindingLayout: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private heightmap: Opaque;
         private terrainLayers: Opaque;
         private sky: Opaque;
@@ -158,7 +158,7 @@ namespace TerrainTessellation {
         }
 
         releaseTargets(): void {
-            const resources = [this.terrainPipeline, this.wireframePipeline, this.skyPipeline,
+            const resources: ResourceHandle[] = [this.terrainPipeline, this.wireframePipeline, this.skyPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];

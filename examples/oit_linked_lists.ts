@@ -174,11 +174,11 @@ namespace OitLinkedLists {
         private gatherBindingLayout: Opaque;
         private backgroundBindingLayout: Opaque;
         private combineBindingLayout: Opaque;
-        private sceneConstantBuffer: Opaque;
-        private instanceConstantBuffer: Opaque;
+        private sceneConstantBuffer: BufferHandle;
+        private instanceConstantBuffer: BufferHandle;
         private backgroundBindingSet: BindingSet;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         private indexCount: int;
 
         // Created on the first frame (the back buffer's layout).
@@ -193,8 +193,8 @@ namespace OitLinkedLists {
         private height: int;
         private fragmentMaxCount: int;
         private linkedListHead: Opaque;
-        private fragmentBuffer: Opaque;
-        private fragmentCounter: Opaque;
+        private fragmentBuffer: BufferHandle;
+        private fragmentCounter: BufferHandle;
         private gatherBindingSet: BindingSet;
         private combineBindingSet: BindingSet;
 
@@ -273,7 +273,7 @@ namespace OitLinkedLists {
             if (this.width == 0) {
                 return;
             }
-            const resources = [this.gatherBindingSet.handle, this.combineBindingSet.handle, this.linkedListHead,
+            const resources: ResourceHandle[] = [this.gatherBindingSet.handle, this.combineBindingSet.handle, this.linkedListHead,
                 this.fragmentBuffer, this.fragmentCounter];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];

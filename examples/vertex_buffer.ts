@@ -161,9 +161,9 @@ namespace VertexBuffer {
         private app: App;
         private vertexShader: Opaque;
         private pixelShader: Opaque;
-        private constantBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private constantBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         private texture: Opaque;
         private inputLayout: Opaque;
         private bindingLayout: Opaque;

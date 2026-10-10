@@ -135,13 +135,13 @@ namespace ProceduralGeometry {
         private topLevelAS: SceneAccelStructs;
         private topLevelASBuilt: boolean;
         // The BLAS builds' inputs; the plane's are also the closest hit shader's g_indices, g_vertices.
-        private indexBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private aabbBuffer: Opaque;
-        private sceneConstantBuffer: Opaque;
-        private aabbAttributeBuffer: Opaque;
-        private materialBuffer: Opaque;
-        private aabbConstantBuffer: Opaque;
+        private indexBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private aabbBuffer: BufferHandle;
+        private sceneConstantBuffer: BufferHandle;
+        private aabbAttributeBuffer: BufferHandle;
+        private materialBuffer: BufferHandle;
+        private aabbConstantBuffer: BufferHandle;
         // Created on the first frame (it has the frame's size), dropped on resize.
         private storageImage: Opaque | null;
         private bindingSet: BindingSet;

@@ -59,7 +59,7 @@ namespace SmallResources {
         private vertexShader: Opaque;
         private pixelShader: Opaque;
         private inputLayout: Opaque;
-        private vertexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
         private sampler: Opaque;
         private textures: Opaque[];
         private bindingSets: BindingSet[];

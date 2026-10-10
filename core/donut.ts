@@ -345,18 +345,18 @@ export class App {
 
     // Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
     // otherwise shader-readable only, filled with Donut_WriteBuffer.
-    createUIntBuffer(elementCount: int, writable: int, debugName: string): Opaque {
+    createUIntBuffer(elementCount: int, writable: int, debugName: string): BufferHandle {
         return Donut_CreateUIntBuffer(this.handle, elementCount, writable, debugName);
     }
 
     // CPU-readable buffer to copy GPU results into.
-    createReadbackBuffer(byteSize: int, debugName: string): Opaque {
+    createReadbackBuffer(byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateReadbackBuffer(this.handle, byteSize, debugName);
     }
 
     // Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
     // Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int[] / f32[] array. Returns 0 on failure.
-    readBuffer(readbackBuffer: Opaque, dst: Opaque, byteSize: int): int {
+    readBuffer(readbackBuffer: BufferHandle, dst: Opaque, byteSize: int): int {
         return Donut_ReadBuffer(this.handle, readbackBuffer, dst, byteSize);
     }
 
@@ -370,23 +370,23 @@ export class App {
     }
 
     // For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
-    createConstantBuffer(byteSize: int, debugName: string): Opaque {
+    createConstantBuffer(byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateConstantBuffer(this.handle, byteSize, debugName);
     }
 
     // For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
     // it with Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer.
-    createVolatileConstantBuffer(byteSize: int, debugName: string): Opaque {
+    createVolatileConstantBuffer(byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateVolatileConstantBuffer(this.handle, byteSize, debugName);
     }
 
     // StructuredBuffer of count elements of stride bytes, filled with Donut_WriteBuffer.
-    createStructuredBuffer(stride: int, count: int, debugName: string): Opaque {
+    createStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
         return Donut_CreateStructuredBuffer(this.handle, stride, count, debugName);
     }
 
     // Same, that shaders can also write (RWStructuredBuffer).
-    createRWStructuredBuffer(stride: int, count: int, debugName: string): Opaque {
+    createRWStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
         return Donut_CreateRWStructuredBuffer(this.handle, stride, count, debugName);
     }
 
@@ -568,35 +568,35 @@ export class App {
     }
 
     // Vertex / index buffers uploaded once by an open command list (data copied during the call).
-    createStaticVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
+    createStaticVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateStaticVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
     }
 
     // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
-    createDynamicVertexBuffer(byteSize: int, debugName: string): Opaque {
+    createDynamicVertexBuffer(byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateDynamicVertexBuffer(this.handle, byteSize, debugName);
     }
 
-    createStaticIndexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
+    createStaticIndexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateStaticIndexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
     }
 
     // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
     // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
     // one copy of a mesh for rasterization and ray tracing.
-    createStaticGeometryBuffer(commandList: CommandList, data: Opaque, byteSize: int, isIndexBuffer: int, debugName: string): Opaque {
+    createStaticGeometryBuffer(commandList: CommandList, data: Opaque, byteSize: int, isIndexBuffer: int, debugName: string): BufferHandle {
         return Donut_CreateStaticGeometryBuffer(this.handle, commandList.handle, data, byteSize, isIndexBuffer, debugName);
     }
 
     // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
-    createStaticRawVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): Opaque {
+    createStaticRawVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateStaticRawVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
     }
 
     // The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
     // first index, vertex offset, first instance), filled with Donut_WriteBuffer, that shaders can
     // also write as a RWByteAddressBuffer.
-    createDrawIndexedIndirectBuffer(count: int, debugName: string): Opaque {
+    createDrawIndexedIndirectBuffer(count: int, debugName: string): BufferHandle {
         return Donut_CreateDrawIndexedIndirectBuffer(this.handle, count, debugName);
     }
 
@@ -670,17 +670,17 @@ export class App {
     }
 
     // Input for acceleration structure builds (index or vertex data).
-    createAccelStructInputBuffer(byteSize: int, debugName: string): Opaque {
+    createAccelStructInputBuffer(byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateAccelStructInputBuffer(this.handle, byteSize, debugName);
     }
 
     // Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
-    createAccelStructInputRawBuffer(byteSize: int, debugName: string): Opaque {
+    createAccelStructInputRawBuffer(byteSize: int, debugName: string): BufferHandle {
         return Donut_CreateAccelStructInputRawBuffer(this.handle, byteSize, debugName);
     }
 
     // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
-    createAccelStructInputStructuredBuffer(stride: int, count: int, debugName: string): Opaque {
+    createAccelStructInputStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
         return Donut_CreateAccelStructInputStructuredBuffer(this.handle, stride, count, debugName);
     }
 
@@ -701,7 +701,7 @@ export class App {
 
     // Acceleration structures; both record their build into an open command list.
     // Opaque triangles: R32_UINT indices, RGB32_FLOAT vertices.
-    buildTriangleBLAS(commandList: CommandList, indexBuffer: Opaque, indexCount: int, vertexBuffer: Opaque, vertexCount: int): Opaque {
+    buildTriangleBLAS(commandList: CommandList, indexBuffer: BufferHandle, indexCount: int, vertexBuffer: BufferHandle, vertexCount: int): Opaque {
         return Donut_BuildTriangleBLAS(this.handle, commandList.handle, indexBuffer, indexCount, vertexBuffer, vertexCount);
     }
 
@@ -714,7 +714,7 @@ export class App {
     // into vertexCount RGB32_FLOAT positions every vertexStride bytes from vertexByteOffset of
     // vertexBuffer. Build recorded into an open command list, preferring fast tracing, or if
     // updatable != 0 fast builds and updates.
-    createTriangleBlas(commandList: CommandList, indexBuffer: Opaque, indexByteOffset: int, indexCount: int, vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int, debugName: string): TriangleBlas {
+    createTriangleBlas(commandList: CommandList, indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int, debugName: string): TriangleBlas {
         return new TriangleBlas(Donut_CreateTriangleBlas(this.handle, commandList.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, updatable, debugName));
     }
 
@@ -731,7 +731,7 @@ export class App {
     // usageCounts (Ref of a `let` int array) holds numUsageCounts entries of three ints, how many OMMs
     // the array has of a subdivision level and format (D3D12's histogram). buildFlags:
     // nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
-    createOpacityMicromap(commandList: CommandList, inputBuffer: Opaque, inputOffset: int, perOmmDescs: Opaque, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int, debugName: string): Opaque | null {
+    createOpacityMicromap(commandList: CommandList, inputBuffer: BufferHandle, inputOffset: int, perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int, debugName: string): Opaque | null {
         return Donut_CreateOpacityMicromap(this.handle, commandList.handle, inputBuffer, inputOffset, perOmmDescs, descsOffset, usageCounts, numUsageCounts, buildFlags, debugName);
     }
 
@@ -1643,17 +1643,17 @@ export class Frame {
     }
 
     // R32_UINT indices.
-    drawSetIndexBuffer(indexBuffer: Opaque): void {
+    drawSetIndexBuffer(indexBuffer: BufferHandle): void {
         Donut_DrawSetIndexBuffer(this.handle, indexBuffer);
     }
 
     // R16_UINT indices.
-    drawSetIndexBuffer16(indexBuffer: Opaque): void {
+    drawSetIndexBuffer16(indexBuffer: BufferHandle): void {
         Donut_DrawSetIndexBuffer16(this.handle, indexBuffer);
     }
 
     // Binds a vertex buffer, from byteOffset, to an input layout slot.
-    drawAddVertexBuffer(vertexBuffer: Opaque, slot: int, byteOffset: int): void {
+    drawAddVertexBuffer(vertexBuffer: BufferHandle, slot: int, byteOffset: int): void {
         Donut_DrawAddVertexBuffer(this.handle, vertexBuffer, slot, byteOffset);
     }
 
@@ -1678,7 +1678,7 @@ export class Frame {
     }
 
     // The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
-    drawSetIndirectBuffer(indirectBuffer: Opaque): void {
+    drawSetIndirectBuffer(indirectBuffer: BufferHandle): void {
         Donut_DrawSetIndirectBuffer(this.handle, indirectBuffer);
     }
 
@@ -1824,7 +1824,7 @@ export class CommandList {
 
     // Before a dispatch whose shaders write a buffer through its device address (NVRHI can't see
     // that): marks it as written by shaders, so that its next use waits for the writes.
-    setBufferWrittenByShaders(buffer: Opaque): void {
+    setBufferWrittenByShaders(buffer: BufferHandle): void {
         Donut_SetBufferWrittenByShaders(this.handle, buffer);
     }
 
@@ -1850,17 +1850,17 @@ export class CommandList {
 
     // Uploads byteSize bytes from data, copied during the call. Pass `Ref(array[0])` of a `let`
     // int[] / f32[] array.
-    writeBuffer(buffer: Opaque, data: Opaque, byteSize: int): void {
+    writeBuffer(buffer: BufferHandle, data: Opaque, byteSize: int): void {
         Donut_WriteBuffer(this.handle, buffer, data, byteSize);
     }
 
     // Same, at byteOffset of a non-volatile buffer (e.g. a constant buffer's uints after its floats;
     // D3D11 drops partial constant buffer writes).
-    writeBufferAt(buffer: Opaque, byteOffset: int, data: Opaque, byteSize: int): void {
+    writeBufferAt(buffer: BufferHandle, byteOffset: int, data: Opaque, byteSize: int): void {
         Donut_WriteBufferAt(this.handle, buffer, byteOffset, data, byteSize);
     }
 
-    copyBuffer(dst: Opaque, dstOffset: int, src: Opaque, srcOffset: int, byteSize: int): void {
+    copyBuffer(dst: BufferHandle, dstOffset: int, src: BufferHandle, srcOffset: int, byteSize: int): void {
         Donut_CopyBuffer(this.handle, dst, dstOffset, src, srcOffset, byteSize);
     }
 
@@ -2110,42 +2110,42 @@ export class BindingSetDesc {
     }
 
     // Buffer<uint> at t<slot>.
-    bindTypedBufferSRV(slot: int, buffer: Opaque): void {
+    bindTypedBufferSRV(slot: int, buffer: BufferHandle): void {
         Donut_BindTypedBufferSRV(this.handle, slot, buffer);
     }
 
     // RWBuffer<uint> at u<slot>; the buffer must be writable.
-    bindTypedBufferUAV(slot: int, buffer: Opaque): void {
+    bindTypedBufferUAV(slot: int, buffer: BufferHandle): void {
         Donut_BindTypedBufferUAV(this.handle, slot, buffer);
     }
 
     // cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
-    bindConstantBuffer(slot: int, constantBuffer: Opaque, byteOffset: int, byteSize: int): void {
+    bindConstantBuffer(slot: int, constantBuffer: BufferHandle, byteOffset: int, byteSize: int): void {
         Donut_BindConstantBuffer(this.handle, slot, constantBuffer, byteOffset, byteSize);
     }
 
     // cbuffer at b<slot>: all of a constant buffer (required for volatile ones).
-    bindEntireConstantBuffer(slot: int, constantBuffer: Opaque): void {
+    bindEntireConstantBuffer(slot: int, constantBuffer: BufferHandle): void {
         Donut_BindEntireConstantBuffer(this.handle, slot, constantBuffer);
     }
 
     // StructuredBuffer at t<slot>, e.g. from Donut_GetSceneBuffer.
-    bindStructuredBufferSRV(slot: int, buffer: Opaque): void {
+    bindStructuredBufferSRV(slot: int, buffer: BufferHandle): void {
         Donut_BindStructuredBufferSRV(this.handle, slot, buffer);
     }
 
     // RWStructuredBuffer at u<slot>, from Donut_CreateRWStructuredBuffer.
-    bindStructuredBufferUAV(slot: int, buffer: Opaque): void {
+    bindStructuredBufferUAV(slot: int, buffer: BufferHandle): void {
         Donut_BindStructuredBufferUAV(this.handle, slot, buffer);
     }
 
     // ByteAddressBuffer at t<slot> (e.g. Donut_CreateStaticRawVertexBuffer).
-    bindRawBufferSRV(slot: int, buffer: Opaque): void {
+    bindRawBufferSRV(slot: int, buffer: BufferHandle): void {
         Donut_BindRawBufferSRV(this.handle, slot, buffer);
     }
 
     // RWByteAddressBuffer at u<slot> (e.g. Donut_CreateDrawIndexedIndirectBuffer).
-    bindRawBufferUAV(slot: int, buffer: Opaque): void {
+    bindRawBufferUAV(slot: int, buffer: BufferHandle): void {
         Donut_BindRawBufferUAV(this.handle, slot, buffer);
     }
 
@@ -2763,7 +2763,7 @@ export class Scene {
     }
 
     // InstanceData / GeometryData / MaterialConstants structured buffers; valid as long as the scene.
-    getBuffer(which: SceneBuffer): Opaque {
+    getBuffer(which: SceneBuffer): BufferHandle {
         return Donut_GetSceneBuffer(this.handle, which);
     }
 
@@ -3596,11 +3596,11 @@ export class GltfMesh {
     }
 
     // Valid as long as the mesh.
-    getVertexBuffer(): Opaque {
+    getVertexBuffer(): BufferHandle {
         return Donut_GetGltfMeshVertexBuffer(this.handle);
     }
 
-    getIndexBuffer(): Opaque {
+    getIndexBuffer(): BufferHandle {
         return Donut_GetGltfMeshIndexBuffer(this.handle);
     }
 
@@ -3734,7 +3734,7 @@ export class TriangleBlas {
     // Opaque triangles: indexCount R32_UINT indices at indexByteOffset of indexBuffer, vertexCount
     // RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of vertexBuffer (acceleration
     // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
-    addGeometry(indexBuffer: Opaque, indexByteOffset: int, indexCount: int, vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void {
+    addGeometry(indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void {
         Donut_AddTriangleBlasGeometry(this.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
     }
 
@@ -3742,7 +3742,7 @@ export class TriangleBlas {
     // aabbStride bytes apart at byteOffset of aabbBuffer (an acceleration structure input buffer),
     // intersected by the hit groups' intersection shaders (Donut_RtPipelineAddProceduralHitGroup). A
     // BLAS holds triangles or AABBs, not both.
-    addAabbGeometry(aabbBuffer: Opaque, byteOffset: int, aabbCount: int, aabbStride: int): void {
+    addAabbGeometry(aabbBuffer: BufferHandle, byteOffset: int, aabbCount: int, aabbStride: int): void {
         Donut_AddTriangleBlasAabbGeometry(this.handle, aabbBuffer, byteOffset, aabbCount, aabbStride);
     }
 
@@ -3758,7 +3758,7 @@ export class TriangleBlas {
     // ones the special fully transparent / opaque indices); usageCounts (Ref of a `let` int array)
     // holds numUsageCounts entries of three ints, how many triangles use OMMs of a subdivision level
     // and format (Donut_CountOpacityMicromapUsage; Vulkan's builds need them). The BLAS keeps the array.
-    setGeometryOpacityMicromap(geometryIndex: int, opacityMicromap: Opaque, ommIndexBuffer: Opaque, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void {
+    setGeometryOpacityMicromap(geometryIndex: int, opacityMicromap: Opaque, ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void {
         Donut_SetTriangleBlasGeometryOpacityMicromap(this.handle, geometryIndex, opacityMicromap, ommIndexBuffer, ommIndexOffset, ommIndexFormat, usageCounts, numUsageCounts);
     }
 
@@ -3871,7 +3871,7 @@ export class BinaryFile {
 
     // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the call
     // into an open command list (e.g. a model's vertices from the middle of its file).
-    writeBufferFromBinaryFile(commandList: CommandList, buffer: Opaque, bufferOffset: int, fileOffset: int, byteSize: int): void {
+    writeBufferFromBinaryFile(commandList: CommandList, buffer: BufferHandle, bufferOffset: int, fileOffset: int, byteSize: int): void {
         Donut_WriteBufferFromBinaryFile(this.handle, commandList.handle, buffer, bufferOffset, fileOffset, byteSize);
     }
 

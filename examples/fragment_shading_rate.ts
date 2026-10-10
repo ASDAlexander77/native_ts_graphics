@@ -182,7 +182,7 @@ namespace FragmentShadingRate {
         private sceneMesh: GltfMesh;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private uniformBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
 
         // The targets, for the back buffers' size (width 0: none yet): the shading rate image, the
         // depth buffer, a framebuffer per back buffer, and the pipelines made for them.

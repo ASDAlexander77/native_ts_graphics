@@ -266,8 +266,8 @@ namespace SimplePbr {
     // Model, drawn with one effect, the frames' transforms not applied) and the textures named after
     // it: albedo (forced to sRGB), normal and roughness / metallic / ambient occlusion.
     class Model {
-        vertexBuffers: Opaque[];
-        indexBuffers: Opaque[];
+        vertexBuffers: BufferHandle[];
+        indexBuffers: BufferHandle[];
         index32: boolean[];
         partVertexBuffers: int[];
         partIndexBuffers: int[];
@@ -587,9 +587,9 @@ namespace SimplePbr {
         private surfaceSampler: Opaque;
         private linearWrapSampler: Opaque;
         private pointClampSampler: Opaque;
-        private pbrBuffer: Opaque;
-        private skyBuffer: Opaque;
-        private toneMapBuffer: Opaque;
+        private pbrBuffer: BufferHandle;
+        private skyBuffer: BufferHandle;
+        private toneMapBuffer: BufferHandle;
         private pbrConstants: f32[];
         private skyConstants: f32[];
         private toneMapConstants: f32[];
@@ -607,8 +607,8 @@ namespace SimplePbr {
         private hdr10PS: Opaque;
         private modelBindingSets: BindingSet[];
         private skyBindingSet: BindingSet;
-        private skyVertices: Opaque;
-        private skyIndices: Opaque;
+        private skyVertices: BufferHandle;
+        private skyIndices: BufferHandle;
         private skyIndexCount: int;
         // Frame-sized, made on the first frame and after each resize.
         private hdrScene: Opaque | null;

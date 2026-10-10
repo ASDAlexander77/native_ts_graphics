@@ -72,7 +72,7 @@ namespace ComputeNBody {
         private paused: boolean;
         private numParticles: int;
 
-        private particleBuffer: Opaque;
+        private particleBuffer: BufferHandle;
         private calculatePipeline: Opaque;
         private integratePipeline: Opaque;
         private computeBindingSet: BindingSet;
@@ -80,7 +80,7 @@ namespace ComputeNBody {
         private pixelShader: Opaque;
         private drawBindingLayout: Opaque;
         private drawBindingSet: BindingSet;
-        private viewConstantBuffer: Opaque;
+        private viewConstantBuffer: BufferHandle;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private graphicsPipeline: Opaque | null;
 

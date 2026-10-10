@@ -219,10 +219,10 @@ namespace AsyncComputeBloom {
 
         private forwardInputLayout: Opaque;
         private shadowInputLayout: Opaque;
-        private shadowConstantBuffer: Opaque;
-        private forwardConstantBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private shadowConstantBuffer: BufferHandle;
+        private forwardConstantBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
 
         private shadowMap: Opaque;
         private shadowFramebuffer: Opaque;

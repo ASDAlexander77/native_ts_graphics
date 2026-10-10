@@ -178,7 +178,7 @@ namespace DynamicRendering {
         private gltfLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private uniformBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
         private skybox: GltfMesh;
         private object: GltfMesh;
 
@@ -267,7 +267,7 @@ namespace DynamicRendering {
             this.targetHeight = height;
         }
 
-        draw(frame: Frame, pipeline: Opaque, framebuffer: Opaque, vertexBuffer: Opaque, indexBuffer: Opaque, indexCount: int): void {
+        draw(frame: Frame, pipeline: Opaque, framebuffer: Opaque, vertexBuffer: BufferHandle, indexBuffer: BufferHandle, indexCount: int): void {
             frame.beginDrawToFramebuffer(pipeline, framebuffer);
             frame.drawAddBindingSet(this.bindingSet);
             frame.drawSetIndexBuffer(indexBuffer);

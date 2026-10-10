@@ -231,12 +231,12 @@ namespace RayTracingExtended {
         private bindlessLayout: Opaque;
         private descriptorTable: Opaque;
         private shaderTable: ShaderTable;
-        private constantBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
-        private dynamicVertexBuffer: Opaque;
-        private dynamicIndexBuffer: Opaque;
-        private dataToModelBuffer: Opaque;
+        private constantBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
+        private dynamicVertexBuffer: BufferHandle;
+        private dynamicIndexBuffer: BufferHandle;
+        private dataToModelBuffer: BufferHandle;
         private topLevelAS: SceneAccelStructs;
         private models: Model[];
         private modelBuffers: ModelBuffer[];

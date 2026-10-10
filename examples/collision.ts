@@ -480,7 +480,7 @@ namespace Collision {
 
         private vertices: f32[];
         private vertexCount: int;
-        private vertexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
         private vs: Opaque;
         private ps: Opaque;
         private inputLayout: Opaque;

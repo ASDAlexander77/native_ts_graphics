@@ -134,7 +134,7 @@ namespace OitDepthPeeling {
         private inputLayout: Opaque;
         private gatherBindingLayout: Opaque;
         private combineBindingLayout: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private background: Opaque;
         private object: GltfMesh;
 

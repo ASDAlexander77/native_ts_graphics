@@ -177,7 +177,7 @@ namespace DynamicPrimitiveClipping {
         private models: GltfMesh[];
         private transforms: number[][];
         // The two draws' uniform buffers ("positive" and "negative") and binding sets.
-        private uniformBuffers: Opaque[];
+        private uniformBuffers: BufferHandle[];
         private bindingSets: BindingSet[];
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
@@ -275,7 +275,7 @@ namespace DynamicPrimitiveClipping {
 
         // The sample's update_uniform_buffers for one draw: its color transformation and clip
         // distance sign.
-        writeUniforms(commandList: CommandList, buffer: Opaque, projection: number[], view: number[], colorScale: number,
+        writeUniforms(commandList: CommandList, buffer: BufferHandle, projection: number[], view: number[], colorScale: number,
             colorOffset: number, sign: int): void {
             const u = this.ubo;
             const model = this.transforms[this.objectIndex];

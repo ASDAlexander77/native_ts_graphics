@@ -206,11 +206,11 @@ namespace Msaa {
         private sceneInputLayout: Opaque;
         private sceneBindingLayout: Opaque;
         private postBindingLayout: Opaque;
-        private sceneConstantBuffer: Opaque;
-        private postConstantBuffer: Opaque;
+        private sceneConstantBuffer: BufferHandle;
+        private postConstantBuffer: BufferHandle;
         private linearClamp: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         // The scene's base color textures.
         private textures: Opaque[];
         // Created on the first frame (the back buffer's layout), dropped on resize: the outline

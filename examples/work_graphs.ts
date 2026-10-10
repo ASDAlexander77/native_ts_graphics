@@ -468,13 +468,13 @@ namespace WorkGraphs {
         public lights: Light[];
 
         // GPU buffers, by MESH_* type for the meshes.
-        public vertexBuffers: Opaque[];
-        public indexBuffers: Opaque[];
+        public vertexBuffers: BufferHandle[];
+        public indexBuffers: BufferHandle[];
         public indexCounts: int[];
-        public materialsBuffer: Opaque;
-        public worldObjectsBuffer: Opaque;
-        public lightsBuffer: Opaque;
-        public animStateBuffer: Opaque;
+        public materialsBuffer: BufferHandle;
+        public worldObjectsBuffer: BufferHandle;
+        public lightsBuffer: BufferHandle;
+        public animStateBuffer: BufferHandle;
 
         // The contents of the structured buffers, laid out as in the shaders.
         private materialData: f32[];
@@ -773,9 +773,9 @@ namespace WorkGraphs {
         private shadePSO: Opaque;
 
         // Resources.
-        private constantBuffer: Opaque;
-        private nullSRVBuffer: Opaque;
-        private nullUAVBuffer: Opaque;
+        private constantBuffer: BufferHandle;
+        private nullSRVBuffer: BufferHandle;
+        private nullUAVBuffer: BufferHandle;
         private nullSRVTexture: Opaque;
         private nullUAVTexture: Opaque;
 
@@ -788,7 +788,7 @@ namespace WorkGraphs {
         private ldrBuffer: Opaque | null;
         private gbufferFramebuffer: Opaque | null;
         private gbufferFillPSO: Opaque | null;
-        private culledLightsBuffer: Opaque | null;
+        private culledLightsBuffer: BufferHandle | null;
         private animateObjectsBindings: BindingSet;
         private animateLightsBindings: BindingSet;
         private gbufferFillBindings: BindingSet;
@@ -897,7 +897,7 @@ namespace WorkGraphs {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseResource(resource: Opaque | null): void {
+        releaseResource(resource: ResourceHandle | null): void {
             if (resource) {
                 this.app.releaseResource(resource);
             }
@@ -948,7 +948,7 @@ namespace WorkGraphs {
 
         // A binding set of the shared layout: every pass fills all its slots, unused ones with null
         // resources. The resource registers must match with assignments used in the shader files.
-        createBindingSet(t0: Opaque, t1: Opaque, t2: Opaque, t3: Opaque, t4: Opaque, u0: Opaque, u1: Opaque): BindingSet {
+        createBindingSet(t0: BufferHandle, t1: Opaque, t2: Opaque, t3: BufferHandle, t4: BufferHandle, u0: BufferHandle, u1: Opaque): BindingSet {
             const desc = BindingSetDesc.create();
             desc.bindPushConstants(0, PUSH_CONSTANTS_SIZE);
             desc.bindEntireConstantBuffer(1, this.constantBuffer);

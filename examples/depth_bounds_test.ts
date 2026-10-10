@@ -20,7 +20,7 @@ namespace DepthBoundsTest {
         private vertexShader: Opaque;
         private pixelShader: Opaque;
         private inputLayout: Opaque;
-        private vertexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
         private hasTargets: boolean;
         private colorBuffer: Opaque;
         private depthBuffer: Opaque;

@@ -58,9 +58,9 @@ namespace WaveIntrinsics {
         private magnifyPS: Opaque;
         private waveInputLayout: Opaque;
         private magnifyInputLayout: Opaque;
-        private triangleBuffer: Opaque;
-        private quadBuffer: Opaque;
-        private constantBuffer: Opaque;
+        private triangleBuffer: BufferHandle;
+        private quadBuffer: BufferHandle;
+        private constantBuffer: BufferHandle;
         private sampler: Opaque;
         // The size-dependent ones, made on the first frame and on resizes.
         private hasTargets: boolean;

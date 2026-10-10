@@ -134,10 +134,10 @@ namespace TextureCompressionComparison {
 
         private pipeline: Opaque;
         private bindingLayout: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private sampler: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         private depth: Opaque;
         private framebuffers: Opaque[];
         private targetWidth: int;

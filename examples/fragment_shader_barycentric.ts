@@ -117,7 +117,7 @@ namespace FragmentShaderBarycentric {
         private objectPS: Opaque;
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private skybox: GltfMesh;
         private object: GltfMesh;
         private skyboxBindingSet: BindingSet;
@@ -193,7 +193,7 @@ namespace FragmentShaderBarycentric {
         }
 
         releaseTargets(): void {
-            const resources = [this.skyboxPipeline, this.objectPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
+            const resources: ResourceHandle[] = [this.skyboxPipeline, this.objectPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {

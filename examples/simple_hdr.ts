@@ -125,7 +125,7 @@ namespace SimpleHdr {
         private hdr10PS: Opaque;
         private sdrPS: Opaque;
         private pointSampler: Opaque;
-        private lineBuffer: Opaque;
+        private lineBuffer: BufferHandle;
         private lineVertices: f32[];
         private drawConstants: f32[];
         private convertConstants: f32[];

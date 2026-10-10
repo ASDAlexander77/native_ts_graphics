@@ -280,15 +280,15 @@ namespace ShaderObjectSample {
         private sceneBindingSet: BindingSet;
         private postLayout: Opaque;
         private postSampler: Opaque;
-        private uniformBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
 
         private torus: GltfMesh;
         private rock: GltfMesh;
         private cube: GltfMesh;
         private skybox: GltfMesh;
         private teapot: GltfMesh;
-        private terrainVertexBuffer: Opaque;
-        private terrainIndexBuffer: Opaque;
+        private terrainVertexBuffer: BufferHandle;
+        private terrainIndexBuffer: BufferHandle;
         private terrainIndexCount: int;
 
         // The supported output and depth formats (indices into OUTPUT_FORMATS / DEPTH_FORMATS).

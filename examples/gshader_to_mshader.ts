@@ -268,11 +268,11 @@ namespace GshaderToMshader {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private meshBindingLayout: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private bindingSet: BindingSet;
         private meshBindingSet: BindingSet;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         private indexCount: int;
         private meshletCount: int;
 
@@ -352,7 +352,7 @@ namespace GshaderToMshader {
         }
 
         releaseTargets(): void {
-            const resources = [this.modelPipeline, this.geometryPipeline, this.meshPipeline,
+            const resources: ResourceHandle[] = [this.modelPipeline, this.geometryPipeline, this.meshPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];

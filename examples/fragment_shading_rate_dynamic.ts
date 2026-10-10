@@ -247,7 +247,7 @@ namespace FragmentShadingRateDynamic {
         private renderBindingLayout: Opaque;
         private computePipeline: Opaque;
         private computeBindingLayout: Opaque;
-        private uniformBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
         private skysphereTexture: Opaque;
         private sceneTexture: Opaque;
         private textureSampler: Opaque;
@@ -259,7 +259,7 @@ namespace FragmentShadingRateDynamic {
         private targetWidth: int;
         private targetHeight: int;
         private targetRatio: int;
-        private resources: Opaque[];
+        private resources: ResourceHandle[];
         private shadingRateImages: Opaque[];
         private shadingRateComputeImages: Opaque[];
         private frequencyImages: Opaque[];
@@ -420,7 +420,8 @@ namespace FragmentShadingRateDynamic {
             for (let r = 0; r < this.rateCount * 2; r++) {
                 params.push(this.rates[r]);
             }
-            const paramsBuffer = this.own(this.app.createStructuredBuffer(8, params.length / 2, "FrequencyInformation"));
+            const paramsBuffer = this.app.createStructuredBuffer(8, params.length / 2, "FrequencyInformation");
+            this.own(paramsBuffer);
             commandList.writeBuffer(paramsBuffer, Ref(params[0]), params.length * 4);
 
             for (let i = 0; i < count; i++) {

@@ -218,9 +218,9 @@ namespace RayQueries {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: Opaque;
-        private globalBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private globalBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         private indexCount: int;
         private blas: TriangleBlas;
         private topLevelAS: SceneAccelStructs;

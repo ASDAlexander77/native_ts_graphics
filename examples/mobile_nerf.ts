@@ -431,7 +431,7 @@ namespace MobileNerf {
     class NerfModel {
         mesh: GltfMesh;
         weights: f32[];
-        weightsBuffer: Opaque;
+        weightsBuffer: BufferHandle;
         bindingSet: BindingSet;
 
         constructor(mesh: GltfMesh, weights: f32[]) {
@@ -454,8 +454,8 @@ namespace MobileNerf {
         private ps: Opaque;
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
-        private globalBuffer: Opaque;
-        private instanceBuffer: Opaque;
+        private globalBuffer: BufferHandle;
+        private instanceBuffer: BufferHandle;
         private instanceCount: int;
         private models: NerfModel[];
 

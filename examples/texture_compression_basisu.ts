@@ -213,9 +213,9 @@ namespace TextureCompressionBasisu {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private sampler: Opaque;
-        private uniformBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         private stats: f32[];
 
         // The transcoded texture and its binding set.

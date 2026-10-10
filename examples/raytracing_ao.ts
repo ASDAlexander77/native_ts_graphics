@@ -262,11 +262,11 @@ namespace RaytracingAo {
     // hit shader and the acceleration structure build; its material's constants and textures; its
     // BLAS, and a TLAS of one instance of it.
     class Mesh {
-        vertexBuffer: Opaque;
-        indexBuffer: Opaque;
+        vertexBuffer: BufferHandle;
+        indexBuffer: BufferHandle;
         indexCount: int;
         vertexCount: int;
-        materialBuffer: Opaque;
+        materialBuffer: BufferHandle;
         diffuseTexture: Opaque;
         specularTexture: Opaque;
         normalTexture: Opaque;
@@ -439,10 +439,10 @@ namespace RaytracingAo {
         private pointWrapSampler: Opaque;
         private linearClampSampler: Opaque;
         private pointClampSampler: Opaque;
-        private sceneBuffer: Opaque;
-        private aoBuffer: Opaque;
-        private aoOptionsBuffer: Opaque;
-        private ssaoBuffer: Opaque;
+        private sceneBuffer: BufferHandle;
+        private aoBuffer: BufferHandle;
+        private aoOptionsBuffer: BufferHandle;
+        private ssaoBuffer: BufferHandle;
         private sceneConstants: f32[];
         private aoRays: f32[];
         private aoOptions: f32[];

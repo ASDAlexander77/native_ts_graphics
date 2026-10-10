@@ -146,12 +146,12 @@ namespace MultiDrawIndirect {
         private addressPipeline: Opaque | null;
         private addressBindingSet: BindingSet;
 
-        private constantBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
-        private modelInformationBuffer: Opaque;
-        private indirectCallBuffer: Opaque;
-        private readbackBuffers: Opaque[];
+        private constantBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
+        private modelInformationBuffer: BufferHandle;
+        private indirectCallBuffer: BufferHandle;
+        private readbackBuffers: BufferHandle[];
         // Whether each readback buffer holds commands yet.
         private readbackValid: boolean[];
         private frameIndex: int;
@@ -221,7 +221,7 @@ namespace MultiDrawIndirect {
         }
 
         releaseTargets(): void {
-            const resources = [this.drawPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
+            const resources: ResourceHandle[] = [this.drawPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {
@@ -563,7 +563,7 @@ namespace MultiDrawIndirect {
 
             // The address of the commands' buffer, in a buffer of its own, for the device address
             // culling.
-            let addressBuffer: Opaque | null = null;
+            let addressBuffer: BufferHandle | null = null;
             if ((this.support & IndirectDrawSupport.BufferDeviceAddress) != 0) {
                 let address: f32[] = [0.0, 0.0];
                 Donut_StoreBufferDeviceAddress(Ref(address[0]), this.indirectCallBuffer);

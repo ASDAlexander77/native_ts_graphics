@@ -164,12 +164,12 @@ namespace RasterizationOrderAttachmentAccess {
         private backgroundBindingLayout: Opaque;
         private blendBindingLayout: Opaque;
         private displayBindingLayout: Opaque;
-        private constantBuffer: Opaque;
-        private instanceBuffer: Opaque;
+        private constantBuffer: BufferHandle;
+        private instanceBuffer: BufferHandle;
         private background: Opaque;
         private sampler: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         private indexCount: int;
         private timerQuery: Opaque;
         private timerQueryInFlight: boolean;
@@ -266,7 +266,7 @@ namespace RasterizationOrderAttachmentAccess {
             if (this.width == 0) {
                 return;
             }
-            const resources = [this.backgroundBindingSet.handle, this.blendBindingSet.handle, this.displayBindingSet.handle,
+            const resources: ResourceHandle[] = [this.backgroundBindingSet.handle, this.blendBindingSet.handle, this.displayBindingSet.handle,
                 this.colorTexture];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];

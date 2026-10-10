@@ -139,10 +139,10 @@ namespace MemoryBudget {
         private rocksInputLayout: Opaque;
         private planetInputLayout: Opaque;
         private bindingLayout: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private rock: GltfMesh;
         private planet: GltfMesh;
-        private instanceBuffer: Opaque;
+        private instanceBuffer: BufferHandle;
         private rocksBindingSet: BindingSet;
         private planetBindingSet: BindingSet;
 
@@ -218,7 +218,7 @@ namespace MemoryBudget {
         }
 
         releaseTargets(): void {
-            const resources = [this.rocksPipeline, this.planetPipeline, this.starfieldPipeline,
+            const resources: ResourceHandle[] = [this.rocksPipeline, this.planetPipeline, this.starfieldPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
@@ -347,7 +347,7 @@ namespace MemoryBudget {
 
         // The sample's prepare_instance_data: the rocks distributed randomly on two rings, half on
         // each, uploaded once.
-        createInstanceBuffer(commandList: CommandList): Opaque {
+        createInstanceBuffer(commandList: CommandList): BufferHandle {
             let instanceData: f32[] = [];
             for (let i = 0; i < INSTANCE_COUNT * INSTANCE_FLOATS; i++) {
                 instanceData.push(0.0);

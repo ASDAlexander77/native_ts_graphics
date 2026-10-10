@@ -81,7 +81,7 @@ namespace DescriptorIndexing {
         private nonUniformTable: Opaque;
         private updateAfterBindTable: Opaque;
         private textures: Opaque[];
-        private quadIndexBuffer: Opaque;
+        private quadIndexBuffer: BufferHandle;
         private descriptorOffset: int;
 
         // The quads' rotation: a fraction of a turn, 0.2 turns per second.

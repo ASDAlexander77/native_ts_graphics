@@ -45,7 +45,7 @@ namespace BindlessRendering {
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private descriptorTable: Opaque;
-        private viewConstants: Opaque;
+        private viewConstants: BufferHandle;
         private viewConstantsData: f32[];
         private viewConstantsSize: int;
         private instanceConstants: int[];

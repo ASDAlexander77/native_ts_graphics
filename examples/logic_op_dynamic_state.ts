@@ -136,12 +136,12 @@ namespace LogicOpDynamicState {
         private baselineBindingLayout: Opaque;
         private backgroundBindingSet: BindingSet;
         private baselineBindingSet: BindingSet;
-        private commonBuffer: Opaque;
-        private baselineBuffer: Opaque;
+        private commonBuffer: BufferHandle;
+        private baselineBuffer: BufferHandle;
         private background: GltfMesh;
-        private cubePositions: Opaque;
-        private cubeNormals: Opaque;
-        private cubeIndices: Opaque;
+        private cubePositions: BufferHandle;
+        private cubeNormals: BufferHandle;
+        private cubeIndices: BufferHandle;
         private cubeIndexCount: int;
 
         // The back buffer's size: color (typeless SRGBA8, see above) and depth targets, as UNORM
@@ -245,7 +245,7 @@ namespace LogicOpDynamicState {
                 }
                 this.baselinePipelines[i] = null;
             }
-            const resources = [this.backgroundPipeline, this.framebuffer, this.uintFramebuffer, this.colorBuffer, this.depthBuffer];
+            const resources: ResourceHandle[] = [this.backgroundPipeline, this.framebuffer, this.uintFramebuffer, this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {

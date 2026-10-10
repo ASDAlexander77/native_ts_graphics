@@ -761,12 +761,12 @@ declare function Donut_ReleaseResource(app: AppHandle, resource: ResourceHandle)
 
 // Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
 // otherwise shader-readable only, filled with Donut_WriteBuffer.
-declare function Donut_CreateUIntBuffer(app: AppHandle, elementCount: int, writable: int, debugName: string): Opaque;
+declare function Donut_CreateUIntBuffer(app: AppHandle, elementCount: int, writable: int, debugName: string): BufferHandle;
 // CPU-readable buffer to copy GPU results into.
-declare function Donut_CreateReadbackBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateReadbackBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
 // Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
 // Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int[] / f32[] array. Returns 0 on failure.
-declare function Donut_ReadBuffer(app: AppHandle, readbackBuffer: Opaque, dst: Opaque, byteSize: int): int;
+declare function Donut_ReadBuffer(app: AppHandle, readbackBuffer: BufferHandle, dst: Opaque, byteSize: int): int;
 // Copies a level of a texture to dst (Ref of a `let` array element; byteSize bytes at most): its
 // rows (of 4 x 4 blocks for block-compressed formats) one after the other, without padding.
 // Submits its own command list and waits for it: call it while no other one is open (not in a
@@ -774,14 +774,14 @@ declare function Donut_ReadBuffer(app: AppHandle, readbackBuffer: Opaque, dst: O
 // shader resources, and can't be copied from). Returns the bytes copied, 0 on failure.
 declare function Donut_ReadTextureLevel(app: AppHandle, texture: Opaque, mipLevel: int, dst: Opaque, byteSize: int): int;
 // For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
-declare function Donut_CreateConstantBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateConstantBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
 // For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
 // it with Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer.
-declare function Donut_CreateVolatileConstantBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateVolatileConstantBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
 // StructuredBuffer of count elements of stride bytes, filled with Donut_WriteBuffer.
-declare function Donut_CreateStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): Opaque;
+declare function Donut_CreateStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): BufferHandle;
 // Same, that shaders can also write (RWStructuredBuffer).
-declare function Donut_CreateRWStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): Opaque;
+declare function Donut_CreateRWStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): BufferHandle;
 // Stores an int's bits at dst (Ref of an f32 array element), for int / uint fields of structures
 // laid out as f32 arrays.
 declare function Donut_StoreInt32(dst: Opaque, value: int): void;
@@ -960,35 +960,35 @@ declare function Donut_CreateGraphicsPipelineFromDescForFrame(app: AppHandle, gr
 declare function Donut_CreateMeshletPipelineFromDesc(app: AppHandle, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
 declare function Donut_CreateMeshletPipelineFromDescForFrame(app: AppHandle, graphicsPipelineDesc: Opaque, frame: FrameHandle): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
-declare function Donut_CreateStaticVertexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateStaticVertexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): BufferHandle;
 // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
-declare function Donut_CreateDynamicVertexBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
-declare function Donut_CreateStaticIndexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateDynamicVertexBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
+declare function Donut_CreateStaticIndexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): BufferHandle;
 // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
 // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
 // one copy of a mesh for rasterization and ray tracing.
 declare function Donut_CreateStaticGeometryBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int,
-    isIndexBuffer: int, debugName: string): Opaque;
+    isIndexBuffer: int, debugName: string): BufferHandle;
 // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
-declare function Donut_CreateStaticRawVertexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateStaticRawVertexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): BufferHandle;
 // The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
 // first index, vertex offset, first instance), filled with Donut_WriteBuffer, that shaders can
 // also write as a RWByteAddressBuffer.
-declare function Donut_CreateDrawIndexedIndirectBuffer(app: AppHandle, count: int, debugName: string): Opaque;
+declare function Donut_CreateDrawIndexedIndirectBuffer(app: AppHandle, count: int, debugName: string): BufferHandle;
 // A buffer's GPU address (8 bytes; its device address on Vulkan) into dst (Ref of a `let` array
 // element), for shaders that write it through the address; 0 if it has none.
-declare function Donut_StoreBufferDeviceAddress(dst: Opaque, buffer: Opaque): void;
+declare function Donut_StoreBufferDeviceAddress(dst: Opaque, buffer: BufferHandle): void;
 // Before a dispatch whose shaders write a buffer through its device address (NVRHI can't see
 // that): marks it as written by shaders, so that its next use waits for the writes.
-declare function Donut_SetBufferWrittenByShaders(commandList: CommandListHandle, buffer: Opaque): void;
+declare function Donut_SetBufferWrittenByShaders(commandList: CommandListHandle, buffer: BufferHandle): void;
 // The first primitive of a glTF file's first mesh (path relative to the executable's directory), as
 // the Vulkan-Samples framework loads it: float3 position, float3 normal and float2 texture
 // coordinates interleaved (32 bytes), R32_UINT indices, the nodes' transforms ignored. Uploaded by
 // an open command list. Null (after logging why) on failure.
 declare function Donut_LoadGltfMesh(app: AppHandle, commandList: CommandListHandle, path: string): Opaque;
 // Valid as long as the mesh.
-declare function Donut_GetGltfMeshVertexBuffer(gltfMesh: Opaque): Opaque;
-declare function Donut_GetGltfMeshIndexBuffer(gltfMesh: Opaque): Opaque;
+declare function Donut_GetGltfMeshVertexBuffer(gltfMesh: Opaque): BufferHandle;
+declare function Donut_GetGltfMeshIndexBuffer(gltfMesh: Opaque): BufferHandle;
 declare function Donut_GetGltfMeshIndexCount(gltfMesh: Opaque): int;
 // Every primitive of a glTF file's meshes (path relative to the executable's directory), in mesh
 // and primitive order, as the Vulkan-Samples framework's scene loader reads them into submeshes:
@@ -1007,7 +1007,7 @@ declare function Donut_CopyBinaryFileBytes(binaryFile: Opaque, offset: int, coun
 declare function Donut_CopyBinaryFileUInts(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
 // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the call
 // into an open command list (e.g. a model's vertices from the middle of its file).
-declare function Donut_WriteBufferFromBinaryFile(binaryFile: Opaque, commandList: CommandListHandle, buffer: Opaque, bufferOffset: int,
+declare function Donut_WriteBufferFromBinaryFile(binaryFile: Opaque, commandList: CommandListHandle, buffer: BufferHandle, bufferOffset: int,
     fileOffset: int, byteSize: int): void;
 // The usage counts of an opacity micromap array by a geometry's triangles
 // (Donut_SetTriangleBlasGeometryOpacityMicromap) from the file's data: indexCount OMM indices
@@ -1085,11 +1085,11 @@ declare function Donut_AddInstanceVertexAttribute(inputLayoutDesc: Opaque, name:
 declare function Donut_CreateInputLayout(app: AppHandle, inputLayoutDesc: Opaque, vertexShader: Opaque): Opaque;
 
 // Input for acceleration structure builds (index or vertex data).
-declare function Donut_CreateAccelStructInputBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateAccelStructInputBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
 // Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
-declare function Donut_CreateAccelStructInputRawBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateAccelStructInputRawBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
 // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
-declare function Donut_CreateAccelStructInputStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): Opaque;
+declare function Donut_CreateAccelStructInputStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): BufferHandle;
 // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
 declare function Donut_CreateUAVTextureForFrame(app: AppHandle, frame: FrameHandle, debugName: string): Opaque;
 // Same, in another format.
@@ -1099,15 +1099,15 @@ declare function Donut_CreateUAVTextureForFrameCopy(app: AppHandle, frame: Frame
 
 // Acceleration structures; both record their build into an open command list.
 // Opaque triangles: R32_UINT indices, RGB32_FLOAT vertices.
-declare function Donut_BuildTriangleBLAS(app: AppHandle, commandList: CommandListHandle, indexBuffer: Opaque, indexCount: int, vertexBuffer: Opaque, vertexCount: int): Opaque;
+declare function Donut_BuildTriangleBLAS(app: AppHandle, commandList: CommandListHandle, indexBuffer: BufferHandle, indexCount: int, vertexBuffer: BufferHandle, vertexCount: int): Opaque;
 // One instance of bottomLevelAS: identity transform, mask 1, counter-clockwise front faces.
 declare function Donut_BuildSingleInstanceTLAS(app: AppHandle, commandList: CommandListHandle, bottomLevelAS: Opaque): Opaque;
 // One opaque triangle geometry: indexCount R32_UINT indices from indexByteOffset of indexBuffer,
 // into vertexCount RGB32_FLOAT positions every vertexStride bytes from vertexByteOffset of
 // vertexBuffer. Build recorded into an open command list, preferring fast tracing, or if
 // updatable != 0 fast builds and updates.
-declare function Donut_CreateTriangleBlas(app: AppHandle, commandList: CommandListHandle, indexBuffer: Opaque, indexByteOffset: int,
-    indexCount: int, vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int,
+declare function Donut_CreateTriangleBlas(app: AppHandle, commandList: CommandListHandle, indexBuffer: BufferHandle, indexByteOffset: int,
+    indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int,
     debugName: string): Opaque;
 // An updatable one, in place, from its buffers' current contents, into an open command list.
 declare function Donut_UpdateTriangleBlas(triangleBlas: Opaque, commandList: CommandListHandle): void;
@@ -1117,13 +1117,13 @@ declare function Donut_CreateEmptyTriangleBlas(app: AppHandle, debugName: string
 // Opaque triangles: indexCount R32_UINT indices at indexByteOffset of indexBuffer, vertexCount
 // RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of vertexBuffer (acceleration
 // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
-declare function Donut_AddTriangleBlasGeometry(triangleBlas: Opaque, indexBuffer: Opaque, indexByteOffset: int, indexCount: int,
-    vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
+declare function Donut_AddTriangleBlasGeometry(triangleBlas: Opaque, indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int,
+    vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
 // Opaque procedural primitives instead: aabbCount boxes (6 floats each, min x y z then max x y z),
 // aabbStride bytes apart at byteOffset of aabbBuffer (an acceleration structure input buffer),
 // intersected by the hit groups' intersection shaders (Donut_RtPipelineAddProceduralHitGroup). A
 // BLAS holds triangles or AABBs, not both.
-declare function Donut_AddTriangleBlasAabbGeometry(triangleBlas: Opaque, aabbBuffer: Opaque, byteOffset: int, aabbCount: int,
+declare function Donut_AddTriangleBlasAabbGeometry(triangleBlas: Opaque, aabbBuffer: BufferHandle, byteOffset: int, aabbCount: int,
     aabbStride: int): void;
 // An unbuilt BLAS's geometryIndex-th geometry's nvrhi::rt::GeometryFlags (1 opaque, the default; 0
 // for any-hit shaders to run on it; 2 no duplicate any-hit invocations).
@@ -1135,7 +1135,7 @@ declare function Donut_SetTriangleBlasGeometryFlags(triangleBlas: Opaque, geomet
 // holds numUsageCounts entries of three ints, how many triangles use OMMs of a subdivision level
 // and format (Donut_CountOpacityMicromapUsage; Vulkan's builds need them). The BLAS keeps the array.
 declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: Opaque, geometryIndex: int, opacityMicromap: Opaque,
-    ommIndexBuffer: Opaque, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void;
+    ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void;
 // An opacity micromap array (requires Feature.RayTracingOpacityMicromap), built into an open
 // command list from inputBuffer's raw OMM data at inputOffset and perOmmDescs' descs at
 // descsOffset (acceleration structure input buffers; descs as D3D12_RAYTRACING_OPACITY_MICROMAP_DESC
@@ -1143,8 +1143,8 @@ declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: Opaq
 // usageCounts (Ref of a `let` int array) holds numUsageCounts entries of three ints, how many OMMs
 // the array has of a subdivision level and format (D3D12's histogram). buildFlags:
 // nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
-declare function Donut_CreateOpacityMicromap(app: AppHandle, commandList: CommandListHandle, inputBuffer: Opaque, inputOffset: int,
-    perOmmDescs: Opaque, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int,
+declare function Donut_CreateOpacityMicromap(app: AppHandle, commandList: CommandListHandle, inputBuffer: BufferHandle, inputOffset: int,
+    perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int,
     debugName: string): Opaque | null;
 // Builds such an array again, in place, from its inputs' current contents, into an open command list.
 declare function Donut_BuildOpacityMicromap(commandList: CommandListHandle, opacityMicromap: Opaque): void;
@@ -1176,21 +1176,21 @@ declare function Donut_CreateRayTracingPipelineWithLayouts(app: AppHandle, shade
 // Built up with Donut_Bind*, then consumed (freed) by Donut_CreateBindingSet.
 declare function Donut_CreateBindingSetDesc(): Opaque;
 // Buffer<uint> at t<slot>.
-declare function Donut_BindTypedBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+declare function Donut_BindTypedBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
 // RWBuffer<uint> at u<slot>; the buffer must be writable.
-declare function Donut_BindTypedBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+declare function Donut_BindTypedBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
 // cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
-declare function Donut_BindConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: Opaque, byteOffset: int, byteSize: int): void;
+declare function Donut_BindConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: BufferHandle, byteOffset: int, byteSize: int): void;
 // cbuffer at b<slot>: all of a constant buffer (required for volatile ones).
-declare function Donut_BindEntireConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: Opaque): void;
+declare function Donut_BindEntireConstantBuffer(bindingSetDesc: Opaque, slot: int, constantBuffer: BufferHandle): void;
 // StructuredBuffer at t<slot>, e.g. from Donut_GetSceneBuffer.
-declare function Donut_BindStructuredBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+declare function Donut_BindStructuredBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
 // RWStructuredBuffer at u<slot>, from Donut_CreateRWStructuredBuffer.
-declare function Donut_BindStructuredBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+declare function Donut_BindStructuredBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
 // ByteAddressBuffer at t<slot> (e.g. Donut_CreateStaticRawVertexBuffer).
-declare function Donut_BindRawBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+declare function Donut_BindRawBufferSRV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
 // RWByteAddressBuffer at u<slot> (e.g. Donut_CreateDrawIndexedIndirectBuffer).
-declare function Donut_BindRawBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: Opaque): void;
+declare function Donut_BindRawBufferUAV(bindingSetDesc: Opaque, slot: int, buffer: BufferHandle): void;
 // Element arrayElement of a Donut_LayoutTextureSRVArray array of Texture2D at t<slot>.
 declare function Donut_BindTextureSRVArrayElement(bindingSetDesc: Opaque, slot: int, arrayElement: int, texture: Opaque): void;
 // Push constants (Donut_LayoutPushConstants) at b<slot>; their values come with each dispatch or
@@ -1355,11 +1355,11 @@ declare function Donut_CreateComputeQueueCommandList(app: AppHandle): CommandLis
 declare function Donut_WaitForIdle(app: AppHandle): void;
 // Uploads byteSize bytes from data, copied during the call. Pass `Ref(array[0])` of a `let`
 // int[] / f32[] array.
-declare function Donut_WriteBuffer(commandList: CommandListHandle, buffer: Opaque, data: Opaque, byteSize: int): void;
+declare function Donut_WriteBuffer(commandList: CommandListHandle, buffer: BufferHandle, data: Opaque, byteSize: int): void;
 // Same, at byteOffset of a non-volatile buffer (e.g. a constant buffer's uints after its floats;
 // D3D11 drops partial constant buffer writes).
-declare function Donut_WriteBufferAt(commandList: CommandListHandle, buffer: Opaque, byteOffset: int, data: Opaque, byteSize: int): void;
-declare function Donut_CopyBuffer(commandList: CommandListHandle, dst: Opaque, dstOffset: int, src: Opaque, srcOffset: int, byteSize: int): void;
+declare function Donut_WriteBufferAt(commandList: CommandListHandle, buffer: BufferHandle, byteOffset: int, data: Opaque, byteSize: int): void;
+declare function Donut_CopyBuffer(commandList: CommandListHandle, dst: BufferHandle, dstOffset: int, src: BufferHandle, srcOffset: int, byteSize: int): void;
 declare function Donut_Dispatch(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: Opaque, groupsX: int, groupsY: int, groupsZ: int): void;
 // Same, with a descriptor table bound after the binding set.
 declare function Donut_DispatchWithDescriptorTable(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: Opaque,
@@ -1576,7 +1576,7 @@ declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: Opaque): Opaque;
 // scene's geometry and material buffers index into it.
 declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: Opaque): Opaque;
 // InstanceData / GeometryData / MaterialConstants structured buffers; valid as long as the scene.
-declare function Donut_GetSceneBuffer(scene: Opaque, which: SceneBuffer): Opaque;
+declare function Donut_GetSceneBuffer(scene: Opaque, which: SceneBuffer): BufferHandle;
 // Geometries of a loaded scene, addressed by global geometry index (0 .. count - 1).
 declare function Donut_GetSceneGeometryCount(scene: Opaque): int;
 // Per-geometry bindings, e.g. for local binding sets: Buffer<uint> of the geometry's indices;
@@ -1825,11 +1825,11 @@ declare function Donut_DrawAddBindingSet(frame: FrameHandle, bindingSet: Opaque)
 // pipeline's binding layout order as Donut_DrawAddBindingSet.
 declare function Donut_DrawAddDescriptorTable(frame: FrameHandle, descriptorTable: Opaque): void;
 // R32_UINT indices.
-declare function Donut_DrawSetIndexBuffer(frame: FrameHandle, indexBuffer: Opaque): void;
+declare function Donut_DrawSetIndexBuffer(frame: FrameHandle, indexBuffer: BufferHandle): void;
 // R16_UINT indices.
-declare function Donut_DrawSetIndexBuffer16(frame: FrameHandle, indexBuffer: Opaque): void;
+declare function Donut_DrawSetIndexBuffer16(frame: FrameHandle, indexBuffer: BufferHandle): void;
 // Binds a vertex buffer, from byteOffset, to an input layout slot.
-declare function Donut_DrawAddVertexBuffer(frame: FrameHandle, vertexBuffer: Opaque, slot: int, byteOffset: int): void;
+declare function Donut_DrawAddVertexBuffer(frame: FrameHandle, vertexBuffer: BufferHandle, slot: int, byteOffset: int): void;
 // Draws into this rectangle of the framebuffer (pixels) instead of all of it.
 declare function Donut_DrawSetViewport(frame: FrameHandle, left: number, top: number, width: number, height: number): void;
 // One more viewport (with its scissor rectangle) for the draw, after those set or added before:
@@ -1839,7 +1839,7 @@ declare function Donut_DrawIndexed(frame: FrameHandle, indexCount: int): void;
 // Same, instanceCount times (instance attributes advance per instance).
 declare function Donut_DrawIndexedInstanced(frame: FrameHandle, indexCount: int, instanceCount: int): void;
 // The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
-declare function Donut_DrawSetIndirectBuffer(frame: FrameHandle, indirectBuffer: Opaque): void;
+declare function Donut_DrawSetIndirectBuffer(frame: FrameHandle, indirectBuffer: BufferHandle): void;
 // drawCount indexed draws, their arguments read from the indirect buffer from offsetBytes on (20
 // bytes each); the draw described stays, so it can repeat with other offsets.
 declare function Donut_DrawIndexedIndirect(frame: FrameHandle, offsetBytes: int, drawCount: int): void;

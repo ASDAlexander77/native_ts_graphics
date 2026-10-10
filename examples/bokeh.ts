@@ -225,8 +225,8 @@ namespace Bokeh {
     // file): its vertex and index buffers, its mesh parts (one per subset, drawn with their mesh's
     // buffers), and its materials' diffuse colors and textures.
     class Model {
-        vertexBuffers: Opaque[];
-        indexBuffers: Opaque[];
+        vertexBuffers: BufferHandle[];
+        indexBuffers: BufferHandle[];
         index32: boolean[];
         partVertexBuffers: int[];
         partIndexBuffers: int[];
@@ -362,12 +362,12 @@ namespace Bokeh {
         private models: Model[];
         private irisTexture: Opaque;
         private energiesTexture: Opaque;
-        private scratchBuffer: Opaque;
+        private scratchBuffer: BufferHandle;
         private anisotropicSampler: Opaque;
         private bokehSampler: Opaque;
         private bilinearBorderSampler: Opaque;
-        private bokehBuffer: Opaque;
-        private parametersBuffer: Opaque;
+        private bokehBuffer: BufferHandle;
+        private parametersBuffer: BufferHandle;
         private bokehConstants: f32[];
         private parameters: f32[];
         private sceneLayout: Opaque;

@@ -181,11 +181,11 @@ namespace VertexDynamicState {
         private sampleLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private uniformBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
         private skybox: GltfMesh;
         private object: GltfMesh;
-        private cubeVertexBuffer: Opaque;
-        private cubeIndexBuffer: Opaque;
+        private cubeVertexBuffer: BufferHandle;
+        private cubeIndexBuffer: BufferHandle;
         private cubeIndexCount: int;
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
@@ -276,7 +276,7 @@ namespace VertexDynamicState {
             this.targetHeight = height;
         }
 
-        draw(frame: Frame, pipeline: Opaque, framebuffer: Opaque, vertexBuffer: Opaque, indexBuffer: Opaque, indexCount: int): void {
+        draw(frame: Frame, pipeline: Opaque, framebuffer: Opaque, vertexBuffer: BufferHandle, indexBuffer: BufferHandle, indexCount: int): void {
             frame.beginDrawToFramebuffer(pipeline, framebuffer);
             frame.drawAddBindingSet(this.bindingSet);
             frame.drawSetIndexBuffer(indexBuffer);

@@ -423,20 +423,20 @@ namespace RenderOctomap {
         private gltfBindingLayout: Opaque;
         private bindingSet: BindingSet;
         private gltfBindingSet: BindingSet;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
 
         // Octomap: the cube and an instance per occupied voxel.
-        private cubeVertices: Opaque;
-        private cubeIndices: Opaque;
+        private cubeVertices: BufferHandle;
+        private cubeIndices: BufferHandle;
         private cubeIndexCount: int;
-        private instanceBuffer: Opaque | null;
+        private instanceBuffer: BufferHandle | null;
         instanceCount: int;
 
         // glTF: loaded when first shown.
         private gltfLoaded: boolean;
-        private gltfPositions: Opaque | null;
-        private gltfColors: Opaque | null;
-        private gltfIndices: Opaque | null;
+        private gltfPositions: BufferHandle | null;
+        private gltfColors: BufferHandle | null;
+        private gltfIndices: BufferHandle | null;
         private gltfDrawIndexCount: int[];
         private gltfDrawStartIndex: int[];
         private gltfDrawBaseVertex: int[];
@@ -450,8 +450,8 @@ namespace RenderOctomap {
         private splatScratch: int[];
         private splatDistance: number[];
         private splatSorted: f32[];
-        private splatBuffer: Opaque | null;
-        private splatQuadIndices: Opaque;
+        private splatBuffer: BufferHandle | null;
+        private splatQuadIndices: BufferHandle;
         splatCount: int;
 
         // The back buffer's size: color (sRGB, as the sample's swapchain) and depth targets.
@@ -637,7 +637,7 @@ namespace RenderOctomap {
         }
 
         releaseTargets(): void {
-            const resources = [this.octomapPipeline, this.gltfPipeline, this.splatPipeline, this.framebuffer,
+            const resources: ResourceHandle[] = [this.octomapPipeline, this.gltfPipeline, this.splatPipeline, this.framebuffer,
                 this.colorBuffer, this.depthBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
@@ -709,7 +709,7 @@ namespace RenderOctomap {
         // Sort splats back-to-front for correct alpha compositing, from the camera's position
         // (-R^T * t of the view, the position negated for this camera), and write them in that
         // order.
-        sortSplats(commandList: CommandList, splatBuffer: Opaque): void {
+        sortSplats(commandList: CommandList, splatBuffer: BufferHandle): void {
             const p = this.cameraPosition;
             const cx = -p[0];
             const cy = -p[1];

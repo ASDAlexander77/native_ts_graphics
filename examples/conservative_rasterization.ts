@@ -137,11 +137,11 @@ namespace ConservativeRasterization {
         private inputLayout: Opaque;
         private sceneBindingLayout: Opaque;
         private fullscreenBindingLayout: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private sceneBindingSet: BindingSet;
         private sampler: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
 
         // Created on the first frame: the low resolution target (the screen's size then, as the
         // sample's offscreen pass, which a resize leaves as it is) and the pipelines.

@@ -219,9 +219,9 @@ namespace PatchControlPoints {
         private ps: Opaque;
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
-        private commonBuffer: Opaque;
-        private staticTessBuffer: Opaque;
-        private dynamicTessBuffer: Opaque;
+        private commonBuffer: BufferHandle;
+        private staticTessBuffer: BufferHandle;
+        private dynamicTessBuffer: BufferHandle;
         private staticBindingSet: BindingSet;
         private dynamicBindingSet: BindingSet;
         private model: GltfMesh;

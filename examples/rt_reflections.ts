@@ -79,7 +79,7 @@ namespace RtReflections {
         private globalBindingLayout: Opaque;
         private localBindingLayout: Opaque;
         private shaderTable: ShaderTable;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private accelStructs: SceneAccelStructs;
         // Created on the first frame, dropped on resize.
         private renderTargets: GBufferTargets;

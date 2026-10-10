@@ -198,9 +198,9 @@ namespace RtParticles {
         private bindlessLayout: Opaque;
         private bindingLayout: Opaque;
         private descriptorTable: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private particleMesh: Opaque;
-        private particleInfoBuffer: Opaque;
+        private particleInfoBuffer: BufferHandle;
         private particleIntersectionBLAS: Opaque;
         private topLevelAS: SceneAccelStructs;
         private environmentMap: LoadedTexture;

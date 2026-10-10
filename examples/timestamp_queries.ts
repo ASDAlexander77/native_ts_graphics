@@ -109,8 +109,8 @@ namespace TimestampQueries {
         private inputLayout: Opaque;
         private modelsBindingLayout: Opaque;
         private postBindingLayout: Opaque;
-        private matricesBuffer: Opaque;
-        private paramsBuffer: Opaque;
+        private matricesBuffer: BufferHandle;
+        private paramsBuffer: BufferHandle;
         private skybox: GltfMesh;
         private objects: GltfMesh[];
         private modelsBindingSet: BindingSet;
@@ -254,7 +254,7 @@ namespace TimestampQueries {
             this.bloomFilterBindingSet = new BindingSet(null);
             this.compositionBindingSet = new BindingSet(null);
 
-            const resources = [this.skyboxPipeline, this.reflectPipeline, this.bloomFilterPipeline,
+            const resources: ResourceHandle[] = [this.skyboxPipeline, this.reflectPipeline, this.bloomFilterPipeline,
                 this.compositionPipeline, this.bloomCompositePipeline, this.offscreenFramebuffer,
                 this.filterFramebuffer, this.offscreenColor0, this.offscreenColor1, this.offscreenDepth,
                 this.filterColor];

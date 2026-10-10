@@ -170,11 +170,11 @@ namespace FastBlockCompress {
         private rmsReduceLayout: Opaque;
         private rmsErrorPipeline: Opaque;
         private rmsReducePipeline: Opaque;
-        private reduceBufferA: Opaque;
-        private reduceBufferB: Opaque;
+        private reduceBufferA: BufferHandle;
+        private reduceBufferB: BufferHandle;
         // Reduce passes from A into B, and from B into A.
         private reduceSets: BindingSet[];
-        private rmsReadbacks: Opaque[];
+        private rmsReadbacks: BufferHandle[];
         private rmsReadbackWidth: int[];
         private rmsResult: f32[];
         private rmsConstants: f32[];

@@ -173,10 +173,10 @@ namespace DynamicUniformBuffers {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSets: BindingSet[];
-        private viewBuffer: Opaque;
-        private dynamicBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private viewBuffer: BufferHandle;
+        private dynamicBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
 
         // The cubes' rotations and rotation speeds (x, y, z each), and the time since the last
         // update (the sample updates at 60 per second at most).

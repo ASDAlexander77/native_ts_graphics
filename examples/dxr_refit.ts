@@ -78,9 +78,9 @@ namespace DxrRefit {
         // the D3D12 backend of NVRHI references them from there.
         private blases: TriangleBlas[];
         private topLevelAS: SceneAccelStructs;
-        private colorBuffer: Opaque;
+        private colorBuffer: BufferHandle;
         // The BLAS builds' vertices and indices.
-        private inputBuffers: Opaque[];
+        private inputBuffers: BufferHandle[];
         // Created on the first frame (it has the frame's size), dropped on resize.
         private storageImage: Opaque | null;
         private bindingSet: BindingSet;

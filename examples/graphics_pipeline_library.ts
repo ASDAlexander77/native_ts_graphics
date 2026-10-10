@@ -162,7 +162,7 @@ namespace GraphicsPipelineLibrary {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private uniformBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
         private model: GltfMesh;
         private rng: Opaque;
         private colors: f32[];

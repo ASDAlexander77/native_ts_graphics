@@ -238,13 +238,13 @@ namespace ExtendedDynamicState2 {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private commonBuffer: Opaque;
-        private baselineBuffer: Opaque;
-        private tessBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
-        private restartVertexBuffer: Opaque;
-        private restartIndexBuffer: Opaque;
+        private commonBuffer: BufferHandle;
+        private baselineBuffer: BufferHandle;
+        private tessBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
+        private restartVertexBuffer: BufferHandle;
+        private restartIndexBuffer: BufferHandle;
         private background: GltfMesh;
 
         // The depth buffer (reversed) and a framebuffer per back buffer, for the back buffers' size,

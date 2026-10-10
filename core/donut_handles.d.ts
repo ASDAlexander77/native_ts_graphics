@@ -18,3 +18,4 @@ declare class PassHandle { private readonly __pass: int; }
 declare class AdapterListHandle { private readonly __adapterList: int; }
 declare class ResourceHandle { private readonly __resource: int; }
 declare class CommandListHandle extends ResourceHandle { private readonly __commandList: int; }
+declare class BufferHandle extends ResourceHandle { private readonly __buffer: int; }

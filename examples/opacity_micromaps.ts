@@ -60,9 +60,9 @@ namespace OpacityMicromaps {
     // per-triangle indices on the GPU, the counts the builds need, and its array once built.
     class OmmSet {
         loaded: boolean;
-        descBuffer: Opaque;
-        arrayBuffer: Opaque;
-        indexBuffer: Opaque;
+        descBuffer: BufferHandle;
+        arrayBuffer: BufferHandle;
+        indexBuffer: BufferHandle;
         indexFormat: Format;
         // The array's histogram and the leaves' usage counts: entries of (count, subdivision
         // level, format).
@@ -98,15 +98,15 @@ namespace OpacityMicromaps {
         private shaderTable: ShaderTable;
         private sampler: Opaque;
         private textures: Opaque[];
-        private positionBuffer: Opaque;
-        private normalBuffer: Opaque;
-        private texCoordBuffer: Opaque;
-        private positionIndexBuffer: Opaque;
-        private normalIndexBuffer: Opaque;
-        private texCoordIndexBuffer: Opaque;
-        private geometryInfoBuffer: Opaque;
-        private sceneBuffer: Opaque;
-        private paramsBuffer: Opaque;
+        private positionBuffer: BufferHandle;
+        private normalBuffer: BufferHandle;
+        private texCoordBuffer: BufferHandle;
+        private positionIndexBuffer: BufferHandle;
+        private normalIndexBuffer: BufferHandle;
+        private texCoordIndexBuffer: BufferHandle;
+        private geometryInfoBuffer: BufferHandle;
+        private sceneBuffer: BufferHandle;
+        private paramsBuffer: BufferHandle;
         private vertexCount: int;
         private indicesPerGeometry: int[];
         private ommSets: OmmSet[];

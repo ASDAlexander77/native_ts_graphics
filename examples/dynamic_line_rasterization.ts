@@ -260,11 +260,11 @@ namespace DynamicLineRasterization {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private cameraBuffer: Opaque;
-        private colorBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private cubeIndexBuffer: Opaque;
-        private edgeIndexBuffer: Opaque;
+        private cameraBuffer: BufferHandle;
+        private colorBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private cubeIndexBuffer: BufferHandle;
+        private edgeIndexBuffer: BufferHandle;
 
         // Made on the first frame (the back buffer's layout), dropped on resize.
         private pipelinesCreated: boolean;

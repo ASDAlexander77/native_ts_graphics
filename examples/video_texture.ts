@@ -123,10 +123,10 @@ namespace VideoTexture {
         // D3D12 and D3D11: shared with the Media Engine's device; Vulkan: uploaded.
         private sharedTexture: Opaque | null;
         private videoTexture: Opaque;
-        private cubeVertices: Opaque;
-        private cubeIndices: Opaque;
+        private cubeVertices: BufferHandle;
+        private cubeIndices: BufferHandle;
         private cubeIndexCount: int;
-        private parametersBuffer: Opaque;
+        private parametersBuffer: BufferHandle;
         private parameters: f32[];
         private spriteConstants: f32[];
         private cubeLayout: Opaque;

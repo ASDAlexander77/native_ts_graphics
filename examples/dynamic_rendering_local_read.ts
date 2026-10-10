@@ -204,8 +204,8 @@ namespace DynamicRenderingLocalRead {
     // primitive): index range, base vertex, push constants (the node's world transform and the
     // material's base color factor).
     class Scene {
-        vertexBuffer: Opaque;
-        indexBuffer: Opaque;
+        vertexBuffer: BufferHandle;
+        indexBuffer: BufferHandle;
         firstIndex: int[];
         indexCount: int[];
         baseVertex: int[];
@@ -316,8 +316,8 @@ namespace DynamicRenderingLocalRead {
         private compositionBindingLayout: Opaque;
         private transparentBindingLayout: Opaque;
         private opaqueBindingSet: BindingSet;
-        private uniformBuffer: Opaque;
-        private lightsBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
+        private lightsBuffer: BufferHandle;
         private glassTexture: Opaque;
         private glassSampler: Opaque;
         private opaqueScene: Scene;

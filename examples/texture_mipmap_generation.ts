@@ -216,7 +216,7 @@ namespace TextureMipmapGeneration {
 
         private pipeline: Opaque;
         private bindingSet: BindingSet;
-        private uniformBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
         private mesh: GltfMesh;
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size.

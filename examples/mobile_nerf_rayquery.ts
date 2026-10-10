@@ -482,10 +482,10 @@ namespace MobileNerfRayQuery {
         private ps: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: Opaque;
-        private globalBuffer: Opaque;
-        private weightsBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private globalBuffer: BufferHandle;
+        private weightsBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         private blases: TriangleBlas[];
         private topLevelAS: SceneAccelStructs;
         private topLevelASBuilt: boolean;

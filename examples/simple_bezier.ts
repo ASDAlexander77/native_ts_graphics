@@ -242,8 +242,8 @@ namespace SimpleBezier {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private constantBuffer: Opaque;
-        private controlPointVB: Opaque;
+        private constantBuffer: BufferHandle;
+        private controlPointVB: BufferHandle;
         private cb: f32[];
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the

@@ -372,11 +372,11 @@ namespace SparseImage {
         private inputLayout: Opaque;
         private sceneBindingLayout: Opaque;
         private mipBindingLayout: Opaque;
-        private mvpBuffer: Opaque;
-        private settingsBuffer: Opaque;
+        private mvpBuffer: BufferHandle;
+        private settingsBuffer: BufferHandle;
         private sceneBindingSet: BindingSet;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
         // Per level: a framebuffer of it (from 1), and a binding set reading it (to 3).
         private mipFramebuffers: Opaque[];
         private mipBindingSets: BindingSet[];

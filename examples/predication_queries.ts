@@ -26,9 +26,9 @@ namespace PredicationQueries {
         private vertexShader: Opaque;
         private pixelShader: Opaque;
         private inputLayout: Opaque;
-        private vertexBuffer: Opaque;
-        private farQuadConstants: Opaque;
-        private nearQuadConstants: Opaque;
+        private vertexBuffer: BufferHandle;
+        private farQuadConstants: BufferHandle;
+        private nearQuadConstants: BufferHandle;
         private farQuadBindingSet: BindingSet;
         private nearQuadBindingSet: BindingSet;
         private occlusion: Opaque;

@@ -64,7 +64,7 @@ namespace MeshShaderCulling {
         private keyLeft: boolean;
         private keyRight: boolean;
 
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
         private amplificationShader: Opaque;

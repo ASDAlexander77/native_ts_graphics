@@ -537,7 +537,6 @@ namespace
         std::vector<donut::app::AdapterInfo> adapters;
     };
 
-    nvrhi::IBuffer* AsBuffer(void* buffer) { return static_cast<nvrhi::IBuffer*>(buffer); }
     // Cameras are handed to TypeScript as BaseCamera pointers, whatever their type.
     donut::app::BaseCamera* AsCamera(void* camera) { return static_cast<donut::app::BaseCamera*>(camera); }
     donut::app::ThirdPersonCamera* AsThirdPersonCamera(void* camera)
@@ -1155,7 +1154,7 @@ namespace
     }
 
     // Buffer uploaded once by an open command list, then kept in permanentState.
-    void* CreateStaticBuffer(App* a, nvrhi::ICommandList* commandList, nvrhi::BufferDesc desc,
+    nvrhi::IBuffer* CreateStaticBuffer(App* a, nvrhi::ICommandList* commandList, nvrhi::BufferDesc desc,
         nvrhi::ResourceStates permanentState, const void* data, int byteSize)
     {
         desc.byteSize = static_cast<uint64_t>(byteSize);
@@ -2583,7 +2582,7 @@ extern "C"
 
     // Buffer that acceleration structures are built from (vertex or index data), filled with
     // Donut_WriteBuffer. Returns null on failure.
-    void* Donut_CreateAccelStructInputBuffer(App* app, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateAccelStructInputBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(static_cast<uint64_t>(byteSize))
@@ -2597,7 +2596,7 @@ extern "C"
     }
 
     // Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
-    void* Donut_CreateAccelStructInputRawBuffer(App* app, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateAccelStructInputRawBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(static_cast<uint64_t>(byteSize))
@@ -2612,7 +2611,7 @@ extern "C"
     }
 
     // Same, that shaders also read as a StructuredBuffer of `count` elements of `stride` bytes.
-    void* Donut_CreateAccelStructInputStructuredBuffer(App* app, int stride, int count, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateAccelStructInputStructuredBuffer(App* app, int stride, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(stride) * uint64_t(count))
@@ -2632,15 +2631,15 @@ extern "C"
     // of interleaved vertices). Its build is recorded into an open command list, preferring fast
     // tracing, or if updatable != 0 fast builds and updates (Donut_UpdateTriangleBlas). Returns
     // null on failure.
-    void* Donut_CreateTriangleBlas(App* app, nvrhi::ICommandList* commandList, void* indexBuffer, int indexByteOffset, int indexCount,
-        void* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, int updatable, const char* debugName)
+    void* Donut_CreateTriangleBlas(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+        nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, int updatable, const char* debugName)
     {
         auto triangles = nvrhi::rt::GeometryTriangles()
-            .setIndexBuffer(AsBuffer(indexBuffer))
+            .setIndexBuffer(indexBuffer)
             .setIndexOffset(static_cast<uint64_t>(indexByteOffset))
             .setIndexFormat(nvrhi::Format::R32_UINT)
             .setIndexCount(static_cast<uint32_t>(indexCount))
-            .setVertexBuffer(AsBuffer(vertexBuffer))
+            .setVertexBuffer(vertexBuffer)
             .setVertexOffset(static_cast<uint64_t>(vertexByteOffset))
             .setVertexFormat(nvrhi::Format::RGB32_FLOAT)
             .setVertexStride(static_cast<uint32_t>(vertexStride))
@@ -2688,15 +2687,15 @@ extern "C"
     // indexBuffer, vertexCount RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of
     // vertexBuffer (both created for acceleration structure builds), with transform (12 floats, 3
     // rows of 4: a VkTransformMatrixKHR) applied to the positions, or none (null).
-    void Donut_AddTriangleBlasGeometry(void* triangleBlas, void* indexBuffer, int indexByteOffset, int indexCount,
-        void* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
+    void Donut_AddTriangleBlasGeometry(void* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+        nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
     {
         auto triangles = nvrhi::rt::GeometryTriangles()
-            .setIndexBuffer(AsBuffer(indexBuffer))
+            .setIndexBuffer(indexBuffer)
             .setIndexOffset(static_cast<uint64_t>(indexByteOffset))
             .setIndexFormat(nvrhi::Format::R32_UINT)
             .setIndexCount(static_cast<uint32_t>(indexCount))
-            .setVertexBuffer(AsBuffer(vertexBuffer))
+            .setVertexBuffer(vertexBuffer)
             .setVertexOffset(static_cast<uint64_t>(vertexByteOffset))
             .setVertexFormat(nvrhi::Format::RGB32_FLOAT)
             .setVertexStride(static_cast<uint32_t>(vertexStride))
@@ -2717,11 +2716,11 @@ extern "C"
     // (nvrhi::rt::GeometryAABB: min x y z, max x y z) aabbStride bytes apart from byteOffset of
     // aabbBuffer (created for acceleration structure builds). A BLAS holds triangles or AABBs, not
     // both.
-    void Donut_AddTriangleBlasAabbGeometry(void* triangleBlas, void* aabbBuffer, int byteOffset, int aabbCount,
+    void Donut_AddTriangleBlasAabbGeometry(void* triangleBlas, nvrhi::IBuffer* aabbBuffer, int byteOffset, int aabbCount,
         int aabbStride)
     {
         auto aabbs = nvrhi::rt::GeometryAABBs()
-            .setBuffer(AsBuffer(aabbBuffer))
+            .setBuffer(aabbBuffer)
             .setOffset(static_cast<uint64_t>(byteOffset))
             .setCount(static_cast<uint32_t>(aabbCount))
             .setStride(static_cast<uint32_t>(aabbStride));
@@ -2747,7 +2746,7 @@ extern "C"
     // many triangles use OMMs of a subdivision level and format (Donut_CountOpacityMicromapUsage).
     // The BLAS keeps the array alive.
     void Donut_SetTriangleBlasGeometryOpacityMicromap(void* triangleBlas, int geometryIndex, void* opacityMicromap,
-        void* ommIndexBuffer, int ommIndexOffset, int ommIndexFormat, const int* usageCounts, int numUsageCounts)
+        nvrhi::IBuffer* ommIndexBuffer, int ommIndexOffset, int ommIndexFormat, const int* usageCounts, int numUsageCounts)
     {
         auto* blas = static_cast<TriangleBlas*>(triangleBlas);
         auto& geometries = blas->desc.bottomLevelGeometries;
@@ -2768,7 +2767,7 @@ extern "C"
         auto* omm = static_cast<nvrhi::rt::IOpacityMicromap*>(opacityMicromap);
         geometries[geometryIndex].geometryData.triangles
             .setOpacityMicromap(omm)
-            .setOmmIndexBuffer(AsBuffer(ommIndexBuffer))
+            .setOmmIndexBuffer(ommIndexBuffer)
             .setOmmIndexBufferOffset(uint64_t(ommIndexOffset))
             .setOmmIndexFormat(static_cast<nvrhi::Format>(ommIndexFormat))
             .setPOmmUsageCounts(counts->data())
@@ -2784,16 +2783,16 @@ extern "C"
     // numUsageCounts entries of three ints, how many OMMs the array has of a subdivision level and
     // format (D3D12's histogram). buildFlags: nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast
     // trace, 2 fast build). Returns null on failure.
-    void* Donut_CreateOpacityMicromap(App* app, nvrhi::ICommandList* commandList, void* inputBuffer, int inputOffset,
-        void* perOmmDescs, int descsOffset, const int* usageCounts, int numUsageCounts, int buildFlags,
+    void* Donut_CreateOpacityMicromap(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* inputBuffer, int inputOffset,
+        nvrhi::IBuffer* perOmmDescs, int descsOffset, const int* usageCounts, int numUsageCounts, int buildFlags,
         const char* debugName)
     {
         nvrhi::rt::OpacityMicromapDesc desc;
         desc.setDebugName(debugName)
             .setFlags(static_cast<nvrhi::rt::OpacityMicromapBuildFlags>(buildFlags))
-            .setInputBuffer(AsBuffer(inputBuffer))
+            .setInputBuffer(inputBuffer)
             .setInputBufferOffset(uint64_t(inputOffset))
-            .setPerOmmDescs(AsBuffer(perOmmDescs))
+            .setPerOmmDescs(perOmmDescs)
             .setPerOmmDescsOffset(uint64_t(descsOffset));
         for (int i = 0; i < numUsageCounts; i++)
         {
@@ -2851,13 +2850,13 @@ extern "C"
 
     // Creates a bottom-level acceleration structure of opaque triangles (R32_UINT indices,
     // RGB32_FLOAT vertices) and records its build into an open command list.
-    void* Donut_BuildTriangleBLAS(App* app, nvrhi::ICommandList* commandList, void* indexBuffer, int indexCount,
-        void* vertexBuffer, int vertexCount)
+    void* Donut_BuildTriangleBLAS(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexCount,
+        nvrhi::IBuffer* vertexBuffer, int vertexCount)
     {
         nvrhi::rt::GeometryDesc geometry;
         auto& triangles = geometry.geometryData.triangles;
-        triangles.indexBuffer = AsBuffer(indexBuffer);
-        triangles.vertexBuffer = AsBuffer(vertexBuffer);
+        triangles.indexBuffer = indexBuffer;
+        triangles.vertexBuffer = vertexBuffer;
         triangles.indexFormat = nvrhi::Format::R32_UINT;
         triangles.indexCount = static_cast<uint32_t>(indexCount);
         triangles.vertexFormat = nvrhi::Format::RGB32_FLOAT;
@@ -3005,7 +3004,7 @@ extern "C"
 
     // Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
     // otherwise shader-readable only, filled with Donut_WriteBuffer. Returns null on failure.
-    void* Donut_CreateUIntBuffer(App* app, int elementCount, int writable, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateUIntBuffer(App* app, int elementCount, int writable, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(sizeof(uint32_t) * static_cast<uint64_t>(elementCount))
@@ -3022,7 +3021,7 @@ extern "C"
 
     // CPU-readable buffer to copy GPU results into; read it with Donut_ReadBuffer. Returns null
     // on failure.
-    void* Donut_CreateReadbackBuffer(App* app, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateReadbackBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(static_cast<uint64_t>(byteSize))
@@ -3037,14 +3036,14 @@ extern "C"
 
     // Copies byteSize bytes of a readback buffer to dst, after the GPU work writing it has
     // finished (see Donut_WaitForIdle). Returns 0 if the buffer can't be mapped.
-    int Donut_ReadBuffer(App* app, void* readbackBuffer, void* dst, int byteSize)
+    int Donut_ReadBuffer(App* app, nvrhi::IBuffer* readbackBuffer, void* dst, int byteSize)
     {
         nvrhi::IDevice* device = app->device();
-        const void* data = device->mapBuffer(AsBuffer(readbackBuffer), nvrhi::CpuAccessMode::Read);
+        const void* data = device->mapBuffer(readbackBuffer, nvrhi::CpuAccessMode::Read);
         if (!data)
             return 0;
         memcpy(dst, data, static_cast<size_t>(byteSize));
-        device->unmapBuffer(AsBuffer(readbackBuffer));
+        device->unmapBuffer(readbackBuffer);
         return 1;
     }
 
@@ -3120,18 +3119,18 @@ extern "C"
     }
 
     // Buffer created by Donut_CreateUIntBuffer, read by the shader as Buffer<uint> at t<slot>.
-    void Donut_BindTypedBufferSRV(void* bindingSetDesc, int slot, void* buffer)
+    void Donut_BindTypedBufferSRV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::TypedBuffer_SRV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+            nvrhi::BindingSetItem::TypedBuffer_SRV(static_cast<uint32_t>(slot), buffer));
     }
 
     // Writable buffer created by Donut_CreateUIntBuffer, written by the shader as RWBuffer<uint>
     // at u<slot>.
-    void Donut_BindTypedBufferUAV(void* bindingSetDesc, int slot, void* buffer)
+    void Donut_BindTypedBufferUAV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+            nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
     // Creates a binding set, and a matching layout (in register space 0) visible to the stages
@@ -3326,7 +3325,7 @@ extern "C"
 
     // Constant buffer for cbuffers, written with Donut_WriteBuffer. Bind slices of it (offsets
     // and sizes in multiples of 256 bytes) with Donut_BindConstantBuffer. Returns null on failure.
-    void* Donut_CreateConstantBuffer(App* app, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateConstantBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::utils::CreateStaticConstantBufferDesc(static_cast<uint32_t>(byteSize), debugName)
             .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
@@ -3339,7 +3338,7 @@ extern "C"
     // Constant buffer rewritten (with Donut_WriteBuffer) every time it's used, up to
     // c_MaxRenderPassConstantBufferVersions times per frame; bind it with
     // Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer. Returns null on failure.
-    void* Donut_CreateVolatileConstantBuffer(App* app, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateVolatileConstantBuffer(App* app, int byteSize, const char* debugName)
     {
         App* a = app;
         return a->Own(a->device()->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
@@ -3348,7 +3347,7 @@ extern "C"
 
     // StructuredBuffer of `count` elements of `stride` bytes, for shaders to read (t registers),
     // filled with Donut_WriteBuffer. Returns null on failure.
-    void* Donut_CreateStructuredBuffer(App* app, int stride, int count, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateStructuredBuffer(App* app, int stride, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(stride) * uint64_t(count))
@@ -3362,7 +3361,7 @@ extern "C"
     }
 
     // Same, that shaders can also write (RWStructuredBuffer, u registers).
-    void* Donut_CreateRWStructuredBuffer(App* app, int stride, int count, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateRWStructuredBuffer(App* app, int stride, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(stride) * uint64_t(count))
@@ -3380,7 +3379,7 @@ extern "C"
     // each: index count, instance count, first index, vertex offset, first instance), filled with
     // Donut_WriteBuffer, that shaders can also write as a RWByteAddressBuffer (u registers).
     // Returns null on failure.
-    void* Donut_CreateDrawIndexedIndirectBuffer(App* app, int count, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateDrawIndexedIndirectBuffer(App* app, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(count) * sizeof(nvrhi::DrawIndexedIndirectArguments))
@@ -3397,19 +3396,19 @@ extern "C"
 
     // Stores a buffer's GPU address (8 bytes; its device address on Vulkan) at dst, e.g. Ref of an
     // f32 array element, for shaders that write it through the address. 0 if it has none.
-    void Donut_StoreBufferDeviceAddress(void* dst, void* buffer)
+    void Donut_StoreBufferDeviceAddress(void* dst, nvrhi::IBuffer* buffer)
     {
-        const uint64_t address = AsBuffer(buffer)->getGpuVirtualAddress();
+        const uint64_t address = buffer->getGpuVirtualAddress();
         memcpy(dst, &address, sizeof(address));
     }
 
     // Before a dispatch whose shaders write a buffer through its device address, which NVRHI can't
     // see: marks the buffer as written by shaders (unordered access), so that its next use waits
     // for the writes, and the writes for its previous use.
-    void Donut_SetBufferWrittenByShaders(nvrhi::ICommandList* commandList, void* buffer)
+    void Donut_SetBufferWrittenByShaders(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer)
     {
         nvrhi::ICommandList* cl = commandList;
-        cl->setBufferState(AsBuffer(buffer), nvrhi::ResourceStates::UnorderedAccess);
+        cl->setBufferState(buffer, nvrhi::ResourceStates::UnorderedAccess);
         cl->commitBarriers();
     }
 
@@ -3422,7 +3421,7 @@ extern "C"
 
     // Vertex buffer with byteSize bytes of data (copied during the call), uploaded by an open
     // command list; the contents can't change afterwards. Returns null on failure.
-    void* Donut_CreateStaticVertexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateStaticVertexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
     {
         return CreateStaticBuffer(app, commandList,
             nvrhi::BufferDesc().setIsVertexBuffer(true).setDebugName(debugName),
@@ -3431,7 +3430,7 @@ extern "C"
 
     // A vertex buffer of byteSize bytes to write (Donut_WriteBuffer) as often as needed, e.g. per
     // frame. Returns null on failure.
-    void* Donut_CreateDynamicVertexBuffer(App* app, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateDynamicVertexBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(static_cast<uint64_t>(byteSize))
@@ -3444,7 +3443,7 @@ extern "C"
     }
 
     // Same, that shaders can also read as a ByteAddressBuffer (t registers).
-    void* Donut_CreateStaticRawVertexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateStaticRawVertexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
     {
         return CreateStaticBuffer(app, commandList,
             nvrhi::BufferDesc().setIsVertexBuffer(true).setCanHaveRawViews(true).setDebugName(debugName),
@@ -3454,7 +3453,7 @@ extern "C"
     // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
     // ByteAddressBuffer and acceleration structure builds take as input: one copy of a mesh for
     // rasterization and ray tracing.
-    void* Donut_CreateStaticGeometryBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, int isIndexBuffer,
+    nvrhi::IBuffer* Donut_CreateStaticGeometryBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, int isIndexBuffer,
         const char* debugName)
     {
         auto desc = nvrhi::BufferDesc().setCanHaveRawViews(true).setIsAccelStructBuildInput(true).setDebugName(debugName);
@@ -3468,7 +3467,7 @@ extern "C"
     }
 
     // Same, for an index buffer.
-    void* Donut_CreateStaticIndexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
+    nvrhi::IBuffer* Donut_CreateStaticIndexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
     {
         return CreateStaticBuffer(app, commandList,
             nvrhi::BufferDesc().setIsIndexBuffer(true).setDebugName(debugName),
@@ -3497,12 +3496,12 @@ extern "C"
 
         App* a = app;
         auto mesh = std::make_shared<GltfMesh>();
-        mesh->vertexBuffer = AsBuffer(CreateStaticBuffer(a, commandList,
+        mesh->vertexBuffer = CreateStaticBuffer(a, commandList,
             nvrhi::BufferDesc().setIsVertexBuffer(true).setDebugName(fileNameString + " vertices"),
-            nvrhi::ResourceStates::VertexBuffer, vertices.data(), static_cast<int>(vertices.size() * sizeof(float))));
-        mesh->indexBuffer = AsBuffer(CreateStaticBuffer(a, commandList,
+            nvrhi::ResourceStates::VertexBuffer, vertices.data(), static_cast<int>(vertices.size() * sizeof(float)));
+        mesh->indexBuffer = CreateStaticBuffer(a, commandList,
             nvrhi::BufferDesc().setIsIndexBuffer(true).setDebugName(fileNameString + " indices"),
-            nvrhi::ResourceStates::IndexBuffer, indices.data(), static_cast<int>(indices.size() * sizeof(uint32_t))));
+            nvrhi::ResourceStates::IndexBuffer, indices.data(), static_cast<int>(indices.size() * sizeof(uint32_t)));
         mesh->indexCount = static_cast<int>(indices.size());
         if (!mesh->vertexBuffer || !mesh->indexBuffer)
         {
@@ -3513,12 +3512,12 @@ extern "C"
     }
 
     // Valid as long as the mesh.
-    void* Donut_GetGltfMeshVertexBuffer(void* gltfMesh)
+    nvrhi::IBuffer* Donut_GetGltfMeshVertexBuffer(void* gltfMesh)
     {
         return static_cast<GltfMesh*>(gltfMesh)->vertexBuffer.Get();
     }
 
-    void* Donut_GetGltfMeshIndexBuffer(void* gltfMesh)
+    nvrhi::IBuffer* Donut_GetGltfMeshIndexBuffer(void* gltfMesh)
     {
         return static_cast<GltfMesh*>(gltfMesh)->indexBuffer.Get();
     }
@@ -3592,7 +3591,7 @@ extern "C"
 
     // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the
     // call into an open command list (e.g. a model's vertices from the middle of its file).
-    void Donut_WriteBufferFromBinaryFile(void* binaryFile, nvrhi::ICommandList* commandList, void* buffer, int bufferOffset,
+    void Donut_WriteBufferFromBinaryFile(void* binaryFile, nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int bufferOffset,
         int fileOffset, int byteSize)
     {
         const std::vector<uint8_t>& bytes = static_cast<BinaryFile*>(binaryFile)->bytes;
@@ -3602,7 +3601,7 @@ extern "C"
                 fileOffset, fileOffset + byteSize, int(bytes.size()));
             return;
         }
-        commandList->writeBuffer(AsBuffer(buffer), bytes.data() + fileOffset, size_t(byteSize),
+        commandList->writeBuffer(buffer, bytes.data() + fileOffset, size_t(byteSize),
             uint64_t(bufferOffset));
     }
 
@@ -4049,39 +4048,39 @@ extern "C"
 
     // cbuffer at b<slot>: byteSize bytes of a constant buffer starting at byteOffset (both
     // multiples of 256).
-    void Donut_BindConstantBuffer(void* bindingSetDesc, int slot, void* constantBuffer, int byteOffset, int byteSize)
+    void Donut_BindConstantBuffer(void* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer, int byteOffset, int byteSize)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(nvrhi::BindingSetItem::ConstantBuffer(
-            static_cast<uint32_t>(slot), AsBuffer(constantBuffer),
+            static_cast<uint32_t>(slot), constantBuffer,
             nvrhi::BufferRange(static_cast<uint64_t>(byteOffset), static_cast<uint64_t>(byteSize))));
     }
 
     // StructuredBuffer at t<slot> (e.g. from Donut_GetSceneBuffer).
-    void Donut_BindStructuredBufferSRV(void* bindingSetDesc, int slot, void* buffer)
+    void Donut_BindStructuredBufferSRV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot), buffer));
     }
 
     // A buffer from Donut_CreateRWStructuredBuffer, as RWStructuredBuffer at u<slot>.
-    void Donut_BindStructuredBufferUAV(void* bindingSetDesc, int slot, void* buffer)
+    void Donut_BindStructuredBufferUAV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+            nvrhi::BindingSetItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
     // ByteAddressBuffer at t<slot>; the buffer must allow raw views.
-    void Donut_BindRawBufferSRV(void* bindingSetDesc, int slot, void* buffer)
+    void Donut_BindRawBufferSRV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::RawBuffer_SRV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+            nvrhi::BindingSetItem::RawBuffer_SRV(static_cast<uint32_t>(slot), buffer));
     }
 
     // RWByteAddressBuffer at u<slot>; the buffer must allow raw views and UAVs.
-    void Donut_BindRawBufferUAV(void* bindingSetDesc, int slot, void* buffer)
+    void Donut_BindRawBufferUAV(void* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::RawBuffer_UAV(static_cast<uint32_t>(slot), AsBuffer(buffer)));
+            nvrhi::BindingSetItem::RawBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
     // Element arrayElement of a Donut_LayoutTextureSRVArray array at t<slot>.
@@ -4102,10 +4101,10 @@ extern "C"
     }
 
     // cbuffer at b<slot>: the whole of a constant buffer (required for volatile ones).
-    void Donut_BindEntireConstantBuffer(void* bindingSetDesc, int slot, void* constantBuffer)
+    void Donut_BindEntireConstantBuffer(void* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer)
     {
         static_cast<nvrhi::BindingSetDesc*>(bindingSetDesc)->addItem(
-            nvrhi::BindingSetItem::ConstantBuffer(static_cast<uint32_t>(slot), AsBuffer(constantBuffer)));
+            nvrhi::BindingSetItem::ConstantBuffer(static_cast<uint32_t>(slot), constantBuffer));
     }
 
     // Texture2D at t<slot>.
@@ -5414,23 +5413,23 @@ extern "C"
     }
 
     // Uploads byteSize bytes from data (copied during the call) into buffer.
-    void Donut_WriteBuffer(nvrhi::ICommandList* commandList, void* buffer, const void* data, int byteSize)
+    void Donut_WriteBuffer(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, const void* data, int byteSize)
     {
-        commandList->writeBuffer(AsBuffer(buffer), data, static_cast<size_t>(byteSize));
+        commandList->writeBuffer(buffer, data, static_cast<size_t>(byteSize));
     }
 
     // byteSize bytes of data into a (non-volatile) buffer at byteOffset, e.g. a constant buffer's
     // uints after its floats.
-    void Donut_WriteBufferAt(nvrhi::ICommandList* commandList, void* buffer, int byteOffset, const void* data, int byteSize)
+    void Donut_WriteBufferAt(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int byteOffset, const void* data, int byteSize)
     {
-        commandList->writeBuffer(AsBuffer(buffer), data, static_cast<size_t>(byteSize),
+        commandList->writeBuffer(buffer, data, static_cast<size_t>(byteSize),
             static_cast<uint64_t>(byteOffset));
     }
 
-    void Donut_CopyBuffer(nvrhi::ICommandList* commandList, void* dst, int dstOffset, void* src, int srcOffset, int byteSize)
+    void Donut_CopyBuffer(nvrhi::ICommandList* commandList, nvrhi::IBuffer* dst, int dstOffset, nvrhi::IBuffer* src, int srcOffset, int byteSize)
     {
-        commandList->copyBuffer(AsBuffer(dst), static_cast<uint64_t>(dstOffset),
-            AsBuffer(src), static_cast<uint64_t>(srcOffset), static_cast<uint64_t>(byteSize));
+        commandList->copyBuffer(dst, static_cast<uint64_t>(dstOffset),
+            src, static_cast<uint64_t>(srcOffset), static_cast<uint64_t>(byteSize));
     }
 
     // Same as Donut_Dispatch, with a descriptor table (Donut_GetDescriptorTable) bound after the
@@ -6146,7 +6145,7 @@ extern "C"
 
     // A loaded scene's structured buffer of InstanceData, GeometryData or MaterialConstants
     // (donut/shaders/bindless.h, material_cb.h); valid as long as the scene.
-    void* Donut_GetSceneBuffer(void* scene, int which)
+    nvrhi::IBuffer* Donut_GetSceneBuffer(void* scene, int which)
     {
         auto* s = static_cast<donut::engine::Scene*>(scene);
         switch (which)
@@ -9812,22 +9811,22 @@ extern "C"
     }
 
     // R32_UINT indices.
-    void Donut_DrawSetIndexBuffer(FrameContext* frame, void* indexBuffer)
+    void Donut_DrawSetIndexBuffer(FrameContext* frame, nvrhi::IBuffer* indexBuffer)
     {
-        frame->draw.indexBuffer = { AsBuffer(indexBuffer), nvrhi::Format::R32_UINT, 0 };
+        frame->draw.indexBuffer = { indexBuffer, nvrhi::Format::R32_UINT, 0 };
     }
 
     // R16_UINT indices.
-    void Donut_DrawSetIndexBuffer16(FrameContext* frame, void* indexBuffer)
+    void Donut_DrawSetIndexBuffer16(FrameContext* frame, nvrhi::IBuffer* indexBuffer)
     {
-        frame->draw.indexBuffer = { AsBuffer(indexBuffer), nvrhi::Format::R16_UINT, 0 };
+        frame->draw.indexBuffer = { indexBuffer, nvrhi::Format::R16_UINT, 0 };
     }
 
     // Binds a vertex buffer, starting at byteOffset, to the input layout's slot.
-    void Donut_DrawAddVertexBuffer(FrameContext* frame, void* vertexBuffer, int slot, int byteOffset)
+    void Donut_DrawAddVertexBuffer(FrameContext* frame, nvrhi::IBuffer* vertexBuffer, int slot, int byteOffset)
     {
         frame->draw.vertexBuffers.push_back(
-            { AsBuffer(vertexBuffer), static_cast<uint32_t>(slot), static_cast<uint64_t>(byteOffset) });
+            { vertexBuffer, static_cast<uint32_t>(slot), static_cast<uint64_t>(byteOffset) });
     }
 
     // Draws into this rectangle of the framebuffer (in pixels) instead of all of it.
@@ -10560,9 +10559,9 @@ extern "C"
     }
 
     // The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
-    void Donut_DrawSetIndirectBuffer(FrameContext* frame, void* indirectBuffer)
+    void Donut_DrawSetIndirectBuffer(FrameContext* frame, nvrhi::IBuffer* indirectBuffer)
     {
-        frame->draw.indirectParams = AsBuffer(indirectBuffer);
+        frame->draw.indirectParams = indirectBuffer;
     }
 
     // drawCount indexed draws, their arguments read from the indirect buffer from offsetBytes on

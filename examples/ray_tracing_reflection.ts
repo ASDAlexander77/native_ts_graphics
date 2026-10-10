@@ -260,12 +260,12 @@ namespace RayTracingReflection {
 
         private bindingLayout: Opaque;
         private shaderTable: ShaderTable;
-        private uniformBuffer: Opaque;
-        private objDescBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
-        private matIndexBuffer: Opaque;
-        private materialBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
+        private objDescBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
+        private matIndexBuffer: BufferHandle;
+        private materialBuffer: BufferHandle;
         private blases: TriangleBlas[];
         private topLevelAS: SceneAccelStructs;
         private topLevelASBuilt: boolean;

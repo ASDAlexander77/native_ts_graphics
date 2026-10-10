@@ -166,9 +166,9 @@ namespace TextureLoading {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private uniformBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
 
         // The depth buffer and a framebuffer per back buffer, for the back buffers' size, and the
         // pipeline made for them.

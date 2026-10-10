@@ -54,7 +54,7 @@ namespace RtBindless {
         private bindlessLayout: Opaque;
         private bindingLayout: Opaque;
         private descriptorTable: Opaque;
-        private constantBuffer: Opaque;
+        private constantBuffer: BufferHandle;
         private accelStructs: SceneAccelStructs;
         private shaderLibrary: Opaque;
         // One of these two, depending on useRayQuery.

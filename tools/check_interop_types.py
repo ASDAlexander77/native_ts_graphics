@@ -49,6 +49,7 @@ HANDLES = {
     "AdapterList": "AdapterListHandle",
     "nvrhi::IResource": "ResourceHandle",
     "nvrhi::ICommandList": "CommandListHandle",
+    "nvrhi::IBuffer": "BufferHandle",
 }
 
 # Parameters declared narrower than their C++ type: (function, parameter) -> (C++ type, TypeScript

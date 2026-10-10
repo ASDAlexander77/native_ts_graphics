@@ -47,7 +47,7 @@ namespace ComputeShaderDerivatives {
         }
 
         releaseTargets(): void {
-            const resources = [this.graphicsPipeline, this.framebuffer, this.colorBuffer];
+            const resources: ResourceHandle[] = [this.graphicsPipeline, this.framebuffer, this.colorBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {

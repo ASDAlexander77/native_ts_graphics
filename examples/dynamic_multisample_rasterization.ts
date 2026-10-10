@@ -194,9 +194,9 @@ namespace DynamicMultisampleRasterization {
         private inputLayout: Opaque;
         private bindingLayout: Opaque;
         private bindingSet: BindingSet;
-        private uniformBuffer: Opaque;
-        private vertexBuffer: Opaque;
-        private indexBuffer: Opaque;
+        private uniformBuffer: BufferHandle;
+        private vertexBuffer: BufferHandle;
+        private indexBuffer: BufferHandle;
 
         // The draws, a node's primitive each, by group in the sample's order (by mesh, node,
         // primitive): index range and base vertex, push constants (PUSH_FLOATS each).

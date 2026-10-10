@@ -100,7 +100,7 @@ namespace Khr16BitArithmetic {
         private computeBindingLayoutFP16: Opaque;
         private computeBindingSet: BindingSet;
         private computeBindingSetFP16: BindingSet;
-        private blobBuffer: Opaque;
+        private blobBuffer: BufferHandle;
         private image: Opaque;
         private visualizeVS: Opaque;
         private visualizePS: Opaque;
@@ -144,7 +144,7 @@ namespace Khr16BitArithmetic {
         }
 
         releaseTargets(): void {
-            const resources = [this.visualizePipeline, this.framebuffer, this.colorBuffer];
+            const resources: ResourceHandle[] = [this.visualizePipeline, this.framebuffer, this.colorBuffer];
             for (let i = 0; i < resources.length; i++) {
                 const resource = resources[i];
                 if (resource) {

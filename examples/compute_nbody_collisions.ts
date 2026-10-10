@@ -84,8 +84,8 @@ namespace ComputeNBodyCollisions {
         private collisions: boolean;
         private numParticles: int;
 
-        private particleBuffer: Opaque;
-        private contactBuffer: Opaque;
+        private particleBuffer: BufferHandle;
+        private contactBuffer: BufferHandle;
         private calculatePipeline: Opaque;
         private collidePipeline: Opaque;
         private integratePipeline: Opaque;
@@ -94,7 +94,7 @@ namespace ComputeNBodyCollisions {
         private pixelShader: Opaque;
         private drawBindingLayout: Opaque;
         private drawBindingSet: BindingSet;
-        private viewConstantBuffer: Opaque;
+        private viewConstantBuffer: BufferHandle;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private graphicsPipeline: Opaque | null;
 
