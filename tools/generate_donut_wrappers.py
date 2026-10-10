@@ -20,6 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "core", "donut_interop.d.ts")
 OUTPUT = os.path.join(ROOT, "core", "donut.ts")
 GLOBALS = os.path.join(ROOT, "core", "donut_globals.d.ts")
+HANDLES = os.path.join(ROOT, "core", "donut_handles.d.ts")
 
 # Handle parameter name -> wrapper class, in the order the classes are emitted. A function goes to
 # the class of its first parameter; any other parameter with one of these names takes the class too.
@@ -188,7 +189,8 @@ HEADER = """\
 // Classes over the Donut_* functions, one per kind of C++ object: each holds the object's handle
 // and has the functions taking it first as methods (Donut_SetRenderCallback(pass, handler) ->
 // pass.setRenderCallback(handler)). Other parameters and return values holding such objects take
-// and return the classes too; anything else stays an Opaque handle, e.g. shaders and pipelines.
+// and return the classes too; other objects stay typed handles (TextureHandle, ShaderHandle, ...,
+// declared in donut_handles.d.ts).
 //
 // - Functions that can fail return an object whose handle is null: check it with isNull().
 // - A handle from somewhere else, e.g. the frame a render callback gets, is wrapped with
@@ -203,17 +205,26 @@ HEADER = """\
 """
 
 
+def wrapper_class(type_, name=None):
+    """The wrapper class for a declared type: XxxHandle (or `XxxHandle | null`) for a class Xxx;
+    an Opaque handle goes by its parameter's name (functions not converted to typed handles yet)."""
+    base = type_[:-len(" | null")] if type_.endswith(" | null") else type_
+    if base.endswith("Handle") and base[:-len("Handle")] in CLASSES.values():
+        return base[:-len("Handle")]
+    if base == "Opaque" and name:
+        return CLASSES.get(name) or PARAMETER_ALIASES.get(name)
+    return None
+
+
 class Param:
     def __init__(self, text):
         name, type_ = text.split(":", 1)
         self.name = name.strip()
         self.type = " ".join(type_.split())
-        self.nullable = self.type == "Opaque | null"
+        self.nullable = self.type.endswith(" | null")
         # A method of a TypeScript object (RenderCallback, KeyboardCallback, ...), which Donut keeps
         self.is_callback = self.type.endswith("Callback")
-        self.cls = None
-        if self.type in ("Opaque", "Opaque | null"):
-            self.cls = CLASSES.get(self.name) or PARAMETER_ALIASES.get(self.name)
+        self.cls = wrapper_class(self.type, self.name)
 
     def declaration(self):
         if self.cls:
@@ -235,7 +246,7 @@ class Function:
         self.params = [Param(p) for p in split_params(params)]
         self.returns = " ".join(returns.split())
         self.comments = comments
-        self.returns_class = None
+        self.returns_class = wrapper_class(self.returns)
         if self.returns in ("Opaque", "Opaque | null"):
             self.returns_class = RETURNS.get(name) or returned_class(name)
         # The class it goes to (None: a free function only), as a method of the object passed
@@ -372,7 +383,12 @@ RETAINED_COMMENT = """\
 // scans all writable memory, so it found them there)."""
 
 
-def generate(functions):
+def handle_type(cls, handles):
+    """The type of a wrapper's handle: XxxHandle once donut_handles.d.ts declares it."""
+    return f"{cls}Handle" if f"{cls}Handle" in handles else "Opaque"
+
+
+def generate(functions, handles):
     methods = {cls: [] for cls in CLASSES.values()}
     statics = {cls: [] for cls in CLASSES.values()}
     for function in functions:
@@ -394,11 +410,12 @@ def generate(functions):
         if not methods[cls] and not statics[cls]:
             continue
         out.append("")
+        handle = handle_type(cls, handles)
         out.append(f"export class {cls} {{")
-        out.append("    readonly handle: Opaque;")
+        out.append(f"    readonly handle: {handle};")
         out.append("")
-        out.append("    constructor(handle: Opaque | null) {")
-        out.append("        this.handle = handle as Opaque;")
+        out.append(f"    constructor(handle: {handle} | null) {{")
+        out.append(f"        this.handle = handle as {handle};")
         out.append("    }")
         out.append("")
         out.append("    // True if the function that returned it failed.")
@@ -454,9 +471,13 @@ def report(functions):
 def main():
     with open(SOURCE, encoding="utf-8") as f:
         functions = parse(f.read())
+    handles = set()
+    if os.path.exists(HANDLES):
+        with open(HANDLES, encoding="utf-8") as f:
+            handles = set(re.findall(r"^declare class (\w+)", f.read(), re.M))
     if "--report" in sys.argv:
         report(functions)
-    text = generate(functions)
+    text = generate(functions, handles)
     with open(OUTPUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     classes = re.findall(r"^export class (\w+)", text, re.M)

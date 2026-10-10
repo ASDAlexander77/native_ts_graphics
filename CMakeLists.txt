@@ -357,6 +357,24 @@ endfunction()
 add_library(donut_interop STATIC core/donut_interop.cpp)
 configure_donut_interop(donut_interop)
 
+# core/donut_interop.d.ts declares the functions core/*.cpp define, by hand: check that each
+# declaration matches its definition, handle types included, before building the C++.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+file(GLOB INTEROP_CPP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp")
+add_custom_command(
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/check_interop_types.stamp"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_interop_types.py"
+        --stamp "${CMAKE_CURRENT_BINARY_DIR}/check_interop_types.stamp"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_interop_types.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/core/donut_interop.d.ts"
+        "${CMAKE_CURRENT_SOURCE_DIR}/core/donut_handles.d.ts"
+        ${INTEROP_CPP_SOURCES}
+    COMMENT "Checking core/donut_interop.d.ts against the C++ interop functions"
+    VERBATIM)
+add_custom_target(check_interop_types DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/check_interop_types.stamp")
+add_dependencies(donut_interop check_interop_types)
+
 # The same API as bin/donut_interop.dll, for running the .ts files under tslang's JIT:
 #   tslang --emit=jit --shared-libs=build/bin/donut_interop.dll examples/<example>.ts
 # It sits next to bin/shaders and bin/media, where it looks them up (see Donut_SetAppName).
@@ -503,13 +521,14 @@ endfunction()
 # TSLANG object depends on its own .ts only, as tslang can't write a depfile (the DEP_FILE of the
 # rule is never made), so changing App in donut.ts left the examples' objects with the old layout.
 #   examples/<name>.ts imports core/input_pass.ts, which imports core/donut.ts, which references
-#   core/donut_interop.d.ts. donut_globals.d.ts is for the editor only, but it's generated with
-#   donut.ts.
+#   core/donut_interop.d.ts, which references core/donut_handles.d.ts. donut_globals.d.ts is
+#   for the editor only, but it's generated with donut.ts.
 # Listed by hand, so a change to any of them rebuilds every example's .ts, and a new import has to
 # be added here. Once tslang can write a depfile, set CMAKE_DEPFILE_FLAGS_TSLANG in
 # cmake/CMakeTSLANGInformation.cmake and drop these.
 set(TSLANG_DONUT_DECLARATIONS
     "${CMAKE_CURRENT_SOURCE_DIR}/core/donut_interop.d.ts"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/donut_handles.d.ts"
     "${CMAKE_CURRENT_SOURCE_DIR}/core/donut_globals.d.ts")
 set(TSLANG_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts"

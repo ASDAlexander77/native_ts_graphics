@@ -1,3 +1,4 @@
+/// <reference path="donut_handles.d.ts" />
 // --- Donut interop (implemented in donut_interop.cpp) ---------------------------------------
 
 // A method passed as one of these (e.g. `this.onRender`) reaches C++ as a function pointer

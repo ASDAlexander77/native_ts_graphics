@@ -406,12 +406,21 @@ namespace
             return m_BindingCache.get();
         }
 
-        void* Own(nvrhi::IResource* resource)
+        // Holds a reference to a GPU resource handed to TypeScript as a raw pointer, returned
+        // with its own type (Donut_ReleaseResource drops the reference).
+        template <typename T>
+        T* Own(T* resource)
         {
             if (!resource)
                 return nullptr;
             resources.emplace(resource, resource);
             return resource;
+        }
+
+        template <typename T>
+        T* Own(const nvrhi::RefCountPtr<T>& resource)
+        {
+            return Own(resource.Get());
         }
 
         ~App()
@@ -1741,6 +1750,16 @@ static_assert(int(donut::log::Severity::None) == 0 && int(donut::log::Severity::
 static_assert(sizeof(dm::float4x4) == 16 * sizeof(float));
 // TypeScript lays these out in its own constant buffers, which only works if HLSL doesn't pad them.
 static_assert(sizeof(LightConstants) % 16 == 0 && sizeof(PlanarViewConstants) % 16 == 0);
+
+namespace
+{
+    // Names for the C++ types handed to TypeScript as handles that have none of their own;
+    // tools/check_interop_types.py maps handle types by these names.
+    using InputLayoutDesc = std::vector<nvrhi::VertexAttributeDesc>;
+    using StringList = std::vector<std::string>;
+    using RandomEngine = std::default_random_engine;
+    using FramebufferFactoryRef = std::shared_ptr<donut::engine::FramebufferFactory>;
+}
 
 extern "C"
 {

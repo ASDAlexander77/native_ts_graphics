@@ -3,7 +3,8 @@
 // Classes over the Donut_* functions, one per kind of C++ object: each holds the object's handle
 // and has the functions taking it first as methods (Donut_SetRenderCallback(pass, handler) ->
 // pass.setRenderCallback(handler)). Other parameters and return values holding such objects take
-// and return the classes too; anything else stays an Opaque handle, e.g. shaders and pipelines.
+// and return the classes too; other objects stay typed handles (TextureHandle, ShaderHandle, ...,
+// declared in donut_handles.d.ts).
 //
 // - Functions that can fail return an object whose handle is null: check it with isNull().
 // - A handle from somewhere else, e.g. the frame a render callback gets, is wrapped with
