@@ -2,6 +2,7 @@
 # for the README, as docs/screenshots/<example>.jpg (scaled down to -Width pixels).
 #
 #   pwsh -File tools/capture_screenshots.ps1 [-Examples basic_triangle,compute_nbody] [-Api dx12] [-Seconds 6]
+#       [-RunArgs "-noui"] [-HoldKeys "S:3000,NumPad2:500"]
 #
 # With no -Examples, captures every examples/*.ts that has a built executable in build/bin (headless
 # has no window and is skipped). An example that exits before -Seconds is retried on the other API.
@@ -11,7 +12,12 @@ param(
     [string]$Examples = "",
     [string]$Api = "dx12",
     [int]$Seconds = 6,
-    [int]$Width = 640
+    [int]$Width = 640,
+    # Arguments for every example run, after the per-example ones (for trying out views).
+    [string]$RunArgs = "",
+    # Keys to hold in the example's window before the capture, as <key>:<milliseconds> (for
+    # trying out views); e.g. "S:4000". A key is a letter, a digit or a System.Windows.Forms.Keys name.
+    [string]$HoldKeys = ""
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -25,6 +31,7 @@ public static class CaptureWin32 {
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
 }
 "@
 [CaptureWin32]::SetProcessDPIAware() | Out-Null
@@ -42,9 +49,29 @@ if ($exampleList.Count -eq 0) {
         Where-Object { $_ -ne "headless" -and (Test-Path (Join-Path $bin "$_.exe")) })
 }
 
-# Arguments some examples need on every run.
+# Arguments some examples need on every run, or that give them a better view.
 $extraArgs = @{
     "video_texture" = @("-mute")
+    "graphics_pipeline_library" = @("-pipelines", "16", "-seed", "7")
+    "ray_tracing_invocation_reorder" = @("-noui")
+}
+
+# Keys held in an example's window before its capture (see -HoldKeys), to move its camera.
+$viewKeys = @{
+    # From inside the scanned room to above it: pitch, back away, pitch back up, step left.
+    "render_octomap" = "NumPad2:1500,S:12000,NumPad2:300,A:1500"
+}
+
+# Holds each <key>:<milliseconds> of $spec in turn in the foreground window.
+function HoldKeys([string]$spec) {
+    Add-Type -AssemblyName System.Windows.Forms
+    foreach ($item in @($spec -split "[,\s]+" | Where-Object { $_ })) {
+        $name, $ms = $item -split ":"
+        $vk = [byte][System.Windows.Forms.Keys]$name
+        [CaptureWin32]::keybd_event($vk, 0, 0, [UIntPtr]::Zero)
+        Start-Sleep -Milliseconds ([int]$ms)
+        [CaptureWin32]::keybd_event($vk, 0, 2, [UIntPtr]::Zero)
+    }
 }
 
 $jpegCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq "image/jpeg" }
@@ -54,7 +81,7 @@ $jpegParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([Syst
 # Runs one example on one API; returns $true if it saved a screenshot.
 function Capture([string]$example, [string]$api) {
     $exe = Join-Path $bin "$example.exe"
-    $arguments = @("-$api") + $extraArgs[$example]
+    $arguments = @("-$api") + $extraArgs[$example] + @($RunArgs -split "\s+" | Where-Object { $_ })
     $p = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $bin -PassThru -WindowStyle Normal
     try {
         if ($p.WaitForExit($Seconds * 1000)) {
@@ -66,7 +93,9 @@ function Capture([string]$example, [string]$api) {
             return $false
         }
         [CaptureWin32]::SetForegroundWindow($hwnd) | Out-Null
-        Start-Sleep -Milliseconds 1500
+        Start-Sleep -Milliseconds 500
+        HoldKeys ((@($viewKeys[$example]) + $HoldKeys | Where-Object { $_ }) -join ",")
+        Start-Sleep -Milliseconds 1000
         $rect = New-Object CaptureWin32+RECT
         [CaptureWin32]::GetClientRect($hwnd, [ref]$rect) | Out-Null
         $origin = New-Object CaptureWin32+POINT
