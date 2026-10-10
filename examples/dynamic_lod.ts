@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { MeshletModel } from "../core/meshlet_model";
 import {
     matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
     planeNormalize, row, vadd, vsub, XM_PI,
@@ -473,53 +474,53 @@ namespace DynamicLod {
                     console.log(`Cannot load ${path} (the sample's model: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                     return false;
                 }
-                const loaded = Donut_LoadMeshletModel(binaryFile.getData(), binaryFile.getSize());
+                const loaded = MeshletModel.load(binaryFile.getData(), binaryFile.getSize());
                 this.app.releaseObject(binaryFile.handle);
-                if (!loaded) {
+                if (loaded.isNull()) {
                     return false;
                 }
-                const model = loaded as MeshletModelHandle;
-                if (Donut_GetMeshletModelVertexBufferStride(model, 0, 0) != VERTEX_STRIDE) {
+                const model = loaded;
+                if (model.getVertexBufferStride(0, 0) != VERTEX_STRIDE) {
                     console.log(`${path}: vertices of another layout than the mesh shader's`);
-                    Donut_DestroyMeshletModel(model);
+                    model.destroy();
                     return false;
                 }
                 // The finest LOD's bounding sphere spaces the instances.
                 if (l == 0) {
                     let sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
-                    Donut_CopyMeshletModelBoundingSphere(model, -1, Ref(sphere[0]));
+                    model.copyBoundingSphere(-1, Ref(sphere[0]));
                     this.radius = sphere[3];
                 }
 
-                const meshletCount = Donut_GetMeshletModelDataCount(model, 0, MeshletModelData.Meshlets);
+                const meshletCount = model.getDataCount(0, MeshletModelData.Meshlets);
                 let meshlets: int[] = [];
                 for (let j = 0; j < meshletCount * 4; j++) {
                     meshlets.push(0);
                 }
-                Donut_CopyMeshletModelData(model, 0, MeshletModelData.Meshlets, Ref(meshlets[0]));
-                let meshInfo: int[] = [Donut_GetMeshletModelIndexSize(model, 0), meshletCount,
+                model.copyData(0, MeshletModelData.Meshlets, Ref(meshlets[0]));
+                let meshInfo: int[] = [model.getIndexSize(0), meshletCount,
                     meshlets[(meshletCount - 1) * 4], meshlets[(meshletCount - 1) * 4 + 2]];
                 const meshInfoBuffer = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfo");
                 commandList.writeBuffer(meshInfoBuffer, Ref(meshInfo[0]), 16);
                 this.lodBuffers.push(meshInfoBuffer);
 
-                this.lodBuffers.push(this.app.createStaticShaderBuffer(commandList, Donut_GetMeshletModelVertexBufferData(model, 0, 0),
-                    Donut_GetMeshletModelVertexBufferSize(model, 0, 0), 0, "Vertices"));
+                this.lodBuffers.push(this.app.createStaticShaderBuffer(commandList, model.getVertexBufferData(0, 0),
+                    model.getVertexBufferSize(0, 0), 0, "Vertices"));
                 this.lodBuffers.push(this.app.createStaticShaderBuffer(commandList, Ref(meshlets[0]), meshletCount * MESHLET_STRIDE,
                     MESHLET_STRIDE, "Meshlets"));
                 // The unique vertex indices, rounded up to whole uints, as the sample's buffer.
-                const uniqueSize = Donut_GetMeshletModelDataSize(model, 0, MeshletModelData.UniqueVertexIndices);
+                const uniqueSize = model.getDataSize(0, MeshletModelData.UniqueVertexIndices);
                 const uniqueInts = Math.floor((uniqueSize + 3) / 4);
                 let unique: int[] = [];
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
                 }
-                Donut_CopyMeshletModelData(model, 0, MeshletModelData.UniqueVertexIndices, Ref(unique[0]));
+                model.copyData(0, MeshletModelData.UniqueVertexIndices, Ref(unique[0]));
                 this.lodBuffers.push(this.app.createStaticShaderBuffer(commandList, Ref(unique[0]), uniqueInts * 4, 0, "UniqueVertexIndices"));
-                const primitiveCount = Donut_GetMeshletModelDataCount(model, 0, MeshletModelData.PrimitiveIndices);
-                this.lodBuffers.push(this.app.createStaticShaderBuffer(commandList, Donut_GetMeshletModelData(model, 0, MeshletModelData.PrimitiveIndices),
+                const primitiveCount = model.getDataCount(0, MeshletModelData.PrimitiveIndices);
+                this.lodBuffers.push(this.app.createStaticShaderBuffer(commandList, model.getData(0, MeshletModelData.PrimitiveIndices),
                     primitiveCount * 4, 4, "PrimitiveIndices"));
-                Donut_DestroyMeshletModel(model);
+                model.destroy();
             }
 
             // Placeholders: a zeroed MeshInfo, raw buffer, meshlet and primitive.

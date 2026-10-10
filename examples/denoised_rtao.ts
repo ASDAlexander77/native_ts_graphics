@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { PbrtScene } from "../core/pbrt_scene";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, matrixScaling,
     matrixTranslation, normalize3, radians, transformCoord3, transformNormal3, vadd, vsub,
@@ -383,7 +384,7 @@ namespace DenoisedRtao {
         private rtaoSet: BindingSet;
         private rtaoConstants: f32[];
         private rtaoCB: BufferHandle;
-        private randomEngine: RandomEngineHandle;
+        private randomEngine: RandomEngine;
         private checkerboardEvenPixels: boolean;
         private atrousFrame: int;
 
@@ -780,7 +781,7 @@ namespace DenoisedRtao {
         // RTAO::UpdateConstantBuffer (RTAOConstantBuffer): a new seed from the sample's generator.
         updateRtaoConstants(): void {
             const c = this.rtaoConstants;
-            storeInt(c, 0, Donut_RandomUniformUInt(this.randomEngine, 0, -1));
+            storeInt(c, 0, this.randomEngine.uniformUInt(0, -1));
             storeInt(c, 1, SAMPLES_PER_SET);
             storeInt(c, 2, NUM_SAMPLE_SETS);
             storeInt(c, 3, PIXELS_PER_DIM_PER_SET);
@@ -947,20 +948,20 @@ namespace DenoisedRtao {
         loadScenes(commandList: CommandList): boolean {
             const sceneNames = ["spaceship", "groundplane", "car", "dragon", "house", "mirrorquad", "quad"];
             const directory = Donut_GetExecutableDirectory() + "/" + ASSETS;
-            let scenes: PbrtSceneHandle[] = [];
+            let scenes: PbrtScene[] = [];
             let totalVertices = 0;
             let totalIndices = 0;
             for (let s = 0; s < sceneNames.length; s++) {
-                const scene = Donut_LoadPbrtScene(directory + sceneNames[s] + "/scene.pbrt");
-                if (!scene) {
+                const scene = PbrtScene.load(directory + sceneNames[s] + "/scene.pbrt");
+                if (scene.isNull()) {
                     console.log(`Cannot load the ${sceneNames[s]} scene (the sample's assets: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                     return false;
                 }
                 scenes.push(scene);
-                const meshCount = Donut_GetPbrtSceneMeshCount(scene);
+                const meshCount = scene.getMeshCount();
                 for (let m = 0; m < meshCount; m++) {
-                    totalVertices += Donut_GetPbrtMeshVertexCount(scene, m);
-                    totalIndices += Donut_GetPbrtMeshIndexCount(scene, m);
+                    totalVertices += scene.getMeshVertexCount(m);
+                    totalIndices += scene.getMeshIndexCount(m);
                 }
             }
             // The grass patch's indices (shared by all LODs) after the scenes'.
@@ -993,21 +994,21 @@ namespace DenoisedRtao {
                 const scene = scenes[s];
                 const blas = this.app.createEmptyTriangleBlas(sceneNames[s]);
                 this.sceneRecordBases.push(Math.floor(records.length / RECORD_VALUES));
-                const meshCount = Donut_GetPbrtSceneMeshCount(scene);
+                const meshCount = scene.getMeshCount();
                 for (let m = 0; m < meshCount; m++) {
-                    const vertexCount = Donut_GetPbrtMeshVertexCount(scene, m);
-                    const indexCount = Donut_GetPbrtMeshIndexCount(scene, m);
-                    Donut_CopyPbrtMeshVertices(scene, m, Ref(vertices[vertexOffset * VERTEX_FLOATS]));
-                    Donut_CopyPbrtMeshIndices(scene, m, Ref(indices[indexOffset]));
-                    Donut_CopyPbrtMeshMaterial(scene, m, Ref(material[0]));
+                    const vertexCount = scene.getMeshVertexCount(m);
+                    const indexCount = scene.getMeshIndexCount(m);
+                    scene.copyMeshVertices(m, Ref(vertices[vertexOffset * VERTEX_FLOATS]));
+                    scene.copyMeshIndices(m, Ref(indices[indexOffset]));
+                    scene.copyMeshMaterial(m, Ref(material[0]));
                     const materialID = Math.floor(materials.length / MATERIAL_VALUES);
                     for (let k = 0; k < MATERIAL_VALUES; k++) {
                         materials.push(material[k]);
                     }
                     // The textures: the house's tiles have an sRGB chunk, which DirectXTK's loader
                     // honors (sRGB textures for the diffuse maps, linear normal maps).
-                    const diffuseName = Donut_GetPbrtMeshDiffuseTexture(scene, m);
-                    const normalName = Donut_GetPbrtMeshNormalTexture(scene, m);
+                    const diffuseName = scene.getMeshDiffuseTexture(m);
+                    const normalName = scene.getMeshNormalTexture(m);
                     let diffuse = 0;
                     let normal = 0;
                     if (diffuseName != "") {
@@ -1029,14 +1030,14 @@ namespace DenoisedRtao {
                     blas.addGeometry(this.indexBuffer, indexOffset * 4, indexCount, this.sceneVertexBuffer, vertexOffset * VERTEX_STRIDE,
                         vertexCount, VERTEX_STRIDE, null);
                     // Opaque unless see-through or a perfect mirror (AO rays skip those).
-                    if (Donut_IsPbrtMeshOpaque(scene, m) == 0) {
+                    if (scene.isMeshOpaque(m) == 0) {
                         blas.setGeometryFlags(m, 0);
                     }
                     vertexOffset += vertexCount;
                     indexOffset += indexCount;
                 }
                 this.sceneBlases.push(blas);
-                Donut_DestroyPbrtScene(scene);
+                scene.destroy();
             }
             commandList.writeBuffer(this.sceneVertexBuffer, Ref(vertices[0]), totalVertices * VERTEX_STRIDE);
 
@@ -1183,8 +1184,8 @@ namespace DenoisedRtao {
                         continue;
                     }
                     // uniform_real_distribution<float>(0, nextafter(1, FLT_MAX)), as 2 r - 1.
-                    const jitterX = Math.fround(Math.fround(2.0 * Donut_RandomUniformFloat(generator, 0.0, 1.00000011920928955)) - 1.0);
-                    const jitterZ = Math.fround(Math.fround(2.0 * Donut_RandomUniformFloat(generator, 0.0, 1.00000011920928955)) - 1.0);
+                    const jitterX = Math.fround(Math.fround(2.0 * generator.uniformFloat(0.0, 1.00000011920928955)) - 1.0);
+                    const jitterZ = Math.fround(Math.fround(2.0 * generator.uniformFloat(0.0, 1.00000011920928955)) - 1.0);
                     this.grassJitter.push(jitterX);
                     this.grassJitter.push(jitterZ);
                     this.grassPrevLods.push(0);

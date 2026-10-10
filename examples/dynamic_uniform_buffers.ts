@@ -410,7 +410,7 @@ namespace DynamicUniformBuffers {
             for (let i = 0; i < OBJECT_INSTANCES * 6; i++) {
                 values.push(0.0);
             }
-            Donut_RandomNormalFloats(rng, -1.0, 1.0, values.length, Ref(values[0]));
+            rng.normalFloats(-1.0, 1.0, values.length, Ref(values[0]));
             for (let i = 0; i < OBJECT_INSTANCES; i++) {
                 for (let k = 0; k < 3; k++) {
                     this.rotations.push(Math.fround(Math.fround(values[i * 6 + 2 - k] * 2.0) * Math.fround(Math.PI)));

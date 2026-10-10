@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { VideoPlayer } from "../core/video_player";
 
 namespace VideoTexture {
     const WINDOW_TITLE = "Donut Example: Video Texture";
@@ -117,11 +118,11 @@ namespace VideoTexture {
     // back buffers don't have: the scene renders into a color + depth target copied to the frame.
     class VideoTexturePass {
         private app: App;
-        private player: VideoPlayerHandle;
+        private player: VideoPlayer;
         private videoWidth: int;
         private videoHeight: int;
         // D3D12 and D3D11: shared with the Media Engine's device; Vulkan: uploaded.
-        private sharedTexture: SharedTextureHandle | null;
+        private sharedTexture: SharedTexture | null;
         private videoTexture: TextureHandle;
         private cubeVertices: BufferHandle;
         private cubeIndices: BufferHandle;
@@ -189,7 +190,7 @@ namespace VideoTexture {
         onAnimate(elapsedSeconds: number): void {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.time += elapsedSeconds;
-            if (Donut_IsVideoFinished(this.player) != 0) {
+            if (this.player.isFinished() != 0) {
                 Donut_CloseWindow(this.app.handle);
             }
         }
@@ -259,10 +260,10 @@ namespace VideoTexture {
             // The sample's Render starts with the video's next frame.
             const shared = this.sharedTexture;
             if (shared) {
-                Donut_TransferVideoFrame(this.player, Donut_GetSharedTextureHandle(shared));
-            } else if (Donut_TransferVideoFrameToMemory(this.player) != 0) {
-                commandList.writeTextureLevel(this.videoTexture, 0, Donut_GetVideoFrameData(this.player),
-                    Donut_GetVideoFrameRowPitch(this.player));
+                this.player.transferFrame(shared.getHandle());
+            } else if (this.player.transferFrameToMemory() != 0) {
+                commandList.writeTextureLevel(this.videoTexture, 0, this.player.getFrameData(),
+                    this.player.getFrameRowPitch());
             }
 
             let colorTarget = this.colorTarget;
@@ -363,21 +364,21 @@ namespace VideoTexture {
             // The sample's MediaEnginePlayer on the app's GPU.
             let luid: int[] = [0, 0];
             this.app.getAdapterLuid(Ref(luid[0]));
-            const player = Donut_CreateVideoPlayer(VIDEO_PATH, luid[0], luid[1], muted ? 1 : 0);
-            if (!player) {
+            const player = VideoPlayer.create(VIDEO_PATH, luid[0], luid[1], muted ? 1 : 0);
+            if (player.isNull()) {
                 console.log("Cannot play the sample's video: set XBOX_ATG_SAMPLES_DIR when configuring");
                 return false;
             }
-            this.player = player as VideoPlayerHandle;
-            this.videoWidth = Donut_GetVideoWidth(this.player);
-            this.videoHeight = Donut_GetVideoHeight(this.player);
+            this.player = player;
+            this.videoWidth = this.player.getWidth();
+            this.videoHeight = this.player.getHeight();
             console.log(`Video Size ${this.videoWidth} x ${this.videoHeight}`);
 
             // B8G8R8A8_UNORM, the Media Engine's output format.
             const shared = this.app.createSharedTexture(this.videoWidth, this.videoHeight, Format.BGRA8_UNORM, "Video");
-            if (shared) {
+            if (!shared.isNull()) {
                 this.sharedTexture = shared;
-                this.videoTexture = Donut_GetSharedTexture(shared as SharedTextureHandle);
+                this.videoTexture = shared.get();
             } else {
                 this.videoTexture = this.app.createTextureWithLevels(this.videoWidth, this.videoHeight, 1, Format.BGRA8_UNORM, "Video");
             }
@@ -436,7 +437,7 @@ namespace VideoTexture {
         }
 
         destroy(): void {
-            Donut_DestroyVideoPlayer(this.player);
+            this.player.destroy();
         }
     }
 

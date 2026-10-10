@@ -488,13 +488,13 @@ namespace DynamicRenderingLocalRead {
             const rng = this.app.createRandomEngine(this.benchmark ? 0 : -1);
             this.lights = [];
             for (let l = 0; l < LIGHT_COUNT; l++) {
-                const z = Math.fround(Donut_RandomUniformFloat(rng, -1.0, 1.0) * LIGHT_RANGE[2]);
-                const y = Math.fround(1.0 + Math.fround(Math.abs(Donut_RandomUniformFloat(rng, -1.0, 1.0)) * LIGHT_RANGE[1]));
-                const x = Math.fround(Donut_RandomUniformFloat(rng, -1.0, 1.0) * LIGHT_RANGE[0]);
-                const radius = Math.fround(1.0 + Math.fround(Math.abs(Donut_RandomUniformFloat(rng, -1.0, 1.0)) * 3.0));
-                const b = Donut_RandomUniformFloat(rng, 0.0, 0.5);
-                const g = Donut_RandomUniformFloat(rng, 0.0, 0.5);
-                const r = Donut_RandomUniformFloat(rng, 0.0, 0.5);
+                const z = Math.fround(rng.uniformFloat(-1.0, 1.0) * LIGHT_RANGE[2]);
+                const y = Math.fround(1.0 + Math.fround(Math.abs(rng.uniformFloat(-1.0, 1.0)) * LIGHT_RANGE[1]));
+                const x = Math.fround(rng.uniformFloat(-1.0, 1.0) * LIGHT_RANGE[0]);
+                const radius = Math.fround(1.0 + Math.fround(Math.abs(rng.uniformFloat(-1.0, 1.0)) * 3.0));
+                const b = rng.uniformFloat(0.0, 0.5);
+                const g = rng.uniformFloat(0.0, 0.5);
+                const r = rng.uniformFloat(0.0, 0.5);
                 this.lights.push(x);
                 this.lights.push(y);
                 this.lights.push(z);

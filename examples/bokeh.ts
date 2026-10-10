@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { SdkMesh } from "../core/sdk_mesh";
 
 namespace Bokeh {
     const WINDOW_TITLE = "Donut Example: Bokeh";
@@ -262,30 +263,30 @@ namespace Bokeh {
             if (binaryFile.isNull()) {
                 return false;
             }
-            const loaded = Donut_LoadSdkMesh(binaryFile.getData(), binaryFile.getSize());
-            if (!loaded) {
+            const loaded = SdkMesh.load(binaryFile.getData(), binaryFile.getSize());
+            if (loaded.isNull()) {
                 app.releaseObject(binaryFile.handle);
                 return false;
             }
-            const mesh = loaded as SdkMeshHandle;
+            const mesh = loaded;
 
             // The sample's models are position, normal and texture coordinates (DirectXTK's
             // VertexPositionNormalTexture layout), which bokeh_scene.hlsl reads.
-            this.vertexStride = Donut_GetSdkMeshVertexBufferStride(mesh, 0);
+            this.vertexStride = mesh.getVertexBufferStride(0);
             let ok = true;
-            for (let i = 0; i < Donut_GetSdkMeshVertexBufferCount(mesh); i++) {
-                if (Donut_GetSdkMeshVertexElementOffset(mesh, i, 3, 0) != 12 || Donut_GetSdkMeshVertexElementOffset(mesh, i, 5, 0) != 24
-                    || Donut_GetSdkMeshVertexBufferStride(mesh, i) != this.vertexStride) {
+            for (let i = 0; i < mesh.getVertexBufferCount(); i++) {
+                if (mesh.getVertexElementOffset(i, 3, 0) != 12 || mesh.getVertexElementOffset(i, 5, 0) != 24
+                    || mesh.getVertexBufferStride(i) != this.vertexStride) {
                     console.log(`${file}: unexpected vertex layout`);
                     ok = false;
                 }
-                this.vertexBuffers.push(app.createStaticVertexBuffer(commandList, Donut_GetSdkMeshVertexBufferData(mesh, i),
-                    Donut_GetSdkMeshVertexBufferSize(mesh, i), file));
+                this.vertexBuffers.push(app.createStaticVertexBuffer(commandList, mesh.getVertexBufferData(i),
+                    mesh.getVertexBufferSize(i), file));
             }
-            for (let i = 0; i < Donut_GetSdkMeshIndexBufferCount(mesh); i++) {
-                this.indexBuffers.push(app.createStaticIndexBuffer(commandList, Donut_GetSdkMeshIndexBufferData(mesh, i),
-                    Donut_GetSdkMeshIndexBufferSize(mesh, i), file));
-                this.index32.push(Donut_IsSdkMeshIndexBuffer32Bit(mesh, i) != 0);
+            for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
+                this.indexBuffers.push(app.createStaticIndexBuffer(commandList, mesh.getIndexBufferData(i),
+                    mesh.getIndexBufferSize(i), file));
+                this.index32.push(mesh.isIndexBuffer32Bit(i) != 0);
             }
 
             // InitMaterial: a material whose colors are all zero is white.
@@ -293,8 +294,8 @@ namespace Bokeh {
             for (let i = 0; i < 17; i++) {
                 colors.push(0.0);
             }
-            for (let m = 0; m < Donut_GetSdkMeshMaterialCount(mesh); m++) {
-                Donut_CopySdkMeshMaterialColors(mesh, m, Ref(colors[0]));
+            for (let m = 0; m < mesh.getMaterialCount(); m++) {
+                mesh.copyMaterialColors(m, Ref(colors[0]));
                 let allZero = true;
                 for (let i = 0; i < 8; i++) {
                     if (colors[i] != 0.0) {
@@ -312,7 +313,7 @@ namespace Bokeh {
                     this.materialColors.push(colors[2]);
                     this.materialColors.push(colors[3] != 1.0 && colors[3] != 0.0 ? colors[3] : 1.0);
                 }
-                const textureName = Donut_GetSdkMeshMaterialTexture(mesh, m, 0);
+                const textureName = mesh.getMaterialTexture(m, 0);
                 const texture = textureName == "" ? null : app.loadTexture(commandList, MEDIA_DIR + textureName, 0);
                 if (!texture) {
                     console.log(`${file}: cannot load the material's texture ${textureName}`);
@@ -322,23 +323,23 @@ namespace Bokeh {
                 }
             }
 
-            for (let m = 0; m < Donut_GetSdkMeshMeshCount(mesh); m++) {
-                for (let j = 0; j < Donut_GetSdkMeshMeshSubsetCount(mesh, m); j++) {
-                    const subset = Donut_GetSdkMeshMeshSubset(mesh, m, j);
-                    if (Donut_GetSdkMeshSubsetPrimitiveType(mesh, subset) != 0) {
+            for (let m = 0; m < mesh.getMeshCount(); m++) {
+                for (let j = 0; j < mesh.getMeshSubsetCount(m); j++) {
+                    const subset = mesh.getMeshSubset(m, j);
+                    if (mesh.getSubsetPrimitiveType(subset) != 0) {
                         console.log(`${file}: only triangle lists are supported`);
                         ok = false;
                     }
-                    this.partVertexBuffers.push(Donut_GetSdkMeshMeshVertexBuffer(mesh, m));
-                    this.partIndexBuffers.push(Donut_GetSdkMeshMeshIndexBuffer(mesh, m));
-                    this.partMaterials.push(Donut_GetSdkMeshSubsetMaterial(mesh, subset));
-                    this.partIndexCounts.push(Donut_GetSdkMeshSubsetIndexCount(mesh, subset));
-                    this.partStartIndices.push(Donut_GetSdkMeshSubsetIndexStart(mesh, subset));
-                    this.partVertexOffsets.push(Donut_GetSdkMeshSubsetVertexStart(mesh, subset));
+                    this.partVertexBuffers.push(mesh.getMeshVertexBuffer(m));
+                    this.partIndexBuffers.push(mesh.getMeshIndexBuffer(m));
+                    this.partMaterials.push(mesh.getSubsetMaterial(subset));
+                    this.partIndexCounts.push(mesh.getSubsetIndexCount(subset));
+                    this.partStartIndices.push(mesh.getSubsetIndexStart(subset));
+                    this.partVertexOffsets.push(mesh.getSubsetVertexStart(subset));
                 }
             }
 
-            Donut_DestroySdkMesh(mesh);
+            mesh.destroy();
             app.releaseObject(binaryFile.handle);
             return ok;
         }

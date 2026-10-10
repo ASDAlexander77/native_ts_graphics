@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { SdkMesh } from "../core/sdk_mesh";
 
 namespace RaytracingAo {
     const WINDOW_TITLE = "Donut Example: Raytracing AO";
@@ -299,50 +300,50 @@ namespace RaytracingAo {
             if (binaryFile.isNull()) {
                 return false;
             }
-            const loaded = Donut_LoadSdkMesh(binaryFile.getData(), binaryFile.getSize());
-            if (!loaded) {
+            const loaded = SdkMesh.load(binaryFile.getData(), binaryFile.getSize());
+            if (loaded.isNull()) {
                 app.releaseObject(binaryFile.handle);
                 return false;
             }
-            const mesh = loaded as SdkMeshHandle;
+            const mesh = loaded;
 
             // Mesh::Mesh's checks.
             let ok = true;
-            if (Donut_GetSdkMeshMeshCount(mesh) != 1 || Donut_GetSdkMeshMeshSubsetCount(mesh, 0) != 1) {
+            if (mesh.getMeshCount() != 1 || mesh.getMeshSubsetCount(0) != 1) {
                 console.log(`${file}: the port takes meshes of one part`);
                 ok = false;
             }
-            const subset = Donut_GetSdkMeshMeshSubset(mesh, 0, 0);
-            const vb = Donut_GetSdkMeshMeshVertexBuffer(mesh, 0);
-            const ib = Donut_GetSdkMeshMeshIndexBuffer(mesh, 0);
-            if (Donut_IsSdkMeshIndexBuffer32Bit(mesh, ib) == 0) {
+            const subset = mesh.getMeshSubset(0, 0);
+            const vb = mesh.getMeshVertexBuffer(0);
+            const ib = mesh.getMeshIndexBuffer(0);
+            if (mesh.isIndexBuffer32Bit(ib) == 0) {
                 console.log(`${file}: Only 32bit unsigned int indices can be used for this sample.`);
                 ok = false;
             }
-            if (Donut_GetSdkMeshSubsetPrimitiveType(mesh, subset) != 0) {
+            if (mesh.getSubsetPrimitiveType(subset) != 0) {
                 console.log(`${file}: Only triangle lists are supported for this sample.`);
                 ok = false;
             }
-            if (Donut_GetSdkMeshVertexBufferStride(mesh, vb) != VERTEX_STRIDE) {
+            if (mesh.getVertexBufferStride(vb) != VERTEX_STRIDE) {
                 console.log(`${file}: Vertex format does not mach that of the sample.`);
                 ok = false;
             }
 
-            this.vertexBuffer = app.createStaticGeometryBuffer(commandList, Donut_GetSdkMeshVertexBufferData(mesh, vb),
-                Donut_GetSdkMeshVertexBufferSize(mesh, vb), 0, file);
-            this.indexBuffer = app.createStaticGeometryBuffer(commandList, Donut_GetSdkMeshIndexBufferData(mesh, ib),
-                Donut_GetSdkMeshIndexBufferSize(mesh, ib), 1, file);
-            this.indexCount = Donut_GetSdkMeshSubsetIndexCount(mesh, subset);
-            this.vertexCount = Donut_GetSdkMeshSubsetVertexCount(mesh, subset);
+            this.vertexBuffer = app.createStaticGeometryBuffer(commandList, mesh.getVertexBufferData(vb),
+                mesh.getVertexBufferSize(vb), 0, file);
+            this.indexBuffer = app.createStaticGeometryBuffer(commandList, mesh.getIndexBufferData(ib),
+                mesh.getIndexBufferSize(ib), 1, file);
+            this.indexCount = mesh.getSubsetIndexCount(subset);
+            this.vertexCount = mesh.getSubsetVertexCount(subset);
 
             // DirectXTK's InitMaterial (material colors not sRGB) into MaterialConstantBuffer:
             // ambient, isDiffuseTexture, diffuse, isSpecularTexture, specular, isNormalTexture.
-            const material = Donut_GetSdkMeshSubsetMaterial(mesh, subset);
+            const material = mesh.getSubsetMaterial(subset);
             let colors: f32[] = [];
             for (let i = 0; i < 17; i++) {
                 colors.push(0.0);
             }
-            Donut_CopySdkMeshMaterialColors(mesh, material, Ref(colors[0]));
+            mesh.copyMaterialColors(material, Ref(colors[0]));
             let constants: f32[] = [];
             for (let i = 0; i < 12; i++) {
                 constants.push(0.0);
@@ -367,9 +368,9 @@ namespace RaytracingAo {
                     }
                 }
             }
-            const diffuseName = Donut_GetSdkMeshMaterialTexture(mesh, material, 0);
-            const specularName = Donut_GetSdkMeshMaterialTexture(mesh, material, 2);
-            const normalName = Donut_GetSdkMeshMaterialTexture(mesh, material, 1);
+            const diffuseName = mesh.getMaterialTexture(material, 0);
+            const specularName = mesh.getMaterialTexture(material, 2);
+            const normalName = mesh.getMaterialTexture(material, 1);
             Donut_StoreInt32(Ref(constants[3]), diffuseName != "" ? 1 : 0);
             Donut_StoreInt32(Ref(constants[7]), specularName != "" ? 1 : 0);
             Donut_StoreInt32(Ref(constants[11]), normalName != "" ? 1 : 0);
@@ -398,7 +399,7 @@ namespace RaytracingAo {
                 ok = false;
             }
 
-            Donut_DestroySdkMesh(mesh);
+            mesh.destroy();
             app.releaseObject(binaryFile.handle);
             return ok;
         }
@@ -705,8 +706,8 @@ namespace RaytracingAo {
             }
             for (let i = 0; i < numSamples; i++) {
                 for (let j = 0; j < numSamples; j++) {
-                    const u = Math.fround(Math.fround(i * offset) + Math.fround(Donut_RandomUniformFloat(engine, 0.0, upper) * offset));
-                    const v = Math.fround(Math.fround(j * offset) + Math.fround(Donut_RandomUniformFloat(engine, 0.0, upper) * offset));
+                    const u = Math.fround(Math.fround(i * offset) + Math.fround(engine.uniformFloat(0.0, upper) * offset));
+                    const v = Math.fround(Math.fround(j * offset) + Math.fround(engine.uniformFloat(0.0, upper) * offset));
                     let x = 0.0;
                     let y = 0.0;
                     let z = 0.0;
@@ -731,7 +732,7 @@ namespace RaytracingAo {
                     this.aoRays[index + 2] = z;
                 }
             }
-            this.app.releaseObject(engine);
+            this.app.releaseObject(engine.handle);
             commandList.writeBuffer(this.aoBuffer, Ref(this.aoRays[0]), MAX_OCCLUSION_RAYS * 16);
         }
 

@@ -114,4 +114,10 @@ declare global {
     var PredicationBuffer: typeof Donut.PredicationBuffer;
     type BinaryFile = Donut.BinaryFile;
     var BinaryFile: typeof Donut.BinaryFile;
+    type SharedTexture = Donut.SharedTexture;
+    var SharedTexture: typeof Donut.SharedTexture;
+    type StagingTexture = Donut.StagingTexture;
+    var StagingTexture: typeof Donut.StagingTexture;
+    type RandomEngine = Donut.RandomEngine;
+    var RandomEngine: typeof Donut.RandomEngine;
 }

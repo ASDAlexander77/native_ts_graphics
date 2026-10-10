@@ -1593,7 +1593,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/msaa.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_compression_comparison
 )
-add_tslang_example(texture_compression_comparison core/basis_transcoder.cpp MEDIA texture_compression_comparison)
+add_tslang_example(texture_compression_comparison core/transcoded_texture.ts core/basis_transcoder.cpp MEDIA texture_compression_comparison)
 target_link_libraries(texture_compression_comparison PRIVATE basisu_transcoder)
 if (TARGET texture_compression_comparison_app)
     target_link_libraries(texture_compression_comparison_app PRIVATE basisu_transcoder)
@@ -2158,7 +2158,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_compression_basisu.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_compression_basisu
 )
-add_tslang_example(texture_compression_basisu core/basis_transcoder.cpp MEDIA texture_compression_basisu)
+add_tslang_example(texture_compression_basisu core/transcoded_texture.ts core/basis_transcoder.cpp MEDIA texture_compression_basisu)
 target_link_libraries(texture_compression_basisu PRIVATE basisu_transcoder)
 if (TARGET texture_compression_basisu_app)
     target_link_libraries(texture_compression_basisu_app PRIVATE basisu_transcoder)
@@ -2199,7 +2199,7 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fast_block_compress_quad.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fast_block_compress
 )
-add_tslang_example(fast_block_compress core/fast_block_compress.cpp core/fbc_cpu.cpp MEDIA fast_block_compress)
+add_tslang_example(fast_block_compress core/fbc_texture.ts core/fast_block_compress.cpp core/fbc_cpu.cpp MEDIA fast_block_compress)
 if (XBOX_ATG_SAMPLES_DIR)
     set(fbc_media)
     foreach(file opaque_1024.DDS opaque_1024_offline_bc1.DDS opaque_1024_offline_bc7.dds
@@ -2247,7 +2247,7 @@ if (WIN32)
         SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/video_texture.hlsl
         OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/video_texture
     )
-    add_tslang_example(video_texture core/video_player.cpp MEDIA fonts video_texture)
+    add_tslang_example(video_texture core/video_player.ts core/video_player.cpp MEDIA fonts video_texture)
     target_link_libraries(video_texture PRIVATE delayimp)
     target_link_options(video_texture PRIVATE /DELAYLOAD:mfplat.dll)
     if (XBOX_ATG_SAMPLES_DIR)
@@ -2308,7 +2308,7 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bokeh_scene.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bokeh
 )
-add_tslang_example(bokeh core/sdkmesh.cpp MEDIA fonts bokeh)
+add_tslang_example(bokeh core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts bokeh)
 add_atg_media(bokeh bokeh
     Media/Meshes/MicroscopeCity/scanner.sdkmesh
     Media/Meshes/MicroscopeCity/occcity.sdkmesh
@@ -2340,7 +2340,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_ao/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_ao/spirv
 )
-add_tslang_example(raytracing_ao core/sdkmesh.cpp MEDIA fonts raytracing_ao)
+add_tslang_example(raytracing_ao core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts raytracing_ao)
 add_atg_media(raytracing_ao raytracing_ao
     Media/Meshes/Dragon/Dragon.sdkmesh
     Media/Meshes/Dragon/Dragon_Normal.dds
@@ -2362,7 +2362,7 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_pbr_tonemap.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_pbr
 )
-add_tslang_example(simple_pbr core/sdkmesh.cpp MEDIA fonts simple_pbr)
+add_tslang_example(simple_pbr core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts simple_pbr)
 add_atg_media(simple_pbr simple_pbr
     Media/PBR/ToyRobot/Floor/Floor.sdkmesh
     Media/PBR/ToyRobot/Floor/Floor_BaseColor.dds
@@ -2417,7 +2417,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mouse_cursor.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mouse_cursor
 )
-add_tslang_example(mouse_cursor core/sdkmesh.cpp MEDIA fonts mouse_cursor)
+add_tslang_example(mouse_cursor core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts mouse_cursor)
 add_atg_media(mouse_cursor mouse_cursor
     Media/Meshes/FPSRoom/FPSRoom.sdkmesh
     Media/Meshes/FPSRoom/ABox001LightingMap.dds
@@ -2552,7 +2552,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_render/spirv
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
-add_tslang_example(meshlet_render core/directx_math.ts core/meshlet_model.cpp MEDIA meshlet_render)
+add_tslang_example(meshlet_render core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp MEDIA meshlet_render)
 add_dxgs_media(meshlet_render meshlet_render Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD0.bin)
 add_tslang_example_test(meshlet_render)
 
@@ -2573,7 +2573,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_cull/spirv
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
-add_tslang_example(meshlet_cull core/directx_math.ts core/meshlet_model.cpp MEDIA meshlet_cull)
+add_tslang_example(meshlet_cull core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp MEDIA meshlet_cull)
 add_dxgs_media(meshlet_cull meshlet_cull
     Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD0.bin
     Samples/Desktop/D3D12MeshShaders/src/Assets/Camera.bin)
@@ -2593,7 +2593,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_instancing/spirv
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
-add_tslang_example(meshlet_instancing core/directx_math.ts core/meshlet_model.cpp MEDIA meshlet_instancing)
+add_tslang_example(meshlet_instancing core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp MEDIA meshlet_instancing)
 add_dxgs_media(meshlet_instancing meshlet_instancing Samples/Desktop/D3D12MeshShaders/src/Assets/ToyRobot.bin)
 add_tslang_example_test(meshlet_instancing)
 
@@ -2611,7 +2611,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_lod/spirv
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
-add_tslang_example(dynamic_lod core/directx_math.ts core/meshlet_model.cpp MEDIA dynamic_lod)
+add_tslang_example(dynamic_lod core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp MEDIA dynamic_lod)
 set(dynamic_lod_media)
 foreach(level RANGE 0 5)
     list(APPEND dynamic_lod_media "Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD${level}.bin")
@@ -2720,7 +2720,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/denoised_rtao/spirv
     SHADERMAKE_OPTIONS_SPIRV "--vulkanMemoryLayout dx"
 )
-add_tslang_example(denoised_rtao core/directx_math.ts core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
+add_tslang_example(denoised_rtao core/directx_math.ts core/pbrt_scene.ts core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
     MEDIA denoised_rtao)
 add_dxgs_media_directory(denoised_rtao denoised_rtao
     Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingRealTimeDenoisedAmbientOcclusion/Assets)

@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { FbcTexture } from "../core/fbc_texture";
 
 namespace FastBlockCompress {
     const WINDOW_TITLE = "Donut Example: Fast Block Compress";
@@ -118,7 +119,7 @@ namespace FastBlockCompress {
         width: int;
         levels: int;
         // Donut_FbcDecodeDds's levels.
-        rgba: FbcTextureHandle;
+        rgba: FbcTexture;
         source: TextureHandle;
         offlineBC: TextureHandle;
         offlineBC7: TextureHandle;
@@ -359,18 +360,18 @@ namespace FastBlockCompress {
 
         // The sample's Update for the CPU method: compressed, timed, then uploaded.
         compressCPU(commandList: CommandList, image: Image): void {
-            const result = Donut_FbcCompressCpu(image.rgba, image.format, Ref(this.cpuStats[0]));
-            if (!result) {
+            const result = image.rgba.compressCpu(image.format, Ref(this.cpuStats[0]));
+            if (result.isNull()) {
                 return;
             }
-            const compressed = result as FbcTextureHandle;
+            const compressed = result;
             this.times[0] = this.cpuStats[0];
             this.times[1] = this.cpuStats[1];
             for (let level = 0; level < image.levels; level++) {
-                commandList.writeTextureLevel(image.cpuBC, level, Donut_GetFbcTextureLevelData(compressed, level),
-                    Donut_GetFbcTextureLevelRowPitch(compressed, level));
+                commandList.writeTextureLevel(image.cpuBC, level, compressed.getLevelData(level),
+                    compressed.getLevelRowPitch(level));
             }
-            Donut_DestroyFbcTexture(compressed);
+            compressed.destroy();
         }
 
         // The sample's RMSError: the squared errors of the shown level, reduced to one value and
@@ -493,21 +494,21 @@ namespace FastBlockCompress {
             if (file.isNull()) {
                 return null;
             }
-            const rgba = Donut_FbcDecodeDds(file.getData(), file.getSize());
+            const rgba = FbcTexture.decodeDds(file.getData(), file.getSize());
             this.app.releaseObject(file.handle);
-            if (!rgba) {
+            if (rgba.isNull()) {
                 return null;
             }
-            image.rgba = rgba as FbcTextureHandle;
-            image.width = Donut_GetFbcTextureWidth(image.rgba);
-            image.levels = Donut_GetFbcTextureLevelCount(image.rgba);
+            image.rgba = rgba;
+            image.width = image.rgba.getWidth();
+            image.levels = image.rgba.getLevelCount();
             const width = image.width;
             const levels = image.levels;
 
             image.source = this.app.createTextureWithLevels(width, width, levels, Format.RGBA8_UNORM, name);
             for (let level = 0; level < levels; level++) {
-                commandList.writeTextureLevel(image.source, level, Donut_GetFbcTextureLevelData(image.rgba, level),
-                    Donut_GetFbcTextureLevelRowPitch(image.rgba, level));
+                commandList.writeTextureLevel(image.source, level, image.rgba.getLevelData(level),
+                    image.rgba.getLevelRowPitch(level));
             }
 
             const bcName = formatName(image.format).toLowerCase();
