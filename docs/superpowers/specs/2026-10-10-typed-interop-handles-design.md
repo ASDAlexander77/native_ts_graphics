@@ -1,6 +1,6 @@
 # Typed interop handles
 
-Date: 2026-10-10. Status: design approved in conversation, awaiting spec review.
+Date: 2026-10-10. Status: approved; revised while planning (see "Revisions" at the end).
 
 ## Goal
 
@@ -118,10 +118,17 @@ Rules for `donut_interop.d.ts`:
   (`nvrhi::IBuffer*` to `nvrhi::IResource*` in `Donut_ReleaseResource`) become implicit.
 - `Donut_ReleaseObject` keeps a `void*` parameter (its registry is type-erased); the `.d.ts`
   restricts it to `ObjectHandle`.
-- The interop structs (`App`, `FrameContext`, `TsRenderPass`, `TriangleBlas`, `CubemapTarget`,
-  ...) move from the anonymous namespace (`donut_interop.cpp:120`) to a named
-  `namespace interop`, so the exported functions do not take internal-linkage types. Helpers stay
-  anonymous.
+- The interop structs (`App`, `FrameContext`, `TsRenderPass`, ...) stay in their anonymous
+  namespace: MSVC gives `extern "C"` functions taking them external linkage and they link (checked
+  with `dumpbin /symbols`), and clang only warns under `-Wmissing-prototypes`, as it already does
+  for the current `void*` functions.
+- C++ types without a name of their own get one, so the check script's table can name them:
+  `InputLayoutDesc` (`std::vector<nvrhi::VertexAttributeDesc>`), `StringList`
+  (`std::vector<std::string>`), `RandomEngine` (`std::default_random_engine`) and
+  `FramebufferFactoryRef` (`std::shared_ptr<donut::engine::FramebufferFactory>`, the pointee of a
+  framebuffer factory handle).
+- `App::Own` becomes a template returning the resource with its own type, so `return a->Own(...)`
+  type-checks against a typed return.
 - Where the compiler finds a real mismatch, it is fixed, not cast away, and listed in that
   stage's commit message.
 
@@ -149,6 +156,16 @@ New `tools/check_interop_types.py`:
   - a handle class in `donut_handles.d.ts` that no signature uses.
 - Runs as a CMake custom command producing a stamp file that `donut_interop` depends on, so a
   mismatch fails the build. It re-runs only when its inputs change.
+- `--fix` rewrites the `.d.ts` declarations still `Opaque` where the C++ is typed, so the `.d.ts`
+  side of each stage is mechanical.
+
+New `tools/find_untyped_handles.py`: runs `tsc` with `Opaque` declared as a class of its own
+instead of `any`, and lists the resulting errors in `core/` and `examples/`. Each is a field,
+local, parameter or callback still typed `Opaque` that holds or passes a typed handle: the list of
+example changes a stage needs.
+
+New `tools/smoke_examples.ps1`: starts examples on D3D12 and Vulkan with `-debug` for a few
+seconds each and reports crashes, error exits and logged errors.
 
 ### 4. Rollout
 
@@ -160,7 +177,8 @@ every commit: `Opaque` is `any`, so typed handles still flow through code not ye
    - the check script, with a table that accepts today's `void*` / `Opaque` pairs;
    - CMake wiring;
    - generator support for typed handles;
-   - the interop structs moved to `namespace interop`.
+   - `find_untyped_handles.py`, `smoke_examples.ps1`;
+   - the C++ type aliases and the `App::Own` template.
 1. App, Frame, Pass, CommandList, callbacks.
 2. Buffers.
 3. Textures, staging textures, samplers, heaps.
@@ -169,10 +187,11 @@ every commit: `Opaque` is `any`, so typed handles still flow through code not ye
 6. Framebuffers, framebuffer factories, pipelines, their descs.
 7. Ray tracing: accel structs, opacity micromaps, shader tables, ray tracing pipelines, BLAS
    objects.
-8. Scene and engine objects: scene, scene graph, nodes, lights, materials, cameras, views,
-   render passes, render targets.
-9. The rest: ImGui, video, SDKMESH, glTF, Basis, FBC, collision, anything left.
-10. Strict mode: the check script allows `void*` only for parameters listed as raw memory.
+8. Scene objects: scene, scene graph, nodes, lights, materials, scene cameras, meshes, loaded
+   textures, scene loader, string lists, cameras, views, dynamic meshes.
+9. Render passes and render targets.
+10. The rest: ImGui, video, SDKMESH, glTF, Basis, FBC, timer queries, anything left.
+11. Strict mode: the check script allows `void*` only for parameters listed as raw memory.
 
 Each family stage converts, together:
 
@@ -187,8 +206,10 @@ After every stage:
 
 - Full Windows build of all targets (Debug, Ninja, VS 18 `vcvars64`). This covers the C++
   compiler, the check script and tslang.
-- `npx tsc --noEmit -p .`: no errors in `core/` or `examples/` beyond the existing one in
-  `compute_shader_derivatives.ts`.
+- `npx tsc --noEmit -p . --incremental false`: no errors in `core/` or `examples/` beyond the
+  existing one in `compute_shader_derivatives.ts`.
+- `find_untyped_handles.py`: nothing left that involves the stage's handle types; nothing at all
+  after the last stage.
 - A smoke run on D3D12 and Vulkan with `-debug` of the examples using that stage's family, read
   for validation errors on stdout and stderr.
 
@@ -205,3 +226,13 @@ At the end:
 - A C++ mismatch reveals an actual bug in an example. Mitigation: fix it in that stage and
   verify that example on both APIs.
 - The `.d.ts` and the C++ drift apart again later. Mitigation: the check script in the build.
+
+## Revisions
+
+Made while writing the implementation plan, from measurements:
+
+- The interop structs are not moved to a named namespace (section 2): unnecessary, see there.
+- Stage 8 is split into scene objects (8) and render passes and targets (9); the rest becomes
+  stage 10 and strict mode stage 11.
+- Added: the check script's `--fix`, `find_untyped_handles.py`, `smoke_examples.ps1`, the C++
+  type aliases and the `App::Own` template.
