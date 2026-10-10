@@ -94,6 +94,10 @@ namespace RtTriangle {
             // The shader table keeps the pipeline alive.
             this.app.releaseResource(pipeline);
 
+            // Donut's common passes (the blit's), made before a command list is open, as the sample
+            // makes them: they upload their textures with an immediate command list of their own.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
             const commandList = this.app.createCommandList();
             commandList.open();
 
@@ -111,9 +115,12 @@ namespace RtTriangle {
 
             commandList.close();
             this.app.executeCommandList(commandList);
+            // On D3D12 the command list holds the builds' scratch memory and the TLAS's instance array,
+            // which its submission doesn't keep alive: releasing it while the GPU still builds removes
+            // the device. The sample keeps its command list; this one waits instead.
+            this.app.waitForIdle();
 
-            // Only needed for the builds: NVRHI keeps everything a submitted command list uses alive
-            // until the GPU is done with it.
+            // Only needed for the builds.
             this.app.releaseResource(indexBuffer);
             this.app.releaseResource(vertexBuffer);
             this.app.releaseResource(commandList.handle);
@@ -130,8 +137,16 @@ namespace RtTriangle {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_triangle");
 
+        // -debug: the graphics API's debug layer and NVRHI's validation layer.
+        let options = AppOptions.RayTracing;
+        for (let i = 1; i < argc; i++) {
+            if (Donut_GetArg(argv, i) == "-debug") {
+                options = AppOptions.RayTracing | AppOptions.DebugRuntime;
+            }
+        }
+
         const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, AppOptions.RayTracing);
+        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;

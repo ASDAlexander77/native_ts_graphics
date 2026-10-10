@@ -279,11 +279,16 @@ namespace VariableShading {
             return 1;
         }
 
+        // -debug: the graphics API's debug layer and NVRHI's validation layer.
         // -raw: on D3D12, bind the shading rate surface through the D3D12 API directly.
         // --scene <path>: relative to the executable's directory, or absolute.
+        let options = AppOptions.None;
         let rawD3D12 = false;
         let scenePath = DEFAULT_SCENE;
         for (let i = 1; i < argc; i++) {
+            if (Donut_GetArg(argv, i) == "-debug") {
+                options = AppOptions.DebugRuntime;
+            }
             if (Donut_GetArg(argv, i) == "-raw") {
                 rawD3D12 = api == GraphicsAPI.D3D12;
             }
@@ -292,7 +297,7 @@ namespace VariableShading {
             }
         }
 
-        const app = App.createForAPI(api, WINDOW_TITLE, 1280, 720);
+        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;

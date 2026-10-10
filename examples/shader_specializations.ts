@@ -80,7 +80,15 @@ namespace ShaderSpecializations {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_specializations");
 
-        const app = App.createForAPI(GraphicsAPI.VULKAN, WINDOW_TITLE, 1280, 720);
+        // -debug: the graphics API's debug layer and NVRHI's validation layer.
+        let options = AppOptions.None;
+        for (let i = 1; i < argc; i++) {
+            if (Donut_GetArg(argv, i) == "-debug") {
+                options = AppOptions.DebugRuntime;
+            }
+        }
+
+        const app = App.createWithOptions(GraphicsAPI.VULKAN, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;

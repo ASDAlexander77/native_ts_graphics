@@ -62,6 +62,11 @@ export class App {
         return new App(Donut_CreateHeadlessApp(api, adapterIndex));
     }
 
+    // Same, with AppOptions bits; the device's apply (RayTracing, ComputeQueue, DebugRuntime).
+    static createHeadlessWithOptions(api: GraphicsAPI, adapterIndex: int, options: AppOptions): App {
+        return new App(Donut_CreateHeadlessAppWithOptions(api, adapterIndex, options));
+    }
+
     // Blocks until the window is closed.
     run(): void {
         Donut_RunApp(this.handle);
