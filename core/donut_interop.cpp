@@ -2805,6 +2805,23 @@ extern "C"
         return a->Own(a->device()->createBuffer(desc));
     }
 
+    // Same, that compute shaders also write (RWStructuredBuffer): geometry made on the GPU, e.g.
+    // vertices a compute shader animates each frame before the BLAS over them is rebuilt.
+    nvrhi::IBuffer* Donut_CreateRWAccelStructInputStructuredBuffer(App* app, int stride, int count, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(uint64_t(stride) * uint64_t(count))
+            .setStructStride(static_cast<uint32_t>(stride))
+            .setCanHaveUAVs(true)
+            .setIsAccelStructBuildInput(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::ShaderResource)
+            .setKeepInitialState(true);
+
+        App* a = app;
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
     // A bottom-level acceleration structure of one opaque triangle geometry: indexCount R32_UINT
     // indices from byte indexByteOffset of indexBuffer, into vertexCount RGB32_FLOAT positions
     // every vertexStride bytes from byte vertexByteOffset of vertexBuffer (e.g. the first member
@@ -3020,6 +3037,16 @@ extern "C"
         auto* blas = triangleBlas;
         if (blas->accelStruct)
             nvrhi::utils::BuildBottomLevelAccelStruct(commandList, blas->accelStruct, blas->desc);
+    }
+
+    // Points a BLAS's geometryIndex-th triangle geometry at another vertex buffer (same layout and
+    // vertex count, from byte 0), for the next Donut_RebuildTriangleBlas: e.g. ping-ponged vertex
+    // buffers a compute shader writes.
+    void Donut_SetTriangleBlasGeometryVertexBuffer(TriangleBlas* triangleBlas, int geometryIndex, nvrhi::IBuffer* vertexBuffer)
+    {
+        auto& triangles = triangleBlas->desc.bottomLevelGeometries[geometryIndex].geometryData.triangles;
+        triangles.vertexBuffer = vertexBuffer;
+        triangles.vertexOffset = 0;
     }
 
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
@@ -6428,6 +6455,13 @@ extern "C"
     int Donut_RandomUniformInt(RandomEngine* randomEngine, int a, int b)
     {
         return std::uniform_int_distribution<int>(a, b)(*randomEngine);
+    }
+
+    // The engine's next number from std::uniform_int_distribution<unsigned>(a, b), the bounds and
+    // the result as unsigned bits in ints (e.g. a = 0, b = -1 for the whole range).
+    int Donut_RandomUniformUInt(RandomEngine* randomEngine, int a, int b)
+    {
+        return static_cast<int>(std::uniform_int_distribution<unsigned>(static_cast<unsigned>(a), static_cast<unsigned>(b))(*randomEngine));
     }
 
     // Same as Donut_LoadScene, also registering the scene's vertex / index buffers and textures in

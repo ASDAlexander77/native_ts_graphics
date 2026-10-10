@@ -89,6 +89,7 @@ declare class ImGuiFontHandle { private readonly __imguiFont: int; }
 declare class VideoPlayerHandle { private readonly __videoPlayer: int; }
 declare class SdkMeshHandle { private readonly __sdkMesh: int; }
 declare class MeshletModelHandle { private readonly __meshletModel: int; }
+declare class PbrtSceneHandle { private readonly __pbrtScene: int; }
 declare class GltfModelHandle extends ObjectHandle { private readonly __gltfModel: int; }
 declare class GltfMeshHandle extends ObjectHandle { private readonly __gltfMesh: int; }
 declare class BinaryFileHandle extends ObjectHandle { private readonly __binaryFile: int; }
