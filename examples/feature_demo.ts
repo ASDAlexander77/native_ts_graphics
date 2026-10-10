@@ -1079,7 +1079,7 @@ namespace FeatureDemoExample {
         }
 
         // ApplicationBase::Render: a splash screen until the scene and its textures have loaded.
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const state = this.sceneLoader.update(frame);
             if (state == SceneLoaderState.Loading) {

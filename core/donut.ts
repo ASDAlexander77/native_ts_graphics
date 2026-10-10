@@ -30,10 +30,10 @@ let retainedRenderCallbacks: RenderCallback[] = [];
 let retainedVoidCallbacks: VoidCallback[] = [];
 
 export class App {
-    readonly handle: Opaque;
+    readonly handle: AppHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: AppHandle | null) {
+        this.handle = handle as AppHandle;
     }
 
     // True if the function that returned it failed.
@@ -339,7 +339,7 @@ export class App {
     }
 
     // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
-    releaseResource(resource: Opaque): void {
+    releaseResource(resource: ResourceHandle): void {
         Donut_ReleaseResource(this.handle, resource);
     }
 
@@ -1435,10 +1435,10 @@ export class App {
 }
 
 export class Pass {
-    readonly handle: Opaque;
+    readonly handle: PassHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: PassHandle | null) {
+        this.handle = handle as PassHandle;
     }
 
     // True if the function that returned it failed.
@@ -1491,10 +1491,10 @@ export class Pass {
 }
 
 export class Frame {
-    readonly handle: Opaque;
+    readonly handle: FrameHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: FrameHandle | null) {
+        this.handle = handle as FrameHandle;
     }
 
     // True if the function that returned it failed.
@@ -1789,10 +1789,10 @@ export class Frame {
 }
 
 export class CommandList {
-    readonly handle: Opaque;
+    readonly handle: CommandListHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: CommandListHandle | null) {
+        this.handle = handle as CommandListHandle;
     }
 
     // True if the function that returned it failed.
@@ -2030,10 +2030,10 @@ export class CommandList {
 }
 
 export class AdapterList {
-    readonly handle: Opaque;
+    readonly handle: AdapterListHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: AdapterListHandle | null) {
+        this.handle = handle as AdapterListHandle;
     }
 
     // True if the function that returned it failed.

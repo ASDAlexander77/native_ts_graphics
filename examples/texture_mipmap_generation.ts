@@ -300,7 +300,7 @@ namespace TextureMipmapGeneration {
             this.targetHeight = height;
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();

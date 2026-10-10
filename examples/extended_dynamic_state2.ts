@@ -459,7 +459,7 @@ namespace ExtendedDynamicState2 {
                 Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();

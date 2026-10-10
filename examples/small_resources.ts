@@ -187,7 +187,7 @@ namespace SmallResources {
         }
 
         // PopulateCommandList: the grid, a quad (triangle strip) per texture.
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             if (!this.hasPipeline) {
                 const desc = GraphicsPipelineDesc.create(this.vertexShader, this.pixelShader);

@@ -515,7 +515,7 @@ namespace RayTracingInvocationReorder {
             Donut_StoreInt32(Ref(c[CONST_USE_COHERENCE_HINT]), this.coherenceHintEnabled ? 1 : 0);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();

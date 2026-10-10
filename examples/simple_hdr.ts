@@ -436,7 +436,7 @@ namespace SimpleHdr {
         }
 
         // The sample's Clear and scene rendering: the HDR scene, window-sized, cleared to black.
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -488,7 +488,7 @@ namespace SimpleHdr {
 
         // The sample's PrepareSwapChainBuffer: the HDR scene as HDR10 (Rec.2020, ST.2084) into the
         // back buffer when it is in that color space, clipped to SDR otherwise.
-        onRenderPrepareSwapChain(frameHandle: Opaque): void {
+        onRenderPrepareSwapChain(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             this.convertConstants[0] = this.paperWhiteNits;
             const pipeline = this.hdrMode() ? this.hdr10Pipeline : this.sdrPipeline;

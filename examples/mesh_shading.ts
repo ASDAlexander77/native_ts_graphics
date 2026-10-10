@@ -27,7 +27,7 @@ namespace MeshShading {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             if (!this.pipelineCreated) {
                 // The sample's pipeline: no culling, no depth test, no blending.

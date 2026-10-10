@@ -928,7 +928,7 @@ namespace MouseCursor {
 
         // Sample::Render: the menu's sprites (its text and the cursor are UserInterface's), or the
         // mode's model.
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();

@@ -32,7 +32,7 @@ namespace BasicTriangle {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             let pipeline = this.pipeline;
             if (!pipeline) {

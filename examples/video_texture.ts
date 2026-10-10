@@ -250,7 +250,7 @@ namespace VideoTexture {
             }
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             this.frameWidth = frame.getWidth();
             this.frameHeight = frame.getHeight();

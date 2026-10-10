@@ -131,7 +131,7 @@ namespace PredicationQueries {
         }
 
         // PopulateCommandList: back to front, for the transparency.
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             if (!this.hasTargets) {

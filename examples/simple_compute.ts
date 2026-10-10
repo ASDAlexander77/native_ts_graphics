@@ -230,7 +230,7 @@ namespace SimpleCompute {
 
         // Sample::Render: the fractal (computed now, or the worker's newest), stretched over the
         // window by a linear clamped blit as SpriteBatch draws it.
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             this.frameWidth = frame.getWidth();
             this.frameHeight = frame.getHeight();

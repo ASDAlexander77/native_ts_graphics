@@ -11,3 +11,10 @@
 // handles to objects App::OwnObject keeps extend ObjectHandle (Donut_ReleaseObject).
 // Never declare a parameter as a union of two of these: tslang passes a union as a tagged struct,
 // not a pointer. Take their base class instead.
+
+declare class AppHandle { private readonly __app: int; }
+declare class FrameHandle { private readonly __frame: int; }
+declare class PassHandle { private readonly __pass: int; }
+declare class AdapterListHandle { private readonly __adapterList: int; }
+declare class ResourceHandle { private readonly __resource: int; }
+declare class CommandListHandle extends ResourceHandle { private readonly __commandList: int; }

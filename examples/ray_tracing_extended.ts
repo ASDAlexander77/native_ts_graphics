@@ -494,7 +494,7 @@ namespace RayTracingExtended {
             Donut_StoreInt32(Ref(c[CONST_MAX_RAYS]), MAX_RAYS);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();

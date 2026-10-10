@@ -852,7 +852,7 @@ namespace SimplePbr {
 
         // SharedSimplePBR::Render, the HDR scene: the models, then the sky box (the HUD is the ImGui
         // pass's, drawn into the scene after this).
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -914,7 +914,7 @@ namespace SimplePbr {
 
         // The tone mapping into the back buffer (a pass after the ImGui one): HDR10 or SDR by the
         // swap chain's color space.
-        onRenderToneMap(frameHandle: Opaque): void {
+        onRenderToneMap(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const hdr10 = this.app.getSwapChainColorSpace() == SwapChainColorSpace.HDR10;
             const pipeline = hdr10 ? this.hdr10Pipeline : this.acesPipeline;

@@ -31,7 +31,7 @@ namespace ShaderSpecializations {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             if (this.pipelines.length == 0) {
                 // Create pipelines with shader specializations.

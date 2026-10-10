@@ -225,7 +225,7 @@ namespace WaveIntrinsics {
 
         // RenderScene's pass 1: the triangle into its texture, cleared to transparent black; and
         // the UI layer's texture cleared for the ImGui pass after this one.
-        onRenderScene(frameHandle: Opaque): void {
+        onRenderScene(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             this.width = frame.getWidth();
@@ -251,7 +251,7 @@ namespace WaveIntrinsics {
         // Pass 2, after the UI: the textures composed, magnified around the mouse, into the back
         // buffer (cleared to black first). The sample draws the rectangle twice (two instances of
         // the same six vertices, without blending): once is the same.
-        onRenderCompose(frameHandle: Opaque): void {
+        onRenderCompose(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             if (!this.hasTargets) {
                 return;

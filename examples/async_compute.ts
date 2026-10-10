@@ -51,7 +51,7 @@ namespace AsyncCompute {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             let graphicsPipeline = this.graphicsPipeline;
             if (!graphicsPipeline) {

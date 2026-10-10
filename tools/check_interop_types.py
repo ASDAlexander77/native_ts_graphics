@@ -43,6 +43,12 @@ TYPES = {
 # Pointers to C++ objects -> handle types (declared in donut_handles.d.ts). Filled in stage by
 # stage as functions move from void* to these.
 HANDLES = {
+    "App": "AppHandle",
+    "FrameContext": "FrameHandle",
+    "TsRenderPass": "PassHandle",
+    "AdapterList": "AdapterListHandle",
+    "nvrhi::IResource": "ResourceHandle",
+    "nvrhi::ICommandList": "CommandListHandle",
 }
 
 # Parameters declared narrower than their C++ type: (function, parameter) -> (C++ type, TypeScript

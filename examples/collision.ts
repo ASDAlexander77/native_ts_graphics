@@ -963,7 +963,7 @@ namespace Collision {
 
         // Sample::Render: the scene's lines (opaque, no depth, no culling) with BasicEffect's
         // vertex colors.
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();

@@ -4,7 +4,7 @@
 // A method passed as one of these (e.g. `this.onRender`) reaches C++ as a function pointer
 // plus its `this` value.
 type VoidCallback = () => void;
-type RenderCallback = (frame: Opaque) => void;
+type RenderCallback = (frame: FrameHandle) => void;
 type AnimateCallback = (elapsedSeconds: number) => void;
 type KeyboardCallback = (key: int, scancode: int, action: int, mods: int) => int;
 type MousePosCallback = (x: number, y: number) => int;
@@ -496,28 +496,28 @@ declare function Donut_SetAppName(name: string): void;
 declare function Donut_SetLogMinSeverity(severity: LogSeverity): void;
 
 // Picks the graphics API from the command line (-d3d11, -d3d12, -vk). Returns null on failure.
-declare function Donut_CreateApp(argc: int, argv: Ref<string>, title: string, width: int, height: int): Opaque;
+declare function Donut_CreateApp(argc: int, argv: Ref<string>, title: string, width: int, height: int): AppHandle;
 // Same, for a fixed graphics API.
-declare function Donut_CreateAppForAPI(api: GraphicsAPI, title: string, width: int, height: int): Opaque;
+declare function Donut_CreateAppForAPI(api: GraphicsAPI, title: string, width: int, height: int): AppHandle;
 // Same, with AppOptions bits.
-declare function Donut_CreateAppWithOptions(api: GraphicsAPI, title: string, width: int, height: int, options: AppOptions): Opaque;
+declare function Donut_CreateAppWithOptions(api: GraphicsAPI, title: string, width: int, height: int, options: AppOptions): AppHandle;
 // Device without a window, for compute work; adapterIndex -1 picks the default adapter. It has
 // no passes: run work with the command list functions. Returns null on failure.
-declare function Donut_CreateHeadlessApp(api: GraphicsAPI, adapterIndex: int): Opaque;
+declare function Donut_CreateHeadlessApp(api: GraphicsAPI, adapterIndex: int): AppHandle;
 // Same, with AppOptions bits; the device's apply (RayTracing, ComputeQueue, DebugRuntime).
-declare function Donut_CreateHeadlessAppWithOptions(api: GraphicsAPI, adapterIndex: int, options: AppOptions): Opaque;
+declare function Donut_CreateHeadlessAppWithOptions(api: GraphicsAPI, adapterIndex: int, options: AppOptions): AppHandle;
 
 // Adapters of one graphics API; null (after logging why) on failure.
-declare function Donut_EnumerateAdapters(api: GraphicsAPI): Opaque;
-declare function Donut_GetAdapterCount(adapterList: Opaque): int;
-declare function Donut_GetAdapterName(adapterList: Opaque, index: int): string;
-declare function Donut_GetAdapterMemoryMB(adapterList: Opaque, index: int): int;
-declare function Donut_DestroyAdapterList(adapterList: Opaque): void;
+declare function Donut_EnumerateAdapters(api: GraphicsAPI): AdapterListHandle;
+declare function Donut_GetAdapterCount(adapterList: AdapterListHandle): int;
+declare function Donut_GetAdapterName(adapterList: AdapterListHandle, index: int): string;
+declare function Donut_GetAdapterMemoryMB(adapterList: AdapterListHandle, index: int): int;
+declare function Donut_DestroyAdapterList(adapterList: AdapterListHandle): void;
 // Blocks until the window is closed.
-declare function Donut_RunApp(app: Opaque): void;
+declare function Donut_RunApp(app: AppHandle): void;
 // Destroys the app with all its passes and resources.
-declare function Donut_DestroyApp(app: Opaque): void;
-declare function Donut_IsFeatureSupported(app: Opaque, feature: Feature): int;
+declare function Donut_DestroyApp(app: AppHandle): void;
+declare function Donut_IsFeatureSupported(app: AppHandle, feature: Feature): int;
 
 // Bits of Donut_GetIndirectDrawSupport.
 enum IndirectDrawSupport {
@@ -531,7 +531,7 @@ enum IndirectDrawSupport {
 // What the device of a windowed app does with indirect draws (0 for headless apps). Vulkan devices
 // are created with multiDrawIndirect, drawIndirectFirstInstance and
 // shaderSampledImageArrayDynamicIndexing when the GPU has them.
-declare function Donut_GetIndirectDrawSupport(app: Opaque): IndirectDrawSupport;
+declare function Donut_GetIndirectDrawSupport(app: AppHandle): IndirectDrawSupport;
 // Donut_GetShaderExecutionReordering's values.
 enum ShaderExecutionReordering {
     None = 0,
@@ -551,97 +551,97 @@ enum ComputeDerivatives {
 }
 // Non-zero if pixel shaders can write to UAVs and do atomics on them (Vulkan devices are created
 // with fragmentStoresAndAtomics when the GPU has it; D3D11 and D3D12 always can).
-declare function Donut_HasFragmentStoresAndAtomics(app: Opaque): int;
+declare function Donut_HasFragmentStoresAndAtomics(app: AppHandle): int;
 // Non-zero if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether what
 // they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan with
 // sparse residency; never D3D11.
-declare function Donut_HasSparseResidency(app: Opaque): int;
+declare function Donut_HasSparseResidency(app: AppHandle): int;
 // Non-zero if draws can be skipped by a value in a buffer (Donut_CreatePredicationBuffer): D3D12's
 // predication, Vulkan's VK_EXT_conditional_rendering; not D3D11 (whose predicates are queries).
-declare function Donut_HasConditionalRendering(app: Opaque): int;
+declare function Donut_HasConditionalRendering(app: AppHandle): int;
 // Non-zero if pixel shaders can use rasterizer ordered views (RasterizerOrderedTexture2D...):
 // accesses from overlapping pixels happen in primitive order. D3D11/D3D12 with ROVsSupported,
 // Vulkan with fragment shader pixel interlock.
-declare function Donut_HasRasterizerOrderedViews(app: Opaque): int;
+declare function Donut_HasRasterizerOrderedViews(app: AppHandle): int;
 // Non-zero if pixel shaders can read their barycentrics (SV_Barycentrics) and the triangle's vertex
 // attributes (GetAttributeAtVertex): D3D12 with BarycentricsSupported, Vulkan with
 // VK_KHR_fragment_shader_barycentric.
-declare function Donut_HasBarycentrics(app: Opaque): int;
+declare function Donut_HasBarycentrics(app: AppHandle): int;
 // Non-zero if shaders can compute with native 16-bit types (float16_t, int16_t, uint16_t) and read
 // them from structured buffers: D3D12 with Native16BitShaderOpsSupported, Vulkan with shaderFloat16,
 // shaderInt16 and storageBuffer16BitAccess.
-declare function Donut_HasNative16BitShaderOps(app: Opaque): int;
+declare function Donut_HasNative16BitShaderOps(app: AppHandle): int;
 // Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
 // D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
-declare function Donut_HasLogicOps(app: Opaque): int;
+declare function Donut_HasLogicOps(app: AppHandle): int;
 // Non-zero if pipelines can test the depth target against bounds
 // (Donut_GraphicsPipelineSetDepthBoundsTest): D3D12 with DepthBoundsTestSupported, Vulkan with the
 // depthBounds feature; never D3D11.
-declare function Donut_HasDepthBoundsTest(app: Opaque): int;
+declare function Donut_HasDepthBoundsTest(app: AppHandle): int;
 // The device's memory heaps now (their count): this process's usage of each and its budget, the
 // memory it can use before the system has to page or fail allocations. Vulkan's memory heaps, with
 // VK_EXT_memory_budget (without it the usage is 0 and the budget the heap's size); D3D's local
 // (video) and non-local (system) memory segment groups, from DXGI.
-declare function Donut_QueryMemoryBudget(app: Opaque): int;
+declare function Donut_QueryMemoryBudget(app: AppHandle): int;
 // A memory heap's usage and budget in bytes, and its MemoryHeapFlag bits, as Donut_QueryMemoryBudget
 // last found them.
-declare function Donut_GetMemoryHeapUsage(app: Opaque, heap: int): number;
-declare function Donut_GetMemoryHeapBudget(app: Opaque, heap: int): number;
-declare function Donut_GetMemoryHeapFlags(app: Opaque, heap: int): int;
+declare function Donut_GetMemoryHeapUsage(app: AppHandle, heap: int): number;
+declare function Donut_GetMemoryHeapBudget(app: AppHandle, heap: int): number;
+declare function Donut_GetMemoryHeapFlags(app: AppHandle, heap: int): int;
 // LineRasterization bits: the line rasterization modes pipelines can have: Vulkan's with
 // VK_EXT_line_rasterization's features, plain and stippled; D3D's rectangular (quadrilateral),
 // Bresenham (aliased) and smooth (alpha antialiased) lines, unstippled.
-declare function Donut_GetLineRasterizationModes(app: Opaque): int;
+declare function Donut_GetLineRasterizationModes(app: AppHandle): int;
 // The widest lines can be: Vulkan's lineWidthRange with the wideLines feature, else 1.
-declare function Donut_GetMaxLineWidth(app: Opaque): number;
+declare function Donut_GetMaxLineWidth(app: AppHandle): number;
 // Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad operations
 // (QuadReadLaneAt...): Vulkan with VK_KHR_shader_quad_control (SPIR-V's RequireFullQuadsKHR and
 // QuadDerivativesKHR execution modes), D3D12 always.
-declare function Donut_HasShaderQuadControl(app: Opaque): int;
+declare function Donut_HasShaderQuadControl(app: AppHandle): int;
 // AdvancedBlend bits: the advanced blend operations blend states can do
 // (Donut_GraphicsPipelineSetAdvancedBlendOp): Vulkan with VK_EXT_blend_operation_advanced and its
 // coherent operations; 0 elsewhere.
-declare function Donut_GetAdvancedBlendOperations(app: Opaque): int;
+declare function Donut_GetAdvancedBlendOperations(app: AppHandle): int;
 // ComputeDerivatives bits: whether compute shaders can take derivatives (ddx, ddy, implicit-LOD
 // samples; shader model 6.6) in quads of 2 x 2 threads (2D thread groups) or in 4 consecutive
 // threads (1D thread groups). D3D12 with shader model 6.6, Vulkan with
 // VK_KHR_compute_shader_derivatives.
-declare function Donut_GetComputeShaderDerivatives(app: Opaque): ComputeDerivatives;
+declare function Donut_GetComputeShaderDerivatives(app: AppHandle): ComputeDerivatives;
 // The fewest and most lanes a wave (subgroup) has: D3D12's WaveLaneCountMin and Max, Vulkan's one
 // subgroupSize for both; 0 without wave intrinsics (D3D11).
-declare function Donut_GetWaveLaneCountMin(app: Opaque): int;
-declare function Donut_GetWaveLaneCountMax(app: Opaque): int;
+declare function Donut_GetWaveLaneCountMin(app: AppHandle): int;
+declare function Donut_GetWaveLaneCountMax(app: AppHandle): int;
 // Whether ray generation shaders can trace rays into hit objects, reorder their threads by them
 // (MaybeReorderThread) and invoke their hit or miss shaders: D3D12 with shader model 6.9 and
 // raytracing tier 1.2, Vulkan with VK_NV_ray_tracing_invocation_reorder (AppOptions.RayTracing).
-declare function Donut_GetShaderExecutionReordering(app: Opaque): ShaderExecutionReordering;
+declare function Donut_GetShaderExecutionReordering(app: AppHandle): ShaderExecutionReordering;
 // Non-zero if push constants and constant buffers can hold 16-bit values as well (Vulkan's
 // storagePushConstant16 and uniformAndStorageBuffer16BitAccess).
-declare function Donut_HasNative16BitConstants(app: Opaque): int;
+declare function Donut_HasNative16BitConstants(app: AppHandle): int;
 // A barrier between the draws or dispatches before and after that write and read a UAV texture
 // (NVRHI only places one where the texture is bound anew).
-declare function Donut_UavBarrier(commandList: Opaque, texture: Opaque): void;
+declare function Donut_UavBarrier(commandList: CommandListHandle, texture: Opaque): void;
 // Vulkan's conservative rasterization properties into dst (Ref of a `let` f32 array of 9):
 // primitiveOverestimationSize, maxExtraPrimitiveOverestimationSize,
 // extraPrimitiveOverestimationSizeGranularity, then 1 or 0 for primitiveUnderestimation,
 // conservativePointAndLineRasterization, degenerateTrianglesRasterized, degenerateLinesRasterized,
 // fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage. 0 (dst
 // untouched) on other graphics APIs or without the extension.
-declare function Donut_GetVulkanConservativeRasterizationProperties(app: Opaque, dst: Opaque): int;
+declare function Donut_GetVulkanConservativeRasterizationProperties(app: AppHandle, dst: Opaque): int;
 // D3D12's conservative rasterization tier (0 for none); 0 on other graphics APIs.
-declare function Donut_GetD3D12ConservativeRasterizationTier(app: Opaque): int;
-declare function Donut_GetRendererString(app: Opaque): string;
-declare function Donut_SetWindowTitle(app: Opaque, title: string): void;
+declare function Donut_GetD3D12ConservativeRasterizationTier(app: AppHandle): int;
+declare function Donut_GetRendererString(app: AppHandle): string;
+declare function Donut_SetWindowTitle(app: AppHandle, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".
-declare function Donut_SetInformativeWindowTitle(app: Opaque, title: string): void;
+declare function Donut_SetInformativeWindowTitle(app: AppHandle, title: string): void;
 // Same, with extraInfo appended.
-declare function Donut_SetInformativeWindowTitleWithInfo(app: Opaque, title: string, extraInfo: string): void;
+declare function Donut_SetInformativeWindowTitleWithInfo(app: AppHandle, title: string, extraInfo: string): void;
 // Apps start with vsync on; the change takes effect at the start of the next frame (on Vulkan it
 // recreates the swap chain, so the passes get onBackBufferResizing).
-declare function Donut_SetVsyncEnabled(app: Opaque, enabled: int): void;
+declare function Donut_SetVsyncEnabled(app: AppHandle, enabled: int): void;
 // Lags Donut_SetVsyncEnabled by up to a frame.
-declare function Donut_IsVsyncEnabled(app: Opaque): int;
-declare function Donut_CloseWindow(app: Opaque): void;
+declare function Donut_IsVsyncEnabled(app: AppHandle): int;
+declare function Donut_CloseWindow(app: AppHandle): void;
 
 // GLFW's cursor modes.
 enum CursorMode {
@@ -652,11 +652,11 @@ enum CursorMode {
     Disabled = 2
 }
 
-declare function Donut_SetCursorMode(app: Opaque, mode: CursorMode): void;
+declare function Donut_SetCursorMode(app: AppHandle, mode: CursorMode): void;
 // Moves the mouse cursor to (x, y) in the mouse callback's coordinates.
-declare function Donut_SetCursorPosition(app: Opaque, x: number, y: number): void;
+declare function Donut_SetCursorPosition(app: AppHandle, x: number, y: number): void;
 // Non-zero while the window has the keyboard focus.
-declare function Donut_IsWindowFocused(app: Opaque): int;
+declare function Donut_IsWindowFocused(app: AppHandle): int;
 
 // nvrhi::Format values (only the ones used so far).
 enum Format {
@@ -733,122 +733,122 @@ enum ShaderType {
 
 // Resources are owned by the app until released or the app is destroyed; null on failure.
 // Shaders come from the example's shaders/<example>.cfg, compiled at build time.
-declare function Donut_CreateShader(app: Opaque, fileName: string, entryName: string, shaderType: ShaderType): Opaque;
+declare function Donut_CreateShader(app: AppHandle, fileName: string, entryName: string, shaderType: ShaderType): Opaque;
 // Specializes one constant ([[vk::constant_id(constantId)]] in HLSL) of a SPIR-V shader;
 // requires Feature.ShaderSpecializations (Vulkan only). The UInt variant uses value's bits as-is.
-declare function Donut_SpecializeShaderFloat(app: Opaque, shader: Opaque, constantId: int, value: number): Opaque;
-declare function Donut_SpecializeShaderUInt(app: Opaque, shader: Opaque, constantId: int, value: int): Opaque;
+declare function Donut_SpecializeShaderFloat(app: AppHandle, shader: Opaque, constantId: int, value: number): Opaque;
+declare function Donut_SpecializeShaderUInt(app: AppHandle, shader: Opaque, constantId: int, value: int): Opaque;
 // Shader library, compiled with -T lib.
-declare function Donut_CreateShaderLibrary(app: Opaque, fileName: string): Opaque;
+declare function Donut_CreateShaderLibrary(app: AppHandle, fileName: string): Opaque;
 // The permutations compiled with -D defineName=defineValue in the .cfg.
-declare function Donut_CreateShaderWithDefine(app: Opaque, fileName: string, entryName: string, shaderType: ShaderType,
+declare function Donut_CreateShaderWithDefine(app: AppHandle, fileName: string, entryName: string, shaderType: ShaderType,
     defineName: string, defineValue: string): Opaque;
-declare function Donut_CreateShaderLibraryWithDefine(app: Opaque, fileName: string, defineName: string, defineValue: string): Opaque;
+declare function Donut_CreateShaderLibraryWithDefine(app: AppHandle, fileName: string, defineName: string, defineValue: string): Opaque;
 // Triangle list, no depth test, for the frame's framebuffer layout.
-declare function Donut_CreateGraphicsPipeline(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipeline(app: AppHandle, frame: FrameHandle, vertexShader: Opaque, pixelShader: Opaque): Opaque;
 // Same, with an input layout and one binding layout.
-declare function Donut_CreateGraphicsPipelineWithLayouts(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipelineWithLayouts(app: AppHandle, frame: FrameHandle, vertexShader: Opaque, pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque;
 // Same, drawing primitiveType, with each layout optional (null for none).
-declare function Donut_CreateGraphicsPipelineWithTopology(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque,
+declare function Donut_CreateGraphicsPipelineWithTopology(app: AppHandle, frame: FrameHandle, vertexShader: Opaque, pixelShader: Opaque,
     inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType): Opaque;
 // Same, blending into the framebuffer with blendMode.
-declare function Donut_CreateGraphicsPipelineWithBlend(app: Opaque, frame: Opaque, vertexShader: Opaque, pixelShader: Opaque,
+declare function Donut_CreateGraphicsPipelineWithBlend(app: AppHandle, frame: FrameHandle, vertexShader: Opaque, pixelShader: Opaque,
     inputLayout: Opaque | null, bindingLayout: Opaque | null, primitiveType: PrimitiveType, blendMode: BlendMode): Opaque;
 // Same, with amplification + mesh + pixel shaders; requires Feature.Meshlets.
-declare function Donut_CreateMeshletPipeline(app: Opaque, frame: Opaque, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque;
+declare function Donut_CreateMeshletPipeline(app: AppHandle, frame: FrameHandle, amplificationShader: Opaque, meshShader: Opaque, pixelShader: Opaque): Opaque;
 // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
-declare function Donut_ReleaseResource(app: Opaque, resource: Opaque): void;
+declare function Donut_ReleaseResource(app: AppHandle, resource: ResourceHandle): void;
 
 // Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
 // otherwise shader-readable only, filled with Donut_WriteBuffer.
-declare function Donut_CreateUIntBuffer(app: Opaque, elementCount: int, writable: int, debugName: string): Opaque;
+declare function Donut_CreateUIntBuffer(app: AppHandle, elementCount: int, writable: int, debugName: string): Opaque;
 // CPU-readable buffer to copy GPU results into.
-declare function Donut_CreateReadbackBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateReadbackBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
 // Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
 // Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int[] / f32[] array. Returns 0 on failure.
-declare function Donut_ReadBuffer(app: Opaque, readbackBuffer: Opaque, dst: Opaque, byteSize: int): int;
+declare function Donut_ReadBuffer(app: AppHandle, readbackBuffer: Opaque, dst: Opaque, byteSize: int): int;
 // Copies a level of a texture to dst (Ref of a `let` array element; byteSize bytes at most): its
 // rows (of 4 x 4 blocks for block-compressed formats) one after the other, without padding.
 // Submits its own command list and waits for it: call it while no other one is open (not in a
 // render callback). Not for textures the texture cache loaded (Donut_LoadTexture: they stay
 // shader resources, and can't be copied from). Returns the bytes copied, 0 on failure.
-declare function Donut_ReadTextureLevel(app: Opaque, texture: Opaque, mipLevel: int, dst: Opaque, byteSize: int): int;
+declare function Donut_ReadTextureLevel(app: AppHandle, texture: Opaque, mipLevel: int, dst: Opaque, byteSize: int): int;
 // For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
-declare function Donut_CreateConstantBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateConstantBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
 // For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
 // it with Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer.
-declare function Donut_CreateVolatileConstantBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateVolatileConstantBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
 // StructuredBuffer of count elements of stride bytes, filled with Donut_WriteBuffer.
-declare function Donut_CreateStructuredBuffer(app: Opaque, stride: int, count: int, debugName: string): Opaque;
+declare function Donut_CreateStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): Opaque;
 // Same, that shaders can also write (RWStructuredBuffer).
-declare function Donut_CreateRWStructuredBuffer(app: Opaque, stride: int, count: int, debugName: string): Opaque;
+declare function Donut_CreateRWStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): Opaque;
 // Stores an int's bits at dst (Ref of an f32 array element), for int / uint fields of structures
 // laid out as f32 arrays.
 declare function Donut_StoreInt32(dst: Opaque, value: int): void;
 // RGBA8_UNORM texture that compute shaders write (RWTexture2D<float4>) and pixel shaders read;
 // NVRHI tracks its state.
-declare function Donut_CreateUAVTexture(app: Opaque, width: int, height: int, debugName: string): Opaque;
+declare function Donut_CreateUAVTexture(app: AppHandle, width: int, height: int, debugName: string): Opaque;
 // Render target that shaders can also read (resting at ShaderResource). A depth format (D32)
 // makes a depth buffer, cleared to 1 by default, read by shaders as Texture2D<float>.
-declare function Donut_CreateRenderTargetTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+declare function Donut_CreateRenderTargetTexture(app: AppHandle, width: int, height: int, format: Format, debugName: string): Opaque;
 // Texture of width x height with mipLevels levels (block-compressed formats too) for shaders to
 // read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
-declare function Donut_CreateTextureWithLevels(app: Opaque, width: int, height: int, mipLevels: int, format: Format,
+declare function Donut_CreateTextureWithLevels(app: AppHandle, width: int, height: int, mipLevels: int, format: Format,
     debugName: string): Opaque;
 // Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed formats)
 // rowPitch bytes apart, copied during the call, into an open command list.
-declare function Donut_WriteTextureLevel(commandList: Opaque, texture: Opaque, mipLevel: int, data: Opaque, rowPitch: int): void;
+declare function Donut_WriteTextureLevel(commandList: CommandListHandle, texture: Opaque, mipLevel: int, data: Opaque, rowPitch: int): void;
 // Render target that shaders also read and write as a UAV (RWTexture2D<...>), resting at
 // UnorderedAccess.
-declare function Donut_CreateRenderTargetUAVTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+declare function Donut_CreateRenderTargetUAVTexture(app: AppHandle, width: int, height: int, format: Format, debugName: string): Opaque;
 // Same, with mipLevels levels (draw into one with Donut_CreateFramebufferForMip, read another with
 // Donut_BindTextureSRVMip), typeless: copies of other formats of its family land (RGBA8_UNORM data
 // into SRGBA8_UNORM).
-declare function Donut_CreateMipmappedRenderTarget(app: Opaque, width: int, height: int, mipLevels: int, format: Format,
+declare function Donut_CreateMipmappedRenderTarget(app: AppHandle, width: int, height: int, mipLevels: int, format: Format,
     debugName: string): Opaque;
 // Same, typeless: framebuffers can see it in other formats of its family
 // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
 // without sRGB encoding) or RGBA8_UINT (logic operations, which D3D12 has on UINT targets only);
 // shaders read it in `format`.
-declare function Donut_CreateTypelessRenderTargetTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+declare function Donut_CreateTypelessRenderTargetTexture(app: AppHandle, width: int, height: int, format: Format, debugName: string): Opaque;
 // Depth buffer (a depth format) whose clears to clearDepth are fast (e.g. 0 for reversed depth),
 // read by shaders as Texture2D<float>; resting at ShaderResource.
-declare function Donut_CreateDepthTexture(app: Opaque, width: int, height: int, format: Format, clearDepth: number, debugName: string): Opaque;
+declare function Donut_CreateDepthTexture(app: AppHandle, width: int, height: int, format: Format, clearDepth: number, debugName: string): Opaque;
 // Textures that compute shaders on the compute queue use too (they rest at NonPixelShaderResource):
 // a render target that shaders read, and a texture that compute shaders write
 // (RWTexture2D<float4>) and shaders read.
-declare function Donut_CreateComputeReadableRenderTarget(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
-declare function Donut_CreateComputeTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+declare function Donut_CreateComputeReadableRenderTarget(app: AppHandle, width: int, height: int, format: Format, debugName: string): Opaque;
+declare function Donut_CreateComputeTexture(app: AppHandle, width: int, height: int, format: Format, debugName: string): Opaque;
 // Texture in `format` that shaders write and read as a UAV (RWTexture2D<...>), resting at
 // UnorderedAccess; clear it with Donut_ClearTextureUInt / Donut_ClearTextureFloat.
-declare function Donut_CreateUAVTextureWithFormat(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque;
+declare function Donut_CreateUAVTextureWithFormat(app: AppHandle, width: int, height: int, format: Format, debugName: string): Opaque;
 // Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read: the bind
 // functions bind all slices).
-declare function Donut_CreateUAVTextureArray(app: Opaque, width: int, height: int, arraySize: int, format: Format,
+declare function Donut_CreateUAVTextureArray(app: AppHandle, width: int, height: int, arraySize: int, format: Format,
     debugName: string): Opaque;
 // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
-declare function Donut_CreateFramebuffer(app: Opaque, colorTexture: Opaque, depthTexture: Opaque | null): Opaque;
+declare function Donut_CreateFramebuffer(app: AppHandle, colorTexture: Opaque, depthTexture: Opaque | null): Opaque;
 // Same, the color target seen in colorFormat (a format of its family, for a typeless texture:
 // Donut_CreateTypelessRenderTargetTexture).
-declare function Donut_CreateFramebufferWithColorFormat(app: Opaque, colorTexture: Opaque, colorFormat: Format, depthTexture: Opaque | null): Opaque;
+declare function Donut_CreateFramebufferWithColorFormat(app: AppHandle, colorTexture: Opaque, colorFormat: Format, depthTexture: Opaque | null): Opaque;
 // A depth target alone (e.g. a shadow map).
-declare function Donut_CreateDepthFramebuffer(app: Opaque, depthTexture: Opaque): Opaque;
+declare function Donut_CreateDepthFramebuffer(app: AppHandle, depthTexture: Opaque): Opaque;
 // Same, with two color targets (SV_Target0 and SV_Target1).
-declare function Donut_CreateFramebufferWithTwoTargets(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque,
+declare function Donut_CreateFramebufferWithTwoTargets(app: AppHandle, colorTexture0: Opaque, colorTexture1: Opaque,
     depthTexture: Opaque | null): Opaque;
 // Same, with three color targets (SV_Target0 to SV_Target2).
-declare function Donut_CreateFramebufferWithThreeTargets(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque,
+declare function Donut_CreateFramebufferWithThreeTargets(app: AppHandle, colorTexture0: Opaque, colorTexture1: Opaque,
     colorTexture2: Opaque, depthTexture: Opaque | null): Opaque;
 // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
-declare function Donut_CreateFramebufferForMip(app: Opaque, colorTexture: Opaque, mipLevel: int): Opaque;
+declare function Donut_CreateFramebufferForMip(app: AppHandle, colorTexture: Opaque, mipLevel: int): Opaque;
 
 // Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
 // tile from heaps; unmapped tiles read as zeros. It rests as a shader resource, and is a copy source
 // and destination and a render target.
-declare function Donut_CreateTiledTexture(app: Opaque, width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque;
+declare function Donut_CreateTiledTexture(app: AppHandle, width: int, height: int, mipLevels: int, format: Format, debugName: string): Opaque;
 // Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
 // levels made of whole tiles, the number of levels packed into the mip tail.
-declare function Donut_GetTextureTiling(app: Opaque, texture: Opaque, dst: Opaque): void;
+declare function Donut_GetTextureTiling(app: AppHandle, texture: Opaque, dst: Opaque): void;
 // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
 // is mapped to it and the GPU is done with what used it.
 // Placed textures: textures sharing one heap's memory (D3D12's placed resources, Vulkan's
@@ -856,36 +856,36 @@ declare function Donut_GetTextureTiling(app: Opaque, texture: Opaque, dst: Opaqu
 // width x height, one-level texture of `format` takes in a heap, its alignment included: on D3D12
 // at the 4 KB small resource alignment when the device grants it (a committed texture rounds up to
 // 64 KB), Vulkan's memory requirements.
-declare function Donut_GetPlacedTextureSize(app: Opaque, width: int, height: int, format: Format): number;
+declare function Donut_GetPlacedTextureSize(app: AppHandle, width: int, height: int, format: Format): number;
 // A heap of byteSize bytes of device memory for placed textures (D3D12, Vulkan); null on failure.
-declare function Donut_CreateTextureHeap(app: Opaque, byteSize: number, debugName: string): Opaque | null;
+declare function Donut_CreateTextureHeap(app: AppHandle, byteSize: number, debugName: string): Opaque | null;
 // A texture that shaders read placed in a texture heap at byteOffset (a multiple of
 // Donut_GetPlacedTextureSize's size), its first use recorded into an open command list. Fill it with
 // Donut_WriteTextureLevel; release it before the heap. Null on failure.
-declare function Donut_CreatePlacedTexture(app: Opaque, commandList: Opaque, textureHeap: Opaque, byteOffset: number,
+declare function Donut_CreatePlacedTexture(app: AppHandle, commandList: CommandListHandle, textureHeap: Opaque, byteOffset: number,
     width: int, height: int, format: Format, debugName: string): Opaque | null;
-declare function Donut_CreateTileHeap(app: Opaque, byteSize: number, debugName: string): Opaque;
+declare function Donut_CreateTileHeap(app: AppHandle, byteSize: number, debugName: string): Opaque;
 // Tile mappings, applied in one go (and freed) by Donut_ApplyTileMappings.
 declare function Donut_CreateTileMappings(): Opaque;
 // Maps the tile at column x, row y of level mipLevel to byteOffset in a heap, or unmaps it (null).
 declare function Donut_TileMappingsAdd(tileMappings: Opaque, mipLevel: int, x: int, y: int, heap: Opaque | null, byteOffset: number): void;
 // On the graphics queue, after the work submitted before (on Vulkan the device is idle before and
 // after: its sparse binding isn't ordered with other work).
-declare function Donut_ApplyTileMappings(app: Opaque, texture: Opaque, tileMappings: Opaque): void;
+declare function Donut_ApplyTileMappings(app: AppHandle, texture: Opaque, tileMappings: Opaque): void;
 // The first level of a DDS file (path relative to the executable's directory) in a staging
 // texture: memory on the CPU's side the GPU copies from. Null (after logging why) on failure.
-declare function Donut_LoadStagingTexture(app: Opaque, path: string): Opaque;
+declare function Donut_LoadStagingTexture(app: AppHandle, path: string): Opaque;
 declare function Donut_GetStagingTextureWidth(stagingTexture: Opaque): int;
 declare function Donut_GetStagingTextureHeight(stagingTexture: Opaque): int;
 // Copies width x height texels at (srcX, srcY) of a staging texture to (dstX, dstY) of level dstMip.
-declare function Donut_CopyStagingTextureRegion(commandList: Opaque, dstTexture: Opaque, dstMip: int, dstX: int, dstY: int,
+declare function Donut_CopyStagingTextureRegion(commandList: CommandListHandle, dstTexture: Opaque, dstMip: int, dstX: int, dstY: int,
     stagingTexture: Opaque, srcX: int, srcY: int, width: int, height: int): void;
 // Same, between levels of textures (the same texture's other levels too).
-declare function Donut_CopyTextureRegion(commandList: Opaque, dstTexture: Opaque, dstMip: int, dstX: int, dstY: int,
+declare function Donut_CopyTextureRegion(commandList: CommandListHandle, dstTexture: Opaque, dstMip: int, dstX: int, dstY: int,
     srcTexture: Opaque, srcMip: int, srcX: int, srcY: int, width: int, height: int): void;
 // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
 // writes, back faces culled (clockwise triangles are front faces).
-declare function Donut_CreateGraphicsPipelineForFramebuffer(app: Opaque, framebuffer: Opaque, vertexShader: Opaque,
+declare function Donut_CreateGraphicsPipelineForFramebuffer(app: AppHandle, framebuffer: Opaque, vertexShader: Opaque,
     pixelShader: Opaque, inputLayout: Opaque, bindingLayout: Opaque): Opaque;
 // Graphics pipelines of any shape: a description built with the Donut_GraphicsPipeline* functions,
 // freed by Donut_CreateGraphicsPipelineFromDesc. It starts as a triangle list with NVRHI's default
@@ -952,40 +952,40 @@ declare function Donut_GraphicsPipelineSetColorWriteMask(graphicsPipelineDesc: O
 // The channels one render target (SV_Target<target>) is written in (0 writes nothing to it).
 declare function Donut_GraphicsPipelineSetTargetColorWriteMask(graphicsPipelineDesc: Opaque, target: int, mask: ColorMask): void;
 // For a framebuffer's layout.
-declare function Donut_CreateGraphicsPipelineFromDesc(app: Opaque, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipelineFromDesc(app: AppHandle, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
 // Same, for the frame's framebuffer (the back buffer's layout).
-declare function Donut_CreateGraphicsPipelineFromDescForFrame(app: Opaque, graphicsPipelineDesc: Opaque, frame: Opaque): Opaque;
+declare function Donut_CreateGraphicsPipelineFromDescForFrame(app: AppHandle, graphicsPipelineDesc: Opaque, frame: FrameHandle): Opaque;
 // A meshlet pipeline from a Donut_CreateMeshletPipelineDesc description, for a framebuffer's layout,
 // or the frame's; requires Feature.Meshlets.
-declare function Donut_CreateMeshletPipelineFromDesc(app: Opaque, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
-declare function Donut_CreateMeshletPipelineFromDescForFrame(app: Opaque, graphicsPipelineDesc: Opaque, frame: Opaque): Opaque;
+declare function Donut_CreateMeshletPipelineFromDesc(app: AppHandle, graphicsPipelineDesc: Opaque, framebuffer: Opaque): Opaque;
+declare function Donut_CreateMeshletPipelineFromDescForFrame(app: AppHandle, graphicsPipelineDesc: Opaque, frame: FrameHandle): Opaque;
 // Vertex / index buffers uploaded once by an open command list (data copied during the call).
-declare function Donut_CreateStaticVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateStaticVertexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): Opaque;
 // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
-declare function Donut_CreateDynamicVertexBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
-declare function Donut_CreateStaticIndexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateDynamicVertexBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateStaticIndexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): Opaque;
 // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
 // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
 // one copy of a mesh for rasterization and ray tracing.
-declare function Donut_CreateStaticGeometryBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int,
+declare function Donut_CreateStaticGeometryBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int,
     isIndexBuffer: int, debugName: string): Opaque;
 // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
-declare function Donut_CreateStaticRawVertexBuffer(app: Opaque, commandList: Opaque, data: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateStaticRawVertexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): Opaque;
 // The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
 // first index, vertex offset, first instance), filled with Donut_WriteBuffer, that shaders can
 // also write as a RWByteAddressBuffer.
-declare function Donut_CreateDrawIndexedIndirectBuffer(app: Opaque, count: int, debugName: string): Opaque;
+declare function Donut_CreateDrawIndexedIndirectBuffer(app: AppHandle, count: int, debugName: string): Opaque;
 // A buffer's GPU address (8 bytes; its device address on Vulkan) into dst (Ref of a `let` array
 // element), for shaders that write it through the address; 0 if it has none.
 declare function Donut_StoreBufferDeviceAddress(dst: Opaque, buffer: Opaque): void;
 // Before a dispatch whose shaders write a buffer through its device address (NVRHI can't see
 // that): marks it as written by shaders, so that its next use waits for the writes.
-declare function Donut_SetBufferWrittenByShaders(commandList: Opaque, buffer: Opaque): void;
+declare function Donut_SetBufferWrittenByShaders(commandList: CommandListHandle, buffer: Opaque): void;
 // The first primitive of a glTF file's first mesh (path relative to the executable's directory), as
 // the Vulkan-Samples framework loads it: float3 position, float3 normal and float2 texture
 // coordinates interleaved (32 bytes), R32_UINT indices, the nodes' transforms ignored. Uploaded by
 // an open command list. Null (after logging why) on failure.
-declare function Donut_LoadGltfMesh(app: Opaque, commandList: Opaque, path: string): Opaque;
+declare function Donut_LoadGltfMesh(app: AppHandle, commandList: CommandListHandle, path: string): Opaque;
 // Valid as long as the mesh.
 declare function Donut_GetGltfMeshVertexBuffer(gltfMesh: Opaque): Opaque;
 declare function Donut_GetGltfMeshIndexBuffer(gltfMesh: Opaque): Opaque;
@@ -994,10 +994,10 @@ declare function Donut_GetGltfMeshIndexCount(gltfMesh: Opaque): int;
 // and primitive order, as the Vulkan-Samples framework's scene loader reads them into submeshes:
 // vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms ignored), int indices,
 // and the base color image's URI ("" if none). Kept on the CPU. Null (after logging why) on failure.
-declare function Donut_LoadGltfModel(app: Opaque, path: string): Opaque;
+declare function Donut_LoadGltfModel(app: AppHandle, path: string): Opaque;
 // A file read whole (path relative to the executable's directory), for TypeScript to parse: its
 // size, and bytes [offset, offset + count) into dst, an int (0..255) each (0 past the end).
-declare function Donut_LoadBinaryFile(app: Opaque, path: string): Opaque;
+declare function Donut_LoadBinaryFile(app: AppHandle, path: string): Opaque;
 declare function Donut_GetBinaryFileSize(binaryFile: Opaque): int;
 // The file's bytes, valid as long as the file (e.g. for Donut_TranscodeKtx2).
 declare function Donut_GetBinaryFileData(binaryFile: Opaque): Opaque;
@@ -1007,7 +1007,7 @@ declare function Donut_CopyBinaryFileBytes(binaryFile: Opaque, offset: int, coun
 declare function Donut_CopyBinaryFileUInts(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
 // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the call
 // into an open command list (e.g. a model's vertices from the middle of its file).
-declare function Donut_WriteBufferFromBinaryFile(binaryFile: Opaque, commandList: Opaque, buffer: Opaque, bufferOffset: int,
+declare function Donut_WriteBufferFromBinaryFile(binaryFile: Opaque, commandList: CommandListHandle, buffer: Opaque, bufferOffset: int,
     fileOffset: int, byteSize: int): void;
 // The usage counts of an opacity micromap array by a geometry's triangles
 // (Donut_SetTriangleBlasGeometryOpacityMicromap) from the file's data: indexCount OMM indices
@@ -1053,27 +1053,27 @@ declare function Donut_GetGltfModelNodeMesh(gltfModel: Opaque, node: int): int;
 declare function Donut_CopyGltfModelNodeTransform(gltfModel: Opaque, node: int, dst: Opaque): void;
 // Image file, path relative to the executable's directory, uploaded by an open command list.
 // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
-declare function Donut_LoadTexture(app: Opaque, commandList: Opaque, path: string, sRGB: int): Opaque;
-declare function Donut_GetCommonSampler(app: Opaque, which: CommonSampler): Opaque;
+declare function Donut_LoadTexture(app: AppHandle, commandList: CommandListHandle, path: string, sRGB: int): Opaque;
+declare function Donut_GetCommonSampler(app: AppHandle, which: CommonSampler): Opaque;
 // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
 // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
-declare function Donut_CreateComparisonSampler(app: Opaque): Opaque;
+declare function Donut_CreateComparisonSampler(app: AppHandle): Opaque;
 // linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point
 // otherwise); wrap non-zero: repeating (clamped otherwise).
-declare function Donut_CreateSampler(app: Opaque, linearFilter: int, linearMipFilter: int, wrap: int): Opaque;
+declare function Donut_CreateSampler(app: AppHandle, linearFilter: int, linearMipFilter: int, wrap: int): Opaque;
 // A sampler by its whole description: linear (non-zero) or point filtering when minifying,
 // magnifying and between levels; the address mode of all coordinates; a bias added to the level of
 // detail, the range it's clamped to (maxLod 0: level 0 only), and anisotropic filtering up to
 // maxAnisotropy samples (1: off; Donut_GetMaxSamplerAnisotropy).
-declare function Donut_CreateSamplerWithDesc(app: Opaque, linearMin: int, linearMag: int, linearMip: int,
+declare function Donut_CreateSamplerWithDesc(app: AppHandle, linearMin: int, linearMag: int, linearMip: int,
     addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): Opaque;
 // A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero) or
 // point filtering when minifying, magnifying and between levels, every level.
-declare function Donut_CreateBorderSampler(app: Opaque, linearMin: int, linearMag: int, linearMip: int, r: number, g: number,
+declare function Donut_CreateBorderSampler(app: AppHandle, linearMin: int, linearMag: int, linearMip: int, r: number, g: number,
     b: number, a: number): Opaque;
 // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy with the
 // samplerAnisotropy feature (1 without), 16 on D3D.
-declare function Donut_GetMaxSamplerAnisotropy(app: Opaque): number;
+declare function Donut_GetMaxSamplerAnisotropy(app: AppHandle): number;
 
 // Built up with Donut_AddVertexAttribute, then consumed (freed) by Donut_CreateInputLayout.
 declare function Donut_CreateInputLayoutDesc(): Opaque;
@@ -1082,38 +1082,38 @@ declare function Donut_CreateInputLayoutDesc(): Opaque;
 declare function Donut_AddVertexAttribute(inputLayoutDesc: Opaque, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
 // Same, read once per instance instead of once per vertex.
 declare function Donut_AddInstanceVertexAttribute(inputLayoutDesc: Opaque, name: string, format: Format, offset: int, bufferIndex: int, elementStride: int): void;
-declare function Donut_CreateInputLayout(app: Opaque, inputLayoutDesc: Opaque, vertexShader: Opaque): Opaque;
+declare function Donut_CreateInputLayout(app: AppHandle, inputLayoutDesc: Opaque, vertexShader: Opaque): Opaque;
 
 // Input for acceleration structure builds (index or vertex data).
-declare function Donut_CreateAccelStructInputBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateAccelStructInputBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
 // Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
-declare function Donut_CreateAccelStructInputRawBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+declare function Donut_CreateAccelStructInputRawBuffer(app: AppHandle, byteSize: int, debugName: string): Opaque;
 // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
-declare function Donut_CreateAccelStructInputStructuredBuffer(app: Opaque, stride: int, count: int, debugName: string): Opaque;
+declare function Donut_CreateAccelStructInputStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): Opaque;
 // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
-declare function Donut_CreateUAVTextureForFrame(app: Opaque, frame: Opaque, debugName: string): Opaque;
+declare function Donut_CreateUAVTextureForFrame(app: AppHandle, frame: FrameHandle, debugName: string): Opaque;
 // Same, in another format.
-declare function Donut_CreateUAVTextureForFrameWithFormat(app: Opaque, frame: Opaque, debugName: string, format: Format): Opaque;
+declare function Donut_CreateUAVTextureForFrameWithFormat(app: AppHandle, frame: FrameHandle, debugName: string, format: Format): Opaque;
 // Same, in the back buffer's format without sRGB, for Donut_CopyTextureToFrame (a bit-for-bit copy).
-declare function Donut_CreateUAVTextureForFrameCopy(app: Opaque, frame: Opaque, debugName: string): Opaque;
+declare function Donut_CreateUAVTextureForFrameCopy(app: AppHandle, frame: FrameHandle, debugName: string): Opaque;
 
 // Acceleration structures; both record their build into an open command list.
 // Opaque triangles: R32_UINT indices, RGB32_FLOAT vertices.
-declare function Donut_BuildTriangleBLAS(app: Opaque, commandList: Opaque, indexBuffer: Opaque, indexCount: int, vertexBuffer: Opaque, vertexCount: int): Opaque;
+declare function Donut_BuildTriangleBLAS(app: AppHandle, commandList: CommandListHandle, indexBuffer: Opaque, indexCount: int, vertexBuffer: Opaque, vertexCount: int): Opaque;
 // One instance of bottomLevelAS: identity transform, mask 1, counter-clockwise front faces.
-declare function Donut_BuildSingleInstanceTLAS(app: Opaque, commandList: Opaque, bottomLevelAS: Opaque): Opaque;
+declare function Donut_BuildSingleInstanceTLAS(app: AppHandle, commandList: CommandListHandle, bottomLevelAS: Opaque): Opaque;
 // One opaque triangle geometry: indexCount R32_UINT indices from indexByteOffset of indexBuffer,
 // into vertexCount RGB32_FLOAT positions every vertexStride bytes from vertexByteOffset of
 // vertexBuffer. Build recorded into an open command list, preferring fast tracing, or if
 // updatable != 0 fast builds and updates.
-declare function Donut_CreateTriangleBlas(app: Opaque, commandList: Opaque, indexBuffer: Opaque, indexByteOffset: int,
+declare function Donut_CreateTriangleBlas(app: AppHandle, commandList: CommandListHandle, indexBuffer: Opaque, indexByteOffset: int,
     indexCount: int, vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, updatable: int,
     debugName: string): Opaque;
 // An updatable one, in place, from its buffers' current contents, into an open command list.
-declare function Donut_UpdateTriangleBlas(triangleBlas: Opaque, commandList: Opaque): void;
+declare function Donut_UpdateTriangleBlas(triangleBlas: Opaque, commandList: CommandListHandle): void;
 // A bottom-level acceleration structure of several geometries: add them with
 // Donut_AddTriangleBlasGeometry, then build it with Donut_BuildTriangleBlas.
-declare function Donut_CreateEmptyTriangleBlas(app: Opaque, debugName: string): Opaque;
+declare function Donut_CreateEmptyTriangleBlas(app: AppHandle, debugName: string): Opaque;
 // Opaque triangles: indexCount R32_UINT indices at indexByteOffset of indexBuffer, vertexCount
 // RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of vertexBuffer (acceleration
 // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
@@ -1143,33 +1143,33 @@ declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: Opaq
 // usageCounts (Ref of a `let` int array) holds numUsageCounts entries of three ints, how many OMMs
 // the array has of a subdivision level and format (D3D12's histogram). buildFlags:
 // nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
-declare function Donut_CreateOpacityMicromap(app: Opaque, commandList: Opaque, inputBuffer: Opaque, inputOffset: int,
+declare function Donut_CreateOpacityMicromap(app: AppHandle, commandList: CommandListHandle, inputBuffer: Opaque, inputOffset: int,
     perOmmDescs: Opaque, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int,
     debugName: string): Opaque | null;
 // Builds such an array again, in place, from its inputs' current contents, into an open command list.
-declare function Donut_BuildOpacityMicromap(commandList: Opaque, opacityMicromap: Opaque): void;
+declare function Donut_BuildOpacityMicromap(commandList: CommandListHandle, opacityMicromap: Opaque): void;
 // Builds the BLAS of the geometries added (AccelStructBuildFlags bits), recorded into an open
 // command list; 0 on failure.
-declare function Donut_BuildTriangleBlas(triangleBlas: Opaque, app: Opaque, commandList: Opaque, buildFlags: AccelStructBuildFlags): int;
+declare function Donut_BuildTriangleBlas(triangleBlas: Opaque, app: AppHandle, commandList: CommandListHandle, buildFlags: AccelStructBuildFlags): int;
 // Builds a built one again, in place (not an update), from its geometries' current contents, into
 // an open command list.
-declare function Donut_RebuildTriangleBlas(triangleBlas: Opaque, commandList: Opaque): void;
+declare function Donut_RebuildTriangleBlas(triangleBlas: Opaque, commandList: CommandListHandle): void;
 // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
 declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: Opaque): Opaque;
 
 // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
 // no shader at all if closestHitEntry is ""), taken from shaderLibrary by entry name, plus one
 // global binding layout.
-declare function Donut_CreateRayTracingPipeline(app: Opaque, shaderLibrary: Opaque, bindingLayout: Opaque,
+declare function Donut_CreateRayTracingPipeline(app: AppHandle, shaderLibrary: Opaque, bindingLayout: Opaque,
     rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string, maxPayloadSize: int): Opaque;
 // One ray generation shader, hit group and miss shader, by export name; keeps the pipeline alive.
-declare function Donut_CreateShaderTable(app: Opaque, rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string, missExport: string): Opaque;
+declare function Donut_CreateShaderTable(app: AppHandle, rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string, missExport: string): Opaque;
 // Same, kept in GPU memory in up to maxCachedVersions copies instead of re-uploaded on every use.
-declare function Donut_CreateCachedShaderTable(app: Opaque, rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string,
+declare function Donut_CreateCachedShaderTable(app: AppHandle, rayTracingPipeline: Opaque, rayGenExport: string, hitGroupExport: string,
     missExport: string, maxCachedVersions: int, debugName: string): Opaque;
 // Like Donut_CreateRayTracingPipeline, with an any-hit shader too (either hit shader may be ""),
 // and a second global binding layout (e.g. bindless; null for none).
-declare function Donut_CreateRayTracingPipelineWithLayouts(app: Opaque, shaderLibrary: Opaque, bindingLayout: Opaque,
+declare function Donut_CreateRayTracingPipelineWithLayouts(app: AppHandle, shaderLibrary: Opaque, bindingLayout: Opaque,
     secondBindingLayout: Opaque | null, rayGenEntry: string, missEntry: string, hitGroupName: string, closestHitEntry: string,
     anyHitEntry: string, maxPayloadSize: int): Opaque;
 
@@ -1210,9 +1210,9 @@ declare function Donut_BindTextureUAV(bindingSetDesc: Opaque, slot: int, texture
 // RaytracingAccelerationStructure at t<slot>.
 declare function Donut_BindAccelStruct(bindingSetDesc: Opaque, slot: int, accelStruct: Opaque): void;
 // Binding set plus matching layout (register space 0) visible to shaderType's stages.
-declare function Donut_CreateBindingSet(app: Opaque, bindingSetDesc: Opaque, shaderType: ShaderType): Opaque;
+declare function Donut_CreateBindingSet(app: AppHandle, bindingSetDesc: Opaque, shaderType: ShaderType): Opaque;
 // Binding set for an existing layout.
-declare function Donut_CreateBindingSetForLayout(app: Opaque, bindingSetDesc: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateBindingSetForLayout(app: AppHandle, bindingSetDesc: Opaque, bindingLayout: Opaque): Opaque;
 // The layout a binding set was created with; valid as long as the binding set.
 declare function Donut_GetBindingLayout(bindingSet: Opaque): Opaque;
 
@@ -1256,10 +1256,10 @@ declare function Donut_RtPipelineAddProceduralHitGroup(pipelineDesc: Opaque, sha
 declare function Donut_RtPipelineSetMaxAttributeSize(pipelineDesc: Opaque, byteSize: int): void;
 // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
 declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: Opaque, allow: int): void;
-declare function Donut_CreateRayTracingPipelineFromDesc(app: Opaque, pipelineDesc: Opaque): Opaque;
+declare function Donut_CreateRayTracingPipelineFromDesc(app: AppHandle, pipelineDesc: Opaque): Opaque;
 // Shader tables of any shape, filled with the Donut_ShaderTable* functions; they keep the
 // pipeline alive. The Add functions return the new entry's index.
-declare function Donut_CreateEmptyShaderTable(app: Opaque, rayTracingPipeline: Opaque): Opaque;
+declare function Donut_CreateEmptyShaderTable(app: AppHandle, rayTracingPipeline: Opaque): Opaque;
 declare function Donut_ShaderTableSetRayGeneration(shaderTable: Opaque, exportName: string): void;
 declare function Donut_ShaderTableAddMiss(shaderTable: Opaque, exportName: string): int;
 declare function Donut_ShaderTableAddHitGroup(shaderTable: Opaque, exportName: string, localBindingSet: Opaque | null): int;
@@ -1270,23 +1270,23 @@ declare function Donut_CreateBindlessLayoutDesc(firstSlot: int, maxCapacity: int
 // ByteAddressBuffer[] / Texture2D[] in register space `space`.
 declare function Donut_BindlessLayoutAddRawBuffers(bindlessLayoutDesc: Opaque, space: int): void;
 declare function Donut_BindlessLayoutAddTextures(bindlessLayoutDesc: Opaque, space: int): void;
-declare function Donut_CreateBindlessLayout(app: Opaque, bindlessLayoutDesc: Opaque): Opaque;
+declare function Donut_CreateBindlessLayout(app: AppHandle, bindlessLayoutDesc: Opaque): Opaque;
 // Donut's DescriptorTableManager over a bindless layout; scenes loaded with
 // Donut_LoadSceneWithDescriptorTable register their buffers and textures in it.
-declare function Donut_CreateDescriptorTableManager(app: Opaque, bindlessLayout: Opaque): Opaque;
+declare function Donut_CreateDescriptorTableManager(app: AppHandle, bindlessLayout: Opaque): Opaque;
 // The table, to bind after a binding set; valid as long as the manager.
 declare function Donut_GetDescriptorTable(descriptorTableManager: Opaque): Opaque;
 // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors in
 // each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
-declare function Donut_CreateDescriptorTable(app: Opaque, bindlessLayout: Opaque, capacity: int): Opaque;
+declare function Donut_CreateDescriptorTable(app: AppHandle, bindlessLayout: Opaque, capacity: int): Opaque;
 // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at once
 // (also into a table bound by command lists still recording or running: the bindless layouts are
 // update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
-declare function Donut_WriteDescriptorTableTexture(app: Opaque, descriptorTable: Opaque, slot: int, texture: Opaque): int;
+declare function Donut_WriteDescriptorTableTexture(app: AppHandle, descriptorTable: Opaque, slot: int, texture: Opaque): int;
 // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
 // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
 // (different every run).
-declare function Donut_CreateRandomEngine(app: Opaque, seed: int): Opaque;
+declare function Donut_CreateRandomEngine(app: AppHandle, seed: int): Opaque;
 // The engine's next number from std::uniform_real_distribution<float>(a, b).
 declare function Donut_RandomUniformFloat(randomEngine: Opaque, a: number, b: number): number;
 // The engine's next number from std::uniform_int_distribution<int>(a, b).
@@ -1298,23 +1298,23 @@ declare function Donut_RandomNormalFloats(randomEngine: Opaque, mean: number, st
 // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
 declare function Donut_LayoutPushConstants(bindingLayoutDesc: Opaque, slot: int, byteSize: int): void;
 // Register space 0, visible to shaderType's stages.
-declare function Donut_CreateBindingLayout(app: Opaque, bindingLayoutDesc: Opaque, shaderType: ShaderType): Opaque;
+declare function Donut_CreateBindingLayout(app: AppHandle, bindingLayoutDesc: Opaque, shaderType: ShaderType): Opaque;
 // Uses the layout of bindingSet.
-declare function Donut_CreateComputePipeline(app: Opaque, computeShader: Opaque, bindingSet: Opaque): Opaque;
+declare function Donut_CreateComputePipeline(app: AppHandle, computeShader: Opaque, bindingSet: Opaque): Opaque;
 // Same, from a binding layout.
-declare function Donut_CreateComputePipelineWithLayout(app: Opaque, computeShader: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_CreateComputePipelineWithLayout(app: AppHandle, computeShader: Opaque, bindingLayout: Opaque): Opaque;
 // Same, with a second binding layout (e.g. bindless; null for none).
-declare function Donut_CreateComputePipelineWithLayouts(app: Opaque, computeShader: Opaque, bindingLayout: Opaque,
+declare function Donut_CreateComputePipelineWithLayouts(app: AppHandle, computeShader: Opaque, bindingLayout: Opaque,
     secondBindingLayout: Opaque | null): Opaque;
 // A binding set from the app's binding cache (the description is freed): created once, reused for
 // identical descriptions. Valid until Donut_ClearBindingCache.
-declare function Donut_GetCachedBindingSet(app: Opaque, bindingSetDesc: Opaque, bindingLayout: Opaque): Opaque;
+declare function Donut_GetCachedBindingSet(app: AppHandle, bindingSetDesc: Opaque, bindingLayout: Opaque): Opaque;
 
 // Async compute: every intervalMicroseconds, a C++ worker thread dispatches groupsX x groupsY
 // groups of a compute pipeline on the compute queue (needs AppOptions.ComputeQueue) into one of
 // its textures (RWTexture2D at u0, the run index as a uint push constant at b0; the layout must
 // hold exactly those), and hands it to the render thread. Null if there's no compute queue.
-declare function Donut_CreateAsyncComputeLoop(app: Opaque, computePipeline: Opaque, bindingLayout: Opaque,
+declare function Donut_CreateAsyncComputeLoop(app: AppHandle, computePipeline: Opaque, bindingLayout: Opaque,
     groupsX: int, groupsY: int, intervalMicroseconds: int): Opaque;
 // Before starting it.
 declare function Donut_AddAsyncComputeTexture(asyncComputeLoop: Opaque, texture: Opaque): void;
@@ -1333,79 +1333,79 @@ declare function Donut_StartAsyncComputeLoop(asyncComputeLoop: Opaque): void;
 declare function Donut_StopAsyncComputeLoop(asyncComputeLoop: Opaque): void;
 // In a render callback: switches to the newest finished texture, if any (the frame waits for the
 // compute queue), handing the previous one back. The texture to show; null until the first.
-declare function Donut_AcquireAsyncComputeTexture(asyncComputeLoop: Opaque, frame: Opaque): Opaque | null;
+declare function Donut_AcquireAsyncComputeTexture(asyncComputeLoop: Opaque, frame: FrameHandle): Opaque | null;
 
 // Command lists, for work outside render passes (e.g. in a headless app).
-declare function Donut_CreateCommandList(app: Opaque): Opaque;
-declare function Donut_OpenCommandList(commandList: Opaque): void;
-declare function Donut_CloseCommandList(commandList: Opaque): void;
+declare function Donut_CreateCommandList(app: AppHandle): CommandListHandle;
+declare function Donut_OpenCommandList(commandList: CommandListHandle): void;
+declare function Donut_CloseCommandList(commandList: CommandListHandle): void;
 // The app holds the command list until the GPU has finished it, so it can be released right after
 // (its upload and scratch memory, e.g. for texture uploads and acceleration structure builds, goes
 // with it).
-declare function Donut_ExecuteCommandList(app: Opaque, commandList: Opaque): void;
+declare function Donut_ExecuteCommandList(app: AppHandle, commandList: CommandListHandle): void;
 // Draws vertexCount vertices (no vertex buffers: e.g. a triangle over the target from SV_VertexID)
 // with a graphics pipeline into all of a framebuffer, with one binding set (null for none): for
 // drawing outside the frames, e.g. into a texture's levels at load time.
-declare function Donut_CommandListDraw(commandList: Opaque, pipeline: Opaque, framebuffer: Opaque, bindingSet: Opaque | null,
+declare function Donut_CommandListDraw(commandList: CommandListHandle, pipeline: Opaque, framebuffer: Opaque, bindingSet: Opaque | null,
     vertexCount: int): void;
 // A command list for the compute queue (needs AppOptions.ComputeQueue), recorded each frame and
 // run with Donut_ExecuteFrameComputeWork; null if there's no compute queue.
-declare function Donut_CreateComputeQueueCommandList(app: Opaque): Opaque | null;
+declare function Donut_CreateComputeQueueCommandList(app: AppHandle): CommandListHandle | null;
 // Blocks until the GPU has finished all submitted work.
-declare function Donut_WaitForIdle(app: Opaque): void;
+declare function Donut_WaitForIdle(app: AppHandle): void;
 // Uploads byteSize bytes from data, copied during the call. Pass `Ref(array[0])` of a `let`
 // int[] / f32[] array.
-declare function Donut_WriteBuffer(commandList: Opaque, buffer: Opaque, data: Opaque, byteSize: int): void;
+declare function Donut_WriteBuffer(commandList: CommandListHandle, buffer: Opaque, data: Opaque, byteSize: int): void;
 // Same, at byteOffset of a non-volatile buffer (e.g. a constant buffer's uints after its floats;
 // D3D11 drops partial constant buffer writes).
-declare function Donut_WriteBufferAt(commandList: Opaque, buffer: Opaque, byteOffset: int, data: Opaque, byteSize: int): void;
-declare function Donut_CopyBuffer(commandList: Opaque, dst: Opaque, dstOffset: int, src: Opaque, srcOffset: int, byteSize: int): void;
-declare function Donut_Dispatch(commandList: Opaque, computePipeline: Opaque, bindingSet: Opaque, groupsX: int, groupsY: int, groupsZ: int): void;
+declare function Donut_WriteBufferAt(commandList: CommandListHandle, buffer: Opaque, byteOffset: int, data: Opaque, byteSize: int): void;
+declare function Donut_CopyBuffer(commandList: CommandListHandle, dst: Opaque, dstOffset: int, src: Opaque, srcOffset: int, byteSize: int): void;
+declare function Donut_Dispatch(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: Opaque, groupsX: int, groupsY: int, groupsZ: int): void;
 // Same, with a descriptor table bound after the binding set.
-declare function Donut_DispatchWithDescriptorTable(commandList: Opaque, computePipeline: Opaque, bindingSet: Opaque,
+declare function Donut_DispatchWithDescriptorTable(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: Opaque,
     descriptorTable: Opaque, groupsX: int, groupsY: int, groupsZ: int): void;
 // Same as Donut_Dispatch, with byteSize bytes of push constants from data (Ref of a `let` array
 // element) for the binding set's Donut_BindPushConstants item.
-declare function Donut_DispatchWithPushConstants(commandList: Opaque, computePipeline: Opaque, bindingSet: Opaque,
+declare function Donut_DispatchWithPushConstants(commandList: CommandListHandle, computePipeline: Opaque, bindingSet: Opaque,
     data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void;
 // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
-declare function Donut_ClearDepth(commandList: Opaque, depthTexture: Opaque, depth: number): void;
+declare function Donut_ClearDepth(commandList: CommandListHandle, depthTexture: Opaque, depth: number): void;
 // Fills a color texture (Donut_CreateRenderTargetTexture) with r, g, b, a.
-declare function Donut_ClearTextureFloat(commandList: Opaque, texture: Opaque, r: number, g: number, b: number, a: number): void;
+declare function Donut_ClearTextureFloat(commandList: CommandListHandle, texture: Opaque, r: number, g: number, b: number, a: number): void;
 // Names the commands until the matching Donut_EndMarker, for GPU debuggers and profilers.
-declare function Donut_BeginMarker(commandList: Opaque, name: string): void;
-declare function Donut_EndMarker(commandList: Opaque): void;
+declare function Donut_BeginMarker(commandList: CommandListHandle, name: string): void;
+declare function Donut_EndMarker(commandList: CommandListHandle): void;
 
 // GPU timer queries: the GPU time between Begin and End, readable once polled.
-declare function Donut_CreateTimerQuery(app: Opaque): Opaque;
+declare function Donut_CreateTimerQuery(app: AppHandle): Opaque;
 // Before measuring again.
-declare function Donut_ResetTimerQuery(app: Opaque, timerQuery: Opaque): void;
-declare function Donut_BeginTimerQuery(commandList: Opaque, timerQuery: Opaque): void;
-declare function Donut_EndTimerQuery(commandList: Opaque, timerQuery: Opaque): void;
+declare function Donut_ResetTimerQuery(app: AppHandle, timerQuery: Opaque): void;
+declare function Donut_BeginTimerQuery(commandList: CommandListHandle, timerQuery: Opaque): void;
+declare function Donut_EndTimerQuery(commandList: CommandListHandle, timerQuery: Opaque): void;
 // Non-zero once the GPU has finished the measured commands.
-declare function Donut_PollTimerQuery(app: Opaque, timerQuery: Opaque): int;
+declare function Donut_PollTimerQuery(app: AppHandle, timerQuery: Opaque): int;
 // Seconds; waits for the GPU unless polled first.
-declare function Donut_GetTimerQueryTime(app: Opaque, timerQuery: Opaque): number;
+declare function Donut_GetTimerQueryTime(app: AppHandle, timerQuery: Opaque): number;
 
 // Passes are owned by the app; later passes draw on top and get input first.
-declare function Donut_AddPass(app: Opaque): Opaque;
-declare function Donut_SetRunWhenUnfocused(pass: Opaque, enabled: int): void;
-declare function Donut_SetRenderCallback(pass: Opaque, handler: RenderCallback): void;
-declare function Donut_SetAnimateCallback(pass: Opaque, handler: AnimateCallback): void;
+declare function Donut_AddPass(app: AppHandle): PassHandle;
+declare function Donut_SetRunWhenUnfocused(pass: PassHandle, enabled: int): void;
+declare function Donut_SetRenderCallback(pass: PassHandle, handler: RenderCallback): void;
+declare function Donut_SetAnimateCallback(pass: PassHandle, handler: AnimateCallback): void;
 // Called before the swap chain is resized; release framebuffer-dependent resources here.
-declare function Donut_SetBackBufferResizingCallback(pass: Opaque, handler: VoidCallback): void;
-declare function Donut_SetKeyboardCallback(pass: Opaque, handler: KeyboardCallback): void;
+declare function Donut_SetBackBufferResizingCallback(pass: PassHandle, handler: VoidCallback): void;
+declare function Donut_SetKeyboardCallback(pass: PassHandle, handler: KeyboardCallback): void;
 // Window pixels; same return convention as the keyboard callback.
-declare function Donut_SetMousePosCallback(pass: Opaque, handler: MousePosCallback): void;
+declare function Donut_SetMousePosCallback(pass: PassHandle, handler: MousePosCallback): void;
 // GLFW button / action values; same return convention as the keyboard callback.
-declare function Donut_SetMouseButtonCallback(pass: Opaque, handler: MouseButtonCallback): void;
+declare function Donut_SetMouseButtonCallback(pass: PassHandle, handler: MouseButtonCallback): void;
 // Scroll offsets; same return convention as the keyboard callback.
-declare function Donut_SetMouseScrollCallback(pass: Opaque, handler: MouseScrollCallback): void;
+declare function Donut_SetMouseScrollCallback(pass: PassHandle, handler: MouseScrollCallback): void;
 
 // Donut's ImGui renderer as a pass drawn after the ones added before (on top) and seeing input
 // before them; buildUI builds the UI every frame with the Donut_ImGui* functions (only valid in
 // it). Null if the renderer can't be initialized.
-declare function Donut_AddImGuiPass(app: Opaque, buildUI: VoidCallback): Opaque | null;
+declare function Donut_AddImGuiPass(app: AppHandle, buildUI: VoidCallback): Opaque | null;
 // Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the back
 // buffer; null: the back buffer again. Passes added after the ImGui pass draw after it (e.g. one
 // that takes that framebuffer's texture to the back buffer).
@@ -1511,34 +1511,34 @@ declare function Donut_ImGuiLightEditor(light: Opaque): int;
 declare function Donut_FileDialog(open: int, filters: string): string;
 
 // C++ objects (scenes, cameras, ...) are owned by the app until released or the app is destroyed.
-declare function Donut_ReleaseObject(app: Opaque, object: Opaque): void;
+declare function Donut_ReleaseObject(app: AppHandle, object: Opaque): void;
 
 // glTF or .scene.json, path relative to the executable's directory or absolute; loaded on the
 // app's thread pool, textures uploaded. Null (after logging why) on failure.
-declare function Donut_LoadScene(app: Opaque, path: string): Opaque;
+declare function Donut_LoadScene(app: AppHandle, path: string): Opaque;
 // numConstantBufferVersions bounds how many views it can render per frame.
-declare function Donut_CreateForwardShadingPass(app: Opaque, numConstantBufferVersions: int): Opaque;
+declare function Donut_CreateForwardShadingPass(app: AppHandle, numConstantBufferVersions: int): Opaque;
 // Cube map render target, resolution x resolution faces: SRGBA8 color, D32 depth.
-declare function Donut_CreateCubemapTarget(app: Opaque, resolution: int): Opaque;
+declare function Donut_CreateCubemapTarget(app: AppHandle, resolution: int): Opaque;
 // One array slice per face; valid as long as the target.
 declare function Donut_GetCubemapColorTexture(cubemapTarget: Opaque): Opaque;
 declare function Donut_SetCubemapViewFromCamera(cubemapTarget: Opaque, camera: Opaque, zNear: number, cullDistance: number): void;
 // Records the scene as seen by one cube face (0..5) into commandList, opening and closing it.
-declare function Donut_RenderCubemapFace(cubemapTarget: Opaque, face: int, commandList: Opaque, scene: Opaque, forwardShadingPass: Opaque): void;
+declare function Donut_RenderCubemapFace(cubemapTarget: Opaque, face: int, commandList: CommandListHandle, scene: Opaque, forwardShadingPass: Opaque): void;
 // Same, on the app's worker threads (it runs C++ only); each concurrent task needs its own
 // command list from Donut_CreateDeferredCommandList. Wait with Donut_WaitForTasks.
-declare function Donut_RenderCubemapFaceAsync(app: Opaque, cubemapTarget: Opaque, face: int, commandList: Opaque, scene: Opaque, forwardShadingPass: Opaque): void;
-declare function Donut_WaitForTasks(app: Opaque): void;
+declare function Donut_RenderCubemapFaceAsync(app: AppHandle, cubemapTarget: Opaque, face: int, commandList: CommandListHandle, scene: Opaque, forwardShadingPass: Opaque): void;
+declare function Donut_WaitForTasks(app: AppHandle): void;
 // For recording on another thread and executing later.
-declare function Donut_CreateDeferredCommandList(app: Opaque): Opaque;
+declare function Donut_CreateDeferredCommandList(app: AppHandle): CommandListHandle;
 
 // Donut's first person camera: WASD / arrows move, dragging with the left button looks around.
-declare function Donut_CreateFirstPersonCamera(app: Opaque): Opaque;
+declare function Donut_CreateFirstPersonCamera(app: AppHandle): Opaque;
 // First person cameras only.
 declare function Donut_CameraLookAt(camera: Opaque, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
 // Donut's third person (orbit) camera: dragging with the left button orbits the target, the wheel
 // zooms, WASD / arrows move the target. The Donut_Camera* functions below work for both kinds.
-declare function Donut_CreateThirdPersonCamera(app: Opaque): Opaque;
+declare function Donut_CreateThirdPersonCamera(app: AppHandle): Opaque;
 declare function Donut_ThirdPersonCameraSetTarget(camera: Opaque, x: number, y: number, z: number): void;
 declare function Donut_ThirdPersonCameraSetDistance(camera: Opaque, distance: number): void;
 // Radians.
@@ -1569,12 +1569,12 @@ declare function Donut_GetSceneGraph(scene: Opaque): Opaque;
 declare function Donut_GetRootNode(sceneGraph: Opaque): Opaque;
 // One BLAS per mesh of a loaded scene and a TLAS over its instances, builds recorded into an
 // open command list.
-declare function Donut_BuildSceneAccelStructs(app: Opaque, commandList: Opaque, scene: Opaque): Opaque;
+declare function Donut_BuildSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: Opaque): Opaque;
 // For Donut_BindAccelStruct; valid as long as the acceleration structures.
 declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: Opaque): Opaque;
 // Like Donut_LoadScene, registering the scene's buffers and textures in a descriptor table; the
 // scene's geometry and material buffers index into it.
-declare function Donut_LoadSceneWithDescriptorTable(app: Opaque, path: string, descriptorTableManager: Opaque): Opaque;
+declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: Opaque): Opaque;
 // InstanceData / GeometryData / MaterialConstants structured buffers; valid as long as the scene.
 declare function Donut_GetSceneBuffer(scene: Opaque, which: SceneBuffer): Opaque;
 // Geometries of a loaded scene, addressed by global geometry index (0 .. count - 1).
@@ -1585,12 +1585,12 @@ declare function Donut_GetSceneGeometryCount(scene: Opaque): int;
 declare function Donut_BindGeometryIndexBuffer(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int): void;
 declare function Donut_BindGeometryVertexAttribute(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int,
     attribute: GeometryAttribute): void;
-declare function Donut_BindGeometryMaterialTexture(app: Opaque, bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int,
+declare function Donut_BindGeometryMaterialTexture(app: AppHandle, bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int,
     which: MaterialTexture, fallback: FallbackTexture): void;
 declare function Donut_BindGeometryMaterialConstants(bindingSetDesc: Opaque, slot: int, scene: Opaque, geometryIndex: int): void;
 // Like Donut_BuildSceneAccelStructs, for shader tables with hitGroupStride entries per geometry in
 // global geometry index order.
-declare function Donut_BuildSceneAccelStructsWithHitGroupStride(app: Opaque, commandList: Opaque, scene: Opaque,
+declare function Donut_BuildSceneAccelStructsWithHitGroupStride(app: AppHandle, commandList: CommandListHandle, scene: Opaque,
     hitGroupStride: int): Opaque;
 // Animations, e.g. glTF skeletal ones. Durations in seconds; apply poses the nodes at `time`.
 declare function Donut_GetSceneAnimationCount(scene: Opaque): int;
@@ -1599,18 +1599,18 @@ declare function Donut_ApplySceneAnimation(scene: Opaque, index: int, time: numb
 // For animated scenes: one BLAS per mesh (alpha-tested geometries non-opaque, static ones
 // compacted later), builds recorded into an open command list, plus a TLAS built every frame by
 // Donut_UpdateSceneAccelStructs. Get the TLAS with Donut_GetSceneTopLevelAS.
-declare function Donut_CreateAnimatedSceneAccelStructs(app: Opaque, commandList: Opaque, scene: Opaque): Opaque;
+declare function Donut_CreateAnimatedSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: Opaque): Opaque;
 // Valid only inside a render callback. Updates the scene graph and GPU buffers (transforms,
 // skinning) after animations.
-declare function Donut_RefreshScene(app: Opaque, frame: Opaque, scene: Opaque): void;
+declare function Donut_RefreshScene(app: AppHandle, frame: FrameHandle, scene: Opaque): void;
 // Valid only inside a render callback, after Donut_RefreshScene: rebuilds the skinned BLASes,
 // compacts finished static ones and builds the TLAS (instance IDs = instance indices).
-declare function Donut_UpdateSceneAccelStructs(app: Opaque, frame: Opaque, sceneAccelStructs: Opaque, scene: Opaque): void;
+declare function Donut_UpdateSceneAccelStructs(app: AppHandle, frame: FrameHandle, sceneAccelStructs: Opaque, scene: Opaque): void;
 
 // A texture file (relative to the executable's directory) loaded and uploaded (mipmaps generated
 // if it has none), registered in a descriptor table for bindless access. It submits its own
 // command list: call it while no other one is open. Null (after logging why) on failure.
-declare function Donut_LoadBindlessTexture(app: Opaque, descriptorTableManager: Opaque, path: string, sRGB: int): Opaque;
+declare function Donut_LoadBindlessTexture(app: AppHandle, descriptorTableManager: Opaque, path: string, sRGB: int): Opaque;
 // Its index in the descriptor table (the shaders' array index).
 declare function Donut_GetTextureDescriptorIndex(loadedTexture: Opaque): int;
 declare function Donut_GetSceneInstanceCount(scene: Opaque): int;
@@ -1620,24 +1620,24 @@ declare function Donut_GetSceneNodePosition(scene: Opaque, path: string, dst: Op
 // Dynamic meshes: one alpha-blended geometry whose vertices (positions, texture coordinates) and
 // indices are replaced every frame, with room for maxVertices / maxIndices, buffers registered in
 // a descriptor table. Attach to a loaded scene before creating binding sets of its buffers.
-declare function Donut_CreateDynamicMesh(app: Opaque, descriptorTableManager: Opaque, maxVertices: int, maxIndices: int, name: string): Opaque;
-declare function Donut_AttachDynamicMesh(app: Opaque, scene: Opaque, dynamicMesh: Opaque): void;
+declare function Donut_CreateDynamicMesh(app: AppHandle, descriptorTableManager: Opaque, maxVertices: int, maxIndices: int, name: string): Opaque;
+declare function Donut_AttachDynamicMesh(app: AppHandle, scene: Opaque, dynamicMesh: Opaque): void;
 // A Donut_LoadBindlessTexture texture; the scene picks it up at the next Donut_RefreshScene.
-declare function Donut_SetDynamicMeshTexture(app: Opaque, dynamicMesh: Opaque, loadedTexture: Opaque): void;
+declare function Donut_SetDynamicMeshTexture(app: AppHandle, dynamicMesh: Opaque, loadedTexture: Opaque): void;
 // Valid only inside a render callback: positions (3 x f32 per vertex), texCoords (2 x f32), int
 // indices, as Ref of `let` array elements; rebuilds the mesh's BLAS.
-declare function Donut_UpdateDynamicMesh(frame: Opaque, dynamicMesh: Opaque, positions: Opaque, texCoords: Opaque, vertexCount: int,
+declare function Donut_UpdateDynamicMesh(frame: FrameHandle, dynamicMesh: Opaque, positions: Opaque, texCoords: Opaque, vertexCount: int,
     indices: Opaque, indexCount: int): void;
 // A BLAS for every scene mesh without one (not dynamic meshes), into an open command list;
 // geometries not in the Opaque material domain are non-opaque.
-declare function Donut_BuildSceneBLASes(app: Opaque, commandList: Opaque, scene: Opaque): void;
+declare function Donut_BuildSceneBLASes(app: AppHandle, commandList: CommandListHandle, scene: Opaque): void;
 // A BLAS of one AABB (-1..1 on each axis), built into an open command list.
-declare function Donut_CreateUnitAABBBlas(app: Opaque, commandList: Opaque, debugName: string): Opaque;
+declare function Donut_CreateUnitAABBBlas(app: AppHandle, commandList: CommandListHandle, debugName: string): Opaque;
 // A TLAS of up to maxInstances, rebuilt by Donut_BuildTopLevelAS from the instances added since
 // the last build. Get the TLAS with Donut_GetSceneTopLevelAS.
-declare function Donut_CreateTopLevelAS(app: Opaque, maxInstances: int): Opaque;
+declare function Donut_CreateTopLevelAS(app: AppHandle, maxInstances: int): Opaque;
 // Same, built with buildFlags (e.g. AllowUpdate, for Donut_UpdateTopLevelAS).
-declare function Donut_CreateTopLevelASWithFlags(app: Opaque, maxInstances: int, buildFlags: AccelStructBuildFlags): Opaque;
+declare function Donut_CreateTopLevelASWithFlags(app: AppHandle, maxInstances: int, buildFlags: AccelStructBuildFlags): Opaque;
 // The scene's mesh instances (instance ID = instance index) with instanceMask, dynamicMesh's (if
 // not null) with dynamicMeshMask.
 declare function Donut_AddSceneTopLevelASInstances(sceneAccelStructs: Opaque, scene: Opaque, instanceMask: int,
@@ -1655,26 +1655,26 @@ declare function Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs: Opa
 declare function Donut_AddTopLevelASInstanceWithHitGroup(sceneAccelStructs: Opaque, bottomLevelAS: Opaque, instanceMask: int,
     instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void;
 // Valid only inside a render callback.
-declare function Donut_BuildTopLevelAS(frame: Opaque, sceneAccelStructs: Opaque): void;
+declare function Donut_BuildTopLevelAS(frame: FrameHandle, sceneAccelStructs: Opaque): void;
 // Valid only inside a render callback: refits the TLAS in place to the instances added since the
 // last build (new transforms, same instance count) instead of building it anew. Needs an AllowUpdate
 // TLAS; builds it instead the first time or when the instance count changed. 1 if it refitted.
-declare function Donut_UpdateTopLevelAS(frame: Opaque, sceneAccelStructs: Opaque): int;
+declare function Donut_UpdateTopLevelAS(frame: FrameHandle, sceneAccelStructs: Opaque): int;
 
 // Scenes built in code. Material with a diffuse texture (relative to the executable's directory,
 // sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
 // specular-glossiness model. Null (after logging why) if the texture can't be loaded.
-declare function Donut_CreateTexturedMaterial(app: Opaque, commandList: Opaque, name: string, diffuseTexturePath: string, specularGloss: int): Opaque;
+declare function Donut_CreateTexturedMaterial(app: AppHandle, commandList: CommandListHandle, name: string, diffuseTexturePath: string, specularGloss: int): Opaque;
 // One geometry, identity instance transform, uploads recorded into an open command list. Per
 // vertex: position (3 x f32), texture coordinates (2 x f32), normal and tangent (int each,
 // packed as by vectorToSnorm8); then indexCount int indices. Arrays: Ref(arr[0]) of `let` arrays.
-declare function Donut_CreateMesh(app: Opaque, commandList: Opaque, name: string, material: Opaque,
+declare function Donut_CreateMesh(app: AppHandle, commandList: CommandListHandle, name: string, material: Opaque,
     positions: Opaque, texCoords: Opaque, normals: Opaque, tangents: Opaque, vertexCount: int,
     indices: Opaque, indexCount: int): Opaque;
-declare function Donut_CreateSceneGraph(app: Opaque): Opaque;
+declare function Donut_CreateSceneGraph(app: AppHandle): Opaque;
 // Adds a node holding an instance of mesh under parentNode, or as the root if parentNode is
 // null. Returns the node, valid as long as the scene graph.
-declare function Donut_AddMeshNode(app: Opaque, sceneGraph: Opaque, parentNode: Opaque | null, mesh: Opaque, name: string): Opaque;
+declare function Donut_AddMeshNode(app: AppHandle, sceneGraph: Opaque, parentNode: Opaque | null, mesh: Opaque, name: string): Opaque;
 // Directional light in a new node under parentNode, shining along dir; angularSize in degrees.
 // Returns the light, valid as long as the scene graph; refresh the graph before using it.
 declare function Donut_AddDirectionalLight(sceneGraph: Opaque, parentNode: Opaque, name: string,
@@ -1684,23 +1684,23 @@ declare function Donut_AddDirectionalLight(sceneGraph: Opaque, parentNode: Opaqu
 declare function Donut_GetLightConstantsSize(): int;
 declare function Donut_FillLightConstants(light: Opaque, dst: Opaque): void;
 // After adding or changing nodes.
-declare function Donut_RefreshSceneGraph(app: Opaque, sceneGraph: Opaque): void;
+declare function Donut_RefreshSceneGraph(app: AppHandle, sceneGraph: Opaque): void;
 declare function Donut_PrintSceneGraph(sceneGraph: Opaque): void;
 
 // Deferred shading. G-buffer of width x height pixels plus an RGBA16_FLOAT texture for the lit
 // result; create new ones when the frame size changes. reverseDepth != 0 clears depth to 0, for
 // reverse-Z projections.
-declare function Donut_CreateGBufferTargets(app: Opaque, width: int, height: int, reverseDepth: int): Opaque;
+declare function Donut_CreateGBufferTargets(app: AppHandle, width: int, height: int, reverseDepth: int): Opaque;
 // For Donut_BlitTexture, or as a UAV; valid as long as the targets.
 declare function Donut_GetGBufferShadedColor(gbufferTargets: Opaque): Opaque;
 // One of the G-buffer textures, e.g. to bind to a shader decoding the G-buffer; valid as long as
 // the targets.
 declare function Donut_GetGBufferTexture(gbufferTargets: Opaque, which: GBufferTexture): Opaque;
-declare function Donut_CreateGBufferFillPass(app: Opaque): Opaque;
-declare function Donut_CreateDeferredLightingPass(app: Opaque): Opaque;
+declare function Donut_CreateGBufferFillPass(app: AppHandle): Opaque;
+declare function Donut_CreateDeferredLightingPass(app: AppHandle): Opaque;
 // Drops the pass's cached references to G-buffer textures.
 declare function Donut_ResetDeferredLightingBindingCache(deferredLightingPass: Opaque): void;
-declare function Donut_CreatePlanarView(app: Opaque): Opaque;
+declare function Donut_CreatePlanarView(app: AppHandle): Opaque;
 // Matrices: Ref(arr[0]) of `let` f32[16] arrays, row-major, row-vector convention (as the math
 // functions in the examples build them); viewport of width x height pixels.
 declare function Donut_SetPlanarView(view: Opaque, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int): void;
@@ -1709,18 +1709,18 @@ declare function Donut_SetPlanarView(view: Opaque, viewMatrix: Opaque, projMatri
 declare function Donut_GetPlanarViewConstantsSize(): int;
 declare function Donut_FillPlanarViewConstants(view: Opaque, dst: Opaque): void;
 // These four are valid only inside a render callback.
-declare function Donut_ClearGBuffer(frame: Opaque, gbufferTargets: Opaque): void;
+declare function Donut_ClearGBuffer(frame: FrameHandle, gbufferTargets: Opaque): void;
 // Draws the mesh instance of a Donut_AddMeshNode node into the G-buffer, back faces culled.
-declare function Donut_RenderMeshNodeToGBuffer(frame: Opaque, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, meshNode: Opaque): void;
+declare function Donut_RenderMeshNodeToGBuffer(frame: FrameHandle, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, meshNode: Opaque): void;
 // Draws the opaque meshes of a loaded scene into the G-buffer.
-declare function Donut_RenderSceneToGBuffer(frame: Opaque, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, scene: Opaque): void;
+declare function Donut_RenderSceneToGBuffer(frame: FrameHandle, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, scene: Opaque): void;
 // Lights the G-buffer with the scene graph's lights plus a top / bottom ambient term, into the
 // targets' shaded color texture.
-declare function Donut_RenderDeferredLighting(frame: Opaque, deferredLightingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
+declare function Donut_RenderDeferredLighting(frame: FrameHandle, deferredLightingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
     sceneGraph: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
 // Valid only inside a render callback: the transparent meshes of a loaded scene, forward-shaded
 // over the targets' shaded color, depth-tested against the G-buffer depth.
-declare function Donut_RenderSceneTransparentOverGBuffer(frame: Opaque, forwardShadingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
+declare function Donut_RenderSceneTransparentOverGBuffer(frame: FrameHandle, forwardShadingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
     scene: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
 // Viewport, matrices and derived state, e.g. to keep the previous frame's view.
 declare function Donut_CopyPlanarView(dstView: Opaque, srcView: Opaque): void;
@@ -1728,7 +1728,7 @@ declare function Donut_CopyPlanarView(dstView: Opaque, srcView: Opaque): void;
 // Forward shading with TAA. Targets of width x height pixels: RGBA16_FLOAT HDR color and D24S8
 // depth (cleared for reverse Z) to render into, motion vectors, and the TAA resolved color and
 // feedback; create new ones when the frame size changes.
-declare function Donut_CreateTemporalTargets(app: Opaque, width: int, height: int): Opaque;
+declare function Donut_CreateTemporalTargets(app: AppHandle, width: int, height: int): Opaque;
 // Valid as long as the targets.
 declare function Donut_GetTemporalTargetsTexture(temporalTargets: Opaque, which: TemporalTexture): Opaque;
 // Rendering into the targets uses this surface whenever the view enables variable rate shading;
@@ -1736,28 +1736,28 @@ declare function Donut_GetTemporalTargetsTexture(temporalTargets: Opaque, which:
 declare function Donut_SetTemporalTargetsShadingRateSurface(temporalTargets: Opaque, shadingRateSurface: Opaque): void;
 // TAA over the targets (Catmull-Rom filter, stencil mask 0x01), for views like `view`; create a
 // new one with new targets.
-declare function Donut_CreateTemporalAntiAliasingPass(app: Opaque, view: Opaque, temporalTargets: Opaque): Opaque;
+declare function Donut_CreateTemporalAntiAliasingPass(app: AppHandle, view: Opaque, temporalTargets: Opaque): Opaque;
 // These four are valid only inside a render callback.
 // Depth to 0 (reverse Z), HDR color to black.
-declare function Donut_ClearTemporalTargets(frame: Opaque, temporalTargets: Opaque): void;
+declare function Donut_ClearTemporalTargets(frame: FrameHandle, temporalTargets: Opaque): void;
 // A loaded scene, opaque then transparent meshes, with a Donut_CreateForwardShadingPass pass, lit
 // by the scene graph's lights plus a top / bottom ambient term.
-declare function Donut_RenderSceneForward(frame: Opaque, forwardShadingPass: Opaque, view: Opaque, temporalTargets: Opaque, scene: Opaque,
+declare function Donut_RenderSceneForward(frame: FrameHandle, forwardShadingPass: Opaque, view: Opaque, temporalTargets: Opaque, scene: Opaque,
     topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
-declare function Donut_RenderMotionVectors(frame: Opaque, temporalAntiAliasingPass: Opaque, view: Opaque, previousView: Opaque): void;
+declare function Donut_RenderMotionVectors(frame: FrameHandle, temporalAntiAliasingPass: Opaque, view: Opaque, previousView: Opaque): void;
 // HDR color into the resolved color; feedbackIsValid 0 when there's no history yet.
-declare function Donut_TemporalResolve(frame: Opaque, temporalAntiAliasingPass: Opaque, view: Opaque, feedbackIsValid: int): void;
+declare function Donut_TemporalResolve(frame: FrameHandle, temporalAntiAliasingPass: Opaque, view: Opaque, feedbackIsValid: int): void;
 
 // Variable rate shading. Pixels per shading rate surface texel, as NVRHI reports it, or (the
 // second one) straight from D3D12, 0 on other APIs.
-declare function Donut_GetShadingRateTileSize(app: Opaque): int;
-declare function Donut_GetD3D12ShadingRateTileSize(app: Opaque): int;
+declare function Donut_GetShadingRateTileSize(app: AppHandle): int;
+declare function Donut_GetD3D12ShadingRateTileSize(app: AppHandle): int;
 // R8_UINT surface of width x height tiles, written by compute shaders as RWTexture2D<uint>.
-declare function Donut_CreateShadingRateSurface(app: Opaque, width: int, height: int): Opaque;
+declare function Donut_CreateShadingRateSurface(app: AppHandle, width: int, height: int): Opaque;
 // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of a
 // `let` int array of 32), largest first (Vulkan's order; D3D12's tier rates); returns their count,
 // 0 without variable rate shading.
-declare function Donut_GetFragmentShadingRates(app: Opaque, dst: Opaque): int;
+declare function Donut_GetFragmentShadingRates(app: AppHandle, dst: Opaque): int;
 // Variable rate shading in a pipeline: its draws take the draw state's shading rate
 // (Donut_DrawSetVariableRateShading) combined with the framebuffer's shading rate surface.
 declare function Donut_GraphicsPipelineSetVariableRateShading(graphicsPipelineDesc: Opaque, enabled: int): void;
@@ -1766,157 +1766,157 @@ declare function Donut_GraphicsPipelineSetVariableRateShading(graphicsPipelineDe
 // imageCombiner (Passthrough keeps the rate so far, Override takes the new one).
 // The draw's depth bounds (after Donut_BeginDraw), for a pipeline with the depth bounds test: depth
 // target values from minDepth to maxDepth pass (0 to 1 by default).
-declare function Donut_DrawSetDepthBounds(frame: Opaque, minDepth: number, maxDepth: number): void;
-declare function Donut_DrawSetVariableRateShading(frame: Opaque, enabled: int, shadingRate: VariableShadingRate,
+declare function Donut_DrawSetDepthBounds(frame: FrameHandle, minDepth: number, maxDepth: number): void;
+declare function Donut_DrawSetVariableRateShading(frame: FrameHandle, enabled: int, shadingRate: VariableShadingRate,
     primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void;
 // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
 // none) whose draws can take their shading rates from shadingRateSurface (null for none).
-declare function Donut_CreateFramebufferWithShadingRate(app: Opaque, colorTexture0: Opaque, colorTexture1: Opaque | null,
+declare function Donut_CreateFramebufferWithShadingRate(app: AppHandle, colorTexture0: Opaque, colorTexture1: Opaque | null,
     depthTexture: Opaque | null, shadingRateSurface: Opaque | null): Opaque;
 // enabled != 0: the view's draws use the framebuffer's shading rate surface alone; 0: full rate.
 declare function Donut_SetViewVariableRateShading(view: Opaque, enabled: int): void;
 // The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
 // inside a render callback, Begin and End around the draws.
-declare function Donut_BeginD3D12ShadingRateImage(frame: Opaque, shadingRateSurface: Opaque): void;
-declare function Donut_EndD3D12ShadingRateImage(frame: Opaque, shadingRateSurface: Opaque): void;
+declare function Donut_BeginD3D12ShadingRateImage(frame: FrameHandle, shadingRateSurface: Opaque): void;
+declare function Donut_EndD3D12ShadingRateImage(frame: FrameHandle, shadingRateSurface: Opaque): void;
 
 // D3D12 work graphs, through D3D12 directly. They need the Agility SDK runtime: the executable
 // must be linked with d3d12_agility_sdk.cpp (see CMakeLists.txt).
 // D3D12_WORK_GRAPHS_TIER: 0 unsupported (or not D3D12), 10 for tier 1.0, 11 for tier 1.1.
-declare function Donut_GetD3D12WorkGraphsTier(app: Opaque): int;
+declare function Donut_GetD3D12WorkGraphsTier(app: AppHandle): int;
 // A work graph program of all the nodes of a shader library (lib_6_8), with computePipeline's
 // root signature, and its broadcasting entry node's dispatch grid set to gridX x gridY x gridZ;
 // plus its backing memory. Release it with Donut_ReleaseObject. Null (after logging why) on failure.
-declare function Donut_CreateD3D12WorkGraph(app: Opaque, shaderLibrary: Opaque, computePipeline: Opaque, programName: string,
+declare function Donut_CreateD3D12WorkGraph(app: AppHandle, shaderLibrary: Opaque, computePipeline: Opaque, programName: string,
     entryNodeName: string, gridX: int, gridY: int, gridZ: int): Opaque | null;
 // Launches the graph with one empty entry record, bindingSet and byteSize bytes of push constants
 // from data as its root arguments, set through computePipeline (one with the same root signature;
 // don't dispatch with it after the graph in the same command list). initializeBackingMemory
 // non-zero on the backing memory's first use, or after another graph used it.
-declare function Donut_DispatchD3D12WorkGraph(commandList: Opaque, workGraph: Opaque, computePipeline: Opaque, bindingSet: Opaque,
+declare function Donut_DispatchD3D12WorkGraph(commandList: CommandListHandle, workGraph: Opaque, computePipeline: Opaque, bindingSet: Opaque,
     data: Opaque, byteSize: int, initializeBackingMemory: int): void;
 
 // Valid only inside a render callback.
-declare function Donut_ClearColor(frame: Opaque, r: number, g: number, b: number, a: number): void;
+declare function Donut_ClearColor(frame: FrameHandle, r: number, g: number, b: number, a: number): void;
 // Draws vertexCount vertices with no vertex buffers, over the whole framebuffer.
-declare function Donut_Draw(frame: Opaque, pipeline: Opaque, vertexCount: int): void;
+declare function Donut_Draw(frame: FrameHandle, pipeline: Opaque, vertexCount: int): void;
 // Launches groupsX amplification-shader groups of a meshlet pipeline, over the whole framebuffer.
-declare function Donut_DispatchMesh(frame: Opaque, meshletPipeline: Opaque, groupsX: int): void;
+declare function Donut_DispatchMesh(frame: FrameHandle, meshletPipeline: Opaque, groupsX: int): void;
 // Traces width x height rays with a shader table, with bindingSet as its global bindings.
-declare function Donut_DispatchRays(frame: Opaque, shaderTable: Opaque, bindingSet: Opaque, width: int, height: int): void;
+declare function Donut_DispatchRays(frame: FrameHandle, shaderTable: Opaque, bindingSet: Opaque, width: int, height: int): void;
 // Same, with a descriptor table bound after the binding set.
-declare function Donut_DispatchRaysWithDescriptorTable(frame: Opaque, shaderTable: Opaque, bindingSet: Opaque,
+declare function Donut_DispatchRaysWithDescriptorTable(frame: FrameHandle, shaderTable: Opaque, bindingSet: Opaque,
     descriptorTable: Opaque, width: int, height: int): void;
 // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
 // textures blitted before.
-declare function Donut_BlitTexture(app: Opaque, frame: Opaque, texture: Opaque): void;
-declare function Donut_ClearBindingCache(app: Opaque): void;
+declare function Donut_BlitTexture(app: AppHandle, frame: FrameHandle, texture: Opaque): void;
+declare function Donut_ClearBindingCache(app: AppHandle): void;
 // One array slice of a texture, stretched into a rectangle of the framebuffer (pixels).
-declare function Donut_BlitTextureSlice(app: Opaque, frame: Opaque, texture: Opaque, arraySlice: int, left: number, top: number, width: number, height: number): void;
+declare function Donut_BlitTextureSlice(app: AppHandle, frame: FrameHandle, texture: Opaque, arraySlice: int, left: number, top: number, width: number, height: number): void;
 // The frame's open command list, for the command list functions (e.g. Donut_WriteBuffer). Don't
 // open, close or execute it.
-declare function Donut_GetFrameCommandList(frame: Opaque): Opaque;
+declare function Donut_GetFrameCommandList(frame: FrameHandle): CommandListHandle;
 // A draw: begin with a pipeline (whole framebuffer by default), add state, then issue it.
-declare function Donut_BeginDraw(frame: Opaque, pipeline: Opaque): void;
+declare function Donut_BeginDraw(frame: FrameHandle, pipeline: Opaque): void;
 // Same, into another framebuffer (Donut_CreateFramebuffer; a pipeline for its layout).
-declare function Donut_BeginDrawToFramebuffer(frame: Opaque, pipeline: Opaque, framebuffer: Opaque): void;
-declare function Donut_DrawAddBindingSet(frame: Opaque, bindingSet: Opaque): void;
+declare function Donut_BeginDrawToFramebuffer(frame: FrameHandle, pipeline: Opaque, framebuffer: Opaque): void;
+declare function Donut_DrawAddBindingSet(frame: FrameHandle, bindingSet: Opaque): void;
 // A descriptor table (Donut_CreateDescriptorTable, Donut_GetDescriptorTable) for the draw, in the
 // pipeline's binding layout order as Donut_DrawAddBindingSet.
-declare function Donut_DrawAddDescriptorTable(frame: Opaque, descriptorTable: Opaque): void;
+declare function Donut_DrawAddDescriptorTable(frame: FrameHandle, descriptorTable: Opaque): void;
 // R32_UINT indices.
-declare function Donut_DrawSetIndexBuffer(frame: Opaque, indexBuffer: Opaque): void;
+declare function Donut_DrawSetIndexBuffer(frame: FrameHandle, indexBuffer: Opaque): void;
 // R16_UINT indices.
-declare function Donut_DrawSetIndexBuffer16(frame: Opaque, indexBuffer: Opaque): void;
+declare function Donut_DrawSetIndexBuffer16(frame: FrameHandle, indexBuffer: Opaque): void;
 // Binds a vertex buffer, from byteOffset, to an input layout slot.
-declare function Donut_DrawAddVertexBuffer(frame: Opaque, vertexBuffer: Opaque, slot: int, byteOffset: int): void;
+declare function Donut_DrawAddVertexBuffer(frame: FrameHandle, vertexBuffer: Opaque, slot: int, byteOffset: int): void;
 // Draws into this rectangle of the framebuffer (pixels) instead of all of it.
-declare function Donut_DrawSetViewport(frame: Opaque, left: number, top: number, width: number, height: number): void;
+declare function Donut_DrawSetViewport(frame: FrameHandle, left: number, top: number, width: number, height: number): void;
 // One more viewport (with its scissor rectangle) for the draw, after those set or added before:
 // geometry shaders pick one per primitive (SV_ViewportArrayIndex).
-declare function Donut_DrawAddViewport(frame: Opaque, left: number, top: number, width: number, height: number): void;
-declare function Donut_DrawIndexed(frame: Opaque, indexCount: int): void;
+declare function Donut_DrawAddViewport(frame: FrameHandle, left: number, top: number, width: number, height: number): void;
+declare function Donut_DrawIndexed(frame: FrameHandle, indexCount: int): void;
 // Same, instanceCount times (instance attributes advance per instance).
-declare function Donut_DrawIndexedInstanced(frame: Opaque, indexCount: int, instanceCount: int): void;
+declare function Donut_DrawIndexedInstanced(frame: FrameHandle, indexCount: int, instanceCount: int): void;
 // The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
-declare function Donut_DrawSetIndirectBuffer(frame: Opaque, indirectBuffer: Opaque): void;
+declare function Donut_DrawSetIndirectBuffer(frame: FrameHandle, indirectBuffer: Opaque): void;
 // drawCount indexed draws, their arguments read from the indirect buffer from offsetBytes on (20
 // bytes each); the draw described stays, so it can repeat with other offsets.
-declare function Donut_DrawIndexedIndirect(frame: Opaque, offsetBytes: int, drawCount: int): void;
+declare function Donut_DrawIndexedIndirect(frame: FrameHandle, offsetBytes: int, drawCount: int): void;
 // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
 // item); the draw described stays, so it can repeat with other push constants.
-declare function Donut_DrawIndexedWithPushConstants(frame: Opaque, indexCount: int, data: Opaque, byteSize: int): void;
+declare function Donut_DrawIndexedWithPushConstants(frame: FrameHandle, indexCount: int, data: Opaque, byteSize: int): void;
 // Values that decide whether draws happen (D3D12 predication, Vulkan conditional rendering): count
 // of them, each 0 (skip) or not (draw), all 1 at first, in memory the CPU writes and the GPU reads
 // when it executes the draws. Requires Donut_HasConditionalRendering. Null on failure.
-declare function Donut_CreatePredicationBuffer(app: Opaque, count: int): Opaque | null;
+declare function Donut_CreatePredicationBuffer(app: AppHandle, count: int): Opaque | null;
 declare function Donut_SetPredicationValue(predicationBuffer: Opaque, index: int, value: int): void;
 // Binary occlusion queries whose results the GPU resolves into predication values (the CPU's
 // Donut_SetPredicationValue's are the predication buffer's): count queries, every result 0
 // (occluded) at first. D3D12's occlusion query heap and predication, Vulkan's occlusion query pool
 // and conditional rendering (requires Donut_HasConditionalRendering). Null otherwise.
-declare function Donut_CreateOcclusionPredication(app: Opaque, count: int): Opaque | null;
+declare function Donut_CreateOcclusionPredication(app: AppHandle, count: int): Opaque | null;
 // Donut_DrawVertices inside occlusion query `index`: whether any of the vertices' samples pass the
 // depth and stencil tests.
-declare function Donut_DrawVerticesWithOcclusionQuery(frame: Opaque, vertexCount: int, occlusionPredication: Opaque, index: int): void;
+declare function Donut_DrawVerticesWithOcclusionQuery(frame: FrameHandle, vertexCount: int, occlusionPredication: Opaque, index: int): void;
 // The queries' results into the predication values (1: samples passed; 0: none did) for the draws
 // after it, e.g. the next frame's.
-declare function Donut_ResolveOcclusionQueries(frame: Opaque, occlusionPredication: Opaque): void;
+declare function Donut_ResolveOcclusionQueries(frame: FrameHandle, occlusionPredication: Opaque): void;
 // Donut_DrawVertices, skipped if resolved result `index` is 0 when the GPU gets to it.
-declare function Donut_DrawVerticesOcclusionPredicated(frame: Opaque, vertexCount: int, occlusionPredication: Opaque, index: int): void;
+declare function Donut_DrawVerticesOcclusionPredicated(frame: FrameHandle, vertexCount: int, occlusionPredication: Opaque, index: int): void;
 // Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of the predication buffer
 // isn't 0 when the GPU gets to it.
-declare function Donut_DrawIndexedRangeWithPushConstantsPredicated(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int,
+declare function Donut_DrawIndexedRangeWithPushConstantsPredicated(frame: FrameHandle, indexCount: int, startIndex: int, baseVertex: int,
     data: Opaque, byteSize: int, predicationBuffer: Opaque, index: int): void;
 // Same, instanceCount times.
-declare function Donut_DrawIndexedInstancedWithPushConstants(frame: Opaque, indexCount: int, instanceCount: int, data: Opaque, byteSize: int): void;
+declare function Donut_DrawIndexedInstancedWithPushConstants(frame: FrameHandle, indexCount: int, instanceCount: int, data: Opaque, byteSize: int): void;
 // Same, indexCount indices from startIndex of the index buffer, added to baseVertex.
-declare function Donut_DrawIndexedRangeWithPushConstants(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int,
+declare function Donut_DrawIndexedRangeWithPushConstants(frame: FrameHandle, indexCount: int, startIndex: int, baseVertex: int,
     data: Opaque, byteSize: int): void;
 // Same, without push constants.
-declare function Donut_DrawIndexedRange(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int): void;
+declare function Donut_DrawIndexedRange(frame: FrameHandle, indexCount: int, startIndex: int, baseVertex: int): void;
 // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into the
 // back buffer, as is.
-declare function Donut_CopyTextureToFrame(frame: Opaque, texture: Opaque): void;
+declare function Donut_CopyTextureToFrame(frame: FrameHandle, texture: Opaque): void;
 // Same, without an index buffer.
-declare function Donut_DrawVertices(frame: Opaque, vertexCount: int): void;
+declare function Donut_DrawVertices(frame: FrameHandle, vertexCount: int): void;
 // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
 // item); the draw described stays, so it can repeat with other push constants.
-declare function Donut_DrawVerticesWithPushConstants(frame: Opaque, vertexCount: int, data: Opaque, byteSize: int): void;
+declare function Donut_DrawVerticesWithPushConstants(frame: FrameHandle, vertexCount: int, data: Opaque, byteSize: int): void;
 // Executes what the frame's command list holds so far, and reopens it for the rest of the frame
 // (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
-declare function Donut_SubmitFrameCommandList(app: Opaque, frame: Opaque): void;
+declare function Donut_SubmitFrameCommandList(app: AppHandle, frame: FrameHandle): void;
 // A mesh shader draw: begin with a meshlet pipeline (whole framebuffer by default), add binding sets
 // (Donut_DrawAddBindingSet) and a viewport, then launch groupsX groups of its first shader
 // (amplification, or mesh without one).
-declare function Donut_BeginMeshDraw(frame: Opaque, meshletPipeline: Opaque): void;
-declare function Donut_BeginMeshDrawToFramebuffer(frame: Opaque, meshletPipeline: Opaque, framebuffer: Opaque): void;
-declare function Donut_DrawMeshTasks(frame: Opaque, groupsX: int): void;
+declare function Donut_BeginMeshDraw(frame: FrameHandle, meshletPipeline: Opaque): void;
+declare function Donut_BeginMeshDrawToFramebuffer(frame: FrameHandle, meshletPipeline: Opaque, framebuffer: Opaque): void;
+declare function Donut_DrawMeshTasks(frame: FrameHandle, groupsX: int): void;
 // Same, groupsX x groupsY groups.
-declare function Donut_DrawMeshTasks2D(frame: Opaque, groupsX: int, groupsY: int): void;
+declare function Donut_DrawMeshTasks2D(frame: FrameHandle, groupsX: int, groupsY: int): void;
 // Pipeline statistics of mesh shader draws (pixel, amplification and mesh shader invocations), read
 // back a few frames late without waiting. Null when the device can't count mesh shader work (D3D11,
 // D3D12 without MeshShaderPipelineStatsSupported, Vulkan without pipelineStatisticsQuery and
 // meshShaderQueries).
-declare function Donut_CreateMeshPipelineStatistics(app: Opaque): Opaque | null;
+declare function Donut_CreateMeshPipelineStatistics(app: AppHandle): Opaque | null;
 // Before the frame's first draw: reads back the results of the query the frame reuses.
-declare function Donut_BeginMeshPipelineStatisticsFrame(frame: Opaque, meshPipelineStatistics: Opaque): void;
+declare function Donut_BeginMeshPipelineStatisticsFrame(frame: FrameHandle, meshPipelineStatistics: Opaque): void;
 // Donut_DrawMeshTasks2D, counted by the frame's statistics.
-declare function Donut_DrawMeshTasksWithStatistics(frame: Opaque, groupsX: int, groupsY: int, meshPipelineStatistics: Opaque): void;
+declare function Donut_DrawMeshTasksWithStatistics(frame: FrameHandle, groupsX: int, groupsY: int, meshPipelineStatistics: Opaque): void;
 // The latest results: which 0 for pixel, 1 for amplification (task), 2 for mesh shader invocations.
 declare function Donut_GetMeshPipelineStatistic(meshPipelineStatistics: Opaque, which: int): number;
-declare function Donut_GetFrameWidth(frame: Opaque): int;
-declare function Donut_GetFrameHeight(frame: Opaque): int;
+declare function Donut_GetFrameWidth(frame: FrameHandle): int;
+declare function Donut_GetFrameHeight(frame: FrameHandle): int;
 
 // Submits what the frame has recorded so far and goes on recording: work after it (e.g.
 // Donut_ReadPixelUInts) sees the GPU results.
-declare function Donut_FlushFrameCommandList(app: Opaque, frame: Opaque): void;
+declare function Donut_FlushFrameCommandList(app: AppHandle, frame: FrameHandle): void;
 // Async compute: submits what the frame has recorded so far to the graphics queue, then a closed
 // compute queue command list (Donut_CreateComputeQueueCommandList) that waits for it on the GPU,
 // and goes on recording work that waits for the compute work.
-declare function Donut_ExecuteFrameComputeWork(app: Opaque, frame: Opaque, commandList: Opaque): void;
+declare function Donut_ExecuteFrameComputeWork(app: AppHandle, frame: FrameHandle, commandList: CommandListHandle): void;
 // Saves the frame's color as recorded so far (BMP, PNG, JPG or TGA, by extension); non-zero on success.
-declare function Donut_SaveFrameToFile(app: Opaque, frame: Opaque, path: string): int;
+declare function Donut_SaveFrameToFile(app: AppHandle, frame: FrameHandle, path: string): int;
 
 // --- Full renderer (Donut-Samples' feature_demo) ----------------------------------------------
 // Functions taking a `view` accept a planar view (Donut_CreatePlanarView) or a stereo one
@@ -1975,20 +1975,20 @@ enum TemporalJitter {
 // The directory of the executable (of donut_interop.dll under the JIT), '/'-separated.
 declare function Donut_GetExecutableDirectory(): string;
 // Seconds per frame, averaged; 0 until measured.
-declare function Donut_GetAverageFrameTime(app: Opaque): number;
-declare function Donut_GetWindowWidth(app: Opaque): int;
-declare function Donut_GetWindowHeight(app: Opaque): int;
+declare function Donut_GetAverageFrameTime(app: AppHandle): number;
+declare function Donut_GetWindowWidth(app: AppHandle): int;
+declare function Donut_GetWindowHeight(app: AppHandle): int;
 // Drops the cached compiled shaders: passes created after this load them from disk again.
-declare function Donut_ClearShaderCache(app: Opaque): void;
+declare function Donut_ClearShaderCache(app: AppHandle): void;
 // Destroys resources the GPU has finished with; after Donut_WaitForIdle.
-declare function Donut_RunGarbageCollection(app: Opaque): void;
+declare function Donut_RunGarbageCollection(app: AppHandle): void;
 // nvrhi::Format values 0 .. count-1, their names and nvrhi::FormatSupport bits.
 declare function Donut_GetFormatCount(): int;
 declare function Donut_GetFormatName(format: int): string;
-declare function Donut_QueryFormatSupport(app: Opaque, format: int): int;
+declare function Donut_QueryFormatSupport(app: AppHandle, format: int): int;
 
 // Scene loading on a thread, as donut::app::ApplicationBase does it asynchronously.
-declare function Donut_CreateSceneLoader(app: Opaque): Opaque;
+declare function Donut_CreateSceneLoader(app: AppHandle): Opaque;
 // Non-zero once a scene has loaded, until the next Donut_BeginLoadingScene: unload what
 // references it (the passes' binding caches) before starting another load.
 declare function Donut_IsSceneLoaded(sceneLoader: Opaque): int;
@@ -1999,13 +1999,13 @@ declare function Donut_IsSceneLoading(sceneLoader: Opaque): int;
 declare function Donut_BeginLoadingScene(sceneLoader: Opaque, path: string): void;
 // In a render callback, every frame, first thing: uploads loaded textures and finishes the scene.
 // Submits what the frame has recorded so far.
-declare function Donut_UpdateSceneLoader(sceneLoader: Opaque, frame: Opaque): SceneLoaderState;
+declare function Donut_UpdateSceneLoader(sceneLoader: Opaque, frame: FrameHandle): SceneLoaderState;
 // The loaded scene, or null; valid until the next Donut_BeginLoadingScene.
 declare function Donut_GetLoadedScene(sceneLoader: Opaque): Opaque;
 // 4 ints into dst: objects loaded, objects total, textures loaded, textures requested.
 declare function Donut_GetSceneLoadingStats(sceneLoader: Opaque, dst: Opaque): void;
 // The scene files (glTF, .scene.json) under a directory, recursively, as a string list.
-declare function Donut_FindScenes(app: Opaque, directory: string): Opaque;
+declare function Donut_FindScenes(app: AppHandle, directory: string): Opaque;
 declare function Donut_GetStringListCount(stringList: Opaque): int;
 declare function Donut_GetStringListItem(stringList: Opaque, index: int): string;
 
@@ -2050,7 +2050,7 @@ declare function Donut_GetMeshInstanceGeometryCount(sceneGraph: Opaque, index: i
 declare function Donut_GetMeshInstanceGeometryIndexCount(sceneGraph: Opaque, index: int, geometry: int): int;
 
 // Views.
-declare function Donut_CreateStereoView(app: Opaque): Opaque;
+declare function Donut_CreateStereoView(app: AppHandle): Opaque;
 // Donut_SetPlanarView with a sub-pixel projection jitter, in pixels.
 declare function Donut_SetPlanarViewJittered(view: Opaque, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
 // Left eye in the left half of width x height pixels, right eye in the right half.
@@ -2066,67 +2066,67 @@ declare function Donut_GetCameraPosition(camera: Opaque, dst: Opaque): void;
 // Render targets of width x height (multisampled with sampleCount > 1): the G-buffer with motion
 // vectors and reverse-Z depth, HDR color, material IDs, resolved color, TAA feedback, LDR color,
 // ambient occlusion. Create new ones when the size or sample count changes.
-declare function Donut_CreateSceneRenderTargets(app: Opaque, width: int, height: int, sampleCount: int): Opaque;
-declare function Donut_ClearSceneRenderTargets(commandList: Opaque, sceneRenderTargets: Opaque): void;
+declare function Donut_CreateSceneRenderTargets(app: AppHandle, width: int, height: int, sampleCount: int): Opaque;
+declare function Donut_ClearSceneRenderTargets(commandList: CommandListHandle, sceneRenderTargets: Opaque): void;
 declare function Donut_GetSceneRenderTargetsTexture(sceneRenderTargets: Opaque, which: SceneTexture): Opaque;
 declare function Donut_GetSceneRenderTargetsFramebuffer(sceneRenderTargets: Opaque, which: SceneFramebuffer): Opaque;
 // Resolves a multisampled texture's mip 0 / slice 0 into a single-sample one.
-declare function Donut_ResolveTexture(commandList: Opaque, dstTexture: Opaque, srcTexture: Opaque): void;
-declare function Donut_ClearTextureUInt(commandList: Opaque, texture: Opaque, value: int): void;
+declare function Donut_ResolveTexture(commandList: CommandListHandle, dstTexture: Opaque, srcTexture: Opaque): void;
+declare function Donut_ClearTextureUInt(commandList: CommandListHandle, texture: Opaque, value: int): void;
 
 // Multisampling.
 // The sample counts that a color target in colorFormat and a depth buffer in depthFormat can both
 // have, as bits (bit n for n samples: 0x1 | 0x2 | 0x4 ...): on Vulkan the device's
 // framebufferColorSampleCounts & framebufferDepthSampleCounts, on D3D the formats' quality levels.
-declare function Donut_GetSupportedSampleCounts(app: Opaque, colorFormat: Format, depthFormat: Format): int;
+declare function Donut_GetSupportedSampleCounts(app: AppHandle, colorFormat: Format, depthFormat: Format): int;
 // Non-zero if render passes resolve multisampled targets as they end (Vulkan's dynamic rendering;
 // Donut_CreateResolveFramebuffer). NVRHI runs D3D without render passes: use Donut_ResolveTexture.
-declare function Donut_HasRenderPassResolve(app: Opaque): int;
+declare function Donut_HasRenderPassResolve(app: AppHandle): int;
 // The ResolveModes render passes can resolve depth by, as bits 1 << mode (Vulkan's
 // supportedDepthResolveModes); 0 without render pass resolves.
-declare function Donut_GetDepthResolveModes(app: Opaque): int;
+declare function Donut_GetDepthResolveModes(app: AppHandle): int;
 // Render target (color format) or depth buffer (depth format, cleared to clearDepth) of width x
 // height with sampleCount samples (Texture2DMS when more than 1) that shaders can read and that can
 // be resolved; resting at ShaderResource. Null on failure.
-declare function Donut_CreateMultisampledTexture(app: Opaque, width: int, height: int, format: Format, sampleCount: int,
+declare function Donut_CreateMultisampledTexture(app: AppHandle, width: int, height: int, format: Format, sampleCount: int,
     clearDepth: number, debugName: string): Opaque;
 // Framebuffer drawing into colorTexture and depthTexture (null for none) whose render passes, as
 // they end, resolve color into colorResolveTexture and depth into depthResolveTexture by
 // depthResolveMode, where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI ends a render
 // pass at every barrier, so a pass may resolve more than once (with the same result).
-declare function Donut_CreateResolveFramebuffer(app: Opaque, colorTexture: Opaque | null, colorResolveTexture: Opaque | null,
+declare function Donut_CreateResolveFramebuffer(app: AppHandle, colorTexture: Opaque | null, colorResolveTexture: Opaque | null,
     depthTexture: Opaque | null, depthResolveTexture: Opaque | null, depthResolveMode: ResolveMode): Opaque;
 // The swap chain's back buffers (valid until they're resized: recreate what refers to them in the
 // back buffer resizing callback), the one the current frame renders into, and their format
 // (SRGBA8_UNORM with D3D, SBGRA8_UNORM with Vulkan).
-declare function Donut_GetBackBufferCount(app: Opaque): int;
-declare function Donut_GetBackBuffer(app: Opaque, index: int): Opaque;
-declare function Donut_GetCurrentBackBufferIndex(app: Opaque): int;
-declare function Donut_GetBackBufferFormat(app: Opaque): Format;
-declare function Donut_GetSwapChainColorSpace(app: Opaque): SwapChainColorSpace;
+declare function Donut_GetBackBufferCount(app: AppHandle): int;
+declare function Donut_GetBackBuffer(app: AppHandle, index: int): Opaque;
+declare function Donut_GetCurrentBackBufferIndex(app: AppHandle): int;
+declare function Donut_GetBackBufferFormat(app: AppHandle): Format;
+declare function Donut_GetSwapChainColorSpace(app: AppHandle): SwapChainColorSpace;
 // A texture another D3D11 device writes and this one's shaders read (e.g. Media Foundation's video
 // frames: Donut_TransferVideoFrame): a render target shared through an NT handle (on D3D12 with
 // simultaneous access), resting at ShaderResource. D3D12 and D3D11 only (Windows): null with other
 // APIs, and (after logging why) on failure.
-declare function Donut_CreateSharedTexture(app: Opaque, width: int, height: int, format: Format, debugName: string): Opaque | null;
+declare function Donut_CreateSharedTexture(app: AppHandle, width: int, height: int, format: Format, debugName: string): Opaque | null;
 // Its texture (valid as long as it) and NT handle.
 declare function Donut_GetSharedTexture(sharedTexture: Opaque): Opaque;
 declare function Donut_GetSharedTextureHandle(sharedTexture: Opaque): Opaque;
 // The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
 // make another API's device on the same GPU. 0 if the API doesn't give it.
-declare function Donut_GetAdapterLuid(app: Opaque, dst: Opaque): int;
+declare function Donut_GetAdapterLuid(app: AppHandle, dst: Opaque): int;
 // Asks for another color space of the back buffers, from the next frame on (as a resize: back
 // buffer resizing callbacks run). 0 (nothing changes) if the swap chain can't present it.
-declare function Donut_SetSwapChainColorSpace(app: Opaque, colorSpace: SwapChainColorSpace): int;
+declare function Donut_SetSwapChainColorSpace(app: AppHandle, colorSpace: SwapChainColorSpace): int;
 // Non-zero if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
 // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
-declare function Donut_IsDisplayHdr(app: Opaque): int;
+declare function Donut_IsDisplayHdr(app: AppHandle): int;
 
 // Shadows.
-declare function Donut_CreateCascadedShadowMap(app: Opaque, resolution: int, numCascades: int): Opaque;
+declare function Donut_CreateCascadedShadowMap(app: AppHandle, resolution: int, numCascades: int): Opaque;
 // A planar shadow map: one orthographic view for a directional light, fitted with
 // Donut_SetupPlanarShadowMapForScene (the cascade fitting functions leave it unchanged).
-declare function Donut_CreatePlanarShadowMap(app: Opaque, resolution: int): Opaque;
+declare function Donut_CreatePlanarShadowMap(app: AppHandle, resolution: int): Opaque;
 // Fits a planar shadow map to a directional light and the whole scene graph's bounds, shadows
 // fading out over fadeRangeWorld at its edges. 1 if the view changed (render the shadow map again).
 declare function Donut_SetupPlanarShadowMapForScene(shadowMap: Opaque, light: Opaque, sceneGraph: Opaque, fadeRangeWorld: number): int;
@@ -2134,98 +2134,98 @@ declare function Donut_SetupPlanarShadowMapForScene(shadowMap: Opaque, light: Op
 declare function Donut_GetShadowMapTexture(shadowMap: Opaque): Opaque;
 // Fits the cascades to a directional light and the view, out to maxShadowDistance (stable).
 declare function Donut_SetupShadowMapForView(shadowMap: Opaque, light: Opaque, view: Opaque, maxShadowDistance: number, zRange: number, exponent: number): void;
-declare function Donut_ClearShadowMap(commandList: Opaque, shadowMap: Opaque): void;
-declare function Donut_CreateShadowDepthPass(app: Opaque, depthBias: int, slopeScaledDepthBias: number): Opaque;
+declare function Donut_ClearShadowMap(commandList: CommandListHandle, shadowMap: Opaque): void;
+declare function Donut_CreateShadowDepthPass(app: AppHandle, depthBias: int, slopeScaledDepthBias: number): Opaque;
 declare function Donut_ResetDepthPassBindingCache(depthPass: Opaque): void;
 // Opaque meshes into all cascades; materialEvents != 0: a GPU marker per material.
-declare function Donut_RenderShadowDepth(commandList: Opaque, depthPass: Opaque, shadowMap: Opaque, sceneGraph: Opaque, materialEvents: int): void;
+declare function Donut_RenderShadowDepth(commandList: CommandListHandle, depthPass: Opaque, shadowMap: Opaque, sceneGraph: Opaque, materialEvents: int): void;
 
 // Geometry passes.
 // singlePassCubemap != 0 renders cube map views in one pass (Feature.FastGeometryShader).
-declare function Donut_CreateForwardShadingPassWithOptions(app: Opaque, singlePassCubemap: int, trackLiveness: int): Opaque;
+declare function Donut_CreateForwardShadingPassWithOptions(app: AppHandle, singlePassCubemap: int, trackLiveness: int): Opaque;
 declare function Donut_ResetForwardShadingBindingCache(forwardShadingPass: Opaque): void;
 // The lights a forward shading pass renders with, kept between its draws.
-declare function Donut_CreateForwardShadingContext(app: Opaque): Opaque;
+declare function Donut_CreateForwardShadingContext(app: AppHandle): Opaque;
 // A scene graph's lights, top / bottom ambient, and the enabled probes of a set (or null).
-declare function Donut_PrepareForwardLights(commandList: Opaque, forwardShadingPass: Opaque, forwardShadingContext: Opaque, sceneGraph: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: Opaque | null): void;
+declare function Donut_PrepareForwardLights(commandList: CommandListHandle, forwardShadingPass: Opaque, forwardShadingContext: Opaque, sceneGraph: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: Opaque | null): void;
 // Opaque (transparent == 0) or transparent meshes into a framebuffer; previousView may be null.
-declare function Donut_RenderForward(commandList: Opaque, forwardShadingPass: Opaque, forwardShadingContext: Opaque, view: Opaque, previousView: Opaque | null, framebuffer: Opaque, sceneGraph: Opaque, transparent: int, name: string, materialEvents: int): void;
+declare function Donut_RenderForward(commandList: CommandListHandle, forwardShadingPass: Opaque, forwardShadingContext: Opaque, view: Opaque, previousView: Opaque | null, framebuffer: Opaque, sceneGraph: Opaque, transparent: int, name: string, materialEvents: int): void;
 // enableMotionVectors != 0 writes motion vectors, and stencilWriteMask into the stencil there.
-declare function Donut_CreateGBufferFillPassWithOptions(app: Opaque, enableMotionVectors: int, stencilWriteMask: int): Opaque;
+declare function Donut_CreateGBufferFillPassWithOptions(app: AppHandle, enableMotionVectors: int, stencilWriteMask: int): Opaque;
 declare function Donut_ResetGBufferFillBindingCache(gbufferFillPass: Opaque): void;
-declare function Donut_RenderGBufferFill(commandList: Opaque, gbufferFillPass: Opaque, view: Opaque, previousView: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, materialEvents: int): void;
+declare function Donut_RenderGBufferFill(commandList: CommandListHandle, gbufferFillPass: Opaque, view: Opaque, previousView: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, materialEvents: int): void;
 // Writes each pixel's material ID and instance index.
-declare function Donut_CreateMaterialIDPass(app: Opaque, stencilWriteMask: int): Opaque;
-declare function Donut_RenderMaterialIDs(commandList: Opaque, materialIdPass: Opaque, view: Opaque, previousView: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, transparent: int): void;
+declare function Donut_CreateMaterialIDPass(app: AppHandle, stencilWriteMask: int): Opaque;
+declare function Donut_RenderMaterialIDs(commandList: CommandListHandle, materialIdPass: Opaque, view: Opaque, previousView: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, transparent: int): void;
 // Lights the G-buffer into HDR color; the targets' ambient occlusion if useAmbientOcclusion != 0,
 // and a light probe set (or null).
-declare function Donut_RenderDeferredLightingToHdr(commandList: Opaque, deferredLightingPass: Opaque, view: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, useAmbientOcclusion: int, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: Opaque | null): void;
+declare function Donut_RenderDeferredLightingToHdr(commandList: CommandListHandle, deferredLightingPass: Opaque, view: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, useAmbientOcclusion: int, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: Opaque | null): void;
 
 // Post-processing and other passes.
 // Single-sample targets only; renders with default parameters.
-declare function Donut_CreateSsaoPass(app: Opaque, sceneRenderTargets: Opaque): Opaque;
-declare function Donut_RenderSsao(commandList: Opaque, ssaoPass: Opaque, view: Opaque): void;
-declare function Donut_CreateSkyPass(app: Opaque, framebuffer: Opaque, view: Opaque): Opaque;
+declare function Donut_CreateSsaoPass(app: AppHandle, sceneRenderTargets: Opaque): Opaque;
+declare function Donut_RenderSsao(commandList: CommandListHandle, ssaoPass: Opaque, view: Opaque): void;
+declare function Donut_CreateSkyPass(app: AppHandle, framebuffer: Opaque, view: Opaque): Opaque;
 // A lat-long (2D) or cube map environment texture drawn where the framebuffer's depth is still
 // clear; set the view up before creating it (its depth direction picks the pipeline).
-declare function Donut_CreateEnvironmentMapPass(app: Opaque, framebuffer: Opaque, view: Opaque, environmentMap: Opaque): Opaque;
-declare function Donut_RenderEnvironmentMap(commandList: Opaque, environmentMapPass: Opaque, view: Opaque): void;
+declare function Donut_CreateEnvironmentMapPass(app: AppHandle, framebuffer: Opaque, view: Opaque, environmentMap: Opaque): Opaque;
+declare function Donut_RenderEnvironmentMap(commandList: CommandListHandle, environmentMapPass: Opaque, view: Opaque): void;
 // Around a directional light; other SkyParameters keep their defaults.
-declare function Donut_RenderSky(commandList: Opaque, skyPass: Opaque, view: Opaque, light: Opaque, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number): void;
-declare function Donut_CreateSceneTemporalAntiAliasingPass(app: Opaque, view: Opaque, sceneRenderTargets: Opaque, motionVectorStencilMask: int): Opaque;
+declare function Donut_RenderSky(commandList: CommandListHandle, skyPass: Opaque, view: Opaque, light: Opaque, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number): void;
+declare function Donut_CreateSceneTemporalAntiAliasingPass(app: AppHandle, view: Opaque, sceneRenderTargets: Opaque, motionVectorStencilMask: int): Opaque;
 declare function Donut_SetTemporalJitter(temporalAntiAliasingPass: Opaque, jitter: TemporalJitter): void;
 // This frame's jitter, 2 floats into dst.
 declare function Donut_GetTemporalPixelOffset(temporalAntiAliasingPass: Opaque, dst: Opaque): void;
-declare function Donut_RenderViewMotionVectors(commandList: Opaque, temporalAntiAliasingPass: Opaque, view: Opaque, previousView: Opaque): void;
-declare function Donut_TemporalResolveView(commandList: Opaque, temporalAntiAliasingPass: Opaque, view: Opaque, feedbackIsValid: int, enableHistoryClamping: int): void;
+declare function Donut_RenderViewMotionVectors(commandList: CommandListHandle, temporalAntiAliasingPass: Opaque, view: Opaque, previousView: Opaque): void;
+declare function Donut_TemporalResolveView(commandList: CommandListHandle, temporalAntiAliasingPass: Opaque, view: Opaque, feedbackIsValid: int, enableHistoryClamping: int): void;
 declare function Donut_AdvanceTemporalFrame(temporalAntiAliasingPass: Opaque): void;
 // Pass the tone mapping pass this one replaces (or null) to keep its adapted exposure.
-declare function Donut_CreateToneMappingPass(app: Opaque, framebuffer: Opaque, view: Opaque, previousToneMappingPass: Opaque | null): Opaque;
+declare function Donut_CreateToneMappingPass(app: AppHandle, framebuffer: Opaque, view: Opaque, previousToneMappingPass: Opaque | null): Opaque;
 declare function Donut_AdvanceToneMappingFrame(toneMappingPass: Opaque, elapsedSeconds: number): void;
-declare function Donut_ResetExposure(commandList: Opaque, toneMappingPass: Opaque, initialExposure: number): void;
+declare function Donut_ResetExposure(commandList: CommandListHandle, toneMappingPass: Opaque, initialExposure: number): void;
 // Default parameters. instantAdaptation != 0: the exposure set to this frame's at once (as after
 // Donut_ResetExposure); else adapted over Donut_AdvanceToneMappingFrame's time (kept while that's 0).
-declare function Donut_RenderToneMapping(commandList: Opaque, toneMappingPass: Opaque, view: Opaque, sourceTexture: Opaque, instantAdaptation: int): void;
-declare function Donut_CreateBloomPass(app: Opaque, framebuffer: Opaque, view: Opaque): Opaque;
-declare function Donut_RenderBloom(commandList: Opaque, bloomPass: Opaque, framebuffer: Opaque, view: Opaque, sourceTexture: Opaque, sigma: number, alpha: number): void;
+declare function Donut_RenderToneMapping(commandList: CommandListHandle, toneMappingPass: Opaque, view: Opaque, sourceTexture: Opaque, instantAdaptation: int): void;
+declare function Donut_CreateBloomPass(app: AppHandle, framebuffer: Opaque, view: Opaque): Opaque;
+declare function Donut_RenderBloom(commandList: CommandListHandle, bloomPass: Opaque, framebuffer: Opaque, view: Opaque, sourceTexture: Opaque, sigma: number, alpha: number): void;
 // NVIDIA DLSS (loads nvngx_dlss.dll from the executable's directory); null when built without
 // DONUT_WITH_DLSS or the device can't create it.
-declare function Donut_CreateDlss(app: Opaque): Opaque;
+declare function Donut_CreateDlss(app: AppHandle): Opaque;
 // For inputWidth x inputHeight images upscaled to outputWidth x outputHeight; non-zero if ready.
 declare function Donut_InitDlss(dlss: Opaque, inputWidth: int, inputHeight: int, outputWidth: int, outputHeight: int): int;
 declare function Donut_IsDlssInitialized(dlss: Opaque): int;
 // HDR color into resolved color (instead of TAA), with the tone mapping pass's exposure. Planar views only.
-declare function Donut_EvaluateDlss(commandList: Opaque, dlss: Opaque, view: Opaque, sceneRenderTargets: Opaque, toneMappingPass: Opaque): void;
+declare function Donut_EvaluateDlss(commandList: CommandListHandle, dlss: Opaque, view: Opaque, sceneRenderTargets: Opaque, toneMappingPass: Opaque): void;
 // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
-declare function Donut_CreatePixelReadbackPass(app: Opaque, texture: Opaque): Opaque;
-declare function Donut_CapturePixel(commandList: Opaque, pixelReadbackPass: Opaque, x: int, y: int): void;
+declare function Donut_CreatePixelReadbackPass(app: AppHandle, texture: Opaque): Opaque;
+declare function Donut_CapturePixel(commandList: CommandListHandle, pixelReadbackPass: Opaque, x: int, y: int): void;
 declare function Donut_ReadPixelUInts(pixelReadbackPass: Opaque, dst: Opaque): void;
 // Mip generation for a color texture with mips; Display draws them over the frame.
-declare function Donut_CreateMipMapGenPass(app: Opaque, texture: Opaque): Opaque;
-declare function Donut_DispatchMipMapGen(commandList: Opaque, mipMapGenPass: Opaque): void;
-declare function Donut_DisplayMipMapGen(app: Opaque, frame: Opaque, mipMapGenPass: Opaque): void;
+declare function Donut_CreateMipMapGenPass(app: AppHandle, texture: Opaque): Opaque;
+declare function Donut_DispatchMipMapGen(commandList: CommandListHandle, mipMapGenPass: Opaque): void;
+declare function Donut_DisplayMipMapGen(app: AppHandle, frame: FrameHandle, mipMapGenPass: Opaque): void;
 
 // Light probes.
 // numProbes probes named "1", "2", ..., disabled until rendered.
-declare function Donut_CreateLightProbeSet(app: Opaque, numProbes: int): Opaque;
+declare function Donut_CreateLightProbeSet(app: AppHandle, numProbes: int): Opaque;
 declare function Donut_GetLightProbeCount(lightProbeSet: Opaque): int;
 declare function Donut_GetLightProbeName(lightProbeSet: Opaque, index: int): string;
 declare function Donut_IsLightProbeEnabled(lightProbeSet: Opaque, index: int): int;
 declare function Donut_SetLightProbeEnabled(lightProbeSet: Opaque, index: int, enabled: int): void;
 declare function Donut_SetLightProbeScales(lightProbeSet: Opaque, index: int, diffuseScale: number, specularScale: number): void;
 declare function Donut_GetLightProbeSpecularMipLevels(lightProbeSet: Opaque): int;
-declare function Donut_CreateLightProbeProcessingPass(app: Opaque): Opaque;
+declare function Donut_CreateLightProbeProcessingPass(app: AppHandle): Opaque;
 declare function Donut_ResetLightProbeProcessingCaches(lightProbeProcessingPass: Opaque): void;
 // An environment cube map (size x size, mipLevels mips) with depth, and its cube map view.
-declare function Donut_CreateLightProbeCapture(app: Opaque, size: int, mipLevels: int): Opaque;
+declare function Donut_CreateLightProbeCapture(app: AppHandle, size: int, mipLevels: int): Opaque;
 declare function Donut_SetLightProbeCaptureTransform(lightProbeCapture: Opaque, x: number, y: number, z: number, zNear: number, cullDistance: number): void;
 declare function Donut_GetLightProbeCaptureView(lightProbeCapture: Opaque): Opaque;
 declare function Donut_GetLightProbeCaptureFramebuffer(lightProbeCapture: Opaque): Opaque;
-declare function Donut_ClearLightProbeCapture(commandList: Opaque, lightProbeCapture: Opaque): void;
+declare function Donut_ClearLightProbeCapture(commandList: CommandListHandle, lightProbeCapture: Opaque): void;
 declare function Donut_SetupShadowMapForLightProbeCapture(shadowMap: Opaque, light: Opaque, lightProbeCapture: Opaque, cullDistance: number, zRange: number, exponent: number): void;
-declare function Donut_GenerateLightProbeCaptureMips(commandList: Opaque, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque): void;
-declare function Donut_RenderLightProbeDiffuse(commandList: Opaque, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque, lightProbeSet: Opaque, index: int): void;
-declare function Donut_RenderLightProbeSpecular(commandList: Opaque, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque, lightProbeSet: Opaque, index: int, roughness: number, mipLevel: int): void;
-declare function Donut_RenderEnvironmentBrdf(commandList: Opaque, lightProbeProcessingPass: Opaque): void;
+declare function Donut_GenerateLightProbeCaptureMips(commandList: CommandListHandle, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque): void;
+declare function Donut_RenderLightProbeDiffuse(commandList: CommandListHandle, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque, lightProbeSet: Opaque, index: int): void;
+declare function Donut_RenderLightProbeSpecular(commandList: CommandListHandle, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque, lightProbeSet: Opaque, index: int, roughness: number, mipLevel: int): void;
+declare function Donut_RenderEnvironmentBrdf(commandList: CommandListHandle, lightProbeProcessingPass: Opaque): void;
 // Once the GPU is done: enables the probe within 10 units of where it was rendered from.
 declare function Donut_FinishLightProbe(lightProbeSet: Opaque, index: int, lightProbeProcessingPass: Opaque, x: number, y: number, z: number): void;

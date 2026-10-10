@@ -438,7 +438,7 @@ namespace FastBlockCompress {
             frame.drawVerticesWithPushConstants(3, Ref(this.quadConstants[0]), QUAD_CONSTANTS_FLOATS * 4);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             this.frameWidth = frame.getWidth();
             this.frameHeight = frame.getHeight();

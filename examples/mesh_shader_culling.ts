@@ -131,7 +131,7 @@ namespace MeshShaderCulling {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
 

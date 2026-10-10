@@ -43,7 +43,7 @@ namespace ShaderQuadControl {
         }
 
         // The sample's build_command_buffers: cleared to black, the triangle drawn (no culling).
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             if (!this.pipelinesCreated) {
                 this.plainPipeline = this.app.createGraphicsPipelineWithTopology(frame, this.vs, this.plainPS, null, null,

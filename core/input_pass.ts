@@ -16,7 +16,7 @@ const ACTION_PRESS = 1;
 export class InputPass {
     private app: App;
 
-    constructor(app: Opaque) {
+    constructor(app: AppHandle) {
         this.app = new App(app);
         this.app.addPass().setKeyboardCallback(this.onKey);
     }

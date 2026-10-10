@@ -76,7 +76,7 @@ namespace ThreadedRendering {
             this.app.clearBindingCache();
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             this.cubemap.setViewFromCamera(this.camera, 0.1, 100.0);
 

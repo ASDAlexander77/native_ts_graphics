@@ -280,7 +280,7 @@ namespace TerrainTessellation {
             c[CONST_TESSELLATED_EDGE_SIZE] = 20.0;
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();

@@ -282,7 +282,7 @@ namespace ConservativeRasterization {
             c[CONST_LINE_WIDTH] = LINE_WIDTH;
         }
 
-        onRender(frameHandle: Opaque): void {
+        onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             if (!this.created) {
