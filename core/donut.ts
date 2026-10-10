@@ -1692,6 +1692,11 @@ export class Frame {
         Donut_DrawSetViewport(this.handle, left, top, width, height);
     }
 
+    // The draw's scissor rectangle in pixels (after Donut_DrawSetViewport, or for the whole framebuffer).
+    drawSetScissor(left: int, top: int, right: int, bottom: int): void {
+        Donut_DrawSetScissor(this.handle, left, top, right, bottom);
+    }
+
     // One more viewport (with its scissor rectangle) for the draw, after those set or added before:
     // geometry shaders pick one per primitive (SV_ViewportArrayIndex).
     drawAddViewport(left: number, top: number, width: number, height: number): void {
@@ -1716,6 +1721,12 @@ export class Frame {
     // bytes each); the draw described stays, so it can repeat with other offsets.
     drawIndexedIndirect(offsetBytes: int, drawCount: int): void {
         Donut_DrawIndexedIndirect(this.handle, offsetBytes, drawCount);
+    }
+
+    // Up to maxDrawCount indexed draws from the indirect buffer at offsetBytes, their count a uint in
+    // countBuffer at countOffsetBytes. Needs IndirectDrawSupport.Count.
+    drawIndexedIndirectCount(countBuffer: BufferHandle, offsetBytes: int, countOffsetBytes: int, maxDrawCount: int): void {
+        Donut_DrawIndexedIndirectCount(this.handle, countBuffer, offsetBytes, countOffsetBytes, maxDrawCount);
     }
 
     // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
@@ -2526,6 +2537,11 @@ export class GraphicsPipelineDesc {
 
     setRasterState(cullMode: CullMode, fillMode: FillMode, frontCounterClockwise: int): void {
         Donut_GraphicsPipelineSetRasterState(this.handle, cullMode, fillMode, frontCounterClockwise);
+    }
+
+    // Whether draws are clipped to their scissor rectangle (Donut_DrawSetScissor; D3D needs it on).
+    setScissorEnable(enable: int): void {
+        Donut_GraphicsPipelineSetScissorEnable(this.handle, enable);
     }
 
     // Primitives clipped at the near and far planes (as Vulkan by default), or not (the default here:

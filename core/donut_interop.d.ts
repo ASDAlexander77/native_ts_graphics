@@ -596,7 +596,9 @@ enum IndirectDrawSupport {
     // Indirect draws can start at an instance other than 0 (Vulkan's drawIndirectFirstInstance).
     FirstInstance = 2,
     // Shaders can write buffers through their device addresses (Vulkan's bufferDeviceAddress).
-    BufferDeviceAddress = 4
+    BufferDeviceAddress = 4,
+    // Indirect draws can take their count from a buffer (D3D12; Vulkan's drawIndirectCount).
+    Count = 8
 }
 // What the device of a windowed app does with indirect draws (0 for headless apps). Vulkan devices
 // are created with multiDrawIndirect, drawIndirectFirstInstance and
@@ -981,6 +983,8 @@ declare function Donut_GraphicsPipelineSetDepthState(graphicsPipelineDesc: Graph
 declare function Donut_GraphicsPipelineSetDepthBoundsTest(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int): void;
 declare function Donut_GraphicsPipelineSetRasterState(graphicsPipelineDesc: GraphicsPipelineDescHandle, cullMode: CullMode, fillMode: FillMode,
     frontCounterClockwise: int): void;
+// Whether draws are clipped to their scissor rectangle (Donut_DrawSetScissor; D3D needs it on).
+declare function Donut_GraphicsPipelineSetScissorEnable(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int): void;
 // Primitives clipped at the near and far planes (as Vulkan by default), or not (the default here:
 // on D3D what lies beyond them is drawn, its depth clamped).
 declare function Donut_GraphicsPipelineSetDepthClip(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int): void;
@@ -1915,6 +1919,8 @@ declare function Donut_DrawSetIndexBuffer16(frame: FrameHandle, indexBuffer: Buf
 declare function Donut_DrawAddVertexBuffer(frame: FrameHandle, vertexBuffer: BufferHandle, slot: int, byteOffset: int): void;
 // Draws into this rectangle of the framebuffer (pixels) instead of all of it.
 declare function Donut_DrawSetViewport(frame: FrameHandle, left: number, top: number, width: number, height: number): void;
+// The draw's scissor rectangle in pixels (after Donut_DrawSetViewport, or for the whole framebuffer).
+declare function Donut_DrawSetScissor(frame: FrameHandle, left: int, top: int, right: int, bottom: int): void;
 // One more viewport (with its scissor rectangle) for the draw, after those set or added before:
 // geometry shaders pick one per primitive (SV_ViewportArrayIndex).
 declare function Donut_DrawAddViewport(frame: FrameHandle, left: number, top: number, width: number, height: number): void;
@@ -1926,6 +1932,9 @@ declare function Donut_DrawSetIndirectBuffer(frame: FrameHandle, indirectBuffer:
 // drawCount indexed draws, their arguments read from the indirect buffer from offsetBytes on (20
 // bytes each); the draw described stays, so it can repeat with other offsets.
 declare function Donut_DrawIndexedIndirect(frame: FrameHandle, offsetBytes: int, drawCount: int): void;
+// Up to maxDrawCount indexed draws from the indirect buffer at offsetBytes, their count a uint in
+// countBuffer at countOffsetBytes. Needs IndirectDrawSupport.Count.
+declare function Donut_DrawIndexedIndirectCount(frame: FrameHandle, countBuffer: BufferHandle, offsetBytes: int, countOffsetBytes: int, maxDrawCount: int): void;
 // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
 // item); the draw described stays, so it can repeat with other push constants.
 declare function Donut_DrawIndexedWithPushConstants(frame: FrameHandle, indexCount: int, data: Opaque, byteSize: int): void;
