@@ -143,8 +143,13 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     const float3 velocity = active ? u_Particles[index].vel.xyz : float3(0, 0, 0);
     const float radius = active ? u_Particles[index].info.x : 0.0;
 
+    // integrate_cs's step: how far a velocity moves a particle this frame.
+    const float step = g_Simulation.deltaT * TIME_FACTOR;
+
     float3 velocityChange = float3(0, 0, 0);
     float3 shift = float3(0, 0, 0);
+    // Position corrections of the swept contacts, exact, so not limited as the overlaps' are.
+    float3 sweepShift = float3(0, 0, 0);
     float flash = 0.0;
 
     for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
@@ -169,17 +174,50 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             const float3 offset = position.xyz - otherPosition.xyz;
             const float reach = radius + otherVelocity.w;
             const float distanceSquared = dot(offset, offset);
-            if (distanceSquared >= reach * reach || distanceSquared < 1e-12)
+            if (distanceSquared < 1e-12)
                 continue;
+
+            // This particle's share of the pair's change: the other's mass over the total.
+            const float share = otherPosition.w / (position.w + otherPosition.w);
+            const float3 relativeVelocity = velocity - otherVelocity.xyz;
+
+            if (distanceSquared >= reach * reach)
+            {
+                // Apart now, but fast pairs can cross each other within one step and never be
+                // seen overlapping: sweep the pair over the step, |offset + motion * t| = reach
+                // for t in [0, 1], and bounce them at the first touch.
+                const float3 motion = step * relativeVelocity;
+                const float a = dot(motion, motion);
+                const float b = dot(offset, motion);
+                const float c = distanceSquared - reach * reach;
+                const float discriminant = b * b - a * c;
+                // Closing in (b < 0) and the line comes within reach (discriminant >= 0).
+                if (b >= 0.0 || discriminant < 0.0)
+                    continue;
+                const float t = (-b - sqrt(discriminant)) / a;
+                if (t > 1.0)
+                    continue;
+
+                // The contact normal and approach speed at the touch, as for an overlap.
+                const float3 normal = (offset + motion * t) / reach;
+                const float approach = dot(relativeVelocity, normal);
+                if (approach >= 0.0)
+                    continue;
+                const float bounce = -(1.0 + RESTITUTION) * share * approach;
+                velocityChange += bounce * normal;
+                flash = max(flash, saturate(bounce / FLASH_SPEED));
+                // integrate_cs moves the particle the whole step with the new velocity, but it
+                // had the old one until the touch: take back that part of the step.
+                sweepShift -= t * step * bounce * normal;
+                continue;
+            }
 
             const float dist = sqrt(distanceSquared);
             const float3 normal = offset / dist;
-            // This particle's share of the pair's change: the other's mass over the total.
-            const float share = otherPosition.w / (position.w + otherPosition.w);
 
             // Negative while the two close in. Pairs already separating keep their velocities,
             // or a pair would bounce back and forth while it still overlaps.
-            const float approach = dot(velocity - otherVelocity.xyz, normal);
+            const float approach = dot(relativeVelocity, normal);
             if (approach < 0.0)
             {
                 const float bounce = -(1.0 + RESTITUTION) * share * approach;
@@ -205,7 +243,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
     Contact contact;
     contact.velocity = float4(velocityChange, flash);
-    contact.shift = float4(shift, 0.0);
+    contact.shift = float4(shift + sweepShift, 0.0);
     u_Contacts[index] = contact;
 }
 
