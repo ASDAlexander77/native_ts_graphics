@@ -565,7 +565,8 @@ endfunction()
 # runs <name> with -test (its test mode: a headless device, a fixed number of frames at a fixed
 # time step, checks of what it rendered, read back) and -debug on each API (dx12 and vk unless
 # APIS names others), as the tests <name>.<api>, labeled <api>. A test fails on a non-zero exit
-# code, or an error line from Donut, NVRHI's validation or the API's (D3D12's, Vulkan's) layer.
+# code, or an error line from Donut, NVRHI's validation or the API's (D3D12's, Vulkan's) layer;
+# Donut logs every message of Vulkan's validation layer as a warning, so those fail it too.
 enable_testing()
 function(add_tslang_example_test name)
     cmake_parse_arguments(PARSE_ARGV 1 TEST "" "" "APIS;ARGS")
@@ -580,7 +581,7 @@ function(add_tslang_example_test name)
             COMMAND ${name} -${api} -debug -test ${TEST_ARGS}
             WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
         set_tests_properties(${name}.${api} PROPERTIES
-            FAIL_REGULAR_EXPRESSION "ERROR|Validation Error|D3D12 ERROR|D3D12 CORRUPTION"
+            FAIL_REGULAR_EXPRESSION "ERROR|Validation Error|D3D12 ERROR|D3D12 CORRUPTION|layerPrefix='Validation'"
             LABELS ${api}
             TIMEOUT 300)
     endforeach()
