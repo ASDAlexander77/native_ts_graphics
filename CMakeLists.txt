@@ -172,6 +172,19 @@ set(DONUT_NVRHI_PATCHES
     # GraphicsPipelineDesc::primitiveRestartIndexFormat: strips restart at the largest index, on
     # Vulkan and D3D12 (D3D11 always restarts them; extended_dynamic_state2).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-primitive-restart.patch"
+    # Opacity micromaps on Vulkan: rt::PipelineDesc::allowOpacityMicromaps makes ray tracing
+    # pipelines with VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT (D3D12 has its pipeline
+    # flag already), and acceleration structure input buffers can be micromap build inputs too
+    # (opacity_micromaps).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-opacity-micromaps.patch"
+    # D3D12's DXR 1.2 opacity micromaps in BLASes where only some geometries have them: the others
+    # stay plain triangles (their linkage dereferenced a null micromap array), and the micromapped
+    # ones keep their geometry flags (opacity_micromaps).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-d3d12-omm-linkage.patch"
+    # DepthStencilState::depthBoundsTestEnable and GraphicsState::depthBoundsMin, Max: pixels whose
+    # depth target value is outside the bounds are discarded, on D3D12 (pipeline state streams with
+    # D3D12_DEPTH_STENCIL_DESC1, OMSetDepthBounds) and Vulkan (dynamic depth bounds; depth_bounds_test).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-depth-bounds-test.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -279,6 +292,10 @@ if (ANDROID)
     add_library(ShaderMakeBlob STATIC external/Donut/ShaderMake/ShaderMake/ShaderBlob.cpp)
     target_include_directories(ShaderMakeBlob PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/ShaderMake")
 endif()
+
+# Opacity micromaps on D3D12 through the Agility SDK's DXR 1.2 (raytracing tier 1.2) rather than
+# NVAPI (opacity_micromaps; Vulkan has them through VK_EXT_opacity_micromap).
+set(NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP ON CACHE BOOL "Use D3D12 native Opacity Micromaps from DXR 1.2" FORCE)
 
 set(CMAKE_PROJECT_zstd_INCLUDE_BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/zstd_policies.cmake")
 set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
@@ -2365,6 +2382,139 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dxr_refit/spirv
 )
 add_tslang_example(dxr_refit)
+
+# Port of DirectX-Graphics-Samples' D3D12RaytracingProceduralGeometry: procedural geometry in AABBs
+# (analytic, volumetric metaballs, signed distance fields and a fractal) intersected by
+# intersection shaders, over a checkered plane, with reflection and shadow rays and a hit group
+# per AABB geometry and ray type. Needs D3D12 or Vulkan.
+donut_compile_shaders(
+    TARGET procedural_geometry_shaders
+    PROJECT_NAME "Procedural Geometry"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry_compat.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry_helper.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry_primitives.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry_analytic.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry_volumetric.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry_sdf.hlsli
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/procedural_geometry_fractals.hlsli
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/procedural_geometry/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/procedural_geometry/spirv
+)
+add_tslang_example(procedural_geometry core/directx_math.ts)
+
+# Copies files of a DirectX-Graphics-Samples checkout (DIRECTX_GRAPHICS_SAMPLES_DIR; paths relative
+# to it) into media/<dir> for an example, if the checkout is set.
+set(DIRECTX_GRAPHICS_SAMPLES_DIR "" CACHE PATH "DirectX-Graphics-Samples checkout (github.com/microsoft/DirectX-Graphics-Samples)")
+function(add_dxgs_media target dir)
+    if (NOT DIRECTX_GRAPHICS_SAMPLES_DIR)
+        return()
+    endif()
+    set(outputs)
+    foreach(file ${ARGN})
+        get_filename_component(name "${file}" NAME)
+        set(source "${DIRECTX_GRAPHICS_SAMPLES_DIR}/${file}")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/${dir}/${name}")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${source}" "${output}"
+            DEPENDS "${source}"
+            COMMENT "Copying ${name}"
+            VERBATIM)
+        list(APPEND outputs "${output}")
+    endforeach()
+    add_custom_target(${target}_media DEPENDS ${outputs})
+    add_dependencies(${target} ${target}_media)
+endfunction()
+
+# Port of DirectX-Graphics-Samples' D3D12RaytracingOpacityMicromaps: an alpha-tested tree (its
+# leaves' any-hit shader samples an alpha texture) ray traced with shadow rays, its leaves'
+# triangles carrying opacity micromaps baked offline (2- or 4-state, subdivision levels 1 to 12)
+# that settle most hits without the any-hit shader; keys toggle the micromaps, their format and
+# level, the any-hit shader, a view of where it ran, and rebuilding the acceleration structures
+# every frame. D3D12 needs raytracing tier 1.2 (the Agility SDK runtime, with NVRHI's DXR 1.2
+# path), Vulkan VK_EXT_opacity_micromap. Its model, micromaps and textures (~190 MB) are the
+# sample's: point DIRECTX_GRAPHICS_SAMPLES_DIR at a DirectX-Graphics-Samples checkout.
+donut_compile_shaders(
+    TARGET opacity_micromaps_shaders
+    PROJECT_NAME "Opacity Micromaps"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/opacity_micromaps.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/opacity_micromaps.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/opacity_micromaps/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/opacity_micromaps/spirv
+)
+if (NVRHI_WITH_DX12)
+    add_tslang_example(opacity_micromaps core/directx_math.ts core/d3d12_agility_sdk.cpp MEDIA fonts opacity_micromaps)
+else()
+    add_tslang_example(opacity_micromaps core/directx_math.ts MEDIA fonts opacity_micromaps)
+endif()
+set(omm_media)
+set(omm_dir "Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingOpacityMicromaps")
+foreach(file treeModel.bin jacaranda_tree_leaves_alpha_4k.dds jacaranda_tree_trunk_diff_4k.dds
+        jacaranda_tree_branches_diff_4k.dds jacaranda_tree_leaves_diff_4k.dds)
+    list(APPEND omm_media "${omm_dir}/${file}")
+endforeach()
+foreach(level RANGE 1 12)
+    list(APPEND omm_media "${omm_dir}/treeOMM_SubD${level}_2State.bin" "${omm_dir}/treeOMM_SubD${level}_4State.bin")
+endforeach()
+add_dxgs_media(opacity_micromaps opacity_micromaps ${omm_media})
+
+# Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
+# intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
+# prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse
+# while its left button is down. Shader model 6 wave intrinsics: D3D12 or Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET wave_intrinsics_shaders
+    PROJECT_NAME "Wave Intrinsics"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/wave_intrinsics.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/wave_intrinsics.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/wave_intrinsics_magnify.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/wave_intrinsics/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/wave_intrinsics/spirv
+)
+add_tslang_example(wave_intrinsics MEDIA fonts)
+
+# Port of DirectX-Graphics-Samples' D3D12DepthBoundsTest: a triangle at depths 0.1 to 0.9 drawn into
+# the depth buffer, then again with depth testing off and the depth bounds test on (an NVRHI patch
+# adds it, see DONUT_NVRHI_PATCHES above), animated bounds keeping only part of it. D3D12 and Vulkan
+# have the test; D3D11 draws the whole triangle, as the sample without it.
+donut_compile_shaders_all_platforms(
+    TARGET depth_bounds_test_shaders
+    PROJECT_NAME "Depth Bounds Test"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/depth_bounds_test.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/depth_bounds_test.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/depth_bounds_test
+)
+add_tslang_example(depth_bounds_test)
+
+# Port of DirectX-Graphics-Samples' D3D12PredicationQueries: a translucent quad moving across a far
+# one, which is drawn only if the previous frame's binary occlusion query found its bounding box
+# visible: occlusion queries resolved on the GPU into the values that predicate the draw (D3D12's
+# predication, Vulkan's VK_EXT_conditional_rendering). Not D3D11.
+donut_compile_shaders(
+    TARGET predication_queries_shaders
+    PROJECT_NAME "Predication Queries"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/predication_queries.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/predication_queries.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/predication_queries/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/predication_queries/spirv
+)
+add_tslang_example(predication_queries)
+
+# Port of DirectX-Graphics-Samples' D3D12SmallResources: 77 small (32 x 32) textures, either placed
+# in one heap at D3D12's 4 KB small resource alignment or created as committed resources (64 KB each);
+# Space switches, the window title shows the GPU memory in use. D3D12 and Vulkan.
+donut_compile_shaders(
+    TARGET small_resources_shaders
+    PROJECT_NAME "Small Resources"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/small_resources.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/small_resources.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/small_resources/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/small_resources/spirv
+)
+add_tslang_example(small_resources)
 
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray

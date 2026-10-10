@@ -1,0 +1,135 @@
+diff --git a/include/nvrhi/nvrhi.h b/include/nvrhi/nvrhi.h
+index 2bbb441..9fe47a7 100644
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -1340,6 +1340,9 @@ namespace nvrhi
+         bool            dynamicStencilRef = false;
+         StencilOpDesc   frontFaceStencil;
+         StencilOpDesc   backFaceStencil;
++        // Pixels whose depth target value lies outside the draw state's depth bounds
++        // (GraphicsState::depthBoundsMin, Max) are discarded (D3D12, Vulkan's depthBounds feature).
++        bool            depthBoundsTestEnable = false;
+ 
+         constexpr DepthStencilState& setDepthTestEnable(bool value) { depthTestEnable = value; return *this; }
+         constexpr DepthStencilState& enableDepthTest() { depthTestEnable = true; return *this; }
+@@ -1357,6 +1360,7 @@ namespace nvrhi
+         constexpr DepthStencilState& setFrontFaceStencil(const StencilOpDesc& value) { frontFaceStencil = value; return *this; }
+         constexpr DepthStencilState& setBackFaceStencil(const StencilOpDesc& value) { backFaceStencil = value; return *this; }
+         constexpr DepthStencilState& setDynamicStencilRef(bool value) { dynamicStencilRef = value; return *this; }
++        constexpr DepthStencilState& setDepthBoundsTestEnable(bool value) { depthBoundsTestEnable = value; return *this; }
+         
+     };
+ 
+@@ -2905,6 +2909,9 @@ namespace nvrhi
+         VariableRateShadingState shadingRateState;
+         Color blendConstantColor{};
+         uint8_t dynamicStencilRefValue = 0;
++        // For pipelines with DepthStencilState::depthBoundsTestEnable.
++        float depthBoundsMin = 0.f;
++        float depthBoundsMax = 1.f;
+ 
+         BindingSetVector bindings;
+ 
+@@ -2920,6 +2927,7 @@ namespace nvrhi
+         GraphicsState& setShadingRateState(const VariableRateShadingState& value) { shadingRateState = value; return *this; }
+         GraphicsState& setBlendColor(const Color& value) { blendConstantColor = value; return *this; }
+         GraphicsState& setDynamicStencilRefValue(uint8_t value) { dynamicStencilRefValue = value; return *this; }
++        GraphicsState& setDepthBounds(float minValue, float maxValue) { depthBoundsMin = minValue; depthBoundsMax = maxValue; return *this; }
+         GraphicsState& addBindingSet(IBindingSet* value) { bindings.push_back(value); return *this; }
+         GraphicsState& addVertexBuffer(const VertexBufferBinding& value) { vertexBuffers.push_back(value); return *this; }
+         GraphicsState& setIndexBuffer(const IndexBufferBinding& value) { indexBuffer = value; return *this; }
+diff --git a/src/d3d12/d3d12-graphics.cpp b/src/d3d12/d3d12-graphics.cpp
+index e3a8ec2..c13e60e 100644
+--- a/src/d3d12/d3d12-graphics.cpp
++++ b/src/d3d12/d3d12-graphics.cpp
+@@ -21,6 +21,7 @@
+ */
+ 
+ #include "d3d12-backend.h"
++#include <directx/d3dx12_pipeline_state_stream.h>
+ 
+ #include <nvrhi/common/misc.h>
+ #include <sstream>
+@@ -174,6 +175,23 @@ namespace nvrhi::d3d12
+         }
+ #endif
+ 
++        // The depth bounds test is in D3D12_DEPTH_STENCIL_DESC1, which only pipeline state streams take.
++        if (depthState.depthBoundsTestEnable)
++        {
++            CD3DX12_PIPELINE_STATE_STREAM1 stream(desc);
++            CD3DX12_DEPTH_STENCIL_DESC1 depthStencil(desc.DepthStencilState);
++            depthStencil.DepthBoundsTestEnable = TRUE;
++            stream.DepthStencilState = depthStencil;
++            const D3D12_PIPELINE_STATE_STREAM_DESC streamDesc = { sizeof(stream), &stream };
++            const HRESULT streamResult = m_Context.device2->CreatePipelineState(&streamDesc, IID_PPV_ARGS(&pipelineState));
++            if (FAILED(streamResult))
++            {
++                m_Context.error("Failed to create a graphics pipeline state object with the depth bounds test");
++                return nullptr;
++            }
++            return pipelineState;
++        }
++
+         const HRESULT hr = m_Context.device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipelineState));
+ 
+         if (FAILED(hr))
+@@ -352,6 +370,14 @@ namespace nvrhi::d3d12
+             m_ActiveCommandList->commandList->OMSetBlendFactor(&state.blendConstantColor.r);
+         }
+ 
++        if (pso->desc.renderState.depthStencilState.depthBoundsTestEnable && (updatePipeline || !m_CurrentGraphicsStateValid
++            || m_CurrentGraphicsState.depthBoundsMin != state.depthBoundsMin || m_CurrentGraphicsState.depthBoundsMax != state.depthBoundsMax))
++        {
++            RefCountPtr<ID3D12GraphicsCommandList1> commandList1;
++            if (SUCCEEDED(m_ActiveCommandList->commandList->QueryInterface(IID_PPV_ARGS(&commandList1))))
++                commandList1->OMSetDepthBounds(state.depthBoundsMin, state.depthBoundsMax);
++        }
++
+         if (updateFramebuffer)
+         {
+             bindFramebuffer(framebuffer);
+diff --git a/src/vulkan/vulkan-graphics.cpp b/src/vulkan/vulkan-graphics.cpp
+index e32261a..74c28dd 100644
+--- a/src/vulkan/vulkan-graphics.cpp
++++ b/src/vulkan/vulkan-graphics.cpp
+@@ -413,7 +413,8 @@ namespace nvrhi::vulkan
+                                 .setDepthCompareOp(convertCompareOp(depthStencilState.depthFunc))
+                                 .setStencilTestEnable(depthStencilState.stencilEnable)
+                                 .setFront(convertStencilState(depthStencilState, depthStencilState.frontFaceStencil))
+-                                .setBack(convertStencilState(depthStencilState, depthStencilState.backFaceStencil));
++                                .setBack(convertStencilState(depthStencilState, depthStencilState.backFaceStencil))
++                                .setDepthBoundsTestEnable(depthStencilState.depthBoundsTestEnable);
+ 
+         // VRS state
+         std::array<vk::FragmentShadingRateCombinerOpKHR, 2> combiners = {
+@@ -471,10 +472,14 @@ namespace nvrhi::vulkan
+             dynamicStates.push_back(vk::DynamicState::eStencilReference);
+         if (pso->desc.shadingRateState.enabled)
+             dynamicStates.push_back(vk::DynamicState::eFragmentShadingRateKHR);
++        // The depth bounds come with each draw state.
++        std::vector<vk::DynamicState> allDynamicStates(dynamicStates.begin(), dynamicStates.end());
++        if (depthStencilState.depthBoundsTestEnable)
++            allDynamicStates.push_back(vk::DynamicState::eDepthBounds);
+ 
+         auto dynamicStateInfo = vk::PipelineDynamicStateCreateInfo()
+-            .setDynamicStateCount(uint32_t(dynamicStates.size()))
+-            .setPDynamicStates(dynamicStates.data());
++            .setDynamicStateCount(uint32_t(allDynamicStates.size()))
++            .setPDynamicStates(allDynamicStates.data());
+ 
+         std::array<vk::Format, c_MaxRenderTargets> colorFormats;
+         for (size_t i = 0; i < fbinfo.colorFormats.size(); i++)
+@@ -688,6 +693,12 @@ namespace nvrhi::vulkan
+             m_CurrentCmdBuf->cmdBuf.setBlendConstants(&state.blendConstantColor.r);
+         }
+ 
++        if (pso->desc.renderState.depthStencilState.depthBoundsTestEnable && (updatePipeline
++            || m_CurrentGraphicsState.depthBoundsMin != state.depthBoundsMin || m_CurrentGraphicsState.depthBoundsMax != state.depthBoundsMax))
++        {
++            m_CurrentCmdBuf->cmdBuf.setDepthBounds(state.depthBoundsMin, state.depthBoundsMax);
++        }
++
+         if (state.indexBuffer.buffer && m_CurrentGraphicsState.indexBuffer != state.indexBuffer)
+         {
+             m_CurrentCmdBuf->cmdBuf.bindIndexBuffer(checked_cast<Buffer*>(state.indexBuffer.buffer)->buffer,

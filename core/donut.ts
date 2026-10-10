@@ -129,6 +129,13 @@ export class App {
         return Donut_HasLogicOps(this.handle);
     }
 
+    // Non-zero if pipelines can test the depth target against bounds
+    // (Donut_GraphicsPipelineSetDepthBoundsTest): D3D12 with DepthBoundsTestSupported, Vulkan with the
+    // depthBounds feature; never D3D11.
+    hasDepthBoundsTest(): int {
+        return Donut_HasDepthBoundsTest(this.handle);
+    }
+
     // The device's memory heaps now (their count): this process's usage of each and its budget, the
     // memory it can use before the system has to page or fail allocations. Vulkan's memory heaps, with
     // VK_EXT_memory_budget (without it the usage is 0 and the budget the heap's size); D3D's local
@@ -183,6 +190,16 @@ export class App {
     // VK_KHR_compute_shader_derivatives.
     getComputeShaderDerivatives(): ComputeDerivatives {
         return Donut_GetComputeShaderDerivatives(this.handle);
+    }
+
+    // The fewest and most lanes a wave (subgroup) has: D3D12's WaveLaneCountMin and Max, Vulkan's one
+    // subgroupSize for both; 0 without wave intrinsics (D3D11).
+    getWaveLaneCountMin(): int {
+        return Donut_GetWaveLaneCountMin(this.handle);
+    }
+
+    getWaveLaneCountMax(): int {
+        return Donut_GetWaveLaneCountMax(this.handle);
     }
 
     // Whether ray generation shaders can trace rays into hit objects, reorder their threads by them
@@ -481,6 +498,27 @@ export class App {
 
     // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
     // is mapped to it and the GPU is done with what used it.
+    // Placed textures: textures sharing one heap's memory (D3D12's placed resources, Vulkan's
+    // textures bound to memory), versus committed ones with their own allocations. The bytes a
+    // width x height, one-level texture of `format` takes in a heap, its alignment included: on D3D12
+    // at the 4 KB small resource alignment when the device grants it (a committed texture rounds up to
+    // 64 KB), Vulkan's memory requirements.
+    getPlacedTextureSize(width: int, height: int, format: Format): number {
+        return Donut_GetPlacedTextureSize(this.handle, width, height, format);
+    }
+
+    // A heap of byteSize bytes of device memory for placed textures (D3D12, Vulkan); null on failure.
+    createTextureHeap(byteSize: number, debugName: string): Opaque | null {
+        return Donut_CreateTextureHeap(this.handle, byteSize, debugName);
+    }
+
+    // A texture that shaders read placed in a texture heap at byteOffset (a multiple of
+    // Donut_GetPlacedTextureSize's size), its first use recorded into an open command list. Fill it with
+    // Donut_WriteTextureLevel; release it before the heap. Null on failure.
+    createPlacedTexture(commandList: CommandList, textureHeap: Opaque, byteOffset: number, width: int, height: int, format: Format, debugName: string): Opaque | null {
+        return Donut_CreatePlacedTexture(this.handle, commandList.handle, textureHeap, byteOffset, width, height, format, debugName);
+    }
+
     createTileHeap(byteSize: number, debugName: string): Opaque {
         return Donut_CreateTileHeap(this.handle, byteSize, debugName);
     }
@@ -630,6 +668,11 @@ export class App {
         return Donut_CreateAccelStructInputBuffer(this.handle, byteSize, debugName);
     }
 
+    // Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
+    createAccelStructInputRawBuffer(byteSize: int, debugName: string): Opaque {
+        return Donut_CreateAccelStructInputRawBuffer(this.handle, byteSize, debugName);
+    }
+
     // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
     createAccelStructInputStructuredBuffer(stride: int, count: int, debugName: string): Opaque {
         return Donut_CreateAccelStructInputStructuredBuffer(this.handle, stride, count, debugName);
@@ -673,6 +716,17 @@ export class App {
     // Donut_AddTriangleBlasGeometry, then build it with Donut_BuildTriangleBlas.
     createEmptyTriangleBlas(debugName: string): TriangleBlas {
         return new TriangleBlas(Donut_CreateEmptyTriangleBlas(this.handle, debugName));
+    }
+
+    // An opacity micromap array (requires Feature.RayTracingOpacityMicromap), built into an open
+    // command list from inputBuffer's raw OMM data at inputOffset and perOmmDescs' descs at
+    // descsOffset (acceleration structure input buffers; descs as D3D12_RAYTRACING_OPACITY_MICROMAP_DESC
+    // and VkMicromapTriangleEXT have them: 32-bit data offset, 16-bit subdivision level, 16-bit format);
+    // usageCounts (Ref of a `let` int array) holds numUsageCounts entries of three ints, how many OMMs
+    // the array has of a subdivision level and format (D3D12's histogram). buildFlags:
+    // nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
+    createOpacityMicromap(commandList: CommandList, inputBuffer: Opaque, inputOffset: int, perOmmDescs: Opaque, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int, debugName: string): Opaque | null {
+        return Donut_CreateOpacityMicromap(this.handle, commandList.handle, inputBuffer, inputOffset, perOmmDescs, descsOffset, usageCounts, numUsageCounts, buildFlags, debugName);
     }
 
     // One ray generation shader, one miss shader and one triangle hit group (closest hit only, or
@@ -1097,6 +1151,14 @@ export class App {
         return new PredicationBuffer(Donut_CreatePredicationBuffer(this.handle, count));
     }
 
+    // Binary occlusion queries whose results the GPU resolves into predication values (the CPU's
+    // Donut_SetPredicationValue's are the predication buffer's): count queries, every result 0
+    // (occluded) at first. D3D12's occlusion query heap and predication, Vulkan's occlusion query pool
+    // and conditional rendering (requires Donut_HasConditionalRendering). Null otherwise.
+    createOcclusionPredication(count: int): Opaque | null {
+        return Donut_CreateOcclusionPredication(this.handle, count);
+    }
+
     // Executes what the frame's command list holds so far, and reopens it for the rest of the frame
     // (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
     submitFrameCommandList(frame: Frame): void {
@@ -1488,6 +1550,12 @@ export class Frame {
     // The draw state's shading rate (after Donut_BeginDraw*): the per-draw rate, combined with the
     // primitives' by primitiveCombiner, then with the framebuffer's shading rate surface by
     // imageCombiner (Passthrough keeps the rate so far, Override takes the new one).
+    // The draw's depth bounds (after Donut_BeginDraw), for a pipeline with the depth bounds test: depth
+    // target values from minDepth to maxDepth pass (0 to 1 by default).
+    drawSetDepthBounds(minDepth: number, maxDepth: number): void {
+        Donut_DrawSetDepthBounds(this.handle, minDepth, maxDepth);
+    }
+
     drawSetVariableRateShading(enabled: int, shadingRate: VariableShadingRate, primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void {
         Donut_DrawSetVariableRateShading(this.handle, enabled, shadingRate, primitiveCombiner, imageCombiner);
     }
@@ -1603,6 +1671,23 @@ export class Frame {
     // item); the draw described stays, so it can repeat with other push constants.
     drawIndexedWithPushConstants(indexCount: int, data: Opaque, byteSize: int): void {
         Donut_DrawIndexedWithPushConstants(this.handle, indexCount, data, byteSize);
+    }
+
+    // Donut_DrawVertices inside occlusion query `index`: whether any of the vertices' samples pass the
+    // depth and stencil tests.
+    drawVerticesWithOcclusionQuery(vertexCount: int, occlusionPredication: Opaque, index: int): void {
+        Donut_DrawVerticesWithOcclusionQuery(this.handle, vertexCount, occlusionPredication, index);
+    }
+
+    // The queries' results into the predication values (1: samples passed; 0: none did) for the draws
+    // after it, e.g. the next frame's.
+    resolveOcclusionQueries(occlusionPredication: Opaque): void {
+        Donut_ResolveOcclusionQueries(this.handle, occlusionPredication);
+    }
+
+    // Donut_DrawVertices, skipped if resolved result `index` is 0 when the GPU gets to it.
+    drawVerticesOcclusionPredicated(vertexCount: int, occlusionPredication: Opaque, index: int): void {
+        Donut_DrawVerticesOcclusionPredicated(this.handle, vertexCount, occlusionPredication, index);
     }
 
     // Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of the predication buffer
@@ -1722,6 +1807,11 @@ export class CommandList {
         Donut_SetBufferWrittenByShaders(this.handle, buffer);
     }
 
+    // Builds such an array again, in place, from its inputs' current contents, into an open command list.
+    buildOpacityMicromap(opacityMicromap: Opaque): void {
+        Donut_BuildOpacityMicromap(this.handle, opacityMicromap);
+    }
+
     open(): void {
         Donut_OpenCommandList(this.handle);
     }
@@ -1741,6 +1831,12 @@ export class CommandList {
     // int[] / f32[] array.
     writeBuffer(buffer: Opaque, data: Opaque, byteSize: int): void {
         Donut_WriteBuffer(this.handle, buffer, data, byteSize);
+    }
+
+    // Same, at byteOffset of a non-volatile buffer (e.g. a constant buffer's uints after its floats;
+    // D3D11 drops partial constant buffer writes).
+    writeBufferAt(buffer: Opaque, byteOffset: int, data: Opaque, byteSize: int): void {
+        Donut_WriteBufferAt(this.handle, buffer, byteOffset, data, byteSize);
     }
 
     copyBuffer(dst: Opaque, dstOffset: int, src: Opaque, srcOffset: int, byteSize: int): void {
@@ -2261,6 +2357,23 @@ export class RtPipelineDesc {
     addHitGroup(shaderLibrary: Opaque, exportName: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
         Donut_RtPipelineAddHitGroup(this.handle, shaderLibrary, exportName, closestHitEntry, anyHitEntry, localBindingLayout);
     }
+
+    // Procedural primitive hit group, for AABB geometries (Donut_AddTriangleBlasAabbGeometry): its
+    // intersection shader by entry name, then closest-hit / any-hit shaders as above ("" for none).
+    addProceduralHitGroup(shaderLibrary: Opaque, exportName: string, intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void {
+        Donut_RtPipelineAddProceduralHitGroup(this.handle, shaderLibrary, exportName, intersectionEntry, closestHitEntry, anyHitEntry, localBindingLayout);
+    }
+
+    // The largest hit attributes the pipeline's shaders pass (ReportHit's attributes; the default is 8
+    // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
+    setMaxAttributeSize(byteSize: int): void {
+        Donut_RtPipelineSetMaxAttributeSize(this.handle, byteSize);
+    }
+
+    // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
+    setAllowOpacityMicromaps(allow: int): void {
+        Donut_RtPipelineSetAllowOpacityMicromaps(this.handle, allow);
+    }
 }
 
 export class GraphicsPipelineDesc {
@@ -2314,6 +2427,12 @@ export class GraphicsPipelineDesc {
 
     setDepthState(testEnable: int, writeEnable: int, depthFunc: ComparisonFunc): void {
         Donut_GraphicsPipelineSetDepthState(this.handle, testEnable, writeEnable, depthFunc);
+    }
+
+    // The depth bounds test: pixels whose depth target value is outside the draw's bounds
+    // (Donut_DrawSetDepthBounds) are discarded (requires Donut_HasDepthBoundsTest).
+    setDepthBoundsTest(enable: int): void {
+        Donut_GraphicsPipelineSetDepthBoundsTest(this.handle, enable);
     }
 
     setRasterState(cullMode: CullMode, fillMode: FillMode, frontCounterClockwise: int): void {
@@ -3578,10 +3697,40 @@ export class TriangleBlas {
         Donut_AddTriangleBlasGeometry(this.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
     }
 
+    // Opaque procedural primitives instead: aabbCount boxes (6 floats each, min x y z then max x y z),
+    // aabbStride bytes apart at byteOffset of aabbBuffer (an acceleration structure input buffer),
+    // intersected by the hit groups' intersection shaders (Donut_RtPipelineAddProceduralHitGroup). A
+    // BLAS holds triangles or AABBs, not both.
+    addAabbGeometry(aabbBuffer: Opaque, byteOffset: int, aabbCount: int, aabbStride: int): void {
+        Donut_AddTriangleBlasAabbGeometry(this.handle, aabbBuffer, byteOffset, aabbCount, aabbStride);
+    }
+
+    // An unbuilt BLAS's geometryIndex-th geometry's nvrhi::rt::GeometryFlags (1 opaque, the default; 0
+    // for any-hit shaders to run on it; 2 no duplicate any-hit invocations).
+    setGeometryFlags(geometryIndex: int, flags: int): void {
+        Donut_SetTriangleBlasGeometryFlags(this.handle, geometryIndex, flags);
+    }
+
+    // Links an unbuilt BLAS's geometryIndex-th triangle geometry to an opacity micromap array
+    // (Donut_CreateOpacityMicromap): an OMM index per triangle, ommIndexFormat (R16_UINT or R32_UINT)
+    // values at ommIndexOffset of ommIndexBuffer (an acceleration structure input buffer; negative
+    // ones the special fully transparent / opaque indices); usageCounts (Ref of a `let` int array)
+    // holds numUsageCounts entries of three ints, how many triangles use OMMs of a subdivision level
+    // and format (Donut_CountOpacityMicromapUsage; Vulkan's builds need them). The BLAS keeps the array.
+    setGeometryOpacityMicromap(geometryIndex: int, opacityMicromap: Opaque, ommIndexBuffer: Opaque, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void {
+        Donut_SetTriangleBlasGeometryOpacityMicromap(this.handle, geometryIndex, opacityMicromap, ommIndexBuffer, ommIndexOffset, ommIndexFormat, usageCounts, numUsageCounts);
+    }
+
     // Builds the BLAS of the geometries added (AccelStructBuildFlags bits), recorded into an open
     // command list; 0 on failure.
     build(app: App, commandList: CommandList, buildFlags: AccelStructBuildFlags): int {
         return Donut_BuildTriangleBlas(this.handle, app.handle, commandList.handle, buildFlags);
+    }
+
+    // Builds a built one again, in place (not an update), from its geometries' current contents, into
+    // an open command list.
+    rebuild(commandList: CommandList): void {
+        Donut_RebuildTriangleBlas(this.handle, commandList.handle);
     }
 
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
@@ -3671,5 +3820,26 @@ export class BinaryFile {
 
     copyBytes(offset: int, count: int, dst: Opaque): void {
         Donut_CopyBinaryFileBytes(this.handle, offset, count, dst);
+    }
+
+    // count little-endian 32-bit values from byte offset into dst (Ref of a `let` int array element)
+    // as ints; those past the end of the file as 0.
+    copyUInts(offset: int, count: int, dst: Opaque): void {
+        Donut_CopyBinaryFileUInts(this.handle, offset, count, dst);
+    }
+
+    // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the call
+    // into an open command list (e.g. a model's vertices from the middle of its file).
+    writeBufferFromBinaryFile(commandList: CommandList, buffer: Opaque, bufferOffset: int, fileOffset: int, byteSize: int): void {
+        Donut_WriteBufferFromBinaryFile(this.handle, commandList.handle, buffer, bufferOffset, fileOffset, byteSize);
+    }
+
+    // The usage counts of an opacity micromap array by a geometry's triangles
+    // (Donut_SetTriangleBlasGeometryOpacityMicromap) from the file's data: indexCount OMM indices
+    // (indexFormat R16_UINT or R32_UINT) at indexOffset, indexing descCount per-OMM descs at descOffset
+    // (as Donut_CreateOpacityMicromap takes them). Writes up to maxEntries entries of three ints (count,
+    // subdivision level, format) into dst (Ref of a `let` int array); returns how many there are.
+    countOpacityMicromapUsage(indexOffset: int, indexCount: int, indexFormat: Format, descOffset: int, descCount: int, dst: Opaque, maxEntries: int): int {
+        return Donut_CountOpacityMicromapUsage(this.handle, indexOffset, indexCount, indexFormat, descOffset, descCount, dst, maxEntries);
     }
 }

@@ -24,6 +24,10 @@ enum Feature {
     FastGeometryShader = 5,
     Meshlets = 9,
     RayQuery = 10,
+    // Opacity micromaps in BLASes (Donut_CreateOpacityMicromap): D3D12 raytracing tier 1.2 (DXR 1.2,
+    // the Agility SDK runtime: link core/d3d12_agility_sdk.cpp), Vulkan's VK_EXT_opacity_micromap
+    // (AppOptions.RayTracing).
+    RayTracingOpacityMicromap = 13,
     RayTracingPipeline = 14,
     // Hit shaders reading the vertex positions of the triangles they hit (Vulkan's
     // VK_KHR_ray_tracing_position_fetch, with AppOptions.RayTracing; D3D12 through NVAPI).
@@ -567,6 +571,10 @@ declare function Donut_HasNative16BitShaderOps(app: Opaque): int;
 // Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
 // D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
 declare function Donut_HasLogicOps(app: Opaque): int;
+// Non-zero if pipelines can test the depth target against bounds
+// (Donut_GraphicsPipelineSetDepthBoundsTest): D3D12 with DepthBoundsTestSupported, Vulkan with the
+// depthBounds feature; never D3D11.
+declare function Donut_HasDepthBoundsTest(app: Opaque): int;
 // The device's memory heaps now (their count): this process's usage of each and its budget, the
 // memory it can use before the system has to page or fail allocations. Vulkan's memory heaps, with
 // VK_EXT_memory_budget (without it the usage is 0 and the budget the heap's size); D3D's local
@@ -596,6 +604,10 @@ declare function Donut_GetAdvancedBlendOperations(app: Opaque): int;
 // threads (1D thread groups). D3D12 with shader model 6.6, Vulkan with
 // VK_KHR_compute_shader_derivatives.
 declare function Donut_GetComputeShaderDerivatives(app: Opaque): ComputeDerivatives;
+// The fewest and most lanes a wave (subgroup) has: D3D12's WaveLaneCountMin and Max, Vulkan's one
+// subgroupSize for both; 0 without wave intrinsics (D3D11).
+declare function Donut_GetWaveLaneCountMin(app: Opaque): int;
+declare function Donut_GetWaveLaneCountMax(app: Opaque): int;
 // Whether ray generation shaders can trace rays into hit objects, reorder their threads by them
 // (MaybeReorderThread) and invoke their hit or miss shaders: D3D12 with shader model 6.9 and
 // raytracing tier 1.2, Vulkan with VK_NV_ray_tracing_invocation_reorder (AppOptions.RayTracing).
@@ -711,6 +723,8 @@ enum ShaderType {
     AnyHit = 0x0200,
     ClosestHit = 0x0400,
     Miss = 0x0800,
+    Intersection = 0x1000,
+    Callable = 0x2000,
     All = 0x3FFF
 }
 
@@ -834,6 +848,19 @@ declare function Donut_CreateTiledTexture(app: Opaque, width: int, height: int, 
 declare function Donut_GetTextureTiling(app: Opaque, texture: Opaque, dst: Opaque): void;
 // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
 // is mapped to it and the GPU is done with what used it.
+// Placed textures: textures sharing one heap's memory (D3D12's placed resources, Vulkan's
+// textures bound to memory), versus committed ones with their own allocations. The bytes a
+// width x height, one-level texture of `format` takes in a heap, its alignment included: on D3D12
+// at the 4 KB small resource alignment when the device grants it (a committed texture rounds up to
+// 64 KB), Vulkan's memory requirements.
+declare function Donut_GetPlacedTextureSize(app: Opaque, width: int, height: int, format: Format): number;
+// A heap of byteSize bytes of device memory for placed textures (D3D12, Vulkan); null on failure.
+declare function Donut_CreateTextureHeap(app: Opaque, byteSize: number, debugName: string): Opaque | null;
+// A texture that shaders read placed in a texture heap at byteOffset (a multiple of
+// Donut_GetPlacedTextureSize's size), its first use recorded into an open command list. Fill it with
+// Donut_WriteTextureLevel; release it before the heap. Null on failure.
+declare function Donut_CreatePlacedTexture(app: Opaque, commandList: Opaque, textureHeap: Opaque, byteOffset: number,
+    width: int, height: int, format: Format, debugName: string): Opaque | null;
 declare function Donut_CreateTileHeap(app: Opaque, byteSize: number, debugName: string): Opaque;
 // Tile mappings, applied in one go (and freed) by Donut_ApplyTileMappings.
 declare function Donut_CreateTileMappings(): Opaque;
@@ -876,6 +903,9 @@ declare function Donut_GraphicsPipelineSetTessellation(graphicsPipelineDesc: Opa
     controlPoints: int): void;
 declare function Donut_GraphicsPipelineSetDepthState(graphicsPipelineDesc: Opaque, testEnable: int, writeEnable: int,
     depthFunc: ComparisonFunc): void;
+// The depth bounds test: pixels whose depth target value is outside the draw's bounds
+// (Donut_DrawSetDepthBounds) are discarded (requires Donut_HasDepthBoundsTest).
+declare function Donut_GraphicsPipelineSetDepthBoundsTest(graphicsPipelineDesc: Opaque, enable: int): void;
 declare function Donut_GraphicsPipelineSetRasterState(graphicsPipelineDesc: Opaque, cullMode: CullMode, fillMode: FillMode,
     frontCounterClockwise: int): void;
 // Primitives clipped at the near and far planes (as Vulkan by default), or not (the default here:
@@ -969,6 +999,20 @@ declare function Donut_GetBinaryFileSize(binaryFile: Opaque): int;
 // The file's bytes, valid as long as the file (e.g. for Donut_TranscodeKtx2).
 declare function Donut_GetBinaryFileData(binaryFile: Opaque): Opaque;
 declare function Donut_CopyBinaryFileBytes(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
+// count little-endian 32-bit values from byte offset into dst (Ref of a `let` int array element)
+// as ints; those past the end of the file as 0.
+declare function Donut_CopyBinaryFileUInts(binaryFile: Opaque, offset: int, count: int, dst: Opaque): void;
+// byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the call
+// into an open command list (e.g. a model's vertices from the middle of its file).
+declare function Donut_WriteBufferFromBinaryFile(binaryFile: Opaque, commandList: Opaque, buffer: Opaque, bufferOffset: int,
+    fileOffset: int, byteSize: int): void;
+// The usage counts of an opacity micromap array by a geometry's triangles
+// (Donut_SetTriangleBlasGeometryOpacityMicromap) from the file's data: indexCount OMM indices
+// (indexFormat R16_UINT or R32_UINT) at indexOffset, indexing descCount per-OMM descs at descOffset
+// (as Donut_CreateOpacityMicromap takes them). Writes up to maxEntries entries of three ints (count,
+// subdivision level, format) into dst (Ref of a `let` int array); returns how many there are.
+declare function Donut_CountOpacityMicromapUsage(binaryFile: Opaque, indexOffset: int, indexCount: int, indexFormat: Format,
+    descOffset: int, descCount: int, dst: Opaque, maxEntries: int): int;
 // Writes byteSize bytes of data (Ref of a `let` array element, or a Donut data pointer) to a file
 // (path as given: absolute, or relative to the current directory). 1 on success.
 declare function Donut_WriteBinaryFile(path: string, data: Opaque, byteSize: int): int;
@@ -1039,6 +1083,8 @@ declare function Donut_CreateInputLayout(app: Opaque, inputLayoutDesc: Opaque, v
 
 // Input for acceleration structure builds (index or vertex data).
 declare function Donut_CreateAccelStructInputBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
+// Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
+declare function Donut_CreateAccelStructInputRawBuffer(app: Opaque, byteSize: int, debugName: string): Opaque;
 // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
 declare function Donut_CreateAccelStructInputStructuredBuffer(app: Opaque, stride: int, count: int, debugName: string): Opaque;
 // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
@@ -1070,9 +1116,41 @@ declare function Donut_CreateEmptyTriangleBlas(app: Opaque, debugName: string): 
 // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
 declare function Donut_AddTriangleBlasGeometry(triangleBlas: Opaque, indexBuffer: Opaque, indexByteOffset: int, indexCount: int,
     vertexBuffer: Opaque, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
+// Opaque procedural primitives instead: aabbCount boxes (6 floats each, min x y z then max x y z),
+// aabbStride bytes apart at byteOffset of aabbBuffer (an acceleration structure input buffer),
+// intersected by the hit groups' intersection shaders (Donut_RtPipelineAddProceduralHitGroup). A
+// BLAS holds triangles or AABBs, not both.
+declare function Donut_AddTriangleBlasAabbGeometry(triangleBlas: Opaque, aabbBuffer: Opaque, byteOffset: int, aabbCount: int,
+    aabbStride: int): void;
+// An unbuilt BLAS's geometryIndex-th geometry's nvrhi::rt::GeometryFlags (1 opaque, the default; 0
+// for any-hit shaders to run on it; 2 no duplicate any-hit invocations).
+declare function Donut_SetTriangleBlasGeometryFlags(triangleBlas: Opaque, geometryIndex: int, flags: int): void;
+// Links an unbuilt BLAS's geometryIndex-th triangle geometry to an opacity micromap array
+// (Donut_CreateOpacityMicromap): an OMM index per triangle, ommIndexFormat (R16_UINT or R32_UINT)
+// values at ommIndexOffset of ommIndexBuffer (an acceleration structure input buffer; negative
+// ones the special fully transparent / opaque indices); usageCounts (Ref of a `let` int array)
+// holds numUsageCounts entries of three ints, how many triangles use OMMs of a subdivision level
+// and format (Donut_CountOpacityMicromapUsage; Vulkan's builds need them). The BLAS keeps the array.
+declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: Opaque, geometryIndex: int, opacityMicromap: Opaque,
+    ommIndexBuffer: Opaque, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void;
+// An opacity micromap array (requires Feature.RayTracingOpacityMicromap), built into an open
+// command list from inputBuffer's raw OMM data at inputOffset and perOmmDescs' descs at
+// descsOffset (acceleration structure input buffers; descs as D3D12_RAYTRACING_OPACITY_MICROMAP_DESC
+// and VkMicromapTriangleEXT have them: 32-bit data offset, 16-bit subdivision level, 16-bit format);
+// usageCounts (Ref of a `let` int array) holds numUsageCounts entries of three ints, how many OMMs
+// the array has of a subdivision level and format (D3D12's histogram). buildFlags:
+// nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
+declare function Donut_CreateOpacityMicromap(app: Opaque, commandList: Opaque, inputBuffer: Opaque, inputOffset: int,
+    perOmmDescs: Opaque, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int,
+    debugName: string): Opaque | null;
+// Builds such an array again, in place, from its inputs' current contents, into an open command list.
+declare function Donut_BuildOpacityMicromap(commandList: Opaque, opacityMicromap: Opaque): void;
 // Builds the BLAS of the geometries added (AccelStructBuildFlags bits), recorded into an open
 // command list; 0 on failure.
 declare function Donut_BuildTriangleBlas(triangleBlas: Opaque, app: Opaque, commandList: Opaque, buildFlags: AccelStructBuildFlags): int;
+// Builds a built one again, in place (not an update), from its geometries' current contents, into
+// an open command list.
+declare function Donut_RebuildTriangleBlas(triangleBlas: Opaque, commandList: Opaque): void;
 // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
 declare function Donut_GetTriangleBlasAccelStruct(triangleBlas: Opaque): Opaque;
 
@@ -1166,6 +1244,15 @@ declare function Donut_RtPipelineAddShader(pipelineDesc: Opaque, shaderLibrary: 
 // (D3D12 only), whose binding sets come with each shader table entry.
 declare function Donut_RtPipelineAddHitGroup(pipelineDesc: Opaque, shaderLibrary: Opaque, exportName: string,
     closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void;
+// Procedural primitive hit group, for AABB geometries (Donut_AddTriangleBlasAabbGeometry): its
+// intersection shader by entry name, then closest-hit / any-hit shaders as above ("" for none).
+declare function Donut_RtPipelineAddProceduralHitGroup(pipelineDesc: Opaque, shaderLibrary: Opaque, exportName: string,
+    intersectionEntry: string, closestHitEntry: string, anyHitEntry: string, localBindingLayout: Opaque | null): void;
+// The largest hit attributes the pipeline's shaders pass (ReportHit's attributes; the default is 8
+// bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
+declare function Donut_RtPipelineSetMaxAttributeSize(pipelineDesc: Opaque, byteSize: int): void;
+// Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
+declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: Opaque, allow: int): void;
 declare function Donut_CreateRayTracingPipelineFromDesc(app: Opaque, pipelineDesc: Opaque): Opaque;
 // Shader tables of any shape, filled with the Donut_ShaderTable* functions; they keep the
 // pipeline alive. The Add functions return the new entry's index.
@@ -1263,6 +1350,9 @@ declare function Donut_WaitForIdle(app: Opaque): void;
 // Uploads byteSize bytes from data, copied during the call. Pass `Ref(array[0])` of a `let`
 // int[] / f32[] array.
 declare function Donut_WriteBuffer(commandList: Opaque, buffer: Opaque, data: Opaque, byteSize: int): void;
+// Same, at byteOffset of a non-volatile buffer (e.g. a constant buffer's uints after its floats;
+// D3D11 drops partial constant buffer writes).
+declare function Donut_WriteBufferAt(commandList: Opaque, buffer: Opaque, byteOffset: int, data: Opaque, byteSize: int): void;
 declare function Donut_CopyBuffer(commandList: Opaque, dst: Opaque, dstOffset: int, src: Opaque, srcOffset: int, byteSize: int): void;
 declare function Donut_Dispatch(commandList: Opaque, computePipeline: Opaque, bindingSet: Opaque, groupsX: int, groupsY: int, groupsZ: int): void;
 // Same, with a descriptor table bound after the binding set.
@@ -1668,6 +1758,9 @@ declare function Donut_GraphicsPipelineSetVariableRateShading(graphicsPipelineDe
 // The draw state's shading rate (after Donut_BeginDraw*): the per-draw rate, combined with the
 // primitives' by primitiveCombiner, then with the framebuffer's shading rate surface by
 // imageCombiner (Passthrough keeps the rate so far, Override takes the new one).
+// The draw's depth bounds (after Donut_BeginDraw), for a pipeline with the depth bounds test: depth
+// target values from minDepth to maxDepth pass (0 to 1 by default).
+declare function Donut_DrawSetDepthBounds(frame: Opaque, minDepth: number, maxDepth: number): void;
 declare function Donut_DrawSetVariableRateShading(frame: Opaque, enabled: int, shadingRate: VariableShadingRate,
     primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void;
 // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
@@ -1752,6 +1845,19 @@ declare function Donut_DrawIndexedWithPushConstants(frame: Opaque, indexCount: i
 // when it executes the draws. Requires Donut_HasConditionalRendering. Null on failure.
 declare function Donut_CreatePredicationBuffer(app: Opaque, count: int): Opaque | null;
 declare function Donut_SetPredicationValue(predicationBuffer: Opaque, index: int, value: int): void;
+// Binary occlusion queries whose results the GPU resolves into predication values (the CPU's
+// Donut_SetPredicationValue's are the predication buffer's): count queries, every result 0
+// (occluded) at first. D3D12's occlusion query heap and predication, Vulkan's occlusion query pool
+// and conditional rendering (requires Donut_HasConditionalRendering). Null otherwise.
+declare function Donut_CreateOcclusionPredication(app: Opaque, count: int): Opaque | null;
+// Donut_DrawVertices inside occlusion query `index`: whether any of the vertices' samples pass the
+// depth and stencil tests.
+declare function Donut_DrawVerticesWithOcclusionQuery(frame: Opaque, vertexCount: int, occlusionPredication: Opaque, index: int): void;
+// The queries' results into the predication values (1: samples passed; 0: none did) for the draws
+// after it, e.g. the next frame's.
+declare function Donut_ResolveOcclusionQueries(frame: Opaque, occlusionPredication: Opaque): void;
+// Donut_DrawVertices, skipped if resolved result `index` is 0 when the GPU gets to it.
+declare function Donut_DrawVerticesOcclusionPredicated(frame: Opaque, vertexCount: int, occlusionPredication: Opaque, index: int): void;
 // Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of the predication buffer
 // isn't 0 when the GPU gets to it.
 declare function Donut_DrawIndexedRangeWithPushConstantsPredicated(frame: Opaque, indexCount: int, startIndex: int, baseVertex: int,
