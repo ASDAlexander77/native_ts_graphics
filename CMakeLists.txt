@@ -2551,6 +2551,29 @@ add_tslang_example(meshlet_render core/directx_math.ts core/meshlet_model.cpp ME
 add_dxgs_media(meshlet_render meshlet_render Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD0.bin)
 add_tslang_example_test(meshlet_render)
 
+# Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletCull: amplification shaders cull the
+# dragon's meshlets against a second camera's frustum and by their normal cones; that camera's
+# frustum and model are drawn, the meshlet under the mouse highlighted (a ray cast on the CPU) and,
+# selected with Tab, its bounding sphere and normal cone drawn by mesh shaders. Its models are the
+# sample's (core/meshlet_model.cpp), from DIRECTX_GRAPHICS_SAMPLES_DIR. Mesh shaders need D3D12 or
+# Vulkan, so no DXBC.
+donut_compile_shaders(
+    TARGET meshlet_cull_shaders
+    PROJECT_NAME "Meshlet Cull"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet_cull.cfg
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet_cull.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet_cull_visualizers.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_cull/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_cull/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+add_tslang_example(meshlet_cull core/directx_math.ts core/meshlet_model.cpp MEDIA meshlet_cull)
+add_dxgs_media(meshlet_cull meshlet_cull
+    Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD0.bin
+    Samples/Desktop/D3D12MeshShaders/src/Assets/Camera.bin)
+add_tslang_example_test(meshlet_cull)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse

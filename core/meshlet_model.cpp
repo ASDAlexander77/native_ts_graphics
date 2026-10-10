@@ -374,6 +374,13 @@ extern "C"
         return int(model->meshes[mesh].vertexStrides[vertexBuffer]);
     }
 
+    // Copies a vertex buffer into dst (Donut_GetMeshletModelVertexBufferSize bytes).
+    void Donut_CopyMeshletModelVertexBuffer(MeshletModel* model, int mesh, int vertexBuffer, void* dst)
+    {
+        const Span& span = model->meshes[mesh].vertices[vertexBuffer];
+        std::memcpy(dst, span.data, span.size);
+    }
+
     int Donut_GetMeshletModelVertexCount(MeshletModel* model, int mesh)
     {
         return int(model->meshes[mesh].vertexCount);

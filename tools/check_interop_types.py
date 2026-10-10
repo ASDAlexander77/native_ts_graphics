@@ -152,6 +152,7 @@ RAW_MEMORY = {
     ("Donut_CopyGltfModelNodeTransform", "dst"),
     ("Donut_CopyGltfModelVertices", "dst"),
     ("Donut_CopyMeshletModelData", "dst"),
+    ("Donut_CopyMeshletModelVertexBuffer", "dst"),
     ("Donut_FillLightConstants", "dst"),
     ("Donut_FillPlanarViewConstants", "dst"),
     ("Donut_GetCameraDirection", "dst"),
