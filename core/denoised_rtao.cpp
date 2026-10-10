@@ -246,6 +246,12 @@ extern "C"
         // The parser finds the PLY files next to the scene by the last backslash.
         std::string scenePath = path;
         std::replace(scenePath.begin(), scenePath.end(), '/', '\\');
+        // The parser only asserts on a missing file (and parses an empty scene).
+        if (!std::ifstream(scenePath).good())
+        {
+            fprintf(stderr, "Donut_LoadPbrtScene: cannot open %s\n", path);
+            return nullptr;
+        }
         try
         {
             PBRTParser::PBRTParser().Parse(scenePath, pbrtScene);
