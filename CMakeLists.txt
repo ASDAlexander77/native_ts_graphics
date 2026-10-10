@@ -2614,6 +2614,21 @@ endforeach()
 add_dxgs_media(dynamic_lod dynamic_lod ${dynamic_lod_media})
 add_tslang_example_test(dynamic_lod)
 
+# Port of DirectX-Graphics-Samples' D3D12ExecuteIndirect: 1024 triangles drawn by one indirect call,
+# a compute shader first culling their commands to the middle of the screen and the call taking their
+# count from a buffer (Vulkan's drawIndirectCount). The sample's per-command root CBVs are instance
+# indices here (see shaders/execute_indirect.hlsl). D3D12 or Vulkan (D3D11 has no indirect counts).
+donut_compile_shaders(
+    TARGET execute_indirect_shaders
+    PROJECT_NAME "Execute Indirect"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/execute_indirect.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/execute_indirect.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/execute_indirect/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/execute_indirect/spirv
+)
+add_tslang_example(execute_indirect core/directx_math.ts)
+add_tslang_example_test(execute_indirect)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse

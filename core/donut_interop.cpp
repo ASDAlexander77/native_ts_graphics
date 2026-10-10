@@ -1374,6 +1374,7 @@ namespace
         IndirectDraw_MultiDraw = 1, // one indirect draw call issues several draws
         IndirectDraw_FirstInstance = 2, // indirect draws can start at an instance other than 0
         IndirectDraw_BufferDeviceAddress = 4, // shaders can write buffers through their addresses (Vulkan)
+        IndirectDraw_Count = 8, // indirect draws can take their count from a buffer
     };
 
     // Donut_GetShaderExecutionReordering's values.
@@ -1536,6 +1537,13 @@ namespace
                 features11 = reinterpret_cast<VkPhysicalDeviceVulkan11Features*>(const_cast<VkBaseInStructure*>(next));
             else if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES)
                 features12 = reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(const_cast<VkBaseInStructure*>(next));
+        }
+        if (features12)
+        {
+            // Indirect draws with their count in a buffer (Donut_DrawIndexedIndirectCount).
+            features12->drawIndirectCount = available12.drawIndirectCount;
+            if (features12->drawIndirectCount)
+                result.support |= IndirectDraw_Count;
         }
         if (features11 && features12)
         {
@@ -1894,7 +1902,7 @@ extern "C"
 #endif
 
         // D3D12's ExecuteIndirect does all of it but buffer addresses; D3D11 has single indirect draws.
-        int indirectDrawSupport = api == nvrhi::GraphicsAPI::D3D12 ? IndirectDraw_MultiDraw | IndirectDraw_FirstInstance
+        int indirectDrawSupport = api == nvrhi::GraphicsAPI::D3D12 ? IndirectDraw_MultiDraw | IndirectDraw_FirstInstance | IndirectDraw_Count
             : api == nvrhi::GraphicsAPI::D3D11 ? IndirectDraw_FirstInstance : 0;
 #if DONUT_WITH_VULKAN
         // Shared with the device manager's copy of the parameters.
@@ -5337,6 +5345,13 @@ extern "C"
         state.cullMode = static_cast<nvrhi::RasterCullMode>(cullMode);
         state.fillMode = static_cast<nvrhi::RasterFillMode>(fillMode);
         state.frontCounterClockwise = frontCounterClockwise != 0;
+    }
+
+    // Whether draws are clipped to their scissor rectangle (Donut_DrawSetScissor): NVRHI's D3D12 and
+    // D3D11 backends apply it only to pipelines that enable it; Vulkan always does.
+    void Donut_GraphicsPipelineSetScissorEnable(PipelineDesc* graphicsPipelineDesc, int enable)
+    {
+        graphicsPipelineDesc->renderState.rasterState.scissorEnable = enable != 0;
     }
 
     // Whether primitives are clipped at the near and far planes (Vulkan's default, as without
@@ -10139,6 +10154,15 @@ extern "C"
         frame->draw.viewport = nvrhi::ViewportState().addViewportAndScissorRect(viewport);
     }
 
+    // The draw's scissor rectangle (pixels left to right, top to bottom), after Donut_DrawSetViewport
+    // or for the framebuffer's viewport when none was set.
+    void Donut_DrawSetScissor(FrameContext* frame, int left, int top, int right, int bottom)
+    {
+        if (frame->draw.viewport.viewports.empty())
+            frame->draw.viewport.addViewportAndScissorRect(frame->draw.framebuffer->getFramebufferInfo().getViewport());
+        frame->draw.viewport.scissorRects[0] = nvrhi::Rect(left, right, top, bottom);
+    }
+
     // One more viewport (with its scissor rectangle) for the draw, after those set or added before:
     // geometry shaders pick one per primitive (SV_ViewportArrayIndex).
     void Donut_DrawAddViewport(FrameContext* frame, double left, double top, double width, double height)
@@ -10877,6 +10901,21 @@ extern "C"
         // NVRHI skips the parts of the state that haven't changed since the previous draw.
         ctx->commandList->setGraphicsState(ctx->draw);
         ctx->commandList->drawIndexedIndirect(static_cast<uint32_t>(offsetBytes), static_cast<uint32_t>(drawCount));
+    }
+
+    // Up to maxDrawCount indexed draws, their arguments read from the indirect buffer from
+    // offsetBytes on and their count from countBuffer at countOffsetBytes (a uint). Needs
+    // IndirectDraw_Count (D3D12; Vulkan's drawIndirectCount).
+    void Donut_DrawIndexedIndirectCount(FrameContext* frame, nvrhi::IBuffer* countBuffer, int offsetBytes, int countOffsetBytes, int maxDrawCount)
+    {
+        FrameContext* ctx = frame;
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        ctx->draw.indirectCountBuffer = countBuffer;
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->drawIndexedIndirectCount(static_cast<uint32_t>(offsetBytes), static_cast<uint32_t>(countOffsetBytes),
+            static_cast<uint32_t>(maxDrawCount));
+        ctx->draw.indirectCountBuffer = nullptr;
     }
 
     // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into
