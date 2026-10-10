@@ -315,7 +315,7 @@ namespace ShaderObjectSample {
         private postPipelinesCreated: boolean;
 
         // The sample's state.
-        private rng: RandomEngineHandle;
+        private rng: RandomEngine;
         private elapsedTime: number;
         private elapsedIterationTime: number;
         currentBasicLinkedShaders: int[];
@@ -436,7 +436,7 @@ namespace ShaderObjectSample {
         // The sample's iterate_current: one random number picks the object, another one of the
         // enabled changes (std::uniform_int_distribution<int>{0, 100} over its engine, as it does).
         iterateCurrent(): void {
-            const selectedShader: int = Donut_RandomUniformInt(this.rng, 0, 100) % MAX_SELECTABLE_OBJECTS;
+            const selectedShader: int = this.rng.uniformInt(0, 100) % MAX_SELECTABLE_OBJECTS;
             let funcs: int[] = [];
             if (this.iterateBasic) {
                 funcs.push(0);
@@ -462,7 +462,7 @@ namespace ShaderObjectSample {
             if (funcs.length == 0) {
                 return;
             }
-            const func = funcs[Donut_RandomUniformInt(this.rng, 0, 100) % funcs.length];
+            const func = funcs[this.rng.uniformInt(0, 100) % funcs.length];
             const basic: int = selectedShader % NUM_BASIC_OBJECTS;
             const material: int = selectedShader % NUM_MATERIAL_OBJECTS;
             if (func == 0) {
@@ -490,32 +490,32 @@ namespace ShaderObjectSample {
         randomizeCurrent(): void {
             if (this.iterateBasic) {
                 for (let i = 0; i < NUM_BASIC_OBJECTS; i++) {
-                    this.currentBasicLinkedShaders[i] = (this.currentBasicLinkedShaders[i] + Donut_RandomUniformInt(this.rng, 0, 100)) % BASIC_VS.length;
+                    this.currentBasicLinkedShaders[i] = (this.currentBasicLinkedShaders[i] + this.rng.uniformInt(0, 100)) % BASIC_VS.length;
                 }
             }
             if (this.iterateMaterialVert) {
                 for (let i = 0; i < NUM_MATERIAL_OBJECTS; i++) {
-                    this.currentMaterialVert[i] = (this.currentMaterialVert[i] + Donut_RandomUniformInt(this.rng, 0, 100)) % MATERIAL_VS.length;
+                    this.currentMaterialVert[i] = (this.currentMaterialVert[i] + this.rng.uniformInt(0, 100)) % MATERIAL_VS.length;
                 }
             }
             if (this.iterateMaterialGeo) {
                 for (let i = 0; i < NUM_MATERIAL_OBJECTS; i++) {
-                    this.currentMaterialGeo[i] = (this.currentMaterialGeo[i] + Donut_RandomUniformInt(this.rng, 0, 100)) % MATERIAL_GS.length;
+                    this.currentMaterialGeo[i] = (this.currentMaterialGeo[i] + this.rng.uniformInt(0, 100)) % MATERIAL_GS.length;
                 }
             }
             if (this.iterateMaterialFrag) {
                 for (let i = 0; i < NUM_MATERIAL_OBJECTS; i++) {
-                    this.currentMaterialFrag[i] = (this.currentMaterialFrag[i] + Donut_RandomUniformInt(this.rng, 0, 100)) % MATERIAL_PS.length;
+                    this.currentMaterialFrag[i] = (this.currentMaterialFrag[i] + this.rng.uniformInt(0, 100)) % MATERIAL_PS.length;
                 }
             }
             if (this.iteratePostProcess) {
-                this.currentPostProcessShader = (this.currentPostProcessShader + Donut_RandomUniformInt(this.rng, 0, 100)) % POST_PS.length;
+                this.currentPostProcessShader = (this.currentPostProcessShader + this.rng.uniformInt(0, 100)) % POST_PS.length;
             }
             if (this.iterateOutput) {
-                this.currentOutputFormat = (this.currentOutputFormat + Donut_RandomUniformInt(this.rng, 0, 100)) % this.outputFormats.length;
+                this.currentOutputFormat = (this.currentOutputFormat + this.rng.uniformInt(0, 100)) % this.outputFormats.length;
             }
             if (this.iterateDepth) {
-                this.currentDepthFormat = (this.currentDepthFormat + Donut_RandomUniformInt(this.rng, 0, 100)) % this.depthFormats.length;
+                this.currentDepthFormat = (this.currentDepthFormat + this.rng.uniformInt(0, 100)) % this.depthFormats.length;
             }
         }
 

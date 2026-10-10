@@ -560,9 +560,10 @@ export class App {
     }
 
     // The first level of a DDS file (path relative to the executable's directory) in a staging
-    // texture: memory on the CPU's side the GPU copies from. Null (after logging why) on failure.
-    loadStagingTexture(path: string): StagingTextureHandle {
-        return Donut_LoadStagingTexture(this.handle, path);
+    // texture: memory on the CPU's side the GPU copies from. A null handle (after logging why) on
+    // failure.
+    loadStagingTexture(path: string): StagingTexture {
+        return new StagingTexture(Donut_LoadStagingTexture(this.handle, path));
     }
 
     // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
@@ -846,8 +847,8 @@ export class App {
     // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
     // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
     // (different every run).
-    createRandomEngine(seed: int): RandomEngineHandle {
-        return Donut_CreateRandomEngine(this.handle, seed);
+    createRandomEngine(seed: int): RandomEngine {
+        return new RandomEngine(Donut_CreateRandomEngine(this.handle, seed));
     }
 
     // Register space 0, visible to shaderType's stages.
@@ -1368,8 +1369,8 @@ export class App {
     // frames: Donut_TransferVideoFrame): a render target shared through an NT handle (on D3D12 with
     // simultaneous access), resting at ShaderResource. D3D12 and D3D11 only (Windows): null with other
     // APIs, and (after logging why) on failure.
-    createSharedTexture(width: int, height: int, format: Format, debugName: string): SharedTextureHandle | null {
-        return Donut_CreateSharedTexture(this.handle, width, height, format, debugName);
+    createSharedTexture(width: int, height: int, format: Format, debugName: string): SharedTexture {
+        return new SharedTexture(Donut_CreateSharedTexture(this.handle, width, height, format, debugName));
     }
 
     // The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
@@ -1897,8 +1898,8 @@ export class CommandList {
     }
 
     // Copies width x height texels at (srcX, srcY) of a staging texture to (dstX, dstY) of level dstMip.
-    copyStagingTextureRegion(dstTexture: TextureHandle, dstMip: int, dstX: int, dstY: int, stagingTexture: StagingTextureHandle, srcX: int, srcY: int, width: int, height: int): void {
-        Donut_CopyStagingTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, stagingTexture, srcX, srcY, width, height);
+    copyStagingTextureRegion(dstTexture: TextureHandle, dstMip: int, dstX: int, dstY: int, stagingTexture: StagingTexture, srcX: int, srcY: int, width: int, height: int): void {
+        Donut_CopyStagingTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, stagingTexture.handle, srcX, srcY, width, height);
     }
 
     // Same, between levels of textures (the same texture's other levels too).
@@ -4052,5 +4053,84 @@ export class BinaryFile {
     // subdivision level, format) into dst (Ref of a `let` int array); returns how many there are.
     countOpacityMicromapUsage(indexOffset: int, indexCount: int, indexFormat: Format, descOffset: int, descCount: int, dst: Opaque, maxEntries: int): int {
         return Donut_CountOpacityMicromapUsage(this.handle, indexOffset, indexCount, indexFormat, descOffset, descCount, dst, maxEntries);
+    }
+}
+
+export class SharedTexture {
+    readonly handle: SharedTextureHandle;
+
+    constructor(handle: SharedTextureHandle | null) {
+        this.handle = handle as SharedTextureHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // Its texture (valid as long as it) and NT handle.
+    get(): TextureHandle {
+        return Donut_GetSharedTexture(this.handle);
+    }
+
+    getHandle(): Opaque {
+        return Donut_GetSharedTextureHandle(this.handle);
+    }
+}
+
+export class StagingTexture {
+    readonly handle: StagingTextureHandle;
+
+    constructor(handle: StagingTextureHandle | null) {
+        this.handle = handle as StagingTextureHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    getWidth(): int {
+        return Donut_GetStagingTextureWidth(this.handle);
+    }
+
+    getHeight(): int {
+        return Donut_GetStagingTextureHeight(this.handle);
+    }
+}
+
+export class RandomEngine {
+    readonly handle: RandomEngineHandle;
+
+    constructor(handle: RandomEngineHandle | null) {
+        this.handle = handle as RandomEngineHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // The engine's next number from std::uniform_real_distribution<float>(a, b).
+    uniformFloat(a: number, b: number): number {
+        return Donut_RandomUniformFloat(this.handle, a, b);
+    }
+
+    // The engine's next number from std::uniform_int_distribution<int>(a, b).
+    uniformInt(a: int, b: int): int {
+        return Donut_RandomUniformInt(this.handle, a, b);
+    }
+
+    // The engine's next number from std::uniform_int_distribution<unsigned>(a, b): the bounds and the
+    // result as unsigned bits in ints (a = 0, b = -1 for the whole range).
+    uniformUInt(a: int, b: int): int {
+        return Donut_RandomUniformUInt(this.handle, a, b);
+    }
+
+    // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
+    // (Ref of a `let` f32 array element): one distribution object, as the samples keep one (MSVC's makes
+    // values in pairs and keeps the second).
+    normalFloats(mean: number, stddev: number, count: int, dst: Opaque): void {
+        Donut_RandomNormalFloats(this.handle, mean, stddev, count, dst);
     }
 }

@@ -164,7 +164,7 @@ namespace GraphicsPipelineLibrary {
         private bindingSet: BindingSet;
         private uniformBuffer: BufferHandle;
         private model: GltfMesh;
-        private rng: RandomEngineHandle;
+        private rng: RandomEngine;
         private colors: f32[];
 
         // The pipelines made so far (their lighting models), and the grid's size.
@@ -262,7 +262,7 @@ namespace GraphicsPipelineLibrary {
         // (triangle lists, back faces culled with clockwise front faces, depth tested less or equal
         // and written, no blending); the grid grows by a row and a column when full.
         addPipeline(): void {
-            const lightingModel = Math.min(Math.floor(Donut_RandomUniformFloat(this.rng, 0.0, LIGHTING_MODELS)), LIGHTING_MODELS - 1);
+            const lightingModel = Math.min(Math.floor(this.rng.uniformFloat(0.0, LIGHTING_MODELS)), LIGHTING_MODELS - 1);
             const desc = GraphicsPipelineDesc.create(this.vs, this.ps[lightingModel]);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.bindingLayout);
@@ -381,7 +381,7 @@ namespace GraphicsPipelineLibrary {
             // and its first pipeline.
             this.rng = this.app.createRandomEngine(seed);
             for (let i = 0; i < COLOR_COUNT * 3; i++) {
-                this.colors.push(Donut_RandomUniformFloat(this.rng, 0.2, 0.8));
+                this.colors.push(this.rng.uniformFloat(0.2, 0.8));
             }
             this.pendingPipelines++;
 

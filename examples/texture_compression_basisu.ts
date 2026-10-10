@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { TranscodedTexture } from "../core/transcoded_texture";
 
 namespace TextureCompressionBasisu {
     const WINDOW_TITLE = "Donut Example: Basis Universal texture loading";
@@ -318,26 +319,26 @@ namespace TextureCompressionBasisu {
             if (file.isNull()) {
                 return false;
             }
-            const transcoded = Donut_TranscodeKtx2(file.getData(), file.getSize(), TARGET_TRANSCODE_FORMATS[target], Ref(this.stats[0]));
+            const transcoded = TranscodedTexture.transcodeKtx2(file.getData(), file.getSize(), TARGET_TRANSCODE_FORMATS[target], Ref(this.stats[0]));
             this.app.releaseObject(file.handle);
-            if (!transcoded) {
+            if (transcoded.isNull()) {
                 return false;
             }
-            const image = transcoded as TranscodedTextureHandle;
+            const image = transcoded;
             this.lastTranscodeTime = this.stats[0];
 
             if (this.textureCreated) {
                 this.app.releaseResource(this.bindingSet.handle);
                 this.app.releaseResource(this.texture);
             }
-            const levels = Donut_GetTranscodedLevelCount(image);
-            this.texture = this.app.createTextureWithLevels(Donut_GetTranscodedWidth(image), Donut_GetTranscodedHeight(image),
+            const levels = image.getLevelCount();
+            this.texture = this.app.createTextureWithLevels(image.getWidth(), image.getHeight(),
                 levels, TARGET_TEXTURE_FORMATS[target], name);
             for (let level = 0; level < levels; level++) {
-                commandList.writeTextureLevel(this.texture, level, Donut_GetTranscodedLevelData(image, level),
-                    Donut_GetTranscodedLevelRowPitch(image, level));
+                commandList.writeTextureLevel(this.texture, level, image.getLevelData(level),
+                    image.getLevelRowPitch(level));
             }
-            Donut_DestroyTranscodedTexture(image);
+            image.destroy();
 
             const setDesc = BindingSetDesc.create();
             setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);

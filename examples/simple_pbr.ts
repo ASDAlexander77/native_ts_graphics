@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { SdkMesh } from "../core/sdk_mesh";
 
 namespace SimplePbr {
     const WINDOW_TITLE = "Donut Example: Simple PBR";
@@ -297,44 +298,44 @@ namespace SimplePbr {
             if (binaryFile.isNull()) {
                 return false;
             }
-            const loaded = Donut_LoadSdkMesh(binaryFile.getData(), binaryFile.getSize());
-            if (!loaded) {
+            const loaded = SdkMesh.load(binaryFile.getData(), binaryFile.getSize());
+            if (loaded.isNull()) {
                 app.releaseObject(binaryFile.handle);
                 return false;
             }
-            const mesh = loaded as SdkMeshHandle;
+            const mesh = loaded;
             let ok = true;
-            this.vertexStride = Donut_GetSdkMeshVertexBufferStride(mesh, 0);
-            for (let i = 0; i < Donut_GetSdkMeshVertexBufferCount(mesh); i++) {
+            this.vertexStride = mesh.getVertexBufferStride(0);
+            for (let i = 0; i < mesh.getVertexBufferCount(); i++) {
                 // ATG::VertexPositionNormalTextureTangent's input layout over the file's vertices.
-                if (Donut_GetSdkMeshVertexElementOffset(mesh, i, 6, 0) != VERTEX_TANGENT
-                    || Donut_GetSdkMeshVertexBufferStride(mesh, i) != this.vertexStride) {
+                if (mesh.getVertexElementOffset(i, 6, 0) != VERTEX_TANGENT
+                    || mesh.getVertexBufferStride(i) != this.vertexStride) {
                     console.log(`${name}: unexpected vertex layout`);
                     ok = false;
                 }
-                this.vertexBuffers.push(app.createStaticVertexBuffer(commandList, Donut_GetSdkMeshVertexBufferData(mesh, i),
-                    Donut_GetSdkMeshVertexBufferSize(mesh, i), name));
+                this.vertexBuffers.push(app.createStaticVertexBuffer(commandList, mesh.getVertexBufferData(i),
+                    mesh.getVertexBufferSize(i), name));
             }
-            for (let i = 0; i < Donut_GetSdkMeshIndexBufferCount(mesh); i++) {
-                this.indexBuffers.push(app.createStaticIndexBuffer(commandList, Donut_GetSdkMeshIndexBufferData(mesh, i),
-                    Donut_GetSdkMeshIndexBufferSize(mesh, i), name));
-                this.index32.push(Donut_IsSdkMeshIndexBuffer32Bit(mesh, i) != 0);
+            for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
+                this.indexBuffers.push(app.createStaticIndexBuffer(commandList, mesh.getIndexBufferData(i),
+                    mesh.getIndexBufferSize(i), name));
+                this.index32.push(mesh.isIndexBuffer32Bit(i) != 0);
             }
-            for (let m = 0; m < Donut_GetSdkMeshMeshCount(mesh); m++) {
-                for (let j = 0; j < Donut_GetSdkMeshMeshSubsetCount(mesh, m); j++) {
-                    const subset = Donut_GetSdkMeshMeshSubset(mesh, m, j);
-                    if (Donut_GetSdkMeshSubsetPrimitiveType(mesh, subset) != 0) {
+            for (let m = 0; m < mesh.getMeshCount(); m++) {
+                for (let j = 0; j < mesh.getMeshSubsetCount(m); j++) {
+                    const subset = mesh.getMeshSubset(m, j);
+                    if (mesh.getSubsetPrimitiveType(subset) != 0) {
                         console.log(`${name}: only triangle lists are supported`);
                         ok = false;
                     }
-                    this.partVertexBuffers.push(Donut_GetSdkMeshMeshVertexBuffer(mesh, m));
-                    this.partIndexBuffers.push(Donut_GetSdkMeshMeshIndexBuffer(mesh, m));
-                    this.partIndexCounts.push(Donut_GetSdkMeshSubsetIndexCount(mesh, subset));
-                    this.partStartIndices.push(Donut_GetSdkMeshSubsetIndexStart(mesh, subset));
-                    this.partVertexOffsets.push(Donut_GetSdkMeshSubsetVertexStart(mesh, subset));
+                    this.partVertexBuffers.push(mesh.getMeshVertexBuffer(m));
+                    this.partIndexBuffers.push(mesh.getMeshIndexBuffer(m));
+                    this.partIndexCounts.push(mesh.getSubsetIndexCount(subset));
+                    this.partStartIndices.push(mesh.getSubsetIndexStart(subset));
+                    this.partVertexOffsets.push(mesh.getSubsetVertexStart(subset));
                 }
             }
-            Donut_DestroySdkMesh(mesh);
+            mesh.destroy();
             app.releaseObject(binaryFile.handle);
 
             const albedo = app.loadTexture(commandList, MEDIA_DIR + name + "_BaseColor.dds", 1);

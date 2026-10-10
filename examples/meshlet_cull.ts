@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { MeshletModel } from "../core/meshlet_model";
 import {
     dot3, matrixIdentity, matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH,
     matrixScaling, matrixTranspose, normalize3, planeNormalize, row, transform3, transformCoord3,
@@ -728,12 +729,12 @@ namespace MeshletCull {
                 console.log(`Cannot load ${path} (the sample's model: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                 return false;
             }
-            const loaded = Donut_LoadMeshletModel(binaryFile.getData(), binaryFile.getSize());
+            const loaded = MeshletModel.load(binaryFile.getData(), binaryFile.getSize());
             this.app.releaseObject(binaryFile.handle);
-            if (!loaded) {
+            if (loaded.isNull()) {
                 return false;
             }
-            const model = loaded as MeshletModelHandle;
+            const model = loaded;
 
             const instanceBuffer = this.app.createConstantBuffer(INSTANCE_SIZE, "Instance");
             const obj = new SceneObject(instanceBuffer, OBJECT_FLAGS[index], OBJECT_SCALES[index]);
@@ -744,37 +745,37 @@ namespace MeshletCull {
             this.instanceConstants.push(ic);
 
             let ok = true;
-            const meshCount = Donut_GetMeshletModelMeshCount(model);
+            const meshCount = model.getMeshCount();
             for (let i = 0; i < meshCount && ok; i++) {
                 // The mesh shader reads the first vertex buffer as positions and normals.
-                if (Donut_GetMeshletModelVertexBufferStride(model, i, 0) != VERTEX_STRIDE) {
+                if (model.getVertexBufferStride(i, 0) != VERTEX_STRIDE) {
                     console.log(`${path}: vertices of another layout than the mesh shader's`);
                     ok = false;
                     break;
                 }
-                const vertexSize = Donut_GetMeshletModelVertexBufferSize(model, i, 0);
-                const meshletCount = Donut_GetMeshletModelDataCount(model, i, MeshletModelData.Meshlets);
-                const uniqueSize = Donut_GetMeshletModelDataSize(model, i, MeshletModelData.UniqueVertexIndices);
-                const primitiveCount = Donut_GetMeshletModelDataCount(model, i, MeshletModelData.PrimitiveIndices);
+                const vertexSize = model.getVertexBufferSize(i, 0);
+                const meshletCount = model.getDataCount(i, MeshletModelData.Meshlets);
+                const uniqueSize = model.getDataSize(i, MeshletModelData.UniqueVertexIndices);
+                const primitiveCount = model.getDataCount(i, MeshletModelData.PrimitiveIndices);
 
                 // The data on the CPU: the unique vertex indices rounded up to whole uints, as the
                 // sample's buffer.
-                const indexSize = Donut_GetMeshletModelIndexSize(model, i);
-                const vertices = this.app.createStaticShaderBuffer(commandList, Donut_GetMeshletModelVertexBufferData(model, i, 0),
+                const indexSize = model.getIndexSize(i);
+                const vertices = this.app.createStaticShaderBuffer(commandList, model.getVertexBufferData(i, 0),
                     vertexSize, 0, "Vertices");
-                const meshlets = this.app.createStaticShaderBuffer(commandList, Donut_GetMeshletModelData(model, i, MeshletModelData.Meshlets),
+                const meshlets = this.app.createStaticShaderBuffer(commandList, model.getData(i, MeshletModelData.Meshlets),
                     meshletCount * MESHLET_STRIDE, MESHLET_STRIDE, "Meshlets");
                 const uniqueInts = Math.floor((uniqueSize + 3) / 4);
-                const primitives = this.app.createStaticShaderBuffer(commandList, Donut_GetMeshletModelData(model, i, MeshletModelData.PrimitiveIndices),
+                const primitives = this.app.createStaticShaderBuffer(commandList, model.getData(i, MeshletModelData.PrimitiveIndices),
                     primitiveCount * 4, 4, "PrimitiveIndices");
-                const cullData = this.app.createStaticShaderBuffer(commandList, Donut_GetMeshletModelData(model, i, MeshletModelData.CullData),
+                const cullData = this.app.createStaticShaderBuffer(commandList, model.getData(i, MeshletModelData.CullData),
                     meshletCount * CULL_DATA_STRIDE, 0, "CullData");
 
                 let unique: int[] = [];
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
                 }
-                Donut_CopyMeshletModelData(model, i, MeshletModelData.UniqueVertexIndices, Ref(unique[0]));
+                model.copyData(i, MeshletModelData.UniqueVertexIndices, Ref(unique[0]));
                 const uniqueVertexIndices = this.app.createStaticShaderBuffer(commandList, Ref(unique[0]), uniqueInts * 4, 0, "UniqueVertexIndices");
 
                 // MeshInfo: index size, meshlet count, the last meshlet's vertex and primitive counts.
@@ -782,7 +783,7 @@ namespace MeshletCull {
                 for (let j = 0; j < meshletCount * 4; j++) {
                     meshletInts.push(0);
                 }
-                Donut_CopyMeshletModelData(model, i, MeshletModelData.Meshlets, Ref(meshletInts[0]));
+                model.copyData(i, MeshletModelData.Meshlets, Ref(meshletInts[0]));
                 let meshInfo: int[] = [indexSize, meshletCount, meshletInts[(meshletCount - 1) * 4], meshletInts[(meshletCount - 1) * 4 + 2]];
                 const meshInfoBuffer = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfo");
                 commandList.writeBuffer(meshInfoBuffer, Ref(meshInfo[0]), 16);
@@ -813,24 +814,24 @@ namespace MeshletCull {
                     for (let j = 0; j < primitiveCount; j++) {
                         prims.push(0);
                     }
-                    Donut_CopyMeshletModelData(model, i, MeshletModelData.PrimitiveIndices, Ref(prims[0]));
+                    model.copyData(i, MeshletModelData.PrimitiveIndices, Ref(prims[0]));
                     mesh.primitives = prims;
                     let verts: f32[] = [];
                     for (let j = 0; j < vertexSize / 4; j++) {
                         verts.push(0.0);
                     }
-                    Donut_CopyMeshletModelVertexBuffer(model, i, 0, Ref(verts[0]));
+                    model.copyVertexBuffer(i, 0, Ref(verts[0]));
                     mesh.vertices = verts;
                     let cull: f32[] = [];
                     for (let j = 0; j < meshletCount * 6; j++) {
                         cull.push(0.0);
                     }
-                    Donut_CopyMeshletModelData(model, i, MeshletModelData.CullData, Ref(cull[0]));
+                    model.copyData(i, MeshletModelData.CullData, Ref(cull[0]));
                     mesh.cullFloats = cull;
                 }
                 obj.meshes.push(mesh);
             }
-            Donut_DestroyMeshletModel(model);
+            model.destroy();
             this.objects.push(obj);
             return ok;
         }

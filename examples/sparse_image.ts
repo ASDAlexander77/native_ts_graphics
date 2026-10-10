@@ -306,7 +306,7 @@ namespace SparseImage {
 
         // The texture and its pages.
         private texture: TextureHandle;
-        private stagingTexture: StagingTextureHandle;
+        private stagingTexture: StagingTexture;
         private width: int;
         private height: int;
         private tileWidth: int;
@@ -1406,12 +1406,12 @@ namespace SparseImage {
 
             // The sample's raw_data_image: the texture's first level, on the CPU's side.
             this.stagingTexture = this.app.loadStagingTexture(TEXTURE_PATH);
-            if (!this.stagingTexture) {
+            if (this.stagingTexture.isNull()) {
                 console.log("Cannot load the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return false;
             }
-            this.width = Donut_GetStagingTextureWidth(this.stagingTexture);
-            this.height = Donut_GetStagingTextureHeight(this.stagingTexture);
+            this.width = this.stagingTexture.getWidth();
+            this.height = this.stagingTexture.getHeight();
             if (!this.createSparseTexture()) {
                 return false;
             }

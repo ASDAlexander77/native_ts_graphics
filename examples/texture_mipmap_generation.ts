@@ -343,11 +343,11 @@ namespace TextureMipmapGeneration {
         // command list.
         loadTextureGenerateMipmaps(commandList: CommandList): TextureHandle | null {
             const staging = this.app.loadStagingTexture(TEXTURE_PATH);
-            if (!staging) {
+            if (staging.isNull()) {
                 return null;
             }
-            const width = Donut_GetStagingTextureWidth(staging);
-            const height = Donut_GetStagingTextureHeight(staging);
+            const width = staging.getWidth();
+            const height = staging.getHeight();
             // 1 + floor(log2(max(width, height))).
             this.mipLevels = 1;
             while ((Math.max(width, height) >> this.mipLevels) > 0) {

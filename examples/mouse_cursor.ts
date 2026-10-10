@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { SdkMesh } from "../core/sdk_mesh";
 
 namespace MouseCursor {
     const WINDOW_TITLE = "Donut Example: Mouse Cursor";
@@ -269,33 +270,33 @@ namespace MouseCursor {
                 console.log(`Cannot load ${file}: set XBOX_ATG_SAMPLES_DIR when configuring`);
                 return false;
             }
-            const loaded = Donut_LoadSdkMesh(binaryFile.getData(), binaryFile.getSize());
-            if (!loaded) {
+            const loaded = SdkMesh.load(binaryFile.getData(), binaryFile.getSize());
+            if (loaded.isNull()) {
                 app.releaseObject(binaryFile.handle);
                 console.log(`${file}: not a SDKMESH file`);
                 return false;
             }
-            const mesh = loaded as SdkMeshHandle;
+            const mesh = loaded;
 
             // Position, normal, texture coordinates (and a second set for the dual texture effect).
             let ok = true;
-            for (let i = 0; i < Donut_GetSdkMeshVertexBufferCount(mesh); i++) {
-                let layoutOk = Donut_GetSdkMeshVertexBufferStride(mesh, i) == stride
-                    && Donut_GetSdkMeshVertexElementOffset(mesh, i, 3, 0) == 12 && Donut_GetSdkMeshVertexElementOffset(mesh, i, 5, 0) == 24;
-                if (dualTexture && Donut_GetSdkMeshVertexElementOffset(mesh, i, 5, 1) != 32) {
+            for (let i = 0; i < mesh.getVertexBufferCount(); i++) {
+                let layoutOk = mesh.getVertexBufferStride(i) == stride
+                    && mesh.getVertexElementOffset(i, 3, 0) == 12 && mesh.getVertexElementOffset(i, 5, 0) == 24;
+                if (dualTexture && mesh.getVertexElementOffset(i, 5, 1) != 32) {
                     layoutOk = false;
                 }
                 if (!layoutOk) {
                     console.log(`${file}: unexpected vertex layout`);
                     ok = false;
                 }
-                this.vertexBuffers.push(app.createStaticVertexBuffer(commandList, Donut_GetSdkMeshVertexBufferData(mesh, i),
-                    Donut_GetSdkMeshVertexBufferSize(mesh, i), file));
+                this.vertexBuffers.push(app.createStaticVertexBuffer(commandList, mesh.getVertexBufferData(i),
+                    mesh.getVertexBufferSize(i), file));
             }
-            for (let i = 0; i < Donut_GetSdkMeshIndexBufferCount(mesh); i++) {
-                this.indexBuffers.push(app.createStaticIndexBuffer(commandList, Donut_GetSdkMeshIndexBufferData(mesh, i),
-                    Donut_GetSdkMeshIndexBufferSize(mesh, i), file));
-                this.index32.push(Donut_IsSdkMeshIndexBuffer32Bit(mesh, i) != 0);
+            for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
+                this.indexBuffers.push(app.createStaticIndexBuffer(commandList, mesh.getIndexBufferData(i),
+                    mesh.getIndexBufferSize(i), file));
+                this.index32.push(mesh.isIndexBuffer32Bit(i) != 0);
             }
 
             // LoadMaterial: a material whose ambient and diffuse colors are all zero is white; the
@@ -304,8 +305,8 @@ namespace MouseCursor {
             for (let i = 0; i < 17; i++) {
                 colors.push(0.0);
             }
-            for (let m = 0; m < Donut_GetSdkMeshMaterialCount(mesh); m++) {
-                Donut_CopySdkMeshMaterialColors(mesh, m, Ref(colors[0]));
+            for (let m = 0; m < mesh.getMaterialCount(); m++) {
+                mesh.copyMaterialColors(m, Ref(colors[0]));
                 let allZero = true;
                 for (let i = 0; i < 8; i++) {
                     if (colors[i] != 0.0) {
@@ -347,7 +348,7 @@ namespace MouseCursor {
                         this.materialSpecular.push(1.0);
                     }
                 }
-                const textureName = Donut_GetSdkMeshMaterialTexture(mesh, m, 0);
+                const textureName = mesh.getMaterialTexture(m, 0);
                 const texture = textureName == "" ? null : app.loadTexture(commandList, MEDIA_DIR + textureName, 0);
                 if (!texture) {
                     console.log(`${file}: cannot load the material's texture ${textureName}`);
@@ -357,7 +358,7 @@ namespace MouseCursor {
                 }
                 if (dualTexture) {
                     // The SDKMESH material's specular texture (Donut_GetSdkMeshMaterialTexture's 2).
-                    const texture2Name = Donut_GetSdkMeshMaterialTexture(mesh, m, 2);
+                    const texture2Name = mesh.getMaterialTexture(m, 2);
                     const texture2 = texture2Name == "" ? null : app.loadTexture(commandList, MEDIA_DIR + texture2Name, 0);
                     if (!texture2) {
                         console.log(`${file}: cannot load the material's second texture ${texture2Name}`);
@@ -368,23 +369,23 @@ namespace MouseCursor {
                 }
             }
 
-            for (let m = 0; m < Donut_GetSdkMeshMeshCount(mesh); m++) {
-                for (let j = 0; j < Donut_GetSdkMeshMeshSubsetCount(mesh, m); j++) {
-                    const subset = Donut_GetSdkMeshMeshSubset(mesh, m, j);
-                    if (Donut_GetSdkMeshSubsetPrimitiveType(mesh, subset) != 0) {
+            for (let m = 0; m < mesh.getMeshCount(); m++) {
+                for (let j = 0; j < mesh.getMeshSubsetCount(m); j++) {
+                    const subset = mesh.getMeshSubset(m, j);
+                    if (mesh.getSubsetPrimitiveType(subset) != 0) {
                         console.log(`${file}: only triangle lists are supported`);
                         ok = false;
                     }
-                    this.partVertexBuffers.push(Donut_GetSdkMeshMeshVertexBuffer(mesh, m));
-                    this.partIndexBuffers.push(Donut_GetSdkMeshMeshIndexBuffer(mesh, m));
-                    this.partMaterials.push(Donut_GetSdkMeshSubsetMaterial(mesh, subset));
-                    this.partIndexCounts.push(Donut_GetSdkMeshSubsetIndexCount(mesh, subset));
-                    this.partStartIndices.push(Donut_GetSdkMeshSubsetIndexStart(mesh, subset));
-                    this.partVertexOffsets.push(Donut_GetSdkMeshSubsetVertexStart(mesh, subset));
+                    this.partVertexBuffers.push(mesh.getMeshVertexBuffer(m));
+                    this.partIndexBuffers.push(mesh.getMeshIndexBuffer(m));
+                    this.partMaterials.push(mesh.getSubsetMaterial(subset));
+                    this.partIndexCounts.push(mesh.getSubsetIndexCount(subset));
+                    this.partStartIndices.push(mesh.getSubsetIndexStart(subset));
+                    this.partVertexOffsets.push(mesh.getSubsetVertexStart(subset));
                 }
             }
 
-            Donut_DestroySdkMesh(mesh);
+            mesh.destroy();
             app.releaseObject(binaryFile.handle);
             return ok;
         }

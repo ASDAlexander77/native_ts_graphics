@@ -29,7 +29,7 @@ namespace DescriptorIndexing {
     // The sample's create_image: 16 x 16 RGBA8, a pattern picked by the seed (a checkerboard,
     // stripes or diagonals of 4-texel cells) in the color, the dark cells at a quarter, each
     // channel plus noise in [0, 0.1) from the sample's random engine; packed 4 bytes per int.
-    function createImageData(rgb: number[], imageSeed: int, rng: RandomEngineHandle): int[] {
+    function createImageData(rgb: number[], imageSeed: int, rng: RandomEngine): int[] {
         let texels: int[] = [];
         for (let y = 0; y < IMAGE_SIZE; y++) {
             for (let x = 0; x < IMAGE_SIZE; x++) {
@@ -47,7 +47,7 @@ namespace DescriptorIndexing {
                 const patternColor = pattern != 0 ? 0.25 : 1.0;
                 let texel = 0;
                 for (let i = 0; i < 3; i++) {
-                    const noise = Donut_RandomUniformFloat(rng, 0.0, 0.1);
+                    const noise = rng.uniformFloat(0.0, 0.1);
                     texel |= floatToUnorm8(Math.fround(Math.fround(patternColor * rgb[i]) + noise)) << (i * 8);
                 }
                 // Alpha 0xff.
@@ -205,7 +205,7 @@ namespace DescriptorIndexing {
             const rng = this.app.createRandomEngine(42);
             let colors: number[] = [];
             for (let i = 0; i < NUM_DESCRIPTORS_NON_UNIFORM * 3; i++) {
-                colors.push(Donut_RandomUniformFloat(rng, 0.2, 0.8));
+                colors.push(rng.uniformFloat(0.2, 0.8));
             }
             for (let i = 0; i < NUM_DESCRIPTORS_NON_UNIFORM; i++) {
                 let texels = createImageData([colors[i * 3], colors[i * 3 + 1], colors[i * 3 + 2]], i, rng);
