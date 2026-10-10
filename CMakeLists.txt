@@ -2574,6 +2574,24 @@ add_dxgs_media(meshlet_cull meshlet_cull
     Samples/Desktop/D3D12MeshShaders/src/Assets/Camera.bin)
 add_tslang_example_test(meshlet_cull)
 
+# Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletInstancing: a cube of toy robots drawn by a
+# mesh shader alone, a group per meshlet and instance, several instances of each subset's last meshlet
+# packed into one group, in batches of at most 65536 groups. Its model is the sample's
+# (core/meshlet_model.cpp), from DIRECTX_GRAPHICS_SAMPLES_DIR. Mesh shaders need D3D12 or Vulkan, so
+# no DXBC.
+donut_compile_shaders(
+    TARGET meshlet_instancing_shaders
+    PROJECT_NAME "Meshlet Instancing"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet_instancing.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/meshlet_instancing.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_instancing/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/meshlet_instancing/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+add_tslang_example(meshlet_instancing core/directx_math.ts core/meshlet_model.cpp MEDIA meshlet_instancing)
+add_dxgs_media(meshlet_instancing meshlet_instancing Samples/Desktop/D3D12MeshShaders/src/Assets/ToyRobot.bin)
+add_tslang_example_test(meshlet_instancing)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse
