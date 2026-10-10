@@ -185,6 +185,11 @@ set(DONUT_NVRHI_PATCHES
     # depth target value is outside the bounds are discarded, on D3D12 (pipeline state streams with
     # D3D12_DEPTH_STENCIL_DESC1, OMSetDepthBounds) and Vulkan (dynamic depth bounds; depth_bounds_test).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-depth-bounds-test.patch"
+    # Vulkan puts depth/stencil textures in a shader resource state into eDepthStencilReadOnlyOptimal,
+    # the layout their SRV descriptors declare, also when the state isn't set through a binding set:
+    # Donut's CommonRenderPasses gives its black depth textures a permanent ShaderResource state, so
+    # DeferredLightingPass's default shadow map was sampled in the wrong layout (deferred_shading).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-depth-srv-layout.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
