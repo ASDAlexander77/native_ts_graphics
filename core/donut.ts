@@ -1357,6 +1357,12 @@ export class App {
         return Donut_SetSwapChainColorSpace(this.handle, colorSpace);
     }
 
+    // Changes the back buffers' format (RGBA8_UNORM, SRGBA8_UNORM, R10G10B10A2_UNORM or RGBA16_FLOAT; 8-bit
+    // ones BGRA on Vulkan) at once, as a resize; not within a frame. 0 where the swap chain can't have it.
+    setSwapChainFormat(format: Format): int {
+        return Donut_SetSwapChainFormat(this.handle, format);
+    }
+
     // Non-zero if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
     // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
     isDisplayHdr(): int {
@@ -1788,6 +1794,11 @@ export class Frame {
     // item); the draw described stays, so it can repeat with other push constants.
     drawVerticesWithPushConstants(vertexCount: int, data: Opaque, byteSize: int): void {
         Donut_DrawVerticesWithPushConstants(this.handle, vertexCount, data, byteSize);
+    }
+
+    // Same, from vertex startVertex on.
+    drawVerticesRangeWithPushConstants(vertexCount: int, startVertex: int, data: Opaque, byteSize: int): void {
+        Donut_DrawVerticesRangeWithPushConstants(this.handle, vertexCount, startVertex, data, byteSize);
     }
 
     // A mesh shader draw: begin with a meshlet pipeline (whole framebuffer by default), add binding sets

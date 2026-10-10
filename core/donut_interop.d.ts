@@ -1975,6 +1975,8 @@ declare function Donut_DrawVertices(frame: FrameHandle, vertexCount: int): void;
 // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
 // item); the draw described stays, so it can repeat with other push constants.
 declare function Donut_DrawVerticesWithPushConstants(frame: FrameHandle, vertexCount: int, data: Opaque, byteSize: int): void;
+// Same, from vertex startVertex on.
+declare function Donut_DrawVerticesRangeWithPushConstants(frame: FrameHandle, vertexCount: int, startVertex: int, data: Opaque, byteSize: int): void;
 // Executes what the frame's command list holds so far, and reopens it for the rest of the frame
 // (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
 declare function Donut_SubmitFrameCommandList(app: AppHandle, frame: FrameHandle): void;
@@ -2212,6 +2214,9 @@ declare function Donut_GetAdapterLuid(app: AppHandle, dst: Opaque): int;
 // Asks for another color space of the back buffers, from the next frame on (as a resize: back
 // buffer resizing callbacks run). 0 (nothing changes) if the swap chain can't present it.
 declare function Donut_SetSwapChainColorSpace(app: AppHandle, colorSpace: SwapChainColorSpace): int;
+// Changes the back buffers' format (RGBA8_UNORM, SRGBA8_UNORM, R10G10B10A2_UNORM or RGBA16_FLOAT; 8-bit
+// ones BGRA on Vulkan) at once, as a resize; not within a frame. 0 where the swap chain can't have it.
+declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // Non-zero if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
 // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
 declare function Donut_IsDisplayHdr(app: AppHandle): int;

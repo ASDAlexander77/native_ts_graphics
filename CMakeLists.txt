@@ -561,26 +561,31 @@ function(add_tslang_example name)
     endif()
 endfunction()
 
-# Headless run tests, run by ctest: add_tslang_example_test(<name> [APIS <api>...] [ARGS <arg>...])
-# runs <name> with -test (its test mode: a headless device, a fixed number of frames at a fixed
-# time step, checks of what it rendered, read back) and -debug on each API (dx12 and vk unless
-# APIS names others), as the tests <name>.<api>, labeled <api>. A test fails on a non-zero exit
+# Headless run tests, run by ctest: add_tslang_example_test(<name> [SUFFIX <suffix>] [APIS <api>...]
+# [ARGS <arg>...]) runs <name> with -test (its test mode: a headless device, a fixed number of
+# frames at a fixed time step, checks of what it rendered, read back) and -debug on each API (dx12
+# and vk unless APIS names others), as the tests <name>.<api> (<name>.<suffix>.<api> with SUFFIX,
+# for another set of ARGS), labeled <api>. A test fails on a non-zero exit
 # code, or an error line from Donut, NVRHI's validation or the API's (D3D12's, Vulkan's) layer;
 # Donut logs every message of Vulkan's validation layer as a warning, so those fail it too.
 enable_testing()
 function(add_tslang_example_test name)
-    cmake_parse_arguments(PARSE_ARGV 1 TEST "" "" "APIS;ARGS")
+    cmake_parse_arguments(PARSE_ARGV 1 TEST "" "SUFFIX" "APIS;ARGS")
     if (ANDROID)
         return()
     endif()
     if (NOT TEST_APIS)
         set(TEST_APIS dx12 vk)
     endif()
+    set(test_name ${name})
+    if (TEST_SUFFIX)
+        set(test_name ${name}.${TEST_SUFFIX})
+    endif()
     foreach(api ${TEST_APIS})
-        add_test(NAME ${name}.${api}
+        add_test(NAME ${test_name}.${api}
             COMMAND ${name} -${api} -debug -test ${TEST_ARGS}
             WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-        set_tests_properties(${name}.${api} PROPERTIES
+        set_tests_properties(${test_name}.${api} PROPERTIES
             FAIL_REGULAR_EXPRESSION "ERROR|Validation Error|D3D12 ERROR|D3D12 CORRUPTION|layerPrefix='Validation'"
             LABELS ${api}
             TIMEOUT 300)
@@ -2644,6 +2649,24 @@ donut_compile_shaders(
 add_tslang_example(dynamic_indexing core/directx_math.ts MEDIA dynamic_indexing)
 add_dxgs_media(dynamic_indexing dynamic_indexing Samples/Desktop/D3D12DynamicIndexing/src/occcity.bin)
 add_tslang_example_test(dynamic_indexing)
+
+# Port of DirectX-Graphics-Samples' D3D12HDR: SDR and HDR gradients and the Rec.709 and Rec.2020 gamuts
+# drawn linearly into a float target and presented with the display's curve (sRGB, ST.2084 for
+# HDR10, linear for scRGB), the back buffers' format switched at run time (8-bit, R10G10B10A2,
+# RGBA16_FLOAT), the UI's text composed over the scene. Its tests run each format. D3D12 or Vulkan
+# (D3D11 can't change the back buffers' format here).
+donut_compile_shaders(
+    TARGET hdr_display_shaders
+    PROJECT_NAME "HDR Display"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr_display.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr_display.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/hdr_display/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/hdr_display/spirv
+)
+add_tslang_example(hdr_display MEDIA fonts)
+add_tslang_example_test(hdr_display)
+add_tslang_example_test(hdr_display SUFFIX 10bit ARGS -testFormat 10)
+add_tslang_example_test(hdr_display SUFFIX 16bit ARGS -testFormat 16)
 
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
