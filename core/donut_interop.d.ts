@@ -1504,8 +1504,8 @@ declare function Donut_ImGuiBeginFullScreenWindow(imguiPass: Opaque): void;
 declare function Donut_ImGuiDrawScreenCenteredText(imguiPass: Opaque, text: string): void;
 declare function Donut_ImGuiEndFullScreenWindow(imguiPass: Opaque): void;
 // Donut's material / light editor widgets, for a scene material / light; non-zero if it changed.
-declare function Donut_ImGuiMaterialEditor(material: Opaque, allowDomainChanges: int): int;
-declare function Donut_ImGuiLightEditor(light: Opaque): int;
+declare function Donut_ImGuiMaterialEditor(material: MaterialHandle, allowDomainChanges: int): int;
+declare function Donut_ImGuiLightEditor(light: LightHandle): int;
 // The system's open (open != 0) or save file dialog; filters as "BMP files|*.bmp|All files|*.*".
 // The chosen path, or "" if cancelled; valid until the next call.
 declare function Donut_FileDialog(open: int, filters: string): string;
@@ -1515,122 +1515,122 @@ declare function Donut_ReleaseObject(app: AppHandle, object: ObjectHandle): void
 
 // glTF or .scene.json, path relative to the executable's directory or absolute; loaded on the
 // app's thread pool, textures uploaded. Null (after logging why) on failure.
-declare function Donut_LoadScene(app: AppHandle, path: string): Opaque;
+declare function Donut_LoadScene(app: AppHandle, path: string): SceneHandle;
 // numConstantBufferVersions bounds how many views it can render per frame.
 declare function Donut_CreateForwardShadingPass(app: AppHandle, numConstantBufferVersions: int): Opaque;
 // Cube map render target, resolution x resolution faces: SRGBA8 color, D32 depth.
 declare function Donut_CreateCubemapTarget(app: AppHandle, resolution: int): Opaque;
 // One array slice per face; valid as long as the target.
 declare function Donut_GetCubemapColorTexture(cubemapTarget: Opaque): TextureHandle;
-declare function Donut_SetCubemapViewFromCamera(cubemapTarget: Opaque, camera: Opaque, zNear: number, cullDistance: number): void;
+declare function Donut_SetCubemapViewFromCamera(cubemapTarget: Opaque, camera: CameraHandle, zNear: number, cullDistance: number): void;
 // Records the scene as seen by one cube face (0..5) into commandList, opening and closing it.
-declare function Donut_RenderCubemapFace(cubemapTarget: Opaque, face: int, commandList: CommandListHandle, scene: Opaque, forwardShadingPass: Opaque): void;
+declare function Donut_RenderCubemapFace(cubemapTarget: Opaque, face: int, commandList: CommandListHandle, scene: SceneHandle, forwardShadingPass: Opaque): void;
 // Same, on the app's worker threads (it runs C++ only); each concurrent task needs its own
 // command list from Donut_CreateDeferredCommandList. Wait with Donut_WaitForTasks.
-declare function Donut_RenderCubemapFaceAsync(app: AppHandle, cubemapTarget: Opaque, face: int, commandList: CommandListHandle, scene: Opaque, forwardShadingPass: Opaque): void;
+declare function Donut_RenderCubemapFaceAsync(app: AppHandle, cubemapTarget: Opaque, face: int, commandList: CommandListHandle, scene: SceneHandle, forwardShadingPass: Opaque): void;
 declare function Donut_WaitForTasks(app: AppHandle): void;
 // For recording on another thread and executing later.
 declare function Donut_CreateDeferredCommandList(app: AppHandle): CommandListHandle;
 
 // Donut's first person camera: WASD / arrows move, dragging with the left button looks around.
-declare function Donut_CreateFirstPersonCamera(app: AppHandle): Opaque;
+declare function Donut_CreateFirstPersonCamera(app: AppHandle): CameraHandle;
 // First person cameras only.
-declare function Donut_CameraLookAt(camera: Opaque, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
+declare function Donut_CameraLookAt(camera: CameraHandle, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
 // Donut's third person (orbit) camera: dragging with the left button orbits the target, the wheel
 // zooms, WASD / arrows move the target. The Donut_Camera* functions below work for both kinds.
-declare function Donut_CreateThirdPersonCamera(app: AppHandle): Opaque;
-declare function Donut_ThirdPersonCameraSetTarget(camera: Opaque, x: number, y: number, z: number): void;
-declare function Donut_ThirdPersonCameraSetDistance(camera: Opaque, distance: number): void;
+declare function Donut_CreateThirdPersonCamera(app: AppHandle): CameraHandle;
+declare function Donut_ThirdPersonCameraSetTarget(camera: CameraHandle, x: number, y: number, z: number): void;
+declare function Donut_ThirdPersonCameraSetDistance(camera: CameraHandle, distance: number): void;
 // Radians.
-declare function Donut_ThirdPersonCameraSetRotation(camera: Opaque, yaw: number, pitch: number): void;
+declare function Donut_ThirdPersonCameraSetRotation(camera: CameraHandle, yaw: number, pitch: number): void;
 // Orbits the target from the position.
-declare function Donut_ThirdPersonCameraLookAt(camera: Opaque, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
+declare function Donut_ThirdPersonCameraLookAt(camera: CameraHandle, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
 // Every frame, after Donut_SetPlanarView of the view it renders.
-declare function Donut_ThirdPersonCameraSetView(camera: Opaque, view: Opaque): void;
+declare function Donut_ThirdPersonCameraSetView(camera: CameraHandle, view: ViewHandle): void;
 // Forward / up directions: 3 floats into dst (Ref of a `let` f32 array element).
-declare function Donut_GetCameraDirection(camera: Opaque, dst: Opaque): void;
-declare function Donut_GetCameraUp(camera: Opaque, dst: Opaque): void;
+declare function Donut_GetCameraDirection(camera: CameraHandle, dst: Opaque): void;
+declare function Donut_GetCameraUp(camera: CameraHandle, dst: Opaque): void;
 // Units per second.
-declare function Donut_CameraSetMoveSpeed(camera: Opaque, speed: number): void;
+declare function Donut_CameraSetMoveSpeed(camera: CameraHandle, speed: number): void;
 // Mouse sensitivity, radians per pixel.
-declare function Donut_CameraSetRotateSpeed(camera: Opaque, speed: number): void;
+declare function Donut_CameraSetRotateSpeed(camera: CameraHandle, speed: number): void;
 // Forward the pass input callbacks' arguments to these.
-declare function Donut_CameraKeyboardUpdate(camera: Opaque, key: int, scancode: int, action: int, mods: int): void;
-declare function Donut_CameraMousePosUpdate(camera: Opaque, x: number, y: number): void;
-declare function Donut_CameraMouseButtonUpdate(camera: Opaque, button: int, action: int, mods: int): void;
-declare function Donut_CameraMouseScrollUpdate(camera: Opaque, xOffset: number, yOffset: number): void;
-declare function Donut_CameraAnimate(camera: Opaque, elapsedSeconds: number): void;
+declare function Donut_CameraKeyboardUpdate(camera: CameraHandle, key: int, scancode: int, action: int, mods: int): void;
+declare function Donut_CameraMousePosUpdate(camera: CameraHandle, x: number, y: number): void;
+declare function Donut_CameraMouseButtonUpdate(camera: CameraHandle, button: int, action: int, mods: int): void;
+declare function Donut_CameraMouseScrollUpdate(camera: CameraHandle, xOffset: number, yOffset: number): void;
+declare function Donut_CameraAnimate(camera: CameraHandle, elapsedSeconds: number): void;
 // World-to-view matrix into dst: Ref(arr[0]) of a `let` f32[16] array, row-major, row-vector
 // convention (as Donut_SetPlanarView takes it).
-declare function Donut_GetCameraWorldToView(camera: Opaque, dst: Opaque): void;
+declare function Donut_GetCameraWorldToView(camera: CameraHandle, dst: Opaque): void;
 
 // Loaded scenes. Both valid as long as the scene.
-declare function Donut_GetSceneGraph(scene: Opaque): Opaque;
-declare function Donut_GetRootNode(sceneGraph: Opaque): Opaque;
+declare function Donut_GetSceneGraph(scene: SceneHandle): SceneGraphHandle;
+declare function Donut_GetRootNode(sceneGraph: SceneGraphHandle): NodeHandle;
 // One BLAS per mesh of a loaded scene and a TLAS over its instances, builds recorded into an
 // open command list.
-declare function Donut_BuildSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: Opaque): SceneAccelStructsHandle;
+declare function Donut_BuildSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle): SceneAccelStructsHandle;
 // For Donut_BindAccelStruct; valid as long as the acceleration structures.
 declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: SceneAccelStructsHandle): AccelStructHandle;
 // Like Donut_LoadScene, registering the scene's buffers and textures in a descriptor table; the
 // scene's geometry and material buffers index into it.
-declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: DescriptorTableManagerHandle): Opaque;
+declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: DescriptorTableManagerHandle): SceneHandle;
 // InstanceData / GeometryData / MaterialConstants structured buffers; valid as long as the scene.
-declare function Donut_GetSceneBuffer(scene: Opaque, which: SceneBuffer): BufferHandle;
+declare function Donut_GetSceneBuffer(scene: SceneHandle, which: SceneBuffer): BufferHandle;
 // Geometries of a loaded scene, addressed by global geometry index (0 .. count - 1).
-declare function Donut_GetSceneGeometryCount(scene: Opaque): int;
+declare function Donut_GetSceneGeometryCount(scene: SceneHandle): int;
 // Per-geometry bindings, e.g. for local binding sets: Buffer<uint> of the geometry's indices;
 // Buffer<...> of one vertex attribute; a material texture (or Donut's white / black texture if the
 // material has none); the MaterialConstants cbuffer.
-declare function Donut_BindGeometryIndexBuffer(bindingSetDesc: BindingSetDescHandle, slot: int, scene: Opaque, geometryIndex: int): void;
-declare function Donut_BindGeometryVertexAttribute(bindingSetDesc: BindingSetDescHandle, slot: int, scene: Opaque, geometryIndex: int,
+declare function Donut_BindGeometryIndexBuffer(bindingSetDesc: BindingSetDescHandle, slot: int, scene: SceneHandle, geometryIndex: int): void;
+declare function Donut_BindGeometryVertexAttribute(bindingSetDesc: BindingSetDescHandle, slot: int, scene: SceneHandle, geometryIndex: int,
     attribute: GeometryAttribute): void;
-declare function Donut_BindGeometryMaterialTexture(app: AppHandle, bindingSetDesc: BindingSetDescHandle, slot: int, scene: Opaque, geometryIndex: int,
+declare function Donut_BindGeometryMaterialTexture(app: AppHandle, bindingSetDesc: BindingSetDescHandle, slot: int, scene: SceneHandle, geometryIndex: int,
     which: MaterialTexture, fallback: FallbackTexture): void;
-declare function Donut_BindGeometryMaterialConstants(bindingSetDesc: BindingSetDescHandle, slot: int, scene: Opaque, geometryIndex: int): void;
+declare function Donut_BindGeometryMaterialConstants(bindingSetDesc: BindingSetDescHandle, slot: int, scene: SceneHandle, geometryIndex: int): void;
 // Like Donut_BuildSceneAccelStructs, for shader tables with hitGroupStride entries per geometry in
 // global geometry index order.
-declare function Donut_BuildSceneAccelStructsWithHitGroupStride(app: AppHandle, commandList: CommandListHandle, scene: Opaque,
+declare function Donut_BuildSceneAccelStructsWithHitGroupStride(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle,
     hitGroupStride: int): SceneAccelStructsHandle;
 // Animations, e.g. glTF skeletal ones. Durations in seconds; apply poses the nodes at `time`.
-declare function Donut_GetSceneAnimationCount(scene: Opaque): int;
-declare function Donut_GetSceneAnimationDuration(scene: Opaque, index: int): number;
-declare function Donut_ApplySceneAnimation(scene: Opaque, index: int, time: number): void;
+declare function Donut_GetSceneAnimationCount(scene: SceneHandle): int;
+declare function Donut_GetSceneAnimationDuration(scene: SceneHandle, index: int): number;
+declare function Donut_ApplySceneAnimation(scene: SceneHandle, index: int, time: number): void;
 // For animated scenes: one BLAS per mesh (alpha-tested geometries non-opaque, static ones
 // compacted later), builds recorded into an open command list, plus a TLAS built every frame by
 // Donut_UpdateSceneAccelStructs. Get the TLAS with Donut_GetSceneTopLevelAS.
-declare function Donut_CreateAnimatedSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: Opaque): SceneAccelStructsHandle;
+declare function Donut_CreateAnimatedSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle): SceneAccelStructsHandle;
 // Valid only inside a render callback. Updates the scene graph and GPU buffers (transforms,
 // skinning) after animations.
-declare function Donut_RefreshScene(app: AppHandle, frame: FrameHandle, scene: Opaque): void;
+declare function Donut_RefreshScene(app: AppHandle, frame: FrameHandle, scene: SceneHandle): void;
 // Valid only inside a render callback, after Donut_RefreshScene: rebuilds the skinned BLASes,
 // compacts finished static ones and builds the TLAS (instance IDs = instance indices).
-declare function Donut_UpdateSceneAccelStructs(app: AppHandle, frame: FrameHandle, sceneAccelStructs: SceneAccelStructsHandle, scene: Opaque): void;
+declare function Donut_UpdateSceneAccelStructs(app: AppHandle, frame: FrameHandle, sceneAccelStructs: SceneAccelStructsHandle, scene: SceneHandle): void;
 
 // A texture file (relative to the executable's directory) loaded and uploaded (mipmaps generated
 // if it has none), registered in a descriptor table for bindless access. It submits its own
 // command list: call it while no other one is open. Null (after logging why) on failure.
-declare function Donut_LoadBindlessTexture(app: AppHandle, descriptorTableManager: DescriptorTableManagerHandle, path: string, sRGB: int): Opaque;
+declare function Donut_LoadBindlessTexture(app: AppHandle, descriptorTableManager: DescriptorTableManagerHandle, path: string, sRGB: int): LoadedTextureHandle;
 // Its index in the descriptor table (the shaders' array index).
-declare function Donut_GetTextureDescriptorIndex(loadedTexture: Opaque): int;
-declare function Donut_GetSceneInstanceCount(scene: Opaque): int;
+declare function Donut_GetTextureDescriptorIndex(loadedTexture: LoadedTextureHandle): int;
+declare function Donut_GetSceneInstanceCount(scene: SceneHandle): int;
 // A node's world-space position into dst (3 floats); 0 if there's no node at path ("/Emitter").
-declare function Donut_GetSceneNodePosition(scene: Opaque, path: string, dst: Opaque): int;
+declare function Donut_GetSceneNodePosition(scene: SceneHandle, path: string, dst: Opaque): int;
 
 // Dynamic meshes: one alpha-blended geometry whose vertices (positions, texture coordinates) and
 // indices are replaced every frame, with room for maxVertices / maxIndices, buffers registered in
 // a descriptor table. Attach to a loaded scene before creating binding sets of its buffers.
-declare function Donut_CreateDynamicMesh(app: AppHandle, descriptorTableManager: DescriptorTableManagerHandle, maxVertices: int, maxIndices: int, name: string): Opaque;
-declare function Donut_AttachDynamicMesh(app: AppHandle, scene: Opaque, dynamicMesh: Opaque): void;
+declare function Donut_CreateDynamicMesh(app: AppHandle, descriptorTableManager: DescriptorTableManagerHandle, maxVertices: int, maxIndices: int, name: string): DynamicMeshHandle;
+declare function Donut_AttachDynamicMesh(app: AppHandle, scene: SceneHandle, dynamicMesh: DynamicMeshHandle): void;
 // A Donut_LoadBindlessTexture texture; the scene picks it up at the next Donut_RefreshScene.
-declare function Donut_SetDynamicMeshTexture(app: AppHandle, dynamicMesh: Opaque, loadedTexture: Opaque): void;
+declare function Donut_SetDynamicMeshTexture(app: AppHandle, dynamicMesh: DynamicMeshHandle, loadedTexture: LoadedTextureHandle): void;
 // Valid only inside a render callback: positions (3 x f32 per vertex), texCoords (2 x f32), int
 // indices, as Ref of `let` array elements; rebuilds the mesh's BLAS.
-declare function Donut_UpdateDynamicMesh(frame: FrameHandle, dynamicMesh: Opaque, positions: Opaque, texCoords: Opaque, vertexCount: int,
+declare function Donut_UpdateDynamicMesh(frame: FrameHandle, dynamicMesh: DynamicMeshHandle, positions: Opaque, texCoords: Opaque, vertexCount: int,
     indices: Opaque, indexCount: int): void;
 // A BLAS for every scene mesh without one (not dynamic meshes), into an open command list;
 // geometries not in the Opaque material domain are non-opaque.
-declare function Donut_BuildSceneBLASes(app: AppHandle, commandList: CommandListHandle, scene: Opaque): void;
+declare function Donut_BuildSceneBLASes(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle): void;
 // A BLAS of one AABB (-1..1 on each axis), built into an open command list.
 declare function Donut_CreateUnitAABBBlas(app: AppHandle, commandList: CommandListHandle, debugName: string): AccelStructHandle;
 // A TLAS of up to maxInstances, rebuilt by Donut_BuildTopLevelAS from the instances added since
@@ -1640,8 +1640,8 @@ declare function Donut_CreateTopLevelAS(app: AppHandle, maxInstances: int): Scen
 declare function Donut_CreateTopLevelASWithFlags(app: AppHandle, maxInstances: int, buildFlags: AccelStructBuildFlags): SceneAccelStructsHandle;
 // The scene's mesh instances (instance ID = instance index) with instanceMask, dynamicMesh's (if
 // not null) with dynamicMeshMask.
-declare function Donut_AddSceneTopLevelASInstances(sceneAccelStructs: SceneAccelStructsHandle, scene: Opaque, instanceMask: int,
-    dynamicMesh: Opaque | null, dynamicMeshMask: int): void;
+declare function Donut_AddSceneTopLevelASInstances(sceneAccelStructs: SceneAccelStructsHandle, scene: SceneHandle, instanceMask: int,
+    dynamicMesh: DynamicMeshHandle | null, dynamicMeshMask: int): void;
 // A BLAS instance scaled by `scale`, then moved to (x, y, z).
 declare function Donut_AddTopLevelASInstance(sceneAccelStructs: SceneAccelStructsHandle, bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int,
     scale: number, x: number, y: number, z: number): void;
@@ -1664,28 +1664,28 @@ declare function Donut_UpdateTopLevelAS(frame: FrameHandle, sceneAccelStructs: S
 // Scenes built in code. Material with a diffuse texture (relative to the executable's directory,
 // sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
 // specular-glossiness model. Null (after logging why) if the texture can't be loaded.
-declare function Donut_CreateTexturedMaterial(app: AppHandle, commandList: CommandListHandle, name: string, diffuseTexturePath: string, specularGloss: int): Opaque;
+declare function Donut_CreateTexturedMaterial(app: AppHandle, commandList: CommandListHandle, name: string, diffuseTexturePath: string, specularGloss: int): MaterialHandle;
 // One geometry, identity instance transform, uploads recorded into an open command list. Per
 // vertex: position (3 x f32), texture coordinates (2 x f32), normal and tangent (int each,
 // packed as by vectorToSnorm8); then indexCount int indices. Arrays: Ref(arr[0]) of `let` arrays.
-declare function Donut_CreateMesh(app: AppHandle, commandList: CommandListHandle, name: string, material: Opaque,
+declare function Donut_CreateMesh(app: AppHandle, commandList: CommandListHandle, name: string, material: MaterialHandle,
     positions: Opaque, texCoords: Opaque, normals: Opaque, tangents: Opaque, vertexCount: int,
-    indices: Opaque, indexCount: int): Opaque;
-declare function Donut_CreateSceneGraph(app: AppHandle): Opaque;
+    indices: Opaque, indexCount: int): MeshHandle;
+declare function Donut_CreateSceneGraph(app: AppHandle): SceneGraphHandle;
 // Adds a node holding an instance of mesh under parentNode, or as the root if parentNode is
 // null. Returns the node, valid as long as the scene graph.
-declare function Donut_AddMeshNode(app: AppHandle, sceneGraph: Opaque, parentNode: Opaque | null, mesh: Opaque, name: string): Opaque;
+declare function Donut_AddMeshNode(app: AppHandle, sceneGraph: SceneGraphHandle, parentNode: NodeHandle | null, mesh: MeshHandle, name: string): NodeHandle;
 // Directional light in a new node under parentNode, shining along dir; angularSize in degrees.
 // Returns the light, valid as long as the scene graph; refresh the graph before using it.
-declare function Donut_AddDirectionalLight(sceneGraph: Opaque, parentNode: Opaque, name: string,
-    dirX: number, dirY: number, dirZ: number, angularSize: number, irradiance: number): Opaque;
+declare function Donut_AddDirectionalLight(sceneGraph: SceneGraphHandle, parentNode: NodeHandle, name: string,
+    dirX: number, dirY: number, dirZ: number, angularSize: number, irradiance: number): LightHandle;
 // For constant buffers that embed a LightConstants (donut/shaders/light_cb.h): its size in
 // bytes (a multiple of 16), and a light's constants written to dst (Ref of a `let` array element).
 declare function Donut_GetLightConstantsSize(): int;
-declare function Donut_FillLightConstants(light: Opaque, dst: Opaque): void;
+declare function Donut_FillLightConstants(light: LightHandle, dst: Opaque): void;
 // After adding or changing nodes.
-declare function Donut_RefreshSceneGraph(app: AppHandle, sceneGraph: Opaque): void;
-declare function Donut_PrintSceneGraph(sceneGraph: Opaque): void;
+declare function Donut_RefreshSceneGraph(app: AppHandle, sceneGraph: SceneGraphHandle): void;
+declare function Donut_PrintSceneGraph(sceneGraph: SceneGraphHandle): void;
 
 // Deferred shading. G-buffer of width x height pixels plus an RGBA16_FLOAT texture for the lit
 // result; create new ones when the frame size changes. reverseDepth != 0 clears depth to 0, for
@@ -1700,30 +1700,30 @@ declare function Donut_CreateGBufferFillPass(app: AppHandle): Opaque;
 declare function Donut_CreateDeferredLightingPass(app: AppHandle): Opaque;
 // Drops the pass's cached references to G-buffer textures.
 declare function Donut_ResetDeferredLightingBindingCache(deferredLightingPass: Opaque): void;
-declare function Donut_CreatePlanarView(app: AppHandle): Opaque;
+declare function Donut_CreatePlanarView(app: AppHandle): ViewHandle;
 // Matrices: Ref(arr[0]) of `let` f32[16] arrays, row-major, row-vector convention (as the math
 // functions in the examples build them); viewport of width x height pixels.
-declare function Donut_SetPlanarView(view: Opaque, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int): void;
+declare function Donut_SetPlanarView(view: ViewHandle, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int): void;
 // For constant buffers that embed a PlanarViewConstants (donut/shaders/view_cb.h): its size in
 // bytes (a multiple of 16), and the view's constants written to dst (Ref of a `let` array element).
 declare function Donut_GetPlanarViewConstantsSize(): int;
-declare function Donut_FillPlanarViewConstants(view: Opaque, dst: Opaque): void;
+declare function Donut_FillPlanarViewConstants(view: ViewHandle, dst: Opaque): void;
 // These four are valid only inside a render callback.
 declare function Donut_ClearGBuffer(frame: FrameHandle, gbufferTargets: Opaque): void;
 // Draws the mesh instance of a Donut_AddMeshNode node into the G-buffer, back faces culled.
-declare function Donut_RenderMeshNodeToGBuffer(frame: FrameHandle, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, meshNode: Opaque): void;
+declare function Donut_RenderMeshNodeToGBuffer(frame: FrameHandle, gbufferFillPass: Opaque, view: ViewHandle, gbufferTargets: Opaque, meshNode: NodeHandle): void;
 // Draws the opaque meshes of a loaded scene into the G-buffer.
-declare function Donut_RenderSceneToGBuffer(frame: FrameHandle, gbufferFillPass: Opaque, view: Opaque, gbufferTargets: Opaque, scene: Opaque): void;
+declare function Donut_RenderSceneToGBuffer(frame: FrameHandle, gbufferFillPass: Opaque, view: ViewHandle, gbufferTargets: Opaque, scene: SceneHandle): void;
 // Lights the G-buffer with the scene graph's lights plus a top / bottom ambient term, into the
 // targets' shaded color texture.
-declare function Donut_RenderDeferredLighting(frame: FrameHandle, deferredLightingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
-    sceneGraph: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
+declare function Donut_RenderDeferredLighting(frame: FrameHandle, deferredLightingPass: Opaque, view: ViewHandle, gbufferTargets: Opaque,
+    sceneGraph: SceneGraphHandle, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
 // Valid only inside a render callback: the transparent meshes of a loaded scene, forward-shaded
 // over the targets' shaded color, depth-tested against the G-buffer depth.
-declare function Donut_RenderSceneTransparentOverGBuffer(frame: FrameHandle, forwardShadingPass: Opaque, view: Opaque, gbufferTargets: Opaque,
-    scene: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
+declare function Donut_RenderSceneTransparentOverGBuffer(frame: FrameHandle, forwardShadingPass: Opaque, view: ViewHandle, gbufferTargets: Opaque,
+    scene: SceneHandle, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
 // Viewport, matrices and derived state, e.g. to keep the previous frame's view.
-declare function Donut_CopyPlanarView(dstView: Opaque, srcView: Opaque): void;
+declare function Donut_CopyPlanarView(dstView: ViewHandle, srcView: ViewHandle): void;
 
 // Forward shading with TAA. Targets of width x height pixels: RGBA16_FLOAT HDR color and D24S8
 // depth (cleared for reverse Z) to render into, motion vectors, and the TAA resolved color and
@@ -1736,17 +1736,17 @@ declare function Donut_GetTemporalTargetsTexture(temporalTargets: Opaque, which:
 declare function Donut_SetTemporalTargetsShadingRateSurface(temporalTargets: Opaque, shadingRateSurface: TextureHandle): void;
 // TAA over the targets (Catmull-Rom filter, stencil mask 0x01), for views like `view`; create a
 // new one with new targets.
-declare function Donut_CreateTemporalAntiAliasingPass(app: AppHandle, view: Opaque, temporalTargets: Opaque): Opaque;
+declare function Donut_CreateTemporalAntiAliasingPass(app: AppHandle, view: ViewHandle, temporalTargets: Opaque): Opaque;
 // These four are valid only inside a render callback.
 // Depth to 0 (reverse Z), HDR color to black.
 declare function Donut_ClearTemporalTargets(frame: FrameHandle, temporalTargets: Opaque): void;
 // A loaded scene, opaque then transparent meshes, with a Donut_CreateForwardShadingPass pass, lit
 // by the scene graph's lights plus a top / bottom ambient term.
-declare function Donut_RenderSceneForward(frame: FrameHandle, forwardShadingPass: Opaque, view: Opaque, temporalTargets: Opaque, scene: Opaque,
+declare function Donut_RenderSceneForward(frame: FrameHandle, forwardShadingPass: Opaque, view: ViewHandle, temporalTargets: Opaque, scene: SceneHandle,
     topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void;
-declare function Donut_RenderMotionVectors(frame: FrameHandle, temporalAntiAliasingPass: Opaque, view: Opaque, previousView: Opaque): void;
+declare function Donut_RenderMotionVectors(frame: FrameHandle, temporalAntiAliasingPass: Opaque, view: ViewHandle, previousView: ViewHandle): void;
 // HDR color into the resolved color; feedbackIsValid 0 when there's no history yet.
-declare function Donut_TemporalResolve(frame: FrameHandle, temporalAntiAliasingPass: Opaque, view: Opaque, feedbackIsValid: int): void;
+declare function Donut_TemporalResolve(frame: FrameHandle, temporalAntiAliasingPass: Opaque, view: ViewHandle, feedbackIsValid: int): void;
 
 // Variable rate shading. Pixels per shading rate surface texel, as NVRHI reports it, or (the
 // second one) straight from D3D12, 0 on other APIs.
@@ -1774,7 +1774,7 @@ declare function Donut_DrawSetVariableRateShading(frame: FrameHandle, enabled: i
 declare function Donut_CreateFramebufferWithShadingRate(app: AppHandle, colorTexture0: TextureHandle, colorTexture1: TextureHandle | null,
     depthTexture: TextureHandle | null, shadingRateSurface: TextureHandle | null): FramebufferHandle;
 // enabled != 0: the view's draws use the framebuffer's shading rate surface alone; 0: full rate.
-declare function Donut_SetViewVariableRateShading(view: Opaque, enabled: int): void;
+declare function Donut_SetViewVariableRateShading(view: ViewHandle, enabled: int): void;
 // The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
 // inside a render callback, Begin and End around the draws.
 declare function Donut_BeginD3D12ShadingRateImage(frame: FrameHandle, shadingRateSurface: TextureHandle): void;
@@ -1988,80 +1988,80 @@ declare function Donut_GetFormatName(format: int): string;
 declare function Donut_QueryFormatSupport(app: AppHandle, format: int): int;
 
 // Scene loading on a thread, as donut::app::ApplicationBase does it asynchronously.
-declare function Donut_CreateSceneLoader(app: AppHandle): Opaque;
+declare function Donut_CreateSceneLoader(app: AppHandle): SceneLoaderHandle;
 // Non-zero once a scene has loaded, until the next Donut_BeginLoadingScene: unload what
 // references it (the passes' binding caches) before starting another load.
-declare function Donut_IsSceneLoaded(sceneLoader: Opaque): int;
+declare function Donut_IsSceneLoaded(sceneLoader: SceneLoaderHandle): int;
 // Non-zero while the loading thread runs.
-declare function Donut_IsSceneLoading(sceneLoader: Opaque): int;
+declare function Donut_IsSceneLoading(sceneLoader: SceneLoaderHandle): int;
 // Starts loading a scene (absolute path, or relative to the executable's directory), dropping
 // the current one: its handle is invalid afterwards.
-declare function Donut_BeginLoadingScene(sceneLoader: Opaque, path: string): void;
+declare function Donut_BeginLoadingScene(sceneLoader: SceneLoaderHandle, path: string): void;
 // In a render callback, every frame, first thing: uploads loaded textures and finishes the scene.
 // Submits what the frame has recorded so far.
-declare function Donut_UpdateSceneLoader(sceneLoader: Opaque, frame: FrameHandle): SceneLoaderState;
+declare function Donut_UpdateSceneLoader(sceneLoader: SceneLoaderHandle, frame: FrameHandle): SceneLoaderState;
 // The loaded scene, or null; valid until the next Donut_BeginLoadingScene.
-declare function Donut_GetLoadedScene(sceneLoader: Opaque): Opaque;
+declare function Donut_GetLoadedScene(sceneLoader: SceneLoaderHandle): SceneHandle;
 // 4 ints into dst: objects loaded, objects total, textures loaded, textures requested.
-declare function Donut_GetSceneLoadingStats(sceneLoader: Opaque, dst: Opaque): void;
+declare function Donut_GetSceneLoadingStats(sceneLoader: SceneLoaderHandle, dst: Opaque): void;
 // The scene files (glTF, .scene.json) under a directory, recursively, as a string list.
-declare function Donut_FindScenes(app: AppHandle, directory: string): Opaque;
-declare function Donut_GetStringListCount(stringList: Opaque): int;
-declare function Donut_GetStringListItem(stringList: Opaque, index: int): string;
+declare function Donut_FindScenes(app: AppHandle, directory: string): StringListHandle;
+declare function Donut_GetStringListCount(stringList: StringListHandle): int;
+declare function Donut_GetStringListItem(stringList: StringListHandle, index: int): string;
 
 // Scene graph queries; the handles are valid as long as the scene.
-declare function Donut_GetSceneGraphLightCount(sceneGraph: Opaque): int;
-declare function Donut_GetSceneGraphLight(sceneGraph: Opaque, index: int): Opaque;
-declare function Donut_GetLightType(light: Opaque): LightType;
-declare function Donut_GetLightName(light: Opaque): string;
+declare function Donut_GetSceneGraphLightCount(sceneGraph: SceneGraphHandle): int;
+declare function Donut_GetSceneGraphLight(sceneGraph: SceneGraphHandle, index: int): LightHandle;
+declare function Donut_GetLightType(light: LightHandle): LightType;
+declare function Donut_GetLightName(light: LightHandle): string;
 // Directional lights only.
-declare function Donut_GetDirectionalLightIrradiance(light: Opaque): number;
-declare function Donut_SetDirectionalLightIrradiance(light: Opaque, irradiance: number): void;
+declare function Donut_GetDirectionalLightIrradiance(light: LightHandle): number;
+declare function Donut_SetDirectionalLightIrradiance(light: LightHandle, irradiance: number): void;
 // The shadow map (Donut_CreateCascadedShadowMap) the light casts shadows with, or null for none.
-declare function Donut_SetLightShadowMap(light: Opaque, shadowMap: Opaque | null): void;
-declare function Donut_GetSceneGraphCameraCount(sceneGraph: Opaque): int;
-declare function Donut_GetSceneGraphCamera(sceneGraph: Opaque, index: int): Opaque;
-declare function Donut_GetSceneCameraName(sceneCamera: Opaque): string;
+declare function Donut_SetLightShadowMap(light: LightHandle, shadowMap: Opaque | null): void;
+declare function Donut_GetSceneGraphCameraCount(sceneGraph: SceneGraphHandle): int;
+declare function Donut_GetSceneGraphCamera(sceneGraph: SceneGraphHandle, index: int): SceneCameraHandle;
+declare function Donut_GetSceneCameraName(sceneCamera: SceneCameraHandle): string;
 // 16 floats into dst (row-major, row-vector convention).
-declare function Donut_GetSceneCameraWorldToView(sceneCamera: Opaque, dst: Opaque): void;
-declare function Donut_GetSceneCameraViewToWorld(sceneCamera: Opaque, dst: Opaque): void;
+declare function Donut_GetSceneCameraWorldToView(sceneCamera: SceneCameraHandle, dst: Opaque): void;
+declare function Donut_GetSceneCameraViewToWorld(sceneCamera: SceneCameraHandle, dst: Opaque): void;
 // Of a perspective camera (radians); negative for other cameras.
-declare function Donut_GetSceneCameraVerticalFov(sceneCamera: Opaque): number;
-declare function Donut_GetSceneCameraZNear(sceneCamera: Opaque): number;
+declare function Donut_GetSceneCameraVerticalFov(sceneCamera: SceneCameraHandle): number;
+declare function Donut_GetSceneCameraZNear(sceneCamera: SceneCameraHandle): number;
 // World-space bounds as 6 floats into dst: min x, y, z, max x, y, z.
-declare function Donut_GetNodeBoundingBox(node: Opaque, dst: Opaque): void;
+declare function Donut_GetNodeBoundingBox(node: NodeHandle, dst: Opaque): void;
 // Like "/Sponza/Mesh_12"; valid until the next call.
-declare function Donut_GetNodePath(node: Opaque): string;
+declare function Donut_GetNodePath(node: NodeHandle): string;
 // Makes the scene re-sort the node's content (e.g. after a material changes domain).
-declare function Donut_InvalidateNodeContent(node: Opaque): void;
-declare function Donut_GetSceneGraphMaterialCount(sceneGraph: Opaque): int;
-declare function Donut_GetSceneGraphMaterial(sceneGraph: Opaque, index: int): Opaque;
-declare function Donut_GetMaterialID(material: Opaque): int;
-declare function Donut_GetMaterialName(material: Opaque): string;
+declare function Donut_InvalidateNodeContent(node: NodeHandle): void;
+declare function Donut_GetSceneGraphMaterialCount(sceneGraph: SceneGraphHandle): int;
+declare function Donut_GetSceneGraphMaterial(sceneGraph: SceneGraphHandle, index: int): MaterialHandle;
+declare function Donut_GetMaterialID(material: MaterialHandle): int;
+declare function Donut_GetMaterialName(material: MaterialHandle): string;
 // A donut::engine::MaterialDomain value.
-declare function Donut_GetMaterialDomain(material: Opaque): int;
-declare function Donut_SetMaterialDirty(material: Opaque, dirty: int): void;
-declare function Donut_GetSceneGraphMeshInstanceCount(sceneGraph: Opaque): int;
+declare function Donut_GetMaterialDomain(material: MaterialHandle): int;
+declare function Donut_SetMaterialDirty(material: MaterialHandle, dirty: int): void;
+declare function Donut_GetSceneGraphMeshInstanceCount(sceneGraph: SceneGraphHandle): int;
 // The instance index (what material ID passes write) and node of the index-th mesh instance.
-declare function Donut_GetMeshInstanceIndex(sceneGraph: Opaque, index: int): int;
-declare function Donut_GetMeshInstanceNode(sceneGraph: Opaque, index: int): Opaque;
+declare function Donut_GetMeshInstanceIndex(sceneGraph: SceneGraphHandle, index: int): int;
+declare function Donut_GetMeshInstanceNode(sceneGraph: SceneGraphHandle, index: int): NodeHandle;
 // The geometries of the index-th mesh instance's mesh, and how many indices one of them has.
-declare function Donut_GetMeshInstanceGeometryCount(sceneGraph: Opaque, index: int): int;
-declare function Donut_GetMeshInstanceGeometryIndexCount(sceneGraph: Opaque, index: int, geometry: int): int;
+declare function Donut_GetMeshInstanceGeometryCount(sceneGraph: SceneGraphHandle, index: int): int;
+declare function Donut_GetMeshInstanceGeometryIndexCount(sceneGraph: SceneGraphHandle, index: int, geometry: int): int;
 
 // Views.
-declare function Donut_CreateStereoView(app: AppHandle): Opaque;
+declare function Donut_CreateStereoView(app: AppHandle): ViewHandle;
 // Donut_SetPlanarView with a sub-pixel projection jitter, in pixels.
-declare function Donut_SetPlanarViewJittered(view: Opaque, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
+declare function Donut_SetPlanarViewJittered(view: ViewHandle, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
 // Left eye in the left half of width x height pixels, right eye in the right half.
-declare function Donut_SetStereoView(view: Opaque, leftViewMatrix: Opaque, rightViewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
-declare function Donut_CopyStereoView(dstView: Opaque, srcView: Opaque): void;
+declare function Donut_SetStereoView(view: ViewHandle, leftViewMatrix: Opaque, rightViewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
+declare function Donut_CopyStereoView(dstView: ViewHandle, srcView: ViewHandle): void;
 // The left eye's planar view, e.g. for Donut_ThirdPersonCameraSetView.
-declare function Donut_GetStereoLeftView(view: Opaque): Opaque;
+declare function Donut_GetStereoLeftView(view: ViewHandle): ViewHandle;
 // First person cameras only.
-declare function Donut_CameraLookAtWithUp(camera: Opaque, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number, upX: number, upY: number, upZ: number): void;
+declare function Donut_CameraLookAtWithUp(camera: CameraHandle, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number, upX: number, upY: number, upZ: number): void;
 // 3 floats into dst.
-declare function Donut_GetCameraPosition(camera: Opaque, dst: Opaque): void;
+declare function Donut_GetCameraPosition(camera: CameraHandle, dst: Opaque): void;
 
 // Render targets of width x height (multisampled with sampleCount > 1): the G-buffer with motion
 // vectors and reverse-Z depth, HDR color, material IDs, resolved color, TAA feedback, LDR color,
@@ -2129,16 +2129,16 @@ declare function Donut_CreateCascadedShadowMap(app: AppHandle, resolution: int, 
 declare function Donut_CreatePlanarShadowMap(app: AppHandle, resolution: int): Opaque;
 // Fits a planar shadow map to a directional light and the whole scene graph's bounds, shadows
 // fading out over fadeRangeWorld at its edges. 1 if the view changed (render the shadow map again).
-declare function Donut_SetupPlanarShadowMapForScene(shadowMap: Opaque, light: Opaque, sceneGraph: Opaque, fadeRangeWorld: number): int;
+declare function Donut_SetupPlanarShadowMapForScene(shadowMap: Opaque, light: LightHandle, sceneGraph: SceneGraphHandle, fadeRangeWorld: number): int;
 // One array slice per cascade (one for a planar shadow map).
 declare function Donut_GetShadowMapTexture(shadowMap: Opaque): TextureHandle;
 // Fits the cascades to a directional light and the view, out to maxShadowDistance (stable).
-declare function Donut_SetupShadowMapForView(shadowMap: Opaque, light: Opaque, view: Opaque, maxShadowDistance: number, zRange: number, exponent: number): void;
+declare function Donut_SetupShadowMapForView(shadowMap: Opaque, light: LightHandle, view: ViewHandle, maxShadowDistance: number, zRange: number, exponent: number): void;
 declare function Donut_ClearShadowMap(commandList: CommandListHandle, shadowMap: Opaque): void;
 declare function Donut_CreateShadowDepthPass(app: AppHandle, depthBias: int, slopeScaledDepthBias: number): Opaque;
 declare function Donut_ResetDepthPassBindingCache(depthPass: Opaque): void;
 // Opaque meshes into all cascades; materialEvents != 0: a GPU marker per material.
-declare function Donut_RenderShadowDepth(commandList: CommandListHandle, depthPass: Opaque, shadowMap: Opaque, sceneGraph: Opaque, materialEvents: int): void;
+declare function Donut_RenderShadowDepth(commandList: CommandListHandle, depthPass: Opaque, shadowMap: Opaque, sceneGraph: SceneGraphHandle, materialEvents: int): void;
 
 // Geometry passes.
 // singlePassCubemap != 0 renders cube map views in one pass (Feature.FastGeometryShader).
@@ -2147,47 +2147,47 @@ declare function Donut_ResetForwardShadingBindingCache(forwardShadingPass: Opaqu
 // The lights a forward shading pass renders with, kept between its draws.
 declare function Donut_CreateForwardShadingContext(app: AppHandle): Opaque;
 // A scene graph's lights, top / bottom ambient, and the enabled probes of a set (or null).
-declare function Donut_PrepareForwardLights(commandList: CommandListHandle, forwardShadingPass: Opaque, forwardShadingContext: Opaque, sceneGraph: Opaque, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: Opaque | null): void;
+declare function Donut_PrepareForwardLights(commandList: CommandListHandle, forwardShadingPass: Opaque, forwardShadingContext: Opaque, sceneGraph: SceneGraphHandle, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: Opaque | null): void;
 // Opaque (transparent == 0) or transparent meshes into a framebuffer; previousView may be null.
-declare function Donut_RenderForward(commandList: CommandListHandle, forwardShadingPass: Opaque, forwardShadingContext: Opaque, view: Opaque, previousView: Opaque | null, framebuffer: FramebufferFactoryHandle, sceneGraph: Opaque, transparent: int, name: string, materialEvents: int): void;
+declare function Donut_RenderForward(commandList: CommandListHandle, forwardShadingPass: Opaque, forwardShadingContext: Opaque, view: ViewHandle, previousView: ViewHandle | null, framebuffer: FramebufferFactoryHandle, sceneGraph: SceneGraphHandle, transparent: int, name: string, materialEvents: int): void;
 // enableMotionVectors != 0 writes motion vectors, and stencilWriteMask into the stencil there.
 declare function Donut_CreateGBufferFillPassWithOptions(app: AppHandle, enableMotionVectors: int, stencilWriteMask: int): Opaque;
 declare function Donut_ResetGBufferFillBindingCache(gbufferFillPass: Opaque): void;
-declare function Donut_RenderGBufferFill(commandList: CommandListHandle, gbufferFillPass: Opaque, view: Opaque, previousView: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, materialEvents: int): void;
+declare function Donut_RenderGBufferFill(commandList: CommandListHandle, gbufferFillPass: Opaque, view: ViewHandle, previousView: ViewHandle, sceneRenderTargets: Opaque, sceneGraph: SceneGraphHandle, materialEvents: int): void;
 // Writes each pixel's material ID and instance index.
 declare function Donut_CreateMaterialIDPass(app: AppHandle, stencilWriteMask: int): Opaque;
-declare function Donut_RenderMaterialIDs(commandList: CommandListHandle, materialIdPass: Opaque, view: Opaque, previousView: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, transparent: int): void;
+declare function Donut_RenderMaterialIDs(commandList: CommandListHandle, materialIdPass: Opaque, view: ViewHandle, previousView: ViewHandle, sceneRenderTargets: Opaque, sceneGraph: SceneGraphHandle, transparent: int): void;
 // Lights the G-buffer into HDR color; the targets' ambient occlusion if useAmbientOcclusion != 0,
 // and a light probe set (or null).
-declare function Donut_RenderDeferredLightingToHdr(commandList: CommandListHandle, deferredLightingPass: Opaque, view: Opaque, sceneRenderTargets: Opaque, sceneGraph: Opaque, useAmbientOcclusion: int, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: Opaque | null): void;
+declare function Donut_RenderDeferredLightingToHdr(commandList: CommandListHandle, deferredLightingPass: Opaque, view: ViewHandle, sceneRenderTargets: Opaque, sceneGraph: SceneGraphHandle, useAmbientOcclusion: int, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: Opaque | null): void;
 
 // Post-processing and other passes.
 // Single-sample targets only; renders with default parameters.
 declare function Donut_CreateSsaoPass(app: AppHandle, sceneRenderTargets: Opaque): Opaque;
-declare function Donut_RenderSsao(commandList: CommandListHandle, ssaoPass: Opaque, view: Opaque): void;
-declare function Donut_CreateSkyPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: Opaque): Opaque;
+declare function Donut_RenderSsao(commandList: CommandListHandle, ssaoPass: Opaque, view: ViewHandle): void;
+declare function Donut_CreateSkyPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: ViewHandle): Opaque;
 // A lat-long (2D) or cube map environment texture drawn where the framebuffer's depth is still
 // clear; set the view up before creating it (its depth direction picks the pipeline).
-declare function Donut_CreateEnvironmentMapPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: Opaque, environmentMap: TextureHandle): Opaque;
-declare function Donut_RenderEnvironmentMap(commandList: CommandListHandle, environmentMapPass: Opaque, view: Opaque): void;
+declare function Donut_CreateEnvironmentMapPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: ViewHandle, environmentMap: TextureHandle): Opaque;
+declare function Donut_RenderEnvironmentMap(commandList: CommandListHandle, environmentMapPass: Opaque, view: ViewHandle): void;
 // Around a directional light; other SkyParameters keep their defaults.
-declare function Donut_RenderSky(commandList: CommandListHandle, skyPass: Opaque, view: Opaque, light: Opaque, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number): void;
-declare function Donut_CreateSceneTemporalAntiAliasingPass(app: AppHandle, view: Opaque, sceneRenderTargets: Opaque, motionVectorStencilMask: int): Opaque;
+declare function Donut_RenderSky(commandList: CommandListHandle, skyPass: Opaque, view: ViewHandle, light: LightHandle, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number): void;
+declare function Donut_CreateSceneTemporalAntiAliasingPass(app: AppHandle, view: ViewHandle, sceneRenderTargets: Opaque, motionVectorStencilMask: int): Opaque;
 declare function Donut_SetTemporalJitter(temporalAntiAliasingPass: Opaque, jitter: TemporalJitter): void;
 // This frame's jitter, 2 floats into dst.
 declare function Donut_GetTemporalPixelOffset(temporalAntiAliasingPass: Opaque, dst: Opaque): void;
-declare function Donut_RenderViewMotionVectors(commandList: CommandListHandle, temporalAntiAliasingPass: Opaque, view: Opaque, previousView: Opaque): void;
-declare function Donut_TemporalResolveView(commandList: CommandListHandle, temporalAntiAliasingPass: Opaque, view: Opaque, feedbackIsValid: int, enableHistoryClamping: int): void;
+declare function Donut_RenderViewMotionVectors(commandList: CommandListHandle, temporalAntiAliasingPass: Opaque, view: ViewHandle, previousView: ViewHandle): void;
+declare function Donut_TemporalResolveView(commandList: CommandListHandle, temporalAntiAliasingPass: Opaque, view: ViewHandle, feedbackIsValid: int, enableHistoryClamping: int): void;
 declare function Donut_AdvanceTemporalFrame(temporalAntiAliasingPass: Opaque): void;
 // Pass the tone mapping pass this one replaces (or null) to keep its adapted exposure.
-declare function Donut_CreateToneMappingPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: Opaque, previousToneMappingPass: Opaque | null): Opaque;
+declare function Donut_CreateToneMappingPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: ViewHandle, previousToneMappingPass: Opaque | null): Opaque;
 declare function Donut_AdvanceToneMappingFrame(toneMappingPass: Opaque, elapsedSeconds: number): void;
 declare function Donut_ResetExposure(commandList: CommandListHandle, toneMappingPass: Opaque, initialExposure: number): void;
 // Default parameters. instantAdaptation != 0: the exposure set to this frame's at once (as after
 // Donut_ResetExposure); else adapted over Donut_AdvanceToneMappingFrame's time (kept while that's 0).
-declare function Donut_RenderToneMapping(commandList: CommandListHandle, toneMappingPass: Opaque, view: Opaque, sourceTexture: TextureHandle, instantAdaptation: int): void;
-declare function Donut_CreateBloomPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: Opaque): Opaque;
-declare function Donut_RenderBloom(commandList: CommandListHandle, bloomPass: Opaque, framebuffer: FramebufferFactoryHandle, view: Opaque, sourceTexture: TextureHandle, sigma: number, alpha: number): void;
+declare function Donut_RenderToneMapping(commandList: CommandListHandle, toneMappingPass: Opaque, view: ViewHandle, sourceTexture: TextureHandle, instantAdaptation: int): void;
+declare function Donut_CreateBloomPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: ViewHandle): Opaque;
+declare function Donut_RenderBloom(commandList: CommandListHandle, bloomPass: Opaque, framebuffer: FramebufferFactoryHandle, view: ViewHandle, sourceTexture: TextureHandle, sigma: number, alpha: number): void;
 // NVIDIA DLSS (loads nvngx_dlss.dll from the executable's directory); null when built without
 // DONUT_WITH_DLSS or the device can't create it.
 declare function Donut_CreateDlss(app: AppHandle): Opaque;
@@ -2195,7 +2195,7 @@ declare function Donut_CreateDlss(app: AppHandle): Opaque;
 declare function Donut_InitDlss(dlss: Opaque, inputWidth: int, inputHeight: int, outputWidth: int, outputHeight: int): int;
 declare function Donut_IsDlssInitialized(dlss: Opaque): int;
 // HDR color into resolved color (instead of TAA), with the tone mapping pass's exposure. Planar views only.
-declare function Donut_EvaluateDlss(commandList: CommandListHandle, dlss: Opaque, view: Opaque, sceneRenderTargets: Opaque, toneMappingPass: Opaque): void;
+declare function Donut_EvaluateDlss(commandList: CommandListHandle, dlss: Opaque, view: ViewHandle, sceneRenderTargets: Opaque, toneMappingPass: Opaque): void;
 // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
 declare function Donut_CreatePixelReadbackPass(app: AppHandle, texture: TextureHandle): Opaque;
 declare function Donut_CapturePixel(commandList: CommandListHandle, pixelReadbackPass: Opaque, x: int, y: int): void;
@@ -2219,10 +2219,10 @@ declare function Donut_ResetLightProbeProcessingCaches(lightProbeProcessingPass:
 // An environment cube map (size x size, mipLevels mips) with depth, and its cube map view.
 declare function Donut_CreateLightProbeCapture(app: AppHandle, size: int, mipLevels: int): Opaque;
 declare function Donut_SetLightProbeCaptureTransform(lightProbeCapture: Opaque, x: number, y: number, z: number, zNear: number, cullDistance: number): void;
-declare function Donut_GetLightProbeCaptureView(lightProbeCapture: Opaque): Opaque;
+declare function Donut_GetLightProbeCaptureView(lightProbeCapture: Opaque): ViewHandle;
 declare function Donut_GetLightProbeCaptureFramebuffer(lightProbeCapture: Opaque): FramebufferFactoryHandle;
 declare function Donut_ClearLightProbeCapture(commandList: CommandListHandle, lightProbeCapture: Opaque): void;
-declare function Donut_SetupShadowMapForLightProbeCapture(shadowMap: Opaque, light: Opaque, lightProbeCapture: Opaque, cullDistance: number, zRange: number, exponent: number): void;
+declare function Donut_SetupShadowMapForLightProbeCapture(shadowMap: Opaque, light: LightHandle, lightProbeCapture: Opaque, cullDistance: number, zRange: number, exponent: number): void;
 declare function Donut_GenerateLightProbeCaptureMips(commandList: CommandListHandle, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque): void;
 declare function Donut_RenderLightProbeDiffuse(commandList: CommandListHandle, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque, lightProbeSet: Opaque, index: int): void;
 declare function Donut_RenderLightProbeSpecular(commandList: CommandListHandle, lightProbeProcessingPass: Opaque, lightProbeCapture: Opaque, lightProbeSet: Opaque, index: int, roughness: number, mipLevel: int): void;

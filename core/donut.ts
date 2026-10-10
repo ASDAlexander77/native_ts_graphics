@@ -999,16 +999,16 @@ export class App {
     // Dynamic meshes: one alpha-blended geometry whose vertices (positions, texture coordinates) and
     // indices are replaced every frame, with room for maxVertices / maxIndices, buffers registered in
     // a descriptor table. Attach to a loaded scene before creating binding sets of its buffers.
-    createDynamicMesh(descriptorTableManager: DescriptorTableManager, maxVertices: int, maxIndices: int, name: string): Opaque {
+    createDynamicMesh(descriptorTableManager: DescriptorTableManager, maxVertices: int, maxIndices: int, name: string): DynamicMeshHandle {
         return Donut_CreateDynamicMesh(this.handle, descriptorTableManager.handle, maxVertices, maxIndices, name);
     }
 
-    attachDynamicMesh(scene: Scene, dynamicMesh: Opaque): void {
+    attachDynamicMesh(scene: Scene, dynamicMesh: DynamicMeshHandle): void {
         Donut_AttachDynamicMesh(this.handle, scene.handle, dynamicMesh);
     }
 
     // A Donut_LoadBindlessTexture texture; the scene picks it up at the next Donut_RefreshScene.
-    setDynamicMeshTexture(dynamicMesh: Opaque, loadedTexture: LoadedTexture): void {
+    setDynamicMeshTexture(dynamicMesh: DynamicMeshHandle, loadedTexture: LoadedTexture): void {
         Donut_SetDynamicMeshTexture(this.handle, dynamicMesh, loadedTexture.handle);
     }
 
@@ -1044,7 +1044,7 @@ export class App {
     // One geometry, identity instance transform, uploads recorded into an open command list. Per
     // vertex: position (3 x f32), texture coordinates (2 x f32), normal and tangent (int each,
     // packed as by vectorToSnorm8); then indexCount int indices. Arrays: Ref(arr[0]) of `let` arrays.
-    createMesh(commandList: CommandList, name: string, material: Material, positions: Opaque, texCoords: Opaque, normals: Opaque, tangents: Opaque, vertexCount: int, indices: Opaque, indexCount: int): Opaque {
+    createMesh(commandList: CommandList, name: string, material: Material, positions: Opaque, texCoords: Opaque, normals: Opaque, tangents: Opaque, vertexCount: int, indices: Opaque, indexCount: int): MeshHandle {
         return Donut_CreateMesh(this.handle, commandList.handle, name, material.handle, positions, texCoords, normals, tangents, vertexCount, indices, indexCount);
     }
 
@@ -1054,7 +1054,7 @@ export class App {
 
     // Adds a node holding an instance of mesh under parentNode, or as the root if parentNode is
     // null. Returns the node, valid as long as the scene graph.
-    addMeshNode(sceneGraph: SceneGraph, parentNode: Node | null, mesh: Opaque, name: string): Node {
+    addMeshNode(sceneGraph: SceneGraph, parentNode: Node | null, mesh: MeshHandle, name: string): Node {
         return new Node(Donut_AddMeshNode(this.handle, sceneGraph.handle, parentNode ? (parentNode as Node).handle : null, mesh, name));
     }
 
@@ -1504,7 +1504,7 @@ export class Frame {
 
     // Valid only inside a render callback: positions (3 x f32 per vertex), texCoords (2 x f32), int
     // indices, as Ref of `let` array elements; rebuilds the mesh's BLAS.
-    updateDynamicMesh(dynamicMesh: Opaque, positions: Opaque, texCoords: Opaque, vertexCount: int, indices: Opaque, indexCount: int): void {
+    updateDynamicMesh(dynamicMesh: DynamicMeshHandle, positions: Opaque, texCoords: Opaque, vertexCount: int, indices: Opaque, indexCount: int): void {
         Donut_UpdateDynamicMesh(this.handle, dynamicMesh, positions, texCoords, vertexCount, indices, indexCount);
     }
 
@@ -2679,10 +2679,10 @@ export class ImGuiFont {
 }
 
 export class SceneLoader {
-    readonly handle: Opaque;
+    readonly handle: SceneLoaderHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: SceneLoaderHandle | null) {
+        this.handle = handle as SceneLoaderHandle;
     }
 
     // True if the function that returned it failed.
@@ -2725,10 +2725,10 @@ export class SceneLoader {
 }
 
 export class StringList {
-    readonly handle: Opaque;
+    readonly handle: StringListHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: StringListHandle | null) {
+        this.handle = handle as StringListHandle;
     }
 
     // True if the function that returned it failed.
@@ -2746,10 +2746,10 @@ export class StringList {
 }
 
 export class Scene {
-    readonly handle: Opaque;
+    readonly handle: SceneHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: SceneHandle | null) {
+        this.handle = handle as SceneHandle;
     }
 
     // True if the function that returned it failed.
@@ -2796,10 +2796,10 @@ export class Scene {
 }
 
 export class SceneGraph {
-    readonly handle: Opaque;
+    readonly handle: SceneGraphHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: SceneGraphHandle | null) {
+        this.handle = handle as SceneGraphHandle;
     }
 
     // True if the function that returned it failed.
@@ -2870,10 +2870,10 @@ export class SceneGraph {
 }
 
 export class Node {
-    readonly handle: Opaque;
+    readonly handle: NodeHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: NodeHandle | null) {
+        this.handle = handle as NodeHandle;
     }
 
     // True if the function that returned it failed.
@@ -2898,10 +2898,10 @@ export class Node {
 }
 
 export class Light {
-    readonly handle: Opaque;
+    readonly handle: LightHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: LightHandle | null) {
+        this.handle = handle as LightHandle;
     }
 
     // True if the function that returned it failed.
@@ -2941,10 +2941,10 @@ export class Light {
 }
 
 export class Material {
-    readonly handle: Opaque;
+    readonly handle: MaterialHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: MaterialHandle | null) {
+        this.handle = handle as MaterialHandle;
     }
 
     // True if the function that returned it failed.
@@ -2976,10 +2976,10 @@ export class Material {
 }
 
 export class SceneCamera {
-    readonly handle: Opaque;
+    readonly handle: SceneCameraHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: SceneCameraHandle | null) {
+        this.handle = handle as SceneCameraHandle;
     }
 
     // True if the function that returned it failed.
@@ -3029,7 +3029,7 @@ export class SceneAccelStructs {
 
     // The scene's mesh instances (instance ID = instance index) with instanceMask, dynamicMesh's (if
     // not null) with dynamicMeshMask.
-    addSceneInstances(scene: Scene, instanceMask: int, dynamicMesh: Opaque | null, dynamicMeshMask: int): void {
+    addSceneInstances(scene: Scene, instanceMask: int, dynamicMesh: DynamicMeshHandle | null, dynamicMeshMask: int): void {
         Donut_AddSceneTopLevelASInstances(this.handle, scene.handle, instanceMask, dynamicMesh, dynamicMeshMask);
     }
 
@@ -3053,10 +3053,10 @@ export class SceneAccelStructs {
 }
 
 export class LoadedTexture {
-    readonly handle: Opaque;
+    readonly handle: LoadedTextureHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: LoadedTextureHandle | null) {
+        this.handle = handle as LoadedTextureHandle;
     }
 
     // True if the function that returned it failed.
@@ -3071,10 +3071,10 @@ export class LoadedTexture {
 }
 
 export class Camera {
-    readonly handle: Opaque;
+    readonly handle: CameraHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: CameraHandle | null) {
+        this.handle = handle as CameraHandle;
     }
 
     // True if the function that returned it failed.
@@ -3168,10 +3168,10 @@ export class Camera {
 }
 
 export class View {
-    readonly handle: Opaque;
+    readonly handle: ViewHandle;
 
-    constructor(handle: Opaque | null) {
-        this.handle = handle as Opaque;
+    constructor(handle: ViewHandle | null) {
+        this.handle = handle as ViewHandle;
     }
 
     // True if the function that returned it failed.

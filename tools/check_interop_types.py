@@ -78,6 +78,19 @@ HANDLES = {
     "nvrhi::rt::PipelineDesc": "RtPipelineDescHandle",
     "TriangleBlas": "TriangleBlasHandle",
     "SceneAccelStructs": "SceneAccelStructsHandle",
+    "donut::engine::Scene": "SceneHandle",
+    "donut::engine::SceneGraph": "SceneGraphHandle",
+    "donut::engine::SceneGraphNode": "NodeHandle",
+    "donut::engine::Light": "LightHandle",
+    "donut::engine::Material": "MaterialHandle",
+    "donut::engine::SceneCamera": "SceneCameraHandle",
+    "donut::engine::MeshInfo": "MeshHandle",
+    "donut::engine::LoadedTexture": "LoadedTextureHandle",
+    "donut::app::BaseCamera": "CameraHandle",
+    "donut::engine::IView": "ViewHandle",
+    "SceneLoader": "SceneLoaderHandle",
+    "StringList": "StringListHandle",
+    "DynamicMesh": "DynamicMeshHandle",
 }
 
 # Parameters declared narrower than their C++ type: (function, parameter) -> (C++ type, TypeScript

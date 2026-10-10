@@ -208,7 +208,7 @@ namespace DeferredShading {
             commandList.open();
 
             const material = app.createTexturedMaterial(commandList, "CubeMaterial", "media/nvidia-logo.png", 1);
-            let mesh: Opaque | null = null;
+            let mesh: MeshHandle | null = null;
             if (!material.isNull()) {
                 mesh = app.createMesh(commandList, "CubeMesh", material,
                     Ref(g_Positions[0]), Ref(g_TexCoords[0]), Ref(g_Normals[0]), Ref(g_Tangents[0]), VERTEX_COUNT,

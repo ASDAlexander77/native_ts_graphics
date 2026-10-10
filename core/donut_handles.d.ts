@@ -48,3 +48,16 @@ declare class RtPipelineHandle extends ResourceHandle { private readonly __rtPip
 declare class RtPipelineDescHandle { private readonly __rtPipelineDesc: int; }
 declare class TriangleBlasHandle extends ObjectHandle { private readonly __triangleBlas: int; }
 declare class SceneAccelStructsHandle extends ObjectHandle { private readonly __sceneAccelStructs: int; }
+declare class SceneHandle extends ObjectHandle { private readonly __scene: int; }
+declare class SceneGraphHandle extends ObjectHandle { private readonly __sceneGraph: int; }
+declare class NodeHandle { private readonly __node: int; }
+declare class LightHandle { private readonly __light: int; }
+declare class MaterialHandle extends ObjectHandle { private readonly __material: int; }
+declare class SceneCameraHandle { private readonly __sceneCamera: int; }
+declare class MeshHandle extends ObjectHandle { private readonly __mesh: int; }
+declare class LoadedTextureHandle extends ObjectHandle { private readonly __loadedTexture: int; }
+declare class CameraHandle extends ObjectHandle { private readonly __camera: int; }
+declare class ViewHandle extends ObjectHandle { private readonly __view: int; }
+declare class SceneLoaderHandle extends ObjectHandle { private readonly __sceneLoader: int; }
+declare class StringListHandle extends ObjectHandle { private readonly __stringList: int; }
+declare class DynamicMeshHandle extends ObjectHandle { private readonly __dynamicMesh: int; }

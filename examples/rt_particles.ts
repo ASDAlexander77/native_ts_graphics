@@ -199,7 +199,7 @@ namespace RtParticles {
         private bindingLayout: BindingLayoutHandle;
         private descriptorTable: DescriptorTableHandle;
         private constantBuffer: BufferHandle;
-        private particleMesh: Opaque;
+        private particleMesh: DynamicMeshHandle;
         private particleInfoBuffer: BufferHandle;
         private particleIntersectionBLAS: AccelStructHandle;
         private topLevelAS: SceneAccelStructs;
