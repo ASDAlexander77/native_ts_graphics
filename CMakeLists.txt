@@ -2629,6 +2629,22 @@ donut_compile_shaders(
 add_tslang_example(execute_indirect core/directx_math.ts)
 add_tslang_example_test(execute_indirect)
 
+# Port of DirectX-Graphics-Samples' D3D12DynamicIndexing: 120 copies of a city, each draw's pixel shader
+# picking the city's material from an array of 120 textures by an index set per draw. Its data file
+# (the city's mesh and BC1 texture) is the sample's, from DIRECTX_GRAPHICS_SAMPLES_DIR. Texture arrays
+# need D3D12 or Vulkan here, so no DXBC.
+donut_compile_shaders(
+    TARGET dynamic_indexing_shaders
+    PROJECT_NAME "Dynamic Indexing"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_indexing.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_indexing.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_indexing/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_indexing/spirv
+)
+add_tslang_example(dynamic_indexing core/directx_math.ts MEDIA dynamic_indexing)
+add_dxgs_media(dynamic_indexing dynamic_indexing Samples/Desktop/D3D12DynamicIndexing/src/occcity.bin)
+add_tslang_example_test(dynamic_indexing)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse
