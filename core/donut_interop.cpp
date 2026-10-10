@@ -66,6 +66,9 @@
 #if DONUT_WITH_VULKAN
 #include <donut/app/DeviceManager_VK.h>
 #endif
+#if DONUT_WITH_DX12
+#include <donut/app/DeviceManager_DX12.h>
+#endif
 
 #if DONUT_WITH_DX11 || DONUT_WITH_DX12
 // IDXGIAdapter3::QueryVideoMemoryInfo (Donut_QueryMemoryBudget).
@@ -542,6 +545,20 @@ namespace
         static uint32_t& FrameIndex(DeviceManager* deviceManager)
         {
             return deviceManager->*(&DeviceManagerAccess::m_FrameIndex);
+        }
+
+        static donut::app::DeviceCreationParameters& Params(DeviceManager* deviceManager)
+        {
+            return deviceManager->*(&DeviceManagerAccess::m_DeviceParams);
+        }
+
+        // The device manager's resize: the passes' resizing callbacks, the swap chain resized (with
+        // the parameters' format), the passes' resized callbacks.
+        static void Resize(DeviceManager* deviceManager)
+        {
+            (deviceManager->*(&DeviceManagerAccess::BackBufferResizing))();
+            (deviceManager->*(&DeviceManagerAccess::ResizeSwapChain))();
+            (deviceManager->*(&DeviceManagerAccess::BackBufferResized))();
         }
     };
 
@@ -1430,6 +1447,11 @@ namespace
         {
             return deviceManager->*(&DeviceManagerVKAccess::m_GraphicsQueueFamily);
         }
+
+        static vk::SurfaceKHR WindowSurface(DeviceManager_VK* deviceManager)
+        {
+            return deviceManager->*(&DeviceManagerVKAccess::m_WindowSurface);
+        }
     };
 
     // The core features of a Vulkan device that Donut's device manager leaves off and the examples
@@ -1858,7 +1880,9 @@ extern "C"
         if ((options & AppOption_HdrBackBuffer) != 0)
         {
             params.swapChainFormat = nvrhi::Format::R10G10B10A2_UNORM;
-            params.optionalVulkanInstanceExtensions.push_back("VK_EXT_swapchain_colorspace");
+            // It needs VK_KHR_surface, which a headless device (test mode) has no use for.
+            if (g_TestFrameCount == 0)
+                params.optionalVulkanInstanceExtensions.push_back("VK_EXT_swapchain_colorspace");
         }
         // Conservative rasterization where the GPU has it (Feature.ConservativeRasterization).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_conservative_rasterization");
@@ -9138,12 +9162,93 @@ extern "C"
         return 1;
     }
 
+    // Changes the back buffers' format (an nvrhi::Format value: RGBA8_UNORM, SRGBA8_UNORM,
+    // R10G10B10A2_UNORM or RGBA16_FLOAT), at once, as a resize: the passes' back buffer resizing
+    // callbacks run. 8-bit formats are BGRA on Vulkan, as the swap chain Donut creates. Not within a
+    // frame (e.g. from a keyboard callback). The color space may fall back to sRGB if the new format
+    // can't present it. Returns 0 (and changes nothing) where the swap chain can't have the format
+    // (Vulkan surfaces list theirs) or on D3D11.
+    int Donut_SetSwapChainFormat(App* app, int format)
+    {
+        auto newFormat = static_cast<nvrhi::Format>(format);
+        const nvrhi::GraphicsAPI api = app->device()->getGraphicsAPI();
+        if (api == nvrhi::GraphicsAPI::VULKAN && newFormat == nvrhi::Format::RGBA8_UNORM)
+            newFormat = nvrhi::Format::BGRA8_UNORM;
+        else if (api == nvrhi::GraphicsAPI::VULKAN && newFormat == nvrhi::Format::SRGBA8_UNORM)
+            newFormat = nvrhi::Format::SBGRA8_UNORM;
+        DeviceManager* deviceManager = app->deviceManager.get();
+        donut::app::DeviceCreationParameters& params = DeviceManagerAccess::Params(deviceManager);
+
+        if (OffscreenBackBuffers* offscreen = app->offscreen.get())
+        {
+            app->device()->waitForIdle();
+            for (donut::app::IRenderPass* pass : DeviceManagerAccess::RenderPasses(deviceManager))
+                pass->BackBufferResizing();
+            for (size_t i = 0; i < offscreen->textures.size(); i++)
+            {
+                nvrhi::TextureDesc desc = offscreen->textures[i]->getDesc();
+                desc.format = newFormat;
+                offscreen->textures[i] = app->device()->createTexture(desc);
+                offscreen->framebuffers[i] = app->device()->createFramebuffer(
+                    nvrhi::FramebufferDesc().addColorAttachment(offscreen->textures[i]));
+            }
+            params.swapChainFormat = newFormat;
+            for (donut::app::IRenderPass* pass : DeviceManagerAccess::RenderPasses(deviceManager))
+                pass->BackBufferResized(params.backBufferWidth, params.backBufferHeight, 1);
+            return 1;
+        }
+
+#if DONUT_WITH_VULKAN
+        if (api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(deviceManager);
+            const vk::Format vkFormat = vk::Format(nvrhi::vulkan::convertFormat(newFormat));
+            bool supported = false;
+            for (const auto& surfaceFormat : DeviceManagerVKAccess::PhysicalDevice(vulkanDeviceManager).getSurfaceFormatsKHR(
+                DeviceManagerVKAccess::WindowSurface(vulkanDeviceManager)))
+                supported |= surfaceFormat.format == vkFormat;
+            if (!supported)
+                return 0;
+            app->device()->waitForIdle();
+            params.swapChainFormat = newFormat;
+            DeviceManagerAccess::Resize(deviceManager);
+            return 1;
+        }
+#endif
+#if DONUT_WITH_DX12
+        if (api == nvrhi::GraphicsAPI::D3D12)
+        {
+            // CreateSwapChain's DXGI format: sRGB formats as their UNORM ones.
+            struct Access : DeviceManager_DX12
+            {
+                static DXGI_SWAP_CHAIN_DESC1& Desc(DeviceManager_DX12* deviceManager)
+                {
+                    return deviceManager->*(&Access::m_SwapChainDesc);
+                }
+            };
+            app->device()->waitForIdle();
+            params.swapChainFormat = newFormat;
+            DXGI_FORMAT dxgiFormat = nvrhi::d3d12::convertFormat(newFormat);
+            if (newFormat == nvrhi::Format::SRGBA8_UNORM)
+                dxgiFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+            else if (newFormat == nvrhi::Format::SBGRA8_UNORM)
+                dxgiFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
+            Access::Desc(static_cast<DeviceManager_DX12*>(deviceManager)).Format = dxgiFormat;
+            DeviceManagerAccess::Resize(deviceManager);
+            return 1;
+        }
+#endif
+        return 0;
+    }
+
     // Whether the display the window is mostly on is in HDR mode (Windows' HDR / advanced color on,
     // an HDR10 output: DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020), as the ATG samples'
     // DeviceResources::UpdateColorSpace finds it. 0 elsewhere than on Windows.
     int Donut_IsDisplayHdr(App* app)
     {
 #ifdef _WIN32
+        if (!app->deviceManager->GetWindow())
+            return 0;
         HWND hwnd = glfwGetWin32Window(app->deviceManager->GetWindow());
         RECT window;
         if (!hwnd || !GetWindowRect(hwnd, &window))
@@ -10951,6 +11056,21 @@ extern "C"
 
         nvrhi::DrawArguments args;
         args.vertexCount = static_cast<uint32_t>(vertexCount);
+        ctx->commandList->draw(args);
+    }
+
+    // Same, from vertex startVertex on.
+    void Donut_DrawVerticesRangeWithPushConstants(FrameContext* frame, int vertexCount, int startVertex, const void* data, int byteSize)
+    {
+        FrameContext* ctx = frame;
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->setPushConstants(data, static_cast<size_t>(byteSize));
+
+        nvrhi::DrawArguments args;
+        args.vertexCount = static_cast<uint32_t>(vertexCount);
+        args.startVertexLocation = static_cast<uint32_t>(startVertex);
         ctx->commandList->draw(args);
     }
 
