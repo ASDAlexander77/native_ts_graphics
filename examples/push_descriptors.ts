@@ -280,9 +280,9 @@ namespace PushDescriptors {
                 if (pipeline.isNull()) {
                     return false;
                 }
-                pipeline.addBinding(BINDING_SCENE, PushDescriptorType.ConstantBuffer, ShaderType.Vertex);
-                pipeline.addBinding(BINDING_MODEL, PushDescriptorType.ConstantBuffer, ShaderType.Vertex);
-                pipeline.addBinding(BINDING_TEXTURE, PushDescriptorType.TextureSampler, ShaderType.Pixel);
+                pipeline.addBinding(BINDING_SCENE, RawDescriptorType.ConstantBuffer, ShaderType.Vertex);
+                pipeline.addBinding(BINDING_MODEL, RawDescriptorType.ConstantBuffer, ShaderType.Vertex);
+                pipeline.addBinding(BINDING_TEXTURE, RawDescriptorType.TextureSampler, ShaderType.Pixel);
                 if (pipeline.build() == 0) {
                     return false;
                 }

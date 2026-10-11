@@ -2172,6 +2172,25 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 add_tslang_example_test(push_descriptors APIS vk)
 
+# Port of Vulkan-Samples' descriptor_buffer_basic: push_descriptors' two textured cubes, their
+# descriptor sets in descriptor buffers (VK_EXT_descriptor_buffer): buffers the CPU writes the
+# descriptors into, bound once, each draw's sets at offsets in them
+# (Donut_CreateDescriptorBufferPipeline, Donut_CreateDescriptorBuffer: raw Vulkan in NVRHI's command
+# list). Vulkan only, so SPIR-V only. It reads push_descriptors' crate textures and
+# fragment_shading_rate's cube.
+donut_compile_shaders(
+    TARGET descriptor_buffer_basic_shaders
+    PROJECT_NAME "Descriptor Buffer Basic"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/descriptor_buffer_basic.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/descriptor_buffer_basic.hlsl
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/descriptor_buffer_basic/spirv
+)
+add_tslang_example(descriptor_buffer_basic MEDIA fonts fragment_shading_rate push_descriptors)
+if (TARGET push_descriptors_media)
+    add_dependencies(descriptor_buffer_basic push_descriptors_media fragment_shading_rate_media)
+endif()
+add_tslang_example_test(descriptor_buffer_basic APIS vk)
+
 # Port of Vulkan-Samples' separate_image_sampler: a textured quad, its sampler bound apart from the
 # image (a binding set of its own), linear or nearest filtering picked in the UI. It reads
 # fragment_shading_rate's copy of the texture.
