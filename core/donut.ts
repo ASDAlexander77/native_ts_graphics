@@ -188,6 +188,20 @@ export class App {
         return Donut_GetMemoryHeapFlags(this.handle, heap);
     }
 
+    // Calibrated timestamps: timestamps of several time domains (clocks) sampled together, the
+    // device's among them. Vulkan's VK_EXT_calibrated_timestamps, D3D12's command queue clock
+    // calibration (the device's and QueryPerformanceCounter's). A null handle if the device can't
+    // (D3D11, or Vulkan without the extension). Release it with Donut_ReleaseObject.
+    createCalibratedTimestamps(): CalibratedTimestamps {
+        return new CalibratedTimestamps(Donut_CreateCalibratedTimestamps(this.handle));
+    }
+
+    // The nanoseconds of a tick of the device's timestamps (Vulkan's timestampPeriod; from the
+    // graphics queue's timestamp frequency on D3D12); 0 if unknown.
+    getTimestampPeriod(): number {
+        return Donut_GetTimestampPeriod(this.handle);
+    }
+
     // LineRasterization bits: the line rasterization modes pipelines can have: Vulkan's with
     // VK_EXT_line_rasterization's features, plain and stippled; D3D's rectangular (quadrilateral),
     // Bresenham (aliased) and smooth (alpha antialiased) lines, unstippled.
@@ -4051,6 +4065,43 @@ export class D3D12LibraryRtPipeline {
 
     setRootConstantBuffer(rootParameter: int, buffer: BufferHandle): void {
         Donut_SetD3D12LibraryRtRootConstantBuffer(this.handle, rootParameter, buffer);
+    }
+}
+
+export class CalibratedTimestamps {
+    readonly handle: CalibratedTimestampsHandle;
+
+    constructor(handle: CalibratedTimestampsHandle | null) {
+        this.handle = handle as CalibratedTimestampsHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // Its time domains: their number, and each one's VkTimeDomainEXT value (TimeDomain).
+    getDomainCount(): int {
+        return Donut_GetCalibratedTimeDomainCount(this.handle);
+    }
+
+    getDomain(index: int): int {
+        return Donut_GetCalibratedTimeDomain(this.handle, index);
+    }
+
+    // Samples all its domains' timestamps at once; 0 on failure.
+    sample(): int {
+        return Donut_SampleCalibratedTimestamps(this.handle);
+    }
+
+    // The last sample's timestamp of a domain, in its ticks (the device's: Donut_GetTimestampPeriod
+    // nanoseconds each), and its maximum deviation between the domains in nanoseconds (0 on D3D12).
+    getTimestamp(index: int): number {
+        return Donut_GetCalibratedTimestamp(this.handle, index);
+    }
+
+    getMaxDeviation(): number {
+        return Donut_GetCalibratedTimestampsMaxDeviation(this.handle);
     }
 }
 
