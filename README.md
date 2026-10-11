@@ -32,6 +32,7 @@ Microsoft.
 - [External assets](#external-assets)
 - [Repository layout](#repository-layout)
 - [How the TypeScript build works](#how-the-typescript-build-works)
+- [Calling NVRHI directly](#calling-nvrhi-directly)
 - [Memory model](#memory-model)
 - [Android](#android)
 - [Tests](#tests)
@@ -174,7 +175,8 @@ native_ts_graphics/
 ├── CMakeLists.txt        # the TSLANG language, Donut, and one add_tslang_example() per example
 ├── CMakePresets.json     # default, release, dlss, android-x86_64, android-arm64
 ├── cmake/                # CMake language support for .ts (CMakeDetermineTSLANGCompiler.cmake, ...)
-├── core/                 # donut.ts (TypeScript classes) over donut_interop.cpp (flat C API over Donut)
+├── core/                 # donut.ts (TypeScript classes) over donut_interop.cpp (flat C API over Donut);
+│                         # nvrhi.ts: NVRHI's interfaces, called directly
 ├── examples/             # one .ts file per example
 ├── shaders/              # HLSL shaders and ShaderMake configs, compiled to DXIL, DXBC and SPIR-V
 ├── media/                # small assets shipped with the repository
@@ -242,6 +244,46 @@ If you don't need a first-class language, either:
 
 Use the `TSLANG` language setup when `.ts` is a source type you compile often and want CMake to
 treat as first-class.
+
+## Calling NVRHI directly
+
+The examples reach Donut and NVRHI through `core/donut_interop.cpp`, a flat C API. `core/nvrhi.ts`
+skips it for NVRHI's interfaces. `nvrhi.IDevice`, `ICommandList`, `IBuffer` and `ITexture`, over
+`IResource`, are tslang `@cppvtable` classes (tslang pre-alpha94 or later), laid over the C++
+objects. A method call goes through the C++ object's own vtable:
+
+```ts
+import { nvrhi } from "../core/nvrhi";
+
+const device = <nvrhi.IDevice>app.getNvrhiDevice();
+const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+if (commandList) {
+    commandList.open();
+    commandList.clearBufferUInt(buffer, 0);
+    commandList.close();
+    nvrhi.executeCommandList(device, commandList);
+    commandList.Release();
+}
+```
+
+- **Slot order.** A `@cppvtable` class's methods are the vtable's slots in declaration order, a
+  base class's first. Every slot is declared, because a missing one would call a different C++
+  method with no error. `python tools/check_nvrhi_slots.py` (needs MSVC) compares the classes
+  with the vtables MSVC builds; run it after changing them or updating NVRHI.
+- **Bound methods.** Only the methods `examples/nvrhi_direct.ts` tests have signatures; the other
+  slots are placeholders named `_` + the C++ name.
+- **Signatures.** An object returned by value (`RefCountPtr<T>`, `nvrhi::Object`) comes back
+  through a hidden pointer after `this`; `nvrhi.createBuffer()` and the other functions hide it. A
+  struct passed by reference is a tuple with the C++ layout. That layout depends on the C++ build
+  (`std::string`'s on the CRT), so `nvrhi.layoutMatches()` compares the tuples' sizes with the C++
+  ones.
+- **Platform.** The slots and calling convention are MSVC x64's, so `nvrhi_direct` is built on
+  Windows only.
+
+`nvrhi_direct` is a headless test of these bindings, not a sample:
+1. it uploads numbers into one buffer and clears another;
+2. it copies both into a readback buffer and checks what it maps;
+3. it checks the graphics API, the native device, reference counting and the struct layouts.
 
 ## Memory model
 
@@ -377,8 +419,8 @@ ctest --test-dir build -R meshlet_render -L vk --output-on-failure
 time step into offscreen back buffers, reads the last one back and checks it (the clear color where
 nothing is drawn, where the geometry lands, what it is shaded with), printing `Test PASSED` or
 `Test FAILED: <why>`; `-testOutput <file.png>` also saves that frame. A test fails on a non-zero
-exit code or an error line from Donut, NVRHI or the API's validation layer. `headless` is a test
-too.
+exit code or an error line from Donut, NVRHI or the API's validation layer. `headless` and
+`nvrhi_direct` are tests too.
 
 The other examples are covered by a smoke test, and the gallery has its own script:
 

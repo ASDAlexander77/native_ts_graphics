@@ -5,7 +5,7 @@
 #       [-RunArgs "-noui"] [-HoldKeys "S:3000,NumPad2:500"]
 #
 # With no -Examples, captures every examples/*.ts that has a built executable in build/bin (headless
-# has no window and is skipped). An example that exits before -Seconds is retried on the other API.
+# and nvrhi_direct have no window and are skipped). An example that exits before -Seconds is retried on the other API.
 # The capture is a desktop capture of the window's client area: leave the desktop alone while it
 # runs, as an example only renders while its window has focus and is on top.
 param(
@@ -46,7 +46,7 @@ New-Item -ItemType Directory -Force $outDir | Out-Null
 if ($exampleList.Count -eq 0) {
     $exampleList = @(Get-ChildItem (Join-Path $root "examples/*.ts") |
         ForEach-Object { $_.BaseName } |
-        Where-Object { $_ -ne "headless" -and (Test-Path (Join-Path $bin "$_.exe")) })
+        Where-Object { $_ -notin @("headless", "nvrhi_direct") -and (Test-Path (Join-Path $bin "$_.exe")) })
 }
 
 # Arguments some examples need on every run, or that give them a better view.

@@ -951,6 +951,10 @@ declare function Donut_GetD3D12ConservativeRasterizationTier(app: AppHandle): in
 declare function Donut_GetRendererString(app: AppHandle): string;
 // The app's nvrhi::IDevice, for code that works with NVRHI directly (e.g. core/paged_images.cpp).
 declare function Donut_GetNvrhiDevice(app: AppHandle): Opaque;
+// sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple ("BufferDesc",
+// "CommandListParameters"), or -1: its layout depends on the C++ build (std::string's on the
+// CRT), so nvrhiLayoutMatches() compares the two.
+declare function Donut_GetNvrhiStructSize(name: string): int;
 declare function Donut_SetWindowTitle(app: AppHandle, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".
 declare function Donut_SetInformativeWindowTitle(app: AppHandle, title: string): void;
