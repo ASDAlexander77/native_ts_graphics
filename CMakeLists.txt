@@ -2108,6 +2108,20 @@ if (TARGET fragment_shading_rate_media)
 endif()
 add_tslang_example_test(host_image_copy APIS dx12 vk)
 
+# Port of Vulkan-Samples' buffer_device_address: 64 meshes animated by a compute shader and drawn
+# instanced, each in a buffer the shaders reach only through its device address (vk::RawBufferLoad /
+# vk::RawBufferStore), the table of addresses through its own, in push constants: no descriptors.
+# Vulkan only (D3D shaders have no pointers), so SPIR-V only.
+donut_compile_shaders(
+    TARGET buffer_device_address_shaders
+    PROJECT_NAME "Buffer Device Address"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/buffer_device_address.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/buffer_device_address.hlsl
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/buffer_device_address/spirv
+)
+add_tslang_example(buffer_device_address)
+add_tslang_example_test(buffer_device_address APIS vk)
+
 # Port of Vulkan-Samples' separate_image_sampler: a textured quad, its sampler bound apart from the
 # image (a binding set of its own), linear or nearest filtering picked in the UI. It reads
 # fragment_shading_rate's copy of the texture.

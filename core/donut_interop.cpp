@@ -12009,6 +12009,49 @@ extern "C"
         return app->native16BitConstants ? 1 : 0;
     }
 
+    // Non-zero if shaders can reach buffers through their device addresses (Vulkan's
+    // bufferDeviceAddress, which Donut enables where the device has it; every NVRHI buffer then has
+    // one): Donut_CopyBufferDeviceAddress. Not D3D12 or D3D11, whose shaders have no pointers.
+    int Donut_HasBufferDeviceAddress(App* app)
+    {
+#if DONUT_WITH_VULKAN
+        App* a = app;
+        if (a->device()->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            VkPhysicalDeviceVulkan12Features features12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+            VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+            features2.pNext = &features12;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                DeviceManagerVKAccess::PhysicalDevice(static_cast<DeviceManager_VK*>(a->deviceManager.get())), &features2);
+            return features12.bufferDeviceAddress == VK_TRUE ? 1 : 0;
+        }
+#endif
+        return 0;
+    }
+
+    // A buffer's device address (a GPU pointer, uint64) into the 8 bytes at dst (e.g. Ref of an
+    // array element: push constants or data written to a buffer, for shaders to load and store
+    // through with vk::RawBufferLoad / vk::RawBufferStore). Requires Donut_HasBufferDeviceAddress.
+    void Donut_CopyBufferDeviceAddress(nvrhi::IBuffer* buffer, void* dst)
+    {
+        const uint64_t address = buffer->getGpuVirtualAddress();
+        memcpy(dst, &address, sizeof(address));
+    }
+
+    // The state a buffer must be in for what comes next (ResourceState bits), with a barrier from
+    // what it was in (placed by Donut_CommitBarriers or the next draw or dispatch): for accesses
+    // NVRHI doesn't see, e.g. through device addresses.
+    void Donut_SetBufferState(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int state)
+    {
+        commandList->setBufferState(buffer, static_cast<nvrhi::ResourceStates>(state));
+    }
+
+    // Places the barriers that Donut_SetBufferState asked for.
+    void Donut_CommitBarriers(nvrhi::ICommandList* commandList)
+    {
+        commandList->commitBarriers();
+    }
+
     // A barrier between the draws or dispatches before and after that write and read a UAV
     // texture: NVRHI only places one where the texture is bound anew.
     void Donut_UavBarrier(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture)

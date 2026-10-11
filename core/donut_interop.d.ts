@@ -521,6 +521,18 @@ enum AdvancedBlend {
     CorrelatedOverlap = 16
 }
 
+// nvrhi::ResourceStates bits (Donut_SetBufferState).
+enum ResourceState {
+    ConstantBuffer = 0x2,
+    VertexBuffer = 0x4,
+    IndexBuffer = 0x8,
+    IndirectArgument = 0x10,
+    ShaderResource = 0x60,
+    UnorderedAccess = 0x80,
+    CopyDest = 0x1000,
+    CopySource = 0x2000,
+}
+
 // Donut_GetCalibratedTimeDomain's values: Vulkan's VkTimeDomainEXT.
 enum TimeDomain {
     Device = 0,
@@ -767,6 +779,17 @@ declare function Donut_GetShaderExecutionReordering(app: AppHandle): ShaderExecu
 // Non-zero if push constants and constant buffers can hold 16-bit values as well (Vulkan's
 // storagePushConstant16 and uniformAndStorageBuffer16BitAccess).
 declare function Donut_HasNative16BitConstants(app: AppHandle): int;
+// Non-zero if shaders can reach buffers through device addresses (Vulkan's bufferDeviceAddress;
+// not D3D, whose shaders have no pointers).
+declare function Donut_HasBufferDeviceAddress(app: AppHandle): int;
+// A buffer's device address (uint64) into the 8 bytes at dst (Ref of an array element, e.g. of
+// push constants), for shaders' vk::RawBufferLoad / vk::RawBufferStore.
+declare function Donut_CopyBufferDeviceAddress(buffer: BufferHandle, dst: Opaque): void;
+// The state a buffer must be in next (ResourceState bits), the barrier placed by
+// Donut_CommitBarriers or the next draw or dispatch: for accesses NVRHI doesn't see (device
+// addresses).
+declare function Donut_SetBufferState(commandList: CommandListHandle, buffer: BufferHandle, state: ResourceState): void;
+declare function Donut_CommitBarriers(commandList: CommandListHandle): void;
 // A barrier between the draws or dispatches before and after that write and read a UAV texture
 // (NVRHI only places one where the texture is bound anew).
 declare function Donut_UavBarrier(commandList: CommandListHandle, texture: TextureHandle): void;

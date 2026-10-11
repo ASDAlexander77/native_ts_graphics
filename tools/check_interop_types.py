@@ -160,6 +160,7 @@ RAW_MEMORY = {
     ("Donut_CopyGltfModelVertices", "dst"),
     ("Donut_CopyMeshletModelData", "dst"),
     ("Donut_CopyMeshletModelVertexBuffer", "dst"),
+    ("Donut_CopyBufferDeviceAddress", "dst"),
     ("Donut_CopyObjModelMeshIndices", "dst"),
     ("Donut_CopyObjModelMeshVertices", "dst"),
     ("Donut_ParseObjModel", "data"),

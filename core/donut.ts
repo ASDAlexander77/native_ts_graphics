@@ -259,6 +259,12 @@ export class App {
         return Donut_HasNative16BitConstants(this.handle);
     }
 
+    // Non-zero if shaders can reach buffers through device addresses (Vulkan's bufferDeviceAddress;
+    // not D3D, whose shaders have no pointers).
+    hasBufferDeviceAddress(): int {
+        return Donut_HasBufferDeviceAddress(this.handle);
+    }
+
     // Vulkan's conservative rasterization properties into dst (Ref of a `let` f32 array of 9):
     // primitiveOverestimationSize, maxExtraPrimitiveOverestimationSize,
     // extraPrimitiveOverestimationSizeGranularity, then 1 or 0 for primitiveUnderestimation,
@@ -1992,6 +1998,17 @@ export class CommandList {
     // True if the function that returned it failed.
     isNull(): boolean {
         return !this.handle;
+    }
+
+    // The state a buffer must be in next (ResourceState bits), the barrier placed by
+    // Donut_CommitBarriers or the next draw or dispatch: for accesses NVRHI doesn't see (device
+    // addresses).
+    setBufferState(buffer: BufferHandle, state: ResourceState): void {
+        Donut_SetBufferState(this.handle, buffer, state);
+    }
+
+    commitBarriers(): void {
+        Donut_CommitBarriers(this.handle);
     }
 
     // A barrier between the draws or dispatches before and after that write and read a UAV texture
