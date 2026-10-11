@@ -2377,6 +2377,24 @@ extern "C"
         AppOption_DescriptorBuffers = 1024, // with Vulkan, descriptor sets in buffers (Donut_HasDescriptorBuffers)
     };
 
+    // The nvrhi::IMessageCallback the devices made after Donut_SetNvrhiMessageCallback get: null for
+    // Donut's (DefaultMessageCallback, which logs).
+    static nvrhi::IMessageCallback* g_NvrhiMessageCallback = nullptr;
+
+    // Sets it: an object of a tslang class implementing nvrhi::IMessageCallback (core/nvrhi.ts),
+    // which the caller keeps alive for as long as the devices live; null for Donut's again.
+    void Donut_SetNvrhiMessageCallback(void* callback)
+    {
+        g_NvrhiMessageCallback = static_cast<nvrhi::IMessageCallback*>(callback);
+    }
+
+    // What Donut does with an NVRHI message - logs it, and a Fatal one ends the program - for a
+    // callback that passes messages on.
+    void Donut_LogNvrhiMessage(int severity, const char* text)
+    {
+        donut::app::DefaultMessageCallback::GetInstance().message(static_cast<nvrhi::MessageSeverity>(severity), text);
+    }
+
     // Creates the device and window for graphicsApi (an nvrhi::GraphicsAPI value), with the
     // AppOptions bits in options. Returns null on failure.
     App* Donut_CreateAppWithOptions(int graphicsApi, const char* title, int width, int height, int options)
@@ -2394,6 +2412,7 @@ extern "C"
             return nullptr;
 
         donut::app::DeviceCreationParameters params;
+        params.messageCallback = g_NvrhiMessageCallback;
         params.backBufferWidth = static_cast<uint32_t>(width);
         params.backBufferHeight = static_cast<uint32_t>(height);
         params.vsyncEnabled = (options & AppOption_NoVsync) == 0;
@@ -3010,6 +3029,7 @@ extern "C"
             return nullptr;
 
         donut::app::DeviceCreationParameters params;
+        params.messageCallback = g_NvrhiMessageCallback;
         params.adapterIndex = adapterIndex;
         params.enableRayTracingExtensions = (options & AppOption_RayTracing) != 0;
         params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;

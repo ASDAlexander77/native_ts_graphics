@@ -167,6 +167,8 @@ RAW_MEMORY = {
     ("Donut_CopyBufferDeviceAddress", "dst"),
     # The app's nvrhi::IDevice, handed to modules that use NVRHI directly.
     ("Donut_GetNvrhiDevice", "*"),
+    # An nvrhi::IMessageCallback implemented in tslang (core/nvrhi.ts), handed to NVRHI.
+    ("Donut_SetNvrhiMessageCallback", "callback"),
     ("Donut_InitPagedImageSet", "device"),
     ("Donut_CopyObjModelMeshIndices", "dst"),
     ("Donut_CopyObjModelMeshVertices", "dst"),

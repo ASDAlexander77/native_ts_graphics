@@ -955,6 +955,14 @@ declare function Donut_GetNvrhiDevice(app: AppHandle): Opaque;
 // convention and std::string are MSVC x64's (core/nvrhi_abi.win32.ts) or those of Android's clang
 // and libc++ on x86-64 or AArch64 (core/nvrhi_abi.linux.ts); 0 otherwise.
 declare function Donut_CanCallNvrhiDirectly(): int;
+// The nvrhi::IMessageCallback the devices created after this get: an object of a tslang class
+// implementing nvrhi.IMessageCallback (core/nvrhi.ts), which the caller keeps alive - in a global -
+// for as long as the devices live, as C++ holds it where the collector doesn't look; null for
+// Donut's, which logs the messages.
+declare function Donut_SetNvrhiMessageCallback(callback: Opaque | null): void;
+// What Donut does with an NVRHI message (an nvrhi.MESSAGE_SEVERITY_* value): logs it, and a Fatal
+// one ends the program. For a callback that passes messages on.
+declare function Donut_LogNvrhiMessage(severity: int, text: string): void;
 // sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple (named as in NVRHI), or -1: its layout
 // depends on the C++ build (std::string's on the CRT), so nvrhi.layoutMatches() compares the two.
 declare function Donut_GetNvrhiStructSize(name: string): int;

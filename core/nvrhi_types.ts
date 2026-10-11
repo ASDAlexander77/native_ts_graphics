@@ -46,6 +46,12 @@ export namespace nvrhi {
         bindingCount: index, indirectParams: Opaque | null
     ];
 
+    // nvrhi::MessageSeverity
+    export const MESSAGE_SEVERITY_INFO: u8 = 0;
+    export const MESSAGE_SEVERITY_WARNING: u8 = 1;
+    export const MESSAGE_SEVERITY_ERROR: u8 = 2;
+    export const MESSAGE_SEVERITY_FATAL: u8 = 3;
+
     // nvrhi::GraphicsAPI
     export const GRAPHICS_API_D3D11: u8 = 0;
     export const GRAPHICS_API_D3D12: u8 = 1;

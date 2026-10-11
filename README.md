@@ -299,6 +299,11 @@ if (commandList) {
   on the C++ library), so `nvrhi.layoutMatches()` compares the tuples' sizes with the C++ ones. A
   struct passed by value is the ABIs' difference: MSVC passes a pointer to a copy, the Itanium ABI
   the fields in registers (`clearTextureFloat`'s `TextureSubresourceSet`, see the two files).
+- **Callbacks.** `nvrhi.IMessageCallback` goes the other way: a `@cppvtable` class extending it
+  whose `message()` has a body is an object NVRHI calls, through the vtable tslang makes for it.
+  Pass it to `Donut_SetNvrhiMessageCallback` before creating the app, and keep it in a global
+  while the device lives. `Donut_LogNvrhiMessage` passes a message on to Donut's logging.
+  `nvrhi_direct` does this.
 - **Platform.** `nvrhi.supported()` says whether the build has one of the two ABIs (MSVC x64,
   Android's clang on x86-64 or AArch64) and their layouts: code that also runs elsewhere keeps
   another path.
@@ -315,8 +320,11 @@ Donut's wrappers elsewhere or with `-donut`. CTest runs both: `headless.<api>` a
 3. copies the three into a readback buffer, the last copy with hand-made barriers;
 4. clears a texture, read back through Donut.
 
-It checks what it reads, and on the way the graphics API, the native objects and queues, reference
-counting, debug names, the descs NVRHI keeps and the struct layouts.
+It checks what it reads. On the way it also checks:
+- the graphics API, the native objects and queues;
+- reference counting, debug names, the descs NVRHI keeps and the struct layouts;
+- NVRHI's messages, which go through an `IMessageCallback` implemented in tslang. With `-debug`,
+  it provokes a validation error and checks that NVRHI called the callback.
 
 ## Memory model
 

@@ -130,6 +130,9 @@ set(DONUT_PATCHES
     # clamps the rest to the near or far plane, Vulkan clips it away). environment_map uses both.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-planar-shadow-map-clear.patch"
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-planar-shadow-map-whole-scene-depth-range.patch"
+    # DeviceCreationParameters::messageCallback, NVRHI's IMessageCallback, on Vulkan and D3D11 too
+    # (D3D12 has it): the application's, as a tslang class implementing it (nvrhi_direct).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-message-callback-all-apis.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
