@@ -133,6 +133,7 @@ HANDLES = {
     "D3D12WorkGraph": "D3D12WorkGraphHandle",
     "D3D12LibraryRtPipeline": "D3D12LibraryRtPipelineHandle",
     "CalibratedTimestamps": "CalibratedTimestampsHandle",
+    "D3D12GenericProgram": "D3D12GenericProgramHandle",
     "OcclusionPredication": "OcclusionPredicationHandle",
     "PredicationBuffer": "PredicationBufferHandle",
     "MeshPipelineStatistics": "MeshPipelineStatisticsHandle",
