@@ -2646,7 +2646,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_indexing/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_indexing/spirv
 )
-add_tslang_example(dynamic_indexing core/directx_math.ts MEDIA dynamic_indexing)
+add_tslang_example(dynamic_indexing core/directx_math.ts core/simple_camera.ts MEDIA dynamic_indexing)
 add_dxgs_media(dynamic_indexing dynamic_indexing Samples/Desktop/D3D12DynamicIndexing/src/occcity.bin)
 add_tslang_example_test(dynamic_indexing)
 
@@ -2745,6 +2745,22 @@ add_tslang_example(multithreading core/directx_math.ts core/squid_room.ts MEDIA 
 add_dxgs_media(multithreading multithreading Samples/Desktop/D3D12Multithreading/src/SquidRoom.bin)
 add_tslang_example_test(multithreading)
 add_tslang_example_test(multithreading SUFFIX single_threaded ARGS -singleThreaded)
+
+# Port of DirectX-Graphics-Samples' D3D12Bundles: 30 copies of a city drawn with two pipeline states
+# taking turns, from a bundle recorded once (a draw batch here: DrawBatch in core/donut_interop.cpp)
+# that every frame executes. Its data file (the city's mesh and BC1 texture) is the sample's, from
+# DIRECTX_GRAPHICS_SAMPLES_DIR. D3D12 or Vulkan here, as the other DirectX-Graphics-Samples ports.
+donut_compile_shaders(
+    TARGET bundles_shaders
+    PROJECT_NAME "Bundles"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bundles.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bundles.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bundles/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bundles/spirv
+)
+add_tslang_example(bundles core/directx_math.ts core/simple_camera.ts MEDIA bundles)
+add_dxgs_media(bundles bundles Samples/Desktop/D3D12Bundles/src/occcity.bin)
+add_tslang_example_test(bundles)
 
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,

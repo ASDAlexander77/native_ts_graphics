@@ -1678,9 +1678,9 @@ declare function Donut_WaitForTasks(app: AppHandle): void;
 // For recording on another thread and executing later.
 declare function Donut_CreateDeferredCommandList(app: AppHandle): CommandListHandle;
 // Indexed draws described up front, to record into command lists on worker threads (where tslang
-// code mustn't run): one pipeline, framebuffer (its whole viewport), vertex buffer (slot 0) and
-// R32_UINT index buffer; binding sets every draw uses, then per draw an optional binding set of
-// its own and its index range.
+// code mustn't run) or to replay as a whole (as a D3D12 bundle): one pipeline (or one per draw),
+// framebuffer (its whole viewport), vertex buffer (slot 0) and R32_UINT index buffer; binding sets
+// every draw uses, then per draw an optional binding set of its own and its index range.
 declare function Donut_CreateDrawBatch(app: AppHandle, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle,
     vertexBuffer: BufferHandle, indexBuffer: BufferHandle): DrawBatchHandle;
 // A binding set every draw uses, in the pipeline's binding layout order; add them before the draws.
@@ -1688,7 +1688,14 @@ declare function Donut_DrawBatchAddBindingSet(drawBatch: DrawBatchHandle, bindin
 // A draw of indexCount indices from startIndex, offset by baseVertex, with its own binding set
 // (null for none) after the shared ones.
 declare function Donut_DrawBatchAddDraw(drawBatch: DrawBatchHandle, bindingSet: BindingSetHandle | null, indexCount: int, startIndex: int, baseVertex: int): void;
+// Same, with a pipeline of its own (for the batch's framebuffer and binding layouts) instead of the
+// batch's.
+declare function Donut_DrawBatchAddDrawWithPipeline(drawBatch: DrawBatchHandle, pipeline: GraphicsPipelineHandle, bindingSet: BindingSetHandle | null,
+    indexCount: int, startIndex: int, baseVertex: int): void;
 declare function Donut_GetDrawBatchDrawCount(drawBatch: DrawBatchHandle): int;
+// Records all the batch's draws into an open command list (e.g. the frame's), as a D3D12 command
+// list executes a bundle.
+declare function Donut_ExecuteDrawBatch(drawBatch: DrawBatchHandle, commandList: CommandListHandle): void;
 // Records the batch's draws first, first + step, ... into commandList, opening and closing it.
 declare function Donut_RecordDrawBatch(drawBatch: DrawBatchHandle, commandList: CommandListHandle, first: int, step: int): void;
 // Same, as a task on the app's thread pool: wait with Donut_WaitForTasks before executing the

@@ -7221,15 +7221,17 @@ extern "C"
     }
 
     // Indexed draws described up front, for recording into command lists on worker threads, where
-    // tslang code mustn't run: one pipeline, framebuffer, vertex buffer and R32_UINT index buffer,
-    // binding sets shared by every draw, and per draw an optional binding set of its own (after the
-    // shared ones) and its index range.
+    // tslang code mustn't run, or replaying as a whole (as a D3D12 bundle): one pipeline (or one
+    // per draw), framebuffer, vertex buffer and R32_UINT index buffer, binding sets shared by every
+    // draw, and per draw an optional binding set of its own (after the shared ones) and its index
+    // range.
     struct DrawBatch
     {
         nvrhi::GraphicsState state;
         size_t sharedBindingSetCount = 0;
         struct Draw
         {
+            nvrhi::GraphicsPipelineHandle pipeline;
             nvrhi::BindingSetHandle bindingSet;
             uint32_t indexCount = 0;
             uint32_t startIndex = 0;
@@ -7238,15 +7240,15 @@ extern "C"
         std::vector<Draw> draws;
     };
 
-    // Records draws first, first + step, ... of a batch into commandList, opening and closing it.
-    // Only touches C++ objects, so it can run on worker threads.
-    void RecordDrawBatch(DrawBatch* batch, nvrhi::ICommandList* commandList, int first, int step)
+    // Records draws first, first + step, ... of a batch into an open command list. Only touches C++
+    // objects, so it can run on worker threads.
+    void ExecuteDrawBatch(DrawBatch* batch, nvrhi::ICommandList* commandList, int first, int step)
     {
-        commandList->open();
         nvrhi::GraphicsState state = batch->state;
         for (size_t i = size_t(first); i < batch->draws.size(); i += size_t(step))
         {
             const DrawBatch::Draw& draw = batch->draws[i];
+            state.pipeline = draw.pipeline ? draw.pipeline : batch->state.pipeline;
             state.bindings.resize(batch->sharedBindingSetCount);
             if (draw.bindingSet)
                 state.bindings.push_back(draw.bindingSet);
@@ -7259,6 +7261,13 @@ extern "C"
             args.startVertexLocation = static_cast<uint32_t>(draw.baseVertex);
             commandList->drawIndexed(args);
         }
+    }
+
+    // Same, opening and closing the command list.
+    void RecordDrawBatch(DrawBatch* batch, nvrhi::ICommandList* commandList, int first, int step)
+    {
+        commandList->open();
+        ExecuteDrawBatch(batch, commandList, first, step);
         commandList->close();
     }
 
@@ -7294,9 +7303,25 @@ extern "C"
         drawBatch->draws.push_back(draw);
     }
 
+    // Same, with a pipeline of its own (for the batch's framebuffer and binding layouts) instead of
+    // the batch's.
+    void Donut_DrawBatchAddDrawWithPipeline(DrawBatch* drawBatch, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IBindingSet* bindingSet,
+        int indexCount, int startIndex, int baseVertex)
+    {
+        Donut_DrawBatchAddDraw(drawBatch, bindingSet, indexCount, startIndex, baseVertex);
+        drawBatch->draws.back().pipeline = pipeline;
+    }
+
     int Donut_GetDrawBatchDrawCount(DrawBatch* drawBatch)
     {
         return int(drawBatch->draws.size());
+    }
+
+    // Records all the batch's draws into an open command list (e.g. the frame's), as a D3D12
+    // command list executes a bundle.
+    void Donut_ExecuteDrawBatch(DrawBatch* drawBatch, nvrhi::ICommandList* commandList)
+    {
+        ExecuteDrawBatch(drawBatch, commandList, 0, 1);
     }
 
     // Records the batch's draws first, first + step, ... into commandList (opening and closing it).
