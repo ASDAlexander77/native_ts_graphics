@@ -646,7 +646,9 @@ struct PagedImageSet
                 mipSize = r->NonPackedMipSize(nextMip);
             if (!r->ignoreBudget)
             {
-                const UINT64 targetUsage = localBudget - (mipSize + budgetBias);
+                // (Clamped: the sample's subtraction underflows under small budget overrides.)
+                const UINT64 budget = localBudget;
+                const UINT64 targetUsage = budget > mipSize + budgetBias ? budget - (mipSize + budgetBias) : 0;
                 if (!IsWithinBudgetThreshold(mipSize + budgetBias))
                 {
                     if (!TrimToTarget(r->trimLimit, targetUsage))
@@ -897,9 +899,7 @@ struct PagedImageSet
         budgetRegistered = SUCCEEDED(adapter->RegisterVideoMemoryBudgetChangeNotificationEvent(wakeBudget, &budgetCookie));
         UpdateVideoMemoryInfo();
 
-        thread = std::thread([this]() { Run(); });
-
-        // LoadAssets: the file's image, then the generated ones.
+        // LoadAssets: the file's image, then the generated ones (queued for paging).
         if (ddsPath && *ddsPath)
         {
             auto r = LoadDds(ddsPath);
@@ -918,6 +918,9 @@ struct PagedImageSet
             r->format = DXGI_FORMAT_R8G8B8A8_UNORM;
             CreateResource(std::move(r));
         }
+
+        // The paging thread, once the images (and the lists it walks) exist.
+        thread = std::thread([this]() { Run(); });
         return true;
     }
 
