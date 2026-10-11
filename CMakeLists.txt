@@ -2778,6 +2778,23 @@ donut_compile_shaders(
 add_tslang_example(raytracing_simple_lighting core/directx_math.ts)
 add_tslang_example_test(raytracing_simple_lighting)
 
+# Port of DirectX-Graphics-Samples' D3D12RaytracingLibrarySubobjects: the Simple Lighting cube (lit
+# green), its ray tracing state object made of the DXIL library alone, whose HLSL defines the
+# subobjects: the global and local root signatures, the association, the hit group, the shader and
+# pipeline configs. DXIL subobjects: D3D12 only, through D3D12 directly
+# (Donut_CreateD3D12LibraryRtPipeline).
+if (NVRHI_WITH_DX12)
+    donut_compile_shaders(
+        TARGET raytracing_library_subobjects_shaders
+        PROJECT_NAME "Raytracing Library Subobjects"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_library_subobjects.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_library_subobjects.hlsl
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_library_subobjects/dxil
+    )
+    add_tslang_example(raytracing_library_subobjects core/directx_math.ts)
+    add_tslang_example_test(raytracing_library_subobjects APIS dx12)
+endif()
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse

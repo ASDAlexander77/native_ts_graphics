@@ -108,6 +108,8 @@ declare global {
     var TriangleBlas: typeof Donut.TriangleBlas;
     type TileMappings = Donut.TileMappings;
     var TileMappings: typeof Donut.TileMappings;
+    type D3D12LibraryRtPipeline = Donut.D3D12LibraryRtPipeline;
+    var D3D12LibraryRtPipeline: typeof Donut.D3D12LibraryRtPipeline;
     type MeshPipelineStatistics = Donut.MeshPipelineStatistics;
     var MeshPipelineStatistics: typeof Donut.MeshPipelineStatistics;
     type PredicationBuffer = Donut.PredicationBuffer;

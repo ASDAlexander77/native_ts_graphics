@@ -1372,6 +1372,61 @@ namespace
         nvrhi::BufferHandle backingMemory;
     };
 
+    // A ray tracing pipeline whose state object comes from a DXIL library's own subobjects (its
+    // root signatures, hit groups, shader and pipeline configs), driven through D3D12 directly
+    // (Donut_CreateD3D12LibraryRtPipeline): its global root signature, its shader table, a block of
+    // descriptors in NVRHI's shader-visible heap, and the root arguments of its dispatches.
+    struct D3D12LibraryRtPipeline
+    {
+        Microsoft::WRL::ComPtr<ID3D12StateObject> stateObject;
+        Microsoft::WRL::ComPtr<ID3D12RootSignature> globalRootSignature;
+        // Ray generation, miss and hit group records, in an upload heap.
+        Microsoft::WRL::ComPtr<ID3D12Resource> shaderTable;
+        D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
+
+        // The descriptors' block in NVRHI's heap of SRVs, UAVs and CBVs, and the resources their
+        // views are of (with the state the shaders need them in).
+        nvrhi::d3d12::IDescriptorHeap* descriptorHeap = nullptr;
+        nvrhi::d3d12::IDescriptorHeap* samplerHeap = nullptr;
+        nvrhi::d3d12::DescriptorIndex firstDescriptor = 0;
+        uint32_t descriptorCount = 0;
+        std::vector<nvrhi::TextureHandle> uavTextures;
+        std::vector<nvrhi::BufferHandle> srvBuffers;
+
+        // The global root signature's parameters, by index.
+        struct RootParameter
+        {
+            enum class Type { None, DescriptorTable, AccelStruct, ConstantBuffer } type = Type::None;
+            uint32_t descriptorOffset = 0;
+            nvrhi::rt::AccelStructHandle accelStruct;
+            nvrhi::BufferHandle buffer;
+        };
+        std::vector<RootParameter> rootParameters;
+
+        ~D3D12LibraryRtPipeline()
+        {
+            if (descriptorHeap && descriptorCount > 0)
+                descriptorHeap->releaseDescriptors(firstDescriptor, descriptorCount);
+        }
+    };
+
+    // Writes a view into the pipeline's block of descriptors: NVRHI's CPU-side heap and its
+    // shader-visible copy.
+    template <typename Write>
+    void WriteD3D12LibraryRtDescriptor(D3D12LibraryRtPipeline* pipeline, int index, Write write)
+    {
+        const nvrhi::d3d12::DescriptorIndex descriptor = pipeline->firstDescriptor + static_cast<uint32_t>(index);
+        write(pipeline->descriptorHeap->getCpuHandle(descriptor));
+        write(pipeline->descriptorHeap->getCpuHandleShaderVisible(descriptor));
+    }
+
+    D3D12LibraryRtPipeline::RootParameter& D3D12LibraryRtRootParameter(D3D12LibraryRtPipeline* pipeline, int rootParameter)
+    {
+        if (pipeline->rootParameters.size() <= size_t(rootParameter))
+            pipeline->rootParameters.resize(size_t(rootParameter) + 1);
+        return pipeline->rootParameters[size_t(rootParameter)];
+    }
+
     std::wstring Widen(const char* text)
     {
         const int length = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
@@ -1825,6 +1880,7 @@ namespace
     // Defined only for D3D12 (#if DONUT_WITH_DX12); the functions taking it are compiled
     // everywhere.
     struct D3D12WorkGraph;
+    struct D3D12LibraryRtPipeline;
 }
 
 // Defined (in the extern "C" block) only on Windows; the functions taking it are compiled
@@ -8464,6 +8520,311 @@ extern "C"
         dispatchGraph.NodeCPUInput.pRecords = nullptr;
         dispatchGraph.NodeCPUInput.RecordStrideInBytes = 0;
         graphCommandList->DispatchGraph(&dispatchGraph);
+#endif
+    }
+
+    // A ray tracing pipeline made only of a DXIL library (Donut_CreateShaderLibrary, lib_6_3 or
+    // later) whose HLSL defines its own subobjects: GlobalRootSignature, LocalRootSignature,
+    // SubobjectToExportsAssociation, TriangleHitGroup, RaytracingShaderConfig,
+    // RaytracingPipelineConfig. exports: the comma-separated names of the shaders and subobjects to
+    // take from the library (all of them if empty). The global root signature comes from the
+    // library's bytecode too. descriptorCount: the size of its block of descriptors (descriptor
+    // tables' views). Release it with Donut_ReleaseObject. D3D12 only; null (after logging why) on
+    // failure.
+    D3D12LibraryRtPipeline* Donut_CreateD3D12LibraryRtPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, const char* exports, int descriptorCount)
+    {
+#if DONUT_WITH_DX12
+        App* a = app;
+        nvrhi::IDevice* device = a->device();
+        if (device->getGraphicsAPI() != nvrhi::GraphicsAPI::D3D12)
+        {
+            donut::log::error("DXIL library subobjects need D3D12");
+            return nullptr;
+        }
+        ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        Microsoft::WRL::ComPtr<ID3D12Device5> device5;
+        if (FAILED(d3dDevice->QueryInterface(IID_PPV_ARGS(&device5))))
+        {
+            donut::log::error("Could not access the D3D12 device interface for ray tracing");
+            return nullptr;
+        }
+
+        D3D12_SHADER_BYTECODE libraryCode = {};
+        shaderLibrary->getBytecode(&libraryCode.pShaderBytecode, &libraryCode.BytecodeLength);
+
+        auto pipeline = std::make_shared<D3D12LibraryRtPipeline>();
+
+        // The global root signature defined in the library: CreateRootSignature finds it in the
+        // library's bytecode.
+        if (FAILED(d3dDevice->CreateRootSignature(0, libraryCode.pShaderBytecode, libraryCode.BytecodeLength,
+            IID_PPV_ARGS(&pipeline->globalRootSignature))))
+        {
+            donut::log::error("Cannot create the global root signature from the library's subobject");
+            return nullptr;
+        }
+
+        // The state object: the library alone, exporting the shaders and subobjects named.
+        CD3DX12_STATE_OBJECT_DESC stateObjectDesc(D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+        auto* library = stateObjectDesc.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
+        library->SetDXILLibrary(&libraryCode);
+        std::vector<std::wstring> names;
+        {
+            const std::string list = exports;
+            size_t start = 0;
+            while (start <= list.size())
+            {
+                size_t end = list.find(',', start);
+                if (end == std::string::npos)
+                    end = list.size();
+                if (end > start)
+                    names.push_back(Widen(list.substr(start, end - start).c_str()));
+                start = end + 1;
+            }
+        }
+        for (const std::wstring& name : names)
+            library->DefineExport(name.c_str());
+
+        if (FAILED(device5->CreateStateObject(stateObjectDesc, IID_PPV_ARGS(&pipeline->stateObject))))
+        {
+            donut::log::error("Cannot create the ray tracing state object from the library's subobjects");
+            return nullptr;
+        }
+
+        // Its descriptors, in NVRHI's shader-visible heap.
+        nvrhi::d3d12::IDevice* nvrhiDevice = device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_D3D12_Device);
+        pipeline->descriptorHeap = nvrhiDevice->getDescriptorHeap(nvrhi::d3d12::DescriptorHeapType::ShaderResourceView);
+        pipeline->samplerHeap = nvrhiDevice->getDescriptorHeap(nvrhi::d3d12::DescriptorHeapType::Sampler);
+        if (descriptorCount > 0)
+        {
+            pipeline->descriptorCount = static_cast<uint32_t>(descriptorCount);
+            pipeline->firstDescriptor = pipeline->descriptorHeap->allocateDescriptors(pipeline->descriptorCount);
+            pipeline->uavTextures.resize(pipeline->descriptorCount);
+            pipeline->srvBuffers.resize(pipeline->descriptorCount);
+        }
+
+        return a->OwnObject(pipeline);
+#else
+        donut::log::error("DXIL library subobjects need D3D12");
+        return nullptr;
+#endif
+    }
+
+    // The pipeline's shader table: one ray generation record, one miss record, one hit group
+    // record with byteSize bytes of local root arguments from data (the hit group's local root
+    // signature's, e.g. root constants), each by its export name. Returns 0 (after logging why) on
+    // failure.
+    int Donut_SetD3D12LibraryRtShaderTable(App* app, D3D12LibraryRtPipeline* pipeline, const char* rayGeneration, const char* miss, const char* hitGroup,
+        const void* data, int byteSize)
+    {
+#if DONUT_WITH_DX12
+        Microsoft::WRL::ComPtr<ID3D12StateObjectProperties> properties;
+        if (FAILED(pipeline->stateObject.As(&properties)))
+            return 0;
+        const void* identifiers[3] = {
+            properties->GetShaderIdentifier(Widen(rayGeneration).c_str()),
+            properties->GetShaderIdentifier(Widen(miss).c_str()),
+            properties->GetShaderIdentifier(Widen(hitGroup).c_str()),
+        };
+        for (const void* identifier : identifiers)
+        {
+            if (!identifier)
+            {
+                donut::log::error("A shader table export isn't in the state object");
+                return 0;
+            }
+        }
+
+        // Records of a shader identifier plus root arguments, 32-byte aligned; tables 64-byte
+        // aligned.
+        auto alignUp = [](UINT64 size, UINT64 alignment) { return (size + alignment - 1) & ~(alignment - 1); };
+        const UINT64 hitRecordSize = alignUp(D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + UINT64(byteSize), D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
+        const UINT64 tableStride = alignUp(hitRecordSize, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+        const UINT64 size = tableStride * 3;
+
+        ID3D12Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        const CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
+        const CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
+        Microsoft::WRL::ComPtr<ID3D12Resource> shaderTable;
+        if (FAILED(d3dDevice->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&shaderTable))))
+        {
+            donut::log::error("Cannot create the shader table");
+            return 0;
+        }
+        uint8_t* mapped = nullptr;
+        const CD3DX12_RANGE noRead(0, 0);
+        if (FAILED(shaderTable->Map(0, &noRead, reinterpret_cast<void**>(&mapped))))
+            return 0;
+        memset(mapped, 0, size_t(size));
+        for (int i = 0; i < 3; i++)
+            memcpy(mapped + tableStride * i, identifiers[i], D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+        if (byteSize > 0)
+            memcpy(mapped + tableStride * 2 + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES, data, size_t(byteSize));
+        shaderTable->Unmap(0, nullptr);
+
+        const D3D12_GPU_VIRTUAL_ADDRESS base = shaderTable->GetGPUVirtualAddress();
+        D3D12_DISPATCH_RAYS_DESC& desc = pipeline->dispatchDesc;
+        desc.RayGenerationShaderRecord.StartAddress = base;
+        desc.RayGenerationShaderRecord.SizeInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+        desc.MissShaderTable.StartAddress = base + tableStride;
+        desc.MissShaderTable.SizeInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+        desc.MissShaderTable.StrideInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+        desc.HitGroupTable.StartAddress = base + tableStride * 2;
+        desc.HitGroupTable.SizeInBytes = hitRecordSize;
+        desc.HitGroupTable.StrideInBytes = hitRecordSize;
+        pipeline->shaderTable = shaderTable;
+        return 1;
+#else
+        return 0;
+#endif
+    }
+
+
+    // The pipeline's descriptor at index (of its block): a UAV of a 2D texture's first level. Set
+    // descriptors while no frame in flight uses them.
+    void Donut_SetD3D12LibraryRtDescriptorTextureUAV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::ITexture* texture)
+    {
+#if DONUT_WITH_DX12
+        if (index < 0 || uint32_t(index) >= pipeline->descriptorCount)
+            return;
+        ID3D12Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        ID3D12Resource* resource = texture->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource);
+        D3D12_UNORDERED_ACCESS_VIEW_DESC desc = {};
+        desc.Format = nvrhi::d3d12::convertFormat(texture->getDesc().format);
+        desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        WriteD3D12LibraryRtDescriptor(pipeline, index, [&](D3D12_CPU_DESCRIPTOR_HANDLE handle) {
+            d3dDevice->CreateUnorderedAccessView(resource, nullptr, &desc, handle);
+        });
+        pipeline->uavTextures[index] = texture;
+        pipeline->srvBuffers[index] = nullptr;
+#endif
+    }
+
+    // The pipeline's descriptor at index: an SRV of a whole buffer, raw (a ByteAddressBuffer;
+    // structureStride 0) or structured.
+    void Donut_SetD3D12LibraryRtDescriptorBufferSRV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::IBuffer* buffer, int structureStride)
+    {
+#if DONUT_WITH_DX12
+        if (index < 0 || uint32_t(index) >= pipeline->descriptorCount)
+            return;
+        ID3D12Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        ID3D12Resource* resource = buffer->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource);
+        const uint64_t byteSize = buffer->getDesc().byteSize;
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
+        desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        if (structureStride > 0)
+        {
+            desc.Format = DXGI_FORMAT_UNKNOWN;
+            desc.Buffer.NumElements = static_cast<UINT>(byteSize / uint64_t(structureStride));
+            desc.Buffer.StructureByteStride = static_cast<UINT>(structureStride);
+        }
+        else
+        {
+            desc.Format = DXGI_FORMAT_R32_TYPELESS;
+            desc.Buffer.NumElements = static_cast<UINT>(byteSize / 4);
+            desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        }
+        WriteD3D12LibraryRtDescriptor(pipeline, index, [&](D3D12_CPU_DESCRIPTOR_HANDLE handle) {
+            d3dDevice->CreateShaderResourceView(resource, &desc, handle);
+        });
+        pipeline->srvBuffers[index] = buffer;
+        pipeline->uavTextures[index] = nullptr;
+#endif
+    }
+
+    // The global root signature's parameter rootParameter in the dispatches: a descriptor table
+    // from the pipeline's descriptor firstDescriptor on; ...
+    void Donut_SetD3D12LibraryRtRootDescriptorTable(D3D12LibraryRtPipeline* pipeline, int rootParameter, int firstDescriptor)
+    {
+#if DONUT_WITH_DX12
+        auto& parameter = D3D12LibraryRtRootParameter(pipeline, rootParameter);
+        parameter = {};
+        parameter.type = D3D12LibraryRtPipeline::RootParameter::Type::DescriptorTable;
+        parameter.descriptorOffset = static_cast<uint32_t>(firstDescriptor);
+#endif
+    }
+
+    // ... a root SRV of an acceleration structure (a TLAS); ...
+    void Donut_SetD3D12LibraryRtRootAccelStruct(D3D12LibraryRtPipeline* pipeline, int rootParameter, nvrhi::rt::IAccelStruct* accelStruct)
+    {
+#if DONUT_WITH_DX12
+        auto& parameter = D3D12LibraryRtRootParameter(pipeline, rootParameter);
+        parameter = {};
+        parameter.type = D3D12LibraryRtPipeline::RootParameter::Type::AccelStruct;
+        parameter.accelStruct = accelStruct;
+#endif
+    }
+
+    // ... a root CBV of a (non-volatile) constant buffer.
+    void Donut_SetD3D12LibraryRtRootConstantBuffer(D3D12LibraryRtPipeline* pipeline, int rootParameter, nvrhi::IBuffer* buffer)
+    {
+#if DONUT_WITH_DX12
+        auto& parameter = D3D12LibraryRtRootParameter(pipeline, rootParameter);
+        parameter = {};
+        parameter.type = D3D12LibraryRtPipeline::RootParameter::Type::ConstantBuffer;
+        parameter.buffer = buffer;
+#endif
+    }
+
+    // Traces width x height rays with the pipeline, its root parameters and shader table, through
+    // D3D12 directly: the resources' states set through NVRHI first, NVRHI's own state cleared
+    // after (it rebinds everything for the next draw or dispatch).
+    void Donut_DispatchD3D12LibraryRays(nvrhi::ICommandList* commandList, D3D12LibraryRtPipeline* pipeline, int width, int height)
+    {
+#if DONUT_WITH_DX12
+        nvrhi::ICommandList* cl = commandList;
+        for (const auto& texture : pipeline->uavTextures)
+            if (texture)
+                cl->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        for (const auto& buffer : pipeline->srvBuffers)
+            if (buffer)
+                cl->setBufferState(buffer, nvrhi::ResourceStates::ShaderResource);
+        for (const auto& parameter : pipeline->rootParameters)
+        {
+            if (parameter.accelStruct)
+                cl->setAccelStructState(parameter.accelStruct, nvrhi::ResourceStates::AccelStructRead);
+            if (parameter.buffer)
+                cl->setBufferState(parameter.buffer, nvrhi::ResourceStates::ConstantBuffer);
+        }
+        cl->commitBarriers();
+
+        ID3D12GraphicsCommandList* d3dCommandList = cl->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> rtCommandList;
+        if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&rtCommandList))))
+            return;
+
+        ID3D12DescriptorHeap* heaps[] = { pipeline->descriptorHeap->getShaderVisibleHeap(), pipeline->samplerHeap->getShaderVisibleHeap() };
+        rtCommandList->SetDescriptorHeaps(2, heaps);
+        rtCommandList->SetComputeRootSignature(pipeline->globalRootSignature.Get());
+        for (size_t i = 0; i < pipeline->rootParameters.size(); i++)
+        {
+            const auto& parameter = pipeline->rootParameters[i];
+            const UINT index = static_cast<UINT>(i);
+            switch (parameter.type)
+            {
+            case D3D12LibraryRtPipeline::RootParameter::Type::DescriptorTable:
+                rtCommandList->SetComputeRootDescriptorTable(index,
+                    pipeline->descriptorHeap->getGpuHandle(pipeline->firstDescriptor + parameter.descriptorOffset));
+                break;
+            case D3D12LibraryRtPipeline::RootParameter::Type::AccelStruct:
+                rtCommandList->SetComputeRootShaderResourceView(index, parameter.accelStruct->getDeviceAddress());
+                break;
+            case D3D12LibraryRtPipeline::RootParameter::Type::ConstantBuffer:
+                rtCommandList->SetComputeRootConstantBufferView(index, parameter.buffer->getGpuVirtualAddress());
+                break;
+            default:
+                break;
+            }
+        }
+        rtCommandList->SetPipelineState1(pipeline->stateObject.Get());
+        D3D12_DISPATCH_RAYS_DESC desc = pipeline->dispatchDesc;
+        desc.Width = static_cast<UINT>(width);
+        desc.Height = static_cast<UINT>(height);
+        desc.Depth = 1;
+        rtCommandList->DispatchRays(&desc);
+
+        cl->clearState();
 #endif
     }
 

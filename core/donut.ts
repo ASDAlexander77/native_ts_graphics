@@ -1200,6 +1200,32 @@ export class App {
         return Donut_CreateD3D12WorkGraph(this.handle, shaderLibrary, computePipeline, programName, entryNodeName, gridX, gridY, gridZ);
     }
 
+    // D3D12 ray tracing pipelines from DXIL library subobjects, through D3D12 directly: the
+    // library's HLSL defines the global and local root signatures, their associations, the hit
+    // groups and the shader and pipeline configs. exports: the comma-separated shaders and
+    // subobjects to take from the library (all if empty); the global root signature comes from the
+    // library's bytecode; descriptorCount: its block of descriptors for descriptor tables. Release
+    // it with Donut_ReleaseObject. A null handle (after logging why) on failure or other APIs.
+    createD3D12LibraryRtPipeline(shaderLibrary: ShaderLibraryHandle, exports: string, descriptorCount: int): D3D12LibraryRtPipeline {
+        return new D3D12LibraryRtPipeline(Donut_CreateD3D12LibraryRtPipeline(this.handle, shaderLibrary, exports, descriptorCount));
+    }
+
+    // Its shader table: one ray generation, one miss and one hit group record, by export name; the hit
+    // group's with byteSize bytes of local root arguments from data. 0 on failure.
+    setD3D12LibraryRtShaderTable(libraryRtPipeline: D3D12LibraryRtPipeline, rayGeneration: string, miss: string, hitGroup: string, data: Opaque, byteSize: int): int {
+        return Donut_SetD3D12LibraryRtShaderTable(this.handle, libraryRtPipeline.handle, rayGeneration, miss, hitGroup, data, byteSize);
+    }
+
+    // Its descriptor at index (set while no frame in flight uses it): a UAV of a 2D texture's first
+    // level; an SRV of a whole buffer, raw (structureStride 0) or structured.
+    setD3D12LibraryRtDescriptorTextureUAV(libraryRtPipeline: D3D12LibraryRtPipeline, index: int, texture: TextureHandle): void {
+        Donut_SetD3D12LibraryRtDescriptorTextureUAV(this.handle, libraryRtPipeline.handle, index, texture);
+    }
+
+    setD3D12LibraryRtDescriptorBufferSRV(libraryRtPipeline: D3D12LibraryRtPipeline, index: int, buffer: BufferHandle, structureStride: int): void {
+        Donut_SetD3D12LibraryRtDescriptorBufferSRV(this.handle, libraryRtPipeline.handle, index, buffer, structureStride);
+    }
+
     // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
     // textures blitted before.
     blitTexture(frame: Frame, texture: TextureHandle): void {
@@ -2002,6 +2028,12 @@ export class CommandList {
     // non-zero on the backing memory's first use, or after another graph used it.
     dispatchD3D12WorkGraph(workGraph: D3D12WorkGraphHandle, computePipeline: ComputePipelineHandle, bindingSet: BindingSet, data: Opaque, byteSize: int, initializeBackingMemory: int): void {
         Donut_DispatchD3D12WorkGraph(this.handle, workGraph, computePipeline, bindingSet.handle, data, byteSize, initializeBackingMemory);
+    }
+
+    // Traces width x height rays with it (the resources' states set through NVRHI, NVRHI's bindings
+    // cleared after).
+    dispatchD3D12LibraryRays(libraryRtPipeline: D3D12LibraryRtPipeline, width: int, height: int): void {
+        Donut_DispatchD3D12LibraryRays(this.handle, libraryRtPipeline.handle, width, height);
     }
 
     clearSceneRenderTargets(sceneRenderTargets: SceneRenderTargets): void {
@@ -3992,6 +4024,33 @@ export class TileMappings {
     // heap, or unmaps them (null).
     addPackedMips(firstPackedMip: int, tileCount: int, heap: HeapHandle | null, byteOffset: number): void {
         Donut_TileMappingsAddPackedMips(this.handle, firstPackedMip, tileCount, heap, byteOffset);
+    }
+}
+
+export class D3D12LibraryRtPipeline {
+    readonly handle: D3D12LibraryRtPipelineHandle;
+
+    constructor(handle: D3D12LibraryRtPipelineHandle | null) {
+        this.handle = handle as D3D12LibraryRtPipelineHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // The global root signature's parameter rootParameter in its dispatches: a descriptor table from
+    // its descriptor firstDescriptor on, a TLAS's root SRV, or a constant buffer's root CBV.
+    setRootDescriptorTable(rootParameter: int, firstDescriptor: int): void {
+        Donut_SetD3D12LibraryRtRootDescriptorTable(this.handle, rootParameter, firstDescriptor);
+    }
+
+    setRootAccelStruct(rootParameter: int, accelStruct: AccelStructHandle): void {
+        Donut_SetD3D12LibraryRtRootAccelStruct(this.handle, rootParameter, accelStruct);
+    }
+
+    setRootConstantBuffer(rootParameter: int, buffer: BufferHandle): void {
+        Donut_SetD3D12LibraryRtRootConstantBuffer(this.handle, rootParameter, buffer);
     }
 }
 
