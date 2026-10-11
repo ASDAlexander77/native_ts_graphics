@@ -5,7 +5,5 @@
 @pushd %~dp0
 rem set D=build-release-dlss/bin
 set D=build/bin
-@rem --jit-cache=false: tslang pre-alpha93's JIT cache crashes (0xC0000005) in a run that compiles
-@rem two or more modules (TypeScriptCompiler#548): an example's first two runs, with its imports.
-tslang --jit-cache=false --shared-libs=%D%/donut_interop.dll %*
+tslang --shared-libs=%D%/donut_interop.dll %*
 @popd

@@ -209,12 +209,13 @@ The examples can also run under tslang's JIT, against the shared build of the in
 (`run_jit.bat examples/<name>.ts [-- args]` does this from the repo root):
 
 ```
-tslang --emit=jit --jit-cache=false --shared-libs=build/bin/donut_interop.dll examples/basic_triangle.ts -- -dx12
+tslang --emit=jit --shared-libs=build/bin/donut_interop.dll examples/basic_triangle.ts -- -dx12
 ```
 
 - Program arguments go after `--`.
-- `--jit-cache=false`: tslang pre-alpha93's JIT cache crashes in a run that compiles two or more
-  modules, so an example (with its imports) crashed on its first two runs
+- The JIT caches each compiled module in a `__jit` folder next to its source (ignored by git). A
+  module is compiled again when it, a file it imports, its options or tslang change. Needs
+  pre-alpha94 or later: pre-alpha93's cache crashed a run that compiled two or more modules
   ([TypeScriptCompiler#548](https://github.com/ASDAlexander77/TypeScriptCompiler/pull/548)).
 - The shared library also holds the C++ modules some examples link (`core/sdkmesh.cpp`,
   `core/meshlet_model.cpp`, `core/paged_images.cpp`, ...), and applies the D3D12 Agility SDK
