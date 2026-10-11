@@ -527,6 +527,22 @@ export class App {
         return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
     }
 
+    // Non-zero if textures can be written by the CPU without a copy on the GPU: Vulkan with
+    // VK_EXT_host_image_copy, D3D12.
+    hasHostImageCopy(): int {
+        return Donut_HasHostImageCopy(this.handle);
+    }
+
+    // A DDS file's texture (path relative to the executable's directory, all its levels; sRGB != 0
+    // views RGBA8 data as sRGB) written by the CPU, with no staging buffer or command list: Vulkan's
+    // VK_EXT_host_image_copy (vkTransitionImageLayoutEXT, vkCopyMemoryToImageEXT into an optimally
+    // tiled device-local image), D3D12's WriteToSubresource (a texture in a CPU-writable custom heap).
+    // It rests as a shader resource. Release it with Donut_ReleaseObject; null (after logging why) on
+    // failure.
+    createHostCopiedTexture(path: string, sRGB: int, debugName: string): HostCopiedTextureHandle | null {
+        return Donut_CreateHostCopiedTexture(this.handle, path, sRGB, debugName);
+    }
+
     // Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
     // tile from heaps; unmapped tiles read as zeros. It rests as a shader resource, and is a copy source
     // and destination and a render target.
