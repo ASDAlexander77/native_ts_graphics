@@ -1,7 +1,7 @@
 // What the Xbox ATG FastBlockCompress sample's CPU compressor (fbc_cpu.cpp, fbc_cpu.h) took from the
 // sample's precompiled header: the few DXGI / D3D12 / COM definitions it uses, with the values of
 // the Windows SDK, without Windows headers (the example builds for Android too), plus aligned
-// allocation and SSE2.
+// allocation, SSE2, and (the compressor without SSE2: ARM) memcpy_s.
 
 #pragma once
 
@@ -78,6 +78,17 @@ inline void FbcAlignedFree(void* p)
     free(p);
 #endif
 }
+
+#ifndef _WIN32
+// The CRT's bounds-checked copy, which the compressor's C fallback uses.
+inline int memcpy_s(void* dest, size_t destSize, const void* src, size_t count)
+{
+    if (count > destSize)
+        return 34; // ERANGE
+    memcpy(dest, src, count);
+    return 0;
+}
+#endif
 
 #define _aligned_malloc FbcAlignedMalloc
 
