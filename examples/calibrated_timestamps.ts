@@ -748,7 +748,7 @@ namespace CalibratedTimestampsSample {
         // and the times (see checkFrame).
         let options = AppOptions.None;
         let withUI = true;
-        let objectIndex = 0;
+        let objectIndex: int = 0;
         let bloom = true;
         let displaySkybox = true;
         for (let i = 1; i < argc; i++) {

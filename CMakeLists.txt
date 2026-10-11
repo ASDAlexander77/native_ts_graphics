@@ -382,13 +382,43 @@ add_dependencies(donut_interop check_interop_types)
 # The functions have no dllexport, so export all of core/donut_interop.cpp's symbols; its import library
 # is renamed so it doesn't overwrite the static donut_interop.lib.
 # There is no JIT on Android, so no shared build there either.
+# Under the JIT this one library is all an example gets, so it also holds the C++ modules that only
+# some examples link into their executables (their add_tslang_example sources), with what those
+# need: the OBJ, SDKMESH and meshlet loaders, the PBRT scene, DirectXCollision, Basis Universal's
+# transcoder, the fast block compressor, the paged images, and (Windows) the video player.
+set(JIT_MODULE_SOURCES
+    core/obj_model.cpp
+    core/sdkmesh.cpp
+    core/meshlet_model.cpp
+    core/denoised_rtao.cpp
+    core/pbrt/PBRTParser.cpp
+    core/pbrt/PlyParser.cpp
+    core/directx_collision.cpp
+    core/basis_transcoder.cpp
+    core/fast_block_compress.cpp
+    core/fbc_cpu.cpp
+    core/paged_images.cpp)
+if (WIN32)
+    list(APPEND JIT_MODULE_SOURCES core/video_player.cpp)
+endif()
 if (NOT ANDROID)
-    add_library(donut_interop_shared SHARED core/donut_interop.cpp)
+    add_library(donut_interop_shared SHARED core/donut_interop.cpp ${JIT_MODULE_SOURCES})
     configure_donut_interop(donut_interop_shared)
     set_target_properties(donut_interop_shared PROPERTIES
         OUTPUT_NAME donut_interop
         ARCHIVE_OUTPUT_NAME donut_interop_shared
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    target_link_libraries(donut_interop_shared PRIVATE basisu_transcoder)
+    # The Agility SDK runtime for the examples whose executables opt into it (see
+    # UseAgilitySdkUnderJit): tslang.exe doesn't.
+    if (DONUT_D3D_AGILITY_SDK_VERSION)
+        target_compile_definitions(donut_interop_shared PRIVATE DONUT_JIT_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
+    endif()
+    if (WIN32)
+        # As video_texture's: mfplat.dll delay-loaded (Windows N editions lack it).
+        target_link_libraries(donut_interop_shared PRIVATE delayimp)
+        target_link_options(donut_interop_shared PRIVATE /DELAYLOAD:mfplat.dll)
+    endif()
 endif()
 
 # With DONUT_WITH_DLSS, NGX loads nvngx_dlss.dll from the directory of the executable (of

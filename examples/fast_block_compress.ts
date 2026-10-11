@@ -835,9 +835,9 @@ namespace FastBlockCompress {
         // The back buffers are UNORM, as the sample's (B8G8R8A8_UNORM): values shown as stored.
         let options = AppOptions.UnormBackBuffer;
         let withUI = true;
-        let image = 0;
-        let method = 0;
-        let mip = 0;
+        let image: int = 0;
+        let method: int = 0;
+        let mip: int = 0;
         let fullscreen = false;
         let original = false;
         let highlight = false;

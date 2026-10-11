@@ -432,8 +432,8 @@ namespace GraphicsPipelineLibrary {
         // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).
         let options = AppOptions.None;
         let withUI = true;
-        let pipelines = 1;
-        let seed = -1;
+        let pipelines: int = 1;
+        let seed: int = -1;
         let benchmark = false;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);

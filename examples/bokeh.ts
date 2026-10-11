@@ -1238,7 +1238,7 @@ namespace Bokeh {
         // -preset N: start with preset scene N (0..3; Down cycles them).
         // -slow: start with the full (not the fast) bokeh geometry shader (Up toggles it).
         let options = AppOptions.UnormBackBuffer;
-        let preset = 0;
+        let preset: int = 0;
         let slow = false;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);

@@ -567,7 +567,7 @@ namespace OitLinkedLists {
         let options = AppOptions.None;
         let withUI = true;
         let sortFragments = true;
-        let sortedFragmentCount = SORTED_FRAGMENT_MAX_COUNT;
+        let sortedFragmentCount: int = SORTED_FRAGMENT_MAX_COUNT;
         let cameraAutoRotation = false;
         let backgroundGrayscale = 0.3;
         let benchmark = false;

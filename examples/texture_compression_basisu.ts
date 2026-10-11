@@ -507,8 +507,8 @@ namespace TextureCompressionBasisu {
         // (an index into the device's list), both transcoded at start.
         let options = AppOptions.None;
         let withUI = true;
-        let image = 0;
-        let target = 0;
+        let image: int = 0;
+        let target: int = 0;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
             if (arg == "-debug") {

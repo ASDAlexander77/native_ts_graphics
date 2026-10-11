@@ -423,7 +423,7 @@ namespace DynamicMultisampleRasterization {
             let indices: int[] = [];
             let firstIndex: int[] = [];
             let baseVertex: int[] = [];
-            let meshCount = 0;
+            let meshCount: int = 0;
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);

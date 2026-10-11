@@ -502,7 +502,7 @@ namespace Multithreading {
         if (app.readBackBufferRGBA8(Ref(pixels[0]), pixels.length) == 0) {
             return "cannot read the back buffer";
         }
-        let sum = 0;
+        let sum: number = 0;
         let lit = 0;
         for (let i = 0; i < width * height; i++) {
             const p = pixels[i];

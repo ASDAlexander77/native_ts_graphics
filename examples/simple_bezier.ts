@@ -569,7 +569,7 @@ namespace SimpleBezier {
         // steps, the help screen).
         let options = AppOptions.None;
         let wireframe = false;
-        let partitionMode = PARTITION_INTEGER;
+        let partitionMode: int = PARTITION_INTEGER;
         let subdivs = DEFAULT_SUBDIVS;
         let rotateSteps = 0;
         let showHelp = false;

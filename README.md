@@ -205,11 +205,21 @@ does for `.cpp`.
 - tslang can't write a depfile, so the files a `.ts` imports or references aren't tracked for it:
   list them as its `OBJECT_DEPENDS`, as `CMakeLists.txt` does for `core/`.
 
-The examples can also run under tslang's JIT, against the shared build of the interop layer:
+The examples can also run under tslang's JIT, against the shared build of the interop layer
+(`run_jit.bat examples/<name>.ts [-- args]` does this from the repo root):
 
 ```
-tslang --emit=jit --shared-libs=build/bin/donut_interop.dll examples/basic_triangle.ts
+tslang --emit=jit --jit-cache=false --shared-libs=build/bin/donut_interop.dll examples/basic_triangle.ts -- -dx12
 ```
+
+- Program arguments go after `--`.
+- `--jit-cache=false`: tslang pre-alpha93's JIT cache crashes in a run that compiles two or more
+  modules, so an example (with its imports) crashed on its first two runs
+  ([TypeScriptCompiler#548](https://github.com/ASDAlexander77/TypeScriptCompiler/pull/548)).
+- The shared library also holds the C++ modules some examples link (`core/sdkmesh.cpp`,
+  `core/meshlet_model.cpp`, `core/paged_images.cpp`, ...), and applies the D3D12 Agility SDK
+  runtime from `bin/D3D12` (the executables that need it opt in through their exports, which
+  `tslang.exe` doesn't have).
 
 ### Passing flags
 

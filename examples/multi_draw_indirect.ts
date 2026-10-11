@@ -692,7 +692,7 @@ namespace MultiDrawIndirect {
         // -freeze: culling frozen.
         let options = AppOptions.None;
         let withUI = true;
-        let renderMode = RENDER_GPU;
+        let renderMode: int = RENDER_GPU;
         let enableMdi = true;
         let freezeCull = false;
         for (let i = 1; i < argc; i++) {
