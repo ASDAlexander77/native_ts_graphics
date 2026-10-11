@@ -3222,12 +3222,14 @@ extern "C"
         return app->device();
     }
 
-    // 1 if core/nvrhi.ts can call NVRHI's interfaces in this build: their vtables and member
-    // function convention are MSVC x64's, which its @cppvtable classes follow; 0 otherwise (the
-    // Itanium ABI on Android has two destructor slots and returns objects differently).
+    // 1 if core/nvrhi.ts can call NVRHI's interfaces in this build: their vtables, member function
+    // convention and std::string are MSVC x64's (core/nvrhi_abi.win32.ts) or those of Android's
+    // clang and libc++ on x86-64 or AArch64 (core/nvrhi_abi.linux.ts); 0 otherwise.
     int Donut_CanCallNvrhiDirectly()
     {
 #if defined(_MSC_VER) && defined(_M_X64)
+        return 1;
+#elif defined(__ANDROID__) && defined(_LIBCPP_VERSION) && (defined(__x86_64__) || defined(__aarch64__))
         return 1;
 #else
         return 0;
