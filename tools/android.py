@@ -312,7 +312,8 @@ def ensure_device(tools, args):
 # --- apps ------------------------------------------------------------------------------------
 
 def package_of(example):
-    return f"org.native_ts_graphics.{example}"
+    # package_apk.py's default_package: a part of a package name starts with a letter.
+    return "org.native_ts_graphics." + (example if example[:1].isalpha() else "example_" + example)
 
 
 def install(tools, abi, example):
