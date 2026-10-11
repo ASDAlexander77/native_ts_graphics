@@ -2884,13 +2884,13 @@ extern "C"
     // indexBuffer, vertexCount RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of
     // vertexBuffer (both created for acceleration structure builds), with transform (12 floats, 3
     // rows of 4: a VkTransformMatrixKHR) applied to the positions, or none (null).
-    void Donut_AddTriangleBlasGeometry(TriangleBlas* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
-        nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
+    void AddTriangleBlasGeometry(TriangleBlas* triangleBlas, nvrhi::Format indexFormat, nvrhi::IBuffer* indexBuffer, int indexByteOffset,
+        int indexCount, nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
     {
         auto triangles = nvrhi::rt::GeometryTriangles()
             .setIndexBuffer(indexBuffer)
             .setIndexOffset(static_cast<uint64_t>(indexByteOffset))
-            .setIndexFormat(nvrhi::Format::R32_UINT)
+            .setIndexFormat(indexFormat)
             .setIndexCount(static_cast<uint32_t>(indexCount))
             .setVertexBuffer(vertexBuffer)
             .setVertexOffset(static_cast<uint64_t>(vertexByteOffset))
@@ -2907,6 +2907,21 @@ extern "C"
             geometry.setTransform(affine);
         }
         triangleBlas->desc.addBottomLevelGeometry(geometry);
+    }
+
+    void Donut_AddTriangleBlasGeometry(TriangleBlas* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+        nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
+    {
+        AddTriangleBlasGeometry(triangleBlas, nvrhi::Format::R32_UINT, indexBuffer, indexByteOffset, indexCount,
+            vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
+    }
+
+    // Same, with R16_UINT indices.
+    void Donut_AddTriangleBlasGeometry16(TriangleBlas* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+        nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
+    {
+        AddTriangleBlasGeometry(triangleBlas, nvrhi::Format::R16_UINT, indexBuffer, indexByteOffset, indexCount,
+            vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
     }
 
     // Adds opaque procedural primitives to an unbuilt BLAS instead: aabbCount boxes

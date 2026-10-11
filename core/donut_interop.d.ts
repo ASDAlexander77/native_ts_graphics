@@ -1246,6 +1246,9 @@ declare function Donut_CreateEmptyTriangleBlas(app: AppHandle, debugName: string
 // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
 declare function Donut_AddTriangleBlasGeometry(triangleBlas: TriangleBlasHandle, indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int,
     vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
+// Same, with R16_UINT indices.
+declare function Donut_AddTriangleBlasGeometry16(triangleBlas: TriangleBlasHandle, indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int,
+    vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
 // Opaque procedural primitives instead: aabbCount boxes (6 floats each, min x y z then max x y z),
 // aabbStride bytes apart at byteOffset of aabbBuffer (an acceleration structure input buffer),
 // intersected by the hit groups' intersection shaders (Donut_RtPipelineAddProceduralHitGroup). A
