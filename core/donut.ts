@@ -279,6 +279,31 @@ export class App {
         return new PushDescriptorPipeline(Donut_CreatePushDescriptorPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
     }
 
+    // Non-zero if descriptor sets can live in buffers (Vulkan's VK_EXT_descriptor_buffer, for apps
+    // created with AppOptions.DescriptorBuffers; not D3D): Donut_CreateDescriptorBufferPipeline.
+    hasDescriptorBuffers(): int {
+        return Donut_HasDescriptorBuffers(this.handle);
+    }
+
+    // How many descriptor buffers with resource descriptors a pass can bind; 0 without them.
+    getMaxResourceDescriptorBufferBindings(): int {
+        return Donut_GetMaxResourceDescriptorBufferBindings(this.handle);
+    }
+
+    // A buffer of byteSize bytes of descriptors, resource ones and (samplers != 0) sampler ones
+    // (combined image samplers included), written by the CPU. Null without descriptor buffers;
+    // release it with Donut_ReleaseObject.
+    createDescriptorBuffer(byteSize: int, samplers: int): DescriptorBuffer {
+        return new DescriptorBuffer(Donut_CreateDescriptorBuffer(this.handle, byteSize, samplers));
+    }
+
+    // A graphics pipeline whose descriptor sets live in descriptor buffers (raw Vulkan recorded into
+    // NVRHI's command buffer), its states as Donut_CreatePushDescriptorPipeline's. Add its sets, then
+    // build it. Null without descriptor buffers; release it with Donut_ReleaseObject.
+    createDescriptorBufferPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, framebuffer: FramebufferHandle, cullMode: CullMode, frontCounterClockwise: int, depthTest: int, depthWrite: int, depthFunc: ComparisonFunc): DescriptorBufferPipeline {
+        return new DescriptorBufferPipeline(Donut_CreateDescriptorBufferPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
+    }
+
     // Non-zero if shaders can reach buffers through device addresses (Vulkan's bufferDeviceAddress;
     // not D3D, whose shaders have no pointers).
     hasBufferDeviceAddress(): int {
@@ -4238,7 +4263,7 @@ export class PushDescriptorPipeline {
 
     // A binding of its one set: its number (the shader's [[vk::binding(n)]]), its type, the stages that
     // see it (ShaderType bits).
-    addBinding(binding: int, type: PushDescriptorType, shaderType: int): void {
+    addBinding(binding: int, type: RawDescriptorType, shaderType: int): void {
         Donut_AddPushDescriptorBinding(this.handle, binding, type, shaderType);
     }
 
@@ -4273,6 +4298,89 @@ export class PushDescriptorPipeline {
     // (contents kept), then per draw its pushes and the draw. NVRHI's next draw binds everything anew.
     end(): void {
         Donut_EndPushDescriptorPass(this.handle);
+    }
+}
+
+export class DescriptorBuffer {
+    readonly handle: DescriptorBufferHandle;
+
+    constructor(handle: DescriptorBufferHandle | null) {
+        this.handle = handle as DescriptorBufferHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // Writes a constant buffer's descriptor (a static buffer's address and size) for a set's binding
+    // at element of a descriptor buffer (byte offset element * the set's size).
+    writeConstantBuffer(descriptorBufferPipeline: DescriptorBufferPipeline, set: int, element: int, buffer: BufferHandle): void {
+        Donut_WriteDescriptorBufferConstantBuffer(this.handle, descriptorBufferPipeline.handle, set, element, buffer);
+    }
+
+    // Same, a texture and a sampler (a TextureSampler binding both, else the binding's one).
+    writeTexture(descriptorBufferPipeline: DescriptorBufferPipeline, set: int, element: int, texture: TextureHandle, sampler: SamplerHandle): void {
+        Donut_WriteDescriptorBufferTexture(this.handle, descriptorBufferPipeline.handle, set, element, texture, sampler);
+    }
+}
+
+export class DescriptorBufferPipeline {
+    readonly handle: DescriptorBufferPipelineHandle;
+
+    constructor(handle: DescriptorBufferPipelineHandle | null) {
+        this.handle = handle as DescriptorBufferPipelineHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // The next set (numbered from 0): one binding, binding 0 ([[vk::binding(0, set)]]), of a type,
+    // seen by the stages in shaderType (ShaderType bits).
+    addSet(type: RawDescriptorType, shaderType: int): void {
+        Donut_AddDescriptorBufferSet(this.handle, type, shaderType);
+    }
+
+    // Creates its set layouts and pipeline (descriptor buffer flags) and finds the sets' sizes in a
+    // descriptor buffer; 0 on failure.
+    build(): int {
+        return Donut_BuildDescriptorBufferPipeline(this.handle);
+    }
+
+    // A set's size in a descriptor buffer (bytes, aligned to where sets can start): the stride of its
+    // elements.
+    getSetSize(set: int): int {
+        return Donut_GetDescriptorBufferSetSize(this.handle, set);
+    }
+
+    // Starts a pass of draws into framebuffer with commandList; Donut_EndDescriptorBufferPass records it.
+    begin(commandList: CommandList, framebuffer: FramebufferHandle): void {
+        Donut_BeginDescriptorBufferPass(this.handle, commandList.handle, framebuffer);
+    }
+
+    // Binds a descriptor buffer for the pass as the next buffer index (from 0).
+    bindBuffer(descriptorBuffer: DescriptorBuffer): void {
+        Donut_BindDescriptorBuffer(this.handle, descriptorBuffer.handle);
+    }
+
+    // Where a set's descriptors are for the next draws: the bufferIndex-th bound buffer, at element
+    // (byte offset element * the set's size).
+    setOffset(set: int, bufferIndex: int, element: int): void {
+        Donut_SetDescriptorBufferOffset(this.handle, set, bufferIndex, element);
+    }
+
+    // An indexed draw (indices from 0, 32-bit unless the buffer is R16_UINT) with the sets where they
+    // are so far.
+    drawIndexed(vertexBuffer: BufferHandle, indexBuffer: BufferHandle, indexCount: int): void {
+        Donut_DescriptorBufferDrawIndexed(this.handle, vertexBuffer, indexBuffer, indexCount);
+    }
+
+    // Records the pass: barriers for what the bound buffers' descriptors point at and the framebuffer,
+    // its rendering scope, the buffers bound, then per draw the sets' offsets and the draw.
+    end(): void {
+        Donut_EndDescriptorBufferPass(this.handle);
     }
 }
 

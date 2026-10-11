@@ -137,6 +137,8 @@ HANDLES = {
     "HostCopiedTexture": "HostCopiedTextureHandle",
     "D3D12GenericProgram": "D3D12GenericProgramHandle",
     "PushDescriptorPipeline": "PushDescriptorPipelineHandle",
+    "DescriptorBuffer": "DescriptorBufferHandle",
+    "DescriptorBufferPipeline": "DescriptorBufferPipelineHandle",
     "OcclusionPredication": "OcclusionPredicationHandle",
     "PredicationBuffer": "PredicationBufferHandle",
     "MeshPipelineStatistics": "MeshPipelineStatisticsHandle",

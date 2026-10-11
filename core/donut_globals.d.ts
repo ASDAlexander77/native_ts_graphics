@@ -114,6 +114,10 @@ declare global {
     var CalibratedTimestamps: typeof Donut.CalibratedTimestamps;
     type PushDescriptorPipeline = Donut.PushDescriptorPipeline;
     var PushDescriptorPipeline: typeof Donut.PushDescriptorPipeline;
+    type DescriptorBuffer = Donut.DescriptorBuffer;
+    var DescriptorBuffer: typeof Donut.DescriptorBuffer;
+    type DescriptorBufferPipeline = Donut.DescriptorBufferPipeline;
+    var DescriptorBufferPipeline: typeof Donut.DescriptorBufferPipeline;
     type MeshPipelineStatistics = Donut.MeshPipelineStatistics;
     var MeshPipelineStatistics: typeof Donut.MeshPipelineStatistics;
     type PredicationBuffer = Donut.PredicationBuffer;
