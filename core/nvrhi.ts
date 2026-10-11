@@ -16,6 +16,12 @@
 //
 // Objects returned with a reference (createBuffer, createTexture, createCommandList,
 // createComputePipeline) are released with Release().
+//
+// nvrhi.IMessageCallback is implemented here, not called: a @cppvtable class extending it whose
+// message() has a body is one NVRHI calls (examples/nvrhi_direct.ts' MessageLog). Hand it to
+// Donut_SetNvrhiMessageCallback before creating the app, and keep it in a global while the device
+// lives: NVRHI holds a pointer the collector doesn't see. The text is NVRHI's, valid during the
+// call only.
 
 /// <reference path="donut_interop.d.ts" />
 

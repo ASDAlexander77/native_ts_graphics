@@ -1,0 +1,24 @@
+diff --git a/src/app/dx11/DeviceManager_DX11.cpp b/src/app/dx11/DeviceManager_DX11.cpp
+--- a/src/app/dx11/DeviceManager_DX11.cpp
++++ b/src/app/dx11/DeviceManager_DX11.cpp
+@@ -270,7 +270,7 @@
+ #endif
+
+     nvrhi::d3d11::DeviceDesc deviceDesc;
+-    deviceDesc.messageCallback = &DefaultMessageCallback::GetInstance();
++    deviceDesc.messageCallback = m_DeviceParams.messageCallback ? m_DeviceParams.messageCallback : &DefaultMessageCallback::GetInstance();
+     deviceDesc.context = m_ImmediateContext;
+ #if DONUT_WITH_AFTERMATH
+     deviceDesc.aftermathEnabled = m_DeviceParams.enableAftermath;
+diff --git a/src/app/vulkan/DeviceManager_VK.cpp b/src/app/vulkan/DeviceManager_VK.cpp
+--- a/src/app/vulkan/DeviceManager_VK.cpp
++++ b/src/app/vulkan/DeviceManager_VK.cpp
+@@ -1275,7 +1275,7 @@
+     auto vecDeviceExt = stringSetToVector(enabledExtensions.device);
+
+     nvrhi::vulkan::DeviceDesc deviceDesc;
+-    deviceDesc.errorCB = &DefaultMessageCallback::GetInstance();
++    deviceDesc.errorCB = m_DeviceParams.messageCallback ? m_DeviceParams.messageCallback : &DefaultMessageCallback::GetInstance();
+     deviceDesc.instance = m_VulkanInstance;
+     deviceDesc.physicalDevice = m_VulkanPhysicalDevice;
+     deviceDesc.device = m_VulkanDevice;

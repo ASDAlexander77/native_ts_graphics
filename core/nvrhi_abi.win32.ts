@@ -101,6 +101,14 @@ export namespace nvrhi {
         commandList.clearTextureFloat(texture, Ref(subresourcesValue), Ref(colorValue));
     }
 
+    // nvrhi::IMessageCallback, which the application implements: extend it with a @cppvtable class
+    // whose message() has a body (see core/nvrhi.ts)
+    @cppvtable
+    export class IMessageCallback {
+        _destructor(): void;                       // 0
+        message(severity: u8, text: string): void; // 1
+    }
+
     // nvrhi::IResource
     @cppvtable
     export class IResource {
@@ -291,7 +299,7 @@ export namespace nvrhi {
         _queryCoopVecTrainingFormatSupport(): void;                                                      // 68
         _getCoopVecMatrixSize(): void;                                                                   // 69
         getNativeQueue(objectType: u32, queue: u8): NativeObject;                                        // 70
-        _getMessageCallback(): void;                                                                     // 71
+        getMessageCallback(): IMessageCallback;                                                          // 71
         _isAftermathEnabled(): void;                                                                     // 72
         _getAftermathCrashDumpHelper(): void;                                                            // 73
     }

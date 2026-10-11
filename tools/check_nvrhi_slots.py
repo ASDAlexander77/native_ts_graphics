@@ -33,8 +33,8 @@ BINDINGS = {
 }
 
 # the classes in the `nvrhi` namespace, named as NVRHI's interfaces
-CLASSES = ["IResource", "IBuffer", "ITexture", "IShader", "IBindingLayout", "IBindingSet", "IComputePipeline",
-           "ICommandList", "IDevice"]
+CLASSES = ["IMessageCallback", "IResource", "IBuffer", "ITexture", "IShader", "IBindingLayout", "IBindingSet",
+           "IComputePipeline", "ICommandList", "IDevice"]
 
 # the Android targets the Itanium layouts are taken for (the same, but both are checked)
 ANDROID_TARGETS = ["x86_64-linux-android29", "aarch64-linux-android29"]

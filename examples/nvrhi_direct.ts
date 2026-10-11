@@ -41,6 +41,31 @@ namespace NvrhiDirect {
         return value >= expected - 1 && value <= expected + 1;
     }
 
+    // NVRHI's messages, through an nvrhi::IMessageCallback implemented here: a @cppvtable class
+    // whose message() has a body, which NVRHI calls through the vtable tslang makes for it. Each
+    // goes on to Donut's handling (it logs them, and CTest fails on an error it logs), except the
+    // one the test provokes.
+    const PROVOKED_MESSAGE = "Cannot close a command list before it is opened";
+
+    @cppvtable
+    class MessageLog extends nvrhi.IMessageCallback {
+        expecting = false;
+        provoked = 0;
+
+        message(severity: u8, text: string): void {
+            if (this.expecting && severity == nvrhi.MESSAGE_SEVERITY_ERROR && text == PROVOKED_MESSAGE) {
+                this.provoked++;
+                return;
+            }
+
+            Donut_LogNvrhiMessage(severity, text);
+        }
+    }
+
+    // A global: NVRHI keeps a pointer to it where the collector doesn't look, for as long as the
+    // device lives.
+    let messageLog = new MessageLog();
+
     function renderTargetDesc(): nvrhi.TextureDesc {
         let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Cleared texture",
             nvrhi.RESOURCE_STATE_RENDER_TARGET);
@@ -48,11 +73,15 @@ namespace NvrhiDirect {
         return desc;
     }
 
-    function runTest(app: App, api: GraphicsAPI): void {
+    function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
 
         const device = <nvrhi.IDevice>app.getNvrhiDevice();
+
+        // IDevice::getMessageCallback: the MessageLog the device was made with
+        check(<index><Opaque>device.getMessageCallback() == <index><Opaque>messageLog,
+            "the device's IMessageCallback is the one implemented here");
 
         // IDevice::getGraphicsAPI; IResource::getNativeObject and IDevice::getNativeQueue (an
         // nvrhi::Object returned by value); IDevice::queryFeatureSupport, which says whether the
@@ -166,6 +195,16 @@ namespace NvrhiDirect {
         }
         check(<index><Opaque>commandList.getDevice() == <index><Opaque>device, "ICommandList::getDevice");
 
+        // IMessageCallback::message, called by NVRHI: its validation layer (-debug) reports closing
+        // a command list never opened as an error, and does nothing else (without it, the backend
+        // would close a list it has none of)
+        if (validation) {
+            messageLog.expecting = true;
+            commandList.close();
+            messageLog.expecting = false;
+            check(messageLog.provoked == 1, "NVRHI calls the IMessageCallback implemented here");
+        }
+
         let data: u32[] = [];
         for (let i = 0; i < COUNT; i++) {
             data.push(i * 3 + 1);
@@ -270,6 +309,9 @@ namespace NvrhiDirect {
             }
         }
 
+        // the devices made from here on report to messageLog
+        Donut_SetNvrhiMessageCallback(<Opaque>messageLog);
+
         const app = App.createHeadlessWithOptions(api, -1, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
@@ -278,8 +320,9 @@ namespace NvrhiDirect {
 
         console.log(`Using ${Donut_GraphicsAPIToString(api)} API with ${app.getRendererString()}.`);
 
-        runTest(app, api);
+        runTest(app, api, options == AppOptions.DebugRuntime);
         app.destroy();
+        Donut_SetNvrhiMessageCallback(null);
 
         if (failures > 0) {
             console.log("Test FAILED!");
