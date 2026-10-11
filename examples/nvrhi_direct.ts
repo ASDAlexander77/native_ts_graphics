@@ -6,18 +6,27 @@ import { nvrhi } from "../core/nvrhi";
 
 namespace NvrhiDirect {
     // Calls NVRHI's C++ interfaces directly, with no wrapper in donut_interop.cpp: core/nvrhi.ts
-    // lays tslang @cppvtable classes over nvrhi::IDevice, ICommandList and IBuffer, and each call
-    // below goes through the C++ object's own vtable. Not a port of a sample: a test of those
-    // bindings, of every method core/nvrhi.ts gives a signature. Headless, like headless.ts.
+    // lays tslang @cppvtable classes over nvrhi::IDevice, ICommandList, IBuffer, ITexture and the
+    // compute pipeline's objects, and each call below goes through the C++ object's own vtable. Not
+    // a port of a sample: a test of those bindings, of every method core/nvrhi.ts gives a
+    // signature. Headless, like headless.ts.
     //
-    // It uploads numbers into one buffer and clears another to a value, copies both into a
-    // readback buffer and checks what it maps; on the way it checks the device's graphics API,
-    // its native device, reference counting and the layouts of the structs it passes.
+    // One command list:
+    // - uploads numbers into a buffer and clears another to a value;
+    // - runs a compute shader (output = input * 2 + 1) over the uploaded numbers, its pipeline made
+    //   here and its binding set by Donut over buffers made here (Donut's handles are NVRHI's
+    //   pointers);
+    // - copies the three into a readback buffer, the last copy with the state changes made by hand
+    //   instead of NVRHI's automatic barriers;
+    // - clears a texture, read back through Donut.
+    // It checks what it reads, and on the way the device's graphics API, its native objects,
+    // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
     const COUNT = 64;
     const UINT_SIZE = 4;
     const SIZE = COUNT * UINT_SIZE;
     const CLEAR_VALUE: u32 = 0x5eed1234;
+    const TEXTURE_SIZE = 4;
 
     let failures = 0;
 
@@ -28,27 +37,40 @@ namespace NvrhiDirect {
         }
     }
 
-    function nativeDeviceType(api: GraphicsAPI): u32 {
-        if (api == GraphicsAPI.D3D11) {
-            return nvrhi.OBJECT_TYPE_D3D11_DEVICE;
-        }
-        if (api == GraphicsAPI.D3D12) {
-            return nvrhi.OBJECT_TYPE_D3D12_DEVICE;
-        }
-        return nvrhi.OBJECT_TYPE_VK_DEVICE;
+    function near(value: int, expected: int): boolean {
+        return value >= expected - 1 && value <= expected + 1;
+    }
+
+    function renderTargetDesc(): nvrhi.TextureDesc {
+        let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Cleared texture",
+            nvrhi.RESOURCE_STATE_RENDER_TARGET);
+        desc.isRenderTarget = true;
+        return desc;
     }
 
     function runTest(app: App, api: GraphicsAPI): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
-        check(nvrhi.layoutMatches(), "BufferDesc and CommandListParameters have the C++ structs' sizes");
+        check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
 
         const device = <nvrhi.IDevice>app.getNvrhiDevice();
 
-        // IDevice::getGraphicsAPI, IResource::getNativeObject (an nvrhi::Object returned by value)
+        // IDevice::getGraphicsAPI; IResource::getNativeObject and IDevice::getNativeQueue (an
+        // nvrhi::Object returned by value); IDevice::queryFeatureSupport, which says whether the
+        // device has a compute queue (Donut's headless device has one on Vulkan, not on D3D12), as
+        // getNativeQueue does; runGarbageCollection
         const deviceApi: int = device.getGraphicsAPI();
         console.log(`IDevice::getGraphicsAPI: ${deviceApi}`);
         check(deviceApi == <int>api, "the device's graphics API is the one asked for");
-        check(nvrhi.getNativeObject(device, nativeDeviceType(api)) != null, "the device has its native device");
+        const isD3D12 = api == GraphicsAPI.D3D12;
+        check(nvrhi.getNativeObject(device, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_DEVICE : nvrhi.OBJECT_TYPE_VK_DEVICE) != null,
+            "the device has its native device");
+        const queueType = isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_COMMAND_QUEUE : nvrhi.OBJECT_TYPE_VK_QUEUE;
+        check(nvrhi.getNativeQueue(device, queueType, nvrhi.COMMAND_QUEUE_GRAPHICS) != null, "the device has its graphics queue");
+        const hasComputeQueue = device.queryFeatureSupport(nvrhi.FEATURE_COMPUTE_QUEUE, null, 0);
+        console.log(`IDevice::queryFeatureSupport(ComputeQueue): ${hasComputeQueue}`);
+        check(hasComputeQueue == (nvrhi.getNativeQueue(device, queueType, nvrhi.COMMAND_QUEUE_COMPUTE) != null),
+            "IDevice::queryFeatureSupport(ComputeQueue) and getNativeQueue agree");
+        device.runGarbageCollection();
 
         // IResource::AddRef, Release, GetRefCount
         const refCount: int = device.GetRefCount();
@@ -57,30 +79,87 @@ namespace NvrhiDirect {
         console.log(`IDevice reference count: ${refCount}, AddRef ${added}, Release ${released}`);
         check(added == refCount + 1 && released == refCount, "AddRef and Release count");
 
-        // IDevice::createBuffer: one to upload into, one to clear, one to read both back from
-        let clearedDesc = nvrhi.bufferDesc(SIZE, nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_NONE);
+        // IDevice::createBuffer: the shader's input (uploaded) and output, one to clear, one to read
+        // the three back from
+        let inputDesc = nvrhi.bufferDesc(SIZE, "Input", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_NONE);
+        inputDesc.format = <u8>Format.R32_UINT;
+        inputDesc.canHaveTypedViews = true;
+        let outputDesc = nvrhi.bufferDesc(SIZE, "Output", nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
+        outputDesc.format = <u8>Format.R32_UINT;
+        outputDesc.canHaveTypedViews = true;
+        outputDesc.canHaveUAVs = true;
+        let clearedDesc = nvrhi.bufferDesc(SIZE, "Cleared", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_NONE);
         clearedDesc.canHaveUAVs = true;
-        const uploaded = nvrhi.createBuffer(device, nvrhi.bufferDesc(SIZE, nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_NONE));
+        const input = nvrhi.createBuffer(device, inputDesc);
+        const output = nvrhi.createBuffer(device, outputDesc);
         const cleared = nvrhi.createBuffer(device, clearedDesc);
-        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(2 * SIZE, nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_READ));
-        if (!uploaded || !cleared || !readback) {
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(3 * SIZE, "Readback", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_READ));
+        if (!input || !output || !cleared || !readback) {
             check(false, "IDevice::createBuffer");
             return;
         }
 
-        // IBuffer::getDesc: NVRHI's copy of the desc (NVRHI's validation layer names an unnamed buffer,
-        // so its debugName isn't checked)
+        // IBuffer::getDesc: NVRHI's copy of the desc, debug name included; getGpuVirtualAddress (D3D12)
         const desc = Deref(cleared.getDesc());
+        const name = nvrhi.stdString("Cleared");
         check(desc.byteSize == SIZE && desc.canHaveUAVs && desc.initialState == nvrhi.RESOURCE_STATE_COPY_DEST
             && desc.keepInitialState && desc.cpuAccess == nvrhi.CPU_ACCESS_NONE, "IBuffer::getDesc");
+        check(desc.debugName.size == 7 && desc.debugName.buffer0 == name.buffer0, "the buffer's debug name");
+        if (isD3D12) {
+            check(input.getGpuVirtualAddress() != 0, "IBuffer::getGpuVirtualAddress");
+        }
 
-        // IDevice::createCommandList, ICommandList::open, clearState, writeBuffer, clearBufferUInt,
-        // copyBuffer, close
+        // IDevice::createTexture, ITexture::getDesc, getNativeObject
+        const texture = nvrhi.createTexture(device, renderTargetDesc());
+        if (!texture) {
+            check(false, "IDevice::createTexture");
+            return;
+        }
+        const textureDesc = Deref(texture.getDesc());
+        check(textureDesc.width == TEXTURE_SIZE && textureDesc.height == TEXTURE_SIZE
+            && textureDesc.format == <u8>Format.RGBA8_UNORM && textureDesc.isRenderTarget
+            && textureDesc.debugName.size == 15, "ITexture::getDesc");
+        check(nvrhi.getNativeObject(texture, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE) != null,
+            "the texture has its native resource");
+
+        // The compute pipeline: the shader through Donut's shader factory, IShader::getBytecode; the
+        // binding set and its layout through Donut (nvrhi::utils::CreateBindingSetAndLayout, C++
+        // code, not a method); IBindingSet::getLayout, IDevice::createComputePipeline
+        const shader = <nvrhi.IShader><Opaque>app.createShader("nvrhi_direct.hlsl", "main", ShaderType.Compute);
+        if (!shader) {
+            check(false, "the compute shader");
+            return;
+        }
+        // NVRHI keeps the bytecode on D3D12 only; on Vulkan it writes null and 0
+        let bytecode: Opaque | null = null;
+        let bytecodeSize: index = 12345;
+        shader.getBytecode(Ref(bytecode), Ref(bytecodeSize));
+        check(isD3D12 ? bytecode != null && bytecodeSize > 0 : bytecodeSize == 0, "IShader::getBytecode");
+
+        const bindingSetDesc = BindingSetDesc.create();
+        bindingSetDesc.bindTypedBufferSRV(0, <BufferHandle><Opaque>input);
+        bindingSetDesc.bindTypedBufferUAV(0, <BufferHandle><Opaque>output);
+        const donutBindingSet = app.createBindingSet(bindingSetDesc, ShaderType.Compute);
+        if (donutBindingSet.isNull()) {
+            check(false, "the binding set");
+            return;
+        }
+        const bindingSet = <nvrhi.IBindingSet><Opaque>donutBindingSet.handle;
+        const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, bindingSet.getLayout()));
+        if (!pipeline) {
+            check(false, "IDevice::createComputePipeline");
+            return;
+        }
+
+        // IDevice::createCommandList; ICommandList::open, clearState, beginMarker, writeBuffer,
+        // clearBufferUInt, setComputeState, dispatch, setEnableAutomaticBarriers, setBufferState,
+        // commitBarriers, copyBuffer, clearTextureFloat, endMarker, getDevice, close
         const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
         if (!commandList) {
             check(false, "IDevice::createCommandList");
             return;
         }
+        check(<index><Opaque>commandList.getDevice() == <index><Opaque>device, "ICommandList::getDevice");
 
         let data: u32[] = [];
         for (let i = 0; i < COUNT; i++) {
@@ -89,10 +168,24 @@ namespace NvrhiDirect {
 
         commandList.open();
         commandList.clearState();
-        commandList.writeBuffer(uploaded, <Opaque>Ref(data[0]), SIZE, 0);
+        commandList.beginMarker("nvrhi_direct");
+        commandList.writeBuffer(input, <Opaque>Ref(data[0]), SIZE, 0);
         commandList.clearBufferUInt(cleared, CLEAR_VALUE);
-        commandList.copyBuffer(readback, 0, uploaded, 0, SIZE);
+        nvrhi.setComputeState(commandList, nvrhi.computeState(pipeline, bindingSet));
+        commandList.dispatch(1, 1, 1);
+        commandList.copyBuffer(readback, 0, input, 0, SIZE);
         commandList.copyBuffer(readback, SIZE, cleared, 0, SIZE);
+
+        // the output's copy with the barriers made by hand
+        commandList.setEnableAutomaticBarriers(0);
+        commandList.setBufferState(output, nvrhi.RESOURCE_STATE_COPY_SOURCE);
+        commandList.setBufferState(readback, nvrhi.RESOURCE_STATE_COPY_DEST);
+        commandList.commitBarriers();
+        commandList.copyBuffer(readback, 2 * SIZE, output, 0, SIZE);
+        commandList.setEnableAutomaticBarriers(1);
+
+        nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [1.0, 0.5, 0.25, 1.0]);
+        commandList.endMarker();
         commandList.close();
 
         // IDevice::executeCommandLists, waitForIdle
@@ -103,6 +196,7 @@ namespace NvrhiDirect {
         const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
         let uploadMismatches = 0;
         let clearMismatches = 0;
+        let computeMismatches = 0;
         for (let i = 0; i < COUNT; i++) {
             if (Deref(mapped[i]) != data[i]) {
                 uploadMismatches++;
@@ -110,16 +204,40 @@ namespace NvrhiDirect {
             if (Deref(mapped[COUNT + i]) != CLEAR_VALUE) {
                 clearMismatches++;
             }
+            if (Deref(mapped[2 * COUNT + i]) != data[i] * 2 + 1) {
+                computeMismatches++;
+            }
         }
         console.log(`Read back: [${Deref(mapped[0])}, ${Deref(mapped[1])}, ..., ${Deref(mapped[COUNT - 1])}], `
-            + `cleared to ${Deref(mapped[COUNT])}`);
+            + `cleared to ${Deref(mapped[COUNT])}, computed [${Deref(mapped[2 * COUNT])}, ..., ${Deref(mapped[3 * COUNT - 1])}]`);
         device.unmapBuffer(readback);
         check(uploadMismatches == 0, `ICommandList::writeBuffer and copyBuffer (${uploadMismatches} of ${COUNT} differ)`);
         check(clearMismatches == 0, `ICommandList::clearBufferUInt (${clearMismatches} of ${COUNT} differ)`);
+        check(computeMismatches == 0, `the compute dispatch (${computeMismatches} of ${COUNT} differ)`);
 
-        // IResource::Release on what createBuffer and createCommandList returned with a reference
+        // the texture, read back through Donut (a staging texture)
+        let pixels: u8[] = [];
+        pixels.length = TEXTURE_SIZE * TEXTURE_SIZE * 4;
+        if (app.readTextureLevel(<TextureHandle><Opaque>texture, 0, <Opaque>Ref(pixels[0]), pixels.length) == 0) {
+            check(false, "the texture's readback");
+        } else {
+            let pixelMismatches = 0;
+            for (let i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE; i++) {
+                if (!near(pixels[4 * i], 255) || !near(pixels[4 * i + 1], 128) || !near(pixels[4 * i + 2], 64)
+                    || !near(pixels[4 * i + 3], 255)) {
+                    pixelMismatches++;
+                }
+            }
+            console.log(`Texture cleared to (${pixels[0]}, ${pixels[1]}, ${pixels[2]}, ${pixels[3]})`);
+            check(pixelMismatches == 0, `ICommandList::clearTextureFloat (${pixelMismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+        }
+
+        // IResource::Release on what the create functions returned with a reference
         commandList.Release();
-        uploaded.Release();
+        pipeline.Release();
+        texture.Release();
+        input.Release();
+        output.Release();
         cleared.Release();
         readback.Release();
     }
@@ -135,7 +253,6 @@ namespace NvrhiDirect {
             const arg = Donut_GetArg(argv, i);
             if (arg == "--help") {
                 console.log(`Usage: ${Donut_GetArg(argv, 0)} [options]
- -dx11            Use DX11 API
  -dx12            Use DX12 API (default)
  -vk              Use Vulkan API
  -debug           Enable the graphics API's debug layer and NVRHI's validation layer
