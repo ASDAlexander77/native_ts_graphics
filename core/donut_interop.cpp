@@ -1411,6 +1411,88 @@ namespace
         }
     };
 
+    // Values of Donut_AddPushDescriptorBinding's type: the Vulkan descriptor type of a binding.
+    enum PushDescriptorType
+    {
+        PushDescriptor_ConstantBuffer = 0, // VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+        PushDescriptor_TextureSampler = 1, // VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+        PushDescriptor_Texture = 2, // VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+        PushDescriptor_Sampler = 3, // VK_DESCRIPTOR_TYPE_SAMPLER
+    };
+
+    // A graphics pipeline whose descriptors are pushed into the command buffer with each draw
+    // (Donut_CreatePushDescriptorPipeline): Vulkan's VK_KHR_push_descriptor, which NVRHI doesn't
+    // have, so the pipeline, its layout (one set, created with the push descriptor flag) and its
+    // draws are raw Vulkan, recorded into NVRHI's command buffer inside a dynamic rendering scope of
+    // their own on an NVRHI framebuffer.
+    struct PushDescriptorPipeline
+    {
+        App* app = nullptr;
+        // Creation parameters, until Donut_BuildPushDescriptorPipeline.
+        nvrhi::ShaderHandle vertexShader;
+        nvrhi::ShaderHandle pixelShader;
+        nvrhi::InputLayoutHandle inputLayout;
+        nvrhi::FramebufferInfoEx framebufferInfo;
+        nvrhi::RasterCullMode cullMode = nvrhi::RasterCullMode::Back;
+        bool frontCounterClockwise = false;
+        bool depthTest = false;
+        bool depthWrite = false;
+        nvrhi::ComparisonFunc depthFunc = nvrhi::ComparisonFunc::Less;
+        struct Binding
+        {
+            int binding = 0;
+            int type = 0;
+            int shaderType = 0;
+        };
+        std::vector<Binding> bindings;
+        // A descriptor pushed for a binding: the resources it points at.
+        struct Descriptor
+        {
+            int binding = 0;
+            int type = 0;
+            nvrhi::BufferHandle buffer;
+            nvrhi::TextureHandle texture;
+            nvrhi::SamplerHandle sampler;
+        };
+        // An indexed draw between Donut_BeginPushDescriptorPass and Donut_EndPushDescriptorPass:
+        // the descriptors it pushes, its buffers.
+        struct Draw
+        {
+            std::vector<Descriptor> descriptors;
+            nvrhi::BufferHandle vertexBuffer;
+            nvrhi::BufferHandle indexBuffer;
+            uint32_t indexCount = 0;
+        };
+        // The pass being recorded: its command list and framebuffer, the descriptors pushed so far
+        // (by binding: a push replaces those bindings and leaves the others), its draws.
+        nvrhi::CommandListHandle commandList;
+        nvrhi::FramebufferHandle framebuffer;
+        std::map<int, Descriptor> pushed;
+        std::vector<Draw> draws;
+#if DONUT_WITH_VULKAN
+        VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+        VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+        VkPipeline pipeline = VK_NULL_HANDLE;
+#endif
+
+        ~PushDescriptorPipeline()
+        {
+#if DONUT_WITH_VULKAN
+            if (setLayout == VK_NULL_HANDLE && pipelineLayout == VK_NULL_HANDLE && pipeline == VK_NULL_HANDLE)
+                return;
+            nvrhi::IDevice* device = app->device();
+            device->waitForIdle();
+            VkDevice vkDevice = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            if (pipeline != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyPipeline(vkDevice, pipeline, nullptr);
+            if (pipelineLayout != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyPipelineLayout(vkDevice, pipelineLayout, nullptr);
+            if (setLayout != VK_NULL_HANDLE)
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyDescriptorSetLayout(vkDevice, setLayout, nullptr);
+#endif
+        }
+    };
+
     // Timestamps of several time domains sampled together (Donut_CreateCalibratedTimestamps).
     struct CalibratedTimestamps
     {
@@ -2227,6 +2309,8 @@ extern "C"
         // Timestamps of the device's and the host's clocks sampled together
         // (Donut_CreateCalibratedTimestamps).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_calibrated_timestamps");
+        // Descriptors pushed into command buffers (Donut_CreatePushDescriptorPipeline).
+        params.optionalVulkanDeviceExtensions.push_back("VK_KHR_push_descriptor");
         // Shaders' printf (Donut_HasShaderPrintf): the validation layer with its printf setting on
         // (the layer reads its settings from the environment when it loads), its messages through
         // VK_EXT_debug_utils, and the non-semantic instructions printf compiles to.
@@ -12121,6 +12205,398 @@ extern "C"
     int Donut_HasNative16BitConstants(App* app)
     {
         return app->native16BitConstants ? 1 : 0;
+    }
+
+    // Non-zero if descriptors can be pushed into command buffers (Vulkan's VK_KHR_push_descriptor):
+    // Donut_CreatePushDescriptorPipeline. Not D3D, which has root descriptors instead.
+    int Donut_HasPushDescriptors(App* app)
+    {
+#if DONUT_WITH_VULKAN
+        return app->device()->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN
+            && app->deviceManager->IsVulkanDeviceExtensionEnabled("VK_KHR_push_descriptor")
+            && VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdPushDescriptorSetKHR ? 1 : 0;
+#else
+        return 0;
+#endif
+    }
+
+    // The most descriptors a push can set (VkPhysicalDevicePushDescriptorPropertiesKHR's
+    // maxPushDescriptors); 0 without push descriptors.
+    int Donut_GetMaxPushDescriptors(App* app)
+    {
+        if (!Donut_HasPushDescriptors(app))
+            return 0;
+#if DONUT_WITH_VULKAN
+        VkPhysicalDevicePushDescriptorPropertiesKHR pushDescriptor{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR };
+        VkPhysicalDeviceProperties2 properties2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+        properties2.pNext = &pushDescriptor;
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceProperties2(
+            DeviceManagerVKAccess::PhysicalDevice(static_cast<DeviceManager_VK*>(app->deviceManager.get())), &properties2);
+        return int(pushDescriptor.maxPushDescriptors);
+#else
+        return 0;
+#endif
+    }
+
+    // A graphics pipeline of a vertex and a pixel shader whose descriptors are pushed with each
+    // draw (VK_KHR_push_descriptor), for framebuffers like framebuffer: its vertex input from
+    // inputLayout (attribute i at location i, one vertex buffer), triangle lists, its cull mode
+    // (RasterCullMode) and winding, depth test, write and comparison (ComparisonFunc), no
+    // blending. Add its bindings (Donut_AddPushDescriptorBinding), then build it
+    // (Donut_BuildPushDescriptorPipeline). Null without push descriptors (Donut_HasPushDescriptors).
+    // Release it with Donut_ReleaseObject.
+    PushDescriptorPipeline* Donut_CreatePushDescriptorPipeline(App* app, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+        nvrhi::IInputLayout* inputLayout, nvrhi::IFramebuffer* framebuffer, int cullMode, int frontCounterClockwise,
+        int depthTest, int depthWrite, int depthFunc)
+    {
+        if (!Donut_HasPushDescriptors(app) || !vertexShader || !pixelShader || !framebuffer)
+            return nullptr;
+        auto pipeline = std::make_shared<PushDescriptorPipeline>();
+        pipeline->app = app;
+        pipeline->vertexShader = vertexShader;
+        pipeline->pixelShader = pixelShader;
+        pipeline->inputLayout = inputLayout;
+        pipeline->framebufferInfo = framebuffer->getFramebufferInfo();
+        pipeline->cullMode = static_cast<nvrhi::RasterCullMode>(cullMode);
+        pipeline->frontCounterClockwise = frontCounterClockwise != 0;
+        pipeline->depthTest = depthTest != 0;
+        pipeline->depthWrite = depthWrite != 0;
+        pipeline->depthFunc = static_cast<nvrhi::ComparisonFunc>(depthFunc);
+        return app->OwnObject(pipeline);
+    }
+
+    // A binding of its set (set 0): its number (the shader's [[vk::binding(n)]]), its
+    // PushDescriptorType, the stages that see it (ShaderType bits).
+    void Donut_AddPushDescriptorBinding(PushDescriptorPipeline* pushDescriptorPipeline, int binding, int type, int shaderType)
+    {
+        pushDescriptorPipeline->bindings.push_back({ binding, type, shaderType });
+    }
+
+    // Creates the set layout (with VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR: no
+    // descriptor set is ever allocated for it), the pipeline layout and the pipeline. Returns 0 (after
+    // logging why) on failure.
+    int Donut_BuildPushDescriptorPipeline(PushDescriptorPipeline* pushDescriptorPipeline)
+    {
+#if DONUT_WITH_VULKAN
+        PushDescriptorPipeline* p = pushDescriptorPipeline;
+        VkDevice device = p->app->device()->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+
+        std::vector<VkDescriptorSetLayoutBinding> bindings;
+        for (const auto& b : p->bindings)
+        {
+            VkDescriptorSetLayoutBinding binding{};
+            binding.binding = uint32_t(b.binding);
+            binding.descriptorType = b.type == PushDescriptor_ConstantBuffer ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                : b.type == PushDescriptor_TextureSampler ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                : b.type == PushDescriptor_Texture ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLER;
+            binding.descriptorCount = 1;
+            const auto shaderType = static_cast<nvrhi::ShaderType>(b.shaderType);
+            if ((shaderType & nvrhi::ShaderType::Vertex) != 0)
+                binding.stageFlags |= VK_SHADER_STAGE_VERTEX_BIT;
+            if ((shaderType & nvrhi::ShaderType::Geometry) != 0)
+                binding.stageFlags |= VK_SHADER_STAGE_GEOMETRY_BIT;
+            if ((shaderType & nvrhi::ShaderType::Pixel) != 0)
+                binding.stageFlags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+            bindings.push_back(binding);
+        }
+        VkDescriptorSetLayoutCreateInfo setLayoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        // No sets are allocated: the descriptors are pushed into command buffers.
+        setLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+        setLayoutInfo.bindingCount = uint32_t(bindings.size());
+        setLayoutInfo.pBindings = bindings.data();
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateDescriptorSetLayout(device, &setLayoutInfo, nullptr, &p->setLayout) != VK_SUCCESS)
+        {
+            donut::log::error("Cannot create the push descriptor set layout");
+            return 0;
+        }
+        VkPipelineLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &p->setLayout;
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreatePipelineLayout(device, &layoutInfo, nullptr, &p->pipelineLayout) != VK_SUCCESS)
+        {
+            donut::log::error("Cannot create the push descriptor pipeline layout");
+            return 0;
+        }
+
+        // The shaders: NVRHI's modules, their entry points.
+        VkPipelineShaderStageCreateInfo stages[2] = {};
+        nvrhi::IShader* shaders[2] = { p->vertexShader, p->pixelShader };
+        const VkShaderStageFlagBits stageBits[2] = { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT };
+        for (int i = 0; i < 2; i++)
+        {
+            stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            stages[i].stage = stageBits[i];
+            stages[i].module = shaders[i]->getNativeObject(nvrhi::ObjectTypes::VK_ShaderModule);
+            stages[i].pName = shaders[i]->getDesc().entryName.c_str();
+        }
+
+        // The vertex input: attribute i at location i, from its vertex buffer slot.
+        std::vector<VkVertexInputAttributeDescription> attributes;
+        std::vector<VkVertexInputBindingDescription> vertexBindings;
+        const uint32_t attributeCount = p->inputLayout ? p->inputLayout->getNumAttributes() : 0;
+        for (uint32_t i = 0; i < attributeCount; i++)
+        {
+            const nvrhi::VertexAttributeDesc* attribute = p->inputLayout->getAttributeDesc(i);
+            attributes.push_back({ i, attribute->bufferIndex, nvrhi::vulkan::convertFormat(attribute->format), attribute->offset });
+            bool found = false;
+            for (const auto& vb : vertexBindings)
+                found = found || vb.binding == attribute->bufferIndex;
+            if (!found)
+                vertexBindings.push_back({ attribute->bufferIndex, attribute->elementStride,
+                    attribute->isInstanced ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX });
+        }
+        VkPipelineVertexInputStateCreateInfo vertexInput{ VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+        vertexInput.vertexBindingDescriptionCount = uint32_t(vertexBindings.size());
+        vertexInput.pVertexBindingDescriptions = vertexBindings.data();
+        vertexInput.vertexAttributeDescriptionCount = uint32_t(attributes.size());
+        vertexInput.pVertexAttributeDescriptions = attributes.data();
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{ VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkPipelineViewportStateCreateInfo viewport{ VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+        viewport.viewportCount = 1;
+        viewport.scissorCount = 1;
+        VkPipelineRasterizationStateCreateInfo rasterization{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+        rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterization.cullMode = p->cullMode == nvrhi::RasterCullMode::Back ? VK_CULL_MODE_BACK_BIT
+            : p->cullMode == nvrhi::RasterCullMode::Front ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_NONE;
+        rasterization.frontFace = p->frontCounterClockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
+        rasterization.lineWidth = 1.f;
+        VkPipelineMultisampleStateCreateInfo multisample{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+        multisample.rasterizationSamples = VkSampleCountFlagBits(p->framebufferInfo.sampleCount);
+        VkPipelineDepthStencilStateCreateInfo depthStencil{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+        depthStencil.depthTestEnable = p->depthTest ? VK_TRUE : VK_FALSE;
+        depthStencil.depthWriteEnable = p->depthWrite ? VK_TRUE : VK_FALSE;
+        // nvrhi::ComparisonFunc is VkCompareOp + 1.
+        depthStencil.depthCompareOp = VkCompareOp(int(p->depthFunc) - 1);
+        std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(p->framebufferInfo.colorFormats.size());
+        for (auto& attachment : blendAttachments)
+            attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendStateCreateInfo colorBlend{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+        colorBlend.attachmentCount = uint32_t(blendAttachments.size());
+        colorBlend.pAttachments = blendAttachments.data();
+        const VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo dynamic{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+        dynamic.dynamicStateCount = 2;
+        dynamic.pDynamicStates = dynamicStates;
+
+        // Dynamic rendering, as NVRHI's framebuffers: their formats.
+        std::vector<VkFormat> colorFormats;
+        for (nvrhi::Format format : p->framebufferInfo.colorFormats)
+            colorFormats.push_back(nvrhi::vulkan::convertFormat(format));
+        VkPipelineRenderingCreateInfo rendering{ VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+        rendering.colorAttachmentCount = uint32_t(colorFormats.size());
+        rendering.pColorAttachmentFormats = colorFormats.data();
+        if (p->framebufferInfo.depthFormat != nvrhi::Format::UNKNOWN)
+        {
+            rendering.depthAttachmentFormat = nvrhi::vulkan::convertFormat(p->framebufferInfo.depthFormat);
+            if (nvrhi::getFormatInfo(p->framebufferInfo.depthFormat).hasStencil)
+                rendering.stencilAttachmentFormat = rendering.depthAttachmentFormat;
+        }
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        pipelineInfo.pNext = &rendering;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = stages;
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewport;
+        pipelineInfo.pRasterizationState = &rasterization;
+        pipelineInfo.pMultisampleState = &multisample;
+        pipelineInfo.pDepthStencilState = &depthStencil;
+        pipelineInfo.pColorBlendState = &colorBlend;
+        pipelineInfo.pDynamicState = &dynamic;
+        pipelineInfo.layout = p->pipelineLayout;
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &p->pipeline) != VK_SUCCESS)
+        {
+            donut::log::error("Cannot create the push descriptor pipeline");
+            return 0;
+        }
+        return 1;
+#else
+        return 0;
+#endif
+    }
+
+    // Starts recording draws into framebuffer (one like the pipeline's) with commandList: the
+    // pushes and draws up to Donut_EndPushDescriptorPass, which records them.
+    void Donut_BeginPushDescriptorPass(PushDescriptorPipeline* pushDescriptorPipeline, nvrhi::ICommandList* commandList,
+        nvrhi::IFramebuffer* framebuffer)
+    {
+        PushDescriptorPipeline* p = pushDescriptorPipeline;
+        p->commandList = commandList;
+        p->framebuffer = framebuffer;
+        p->pushed.clear();
+        p->draws.clear();
+    }
+
+    // Pushes a descriptor for the next draws: a constant buffer (a static one: a volatile one has
+    // no fixed place) at a PushDescriptor_ConstantBuffer binding.
+    void Donut_PushDescriptorBuffer(PushDescriptorPipeline* pushDescriptorPipeline, int binding, nvrhi::IBuffer* buffer)
+    {
+        PushDescriptorPipeline::Descriptor& d = pushDescriptorPipeline->pushed[binding];
+        d = {};
+        d.binding = binding;
+        d.type = PushDescriptor_ConstantBuffer;
+        d.buffer = buffer;
+    }
+
+    // Same, a texture (all of it) and a sampler: at a PushDescriptor_TextureSampler binding both,
+    // at a PushDescriptor_Texture one the texture, at a PushDescriptor_Sampler one the sampler.
+    void Donut_PushDescriptorTexture(PushDescriptorPipeline* pushDescriptorPipeline, int binding, nvrhi::ITexture* texture,
+        nvrhi::ISampler* sampler)
+    {
+        int type = PushDescriptor_TextureSampler;
+        for (const auto& b : pushDescriptorPipeline->bindings)
+        {
+            if (b.binding == binding)
+                type = b.type;
+        }
+        PushDescriptorPipeline::Descriptor& d = pushDescriptorPipeline->pushed[binding];
+        d = {};
+        d.binding = binding;
+        d.type = type;
+        d.texture = texture;
+        d.sampler = sampler;
+    }
+
+    // An indexed draw (triangle list, from index 0 and vertex 0) of a vertex buffer with an index
+    // buffer (R16_UINT indices, else 32-bit), with the descriptors pushed so far: pushed into the
+    // command buffer (vkCmdPushDescriptorSetKHR) right before the draw.
+    void Donut_PushDescriptorDrawIndexed(PushDescriptorPipeline* pushDescriptorPipeline, nvrhi::IBuffer* vertexBuffer,
+        nvrhi::IBuffer* indexBuffer, int indexCount)
+    {
+        PushDescriptorPipeline* p = pushDescriptorPipeline;
+        PushDescriptorPipeline::Draw draw;
+        for (const auto& [binding, descriptor] : p->pushed)
+            draw.descriptors.push_back(descriptor);
+        draw.vertexBuffer = vertexBuffer;
+        draw.indexBuffer = indexBuffer;
+        draw.indexCount = uint32_t(indexCount);
+        p->draws.push_back(std::move(draw));
+    }
+
+    // Records the pass: barriers for what its draws read and its framebuffer (through NVRHI's state
+    // tracking, outside the rendering scope), then the framebuffer's rendering scope (its contents
+    // loaded and stored), NVRHI's viewport (y flipped, as its pipelines draw), the pipeline, and per
+    // draw its descriptors pushed and the draw. NVRHI's own state is cleared: its next draw binds
+    // everything anew.
+    void Donut_EndPushDescriptorPass(PushDescriptorPipeline* pushDescriptorPipeline)
+    {
+#if DONUT_WITH_VULKAN
+        PushDescriptorPipeline* p = pushDescriptorPipeline;
+        nvrhi::ICommandList* commandList = p->commandList;
+        if (!commandList || !p->framebuffer || p->pipeline == VK_NULL_HANDLE)
+            return;
+        commandList->clearState();
+
+        const nvrhi::FramebufferDesc& fbDesc = p->framebuffer->getDesc();
+        for (const auto& attachment : fbDesc.colorAttachments)
+            commandList->setTextureState(attachment.texture, attachment.subresources, nvrhi::ResourceStates::RenderTarget);
+        if (fbDesc.depthAttachment.valid())
+            commandList->setTextureState(fbDesc.depthAttachment.texture, fbDesc.depthAttachment.subresources,
+                nvrhi::ResourceStates::DepthWrite);
+        for (const auto& draw : p->draws)
+        {
+            commandList->setBufferState(draw.vertexBuffer, nvrhi::ResourceStates::VertexBuffer);
+            commandList->setBufferState(draw.indexBuffer, nvrhi::ResourceStates::IndexBuffer);
+            for (const auto& d : draw.descriptors)
+            {
+                if (d.buffer)
+                    commandList->setBufferState(d.buffer, nvrhi::ResourceStates::ConstantBuffer);
+                if (d.texture)
+                    commandList->setTextureState(d.texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            }
+        }
+        commandList->commitBarriers();
+
+        VkCommandBuffer cmd = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+        const nvrhi::FramebufferInfoEx& info = p->framebuffer->getFramebufferInfo();
+        std::vector<VkRenderingAttachmentInfo> colorAttachments;
+        for (const auto& attachment : fbDesc.colorAttachments)
+        {
+            VkRenderingAttachmentInfo a{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+            a.imageView = attachment.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView, attachment.format,
+                attachment.subresources, nvrhi::TextureDimension::Texture2D);
+            a.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            a.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            a.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAttachments.push_back(a);
+        }
+        VkRenderingAttachmentInfo depthAttachment{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+        bool hasStencil = false;
+        if (fbDesc.depthAttachment.valid())
+        {
+            depthAttachment.imageView = fbDesc.depthAttachment.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView,
+                fbDesc.depthAttachment.format, fbDesc.depthAttachment.subresources, nvrhi::TextureDimension::Texture2D);
+            depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            hasStencil = nvrhi::getFormatInfo(fbDesc.depthAttachment.texture->getDesc().format).hasStencil;
+        }
+        VkRenderingInfo rendering{ VK_STRUCTURE_TYPE_RENDERING_INFO };
+        rendering.renderArea.extent = { info.width, info.height };
+        rendering.layerCount = 1;
+        rendering.colorAttachmentCount = uint32_t(colorAttachments.size());
+        rendering.pColorAttachments = colorAttachments.data();
+        rendering.pDepthAttachment = fbDesc.depthAttachment.valid() ? &depthAttachment : nullptr;
+        rendering.pStencilAttachment = hasStencil ? &depthAttachment : nullptr;
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginRendering(cmd, &rendering);
+
+        const VkViewport viewport{ 0.f, float(info.height), float(info.width), -float(info.height), 0.f, 1.f };
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdSetViewport(cmd, 0, 1, &viewport);
+        const VkRect2D scissor{ { 0, 0 }, { info.width, info.height } };
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdSetScissor(cmd, 0, 1, &scissor);
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p->pipeline);
+
+        for (const auto& draw : p->draws)
+        {
+            // The descriptors: no set; dstSet is ignored for pushes.
+            std::vector<VkDescriptorBufferInfo> bufferInfos(draw.descriptors.size());
+            std::vector<VkDescriptorImageInfo> imageInfos(draw.descriptors.size());
+            std::vector<VkWriteDescriptorSet> writes;
+            for (size_t i = 0; i < draw.descriptors.size(); i++)
+            {
+                const auto& d = draw.descriptors[i];
+                VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                write.dstBinding = uint32_t(d.binding);
+                write.descriptorCount = 1;
+                if (d.type == PushDescriptor_ConstantBuffer)
+                {
+                    bufferInfos[i] = { VkBuffer(d.buffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer)), 0, VK_WHOLE_SIZE };
+                    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    write.pBufferInfo = &bufferInfos[i];
+                }
+                else
+                {
+                    if (d.texture)
+                        imageInfos[i].imageView = d.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView);
+                    if (d.sampler)
+                        imageInfos[i].sampler = d.sampler->getNativeObject(nvrhi::ObjectTypes::VK_Sampler);
+                    imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    write.descriptorType = d.type == PushDescriptor_TextureSampler ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                        : d.type == PushDescriptor_Texture ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLER;
+                    write.pImageInfo = &imageInfos[i];
+                }
+                writes.push_back(write);
+            }
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p->pipelineLayout,
+                0, uint32_t(writes.size()), writes.data());
+
+            const VkBuffer vertexBuffer = draw.vertexBuffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer);
+            const VkDeviceSize offset = 0;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBindIndexBuffer(cmd, draw.indexBuffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer), 0,
+                draw.indexBuffer->getDesc().format == nvrhi::Format::R16_UINT ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdDrawIndexed(cmd, draw.indexCount, 1, 0, 0, 0);
+        }
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdEndRendering(cmd);
+#endif
+        pushDescriptorPipeline->commandList = nullptr;
+        pushDescriptorPipeline->framebuffer = nullptr;
+        pushDescriptorPipeline->pushed.clear();
+        pushDescriptorPipeline->draws.clear();
     }
 
     // Non-zero if shaders can reach buffers through their device addresses (Vulkan's

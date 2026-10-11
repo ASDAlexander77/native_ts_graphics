@@ -112,6 +112,8 @@ declare global {
     var D3D12LibraryRtPipeline: typeof Donut.D3D12LibraryRtPipeline;
     type CalibratedTimestamps = Donut.CalibratedTimestamps;
     var CalibratedTimestamps: typeof Donut.CalibratedTimestamps;
+    type PushDescriptorPipeline = Donut.PushDescriptorPipeline;
+    var PushDescriptorPipeline: typeof Donut.PushDescriptorPipeline;
     type MeshPipelineStatistics = Donut.MeshPipelineStatistics;
     var MeshPipelineStatistics: typeof Donut.MeshPipelineStatistics;
     type PredicationBuffer = Donut.PredicationBuffer;
