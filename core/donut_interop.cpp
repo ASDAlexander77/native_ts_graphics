@@ -4998,6 +4998,19 @@ extern "C"
         dst[3] = static_cast<int>(packedMips.numPackedMips);
     }
 
+    // The number of tiles a tiled texture's packed levels (its mip tail) take together: 0 if it has
+    // none.
+    int Donut_GetTexturePackedMipTileCount(App* app, nvrhi::ITexture* texture)
+    {
+        uint32_t numTiles = 0;
+        nvrhi::PackedMipDesc packedMips;
+        nvrhi::TileShape tileShape;
+        uint32_t subresourceTilingsNum = 0;
+        app->device()->getTextureTiling(texture, &numTiles, &packedMips, &tileShape,
+            &subresourceTilingsNum, nullptr);
+        return packedMips.numPackedMips > 0 ? static_cast<int>(packedMips.numTilesForPackedMips) : 0;
+    }
+
     // Device memory to map tiles of tiled textures into: byteSize bytes, a multiple of the 64 KiB
     // tile. Release it (Donut_ReleaseResource) once no tile is mapped to it any more and the GPU is
     // done with what used it. Returns null on failure.
@@ -5182,6 +5195,8 @@ extern "C"
             nvrhi::IHeap* heap;
             nvrhi::TiledTextureCoordinate coordinate;
             uint64_t byteOffset;
+            // Non-zero for the packed levels: their tile count, mapped as one range.
+            uint32_t packedTileCount = 0;
         };
         std::vector<Tile> tiles;
     };
@@ -5201,6 +5216,19 @@ extern "C"
         tile.coordinate.x = static_cast<uint32_t>(x);
         tile.coordinate.y = static_cast<uint32_t>(y);
         tile.byteOffset = static_cast<uint64_t>(byteOffset);
+        tileMappings->tiles.push_back(tile);
+    }
+
+    // Maps all the packed levels (the mip tail, from level firstPackedMip on) to tileCount tiles
+    // (Donut_GetTexturePackedMipTileCount) from byteOffset in a heap, or unmaps them (heap null).
+    void Donut_TileMappingsAddPackedMips(TileMappings* tileMappings, int firstPackedMip, int tileCount, nvrhi::IHeap* heap,
+        double byteOffset)
+    {
+        TileMappings::Tile tile;
+        tile.heap = heap;
+        tile.coordinate.mipLevel = static_cast<uint16_t>(firstPackedMip);
+        tile.byteOffset = static_cast<uint64_t>(byteOffset);
+        tile.packedTileCount = static_cast<uint32_t>(tileCount);
         tileMappings->tiles.push_back(tile);
     }
 
@@ -5227,8 +5255,8 @@ extern "C"
                 heapTiles[found - heaps.begin()].push_back(i);
         }
 
-        // One tile per region: D3D12 reads the region's size in texels (rounded up to tiles), Vulkan
-        // in tiles.
+        // One tile per region (D3D12 reads the region's size in texels, rounded up to tiles, Vulkan
+        // in tiles), or the packed levels' tiles as one range.
         std::vector<std::vector<nvrhi::TiledTextureCoordinate>> coordinates(heaps.size());
         std::vector<std::vector<nvrhi::TiledTextureRegion>> regions(heaps.size());
         std::vector<std::vector<uint64_t>> byteOffsets(heaps.size());
@@ -5242,6 +5270,7 @@ extern "C"
                 region.width = 1;
                 region.height = 1;
                 region.depth = 1;
+                region.tilesNum = mappings->tiles[i].packedTileCount;
                 regions[h].push_back(region);
                 byteOffsets[h].push_back(mappings->tiles[i].byteOffset);
             }

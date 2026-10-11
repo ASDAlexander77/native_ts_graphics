@@ -958,6 +958,8 @@ declare function Donut_CreateTiledTexture(app: AppHandle, width: int, height: in
 // Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
 // levels made of whole tiles, the number of levels packed into the mip tail.
 declare function Donut_GetTextureTiling(app: AppHandle, texture: TextureHandle, dst: Opaque): void;
+// The number of tiles the packed levels (the mip tail) take together: 0 if there are none.
+declare function Donut_GetTexturePackedMipTileCount(app: AppHandle, texture: TextureHandle): int;
 // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
 // is mapped to it and the GPU is done with what used it.
 // Placed textures: textures sharing one heap's memory (D3D12's placed resources, Vulkan's
@@ -978,6 +980,10 @@ declare function Donut_CreateTileHeap(app: AppHandle, byteSize: number, debugNam
 declare function Donut_CreateTileMappings(): TileMappingsHandle;
 // Maps the tile at column x, row y of level mipLevel to byteOffset in a heap, or unmaps it (null).
 declare function Donut_TileMappingsAdd(tileMappings: TileMappingsHandle, mipLevel: int, x: int, y: int, heap: HeapHandle | null, byteOffset: number): void;
+// Maps all the packed levels (from level firstPackedMip on) to tileCount tiles from byteOffset in a
+// heap, or unmaps them (null).
+declare function Donut_TileMappingsAddPackedMips(tileMappings: TileMappingsHandle, firstPackedMip: int, tileCount: int, heap: HeapHandle | null,
+    byteOffset: number): void;
 // On the graphics queue, after the work submitted before (on Vulkan the device is idle before and
 // after: its sparse binding isn't ordered with other work).
 declare function Donut_ApplyTileMappings(app: AppHandle, texture: TextureHandle, tileMappings: TileMappingsHandle): void;

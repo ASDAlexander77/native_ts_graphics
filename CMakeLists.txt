@@ -2834,6 +2834,23 @@ donut_compile_shaders(
 )
 add_tslang_example(small_resources)
 
+# Port of DirectX-Graphics-Samples' D3D12ReservedResources: a quad sampling one level of a reserved
+# (tiled) 256 x 256 texture; the arrow keys pick the level, whose tiles get mapped to its own heap
+# (the packed levels of the mip tail to one shared heap) while the previous level's are unmapped.
+# D3D12 (tiled resources) or Vulkan (sparse residency). The tests step from the last level to level
+# 0 (a level of whole tiles) and to level 3 (packed into the mip tail on NVIDIA's D3D12).
+donut_compile_shaders(
+    TARGET reserved_resources_shaders
+    PROJECT_NAME "Reserved Resources"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/reserved_resources.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/reserved_resources.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/reserved_resources/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/reserved_resources/spirv
+)
+add_tslang_example(reserved_resources)
+add_tslang_example_test(reserved_resources)
+add_tslang_example_test(reserved_resources SUFFIX packed ARGS -mip 3)
+
 # Port of Donut-Samples' rt_bindless: bindless ray tracing of an animated scene (see
 # DONUT_SAMPLES_MEDIA_DIR above), with a ray tracing pipeline or, with -rayQuery, inline ray
 # queries in a compute shader. Ray tracing needs D3D12 or Vulkan, so no DXBC.
