@@ -854,6 +854,19 @@ set(VULKAN_SAMPLES_ASSETS_DIR "" CACHE PATH "Vulkan-Samples assets folder, with 
 if (VULKAN_SAMPLES_ASSETS_DIR AND NOT CMAKE_CROSSCOMPILING)
     add_executable(dds_mips tools/dds_mips.cpp)
     target_include_directories(dds_mips PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/thirdparty/stb/deprecated")
+elseif (VULKAN_SAMPLES_ASSETS_DIR)
+    # Cross-compiling (Android), it runs on this machine: the one a desktop build made, as ShaderMake.
+    find_program(DONUT_HOST_DDS_MIPS dds_mips
+        HINTS "${CMAKE_CURRENT_SOURCE_DIR}/build-release/bin" "${CMAKE_CURRENT_SOURCE_DIR}/build/bin"
+        DOC "dds_mips built for the host (by a desktop build of this project)"
+        NO_CMAKE_FIND_ROOT_PATH)
+    if (NOT DONUT_HOST_DDS_MIPS)
+        message(FATAL_ERROR "No dds_mips for the host, which the media of VULKAN_SAMPLES_ASSETS_DIR need: build "
+                            "the desktop preset's (cmake --build --preset release --target dds_mips), "
+                            "or set DONUT_HOST_DDS_MIPS")
+    endif()
+    add_executable(dds_mips IMPORTED GLOBAL)
+    set_target_properties(dds_mips PROPERTIES IMPORTED_LOCATION "${DONUT_HOST_DDS_MIPS}")
 endif()
 donut_compile_shaders_all_platforms(
     TARGET terrain_tessellation_shaders
@@ -862,7 +875,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/terrain_tessellation.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/terrain_tessellation
 )
-add_tslang_example(terrain_tessellation)
+add_tslang_example(terrain_tessellation MEDIA terrain_tessellation)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(terrain_textures)
@@ -891,7 +904,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/instancing.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/instancing
 )
-add_tslang_example(instancing)
+add_tslang_example(instancing MEDIA instancing)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(instancing_media)
@@ -930,7 +943,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/hdr
 )
-add_tslang_example(hdr)
+add_tslang_example(hdr MEDIA hdr)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/uffizi_rgba16f_cube.ktx")
@@ -965,7 +978,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/calibrated_timestamps
 )
-add_tslang_example(calibrated_timestamps MEDIA fonts)
+add_tslang_example(calibrated_timestamps MEDIA fonts hdr)
 if (TARGET hdr_media)
     add_dependencies(calibrated_timestamps hdr_media)
 endif()
@@ -984,7 +997,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/spirv
 )
-add_tslang_example(ray_tracing_extended)
+add_tslang_example(ray_tracing_extended MEDIA ray_tracing_extended)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(sponza_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/sponza")
@@ -1038,7 +1051,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multi_draw_indirect/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multi_draw_indirect/spirv
 )
-add_tslang_example(multi_draw_indirect)
+add_tslang_example(multi_draw_indirect MEDIA multi_draw_indirect)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(vokselia_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/vokselia")
@@ -1061,9 +1074,15 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
             list(APPEND arguments "${vokselia_source}/${name}.ktx" "${vokselia_output}/${name}.dds")
         endforeach()
     endforeach()
+    # 225 of them: their paths, in a file, as on a command line they would pass Windows' limit.
+    string(JOIN "
+" vokselia_list ${arguments})
+    file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/vokselia_ktx_to_dds.txt" CONTENT "${vokselia_list}
+" @ONLY)
     add_custom_command(OUTPUT ${outputs}
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" ${arguments}
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "@${CMAKE_CURRENT_BINARY_DIR}/vokselia_ktx_to_dds.txt"
         DEPENDS ${sources} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${CMAKE_CURRENT_SOURCE_DIR}/tools/astc.py"
+            "${CMAKE_CURRENT_BINARY_DIR}/vokselia_ktx_to_dds.txt"
         COMMENT "Converting the vokselia textures to DDS"
         VERBATIM)
     add_custom_target(multi_draw_indirect_media DEPENDS "${vokselia_output}/vokselia.gltf" ${outputs})
@@ -1082,7 +1101,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute_bloom.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute_bloom_post.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/async_compute_bloom
 )
-add_tslang_example(async_compute_bloom)
+add_tslang_example(async_compute_bloom MEDIA async_compute_bloom)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(bonza_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/bonza")
@@ -1133,7 +1152,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_linked_lists.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_linked_lists
 )
-add_tslang_example(oit_linked_lists)
+add_tslang_example(oit_linked_lists MEDIA oit_linked_lists)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(oit_linked_lists_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/oit_linked_lists")
@@ -1176,7 +1195,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/gshader_to_mshader/spirv
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
-add_tslang_example(gshader_to_mshader)
+add_tslang_example(gshader_to_mshader MEDIA gshader_to_mshader)
 add_dependencies(gshader_to_mshader gshader_to_mshader_mesh_shaders)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/teapot.gltf")
@@ -1202,7 +1221,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/sparse_image/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/sparse_image/spirv
 )
-add_tslang_example(sparse_image)
+add_tslang_example(sparse_image MEDIA sparse_image)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/vulkan_logo_full.ktx")
@@ -1252,7 +1271,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/conditional_rendering.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/conditional_rendering
 )
-add_tslang_example(conditional_rendering)
+add_tslang_example(conditional_rendering MEDIA conditional_rendering)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/Buggy/glTF-Embedded/Buggy.gltf")
     set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/conditional_rendering/Buggy.gltf")
@@ -1278,7 +1297,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rasterization_order_attachment_access
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_fragment_shader_interlock"
 )
-add_tslang_example(rasterization_order_attachment_access)
+add_tslang_example(rasterization_order_attachment_access MEDIA rasterization_order_attachment_access)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(roaa_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/rasterization_order_attachment_access")
@@ -1314,7 +1333,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shader_barycentric/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shader_barycentric/spirv
 )
-add_tslang_example(fragment_shader_barycentric)
+add_tslang_example(fragment_shader_barycentric MEDIA fragment_shader_barycentric)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(barycentric_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/fragment_shader_barycentric")
@@ -1388,7 +1407,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/logic_op_dynamic_state.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/logic_op_dynamic_state
 )
-add_tslang_example(logic_op_dynamic_state)
+add_tslang_example(logic_op_dynamic_state MEDIA logic_op_dynamic_state)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(logic_op_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/logic_op_dynamic_state")
@@ -1422,7 +1441,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_depth_peeling.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_depth_peeling
 )
-add_tslang_example(oit_depth_peeling)
+add_tslang_example(oit_depth_peeling MEDIA oit_depth_peeling)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(depth_peeling_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/oit_depth_peeling")
@@ -1456,7 +1475,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/render_octomap.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/render_octomap
 )
-add_tslang_example(render_octomap)
+add_tslang_example(render_octomap MEDIA render_octomap)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(octomap_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/octmap_and_splats")
     file(GLOB octomap_files RELATIVE "${octomap_source}" "${octomap_source}/*.bin" "${octomap_source}/*.gltf")
@@ -1490,7 +1509,7 @@ donut_compile_shaders(
 if (NVRHI_WITH_DX12)
     add_tslang_example(ray_tracing_invocation_reorder core/d3d12_agility_sdk.cpp)
 else()
-    add_tslang_example(ray_tracing_invocation_reorder)
+    add_tslang_example(ray_tracing_invocation_reorder MEDIA ray_tracing_extended)
 endif()
 if (TARGET ray_tracing_extended_media)
     add_dependencies(ray_tracing_invocation_reorder ray_tracing_extended_media)

@@ -120,6 +120,12 @@ def stage_assets(assets, folder):
     return files
 
 
+def default_package(name):
+    """org.native_ts_graphics.<name>; a part of a package name has to start with a letter, so a name
+    that doesn't (16bit_arithmetic) is example_<name>. tools/android.py's package_of is the same."""
+    return "org.native_ts_graphics." + (name if name[:1].isalpha() else "example_" + name)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--name", required=True, help="the example: lib<name>.so, the app's label")
@@ -139,7 +145,7 @@ def main():
     parser.add_argument("--out", required=True, help="the APK")
     args = parser.parse_args()
 
-    package = args.package or f"org.native_ts_graphics.{args.name}"
+    package = args.package or default_package(args.name)
     work = args.work or os.path.splitext(args.out)[0] + "_apk"
     env = java_environment(args.java_home)
 

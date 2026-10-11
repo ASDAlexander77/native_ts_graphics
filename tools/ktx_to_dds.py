@@ -12,6 +12,8 @@ handles what the ported samples need:
 
     python tools/ktx_to_dds.py <input.ktx> <output.dds> [<input.ktx> <output.dds> ...]
 
+An argument @<file> stands for the lines of <file>: more pairs than a command line holds.
+
 Several textures convert in parallel, a process each.
 """
 
@@ -183,9 +185,16 @@ def convert(source, output):
 
 
 def main():
-    if len(sys.argv) < 3 or len(sys.argv) % 2 != 1:
+    args = []
+    for arg in sys.argv[1:]:
+        if arg.startswith("@"):
+            with open(arg[1:], encoding="utf-8") as f:
+                args += [line for line in f.read().splitlines() if line]
+        else:
+            args.append(arg)
+    if len(args) < 2 or len(args) % 2 != 0:
         sys.exit(__doc__)
-    pairs = list(zip(sys.argv[1::2], sys.argv[2::2]))
+    pairs = list(zip(args[0::2], args[1::2]))
     if len(pairs) == 1:
         convert(*pairs[0])
         return
