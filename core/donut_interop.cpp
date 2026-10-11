@@ -1439,6 +1439,64 @@ namespace
         return pipeline->rootParameters[size_t(rootParameter)];
     }
 
+    // A D3D12 generic program (Donut_CreateD3D12GenericProgram): a graphics pipeline made as an
+    // executable state object, and what adding another program to it needs.
+    struct D3D12GenericProgram
+    {
+        Microsoft::WRL::ComPtr<ID3D12StateObject> stateObject;
+        D3D12_PROGRAM_IDENTIFIER programIdentifier = {};
+        Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature;
+        std::wstring vertexExport;
+        // The input layout's semantic names, which inputElements point to.
+        std::vector<std::string> semanticNames;
+        std::vector<D3D12_INPUT_ELEMENT_DESC> inputElements;
+        std::vector<DXGI_FORMAT> renderTargetFormats;
+    };
+    // The subobjects every generic program here is made of, besides its shaders: the input layout,
+    // the global root signature (the pipeline's), the primitive topology (triangles) and the
+    // render target formats (the pipeline's framebuffer's). Added to stateObjectDesc.
+    struct D3D12GenericProgramSubobjects
+    {
+        CD3DX12_INPUT_LAYOUT_SUBOBJECT* inputLayout = nullptr;
+        CD3DX12_PRIMITIVE_TOPOLOGY_SUBOBJECT* primitiveTopology = nullptr;
+        CD3DX12_RENDER_TARGET_FORMATS_SUBOBJECT* renderTargetFormats = nullptr;
+    };
+
+    D3D12GenericProgramSubobjects AddD3D12GenericProgramSubobjects(CD3DX12_STATE_OBJECT_DESC& stateObjectDesc, const D3D12GenericProgram& program)
+    {
+        D3D12GenericProgramSubobjects subobjects;
+        // Optional: lets programs be added to the state object later (Donut_AddD3D12GenericProgram).
+        auto* config = stateObjectDesc.CreateSubobject<CD3DX12_STATE_OBJECT_CONFIG_SUBOBJECT>();
+        config->SetFlags(D3D12_STATE_OBJECT_FLAG_ALLOW_STATE_OBJECT_ADDITIONS);
+        subobjects.inputLayout = stateObjectDesc.CreateSubobject<CD3DX12_INPUT_LAYOUT_SUBOBJECT>();
+        for (const D3D12_INPUT_ELEMENT_DESC& element : program.inputElements)
+            subobjects.inputLayout->AddInputLayoutElementDesc(element);
+        auto* rootSignature = stateObjectDesc.CreateSubobject<CD3DX12_GLOBAL_ROOT_SIGNATURE_SUBOBJECT>();
+        rootSignature->SetRootSignature(program.rootSignature.Get());
+        subobjects.primitiveTopology = stateObjectDesc.CreateSubobject<CD3DX12_PRIMITIVE_TOPOLOGY_SUBOBJECT>();
+        subobjects.primitiveTopology->SetPrimitiveTopologyType(D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
+        subobjects.renderTargetFormats = stateObjectDesc.CreateSubobject<CD3DX12_RENDER_TARGET_FORMATS_SUBOBJECT>();
+        subobjects.renderTargetFormats->SetNumRenderTargets(static_cast<UINT>(program.renderTargetFormats.size()));
+        for (size_t i = 0; i < program.renderTargetFormats.size(); i++)
+            subobjects.renderTargetFormats->SetRenderTargetFormat(static_cast<UINT>(i), program.renderTargetFormats[i]);
+        return subobjects;
+    }
+
+    // The program pixelExport and the vertex shader export of `program`, made of the subobjects.
+    void AddD3D12GenericProgramSubobject(CD3DX12_STATE_OBJECT_DESC& stateObjectDesc, const D3D12GenericProgram& program,
+        const D3D12GenericProgramSubobjects& subobjects, const std::wstring& programName, const std::wstring& pixelExport)
+    {
+        auto* genericProgram = stateObjectDesc.CreateSubobject<CD3DX12_GENERIC_PROGRAM_SUBOBJECT>();
+        genericProgram->SetProgramName(programName.c_str());
+        genericProgram->AddExport(program.vertexExport.c_str());
+        genericProgram->AddExport(pixelExport.c_str());
+        // Root signatures are associated with shader exports, not programs: the state object's one
+        // root signature is the default for all of them.
+        genericProgram->AddSubobject(*subobjects.inputLayout);
+        genericProgram->AddSubobject(*subobjects.primitiveTopology);
+        genericProgram->AddSubobject(*subobjects.renderTargetFormats);
+    }
+
     std::wstring Widen(const char* text)
     {
         const int length = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
@@ -1893,6 +1951,7 @@ namespace
     // everywhere.
     struct D3D12WorkGraph;
     struct D3D12LibraryRtPipeline;
+    struct D3D12GenericProgram;
 }
 
 // Defined (in the extern "C" block) only on Windows; the functions taking it are compiled
@@ -8840,6 +8899,181 @@ extern "C"
         rtCommandList->DispatchRays(&desc);
 
         cl->clearState();
+#endif
+    }
+
+
+    // The highest shader model the device supports, as 0x60 for 6.0 ... 0x69 for 6.9 (D3D_SHADER_MODEL
+    // values); 0 on other APIs. Generic programs need 6.8.
+    int Donut_GetD3D12ShaderModel(App* app)
+    {
+#if DONUT_WITH_DX12
+        nvrhi::IDevice* device = app->device();
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            D3D12_FEATURE_DATA_SHADER_MODEL shaderModel = { D3D_HIGHEST_SHADER_MODEL };
+            if (SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel, sizeof(shaderModel))))
+                return static_cast<int>(shaderModel.HighestShaderModel);
+        }
+#endif
+        return 0;
+    }
+
+    // A D3D12 generic program: a graphics pipeline made as a state object (an executable one) out
+    // of building blocks: the vertex and pixel shaders as DXIL libraries, the input layout, the
+    // pipeline's root signature (it must have no bindings the shaders don't), triangles, and the
+    // render target formats of the pipeline's framebuffer; the default rasterizer, blend, depth and
+    // sample states. The vertex shader is exported as vertexExport (renamed from whatever its entry
+    // point is); the pixel shader under its own entry point's name, pixelExport; the input layout's
+    // attributes (Donut_CreateInputLayout's) as its input elements. The state object
+    // allows additions (Donut_AddD3D12GenericProgram). Release it with Donut_ReleaseObject. D3D12,
+    // shader model 6.8 (the Agility SDK runtime: link core/d3d12_agility_sdk.cpp). Null (after
+    // logging why) on failure.
+    D3D12GenericProgram* Donut_CreateD3D12GenericProgram(App* app, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IInputLayout* inputLayout,
+        nvrhi::IShader* vertexShader, const char* vertexExport, nvrhi::IShader* pixelShader, const char* pixelExport, const char* programName)
+    {
+#if DONUT_WITH_DX12
+        App* a = app;
+        nvrhi::IDevice* device = a->device();
+        if (device->getGraphicsAPI() != nvrhi::GraphicsAPI::D3D12 || Donut_GetD3D12ShaderModel(app) < D3D_SHADER_MODEL_6_8)
+        {
+            donut::log::error("Generic programs need D3D12 with shader model 6.8");
+            return nullptr;
+        }
+        ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        Microsoft::WRL::ComPtr<ID3D12Device5> device5;
+        if (FAILED(d3dDevice->QueryInterface(IID_PPV_ARGS(&device5))))
+            return nullptr;
+
+        auto program = std::make_shared<D3D12GenericProgram>();
+        program->rootSignature = static_cast<ID3D12RootSignature*>(pipeline->getNativeObject(nvrhi::ObjectTypes::D3D12_RootSignature));
+        program->vertexExport = Widen(vertexExport);
+        const uint32_t attributeCount = inputLayout->getNumAttributes();
+        for (uint32_t i = 0; i < attributeCount; i++)
+            program->semanticNames.push_back(inputLayout->getAttributeDesc(i)->name);
+        for (uint32_t i = 0; i < attributeCount; i++)
+        {
+            const nvrhi::VertexAttributeDesc& attribute = *inputLayout->getAttributeDesc(i);
+            D3D12_INPUT_ELEMENT_DESC element = {};
+            element.SemanticName = program->semanticNames[i].c_str();
+            element.Format = nvrhi::d3d12::convertFormat(attribute.format);
+            element.InputSlot = attribute.bufferIndex;
+            element.AlignedByteOffset = attribute.offset;
+            element.InputSlotClass = attribute.isInstanced ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+            element.InstanceDataStepRate = attribute.isInstanced ? 1 : 0;
+            program->inputElements.push_back(element);
+        }
+        for (nvrhi::Format format : pipeline->getFramebufferInfo().colorFormats)
+            program->renderTargetFormats.push_back(nvrhi::d3d12::convertFormat(format));
+
+        CD3DX12_STATE_OBJECT_DESC stateObjectDesc(D3D12_STATE_OBJECT_TYPE_EXECUTABLE);
+        const D3D12GenericProgramSubobjects subobjects = AddD3D12GenericProgramSubobjects(stateObjectDesc, *program);
+        D3D12_SHADER_BYTECODE vertexCode = {};
+        vertexShader->getBytecode(&vertexCode.pShaderBytecode, &vertexCode.BytecodeLength);
+        auto* vertexLibrary = stateObjectDesc.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
+        vertexLibrary->SetDXILLibrary(&vertexCode);
+        // Whatever the shader's name is, exported as vertexExport.
+        vertexLibrary->DefineExport(program->vertexExport.c_str(), L"*");
+        D3D12_SHADER_BYTECODE pixelCode = {};
+        pixelShader->getBytecode(&pixelCode.pShaderBytecode, &pixelCode.BytecodeLength);
+        auto* pixelLibrary = stateObjectDesc.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
+        // No exports listed: the shader under its own name.
+        pixelLibrary->SetDXILLibrary(&pixelCode);
+        const std::wstring name = Widen(programName);
+        AddD3D12GenericProgramSubobject(stateObjectDesc, *program, subobjects, name, Widen(pixelExport));
+
+        if (FAILED(device5->CreateStateObject(stateObjectDesc, IID_PPV_ARGS(&program->stateObject))))
+        {
+            donut::log::error("Cannot create the generic program %s", programName);
+            return nullptr;
+        }
+        Microsoft::WRL::ComPtr<ID3D12StateObjectProperties1> properties;
+        if (FAILED(program->stateObject.As(&properties)))
+            return nullptr;
+        program->programIdentifier = properties->GetProgramIdentifier(name.c_str());
+        return a->OwnObject(program);
+#else
+        donut::log::error("Generic programs need D3D12");
+        return nullptr;
+#endif
+    }
+
+    // Another generic program added to a generic program's state object (AddToStateObject): the
+    // first one's vertex shader export with another pixel shader (exported under its entry point's
+    // name, pixelExport), and the same other building blocks, which the addition defines again (they
+    // can't be referred to across additions). The result is a new state object holding both
+    // programs. Release it with Donut_ReleaseObject. Null (after logging why) on failure.
+    D3D12GenericProgram* Donut_AddD3D12GenericProgram(App* app, D3D12GenericProgram* genericProgram, nvrhi::IShader* pixelShader, const char* pixelExport,
+        const char* programName)
+    {
+#if DONUT_WITH_DX12
+        App* a = app;
+        ID3D12Device* d3dDevice = a->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        Microsoft::WRL::ComPtr<ID3D12Device7> device7;
+        if (FAILED(d3dDevice->QueryInterface(IID_PPV_ARGS(&device7))))
+            return nullptr;
+        const D3D12GenericProgram& base = *genericProgram;
+
+        auto program = std::make_shared<D3D12GenericProgram>();
+        program->rootSignature = base.rootSignature;
+        program->vertexExport = base.vertexExport;
+        program->semanticNames = base.semanticNames;
+        program->inputElements = base.inputElements;
+        for (size_t i = 0; i < program->inputElements.size(); i++)
+            program->inputElements[i].SemanticName = program->semanticNames[i].c_str();
+        program->renderTargetFormats = base.renderTargetFormats;
+
+        CD3DX12_STATE_OBJECT_DESC stateObjectDesc(D3D12_STATE_OBJECT_TYPE_EXECUTABLE);
+        const D3D12GenericProgramSubobjects subobjects = AddD3D12GenericProgramSubobjects(stateObjectDesc, *program);
+        D3D12_SHADER_BYTECODE pixelCode = {};
+        pixelShader->getBytecode(&pixelCode.pShaderBytecode, &pixelCode.BytecodeLength);
+        auto* pixelLibrary = stateObjectDesc.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
+        pixelLibrary->SetDXILLibrary(&pixelCode);
+        const std::wstring name = Widen(programName);
+        AddD3D12GenericProgramSubobject(stateObjectDesc, *program, subobjects, name, Widen(pixelExport));
+
+        if (FAILED(device7->AddToStateObject(stateObjectDesc, base.stateObject.Get(), IID_PPV_ARGS(&program->stateObject))))
+        {
+            donut::log::error("Cannot add the generic program %s to the state object", programName);
+            return nullptr;
+        }
+        Microsoft::WRL::ComPtr<ID3D12StateObjectProperties1> properties;
+        if (FAILED(program->stateObject.As(&properties)))
+            return nullptr;
+        program->programIdentifier = properties->GetProgramIdentifier(name.c_str());
+        return a->OwnObject(program);
+#else
+        donut::log::error("Generic programs need D3D12");
+        return nullptr;
+#endif
+    }
+
+    // Draws vertexCount vertices of the draw described (Donut_BeginDraw: its pipeline, framebuffer,
+    // vertex buffers, viewport) with a generic program in place of the pipeline: NVRHI sets the
+    // state (the framebuffer, the root signature, the vertex buffers, the topology, the viewport),
+    // SetProgram replaces the pipeline state with the program, then NVRHI's state is cleared (it
+    // rebinds everything for the next draw).
+    void Donut_DrawD3D12GenericProgram(FrameContext* frame, D3D12GenericProgram* genericProgram, int vertexCount)
+    {
+#if DONUT_WITH_DX12
+        FrameContext* ctx = frame;
+        if (ctx->draw.viewport.viewports.empty())
+            ctx->draw.viewport.addViewportAndScissorRect(ctx->draw.framebuffer->getFramebufferInfo().getViewport());
+        ctx->commandList->setGraphicsState(ctx->draw);
+        ctx->commandList->commitBarriers();
+
+        ID3D12GraphicsCommandList* d3dCommandList = ctx->commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList10> programCommandList;
+        if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&programCommandList))))
+            return;
+        D3D12_SET_PROGRAM_DESC setProgram = {};
+        setProgram.Type = D3D12_PROGRAM_TYPE_GENERIC_PIPELINE;
+        setProgram.GenericPipeline.ProgramIdentifier = genericProgram->programIdentifier;
+        programCommandList->SetProgram(&setProgram);
+        programCommandList->DrawInstanced(static_cast<UINT>(vertexCount), 1, 0, 0);
+
+        ctx->commandList->clearState();
 #endif
     }
 

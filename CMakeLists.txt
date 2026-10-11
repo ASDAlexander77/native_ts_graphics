@@ -2811,6 +2811,22 @@ if (NVRHI_WITH_DX12)
     add_tslang_example_test(raytracing_library_subobjects APIS dx12)
 endif()
 
+# Port of DirectX-Graphics-Samples' D3D12HelloGenericPrograms: a triangle drawn twice with generic
+# programs (graphics pipelines made as state objects from shaders and subobjects) instead of
+# pipeline state objects, the second program added to the first one's state object. D3D12 only,
+# shader model 6.8: the Agility SDK runtime (core/d3d12_agility_sdk.cpp).
+if (NVRHI_WITH_DX12)
+    donut_compile_shaders(
+        TARGET generic_programs_shaders
+        PROJECT_NAME "Generic Programs"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generic_programs.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/generic_programs.hlsl
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/generic_programs/dxil
+    )
+    add_tslang_example(generic_programs core/d3d12_agility_sdk.cpp)
+    add_tslang_example_test(generic_programs APIS dx12)
+endif()
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse
