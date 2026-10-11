@@ -1975,6 +1975,31 @@ declare function Donut_CreateD3D12WorkGraph(app: AppHandle, shaderLibrary: Shade
 declare function Donut_DispatchD3D12WorkGraph(commandList: CommandListHandle, workGraph: D3D12WorkGraphHandle, computePipeline: ComputePipelineHandle, bindingSet: BindingSetHandle,
     data: Opaque, byteSize: int, initializeBackingMemory: int): void;
 
+// D3D12 ray tracing pipelines from DXIL library subobjects, through D3D12 directly: the library's
+// HLSL defines the global and local root signatures, their associations, the hit groups and the
+// shader and pipeline configs. exports: the comma-separated shaders and subobjects to take from
+// the library (all if empty); the global root signature comes from the library's bytecode;
+// descriptorCount: its block of descriptors for descriptor tables. Release it with
+// Donut_ReleaseObject. Null (after logging why) on failure or other APIs.
+declare function Donut_CreateD3D12LibraryRtPipeline(app: AppHandle, shaderLibrary: ShaderLibraryHandle, exports: string, descriptorCount: int): D3D12LibraryRtPipelineHandle | null;
+// Its shader table: one ray generation, one miss and one hit group record, by export name; the hit
+// group's with byteSize bytes of local root arguments from data. 0 on failure.
+declare function Donut_SetD3D12LibraryRtShaderTable(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, rayGeneration: string, miss: string, hitGroup: string,
+    data: Opaque, byteSize: int): int;
+// Its descriptor at index (set while no frame in flight uses it): a UAV of a 2D texture's first
+// level; an SRV of a whole buffer, raw (structureStride 0) or structured.
+declare function Donut_SetD3D12LibraryRtDescriptorTextureUAV(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, index: int, texture: TextureHandle): void;
+declare function Donut_SetD3D12LibraryRtDescriptorBufferSRV(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, index: int, buffer: BufferHandle,
+    structureStride: int): void;
+// The global root signature's parameter rootParameter in its dispatches: a descriptor table from
+// its descriptor firstDescriptor on, a TLAS's root SRV, or a constant buffer's root CBV.
+declare function Donut_SetD3D12LibraryRtRootDescriptorTable(libraryRtPipeline: D3D12LibraryRtPipelineHandle, rootParameter: int, firstDescriptor: int): void;
+declare function Donut_SetD3D12LibraryRtRootAccelStruct(libraryRtPipeline: D3D12LibraryRtPipelineHandle, rootParameter: int, accelStruct: AccelStructHandle): void;
+declare function Donut_SetD3D12LibraryRtRootConstantBuffer(libraryRtPipeline: D3D12LibraryRtPipelineHandle, rootParameter: int, buffer: BufferHandle): void;
+// Traces width x height rays with it (the resources' states set through NVRHI, NVRHI's bindings
+// cleared after).
+declare function Donut_DispatchD3D12LibraryRays(commandList: CommandListHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, width: int, height: int): void;
+
 // Valid only inside a render callback.
 declare function Donut_ClearColor(frame: FrameHandle, r: number, g: number, b: number, a: number): void;
 // Draws vertexCount vertices with no vertex buffers, over the whole framebuffer.

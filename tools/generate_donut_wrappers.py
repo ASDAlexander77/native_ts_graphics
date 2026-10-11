@@ -80,6 +80,7 @@ CLASSES = {
     "gltfModel": "GltfModel",
     "triangleBlas": "TriangleBlas",
     "tileMappings": "TileMappings",
+    "libraryRtPipeline": "D3D12LibraryRtPipeline",
     "meshPipelineStatistics": "MeshPipelineStatistics",
     "predicationBuffer": "PredicationBuffer",
     "binaryFile": "BinaryFile",
@@ -141,6 +142,7 @@ NOUNS = {
     "FbcTexture": ["Fbc"],
     "TranscodedTexture": ["Transcoded"],
     "VideoPlayer": ["Video"],
+    "D3D12LibraryRtPipeline": ["D3D12LibraryRt"],
     "RandomEngine": ["Random"],
     # Views are planar or stereo: keep "PlanarView" / "StereoView" in the names.
     "View": [],
