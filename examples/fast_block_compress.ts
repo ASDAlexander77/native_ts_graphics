@@ -12,7 +12,9 @@ namespace FastBlockCompress {
     // interior), alpha (1024x1024 RGBA: the recycle bin and book with alpha), normal (1024x1024 RG:
     // normal map texture). Each comes with offline BC and BC7 versions, named after it.
     const IMAGE_NAMES = ["opaque_1024", "opaque_512", "alpha", "normal"];
+    // Their files' extensions, as the sample has them (Android's file names are case-sensitive).
     const IMAGE_EXTENSIONS = [".DDS", ".dds", ".DDS", ".dds"];
+    const IMAGE_OFFLINE_EXTENSIONS = [".DDS", ".DDS", ".DDS", ".DDS"];
     const IMAGE_BC7_EXTENSIONS = [".dds", ".dds", ".dds", ".dds"];
     const IMAGE_FORMATS = [Format.BC1_UNORM, Format.BC1_UNORM, Format.BC3_UNORM, Format.BC5_UNORM];
 
@@ -512,7 +514,7 @@ namespace FastBlockCompress {
             }
 
             const bcName = formatName(image.format).toLowerCase();
-            const offlineBC = this.app.loadTexture(commandList, MEDIA_DIR + name + "_offline_" + bcName + IMAGE_EXTENSIONS[index], 0);
+            const offlineBC = this.app.loadTexture(commandList, MEDIA_DIR + name + "_offline_" + bcName + IMAGE_OFFLINE_EXTENSIONS[index], 0);
             const offlineBC7 = this.app.loadTexture(commandList, MEDIA_DIR + name + "_offline_bc7" + IMAGE_BC7_EXTENSIONS[index], 0);
             if (!offlineBC || !offlineBC7) {
                 return null;

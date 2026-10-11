@@ -549,6 +549,18 @@ function(add_tslang_android_app name media)
     if (TARGET donut_shaders)
         add_dependencies(${name}_apk donut_shaders)
     endif()
+    # What the executable is made to depend on after this (the copies of the media of the samples'
+    # checkouts: <name>_media and the like), the APK packages too, and `tools/android.py build`
+    # builds APKs, not executables: taken at the end of the file, when all of it is known. (A
+    # deferred call's arguments are evaluated when it runs, hence the EVAL.)
+    cmake_language(EVAL CODE "cmake_language(DEFER CALL add_tslang_apk_dependencies [[${name}]])")
+endfunction()
+
+function(add_tslang_apk_dependencies name)
+    get_target_property(dependencies ${name} MANUALLY_ADDED_DEPENDENCIES)
+    if (dependencies)
+        add_dependencies(${name}_apk ${dependencies})
+    endif()
 endfunction()
 
 # The files the examples' .ts files compile in, which their objects have to be rebuilt after: a
@@ -2639,6 +2651,19 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/collision.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/collision
 )
+# DirectXMath is the Windows SDK's; on Android it is fetched at configure time (DIRECTXMATH_FETCH_TAG;
+# headers only, not its CMake project), with core/sal/sal.h for the annotations it uses.
+if (ANDROID)
+    set(DIRECTXMATH_FETCH_TAG "jun2026" CACHE STRING "Git tag of DirectXMath, which collision uses on Android")
+    FetchContent_Declare(directxmath
+        GIT_REPOSITORY https://github.com/microsoft/DirectXMath.git
+        GIT_TAG ${DIRECTXMATH_FETCH_TAG}
+        GIT_SHALLOW TRUE
+        SOURCE_SUBDIR Inc)
+    FetchContent_MakeAvailable(directxmath)
+    set_source_files_properties(core/directx_collision.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${directxmath_SOURCE_DIR}/Inc;${CMAKE_CURRENT_SOURCE_DIR}/core/sal")
+endif()
 add_tslang_example(collision core/directx_collision.cpp MEDIA fonts)
 
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
@@ -2901,24 +2926,27 @@ endfunction()
 # over a scene of PBRT models (a house, cars, a dragon, a spaceship: the sample's parser, in
 # core/pbrt) and procedural grass a compute shader regenerates every frame; a specular path tracer
 # makes the G-buffer. Its assets (~140 MB) are the sample's, from DIRECTX_GRAPHICS_SAMPLES_DIR.
-# Ray tracing pipelines: D3D12 or Vulkan.
-file(GLOB DENOISED_RTAO_SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/denoised_rtao/*)
-donut_compile_shaders(
-    TARGET denoised_rtao_shaders
-    PROJECT_NAME "Denoised RTAO"
-    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/denoised_rtao.cfg
-    SOURCES ${DENOISED_RTAO_SHADER_SOURCES}
-    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/denoised_rtao/dxil
-    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/denoised_rtao/spirv
-    SHADERMAKE_OPTIONS_SPIRV "--vulkanMemoryLayout dx"
-)
-add_tslang_example(denoised_rtao core/directx_math.ts core/pbrt_scene.ts core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
-    MEDIA denoised_rtao)
-add_dxgs_media_directory(denoised_rtao denoised_rtao
-    Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingRealTimeDenoisedAmbientOcclusion/Assets)
-add_tslang_example_test(denoised_rtao)
-add_tslang_example_test(denoised_rtao SUFFIX raw ARGS -raw)
-add_tslang_example_test(denoised_rtao SUFFIX shaded ARGS -shaded)
+# Ray tracing pipelines: D3D12 or Vulkan. Windows only: the textures are loaded through WIC, and the
+# PBRT parser takes its definitions from windows.h.
+if (WIN32)
+    file(GLOB DENOISED_RTAO_SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/denoised_rtao/*)
+    donut_compile_shaders(
+        TARGET denoised_rtao_shaders
+        PROJECT_NAME "Denoised RTAO"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/denoised_rtao.cfg
+        SOURCES ${DENOISED_RTAO_SHADER_SOURCES}
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/denoised_rtao/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/denoised_rtao/spirv
+        SHADERMAKE_OPTIONS_SPIRV "--vulkanMemoryLayout dx"
+    )
+    add_tslang_example(denoised_rtao core/directx_math.ts core/pbrt_scene.ts core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
+        MEDIA denoised_rtao)
+    add_dxgs_media_directory(denoised_rtao denoised_rtao
+        Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingRealTimeDenoisedAmbientOcclusion/Assets)
+    add_tslang_example_test(denoised_rtao)
+    add_tslang_example_test(denoised_rtao SUFFIX raw ARGS -raw)
+    add_tslang_example_test(denoised_rtao SUFFIX shaded ARGS -shaded)
+endif()
 
 # Port of DirectX-Graphics-Samples' D3D12Multithreading: a room of 1025 draws lit by three moving
 # spotlights, the first casting shadows, its shadow pass and scene pass recorded by three worker

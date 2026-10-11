@@ -134,10 +134,10 @@ namespace
 
 #define INSET_BC5_BBOX() \
             static const int INSET_ALPHA_SHIFT = 5;            \
-            __declspec(align(16)) static const uint16_t s_insetNormal3DcRound[8] = { ((1<<(INSET_ALPHA_SHIFT-1))-1), ((1<<(INSET_ALPHA_SHIFT-1))-1), 0, 0, 0, 0, 0, 0 }; \
-            __declspec(align(16)) static const uint16_t s_insetNormal3DcMask[8] = { 0xFFFF, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000 }; \
-            __declspec(align(16)) static const uint16_t s_insetNormal3DcShiftUp[8] = { 1 << INSET_ALPHA_SHIFT, 1 << INSET_ALPHA_SHIFT, 1, 1, 1, 1, 1, 1  }; \
-            __declspec(align(16)) static const uint16_t s_insetNormal3DcShiftDown[8] = { 1 << (16 - INSET_ALPHA_SHIFT), 1 << (16 - INSET_ALPHA_SHIFT), 0, 0, 0, 0, 0, 0 }; \
+            alignas(16) static const uint16_t s_insetNormal3DcRound[8] = { ((1<<(INSET_ALPHA_SHIFT-1))-1), ((1<<(INSET_ALPHA_SHIFT-1))-1), 0, 0, 0, 0, 0, 0 }; \
+            alignas(16) static const uint16_t s_insetNormal3DcMask[8] = { 0xFFFF, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000 }; \
+            alignas(16) static const uint16_t s_insetNormal3DcShiftUp[8] = { 1 << INSET_ALPHA_SHIFT, 1 << INSET_ALPHA_SHIFT, 1, 1, 1, 1, 1, 1  }; \
+            alignas(16) static const uint16_t s_insetNormal3DcShiftDown[8] = { 1 << (16 - INSET_ALPHA_SHIFT), 1 << (16 - INSET_ALPHA_SHIFT), 0, 0, 0, 0, 0, 0 }; \
                                                                \
             const __m128i zero = _mm_setzero_si128();          \
             minColor = _mm_unpacklo_epi8( minColor, zero );    \
@@ -163,10 +163,10 @@ namespace
             maxColor = _mm_packus_epi16( maxColor, maxColor );
 
 #define EMIT_COLOR_INDICES() \
-            __declspec(align(16)) static const uint8_t s_colorMask[16] = { 0xF8, 0xFC, 0xF8, 0, 0, 0, 0, 0, 0xF8, 0xFC, 0xF8, 0, 0, 0, 0, 0 };                                      \
-            __declspec(align(16)) static const uint16_t s_word_div3[8] = { (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1 }; \
-            __declspec(align(16)) static const uint16_t s_word_1[8] = { 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1 };                                                                   \
-            __declspec(align(16)) static const uint16_t s_word_2[8] = { 0x2, 0x2, 0x2, 0x2, 0x2, 0x2, 0x2, 0x2 };                                                                   \
+            alignas(16) static const uint8_t s_colorMask[16] = { 0xF8, 0xFC, 0xF8, 0, 0, 0, 0, 0, 0xF8, 0xFC, 0xF8, 0, 0, 0, 0, 0 };                                      \
+            alignas(16) static const uint16_t s_word_div3[8] = { (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1, (1<<16)/3+1 }; \
+            alignas(16) static const uint16_t s_word_1[8] = { 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1 };                                                                   \
+            alignas(16) static const uint16_t s_word_2[8] = { 0x2, 0x2, 0x2, 0x2, 0x2, 0x2, 0x2, 0x2 };                                                                   \
                                                                                                     \
             maxColor = _mm_and_si128( maxColor, reinterpret_cast<const __m128i*>(s_colorMask)[0] ); \
             maxColor = _mm_unpacklo_epi8( maxColor, zero );                                         \
@@ -365,21 +365,21 @@ namespace
             result = _mm_or_si128(result, t2);
 
 #define EMIT_ALPHA_INDICES_VARS() \
-            __declspec(align(16)) static const uint8_t s_byte_1[16] = { 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 };                       \
-            __declspec(align(16)) static const uint8_t s_byte_2[16] = { 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02 };                       \
-            __declspec(align(16)) static const uint8_t s_byte_7[16] = { 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07 };                       \
-            __declspec(align(16)) static const uint16_t s_word_div7[8]   = { (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1 };          \
-            __declspec(align(16)) static const uint16_t s_word_div14[8]  = { (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1 };  \
-            __declspec(align(16)) static const uint16_t s_word_scaleA[8] = { 6, 6, 5, 5, 4, 4, 0, 0 };      \
-            __declspec(align(16)) static const uint16_t s_word_scaleB[8] = { 1, 1, 2, 2, 3, 3, 0, 0 };      \
-            __declspec(align(16)) static const uint32_t s_alphaMask0[4] = { 7<<0, 0, 7<<0, 0 };             \
-            __declspec(align(16)) static const uint32_t s_alphaMask1[4] = { 7<<3, 0, 7<<3, 0 };             \
-            __declspec(align(16)) static const uint32_t s_alphaMask2[4] = { 7<<6, 0, 7<<6, 0 };             \
-            __declspec(align(16)) static const uint32_t s_alphaMask3[4] = { 7<<9, 0, 7<<9, 0 };             \
-            __declspec(align(16)) static const uint32_t s_alphaMask4[4] = { 7<<12, 0, 7<<12, 0 };           \
-            __declspec(align(16)) static const uint32_t s_alphaMask5[4] = { 7<<15, 0, 7<<15, 0 };           \
-            __declspec(align(16)) static const uint32_t s_alphaMask6[4] = { 7<<18, 0, 7<<18, 0 };           \
-            __declspec(align(16)) static const uint32_t s_alphaMask7[4] = { 7<<21, 0, 7<<21, 0 };           \
+            alignas(16) static const uint8_t s_byte_1[16] = { 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 };                       \
+            alignas(16) static const uint8_t s_byte_2[16] = { 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02 };                       \
+            alignas(16) static const uint8_t s_byte_7[16] = { 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07 };                       \
+            alignas(16) static const uint16_t s_word_div7[8]   = { (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1, (1<<16)/7+1 };          \
+            alignas(16) static const uint16_t s_word_div14[8]  = { (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1, (1<<16)/14+1 };  \
+            alignas(16) static const uint16_t s_word_scaleA[8] = { 6, 6, 5, 5, 4, 4, 0, 0 };      \
+            alignas(16) static const uint16_t s_word_scaleB[8] = { 1, 1, 2, 2, 3, 3, 0, 0 };      \
+            alignas(16) static const uint32_t s_alphaMask0[4] = { 7<<0, 0, 7<<0, 0 };             \
+            alignas(16) static const uint32_t s_alphaMask1[4] = { 7<<3, 0, 7<<3, 0 };             \
+            alignas(16) static const uint32_t s_alphaMask2[4] = { 7<<6, 0, 7<<6, 0 };             \
+            alignas(16) static const uint32_t s_alphaMask3[4] = { 7<<9, 0, 7<<9, 0 };             \
+            alignas(16) static const uint32_t s_alphaMask4[4] = { 7<<12, 0, 7<<12, 0 };           \
+            alignas(16) static const uint32_t s_alphaMask5[4] = { 7<<15, 0, 7<<15, 0 };           \
+            alignas(16) static const uint32_t s_alphaMask6[4] = { 7<<18, 0, 7<<18, 0 };           \
+            alignas(16) static const uint32_t s_alphaMask7[4] = { 7<<21, 0, 7<<21, 0 };           \
             __m128i maxa, mina, mid, mid_div_14, ab1, ab2, ab3, ab4, ab5, ab6, ab7, resulta;
 
 #define EMIT_ALPHA_INDICES(alpha) \
@@ -592,7 +592,7 @@ namespace
 
     void CompressBC5U(const Image& src, Image& dst)
     {
-        __declspec(align(16)) static const uint32_t s_mask[4] = { 0xff, 0xff, 0xff, 0xff };
+        alignas(16) static const uint32_t s_mask[4] = { 0xff, 0xff, 0xff, 0xff };
 
         const uint8_t* pSource = src.pixels;
         uint8_t* pDestination = dst.pixels;
