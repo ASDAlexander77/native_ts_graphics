@@ -578,9 +578,12 @@ function(add_tslang_example name)
     # rule explicitly: the C++ link flags (debug info, CRT) apply and the tslang compile flags
     # stay off the link line.
     add_executable(${name} examples/${name}.ts core/input_pass.ts core/donut.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
-    set(example_ts examples/${name}.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
-    list(FILTER example_ts INCLUDE REGEX "\\.ts$")
-    set_source_files_properties(${example_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES}")
+    set(module_ts ${EXAMPLE_UNPARSED_ARGUMENTS})
+    list(FILTER module_ts INCLUDE REGEX "\\.ts$")
+    set_source_files_properties(${module_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES}")
+    # The example imports the modules listed with it, and compiles their declarations in.
+    list(TRANSFORM module_ts PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+    set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES};${module_ts}")
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop)
     if (TARGET ${name}_shaders)
@@ -670,6 +673,14 @@ if (NOT ANDROID)
         add_test(NAME headless.${api} COMMAND headless -${api} -debug WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
         set_tests_properties(headless.${api} PROPERTIES PASS_REGULAR_EXPRESSION "Test PASSED" LABELS ${api} TIMEOUT 120)
     endforeach()
+endif()
+
+# Not a port: a headless test of core/nvrhi.ts, NVRHI's interfaces called directly through their
+# vtables (tslang @cppvtable classes). The slots are MSVC's (tools/check_nvrhi_slots.py), so MSVC
+# builds only: the Itanium ABI (Android) has two destructor slots and returns objects otherwise.
+if (MSVC)
+    add_tslang_example(nvrhi_direct core/nvrhi.ts)
+    add_tslang_example_test(nvrhi_direct)
 endif()
 
 # Port of Donut-Samples' rt_triangle. Ray tracing needs D3D12 or Vulkan, so no DXBC.

@@ -3222,6 +3222,19 @@ extern "C"
         return app->device();
     }
 
+    // sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple ("BufferDesc",
+    // "CommandListParameters"), or -1: its layout depends on the C++ build (std::string's on the
+    // CRT), so nvrhiLayoutMatches() compares the two.
+    int Donut_GetNvrhiStructSize(const char* name)
+    {
+        std::string_view n = name ? name : "";
+        if (n == "BufferDesc")
+            return int(sizeof(nvrhi::BufferDesc));
+        if (n == "CommandListParameters")
+            return int(sizeof(nvrhi::CommandListParameters));
+        return -1;
+    }
+
     void Donut_SetWindowTitle(App* app, const char* title)
     {
         if (app->offscreen)
