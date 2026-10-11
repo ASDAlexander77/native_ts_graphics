@@ -85,10 +85,11 @@
 #include <nvrhi/d3d11.h>
 #endif
 #if DONUT_WITH_DX12
-#include <d3d12.h>
+// DirectX-Headers' (NVRHI's), so that d3dx12.h matches the d3d12.h Donut's headers include first.
+#include <directx/d3d12.h>
 #include <nvrhi/d3d12.h>
-// From the Agility SDK (see CMakeLists.txt), for the work graph state object.
-#include <d3dx12/d3dx12.h>
+// For the state objects (work graphs, ray tracing pipelines from DXIL library subobjects).
+#include <directx/d3dx12.h>
 #include <wrl/client.h>
 #endif
 
