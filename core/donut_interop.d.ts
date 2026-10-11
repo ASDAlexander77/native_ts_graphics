@@ -992,6 +992,17 @@ declare function Donut_CreateFramebufferWithThreeTargets(app: AppHandle, colorTe
 // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
 declare function Donut_CreateFramebufferForMip(app: AppHandle, colorTexture: TextureHandle, mipLevel: int): FramebufferHandle;
 
+// Non-zero if textures can be written by the CPU without a copy on the GPU: Vulkan with
+// VK_EXT_host_image_copy, D3D12.
+declare function Donut_HasHostImageCopy(app: AppHandle): int;
+// A DDS file's texture (path relative to the executable's directory, all its levels; sRGB != 0
+// views RGBA8 data as sRGB) written by the CPU, with no staging buffer or command list: Vulkan's
+// VK_EXT_host_image_copy (vkTransitionImageLayoutEXT, vkCopyMemoryToImageEXT into an optimally
+// tiled device-local image), D3D12's WriteToSubresource (a texture in a CPU-writable custom heap).
+// It rests as a shader resource. Release it with Donut_ReleaseObject; null (after logging why) on
+// failure.
+declare function Donut_CreateHostCopiedTexture(app: AppHandle, path: string, sRGB: int, debugName: string): HostCopiedTextureHandle | null;
+declare function Donut_GetHostCopiedTexture(hostCopiedTexture: HostCopiedTextureHandle): TextureHandle;
 // Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
 // tile from heaps; unmapped tiles read as zeros. It rests as a shader resource, and is a copy source
 // and destination and a render target.

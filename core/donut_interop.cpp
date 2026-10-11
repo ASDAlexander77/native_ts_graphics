@@ -320,6 +320,8 @@ namespace
         bool pipelineStatisticsQuery = false;
         // Whether draws can be skipped by a value in a buffer (Donut_HasConditionalRendering).
         bool conditionalRendering = false;
+        // Textures written by the CPU without a copy on the GPU (Donut_CreateHostCopiedTexture).
+        bool hostImageCopy = false;
         // Whether pixel shaders can use rasterizer ordered views (Donut_HasRasterizerOrderedViews).
         bool rasterizerOrderedViews = false;
         // Whether pixel shaders can read barycentrics and per-vertex attributes (Donut_HasBarycentrics).
@@ -1364,6 +1366,36 @@ namespace
         std::vector<std::unique_ptr<std::vector<nvrhi::rt::OpacityMicromapUsageCount>>> ommUsageCounts;
     };
 
+    // A texture the CPU wrote (Donut_CreateHostCopiedTexture): NVRHI's handle for it, and on Vulkan
+    // the image and memory behind it, which NVRHI doesn't own (freed after the handle).
+    struct HostCopiedTexture
+    {
+        App* app = nullptr;
+        nvrhi::TextureHandle texture;
+#if DONUT_WITH_VULKAN
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+#endif
+
+        // NVRHI's handle first, then the image and memory it wraps, once the GPU is done with them.
+        ~HostCopiedTexture()
+        {
+            texture = nullptr;
+#if DONUT_WITH_VULKAN
+            if (image != VK_NULL_HANDLE || memory != VK_NULL_HANDLE)
+            {
+                nvrhi::IDevice* device = app->device();
+                device->waitForIdle();
+                VkDevice vkDevice = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+                if (image != VK_NULL_HANDLE)
+                    VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyImage(vkDevice, image, nullptr);
+                if (memory != VK_NULL_HANDLE)
+                    VULKAN_HPP_DEFAULT_DISPATCHER.vkFreeMemory(vkDevice, memory, nullptr);
+            }
+#endif
+        }
+    };
+
     // Timestamps of several time domains sampled together (Donut_CreateCalibratedTimestamps).
     struct CalibratedTimestamps
     {
@@ -1649,6 +1681,9 @@ namespace
         // Chained into the device's creation when VK_EXT_conditional_rendering is enabled.
         VkPhysicalDeviceConditionalRenderingFeaturesEXT conditionalRendering{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT };
+        // Chained into the device's creation when VK_EXT_host_image_copy is enabled.
+        VkPhysicalDeviceHostImageCopyFeaturesEXT hostImageCopy{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_FEATURES_EXT };
         // Fragment shader pixel interlock (rasterizer ordered views), enabled.
         bool fragmentShaderPixelInterlock = false;
         // Fragment shader barycentrics, enabled.
@@ -1924,6 +1959,22 @@ namespace
                 }
                 continue;
             }
+            if (strcmp(info.ppEnabledExtensionNames[i], VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME) == 0)
+            {
+                VkPhysicalDeviceHostImageCopyFeaturesEXT available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_FEATURES_EXT };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                if (available2.hostImageCopy)
+                {
+                    result.hostImageCopy.hostImageCopy = VK_TRUE;
+                    result.hostImageCopy.pNext = const_cast<void*>(info.pNext);
+                    info.pNext = &result.hostImageCopy;
+                }
+                continue;
+            }
             if (strcmp(info.ppEnabledExtensionNames[i], VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME) != 0)
                 continue;
             VkPhysicalDeviceConditionalRenderingFeaturesEXT available2{
@@ -2101,6 +2152,8 @@ extern "C"
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_line_rasterization");
         // Memory heaps' usage and budget (Donut_QueryMemoryBudget).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_memory_budget");
+        // Textures written by the CPU (Donut_CreateHostCopiedTexture).
+        params.optionalVulkanDeviceExtensions.push_back("VK_EXT_host_image_copy");
         // Timestamps of the device's and the host's clocks sampled together
         // (Donut_CreateCalibratedTimestamps).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_calibrated_timestamps");
@@ -2209,6 +2262,8 @@ extern "C"
         app->sparseResidency = sparseResidency;
         // D3D12 has predication from a buffer built in.
         app->conditionalRendering = api == nvrhi::GraphicsAPI::D3D12;
+        // And CPU writes into textures (WriteToSubresource) in CPU-accessible custom heaps.
+        app->hostImageCopy = api == nvrhi::GraphicsAPI::D3D12;
 #if DONUT_WITH_DX11
         if (api == nvrhi::GraphicsAPI::D3D11)
         {
@@ -2266,6 +2321,7 @@ extern "C"
         if (api == nvrhi::GraphicsAPI::VULKAN)
         {
             app->conditionalRendering = vulkanFeatures->conditionalRendering.conditionalRendering == VK_TRUE;
+            app->hostImageCopy = vulkanFeatures->hostImageCopy.hostImageCopy == VK_TRUE;
             app->rasterizerOrderedViews = vulkanFeatures->fragmentShaderPixelInterlock;
             app->barycentrics = vulkanFeatures->fragmentShaderBarycentric;
             app->native16Bit = vulkanFeatures->native16Bit;
@@ -2385,6 +2441,189 @@ extern "C"
         }
 #endif
         return 0;
+    }
+
+    // Non-zero if textures can be written by the CPU without a copy on the GPU
+    // (Donut_CreateHostCopiedTexture): Vulkan with VK_EXT_host_image_copy, D3D12.
+    int Donut_HasHostImageCopy(App* app)
+    {
+        return app->hostImageCopy ? 1 : 0;
+    }
+
+    // A DDS file's texture (path relative to the executable's directory, all its levels; sRGB != 0
+    // views 8-bit RGBA data as sRGB), written into the texture by the CPU, with no staging buffer
+    // and no command list: Vulkan's VK_EXT_host_image_copy (an optimally tiled, device-local image
+    // made for host transfers, its layout changed on the host with vkTransitionImageLayoutEXT and its
+    // levels written with vkCopyMemoryToImageEXT), D3D12's WriteToSubresource (a texture in a
+    // CPU-writable custom heap). It rests as a shader resource. Release it with
+    // Donut_ReleaseObject. Null (after logging why) on failure; requires Donut_HasHostImageCopy.
+    HostCopiedTexture* Donut_CreateHostCopiedTexture(App* app, const char* path, int sRGB, const char* debugName)
+    {
+        App* a = app;
+        nvrhi::IDevice* device = a->device();
+        if (!a->hostImageCopy)
+        {
+            donut::log::error("The device can't write textures from the CPU");
+            return nullptr;
+        }
+        const std::filesystem::path fullPath = GetExecutablePath().parent_path() / path;
+        donut::engine::TextureData data;
+        data.data = donut::vfs::NativeFileSystem().readFile(fullPath);
+        if (!data.data || !donut::engine::LoadDDSTextureFromMemory(data) || data.dimension != nvrhi::TextureDimension::Texture2D)
+        {
+            donut::log::error("Cannot load the 2D DDS texture %s", fullPath.string().c_str());
+            return nullptr;
+        }
+        nvrhi::Format format = data.format;
+        if (sRGB && format == nvrhi::Format::RGBA8_UNORM)
+            format = nvrhi::Format::SRGBA8_UNORM;
+        const uint8_t* bytes = static_cast<const uint8_t*>(data.data->data());
+
+        nvrhi::TextureDesc desc;
+        desc.width = data.width;
+        desc.height = data.height;
+        desc.mipLevels = data.mipLevels;
+        desc.format = format;
+        desc.dimension = nvrhi::TextureDimension::Texture2D;
+        desc.initialState = nvrhi::ResourceStates::ShaderResource;
+        desc.keepInitialState = true;
+        desc.debugName = debugName;
+
+        auto texture = std::make_shared<HostCopiedTexture>();
+        texture->app = a;
+#if DONUT_WITH_VULKAN
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+            VkDevice vkDevice = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            const VkFormat vkFormat = nvrhi::vulkan::convertFormat(format);
+
+            // The format must take host transfers.
+            VkFormatProperties3 properties3{ VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3 };
+            VkFormatProperties2 properties2{ VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2 };
+            properties2.pNext = &properties3;
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFormatProperties2(physicalDevice, vkFormat, &properties2);
+            if ((properties3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT_EXT) == 0)
+            {
+                donut::log::error("The format of %s doesn't support host image transfers", fullPath.string().c_str());
+                return nullptr;
+            }
+
+            VkImageCreateInfo imageInfo{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+            imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageInfo.format = vkFormat;
+            imageInfo.extent = { data.width, data.height, 1 };
+            imageInfo.mipLevels = data.mipLevels;
+            imageInfo.arrayLayers = 1;
+            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
+            imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateImage(vkDevice, &imageInfo, nullptr, &texture->image) != VK_SUCCESS)
+                return nullptr;
+
+            // Device-local memory.
+            VkMemoryRequirements requirements{};
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetImageMemoryRequirements(vkDevice, texture->image, &requirements);
+            VkPhysicalDeviceMemoryProperties memoryProperties{};
+            VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+            uint32_t memoryType = UINT32_MAX;
+            for (uint32_t i = 0; i < memoryProperties.memoryTypeCount && memoryType == UINT32_MAX; i++)
+            {
+                if ((requirements.memoryTypeBits & (1u << i)) &&
+                    (memoryProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+                    memoryType = i;
+            }
+            VkMemoryAllocateInfo allocateInfo{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+            allocateInfo.allocationSize = requirements.size;
+            allocateInfo.memoryTypeIndex = memoryType;
+            if (memoryType == UINT32_MAX ||
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkAllocateMemory(vkDevice, &allocateInfo, nullptr, &texture->memory) != VK_SUCCESS ||
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkBindImageMemory(vkDevice, texture->image, texture->memory, 0) != VK_SUCCESS)
+            {
+                donut::log::error("Cannot allocate the memory of %s", fullPath.string().c_str());
+                return nullptr;
+            }
+
+            // On the host: the layout the shaders read it in, then every level.
+            VkHostImageLayoutTransitionInfoEXT transition{ VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO_EXT };
+            transition.image = texture->image;
+            transition.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            transition.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            transition.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, data.mipLevels, 0, 1 };
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkTransitionImageLayoutEXT(vkDevice, 1, &transition) != VK_SUCCESS)
+                return nullptr;
+            std::vector<VkMemoryToImageCopyEXT> regions(data.mipLevels);
+            for (uint32_t mip = 0; mip < data.mipLevels; mip++)
+            {
+                VkMemoryToImageCopyEXT& region = regions[mip];
+                region.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT;
+                region.pHostPointer = bytes + data.dataLayout[0][mip].dataOffset;
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, 1 };
+                region.imageExtent = { std::max(data.width >> mip, 1u), std::max(data.height >> mip, 1u), 1 };
+            }
+            VkCopyMemoryToImageInfoEXT copyInfo{ VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT };
+            copyInfo.dstImage = texture->image;
+            copyInfo.dstImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            copyInfo.regionCount = static_cast<uint32_t>(regions.size());
+            copyInfo.pRegions = regions.data();
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCopyMemoryToImageEXT(vkDevice, &copyInfo) != VK_SUCCESS)
+            {
+                donut::log::error("Cannot copy %s to its image", fullPath.string().c_str());
+                return nullptr;
+            }
+            texture->texture = device->createHandleForNativeTexture(nvrhi::ObjectTypes::VK_Image, nvrhi::Object(texture->image), desc);
+        }
+#endif
+#if DONUT_WITH_DX12
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12Device* d3dDevice = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            // A heap the CPU writes (write-combined) and the GPU reads, in system memory on a
+            // discrete adapter.
+            D3D12_HEAP_PROPERTIES heap = {};
+            heap.Type = D3D12_HEAP_TYPE_CUSTOM;
+            heap.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
+            heap.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+            const CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Tex2D(nvrhi::d3d12::convertFormat(format),
+                data.width, data.height, 1, static_cast<UINT16>(data.mipLevels));
+            Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+            if (FAILED(d3dDevice->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &resourceDesc,
+                D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource))))
+            {
+                donut::log::error("Cannot create a CPU-writable texture for %s", fullPath.string().c_str());
+                return nullptr;
+            }
+            for (uint32_t mip = 0; mip < data.mipLevels; mip++)
+            {
+                const auto& level = data.dataLayout[0][mip];
+                // Mapped with no CPU pointer: WriteToSubresource does the writing.
+                if (FAILED(resource->Map(mip, nullptr, nullptr)) ||
+                    FAILED(resource->WriteToSubresource(mip, nullptr, bytes + level.dataOffset, static_cast<UINT>(level.rowPitch),
+                        static_cast<UINT>(level.depthPitch))))
+                {
+                    donut::log::error("Cannot write %s into its texture", fullPath.string().c_str());
+                    return nullptr;
+                }
+                resource->Unmap(mip, nullptr);
+            }
+            texture->texture = device->createHandleForNativeTexture(nvrhi::ObjectTypes::D3D12_Resource, nvrhi::Object(resource.Get()), desc);
+        }
+#endif
+        if (!texture->texture)
+        {
+            donut::log::error("Host image copies need Vulkan or D3D12");
+            return nullptr;
+        }
+        return a->OwnObject(texture);
+    }
+
+    // The texture of a Donut_CreateHostCopiedTexture.
+    nvrhi::ITexture* Donut_GetHostCopiedTexture(HostCopiedTexture* hostCopiedTexture)
+    {
+        return hostCopiedTexture->texture;
     }
 
     // Non-zero if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether

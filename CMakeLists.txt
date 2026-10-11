@@ -2091,6 +2091,23 @@ if (TARGET fragment_shading_rate_media)
     add_dependencies(texture_loading fragment_shading_rate_media)
 endif()
 
+# Port of Vulkan-Samples' host_image_copy: texture_loading's lit, textured cube (its shaders), the
+# texture written by the CPU with no staging buffer or command buffer: VK_EXT_host_image_copy on
+# Vulkan, WriteToSubresource into a CPU-writable heap on D3D12 (Donut_CreateHostCopiedTexture).
+# It reads fragment_shading_rate's copies of the texture and the cube.
+donut_compile_shaders_all_platforms(
+    TARGET host_image_copy_shaders
+    PROJECT_NAME "Host Image Copy"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_loading.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_loading.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/host_image_copy
+)
+add_tslang_example(host_image_copy MEDIA fonts fragment_shading_rate)
+if (TARGET fragment_shading_rate_media)
+    add_dependencies(host_image_copy fragment_shading_rate_media)
+endif()
+add_tslang_example_test(host_image_copy APIS dx12 vk)
+
 # Port of Vulkan-Samples' separate_image_sampler: a textured quad, its sampler bound apart from the
 # image (a binding set of its own), linear or nearest filtering picked in the UI. It reads
 # fragment_shading_rate's copy of the texture.
