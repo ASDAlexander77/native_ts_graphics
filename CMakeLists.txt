@@ -2827,6 +2827,39 @@ if (NVRHI_WITH_DX12)
     add_tslang_example_test(generic_programs APIS dx12)
 endif()
 
+# Port of DirectX-Graphics-Samples' D3D12RaytracingSakuraForestSER: a ray traced forest (13525
+# instances: floor cubes, reflective cubes, trees, bushes) under a fractal sky, its primary rays
+# traced into hit objects and reordered (MaybeReorderThread) by the hit, a reflection hint, or both.
+# D3D12 only (shader model 6.9 hit objects, the Agility SDK runtime); the state object comes from
+# the DXIL library's subobjects (the sample builds them in C++), its OBJ models load with the
+# sample's loader (core/obj_model.cpp). Its models and textures come from DIRECTX_GRAPHICS_SAMPLES_DIR,
+# a checkout from August 2025 or later (the sample is newer than some). The tests fix the
+# random forest's seeds and run each sort mode.
+if (NVRHI_WITH_DX12)
+    donut_compile_shaders(
+        TARGET sakura_forest_ser_shaders
+        PROJECT_NAME "Sakura Forest SER"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/sakura_forest_ser.cfg
+        SOURCES
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/sakura_forest_ser.hlsl
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/sakura_forest_ser_star.hlsli
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/sakura_forest_ser/dxil
+        SHADER_MODEL 6_9
+    )
+    add_tslang_example(sakura_forest_ser core/directx_math.ts core/obj_model.ts core/obj_model.cpp core/d3d12_agility_sdk.cpp
+        MEDIA fonts)
+    set(sakura_dir "Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingSakuraForestSER")
+    if (DIRECTX_GRAPHICS_SAMPLES_DIR AND NOT EXISTS "${DIRECTX_GRAPHICS_SAMPLES_DIR}/${sakura_dir}")
+        message(STATUS "sakura_forest_ser: ${DIRECTX_GRAPHICS_SAMPLES_DIR} has no ${sakura_dir} (an older checkout): no media")
+    else()
+        add_dxgs_media(sakura_forest_ser sakura_forest_ser ${sakura_dir}/trunk.obj ${sakura_dir}/leaves.obj ${sakura_dir}/bush.obj
+            ${sakura_dir}/tree-trunk.jpg ${sakura_dir}/bush-texture.jpg)
+    endif()
+    foreach(mode 0 1 2 3)
+        add_tslang_example_test(sakura_forest_ser SUFFIX sort${mode} APIS dx12 ARGS -seed 1 2 -sortMode ${mode})
+    endforeach()
+endif()
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse

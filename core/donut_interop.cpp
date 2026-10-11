@@ -20,6 +20,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <wincodec.h>
 #endif
 
 #include <donut/app/ApplicationBase.h>
@@ -1403,6 +1404,7 @@ namespace
         nvrhi::d3d12::DescriptorIndex firstDescriptor = 0;
         uint32_t descriptorCount = 0;
         std::vector<nvrhi::TextureHandle> uavTextures;
+        std::vector<nvrhi::TextureHandle> srvTextures;
         std::vector<nvrhi::BufferHandle> srvBuffers;
 
         // The global root signature's parameters, by index.
@@ -1437,6 +1439,63 @@ namespace
         if (pipeline->rootParameters.size() <= size_t(rootParameter))
             pipeline->rootParameters.resize(size_t(rootParameter) + 1);
         return pipeline->rootParameters[size_t(rootParameter)];
+    }
+
+    // Builds a library pipeline's shader table: a ray generation record (with rayGenArgsSize bytes
+    // of local root arguments, if any), a miss record, and one hit group record per entry of
+    // hitIdentifiers, each with hitArgsSize bytes from hitArgs (hitArgsSize apart). Records are
+    // 32-byte aligned, tables 64-byte aligned, in an upload heap. Returns false (after logging why)
+    // on failure.
+    bool BuildD3D12LibraryRtShaderTable(App* app, D3D12LibraryRtPipeline* pipeline, const void* rayGenIdentifier, const void* rayGenArgs,
+        int rayGenArgsSize, const void* missIdentifier, const std::vector<const void*>& hitIdentifiers, const void* hitArgs, int hitArgsSize)
+    {
+        auto alignUp = [](UINT64 size, UINT64 alignment) { return (size + alignment - 1) & ~(alignment - 1); };
+        const UINT64 rayGenRecordSize = alignUp(D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + UINT64(rayGenArgsSize), D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
+        const UINT64 hitRecordSize = alignUp(D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + UINT64(hitArgsSize), D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
+        const UINT64 missOffset = alignUp(rayGenRecordSize, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+        const UINT64 hitOffset = missOffset + alignUp(D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
+        const UINT64 size = hitOffset + hitRecordSize * std::max<UINT64>(hitIdentifiers.size(), 1);
+
+        ID3D12Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        const CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
+        const CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
+        Microsoft::WRL::ComPtr<ID3D12Resource> shaderTable;
+        if (FAILED(d3dDevice->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&shaderTable))))
+        {
+            donut::log::error("Cannot create the shader table");
+            return false;
+        }
+        uint8_t* mapped = nullptr;
+        const CD3DX12_RANGE noRead(0, 0);
+        if (FAILED(shaderTable->Map(0, &noRead, reinterpret_cast<void**>(&mapped))))
+            return false;
+        memset(mapped, 0, size_t(size));
+        memcpy(mapped, rayGenIdentifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+        if (rayGenArgsSize > 0 && rayGenArgs)
+            memcpy(mapped + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES, rayGenArgs, size_t(rayGenArgsSize));
+        memcpy(mapped + missOffset, missIdentifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+        for (size_t i = 0; i < hitIdentifiers.size(); i++)
+        {
+            uint8_t* record = mapped + hitOffset + hitRecordSize * i;
+            memcpy(record, hitIdentifiers[i], D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+            if (hitArgsSize > 0)
+                memcpy(record + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES, static_cast<const uint8_t*>(hitArgs) + size_t(hitArgsSize) * i, size_t(hitArgsSize));
+        }
+        shaderTable->Unmap(0, nullptr);
+
+        const D3D12_GPU_VIRTUAL_ADDRESS base = shaderTable->GetGPUVirtualAddress();
+        D3D12_DISPATCH_RAYS_DESC& desc = pipeline->dispatchDesc;
+        desc.RayGenerationShaderRecord.StartAddress = base;
+        desc.RayGenerationShaderRecord.SizeInBytes = rayGenRecordSize;
+        desc.MissShaderTable.StartAddress = base + missOffset;
+        desc.MissShaderTable.SizeInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+        desc.MissShaderTable.StrideInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+        desc.HitGroupTable.StartAddress = base + hitOffset;
+        desc.HitGroupTable.SizeInBytes = hitRecordSize * hitIdentifiers.size();
+        desc.HitGroupTable.StrideInBytes = hitRecordSize;
+        pipeline->shaderTable = shaderTable;
+        return true;
     }
 
     // A D3D12 generic program (Donut_CreateD3D12GenericProgram): a graphics pipeline made as an
@@ -4385,6 +4444,88 @@ extern "C"
     void Donut_CopyGltfModelNodeTransform(GltfModel* gltfModel, int node, void* dst)
     {
         memcpy(dst, gltfModel->nodes[node].transform, sizeof(float) * 16);
+    }
+
+    // An image file (path relative to the executable's directory) decoded with WIC into an RGBA8
+    // texture, as DirectXTK's CreateWICTextureFromFile loads it (its JPEG decoder differs a little
+    // from Donut's stb one): converted to 32bppRGBA with error diffusion, one level, and sRGB when
+    // the file says so (a PNG's sRGB chunk or 2.2 gamma; others' System.Image.ColorSpace 1, e.g. a
+    // JPEG's EXIF). Its upload is recorded into an open command list; it rests as a shader resource.
+    // Windows only; null (after logging why) on failure.
+    nvrhi::ITexture* Donut_LoadWicTexture(App* app, nvrhi::ICommandList* commandList, const char* path, const char* debugName)
+    {
+#ifdef _WIN32
+        static bool comInitialized = false;
+        if (!comInitialized)
+        {
+            CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            comInitialized = true;
+        }
+        Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
+        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory2, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
+        {
+            donut::log::error("Cannot create the WIC imaging factory");
+            return nullptr;
+        }
+        const std::filesystem::path fullPath = GetExecutablePath().parent_path() / path;
+        Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+        Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+        Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+        UINT width = 0, height = 0;
+        if (FAILED(factory->CreateDecoderFromFilename(fullPath.wstring().c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)) ||
+            FAILED(decoder->GetFrame(0, &frame)) ||
+            FAILED(frame->GetSize(&width, &height)) ||
+            FAILED(factory->CreateFormatConverter(&converter)) ||
+            FAILED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeErrorDiffusion, nullptr, 0, WICBitmapPaletteTypeMedianCut)))
+        {
+            donut::log::error("Cannot decode the image %s", fullPath.string().c_str());
+            return nullptr;
+        }
+        std::vector<uint8_t> pixels(size_t(width) * height * 4);
+        if (FAILED(converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data())))
+        {
+            donut::log::error("Cannot decode the image %s", fullPath.string().c_str());
+            return nullptr;
+        }
+
+        // DirectXTK's WIC_LOADER_DEFAULT sRGB rules.
+        bool sRGB = false;
+        Microsoft::WRL::ComPtr<IWICMetadataQueryReader> metadata;
+        GUID container = {};
+        if (SUCCEEDED(frame->GetMetadataQueryReader(&metadata)) && SUCCEEDED(metadata->GetContainerFormat(&container)))
+        {
+            PROPVARIANT value;
+            PropVariantInit(&value);
+            if (container == GUID_ContainerFormatPng)
+            {
+                if (SUCCEEDED(metadata->GetMetadataByName(L"/sRGB/RenderingIntent", &value)) && value.vt == VT_UI1)
+                    sRGB = true;
+                else if (SUCCEEDED(metadata->GetMetadataByName(L"/gAMA/ImageGamma", &value)) && value.vt == VT_UI4)
+                    sRGB = value.uintVal == 45455;
+            }
+            else if (SUCCEEDED(metadata->GetMetadataByName(L"System.Image.ColorSpace", &value)) && value.vt == VT_UI2)
+                sRGB = value.uiVal == 1;
+            PropVariantClear(&value);
+        }
+
+        nvrhi::TextureDesc desc;
+        desc.width = width;
+        desc.height = height;
+        desc.format = sRGB ? nvrhi::Format::SRGBA8_UNORM : nvrhi::Format::RGBA8_UNORM;
+        desc.dimension = nvrhi::TextureDimension::Texture2D;
+        desc.initialState = nvrhi::ResourceStates::ShaderResource;
+        desc.keepInitialState = true;
+        desc.debugName = debugName;
+        App* a = app;
+        nvrhi::TextureHandle texture = a->device()->createTexture(desc);
+        if (!texture)
+            return nullptr;
+        commandList->writeTexture(texture, 0, 0, pixels.data(), size_t(width) * 4);
+        return a->Own(texture);
+#else
+        donut::log::error("WIC needs Windows");
+        return nullptr;
+#endif
     }
 
     // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
@@ -8673,6 +8814,7 @@ extern "C"
             pipeline->descriptorCount = static_cast<uint32_t>(descriptorCount);
             pipeline->firstDescriptor = pipeline->descriptorHeap->allocateDescriptors(pipeline->descriptorCount);
             pipeline->uavTextures.resize(pipeline->descriptorCount);
+            pipeline->srvTextures.resize(pipeline->descriptorCount);
             pipeline->srvBuffers.resize(pipeline->descriptorCount);
         }
 
@@ -8708,51 +8850,85 @@ extern "C"
             }
         }
 
-        // Records of a shader identifier plus root arguments, 32-byte aligned; tables 64-byte
-        // aligned.
-        auto alignUp = [](UINT64 size, UINT64 alignment) { return (size + alignment - 1) & ~(alignment - 1); };
-        const UINT64 hitRecordSize = alignUp(D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + UINT64(byteSize), D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
-        const UINT64 tableStride = alignUp(hitRecordSize, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT);
-        const UINT64 size = tableStride * 3;
-
-        ID3D12Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
-        const CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
-        const CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
-        Microsoft::WRL::ComPtr<ID3D12Resource> shaderTable;
-        if (FAILED(d3dDevice->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &bufferDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&shaderTable))))
-        {
-            donut::log::error("Cannot create the shader table");
-            return 0;
-        }
-        uint8_t* mapped = nullptr;
-        const CD3DX12_RANGE noRead(0, 0);
-        if (FAILED(shaderTable->Map(0, &noRead, reinterpret_cast<void**>(&mapped))))
-            return 0;
-        memset(mapped, 0, size_t(size));
-        for (int i = 0; i < 3; i++)
-            memcpy(mapped + tableStride * i, identifiers[i], D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
-        if (byteSize > 0)
-            memcpy(mapped + tableStride * 2 + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES, data, size_t(byteSize));
-        shaderTable->Unmap(0, nullptr);
-
-        const D3D12_GPU_VIRTUAL_ADDRESS base = shaderTable->GetGPUVirtualAddress();
-        D3D12_DISPATCH_RAYS_DESC& desc = pipeline->dispatchDesc;
-        desc.RayGenerationShaderRecord.StartAddress = base;
-        desc.RayGenerationShaderRecord.SizeInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
-        desc.MissShaderTable.StartAddress = base + tableStride;
-        desc.MissShaderTable.SizeInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
-        desc.MissShaderTable.StrideInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
-        desc.HitGroupTable.StartAddress = base + tableStride * 2;
-        desc.HitGroupTable.SizeInBytes = hitRecordSize;
-        desc.HitGroupTable.StrideInBytes = hitRecordSize;
-        pipeline->shaderTable = shaderTable;
-        return 1;
+        return BuildD3D12LibraryRtShaderTable(app, pipeline, identifiers[0], nullptr, 0, identifiers[1], { identifiers[2] }, data, byteSize) ? 1 : 0;
 #else
         return 0;
 #endif
     }
 
+
+    // The pipeline's shader table, from several hit groups: a ray generation record with
+    // rayGenArgsSize bytes of local root arguments from rayGenArgs (none: 0), a miss record, and
+    // recordCount hit group records, record i the hit group named recordHitGroups[i] (an index into
+    // the comma-separated hitGroups) with argsSize bytes of local root arguments from
+    // recordArgs + i * argsSize. Returns 0 (after logging why) on failure.
+    int Donut_SetD3D12LibraryRtShaderTableRecords(App* app, D3D12LibraryRtPipeline* pipeline, const char* rayGeneration, const void* rayGenArgs,
+        int rayGenArgsSize, const char* miss, const char* hitGroups, const int* recordHitGroups, int recordCount, const void* recordArgs, int argsSize)
+    {
+#if DONUT_WITH_DX12
+        Microsoft::WRL::ComPtr<ID3D12StateObjectProperties> properties;
+        if (FAILED(pipeline->stateObject.As(&properties)))
+            return 0;
+        const void* rayGenIdentifier = properties->GetShaderIdentifier(Widen(rayGeneration).c_str());
+        const void* missIdentifier = properties->GetShaderIdentifier(Widen(miss).c_str());
+        std::vector<const void*> groupIdentifiers;
+        {
+            const std::string list = hitGroups;
+            size_t start = 0;
+            while (start <= list.size())
+            {
+                size_t end = list.find(',', start);
+                if (end == std::string::npos)
+                    end = list.size();
+                if (end > start)
+                    groupIdentifiers.push_back(properties->GetShaderIdentifier(Widen(list.substr(start, end - start).c_str()).c_str()));
+                start = end + 1;
+            }
+        }
+        if (!rayGenIdentifier || !missIdentifier)
+        {
+            donut::log::error("A shader table export isn't in the state object");
+            return 0;
+        }
+        std::vector<const void*> hitIdentifiers(static_cast<size_t>(recordCount));
+        for (int i = 0; i < recordCount; i++)
+        {
+            const int group = recordHitGroups[i];
+            if (group < 0 || size_t(group) >= groupIdentifiers.size() || !groupIdentifiers[size_t(group)])
+            {
+                donut::log::error("Shader table record %d names a hit group that isn't in the state object", i);
+                return 0;
+            }
+            hitIdentifiers[size_t(i)] = groupIdentifiers[size_t(group)];
+        }
+        return BuildD3D12LibraryRtShaderTable(app, pipeline, rayGenIdentifier, rayGenArgs, rayGenArgsSize, missIdentifier, hitIdentifiers,
+            recordArgs, argsSize) ? 1 : 0;
+#else
+        return 0;
+#endif
+    }
+
+    // The pipeline's descriptor at index: an SRV of a 2D texture, all its levels.
+    void Donut_SetD3D12LibraryRtDescriptorTextureSRV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::ITexture* texture)
+    {
+#if DONUT_WITH_DX12
+        if (index < 0 || uint32_t(index) >= pipeline->descriptorCount)
+            return;
+        ID3D12Device* d3dDevice = app->device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        ID3D12Resource* resource = texture->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource);
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
+        desc.Format = nvrhi::d3d12::convertFormat(texture->getDesc().format);
+        desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc.Texture2D.MipLevels = texture->getDesc().mipLevels;
+        WriteD3D12LibraryRtDescriptor(pipeline, index, [&](D3D12_CPU_DESCRIPTOR_HANDLE handle) {
+            d3dDevice->CreateShaderResourceView(resource, &desc, handle);
+        });
+        pipeline->srvTextures[index] = texture;
+        pipeline->uavTextures[index] = nullptr;
+        pipeline->srvBuffers[index] = nullptr;
+#endif
+    }
 
     // The pipeline's descriptor at index (of its block): a UAV of a 2D texture's first level. Set
     // descriptors while no frame in flight uses them.
@@ -8770,6 +8946,7 @@ extern "C"
             d3dDevice->CreateUnorderedAccessView(resource, nullptr, &desc, handle);
         });
         pipeline->uavTextures[index] = texture;
+        pipeline->srvTextures[index] = nullptr;
         pipeline->srvBuffers[index] = nullptr;
 #endif
     }
@@ -8804,6 +8981,7 @@ extern "C"
         });
         pipeline->srvBuffers[index] = buffer;
         pipeline->uavTextures[index] = nullptr;
+        pipeline->srvTextures[index] = nullptr;
 #endif
     }
 
@@ -8851,6 +9029,9 @@ extern "C"
         for (const auto& texture : pipeline->uavTextures)
             if (texture)
                 cl->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        for (const auto& texture : pipeline->srvTextures)
+            if (texture)
+                cl->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         for (const auto& buffer : pipeline->srvBuffers)
             if (buffer)
                 cl->setBufferState(buffer, nvrhi::ResourceStates::ShaderResource);
