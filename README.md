@@ -213,8 +213,9 @@ tslang --emit=jit --jit-cache=false --shared-libs=build/bin/donut_interop.dll ex
 ```
 
 - Program arguments go after `--`.
-- `--jit-cache=false`: tslang pre-alpha93's JIT cache crashes on files that import other `.ts`
-  files, which every example does.
+- `--jit-cache=false`: tslang pre-alpha93's JIT cache crashes in a run that compiles two or more
+  modules, so an example (with its imports) crashed on its first two runs
+  ([TypeScriptCompiler#548](https://github.com/ASDAlexander77/TypeScriptCompiler/pull/548)).
 - The shared library also holds the C++ modules some examples link (`core/sdkmesh.cpp`,
   `core/meshlet_model.cpp`, `core/paged_images.cpp`, ...), and applies the D3D12 Agility SDK
   runtime from `bin/D3D12` (the executables that need it opt in through their exports, which
