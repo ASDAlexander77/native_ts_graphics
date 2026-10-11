@@ -2762,6 +2762,22 @@ add_tslang_example(bundles core/directx_math.ts core/simple_camera.ts MEDIA bund
 add_dxgs_media(bundles bundles Samples/Desktop/D3D12Bundles/src/occcity.bin)
 add_tslang_example_test(bundles)
 
+# Port of DirectX-Graphics-Samples' D3D12RaytracingSimpleLighting: a ray traced cube lit by a point
+# light circling it, the closest hit shader interpolating the hit triangle's vertex normals (found
+# through its 16-bit indices). Ray tracing pipelines: D3D12 or Vulkan. The vertices' 24-byte struct
+# keeps its D3D layout in SPIR-V (--vulkanMemoryLayout dx).
+donut_compile_shaders(
+    TARGET raytracing_simple_lighting_shaders
+    PROJECT_NAME "Raytracing Simple Lighting"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_simple_lighting.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_simple_lighting.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_simple_lighting/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_simple_lighting/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--vulkanMemoryLayout dx"
+)
+add_tslang_example(raytracing_simple_lighting core/directx_math.ts)
+add_tslang_example_test(raytracing_simple_lighting)
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse

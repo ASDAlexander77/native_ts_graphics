@@ -3908,6 +3908,11 @@ export class TriangleBlas {
         Donut_AddTriangleBlasGeometry(this.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
     }
 
+    // Same, with R16_UINT indices.
+    addGeometry16(indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void {
+        Donut_AddTriangleBlasGeometry16(this.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
+    }
+
     // Opaque procedural primitives instead: aabbCount boxes (6 floats each, min x y z then max x y z),
     // aabbStride bytes apart at byteOffset of aabbBuffer (an acceleration structure input buffer),
     // intersected by the hit groups' intersection shaders (Donut_RtPipelineAddProceduralHitGroup). A
