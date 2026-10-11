@@ -580,10 +580,12 @@ function(add_tslang_example name)
     add_executable(${name} examples/${name}.ts core/input_pass.ts core/donut.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     set(module_ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     list(FILTER module_ts INCLUDE REGEX "\\.ts$")
-    set_source_files_properties(${module_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES}")
-    # The example imports the modules listed with it, and compiles their declarations in.
-    list(TRANSFORM module_ts PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
-    set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES};${module_ts}")
+    # The example imports the modules listed with it, and compiles their declarations in; so may
+    # they each other (core/nvrhi.ts imports core/nvrhi_abi.<os>.ts).
+    set(module_ts_paths ${module_ts})
+    list(TRANSFORM module_ts_paths PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+    set_source_files_properties(${module_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES};${module_ts_paths}")
+    set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES};${module_ts_paths}")
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop)
     if (TARGET ${name}_shaders)
@@ -667,10 +669,20 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/headless.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/headless
 )
-# It calls NVRHI directly through core/nvrhi.ts where the build can (MSVC), as headless.cpp does,
-# and through Donut's wrappers elsewhere (Android) or with -donut: headless.<api> tests the one
-# path, headless.donut.<api> the other.
-add_tslang_example(headless core/nvrhi.ts)
+# core/nvrhi.ts, NVRHI's interfaces called directly, and the modules it is made of: the vtables and
+# layouts of the C++ ABI are core/nvrhi_abi.<os>.ts, the one its import of "./nvrhi_abi" takes for
+# the target (MSVC's on Windows, the Itanium ABI of Android's clang on Android).
+if (WIN32)
+    set(NVRHI_ABI_OS win32)
+else()
+    set(NVRHI_ABI_OS linux)
+endif()
+set(NVRHI_TS_SOURCES core/nvrhi_types.ts core/nvrhi_abi.${NVRHI_ABI_OS}.ts core/nvrhi.ts)
+
+# It calls NVRHI directly through core/nvrhi.ts where the build can (MSVC, Android), as headless.cpp
+# does, and through Donut's wrappers elsewhere or with -donut: headless.<api> tests the one path,
+# headless.donut.<api> the other.
+add_tslang_example(headless ${NVRHI_TS_SOURCES})
 if (NOT ANDROID)
     set(headless_result "[\r\n]+Expected result: [0-9]+, computed result: [0-9]+[\r\n]+Test PASSED")
     if (MSVC)
@@ -689,18 +701,17 @@ if (NOT ANDROID)
 endif()
 
 # Not a port: a headless test of core/nvrhi.ts, NVRHI's interfaces called directly through their
-# vtables (tslang @cppvtable classes). The slots are MSVC's (tools/check_nvrhi_slots.py), so MSVC
-# builds only: the Itanium ABI (Android) has two destructor slots and returns objects otherwise.
-if (MSVC)
-    donut_compile_shaders(
-        TARGET nvrhi_direct_shaders
-        PROJECT_NAME "NVRHI Direct"
-        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.cfg
-        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.hlsl
-        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/dxil
-        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/spirv
-    )
-    add_tslang_example(nvrhi_direct core/nvrhi.ts)
+# vtables (tslang @cppvtable classes), under MSVC's ABI or Android's (tools/check_nvrhi_slots.py
+# checks the slots of both). On Android it runs through adb shell, as headless does.
+donut_compile_shaders_all_platforms(
+    TARGET nvrhi_direct_shaders
+    PROJECT_NAME "NVRHI Direct"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct
+)
+add_tslang_example(nvrhi_direct ${NVRHI_TS_SOURCES})
+if (NOT ANDROID)
     add_tslang_example_test(nvrhi_direct)
 endif()
 

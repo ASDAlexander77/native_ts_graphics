@@ -250,9 +250,23 @@ treat as first-class.
 The examples reach Donut and NVRHI through `core/donut_interop.cpp`, a flat C API. `core/nvrhi.ts`
 skips it for NVRHI's interfaces: `nvrhi.IDevice`, `ICommandList`, `IBuffer`, `ITexture`, `IShader`,
 `IBindingLayout`, `IBindingSet` and `IComputePipeline`, over `IResource`, are tslang `@cppvtable`
-classes (tslang pre-alpha94 or later), laid over the C++ objects. A method call goes through the
-C++ object's own vtable. Donut's handles are the same objects' pointers, so the two mix:
-`<nvrhi.IBuffer><Opaque>bufferHandle` and back.
+classes, laid over the C++ objects. A method call goes through the C++ object's own vtable.
+Donut's handles are the same objects' pointers, so the two mix: `<nvrhi.IBuffer><Opaque>bufferHandle`
+and back.
+
+The vtables and some struct layouts depend on the C++ ABI, so the `nvrhi` namespace is three
+modules, as tslang's default library is `lib.ts` and `lib.<os>.ts`:
+
+| Module | Holds |
+| --- | --- |
+| `core/nvrhi_types.ts` | the structs and constants every ABI lays out the same way |
+| `core/nvrhi_abi.win32.ts` | the classes and `std::string` structs of MSVC x64 (the release CRT) |
+| `core/nvrhi_abi.linux.ts` | the same for the Itanium ABI of Android's clang and libc++ (x86-64, AArch64) |
+| `core/nvrhi.ts` | the functions; it imports `./nvrhi_abi`, which tslang resolves to the target's file |
+
+An example imports `../core/nvrhi` and lists `${NVRHI_TS_SOURCES}` in its `add_tslang_example`
+sources. This needs a tslang newer than pre-alpha94, for `<name>.<os>.ts` imports and Itanium struct
+returns.
 
 ```ts
 import { nvrhi } from "../core/nvrhi";
@@ -271,25 +285,30 @@ if (commandList) {
 
 - **Slot order.** A `@cppvtable` class's methods are the vtable's slots in declaration order, a
   base class's first. Every slot is declared, because a missing one would call a different C++
-  method with no error. `python tools/check_nvrhi_slots.py` (needs MSVC) compares the classes
-  with the vtables MSVC builds; run it after changing them or updating NVRHI.
+  method with no error. MSVC has one destructor slot, the Itanium ABI two. Run
+  `python tools/check_nvrhi_slots.py` (needs MSVC) and `python tools/check_nvrhi_slots.py --abi itanium`
+  (needs the Android NDK) after changing the classes or updating NVRHI: they compare the classes
+  with the vtables the compilers build.
 - **Bound methods.** Only the methods `examples/nvrhi_direct.ts` tests have signatures; the other
   slots are placeholders named `_` + the C++ name.
-- **Signatures.** An object returned by value (`RefCountPtr<T>`, `nvrhi::Object`) comes back
-  through a hidden pointer after `this`; `nvrhi.createBuffer()` and the other functions hide it. A
-  struct passed by reference, or by value and bigger than 8 bytes, is a tuple with the C++ layout
-  (`BufferDesc`, `TextureDesc`, `ComputePipelineDesc`, `ComputeState`, ...). That layout depends on
-  the C++ build (`std::string`'s on the CRT), so `nvrhi.layoutMatches()` compares the tuples' sizes
-  with the C++ ones. A `bool` parameter is a `u8`.
-- **Platform.** The slots and calling convention are MSVC x64's. `nvrhi.supported()` says whether
-  the build has them: code that also runs elsewhere (Android) keeps another path.
+- **Signatures.** An object returned by value is a tuple with its layout: `RefCountPtr<T>`
+  (`@cppnontrivial`, as it has a destructor) and `nvrhi::Object`. tslang passes the hidden pointer
+  each ABI returns it through; `nvrhi.createBuffer()` and the other functions unwrap it. A struct
+  passed by reference is a `Ref` to a tuple with the C++ layout (`BufferDesc`, `TextureDesc`,
+  `ComputePipelineDesc`, `ComputeState`, ...). That layout depends on the C++ build (`std::string`'s
+  on the C++ library), so `nvrhi.layoutMatches()` compares the tuples' sizes with the C++ ones. A
+  struct passed by value is the ABIs' difference: MSVC passes a pointer to a copy, the Itanium ABI
+  the fields in registers (`clearTextureFloat`'s `TextureSubresourceSet`, see the two files).
+- **Platform.** `nvrhi.supported()` says whether the build has one of the two ABIs (MSVC x64,
+  Android's clang on x86-64 or AArch64) and their layouts: code that also runs elsewhere keeps
+  another path.
 
 `headless` calls NVRHI directly where `nvrhi.supported()`, as the C++ sample does, and through
-Donut's wrappers elsewhere (Android) or with `-donut`. CTest runs both: `headless.<api>` and
+Donut's wrappers elsewhere or with `-donut`. CTest runs both: `headless.<api>` and
 `headless.donut.<api>`.
 
-`nvrhi_direct` (Windows only) is a headless test of every bound method, not a sample. One command
-list:
+`nvrhi_direct` is a headless test of every bound method, not a sample; on Android it runs through
+`adb shell`, as `headless` does. One command list:
 1. uploads numbers into a buffer and clears another;
 2. runs a compute shader over the uploaded numbers (its pipeline made directly, its binding set by
    Donut);

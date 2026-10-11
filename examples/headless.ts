@@ -9,8 +9,8 @@ namespace Headless {
     // checks its result on the CPU.
     //
     // headless.cpp calls NVRHI's interfaces directly, and so does runTestNvrhi, through
-    // core/nvrhi.ts, where the build can (MSVC x64: nvrhi.supported()). Elsewhere (Android)
-    // runTestDonut does the same through Donut's wrappers.
+    // core/nvrhi.ts, where the build can (MSVC x64, Android: nvrhi.supported()). Elsewhere, or
+    // with -donut, runTestDonut does the same through Donut's wrappers.
 
     // The shader is performing a reduction operation within one thread group, adding all uint's in
     // the input buffer. The number of uint's is the same as the thread group size.

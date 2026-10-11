@@ -68,8 +68,12 @@ namespace NvrhiDirect {
         check(nvrhi.getNativeQueue(device, queueType, nvrhi.COMMAND_QUEUE_GRAPHICS) != null, "the device has its graphics queue");
         const hasComputeQueue = device.queryFeatureSupport(nvrhi.FEATURE_COMPUTE_QUEUE, null, 0);
         console.log(`IDevice::queryFeatureSupport(ComputeQueue): ${hasComputeQueue}`);
-        check(hasComputeQueue == (nvrhi.getNativeQueue(device, queueType, nvrhi.COMMAND_QUEUE_COMPUTE) != null),
-            "IDevice::queryFeatureSupport(ComputeQueue) and getNativeQueue agree");
+        // NVRHI's Vulkan getNativeQueue dereferences a queue the device doesn't have (the Android
+        // emulator's has no compute queue): ask Vulkan only for one it has
+        if (hasComputeQueue || isD3D12) {
+            check(hasComputeQueue == (nvrhi.getNativeQueue(device, queueType, nvrhi.COMMAND_QUEUE_COMPUTE) != null),
+                "IDevice::queryFeatureSupport(ComputeQueue) and getNativeQueue agree");
+        }
         device.runGarbageCollection();
 
         // IResource::AddRef, Release, GetRefCount
@@ -104,7 +108,8 @@ namespace NvrhiDirect {
         const name = nvrhi.stdString("Cleared");
         check(desc.byteSize == SIZE && desc.canHaveUAVs && desc.initialState == nvrhi.RESOURCE_STATE_COPY_DEST
             && desc.keepInitialState && desc.cpuAccess == nvrhi.CPU_ACCESS_NONE, "IBuffer::getDesc");
-        check(desc.debugName.size == 7 && desc.debugName.buffer0 == name.buffer0, "the buffer's debug name");
+        check(nvrhi.stdStringSize(desc.debugName) == 7 && nvrhi.sameShortStdString(desc.debugName, name),
+            "the buffer's debug name");
         if (isD3D12) {
             check(input.getGpuVirtualAddress() != 0, "IBuffer::getGpuVirtualAddress");
         }
@@ -118,7 +123,7 @@ namespace NvrhiDirect {
         const textureDesc = Deref(texture.getDesc());
         check(textureDesc.width == TEXTURE_SIZE && textureDesc.height == TEXTURE_SIZE
             && textureDesc.format == <u8>Format.RGBA8_UNORM && textureDesc.isRenderTarget
-            && textureDesc.debugName.size == 15, "ITexture::getDesc");
+            && nvrhi.stdStringSize(textureDesc.debugName) == 15, "ITexture::getDesc");
         check(nvrhi.getNativeObject(texture, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE) != null,
             "the texture has its native resource");
 
