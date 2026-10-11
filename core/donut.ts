@@ -526,6 +526,11 @@ export class App {
         Donut_GetTextureTiling(this.handle, texture, dst);
     }
 
+    // The number of tiles the packed levels (the mip tail) take together: 0 if there are none.
+    getTexturePackedMipTileCount(texture: TextureHandle): int {
+        return Donut_GetTexturePackedMipTileCount(this.handle, texture);
+    }
+
     // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
     // is mapped to it and the GPU is done with what used it.
     // Placed textures: textures sharing one heap's memory (D3D12's placed resources, Vulkan's
@@ -3981,6 +3986,12 @@ export class TileMappings {
     // Maps the tile at column x, row y of level mipLevel to byteOffset in a heap, or unmaps it (null).
     add(mipLevel: int, x: int, y: int, heap: HeapHandle | null, byteOffset: number): void {
         Donut_TileMappingsAdd(this.handle, mipLevel, x, y, heap, byteOffset);
+    }
+
+    // Maps all the packed levels (from level firstPackedMip on) to tileCount tiles from byteOffset in a
+    // heap, or unmaps them (null).
+    addPackedMips(firstPackedMip: int, tileCount: int, heap: HeapHandle | null, byteOffset: number): void {
+        Donut_TileMappingsAddPackedMips(this.handle, firstPackedMip, tileCount, heap, byteOffset);
     }
 }
 
