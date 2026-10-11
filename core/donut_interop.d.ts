@@ -159,6 +159,22 @@ enum MeshletModelData {
     CullData = 6,
 }
 
+// Wavefront OBJ models (core/obj_model.cpp, linked only into the examples that list it):
+// DirectX-Graphics-Samples' D3D12RaytracingSakuraForestSER loader (ObjModelLoader), objects by their
+// `o` names, then an object's triangles as three vertices each. Free it with Donut_DestroyObjModel.
+declare function Donut_CreateObjModel(): ObjModelHandle;
+declare function Donut_DestroyObjModel(objModel: ObjModelHandle): void;
+// Parses an OBJ file's text (byteSize bytes from data, e.g. a binary file's) into the loader.
+declare function Donut_ParseObjModel(objModel: ObjModelHandle, data: Opaque, byteSize: int): void;
+// Makes the mesh of an object, its positions multiplied by scale: three vertices per triangle,
+// indices 0, 1, 2, ... Returns its vertex count, -1 if the object is missing or broken.
+declare function Donut_BuildObjModelMesh(objModel: ObjModelHandle, name: string, scale: number): int;
+declare function Donut_GetObjModelMeshIndexCount(objModel: ObjModelHandle): int;
+// The mesh's vertices into dst (Ref of an f32 array element): 9 floats each, position, normal and
+// uv as float3s (36 bytes); its 32-bit indices (Ref of an int array element).
+declare function Donut_CopyObjModelMeshVertices(objModel: ObjModelHandle, dst: Opaque): void;
+declare function Donut_CopyObjModelMeshIndices(objModel: ObjModelHandle, dst: Opaque): void;
+
 // Meshlet model files, the ".bin" files DirectX-Graphics-Samples' D3D12MeshShaders samples load
 // (core/meshlet_model.cpp, linked only into the examples that list it): meshes of vertices,
 // indices, meshlets (vertex count, vertex offset, primitive count, primitive offset: 4 uints), unique
@@ -1206,6 +1222,11 @@ declare function Donut_GetGltfModelTextureImage(gltfModel: GltfModelHandle, text
 declare function Donut_GetGltfModelNodeCount(gltfModel: GltfModelHandle): int;
 declare function Donut_GetGltfModelNodeMesh(gltfModel: GltfModelHandle, node: int): int;
 declare function Donut_CopyGltfModelNodeTransform(gltfModel: GltfModelHandle, node: int, dst: Opaque): void;
+// An image file (path relative to the executable's directory) decoded with WIC into an RGBA8
+// texture as DirectXTK's CreateWICTextureFromFile loads it: one level, sRGB when the file says so
+// (a PNG's sRGB chunk, a JPEG's EXIF color space). Its upload recorded into an open command list.
+// Windows only; null (after logging why) on failure.
+declare function Donut_LoadWicTexture(app: AppHandle, commandList: CommandListHandle, path: string, debugName: string): TextureHandle | null;
 // Image file, path relative to the executable's directory, uploaded by an open command list.
 // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
 declare function Donut_LoadTexture(app: AppHandle, commandList: CommandListHandle, path: string, sRGB: int): TextureHandle;
@@ -2013,7 +2034,16 @@ declare function Donut_SetD3D12LibraryRtShaderTable(app: AppHandle, libraryRtPip
     data: Opaque, byteSize: int): int;
 // Its descriptor at index (set while no frame in flight uses it): a UAV of a 2D texture's first
 // level; an SRV of a whole buffer, raw (structureStride 0) or structured.
+// Same, from several hit groups: a ray generation record with rayGenArgsSize bytes of local root
+// arguments from rayGenArgs, a miss record, and recordCount hit group records, record i the hit
+// group recordHitGroups[i] (Ref of an int array: indices into the comma-separated hitGroups) with
+// argsSize bytes of local root arguments from recordArgs + i * argsSize. 0 on failure.
+declare function Donut_SetD3D12LibraryRtShaderTableRecords(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, rayGeneration: string,
+    rayGenArgs: Opaque | null, rayGenArgsSize: int, miss: string, hitGroups: string, recordHitGroups: Opaque, recordCount: int, recordArgs: Opaque,
+    argsSize: int): int;
 declare function Donut_SetD3D12LibraryRtDescriptorTextureUAV(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, index: int, texture: TextureHandle): void;
+// An SRV of a 2D texture (all its levels).
+declare function Donut_SetD3D12LibraryRtDescriptorTextureSRV(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, index: int, texture: TextureHandle): void;
 declare function Donut_SetD3D12LibraryRtDescriptorBufferSRV(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, index: int, buffer: BufferHandle,
     structureStride: int): void;
 // The global root signature's parameter rootParameter in its dispatches: a descriptor table from

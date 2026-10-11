@@ -679,6 +679,14 @@ export class App {
         return Donut_CreateStaticBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
     }
 
+    // An image file (path relative to the executable's directory) decoded with WIC into an RGBA8
+    // texture as DirectXTK's CreateWICTextureFromFile loads it: one level, sRGB when the file says so
+    // (a PNG's sRGB chunk, a JPEG's EXIF color space). Its upload recorded into an open command list.
+    // Windows only; null (after logging why) on failure.
+    loadWicTexture(commandList: CommandList, path: string, debugName: string): TextureHandle | null {
+        return Donut_LoadWicTexture(this.handle, commandList.handle, path, debugName);
+    }
+
     // Image file, path relative to the executable's directory, uploaded by an open command list.
     // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
     loadTexture(commandList: CommandList, path: string, sRGB: int): TextureHandle {
@@ -1232,8 +1240,21 @@ export class App {
 
     // Its descriptor at index (set while no frame in flight uses it): a UAV of a 2D texture's first
     // level; an SRV of a whole buffer, raw (structureStride 0) or structured.
+    // Same, from several hit groups: a ray generation record with rayGenArgsSize bytes of local root
+    // arguments from rayGenArgs, a miss record, and recordCount hit group records, record i the hit
+    // group recordHitGroups[i] (Ref of an int array: indices into the comma-separated hitGroups) with
+    // argsSize bytes of local root arguments from recordArgs + i * argsSize. 0 on failure.
+    setD3D12LibraryRtShaderTableRecords(libraryRtPipeline: D3D12LibraryRtPipeline, rayGeneration: string, rayGenArgs: Opaque | null, rayGenArgsSize: int, miss: string, hitGroups: string, recordHitGroups: Opaque, recordCount: int, recordArgs: Opaque, argsSize: int): int {
+        return Donut_SetD3D12LibraryRtShaderTableRecords(this.handle, libraryRtPipeline.handle, rayGeneration, rayGenArgs, rayGenArgsSize, miss, hitGroups, recordHitGroups, recordCount, recordArgs, argsSize);
+    }
+
     setD3D12LibraryRtDescriptorTextureUAV(libraryRtPipeline: D3D12LibraryRtPipeline, index: int, texture: TextureHandle): void {
         Donut_SetD3D12LibraryRtDescriptorTextureUAV(this.handle, libraryRtPipeline.handle, index, texture);
+    }
+
+    // An SRV of a 2D texture (all its levels).
+    setD3D12LibraryRtDescriptorTextureSRV(libraryRtPipeline: D3D12LibraryRtPipeline, index: int, texture: TextureHandle): void {
+        Donut_SetD3D12LibraryRtDescriptorTextureSRV(this.handle, libraryRtPipeline.handle, index, texture);
     }
 
     setD3D12LibraryRtDescriptorBufferSRV(libraryRtPipeline: D3D12LibraryRtPipeline, index: int, buffer: BufferHandle, structureStride: int): void {
