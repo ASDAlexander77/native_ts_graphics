@@ -3179,6 +3179,12 @@ extern "C"
         return app->deviceManager->GetRendererString();
     }
 
+    // The app's nvrhi::IDevice, for code that works with NVRHI directly (e.g. core/paged_images.cpp).
+    void* Donut_GetNvrhiDevice(App* app)
+    {
+        return app->device();
+    }
+
     void Donut_SetWindowTitle(App* app, const char* title)
     {
         if (app->offscreen)

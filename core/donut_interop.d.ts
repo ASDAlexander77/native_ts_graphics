@@ -159,6 +159,46 @@ enum MeshletModelData {
     CullData = 6,
 }
 
+// Images streamed into video memory a mip level at a time under the memory budget
+// (core/paged_images.cpp, linked only into the examples that list it; D3D12):
+// DirectX-Graphics-Samples' D3D12MemoryManagement's paging: reserved textures, each level backed by
+// heaps of its own, mapped and filled on a copy queue by a paging thread, made resident again or
+// evicted by the images' priorities under the DXGI budget. Free it with Donut_DestroyPagedImageSet
+// before the app.
+declare function Donut_CreatePagedImageSet(): PagedImageSetHandle;
+declare function Donut_DestroyPagedImageSet(pagedImageSet: PagedImageSetHandle): void;
+// Starts the paging thread and creates the images: a DDS file's (BC1 or RGBA8 with its levels;
+// empty path: none) then generatedCount 4096 x 4096 checkerboards of 13 levels. device: the app's
+// (Donut_GetNvrhiDevice), D3D12 with tiled resources. Returns 0 on failure.
+declare function Donut_InitPagedImageSet(pagedImageSet: PagedImageSetHandle, device: Opaque, ddsPath: string,
+    generatedCount: int): int;
+declare function Donut_GetPagedImageCount(pagedImageSet: PagedImageSetHandle): int;
+// An image's size, level count and texture (NVRHI's handle, the set's: don't release it).
+declare function Donut_GetPagedImageWidth(pagedImageSet: PagedImageSetHandle, image: int): int;
+declare function Donut_GetPagedImageHeight(pagedImageSet: PagedImageSetHandle, image: int): int;
+declare function Donut_GetPagedImageMipCount(pagedImageSet: PagedImageSetHandle, image: int): int;
+declare function Donut_GetPagedImageTexture(pagedImageSet: PagedImageSetHandle, image: int): TextureHandle;
+// The most detailed level resident (the level count: none yet).
+declare function Donut_GetPagedImageResidentMip(pagedImageSet: PagedImageSetHandle, image: int): int;
+// Starts a render frame (marks the previous frame's commands on the graphics queue).
+declare function Donut_BeginPagedImageFrame(pagedImageSet: PagedImageSetHandle): void;
+// An image's visible level and level to prefetch (15: none); the paging thread reprioritizes it
+// when they change.
+declare function Donut_SetPagedImageMips(pagedImageSet: PagedImageSetHandle, image: int, visibleMip: int, prefetchMip: int): void;
+// The level this frame draws an image from for the requested one (no more detailed than resident
+// or trimming allows), kept resident until the GPU has finished the frame.
+declare function Donut_ReferencePagedImage(pagedImageSet: PagedImageSetHandle, image: int, requestedMip: int): int;
+// Local video memory usage and budget (bytes; the override applied), as the paging thread last
+// saw them.
+declare function Donut_GetPagedImageSetUsage(pagedImageSet: PagedImageSetHandle): number;
+declare function Donut_GetPagedImageSetBudget(pagedImageSet: PagedImageSetHandle): number;
+// The budget to keep to instead of the kernel's (bytes; 0: the kernel's).
+declare function Donut_SetPagedImageSetBudgetOverride(pagedImageSet: PagedImageSetHandle, bytes: number): void;
+declare function Donut_GetPagedImageSetBudgetOverride(pagedImageSet: PagedImageSetHandle): number;
+// Waits up to timeoutMs for the paging thread to run out of work (or to wait for frames);
+// 1 if it did.
+declare function Donut_WaitForPagedImagesIdle(pagedImageSet: PagedImageSetHandle, timeoutMs: int): int;
+
 // Wavefront OBJ models (core/obj_model.cpp, linked only into the examples that list it):
 // DirectX-Graphics-Samples' D3D12RaytracingSakuraForestSER loader (ObjModelLoader), objects by their
 // `o` names, then an object's triangles as three vertices each. Free it with Donut_DestroyObjModel.
@@ -909,6 +949,8 @@ declare function Donut_GetVulkanConservativeRasterizationProperties(app: AppHand
 // D3D12's conservative rasterization tier (0 for none); 0 on other graphics APIs.
 declare function Donut_GetD3D12ConservativeRasterizationTier(app: AppHandle): int;
 declare function Donut_GetRendererString(app: AppHandle): string;
+// The app's nvrhi::IDevice, for code that works with NVRHI directly (e.g. core/paged_images.cpp).
+declare function Donut_GetNvrhiDevice(app: AppHandle): Opaque;
 declare function Donut_SetWindowTitle(app: AppHandle, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".
 declare function Donut_SetInformativeWindowTitle(app: AppHandle, title: string): void;
