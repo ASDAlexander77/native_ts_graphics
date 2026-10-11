@@ -980,9 +980,9 @@ export class App {
     }
 
     // Indexed draws described up front, to record into command lists on worker threads (where tslang
-    // code mustn't run): one pipeline, framebuffer (its whole viewport), vertex buffer (slot 0) and
-    // R32_UINT index buffer; binding sets every draw uses, then per draw an optional binding set of
-    // its own and its index range.
+    // code mustn't run) or to replay as a whole (as a D3D12 bundle): one pipeline (or one per draw),
+    // framebuffer (its whole viewport), vertex buffer (slot 0) and R32_UINT index buffer; binding sets
+    // every draw uses, then per draw an optional binding set of its own and its index range.
     createDrawBatch(pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, vertexBuffer: BufferHandle, indexBuffer: BufferHandle): DrawBatch {
         return new DrawBatch(Donut_CreateDrawBatch(this.handle, pipeline, framebuffer, vertexBuffer, indexBuffer));
     }
@@ -3394,8 +3394,20 @@ export class DrawBatch {
         Donut_DrawBatchAddDraw(this.handle, bindingSet ? (bindingSet as BindingSet).handle : null, indexCount, startIndex, baseVertex);
     }
 
+    // Same, with a pipeline of its own (for the batch's framebuffer and binding layouts) instead of the
+    // batch's.
+    addDrawWithPipeline(pipeline: GraphicsPipelineHandle, bindingSet: BindingSet | null, indexCount: int, startIndex: int, baseVertex: int): void {
+        Donut_DrawBatchAddDrawWithPipeline(this.handle, pipeline, bindingSet ? (bindingSet as BindingSet).handle : null, indexCount, startIndex, baseVertex);
+    }
+
     getDrawCount(): int {
         return Donut_GetDrawBatchDrawCount(this.handle);
+    }
+
+    // Records all the batch's draws into an open command list (e.g. the frame's), as a D3D12 command
+    // list executes a bundle.
+    execute(commandList: CommandList): void {
+        Donut_ExecuteDrawBatch(this.handle, commandList.handle);
     }
 
     // Records the batch's draws first, first + step, ... into commandList, opening and closing it.
