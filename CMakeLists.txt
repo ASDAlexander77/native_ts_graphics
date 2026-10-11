@@ -2122,6 +2122,24 @@ donut_compile_shaders(
 add_tslang_example(buffer_device_address)
 add_tslang_example_test(buffer_device_address APIS vk)
 
+# Port of Vulkan-Samples' shader_debugprintf: a sky sphere and three lit spheres, the vertex shader
+# printing positions with printf, which the validation layer (its printf setting on) instruments,
+# reads back and delivers as messages that the UI shows (AppOptions.ShaderPrintf,
+# Donut_UpdateShaderPrintfOutput). Vulkan only, with the validation layer (Vulkan SDK) installed, so
+# SPIR-V only. It reads fragment_shading_rate_dynamic's copies of the sky sphere and its texture.
+donut_compile_shaders(
+    TARGET shader_debugprintf_shaders
+    PROJECT_NAME "Shader debugprintf"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_debugprintf.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_debugprintf.hlsl
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_debugprintf/spirv
+)
+add_tslang_example(shader_debugprintf MEDIA fonts fragment_shading_rate_dynamic)
+if (TARGET fragment_shading_rate_dynamic_media)
+    add_dependencies(shader_debugprintf fragment_shading_rate_dynamic_media)
+endif()
+add_tslang_example_test(shader_debugprintf APIS vk)
+
 # Port of Vulkan-Samples' separate_image_sampler: a textured quad, its sampler bound apart from the
 # image (a binding set of its own), linear or nearest filtering picked in the UI. It reads
 # fragment_shading_rate's copy of the texture.

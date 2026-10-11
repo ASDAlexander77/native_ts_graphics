@@ -533,6 +533,24 @@ export class App {
         return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
     }
 
+    // Non-zero if shaders' printf output reaches Donut_UpdateShaderPrintfOutput: Vulkan apps created
+    // with AppOptions.ShaderPrintf where the validation layer is installed (not D3D).
+    hasShaderPrintf(): int {
+        return Donut_HasShaderPrintf(this.handle);
+    }
+
+    // Takes the shaders' printf messages the validation layer delivered since the last call (once the
+    // GPU finished the commands that printed them); returns their count.
+    updateShaderPrintfOutput(): int {
+        return Donut_UpdateShaderPrintfOutput(this.handle);
+    }
+
+    // The index-th message the last Donut_UpdateShaderPrintfOutput took (the layer's text, ending in
+    // the shader's formatted output); valid until the next Donut_UpdateShaderPrintfOutput.
+    getShaderPrintfLine(index: int): string {
+        return Donut_GetShaderPrintfLine(this.handle, index);
+    }
+
     // Non-zero if textures can be written by the CPU without a copy on the GPU: Vulkan with
     // VK_EXT_host_image_copy, D3D12.
     hasHostImageCopy(): int {

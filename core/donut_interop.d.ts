@@ -422,7 +422,9 @@ enum AppOptions {
     // shader output stored as is.
     UnormBackBuffer = 128,
     // R10G10B10A2_UNORM back buffers, in sRGB until Donut_SetSwapChainColorSpace asks for HDR10.
-    HdrBackBuffer = 256
+    HdrBackBuffer = 256,
+    // With Vulkan, shaders' printf through the validation layer (Donut_HasShaderPrintf).
+    ShaderPrintf = 512
 }
 
 // The color space of what the back buffers hold (donut::app::SwapChainColorSpace): sRGB (SDR),
@@ -1014,6 +1016,16 @@ declare function Donut_CreateFramebufferWithThreeTargets(app: AppHandle, colorTe
     colorTexture2: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle;
 // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
 declare function Donut_CreateFramebufferForMip(app: AppHandle, colorTexture: TextureHandle, mipLevel: int): FramebufferHandle;
+
+// Non-zero if shaders' printf output reaches Donut_UpdateShaderPrintfOutput: Vulkan apps created
+// with AppOptions.ShaderPrintf where the validation layer is installed (not D3D).
+declare function Donut_HasShaderPrintf(app: AppHandle): int;
+// Takes the shaders' printf messages the validation layer delivered since the last call (once the
+// GPU finished the commands that printed them); returns their count.
+declare function Donut_UpdateShaderPrintfOutput(app: AppHandle): int;
+// The index-th message the last Donut_UpdateShaderPrintfOutput took (the layer's text, ending in
+// the shader's formatted output); valid until the next Donut_UpdateShaderPrintfOutput.
+declare function Donut_GetShaderPrintfLine(app: AppHandle, index: int): string;
 
 // Non-zero if textures can be written by the CPU without a copy on the GPU: Vulkan with
 // VK_EXT_host_image_copy, D3D12.

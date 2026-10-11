@@ -351,6 +351,13 @@ namespace
         // The back buffers of an app created in test mode (Donut_SetTestMode): render targets of
         // a headless device, which Donut_RunApp renders a set number of frames into.
         std::unique_ptr<OffscreenBackBuffers> offscreen;
+        // Shader printf (AppOption_ShaderPrintf): the validation layer's messenger (a
+        // VkDebugUtilsMessengerEXT, null without printf), the messages it has received since
+        // Donut_UpdateShaderPrintfOutput last took them, and the ones that call took.
+        void* printfMessenger = nullptr;
+        std::mutex printfMutex;
+        std::vector<std::string> printfReceived;
+        std::vector<std::string> printfLines;
 
         nvrhi::IDevice* device() const { return deviceManager->GetDevice(); }
 
@@ -472,6 +479,14 @@ namespace
             shaderFactory.reset();
             offscreen.reset();
 
+#if DONUT_WITH_VULKAN
+            if (printfMessenger)
+            {
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyDebugUtilsMessengerEXT(
+                    device()->getNativeObject(nvrhi::ObjectTypes::VK_Instance),
+                    static_cast<VkDebugUtilsMessengerEXT>(printfMessenger), nullptr);
+            }
+#endif
             deviceManager->Shutdown();
         }
 
@@ -1670,6 +1685,52 @@ namespace
         }
     };
 
+    // The validation layer's messages from shaders' printf (the message ID names of its versions:
+    // VVL-DEBUG-PRINTF, older WARNING-DEBUG-PRINTF and UNASSIGNED-DEBUG-PRINTF), kept for
+    // Donut_UpdateShaderPrintfOutput; the layer's other messages go to its own log.
+    VKAPI_ATTR VkBool32 VKAPI_CALL ShaderPrintfCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+        VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* userData)
+    {
+        const char* idName = data->pMessageIdName ? data->pMessageIdName : "";
+        if (strcmp(idName, "VVL-DEBUG-PRINTF") != 0 && strcmp(idName, "WARNING-DEBUG-PRINTF") != 0
+            && strcmp(idName, "UNASSIGNED-DEBUG-PRINTF") != 0)
+            return VK_FALSE;
+        App* app = static_cast<App*>(userData);
+        std::lock_guard<std::mutex> lock(app->printfMutex);
+        app->printfReceived.emplace_back(data->pMessage ? data->pMessage : "");
+        return VK_FALSE;
+    }
+
+    // Shader printf on a Vulkan app created with AppOption_ShaderPrintf: where the validation
+    // layer, VK_EXT_debug_utils and non-semantic shader instructions (VK_KHR_shader_non_semantic_info
+    // or Vulkan 1.3) were there, a messenger for the layer's informational messages.
+    void CreateShaderPrintfMessenger(App* app)
+    {
+        // DeviceManager's public interface (DeviceManager_VK's overrides are protected).
+        DeviceManager* deviceManager = app->deviceManager.get();
+        if (!deviceManager->IsVulkanLayerEnabled("VK_LAYER_KHRONOS_validation"))
+        {
+            donut::log::warning("Shader printf needs the Vulkan validation layer (VK_LAYER_KHRONOS_validation, in the Vulkan SDK)");
+            return;
+        }
+        VkPhysicalDeviceProperties properties{};
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceProperties(
+            DeviceManagerVKAccess::PhysicalDevice(static_cast<DeviceManager_VK*>(deviceManager)), &properties);
+        if (!deviceManager->IsVulkanInstanceExtensionEnabled(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
+            || (!deviceManager->IsVulkanDeviceExtensionEnabled(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME)
+                && properties.apiVersion < VK_API_VERSION_1_3))
+            return;
+        VkDebugUtilsMessengerCreateInfoEXT info{ VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
+        info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
+        info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+        info.pfnUserCallback = ShaderPrintfCallback;
+        info.pUserData = app;
+        VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
+        if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateDebugUtilsMessengerEXT(
+                app->device()->getNativeObject(nvrhi::ObjectTypes::VK_Instance), &info, nullptr, &messenger) == VK_SUCCESS)
+            app->printfMessenger = messenger;
+    }
+
     // The core features of a Vulkan device that Donut's device manager leaves off and the examples
     // need (indirect draws, pixel shader stores), and what that makes of them.
     struct VulkanCoreFeatures
@@ -1735,6 +1796,9 @@ namespace
         features.drawIndirectFirstInstance = available.drawIndirectFirstInstance;
         features.shaderSampledImageArrayDynamicIndexing = available.shaderSampledImageArrayDynamicIndexing;
         features.fragmentStoresAndAtomics = available.fragmentStoresAndAtomics;
+        // Also for vertex shaders: the validation layer's shader printf (AppOption_ShaderPrintf)
+        // writes its output to a buffer from instrumented shaders of every stage.
+        features.vertexPipelineStoresAndAtomics = available.vertexPipelineStoresAndAtomics;
         features.sparseBinding = available.sparseBinding;
         features.sparseResidencyImage2D = available.sparseResidencyImage2D;
         features.shaderResourceResidency = available.shaderResourceResidency;
@@ -1781,6 +1845,11 @@ namespace
         }
         if (features12)
         {
+            // What the validation layer's shader printf (AppOption_ShaderPrintf) instruments shaders
+            // with; it would otherwise force them on, with a warning each.
+            features12->vulkanMemoryModel = available12.vulkanMemoryModel;
+            features12->vulkanMemoryModelDeviceScope = available12.vulkanMemoryModelDeviceScope;
+            features12->storageBuffer8BitAccess = available12.storageBuffer8BitAccess;
             // Indirect draws with their count in a buffer (Donut_DrawIndexedIndirectCount).
             features12->drawIndirectCount = available12.drawIndirectCount;
             if (features12->drawIndirectCount)
@@ -2084,6 +2153,7 @@ extern "C"
         AppOption_Dlss = 64, // with Vulkan, enables the extensions DLSS needs (when built with DONUT_WITH_DLSS)
         AppOption_UnormBackBuffer = 128, // UNORM back buffers instead of sRGB ones
         AppOption_HdrBackBuffer = 256, // R10G10B10A2_UNORM back buffers, for HDR10 (Donut_SetSwapChainColorSpace)
+        AppOption_ShaderPrintf = 512, // with Vulkan, shaders' printf through the validation layer (Donut_HasShaderPrintf)
     };
 
     // Creates the device and window for graphicsApi (an nvrhi::GraphicsAPI value), with the
@@ -2157,6 +2227,20 @@ extern "C"
         // Timestamps of the device's and the host's clocks sampled together
         // (Donut_CreateCalibratedTimestamps).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_calibrated_timestamps");
+        // Shaders' printf (Donut_HasShaderPrintf): the validation layer with its printf setting on
+        // (the layer reads its settings from the environment when it loads), its messages through
+        // VK_EXT_debug_utils, and the non-semantic instructions printf compiles to.
+        if ((options & AppOption_ShaderPrintf) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
+        {
+#ifdef _WIN32
+            _putenv_s("VK_KHRONOS_VALIDATION_PRINTF_ENABLE", "1");
+#else
+            setenv("VK_KHRONOS_VALIDATION_PRINTF_ENABLE", "1", 1);
+#endif
+            params.optionalVulkanLayers.push_back("VK_LAYER_KHRONOS_validation");
+            params.optionalVulkanInstanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            params.optionalVulkanDeviceExtensions.push_back(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME);
+        }
 
 #if DONUT_WITH_DLSS && DONUT_WITH_VULKAN
         if ((options & AppOption_Dlss) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
@@ -2374,8 +2458,38 @@ extern "C"
                     ? ShaderExecutionReordering_Reorders : ShaderExecutionReordering_HitObjects;
             }
         }
+        if (api == nvrhi::GraphicsAPI::VULKAN && (options & AppOption_ShaderPrintf) != 0)
+            CreateShaderPrintfMessenger(app);
 #endif
         return app;
+    }
+
+    // Non-zero if shaders' printf output reaches Donut_UpdateShaderPrintfOutput: a Vulkan app
+    // created with AppOption_ShaderPrintf where the validation layer is installed (it instruments
+    // the shaders and reads their output back). Not D3D, which has no printf in shaders.
+    int Donut_HasShaderPrintf(App* app)
+    {
+        return app->printfMessenger ? 1 : 0;
+    }
+
+    // Takes the messages of shaders' printf that the validation layer has delivered since the
+    // last call (the layer reads them back once the GPU has finished the commands that printed
+    // them), returning their count; Donut_GetShaderPrintfLine's lines until the next call.
+    int Donut_UpdateShaderPrintfOutput(App* app)
+    {
+        std::lock_guard<std::mutex> lock(app->printfMutex);
+        app->printfLines.clear();
+        app->printfLines.swap(app->printfReceived);
+        return static_cast<int>(app->printfLines.size());
+    }
+
+    // The index-th message Donut_UpdateShaderPrintfOutput took (the layer's text, the shader's
+    // formatted output at its end); valid until the next Donut_UpdateShaderPrintfOutput.
+    const char* Donut_GetShaderPrintfLine(App* app, int index)
+    {
+        if (index < 0 || size_t(index) >= app->printfLines.size())
+            return "";
+        return app->printfLines[index].c_str();
     }
 
     // IndirectDrawSupport bits: what the app's device does with indirect draws (0 for headless apps).
