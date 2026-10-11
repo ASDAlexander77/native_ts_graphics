@@ -554,12 +554,16 @@ namespace MultiDrawIndirect {
 
             const commandList = this.app.createCommandList();
             commandList.open();
-            const loaded = this.loadScene(commandList, sampler);
-            this.indirectCallBuffer = this.app.createDrawIndexedIndirectBuffer(this.modelCount, "Indirect Calls");
-            if (loaded) {
-                // initialize buffer: the draws, all visible until culled
-                commandList.writeBuffer(this.indirectCallBuffer, Ref(this.commands[0]), this.modelCount * COMMAND_SIZE);
+            if (!this.loadScene(commandList, sampler)) {
+                // Nothing to draw: no buffer of no commands (Vulkan's device address of it crashed).
+                commandList.close();
+                this.app.releaseResource(commandList.handle);
+                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
             }
+            this.indirectCallBuffer = this.app.createDrawIndexedIndirectBuffer(this.modelCount, "Indirect Calls");
+            // initialize buffer: the draws, all visible until culled
+            commandList.writeBuffer(this.indirectCallBuffer, Ref(this.commands[0]), this.modelCount * COMMAND_SIZE);
 
             // The address of the commands' buffer, in a buffer of its own, for the device address
             // culling.
@@ -574,10 +578,6 @@ namespace MultiDrawIndirect {
             this.app.executeCommandList(commandList);
             this.app.waitForIdle();
             this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
 
             // The compute pipeline: the models' information, the scene uniform and the commands.
             const cullLayoutDesc = BindingLayoutDesc.create();
