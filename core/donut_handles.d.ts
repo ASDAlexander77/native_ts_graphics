@@ -102,6 +102,7 @@ declare class TextureHeapHandle extends ObjectHandle { private readonly __textur
 declare class SharedTextureHandle extends ObjectHandle { private readonly __sharedTexture: int; }
 declare class D3D12WorkGraphHandle extends ObjectHandle { private readonly __workGraph: int; }
 declare class D3D12LibraryRtPipelineHandle extends ObjectHandle { private readonly __libraryRtPipeline: int; }
+declare class CalibratedTimestampsHandle extends ObjectHandle { private readonly __calibratedTimestamps: int; }
 declare class OcclusionPredicationHandle extends ObjectHandle { private readonly __occlusionPredication: int; }
 declare class PredicationBufferHandle extends ObjectHandle { private readonly __predicationBuffer: int; }
 declare class MeshPipelineStatisticsHandle extends ObjectHandle { private readonly __meshPipelineStatistics: int; }

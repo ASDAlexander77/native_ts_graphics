@@ -867,6 +867,22 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(hdr hdr_media)
 endif()
 
+# Port of Vulkan-Samples' calibrated_timestamps: its hdr sample (above: the same shaders, models and
+# cube map), with pieces of its code timed by calibrated timestamps of the device's clock
+# (VK_EXT_calibrated_timestamps; D3D12's command queue clock calibration), shown in the overlay.
+donut_compile_shaders_all_platforms(
+    TARGET calibrated_timestamps_shaders
+    PROJECT_NAME "Calibrated Timestamps"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/calibrated_timestamps
+)
+add_tslang_example(calibrated_timestamps MEDIA fonts)
+if (TARGET hdr_media)
+    add_dependencies(calibrated_timestamps hdr_media)
+endif()
+add_tslang_example_test(calibrated_timestamps)
+
 # Port of Vulkan-Samples' ray_tracing_extended: Sponza ray traced with shadows and ambient
 # occlusion, a refracting sheet whose BLAS is updated every frame, and flame particles instanced
 # in a TLAS rebuilt every frame. Its scene and textures are Vulkan-Samples' assets too (see

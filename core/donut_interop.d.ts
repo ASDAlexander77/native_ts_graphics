@@ -505,6 +505,14 @@ enum AdvancedBlend {
     CorrelatedOverlap = 16
 }
 
+// Donut_GetCalibratedTimeDomain's values: Vulkan's VkTimeDomainEXT.
+enum TimeDomain {
+    Device = 0,
+    ClockMonotonic = 1,
+    ClockMonotonicRaw = 2,
+    QueryPerformanceCounter = 3,
+}
+
 // Bits of Donut_GetMemoryHeapFlags: Vulkan's VkMemoryHeapFlags.
 enum MemoryHeapFlag {
     DeviceLocal = 1,
@@ -696,6 +704,23 @@ declare function Donut_QueryMemoryBudget(app: AppHandle): int;
 declare function Donut_GetMemoryHeapUsage(app: AppHandle, heap: int): number;
 declare function Donut_GetMemoryHeapBudget(app: AppHandle, heap: int): number;
 declare function Donut_GetMemoryHeapFlags(app: AppHandle, heap: int): int;
+// Calibrated timestamps: timestamps of several time domains (clocks) sampled together, the
+// device's among them. Vulkan's VK_EXT_calibrated_timestamps, D3D12's command queue clock
+// calibration (the device's and QueryPerformanceCounter's). Null if the device can't (D3D11, or
+// Vulkan without the extension). Release it with Donut_ReleaseObject.
+declare function Donut_CreateCalibratedTimestamps(app: AppHandle): CalibratedTimestampsHandle | null;
+// Its time domains: their number, and each one's VkTimeDomainEXT value (TimeDomain).
+declare function Donut_GetCalibratedTimeDomainCount(calibratedTimestamps: CalibratedTimestampsHandle): int;
+declare function Donut_GetCalibratedTimeDomain(calibratedTimestamps: CalibratedTimestampsHandle, index: int): int;
+// Samples all its domains' timestamps at once; 0 on failure.
+declare function Donut_SampleCalibratedTimestamps(calibratedTimestamps: CalibratedTimestampsHandle): int;
+// The last sample's timestamp of a domain, in its ticks (the device's: Donut_GetTimestampPeriod
+// nanoseconds each), and its maximum deviation between the domains in nanoseconds (0 on D3D12).
+declare function Donut_GetCalibratedTimestamp(calibratedTimestamps: CalibratedTimestampsHandle, index: int): number;
+declare function Donut_GetCalibratedTimestampsMaxDeviation(calibratedTimestamps: CalibratedTimestampsHandle): number;
+// The nanoseconds of a tick of the device's timestamps (Vulkan's timestampPeriod; from the
+// graphics queue's timestamp frequency on D3D12); 0 if unknown.
+declare function Donut_GetTimestampPeriod(app: AppHandle): number;
 // LineRasterization bits: the line rasterization modes pipelines can have: Vulkan's with
 // VK_EXT_line_rasterization's features, plain and stippled; D3D's rectangular (quadrilateral),
 // Bresenham (aliased) and smooth (alpha antialiased) lines, unstippled.

@@ -132,6 +132,7 @@ HANDLES = {
     "SharedTexture": "SharedTextureHandle",
     "D3D12WorkGraph": "D3D12WorkGraphHandle",
     "D3D12LibraryRtPipeline": "D3D12LibraryRtPipelineHandle",
+    "CalibratedTimestamps": "CalibratedTimestampsHandle",
     "OcclusionPredication": "OcclusionPredicationHandle",
     "PredicationBuffer": "PredicationBufferHandle",
     "MeshPipelineStatistics": "MeshPipelineStatisticsHandle",

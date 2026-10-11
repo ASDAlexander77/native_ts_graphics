@@ -1362,6 +1362,17 @@ namespace
         std::vector<std::unique_ptr<std::vector<nvrhi::rt::OpacityMicromapUsageCount>>> ommUsageCounts;
     };
 
+    // Timestamps of several time domains sampled together (Donut_CreateCalibratedTimestamps).
+    struct CalibratedTimestamps
+    {
+        App* app = nullptr;
+        nvrhi::GraphicsAPI api = nvrhi::GraphicsAPI::D3D12;
+        // VkTimeDomainEXT values, and the last sample's timestamp of each.
+        std::vector<int> domains;
+        std::vector<uint64_t> timestamps;
+        uint64_t maxDeviation = 0;
+    };
+
 #if DONUT_WITH_DX12
     // A D3D12 work graph program (Donut_CreateD3D12WorkGraph) and its backing memory.
     struct D3D12WorkGraph
@@ -1971,6 +1982,9 @@ extern "C"
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_line_rasterization");
         // Memory heaps' usage and budget (Donut_QueryMemoryBudget).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_memory_budget");
+        // Timestamps of the device's and the host's clocks sampled together
+        // (Donut_CreateCalibratedTimestamps).
+        params.optionalVulkanDeviceExtensions.push_back("VK_EXT_calibrated_timestamps");
 
 #if DONUT_WITH_DLSS && DONUT_WITH_VULKAN
         if ((options & AppOption_Dlss) != 0 && api == nvrhi::GraphicsAPI::VULKAN)
@@ -11145,6 +11159,151 @@ extern "C"
     {
         const App* a = app;
         return heap >= 0 && size_t(heap) < a->memoryHeaps.size() ? a->memoryHeaps[heap].flags : 0;
+    }
+
+    // Calibrated timestamps (Donut_CreateCalibratedTimestamps): timestamps of several time domains
+    // (clocks) sampled together, the device's (the GPU's timestamp counter) among them. Vulkan's
+    // VK_EXT_calibrated_timestamps (VkTimeDomainEXT values: 0 device, 1 CLOCK_MONOTONIC, 2
+    // CLOCK_MONOTONIC_RAW, 3 QueryPerformanceCounter); D3D12's command queue clock calibration
+    // (the device's and QueryPerformanceCounter's). Null if the device can't (D3D11, or Vulkan
+    // without the extension). Release it with Donut_ReleaseObject.
+    CalibratedTimestamps* Donut_CreateCalibratedTimestamps(App* app)
+    {
+        App* a = app;
+        nvrhi::IDevice* device = a->device();
+        auto timestamps = std::make_shared<CalibratedTimestamps>();
+        timestamps->app = a;
+        timestamps->api = device->getGraphicsAPI();
+#if DONUT_WITH_VULKAN
+        if (timestamps->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            if (!a->deviceManager->IsVulkanDeviceExtensionEnabled(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)
+                || !VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceCalibrateableTimeDomainsEXT
+                || !VULKAN_HPP_DEFAULT_DISPATCHER.vkGetCalibratedTimestampsEXT)
+                return nullptr;
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+            uint32_t count = 0;
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(physicalDevice, &count, nullptr) != VK_SUCCESS)
+                return nullptr;
+            std::vector<VkTimeDomainEXT> domains(count);
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(physicalDevice, &count, domains.data()) != VK_SUCCESS)
+                return nullptr;
+            // The domains a calibration can sample: the device's and the hosts' clocks.
+            for (VkTimeDomainEXT domain : domains)
+            {
+                if (domain == VK_TIME_DOMAIN_DEVICE_EXT || domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_EXT
+                    || domain == VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_EXT || domain == VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_EXT)
+                    timestamps->domains.push_back(int(domain));
+            }
+        }
+#endif
+#if DONUT_WITH_DX12
+        if (timestamps->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            timestamps->domains.push_back(0);   // The device's.
+            timestamps->domains.push_back(3);   // QueryPerformanceCounter.
+        }
+#endif
+        if (timestamps->domains.empty())
+            return nullptr;
+        timestamps->timestamps.resize(timestamps->domains.size());
+        return a->OwnObject(timestamps);
+    }
+
+    // Its time domains: their number, and each one's VkTimeDomainEXT value.
+    int Donut_GetCalibratedTimeDomainCount(CalibratedTimestamps* calibratedTimestamps)
+    {
+        return int(calibratedTimestamps->domains.size());
+    }
+
+    int Donut_GetCalibratedTimeDomain(CalibratedTimestamps* calibratedTimestamps, int index)
+    {
+        if (index < 0 || size_t(index) >= calibratedTimestamps->domains.size())
+            return -1;
+        return calibratedTimestamps->domains[size_t(index)];
+    }
+
+    // Samples the timestamps of all its domains at once (vkGetCalibratedTimestampsEXT,
+    // ID3D12CommandQueue::GetClockCalibration). Returns 0 on failure.
+    int Donut_SampleCalibratedTimestamps(CalibratedTimestamps* calibratedTimestamps)
+    {
+        CalibratedTimestamps* t = calibratedTimestamps;
+        nvrhi::IDevice* device = t->app->device();
+#if DONUT_WITH_VULKAN
+        if (t->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            std::vector<VkCalibratedTimestampInfoEXT> infos(t->domains.size());
+            for (size_t i = 0; i < infos.size(); i++)
+            {
+                infos[i].sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT;
+                infos[i].timeDomain = VkTimeDomainEXT(t->domains[i]);
+            }
+            VkDevice vkDevice = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            uint64_t maxDeviation = 0;
+            if (VULKAN_HPP_DEFAULT_DISPATCHER.vkGetCalibratedTimestampsEXT(vkDevice, uint32_t(infos.size()), infos.data(),
+                t->timestamps.data(), &maxDeviation) != VK_SUCCESS)
+                return 0;
+            t->maxDeviation = maxDeviation;
+            return 1;
+        }
+#endif
+#if DONUT_WITH_DX12
+        if (t->api == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12CommandQueue* queue = device->getNativeQueue(nvrhi::ObjectTypes::D3D12_CommandQueue, nvrhi::CommandQueue::Graphics);
+            UINT64 gpuTimestamp = 0;
+            UINT64 cpuTimestamp = 0;
+            if (!queue || FAILED(queue->GetClockCalibration(&gpuTimestamp, &cpuTimestamp)))
+                return 0;
+            t->timestamps[0] = gpuTimestamp;
+            t->timestamps[1] = cpuTimestamp;
+            t->maxDeviation = 0;
+            return 1;
+        }
+#endif
+        return 0;
+    }
+
+    // The last sample's timestamp of domain index, in its domain's ticks (the device's: of
+    // Donut_GetTimestampPeriod nanoseconds); the sample's maximum deviation between the domains in
+    // nanoseconds (Vulkan's; 0 on D3D12, which reports none).
+    double Donut_GetCalibratedTimestamp(CalibratedTimestamps* calibratedTimestamps, int index)
+    {
+        if (index < 0 || size_t(index) >= calibratedTimestamps->timestamps.size())
+            return 0.0;
+        return double(calibratedTimestamps->timestamps[size_t(index)]);
+    }
+
+    double Donut_GetCalibratedTimestampsMaxDeviation(CalibratedTimestamps* calibratedTimestamps)
+    {
+        return double(calibratedTimestamps->maxDeviation);
+    }
+
+    // The nanoseconds of one tick of the device's timestamps: Vulkan's timestampPeriod limit;
+    // 1e9 / the graphics queue's timestamp frequency on D3D12; 0 if unknown.
+    double Donut_GetTimestampPeriod(App* app)
+    {
+        App* a = app;
+        nvrhi::IDevice* device = a->device();
+#if DONUT_WITH_VULKAN
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(
+                static_cast<DeviceManager_VK*>(a->deviceManager.get()));
+            return double(physicalDevice.getProperties().limits.timestampPeriod);
+        }
+#endif
+#if DONUT_WITH_DX12
+        if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            ID3D12CommandQueue* queue = device->getNativeQueue(nvrhi::ObjectTypes::D3D12_CommandQueue, nvrhi::CommandQueue::Graphics);
+            UINT64 frequency = 0;
+            if (queue && SUCCEEDED(queue->GetTimestampFrequency(&frequency)) && frequency > 0)
+                return 1e9 / double(frequency);
+        }
+#endif
+        return 0.0;
     }
 
     // LineRasterization bits: the line rasterization modes pipelines can have
