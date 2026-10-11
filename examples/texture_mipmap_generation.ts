@@ -494,7 +494,7 @@ namespace TextureMipmapGeneration {
         // -lodbias <x>: the level of detail bias. -rotate: the scene rotating.
         let options = AppOptions.None;
         let withUI = true;
-        let samplerIndex = 2;
+        let samplerIndex: int = 2;
         let lodBias = 0.0;
         let rotateScene = false;
         for (let i = 1; i < argc; i++) {

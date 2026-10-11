@@ -228,7 +228,7 @@ namespace DynamicRenderingLocalRead {
             let indices: int[] = [];
             let firstIndex: int[] = [];
             let baseVertex: int[] = [];
-            let meshCount = 0;
+            let meshCount: int = 0;
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = model.getVertexCount(p);
                 const indexCount = model.getIndexCount(p);

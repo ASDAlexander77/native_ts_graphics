@@ -552,7 +552,7 @@ namespace Hdr {
         // -object <0..2>, -exposure <value>, -nobloom, -noskybox: the settings' initial values.
         let options = AppOptions.None;
         let withUI = true;
-        let objectIndex = 0;
+        let objectIndex: int = 0;
         let exposure = 1.0;
         let bloom = true;
         let displaySkybox = true;

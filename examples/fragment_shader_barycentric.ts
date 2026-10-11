@@ -406,7 +406,7 @@ namespace FragmentShaderBarycentric {
         // -effect <0..4>: the effect selected at start.
         let options = AppOptions.None;
         let withUI = true;
-        let effect = 0;
+        let effect: int = 0;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
             if (arg == "-debug") {

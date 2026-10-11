@@ -423,8 +423,8 @@ namespace DynamicPrimitiveClipping {
         // object 1 or 2.
         let options = AppOptions.None;
         let withUI = true;
-        let objectIndex = 0;
-        let visualization = 0;
+        let objectIndex: int = 0;
+        let visualization: int = 0;
         let clipping = true;
         let depthClip = false;
         let only = 0;

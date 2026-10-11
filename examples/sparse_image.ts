@@ -124,7 +124,7 @@ namespace SparseImage {
 
     // The first position whose value isn't below value.
     function lowerBound(values: int[], value: int): int {
-        let low = 0;
+        let low: int = 0;
         let high = values.length;
         while (low < high) {
             const middle = Math.floor((low + high) / 2);
@@ -902,7 +902,7 @@ namespace SparseImage {
                 reallocate.push(false);
             }
             let anyToReallocate = false;
-            let sectorsToReallocate = 0;
+            let sectorsToReallocate: int = 0;
 
             let kept: int[] = [];
             for (let i = 0; i < this.sectorList.length; i++) {

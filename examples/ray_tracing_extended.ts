@@ -787,7 +787,7 @@ namespace RayTracingExtended {
         // (as in the sample, 5 and 6 show the hit's texture: its ray generation shader stops before
         // their shadow and AO output).
         let options = AppOptions.RayTracing;
-        let renderMode = RENDER_DEFAULT;
+        let renderMode: int = RENDER_DEFAULT;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
             if (arg == "-debug") {

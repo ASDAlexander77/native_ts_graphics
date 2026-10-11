@@ -635,7 +635,7 @@ namespace TextureCompressionComparison {
         // -format <n>: 0 RGBA 32 (the default), 1 BC7, 2 BC3, 3 ASTC 4x4, 4 ETC2.
         let options = AppOptions.None;
         let withUI = true;
-        let format = 0;
+        let format: int = 0;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
             if (arg == "-debug") {

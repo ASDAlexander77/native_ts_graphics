@@ -250,7 +250,7 @@ namespace MeshShaderCulling {
         let options = AppOptions.None;
         let withUI = true;
         let cullRadius = 1.0;
-        let densityLevel = 2;
+        let densityLevel: int = 2;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
             if (arg == "-debug") {

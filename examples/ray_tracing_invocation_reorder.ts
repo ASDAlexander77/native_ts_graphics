@@ -859,7 +859,7 @@ namespace RayTracingInvocationReorder {
         // -noser, -nohint: SER, its coherence hint off at start.
         // -noui: without the settings window.
         let options = AppOptions.RayTracing;
-        let renderMode = RENDER_DEFAULT;
+        let renderMode: int = RENDER_DEFAULT;
         let ser = true;
         let hint = true;
         let withUI = true;

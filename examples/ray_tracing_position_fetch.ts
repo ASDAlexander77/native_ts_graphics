@@ -418,7 +418,7 @@ namespace RayTracingPositionFetch {
         // -mode <n>: display mode 0 (geometric normal) or 1 (vertex position).
         let options = AppOptions.RayTracing;
         let withUI = true;
-        let displayMode = 0;
+        let displayMode: int = 0;
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
             if (arg == "-debug") {

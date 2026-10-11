@@ -1151,7 +1151,7 @@ namespace Collision {
         // -group <1..4>: the group looked at first. -time <seconds>: the objects frozen at that time.
         // -help: start with the help screen.
         let options = AppOptions.UnormBackBuffer;
-        let group = 0;
+        let group: int = 0;
         let fixedTime = -1.0;
         let showHelp = false;
         for (let i = 1; i < argc; i++) {

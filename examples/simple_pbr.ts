@@ -224,7 +224,7 @@ namespace SimplePbr {
                     const i1 = pairs[e * 2 + 1];
                     const a = Math.max(i0, i1);
                     const b = Math.min(i0, i1);
-                    let found = -1;
+                    let found: int = -1;
                     for (let k = 0; k < edgeA.length; k++) {
                         if (edgeA[k] == a && edgeB[k] == b) {
                             found = edgeMid[k];

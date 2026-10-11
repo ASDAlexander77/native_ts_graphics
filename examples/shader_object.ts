@@ -602,7 +602,7 @@ namespace ShaderObjectSample {
             }
             let vs = this.skyboxVS;
             let ps = this.skyboxPS;
-            let gs = -1;
+            let gs: int = -1;
             let cullMode = CullMode.None;
             let depthWrite = 1;
             if (combo == COMBO_SKYBOX) {

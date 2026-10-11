@@ -519,7 +519,7 @@ namespace OitDepthPeeling {
         // -rotate: start with the camera's auto-rotation on.
         let options = AppOptions.None;
         let withUI = true;
-        let frontLayer = 0;
+        let frontLayer: int = 0;
         let backLayer = LAYER_MAX_COUNT - 1;
         let alpha = 0.5;
         let grayscale = 0.3;

@@ -2328,6 +2328,39 @@ extern "C"
 {
     // --- Application -----------------------------------------------------------------------
 
+#if defined(DONUT_JIT_AGILITY_SDK_VERSION) && DONUT_WITH_DX12
+    // The executables that need the Agility SDK runtime (D3D12Core.dll in bin/D3D12) export its
+    // version and path (core/d3d12_agility_sdk.cpp), which D3D12 looks up in the process's
+    // executable. Under tslang's JIT that's tslang.exe, which doesn't, so this library (the JIT's
+    // build only) makes a device factory for that runtime and applies it to D3D12's global state
+    // before the first device: devices made afterwards (Donut's) use it. Once per process, and only
+    // when the executable doesn't opt in itself.
+    static void UseAgilitySdkUnderJit()
+    {
+        static bool s_Done = false;
+        if (s_Done)
+            return;
+        s_Done = true;
+        if (GetProcAddress(GetModuleHandleW(nullptr), "D3D12SDKVersion"))
+            return;
+        const std::filesystem::path sdkPath = GetExecutablePath().parent_path() / "D3D12";
+        if (!std::filesystem::exists(sdkPath / "D3D12Core.dll"))
+            return;
+        Microsoft::WRL::ComPtr<ID3D12SDKConfiguration1> configuration;
+        Microsoft::WRL::ComPtr<ID3D12DeviceFactory> factory;
+        // The path is the runtime's folder, with a trailing separator.
+        const std::string path = sdkPath.string() + "\\";
+        if (FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&configuration)))
+            || FAILED(configuration->CreateDeviceFactory(DONUT_JIT_AGILITY_SDK_VERSION, path.c_str(), IID_PPV_ARGS(&factory)))
+            || FAILED(factory->ApplyToGlobalState()))
+        {
+            donut::log::warning("Cannot use the D3D12 Agility SDK runtime in %s; the system's runtime is used", path.c_str());
+            return;
+        }
+        donut::log::info("Using the D3D12 Agility SDK runtime %d in %s", DONUT_JIT_AGILITY_SDK_VERSION, path.c_str());
+    }
+#endif
+
     // Values of the `options` bit mask of Donut_CreateAppWithOptions.
     enum AppOptions
     {
@@ -2352,6 +2385,10 @@ extern "C"
         donut::log::ConsoleApplicationMode();
 
         const auto api = static_cast<nvrhi::GraphicsAPI>(graphicsApi);
+#if defined(DONUT_JIT_AGILITY_SDK_VERSION) && DONUT_WITH_DX12
+        if (api == nvrhi::GraphicsAPI::D3D12)
+            UseAgilitySdkUnderJit();
+#endif
         std::unique_ptr<DeviceManager> deviceManager(DeviceManager::Create(api));
         if (!deviceManager)
             return nullptr;

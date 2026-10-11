@@ -409,8 +409,8 @@ namespace FragmentShadingRateDynamic {
 
             // The compute shader's parameters: the frequency (reduced size) and shading rate images'
             // sizes, the largest rate, the rate count, the rates.
-            let maxRateX = 0;
-            let maxRateY = 0;
+            let maxRateX: int = 0;
+            let maxRateY: int = 0;
             for (let r = 0; r < this.rateCount; r++) {
                 maxRateX = Math.max(maxRateX, this.rates[r * 2]);
                 maxRateY = Math.max(maxRateY, this.rates[r * 2 + 1]);
@@ -686,8 +686,8 @@ namespace FragmentShadingRateDynamic {
         // everywhere. -nosky: without the sky sphere.
         let options = AppOptions.None;
         let withUI = true;
-        let visualize = 0;
-        let ratio = 4;
+        let visualize: int = 0;
+        let ratio: int = 4;
         let noAttachment = false;
         let noSky = false;
         for (let i = 1; i < argc; i++) {
