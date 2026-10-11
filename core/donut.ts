@@ -329,6 +329,11 @@ export class App {
         return Donut_GetRendererString(this.handle);
     }
 
+    // The app's nvrhi::IDevice, for code that works with NVRHI directly (e.g. core/paged_images.cpp).
+    getNvrhiDevice(): Opaque {
+        return Donut_GetNvrhiDevice(this.handle);
+    }
+
     setWindowTitle(title: string): void {
         Donut_SetWindowTitle(this.handle, title);
     }

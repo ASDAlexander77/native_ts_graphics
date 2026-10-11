@@ -2960,6 +2960,29 @@ if (NVRHI_WITH_DX12)
     endforeach()
 endif()
 
+# Port of DirectX-Graphics-Samples' D3D12MemoryManagement: a grid of large images (TileGrid.dds and
+# 4096 x 4096 generated checkerboards) streamed into video memory a mip level at a time under the
+# process's DXGI budget: reserved textures, each level backed by heaps of its own, mapped and filled
+# on a copy queue by a paging thread that makes them resident again (MakeResident) or evicts them
+# (Evict) by priority (core/paged_images.cpp). D3D12 only. TileGrid.dds comes from
+# DIRECTX_GRAPHICS_SAMPLES_DIR (without it, only the generated images). The tests: everything paged
+# in under the kernel's budget (a 16 GB card's), paging under a 512 MB override, and trimming to it
+# once everything is in.
+if (NVRHI_WITH_DX12)
+    donut_compile_shaders(
+        TARGET memory_management_shaders
+        PROJECT_NAME "Memory Management"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/memory_management.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/memory_management.hlsl
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/memory_management/dxil
+    )
+    add_tslang_example(memory_management core/paged_images.ts core/paged_images.cpp MEDIA fonts)
+    add_dxgs_media(memory_management memory_management TechniqueDemos/D3D12MemoryManagement/src/TileGrid.dds)
+    add_tslang_example_test(memory_management APIS dx12)
+    add_tslang_example_test(memory_management SUFFIX budget APIS dx12 ARGS -budget 512)
+    add_tslang_example_test(memory_management SUFFIX trim APIS dx12 ARGS -budget 512 -budgetFrame 10)
+endif()
+
 # Port of DirectX-Graphics-Samples' D3D12SM6WaveIntrinsics: a triangle whose pixels show wave
 # intrinsics at work (lane indices, first and last lanes, active lanes, broadcasts, reductions,
 # prefix sums, quad shuffles; keys 1-9), composed with a UI layer and magnified around the mouse

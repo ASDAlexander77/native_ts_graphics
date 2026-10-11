@@ -139,6 +139,7 @@ HANDLES = {
     "PushDescriptorPipeline": "PushDescriptorPipelineHandle",
     "DescriptorBuffer": "DescriptorBufferHandle",
     "DescriptorBufferPipeline": "DescriptorBufferPipelineHandle",
+    "PagedImageSet": "PagedImageSetHandle",
     "OcclusionPredication": "OcclusionPredicationHandle",
     "PredicationBuffer": "PredicationBufferHandle",
     "MeshPipelineStatistics": "MeshPipelineStatisticsHandle",
@@ -164,6 +165,9 @@ RAW_MEMORY = {
     ("Donut_CopyMeshletModelData", "dst"),
     ("Donut_CopyMeshletModelVertexBuffer", "dst"),
     ("Donut_CopyBufferDeviceAddress", "dst"),
+    # The app's nvrhi::IDevice, handed to modules that use NVRHI directly.
+    ("Donut_GetNvrhiDevice", "*"),
+    ("Donut_InitPagedImageSet", "device"),
     ("Donut_CopyObjModelMeshIndices", "dst"),
     ("Donut_CopyObjModelMeshVertices", "dst"),
     ("Donut_ParseObjModel", "data"),
