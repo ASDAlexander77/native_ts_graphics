@@ -24,7 +24,8 @@ NVRHI_INCLUDE = os.path.join(ROOT, "external", "Donut", "nvrhi", "include")
 BINDINGS = os.path.join(ROOT, "core", "nvrhi.ts")
 
 # the classes in core/nvrhi.ts's `nvrhi` namespace, named as NVRHI's interfaces
-CLASSES = ["IResource", "IBuffer", "ITexture", "ICommandList", "IDevice"]
+CLASSES = ["IResource", "IBuffer", "ITexture", "IShader", "IBindingLayout", "IBindingSet", "IComputePipeline",
+           "ICommandList", "IDevice"]
 
 
 def vcvars():

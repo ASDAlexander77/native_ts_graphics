@@ -667,11 +667,24 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/headless.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/headless
 )
-add_tslang_example(headless)
+# It calls NVRHI directly through core/nvrhi.ts where the build can (MSVC), as headless.cpp does,
+# and through Donut's wrappers elsewhere (Android) or with -donut: headless.<api> tests the one
+# path, headless.donut.<api> the other.
+add_tslang_example(headless core/nvrhi.ts)
 if (NOT ANDROID)
+    set(headless_result "[\r\n]+Expected result: [0-9]+, computed result: [0-9]+[\r\n]+Test PASSED")
+    if (MSVC)
+        set(headless_path "Calling NVRHI directly \\(core/nvrhi\\.ts\\)\\.")
+    else()
+        set(headless_path "Calling NVRHI through Donut's wrappers\\.")
+    endif()
     foreach(api dx12 vk)
         add_test(NAME headless.${api} COMMAND headless -${api} -debug WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-        set_tests_properties(headless.${api} PROPERTIES PASS_REGULAR_EXPRESSION "Test PASSED" LABELS ${api} TIMEOUT 120)
+        set_tests_properties(headless.${api} PROPERTIES PASS_REGULAR_EXPRESSION "${headless_path}${headless_result}"
+            LABELS ${api} TIMEOUT 120)
+        add_test(NAME headless.donut.${api} COMMAND headless -${api} -debug -donut WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+        set_tests_properties(headless.donut.${api} PROPERTIES
+            PASS_REGULAR_EXPRESSION "Calling NVRHI through Donut's wrappers\\.${headless_result}" LABELS ${api} TIMEOUT 120)
     endforeach()
 endif()
 
@@ -679,6 +692,14 @@ endif()
 # vtables (tslang @cppvtable classes). The slots are MSVC's (tools/check_nvrhi_slots.py), so MSVC
 # builds only: the Itanium ABI (Android) has two destructor slots and returns objects otherwise.
 if (MSVC)
+    donut_compile_shaders(
+        TARGET nvrhi_direct_shaders
+        PROJECT_NAME "NVRHI Direct"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.hlsl
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/spirv
+    )
     add_tslang_example(nvrhi_direct core/nvrhi.ts)
     add_tslang_example_test(nvrhi_direct)
 endif()

@@ -951,9 +951,12 @@ declare function Donut_GetD3D12ConservativeRasterizationTier(app: AppHandle): in
 declare function Donut_GetRendererString(app: AppHandle): string;
 // The app's nvrhi::IDevice, for code that works with NVRHI directly (e.g. core/paged_images.cpp).
 declare function Donut_GetNvrhiDevice(app: AppHandle): Opaque;
-// sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple ("BufferDesc",
-// "CommandListParameters"), or -1: its layout depends on the C++ build (std::string's on the
-// CRT), so nvrhiLayoutMatches() compares the two.
+// 1 if core/nvrhi.ts can call NVRHI's interfaces in this build: their vtables and member function
+// convention are MSVC x64's, which its @cppvtable classes follow; 0 otherwise (the Itanium ABI on
+// Android has two destructor slots and returns objects differently).
+declare function Donut_CanCallNvrhiDirectly(): int;
+// sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple (named as in NVRHI), or -1: its layout
+// depends on the C++ build (std::string's on the CRT), so nvrhi.layoutMatches() compares the two.
 declare function Donut_GetNvrhiStructSize(name: string): int;
 declare function Donut_SetWindowTitle(app: AppHandle, title: string): void;
 // Sets "<title> (<graphics API>, <fps> FPS)".

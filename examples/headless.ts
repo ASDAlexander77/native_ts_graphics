@@ -2,17 +2,141 @@
 // donut_interop.d.ts), whose code every example links from its object. Referencing donut.ts here
 // would compile that code into this object too, defining its symbols twice.
 import { InputPass } from "../core/input_pass";
+import { nvrhi } from "../core/nvrhi";
 
 namespace Headless {
     // Port of Donut-Samples' headless.cpp: runs a compute shader on a device without a window and
     // checks its result on the CPU.
+    //
+    // headless.cpp calls NVRHI's interfaces directly, and so does runTestNvrhi, through
+    // core/nvrhi.ts, where the build can (MSVC x64: nvrhi.supported()). Elsewhere (Android)
+    // runTestDonut does the same through Donut's wrappers.
 
     // The shader is performing a reduction operation within one thread group, adding all uint's in
     // the input buffer. The number of uint's is the same as the thread group size.
     const NUM_INPUT_VALUES = 256;
     const UINT_SIZE = 4;
 
-    function runTest(app: App): boolean {
+    // The comparison headless.cpp ends with
+    function reportResult(expectedResult: int, computedResult: int): boolean {
+        console.log(`Expected result: ${expectedResult}, computed result: ${computedResult}`);
+        if (computedResult == expectedResult) {
+            console.log("Test PASSED");
+            return true;
+        }
+
+        console.log("Test FAILED!");
+        return false;
+    }
+
+    // headless.cpp's RunTest, line for line: NVRHI's interfaces called directly, with Donut's
+    // shader factory for the shader and Donut's binding set helper (nvrhi::utils::
+    // CreateBindingSetAndLayout's, C++ code rather than an interface) for the binding set.
+    function runTestNvrhi(app: App): boolean {
+        const device = <nvrhi.IDevice>app.getNvrhiDevice();
+
+        const computeShader = <nvrhi.IShader><Opaque>app.createShader("headless.hlsl", "main", ShaderType.Compute);
+        if (!computeShader) {
+            return false;
+        }
+
+        // Create the input, output, and readback buffers...
+
+        let inputBufferDesc = nvrhi.bufferDesc(UINT_SIZE * NUM_INPUT_VALUES, "InputBuffer", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_NONE);
+        inputBufferDesc.canHaveTypedViews = true;
+        inputBufferDesc.format = <u8>Format.R32_UINT;
+
+        let outputBufferDesc = nvrhi.bufferDesc(UINT_SIZE, "OutputBuffer", nvrhi.RESOURCE_STATE_UNORDERED_ACCESS,
+            nvrhi.CPU_ACCESS_NONE);
+        outputBufferDesc.canHaveTypedViews = true;
+        outputBufferDesc.canHaveUAVs = true;
+        outputBufferDesc.format = <u8>Format.R32_UINT;
+
+        const readbackBufferDesc = nvrhi.bufferDesc(UINT_SIZE, "ReadbackBuffer", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ);
+
+        const inputBuffer = nvrhi.createBuffer(device, inputBufferDesc);
+        const outputBuffer = nvrhi.createBuffer(device, outputBufferDesc);
+        const readbackBuffer = nvrhi.createBuffer(device, readbackBufferDesc);
+        if (!inputBuffer || !outputBuffer || !readbackBuffer) {
+            return false;
+        }
+
+        // Create the binding layout and binding set...
+
+        const bindingSetDesc = BindingSetDesc.create();
+        bindingSetDesc.bindTypedBufferSRV(0, <BufferHandle><Opaque>inputBuffer);
+        bindingSetDesc.bindTypedBufferUAV(0, <BufferHandle><Opaque>outputBuffer);
+
+        const donutBindingSet = app.createBindingSet(bindingSetDesc, ShaderType.Compute);
+        if (donutBindingSet.isNull()) {
+            return false;
+        }
+        const bindingSet = <nvrhi.IBindingSet><Opaque>donutBindingSet.handle;
+
+        // Create the compute pipeline...
+
+        const computePipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(computeShader, bindingSet.getLayout()));
+        if (!computePipeline) {
+            return false;
+        }
+
+        // Create a command list and begin recording
+
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!commandList) {
+            return false;
+        }
+        commandList.open();
+
+        // Fill the input buffer with some numbers and compute the expected result of shader operation.
+        // `let`, not `const`: tslang takes the address of the array's storage only for non-const arrays.
+
+        let inputData: u32[] = [];
+        let expectedResult = 0;
+        for (let i = 0; i < NUM_INPUT_VALUES; i++) {
+            inputData.push(i + 1);
+            expectedResult += i + 1;
+        }
+        commandList.writeBuffer(inputBuffer, <Opaque>Ref(inputData[0]), NUM_INPUT_VALUES * UINT_SIZE, 0);
+
+        // Run the shader
+
+        nvrhi.setComputeState(commandList, nvrhi.computeState(computePipeline, bindingSet));
+        commandList.dispatch(1, 1, 1);
+
+        // Copy the shader output into the staging buffer
+
+        commandList.copyBuffer(readbackBuffer, 0, outputBuffer, 0, readbackBufferDesc.byteSize);
+
+        // Close and execute the command list, wait on the CPU side for it to be finished
+
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        device.waitForIdle();
+
+        // Read the shader output
+
+        const outputData = <Ref<u32>>device.mapBuffer(readbackBuffer, nvrhi.CPU_ACCESS_READ);
+        const computedResult: int = Deref(outputData[0]);
+        device.unmapBuffer(readbackBuffer);
+
+        // The references the create functions returned (headless.cpp's handles release theirs)
+
+        commandList.Release();
+        computePipeline.Release();
+        inputBuffer.Release();
+        outputBuffer.Release();
+        readbackBuffer.Release();
+
+        // Compare the result to the expected one to see if the test passes
+
+        return reportResult(expectedResult, computedResult);
+    }
+
+    // The same through Donut's wrappers, for builds that can't call NVRHI directly
+    function runTestDonut(app: App): boolean {
         const computeShader = app.createShader("headless.hlsl", "main", ShaderType.Compute);
         if (!computeShader) {
             return false;
@@ -79,14 +203,17 @@ namespace Headless {
 
         // Compare the result to the expected one to see if the test passes
 
-        console.log(`Expected result: ${expectedResult}, computed result: ${computedResult}`);
-        if (computedResult == expectedResult) {
-            console.log("Test PASSED");
-            return true;
+        return reportResult(expectedResult, computedResult);
+    }
+
+    function runTest(app: App, forceDonut: boolean): boolean {
+        if (!forceDonut && nvrhi.supported()) {
+            console.log("Calling NVRHI directly (core/nvrhi.ts).");
+            return runTestNvrhi(app);
         }
 
-        console.log("Test FAILED!");
-        return false;
+        console.log("Calling NVRHI through Donut's wrappers.");
+        return runTestDonut(app);
     }
 
     function listAdapters(api: GraphicsAPI): int {
@@ -113,6 +240,7 @@ namespace Headless {
         const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
         let adapterIndex = -1;
         let options = AppOptions.None;
+        let forceDonut = false;
 
         for (let i = 1; i < argc; i++) {
             const arg = Donut_GetArg(argv, i);
@@ -123,12 +251,17 @@ namespace Headless {
  -vk              Use Vulkan API
  --list-adapters  Enumerate the graphics adapters present in the system
  --adapter <n>    Use graphics adapter with index <n> as reported by --list-adapters
- -debug           Enable the graphics API's debug layer and NVRHI's validation layer`);
+ -debug           Enable the graphics API's debug layer and NVRHI's validation layer
+ -donut           Call NVRHI through Donut's wrappers even where it can be called directly`);
                 return 0;
             }
 
             if (arg == "-debug") {
                 options = AppOptions.DebugRuntime;
+            }
+
+            if (arg == "-donut") {
+                forceDonut = true;
             }
 
             if (arg == "--list-adapters") {
@@ -153,7 +286,7 @@ namespace Headless {
 
         console.log(`Using ${Donut_GraphicsAPIToString(api)} API with ${app.getRendererString()}.`);
 
-        const passed = runTest(app);
+        const passed = runTest(app, forceDonut);
         app.destroy();
         return passed ? 0 : 1;
     }

@@ -248,9 +248,11 @@ treat as first-class.
 ## Calling NVRHI directly
 
 The examples reach Donut and NVRHI through `core/donut_interop.cpp`, a flat C API. `core/nvrhi.ts`
-skips it for NVRHI's interfaces. `nvrhi.IDevice`, `ICommandList`, `IBuffer` and `ITexture`, over
-`IResource`, are tslang `@cppvtable` classes (tslang pre-alpha94 or later), laid over the C++
-objects. A method call goes through the C++ object's own vtable:
+skips it for NVRHI's interfaces: `nvrhi.IDevice`, `ICommandList`, `IBuffer`, `ITexture`, `IShader`,
+`IBindingLayout`, `IBindingSet` and `IComputePipeline`, over `IResource`, are tslang `@cppvtable`
+classes (tslang pre-alpha94 or later), laid over the C++ objects. A method call goes through the
+C++ object's own vtable. Donut's handles are the same objects' pointers, so the two mix:
+`<nvrhi.IBuffer><Opaque>bufferHandle` and back.
 
 ```ts
 import { nvrhi } from "../core/nvrhi";
@@ -259,7 +261,8 @@ const device = <nvrhi.IDevice>app.getNvrhiDevice();
 const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
 if (commandList) {
     commandList.open();
-    commandList.clearBufferUInt(buffer, 0);
+    nvrhi.setComputeState(commandList, nvrhi.computeState(pipeline, bindingSet));
+    commandList.dispatch(1, 1, 1);
     commandList.close();
     nvrhi.executeCommandList(device, commandList);
     commandList.Release();
@@ -274,16 +277,27 @@ if (commandList) {
   slots are placeholders named `_` + the C++ name.
 - **Signatures.** An object returned by value (`RefCountPtr<T>`, `nvrhi::Object`) comes back
   through a hidden pointer after `this`; `nvrhi.createBuffer()` and the other functions hide it. A
-  struct passed by reference is a tuple with the C++ layout. That layout depends on the C++ build
-  (`std::string`'s on the CRT), so `nvrhi.layoutMatches()` compares the tuples' sizes with the C++
-  ones.
-- **Platform.** The slots and calling convention are MSVC x64's, so `nvrhi_direct` is built on
-  Windows only.
+  struct passed by reference, or by value and bigger than 8 bytes, is a tuple with the C++ layout
+  (`BufferDesc`, `TextureDesc`, `ComputePipelineDesc`, `ComputeState`, ...). That layout depends on
+  the C++ build (`std::string`'s on the CRT), so `nvrhi.layoutMatches()` compares the tuples' sizes
+  with the C++ ones. A `bool` parameter is a `u8`.
+- **Platform.** The slots and calling convention are MSVC x64's. `nvrhi.supported()` says whether
+  the build has them: code that also runs elsewhere (Android) keeps another path.
 
-`nvrhi_direct` is a headless test of these bindings, not a sample:
-1. it uploads numbers into one buffer and clears another;
-2. it copies both into a readback buffer and checks what it maps;
-3. it checks the graphics API, the native device, reference counting and the struct layouts.
+`headless` calls NVRHI directly where `nvrhi.supported()`, as the C++ sample does, and through
+Donut's wrappers elsewhere (Android) or with `-donut`. CTest runs both: `headless.<api>` and
+`headless.donut.<api>`.
+
+`nvrhi_direct` (Windows only) is a headless test of every bound method, not a sample. One command
+list:
+1. uploads numbers into a buffer and clears another;
+2. runs a compute shader over the uploaded numbers (its pipeline made directly, its binding set by
+   Donut);
+3. copies the three into a readback buffer, the last copy with hand-made barriers;
+4. clears a texture, read back through Donut.
+
+It checks what it reads, and on the way the graphics API, the native objects and queues, reference
+counting, debug names, the descs NVRHI keeps and the struct layouts.
 
 ## Memory model
 
@@ -419,8 +433,8 @@ ctest --test-dir build -R meshlet_render -L vk --output-on-failure
 time step into offscreen back buffers, reads the last one back and checks it (the clear color where
 nothing is drawn, where the geometry lands, what it is shaded with), printing `Test PASSED` or
 `Test FAILED: <why>`; `-testOutput <file.png>` also saves that frame. A test fails on a non-zero
-exit code or an error line from Donut, NVRHI or the API's validation layer. `headless` and
-`nvrhi_direct` are tests too.
+exit code or an error line from Donut, NVRHI or the API's validation layer. `headless` (and
+`headless.donut`, its Donut path) and `nvrhi_direct` are tests too.
 
 The other examples are covered by a smoke test, and the gallery has its own script:
 

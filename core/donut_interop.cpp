@@ -3222,9 +3222,21 @@ extern "C"
         return app->device();
     }
 
-    // sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple ("BufferDesc",
-    // "CommandListParameters"), or -1: its layout depends on the C++ build (std::string's on the
-    // CRT), so nvrhiLayoutMatches() compares the two.
+    // 1 if core/nvrhi.ts can call NVRHI's interfaces in this build: their vtables and member
+    // function convention are MSVC x64's, which its @cppvtable classes follow; 0 otherwise (the
+    // Itanium ABI on Android has two destructor slots and returns objects differently).
+    int Donut_CanCallNvrhiDirectly()
+    {
+#if defined(_MSC_VER) && defined(_M_X64)
+        return 1;
+#else
+        return 0;
+#endif
+    }
+
+    // sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple (named as in NVRHI), or -1: its
+    // layout depends on the C++ build (std::string's on the CRT), so nvrhi.layoutMatches() compares
+    // the two.
     int Donut_GetNvrhiStructSize(const char* name)
     {
         std::string_view n = name ? name : "";
@@ -3232,6 +3244,16 @@ extern "C"
             return int(sizeof(nvrhi::BufferDesc));
         if (n == "CommandListParameters")
             return int(sizeof(nvrhi::CommandListParameters));
+        if (n == "TextureDesc")
+            return int(sizeof(nvrhi::TextureDesc));
+        if (n == "TextureSubresourceSet")
+            return int(sizeof(nvrhi::TextureSubresourceSet));
+        if (n == "Color")
+            return int(sizeof(nvrhi::Color));
+        if (n == "ComputePipelineDesc")
+            return int(sizeof(nvrhi::ComputePipelineDesc));
+        if (n == "ComputeState")
+            return int(sizeof(nvrhi::ComputeState));
         return -1;
     }
 
@@ -8173,7 +8195,7 @@ extern "C"
         for (size_t i = size_t(first); i < batch->draws.size(); i += size_t(step))
         {
             const DrawBatch::Draw& draw = batch->draws[i];
-            state.pipeline = draw.pipeline ? draw.pipeline : batch->state.pipeline;
+            state.pipeline = draw.pipeline ? draw.pipeline.Get() : batch->state.pipeline;
             state.bindings.resize(batch->sharedBindingSetCount);
             if (draw.bindingSet)
                 state.bindings.push_back(draw.bindingSet);
