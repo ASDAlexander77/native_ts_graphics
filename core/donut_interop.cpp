@@ -3877,8 +3877,8 @@ extern "C"
 
     // Saves the current back buffer (in test mode after Donut_RunApp, the last frame's) as an image
     // file, its format from the extension (.png, .bmp, .tga, .jpg). 8-bit RGBA and BGRA back buffers
-    // go to PNG files as their bytes are (Donut's SaveTextureToFile would blit BGRA into sRGB).
-    // Not in a render callback.
+    // go to PNG files as their bytes are (Donut's SaveTextureToFile would blit BGRA into sRGB),
+    // but opaque. Not in a render callback.
     int Donut_SaveBackBufferToFile(App* app, const char* path)
     {
         nvrhi::ITexture* backBuffer = app->offscreen ? app->offscreen->textures[app->offscreen->current].Get()
@@ -3895,6 +3895,11 @@ extern "C"
             if (bgra)
                 for (size_t i = 0; i < pixels.size(); i += 4)
                     std::swap(pixels[i], pixels[i + 2]);
+            // Opaque, as the swap chain presents it: its alpha is whatever the passes' blending left
+            // (ImGui's takes it to about 0 under its windows and text, which viewers then show
+            // over white, the text as solid blocks).
+            for (size_t i = 3; i < pixels.size(); i += 4)
+                pixels[i] = 255;
             return stbi_write_png(path, int(desc.width), int(desc.height), 4, pixels.data(), int(desc.width) * 4) != 0 ? 1 : 0;
         }
         return donut::engine::SaveTextureToFile(app->device(), app->commonPasses(), backBuffer,
