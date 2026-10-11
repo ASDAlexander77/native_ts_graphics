@@ -106,6 +106,7 @@ declare class D3D12LibraryRtPipelineHandle extends ObjectHandle { private readon
 declare class CalibratedTimestampsHandle extends ObjectHandle { private readonly __calibratedTimestamps: int; }
 declare class HostCopiedTextureHandle extends ObjectHandle { private readonly __hostCopiedTexture: int; }
 declare class D3D12GenericProgramHandle extends ObjectHandle { private readonly __genericProgram: int; }
+declare class PushDescriptorPipelineHandle extends ObjectHandle { private readonly __pushDescriptorPipeline: int; }
 declare class OcclusionPredicationHandle extends ObjectHandle { private readonly __occlusionPredication: int; }
 declare class PredicationBufferHandle extends ObjectHandle { private readonly __predicationBuffer: int; }
 declare class MeshPipelineStatisticsHandle extends ObjectHandle { private readonly __meshPipelineStatistics: int; }

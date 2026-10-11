@@ -259,6 +259,26 @@ export class App {
         return Donut_HasNative16BitConstants(this.handle);
     }
 
+    // Non-zero if descriptors can be pushed into command buffers (Vulkan's VK_KHR_push_descriptor;
+    // not D3D): Donut_CreatePushDescriptorPipeline.
+    hasPushDescriptors(): int {
+        return Donut_HasPushDescriptors(this.handle);
+    }
+
+    // The most descriptors one push can set (maxPushDescriptors); 0 without push descriptors.
+    getMaxPushDescriptors(): int {
+        return Donut_GetMaxPushDescriptors(this.handle);
+    }
+
+    // A graphics pipeline whose descriptors are pushed with each draw (VK_KHR_push_descriptor, raw
+    // Vulkan recorded into NVRHI's command buffer): a vertex and a pixel shader, the vertex input from
+    // inputLayout (attribute i at location i, one vertex buffer), triangle lists, for framebuffers like
+    // framebuffer; cull mode, winding, depth test, write and comparison; no blending. Add its bindings,
+    // then build it. Null without push descriptors; release it with Donut_ReleaseObject.
+    createPushDescriptorPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, framebuffer: FramebufferHandle, cullMode: CullMode, frontCounterClockwise: int, depthTest: int, depthWrite: int, depthFunc: ComparisonFunc): PushDescriptorPipeline {
+        return new PushDescriptorPipeline(Donut_CreatePushDescriptorPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
+    }
+
     // Non-zero if shaders can reach buffers through device addresses (Vulkan's bufferDeviceAddress;
     // not D3D, whose shaders have no pointers).
     hasBufferDeviceAddress(): int {
@@ -4201,6 +4221,58 @@ export class CalibratedTimestamps {
 
     getMaxDeviation(): number {
         return Donut_GetCalibratedTimestampsMaxDeviation(this.handle);
+    }
+}
+
+export class PushDescriptorPipeline {
+    readonly handle: PushDescriptorPipelineHandle;
+
+    constructor(handle: PushDescriptorPipelineHandle | null) {
+        this.handle = handle as PushDescriptorPipelineHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // A binding of its one set: its number (the shader's [[vk::binding(n)]]), its type, the stages that
+    // see it (ShaderType bits).
+    addBinding(binding: int, type: PushDescriptorType, shaderType: int): void {
+        Donut_AddPushDescriptorBinding(this.handle, binding, type, shaderType);
+    }
+
+    // Creates its set layout (push descriptor flag: no set is ever allocated), layout and pipeline;
+    // 0 on failure.
+    build(): int {
+        return Donut_BuildPushDescriptorPipeline(this.handle);
+    }
+
+    // Starts a pass of draws into framebuffer with commandList; Donut_EndPushDescriptorPass records it.
+    begin(commandList: CommandList, framebuffer: FramebufferHandle): void {
+        Donut_BeginPushDescriptorPass(this.handle, commandList.handle, framebuffer);
+    }
+
+    // Pushes a descriptor for the next draws: a static constant buffer (volatile ones have no fixed
+    // place), or a texture and a sampler (at a TextureSampler binding both, else the binding's one).
+    pushBuffer(binding: int, buffer: BufferHandle): void {
+        Donut_PushDescriptorBuffer(this.handle, binding, buffer);
+    }
+
+    pushTexture(binding: int, texture: TextureHandle, sampler: SamplerHandle): void {
+        Donut_PushDescriptorTexture(this.handle, binding, texture, sampler);
+    }
+
+    // An indexed draw (indices from 0, 32-bit unless the buffer is R16_UINT) with the descriptors
+    // pushed so far, pushed into the command buffer (vkCmdPushDescriptorSetKHR) right before it.
+    drawIndexed(vertexBuffer: BufferHandle, indexBuffer: BufferHandle, indexCount: int): void {
+        Donut_PushDescriptorDrawIndexed(this.handle, vertexBuffer, indexBuffer, indexCount);
+    }
+
+    // Records the pass: barriers for what it reads and draws into, the framebuffer's rendering scope
+    // (contents kept), then per draw its pushes and the draw. NVRHI's next draw binds everything anew.
+    end(): void {
+        Donut_EndPushDescriptorPass(this.handle);
     }
 }
 

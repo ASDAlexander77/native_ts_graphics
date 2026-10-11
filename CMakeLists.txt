@@ -2140,6 +2140,38 @@ if (TARGET fragment_shading_rate_dynamic_media)
 endif()
 add_tslang_example_test(shader_debugprintf APIS vk)
 
+# Port of Vulkan-Samples' push_descriptors: two textured cubes, each draw's descriptors (the
+# scene's and the cube's uniform buffers, its texture) pushed into the command buffer
+# (VK_KHR_push_descriptor) instead of allocated sets: Donut_CreatePushDescriptorPipeline, raw
+# Vulkan recorded into NVRHI's command list. Vulkan only, so SPIR-V only. Its crate textures are
+# Vulkan-Samples' assets (see VULKAN_SAMPLES_ASSETS_DIR above), converted to DDS; the cube is
+# fragment_shading_rate's copy.
+donut_compile_shaders(
+    TARGET push_descriptors_shaders
+    PROJECT_NAME "Push Descriptors"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/push_descriptors.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/push_descriptors.hlsl
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/push_descriptors/spirv
+)
+add_tslang_example(push_descriptors MEDIA fonts fragment_shading_rate push_descriptors)
+if (VULKAN_SAMPLES_ASSETS_DIR)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(push_descriptors_media)
+    foreach(texture crate01_color_height_rgba crate02_color_height_rgba)
+        set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/${texture}.ktx")
+        set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/push_descriptors/${texture}.dds")
+        add_custom_command(OUTPUT "${output}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py" "${source}" "${output}"
+            DEPENDS "${source}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/ktx_to_dds.py"
+            COMMENT "Converting ${texture}.ktx to DDS"
+            VERBATIM)
+        list(APPEND push_descriptors_media "${output}")
+    endforeach()
+    add_custom_target(push_descriptors_media DEPENDS ${push_descriptors_media})
+    add_dependencies(push_descriptors push_descriptors_media fragment_shading_rate_media)
+endif()
+add_tslang_example_test(push_descriptors APIS vk)
+
 # Port of Vulkan-Samples' separate_image_sampler: a textured quad, its sampler bound apart from the
 # image (a binding set of its own), linear or nearest filtering picked in the UI. It reads
 # fragment_shading_rate's copy of the texture.

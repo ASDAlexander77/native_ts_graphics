@@ -136,6 +136,7 @@ HANDLES = {
     "CalibratedTimestamps": "CalibratedTimestampsHandle",
     "HostCopiedTexture": "HostCopiedTextureHandle",
     "D3D12GenericProgram": "D3D12GenericProgramHandle",
+    "PushDescriptorPipeline": "PushDescriptorPipelineHandle",
     "OcclusionPredication": "OcclusionPredicationHandle",
     "PredicationBuffer": "PredicationBufferHandle",
     "MeshPipelineStatistics": "MeshPipelineStatisticsHandle",
