@@ -544,6 +544,10 @@ namespace LogicOpDynamicState {
         // -op <0..15>: the logic operation at start (LogicOp, Vulkan's order: 3 is COPY).
         operation: int = LogicOp.Copy;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -559,8 +563,8 @@ namespace LogicOpDynamicState {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("logic_op_dynamic_state");
 
-        const args = new LogicOpDynamicStateArgs();
-        args.parseArgs(argc, argv);
+        const args = new LogicOpDynamicStateArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

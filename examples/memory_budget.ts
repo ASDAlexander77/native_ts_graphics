@@ -570,8 +570,8 @@ namespace MemoryBudget {
         Donut_SetAppName("memory_budget");
 
         // -noui: without the memory budget window.
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

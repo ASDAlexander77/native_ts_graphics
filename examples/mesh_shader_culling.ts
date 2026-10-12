@@ -247,6 +247,10 @@ namespace MeshShaderCulling {
         // -density <0..2>: 4 x 4, 6 x 6 or 8 x 8.
         densityLevel: int = 2;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -265,8 +269,8 @@ namespace MeshShaderCulling {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mesh_shader_culling");
 
-        const args = new MeshShaderCullingArgs();
-        args.parseArgs(argc, argv);
+        const args = new MeshShaderCullingArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

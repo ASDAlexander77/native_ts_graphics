@@ -839,6 +839,10 @@ namespace FastBlockCompress {
         // -diffs <n>: 1 color, 2 alpha differences.
         diffs = 0;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -871,8 +875,8 @@ namespace FastBlockCompress {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fast_block_compress");
 
-        const args = new FastBlockCompressArgs();
-        args.parseArgs(argc, argv);
+        const args = new FastBlockCompressArgs(argc, argv);
+        args.parseArgs();
 
         // The sample's 1920 x 1080, in a smaller window. The back buffers are UNORM, as the
         // sample's (B8G8R8A8_UNORM): values shown as stored.

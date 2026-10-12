@@ -582,6 +582,10 @@ namespace RasterizationOrderAttachmentAccess {
         // -norov: start with a draw and a barrier per sphere.
         rov = true;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -596,8 +600,8 @@ namespace RasterizationOrderAttachmentAccess {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rasterization_order_attachment_access");
 
-        const args = new RasterizationOrderAttachmentAccessArgs();
-        args.parseArgs(argc, argv);
+        const args = new RasterizationOrderAttachmentAccessArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

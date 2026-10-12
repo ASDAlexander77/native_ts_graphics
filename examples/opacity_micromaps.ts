@@ -729,8 +729,8 @@ namespace OpacityMicromaps {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("opacity_micromaps");
 
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         // R10G10B10A2_UNORM back buffers (in sRGB), as the sample's.
         const options = AppOptions.RayTracing | AppOptions.HdrBackBuffer | args.options;

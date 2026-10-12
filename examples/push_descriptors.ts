@@ -483,6 +483,10 @@ namespace PushDescriptors {
         // -noanimate: the cubes don't turn.
         animate = true;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -499,8 +503,8 @@ namespace PushDescriptors {
 
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
-        const args = new PushDescriptorsArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new PushDescriptorsArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // Push descriptors are Vulkan's.
         if (args.api != GraphicsAPI.VULKAN) {

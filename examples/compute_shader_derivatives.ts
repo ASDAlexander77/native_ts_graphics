@@ -197,6 +197,10 @@ namespace ComputeShaderDerivatives {
         // -linear: linear derivative groups (4 threads in a row) where the device has them.
         linear = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -211,8 +215,8 @@ namespace ComputeShaderDerivatives {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("compute_shader_derivatives");
 
-        const args = new ComputeShaderDerivativesArgs();
-        args.parseArgs(argc, argv);
+        const args = new ComputeShaderDerivativesArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

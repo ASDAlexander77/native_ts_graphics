@@ -650,6 +650,10 @@ namespace DynamicBlending {
         // -noblend: blending off.
         noBlend = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -667,8 +671,8 @@ namespace DynamicBlending {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_blending");
 
-        const args = new DynamicBlendingArgs();
-        args.parseArgs(argc, argv);
+        const args = new DynamicBlendingArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

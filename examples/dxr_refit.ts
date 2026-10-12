@@ -319,6 +319,10 @@ namespace DxrRefit {
         // -rebuild: build the TLAS anew every frame instead of refitting it.
         rebuild = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -334,8 +338,8 @@ namespace DxrRefit {
         Donut_SetAppName("dxr_refit");
 
         // -benchmark: 0.005 radians a frame, as the tutorial.
-        const args = new DxrRefitArgs();
-        args.parseArgs(argc, argv);
+        const args = new DxrRefitArgs(argc, argv);
+        args.parseArgs();
 
         // The tutorial's 1920 x 1200 aspect ratio, in a smaller window.
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 800, AppOptions.RayTracing | args.options);

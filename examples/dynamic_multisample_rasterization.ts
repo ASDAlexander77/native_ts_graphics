@@ -614,6 +614,10 @@ namespace DynamicMultisampleRasterization {
         // -samples <count>: the initial sample count (when supported).
         samples = 0;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "-samples" && i + 1 < this.argc) {
@@ -628,8 +632,8 @@ namespace DynamicMultisampleRasterization {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_multisample_rasterization");
 
-        const args = new DynamicMultisampleArgs();
-        args.parseArgs(argc, argv);
+        const args = new DynamicMultisampleArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

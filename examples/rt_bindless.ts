@@ -322,6 +322,10 @@ namespace RtBindless {
         // -rayQuery: inline ray queries in a compute shader instead of a ray tracing pipeline.
         useRayQuery = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -336,8 +340,8 @@ namespace RtBindless {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_bindless");
 
-        const args = new RtBindlessArgs();
-        args.parseArgs(argc, argv);
+        const args = new RtBindlessArgs(argc, argv);
+        args.parseArgs();
 
         // --scene <path>: relative to the executable's directory, or absolute.
         let scenePath = DEFAULT_SCENE;

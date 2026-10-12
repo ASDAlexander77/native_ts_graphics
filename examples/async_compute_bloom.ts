@@ -943,6 +943,10 @@ namespace AsyncComputeBloom {
         // -norotate: shadows fixed.
         rotateShadows = true;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -961,8 +965,8 @@ namespace AsyncComputeBloom {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("async_compute_bloom");
 
-        const args = new AsyncComputeBloomArgs();
-        args.parseArgs(argc, argv);
+        const args = new AsyncComputeBloomArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.ComputeQueue | args.options);
         if (app.isNull()) {

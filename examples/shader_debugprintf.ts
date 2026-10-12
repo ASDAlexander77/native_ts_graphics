@@ -473,6 +473,10 @@ namespace ShaderDebugPrintf {
         // -nosky: without the sky sphere.
         noSky = false;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "-nosky") {
@@ -486,10 +490,10 @@ namespace ShaderDebugPrintf {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_debugprintf");
 
-        const args = new ShaderDebugPrintfArgs();
         // -test [-testOutput <file>]: render a few frames without a window and check the shader's
         // output (see checkOutput).
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new ShaderDebugPrintfArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // printf in shaders is the Vulkan validation layer's.
         if (args.api != GraphicsAPI.VULKAN) {

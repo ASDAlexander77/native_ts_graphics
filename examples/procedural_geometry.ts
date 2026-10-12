@@ -643,6 +643,10 @@ namespace ProceduralGeometry {
         // -time <seconds>: the geometry animation's time, fixed.
         fixedTime = -1.0;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -658,8 +662,8 @@ namespace ProceduralGeometry {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("procedural_geometry");
 
-        const args = new ProceduralGeometryArgs();
-        args.parseArgs(argc, argv);
+        const args = new ProceduralGeometryArgs(argc, argv);
+        args.parseArgs();
 
         // The sample's window.
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.RayTracing | args.options);

@@ -197,8 +197,8 @@ namespace GenericPrograms {
 
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
-        const args = new Args();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new Args(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // The sample's window. Generic programs are D3D12's.
         if (args.api != GraphicsAPI.D3D12) {

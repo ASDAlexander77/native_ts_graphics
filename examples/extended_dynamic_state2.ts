@@ -752,6 +752,10 @@ namespace ExtendedDynamicState2 {
         // -noselection: the selection effect off.
         selection = true;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -775,8 +779,8 @@ namespace ExtendedDynamicState2 {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("extended_dynamic_state2");
 
-        const args = new ExtendedDynamicState2Args();
-        args.parseArgs(argc, argv);
+        const args = new ExtendedDynamicState2Args(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

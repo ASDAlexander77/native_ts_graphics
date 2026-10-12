@@ -135,8 +135,8 @@ namespace RtTriangle {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_triangle");
 
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         const options = AppOptions.RayTracing | args.options;
 

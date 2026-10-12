@@ -409,6 +409,10 @@ namespace HostImageCopy {
         // -lodbias <value>: the initial level of detail bias.
         lodBias = 0.0;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -426,8 +430,8 @@ namespace HostImageCopy {
 
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
-        const args = new HostImageCopyArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new HostImageCopyArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

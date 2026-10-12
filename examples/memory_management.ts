@@ -757,6 +757,10 @@ namespace MemoryManagement {
         mips = false;
         stats = false;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -781,8 +785,8 @@ namespace MemoryManagement {
 
         // -test [-testOutput <file>]: render a few frames without a window, each after the paging
         // thread goes idle, and check the result (see checkResult).
-        const args = new MemoryManagementArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new MemoryManagementArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // Residency (MakeResident / Evict) is D3D12's.
         if (args.api != GraphicsAPI.D3D12) {

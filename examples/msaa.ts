@@ -967,6 +967,10 @@ namespace Msaa {
         // -depthresolve zero|average|min|max: the depth resolve mode.
         depthResolveMode: ResolveMode = ResolveMode.None;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -1000,8 +1004,8 @@ namespace Msaa {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("msaa");
 
-        const args = new MsaaArgs();
-        args.parseArgs(argc, argv);
+        const args = new MsaaArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

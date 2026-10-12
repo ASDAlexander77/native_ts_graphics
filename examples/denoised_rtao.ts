@@ -1671,6 +1671,10 @@ namespace DenoisedRtao {
         // -raw / -shaded: start in the raw AO (key 1) or shaded (key 3) view.
         mode: int = COMPOSITION_AO_DENOISED;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -1689,8 +1693,8 @@ namespace DenoisedRtao {
 
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        const args = new DenoisedRtaoArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new DenoisedRtaoArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
         const options = AppOptions.UnormBackBuffer | AppOptions.RayTracing | args.options;

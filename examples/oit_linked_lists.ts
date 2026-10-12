@@ -565,6 +565,10 @@ namespace OitLinkedLists {
         // -grayscale <0..1>: the background's brightness.
         backgroundGrayscale = 0.3;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -587,8 +591,8 @@ namespace OitLinkedLists {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("oit_linked_lists");
 
-        const args = new OitLinkedListsArgs();
-        args.parseArgs(argc, argv);
+        const args = new OitLinkedListsArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

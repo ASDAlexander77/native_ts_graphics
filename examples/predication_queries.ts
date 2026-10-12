@@ -235,8 +235,8 @@ namespace PredicationQueries {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("predication_queries");
 
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
         const options = AppOptions.UnormBackBuffer | args.options;

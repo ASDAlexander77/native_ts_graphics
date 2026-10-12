@@ -515,6 +515,10 @@ namespace RayQueries {
         // -time <ms>: the light where it is that many milliseconds after the start, not moving.
         fixedTimeMs = -1.0;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -530,8 +534,8 @@ namespace RayQueries {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_queries");
 
-        const args = new RayQueriesArgs();
-        args.parseArgs(argc, argv);
+        const args = new RayQueriesArgs(argc, argv);
+        args.parseArgs();
 
         const options = AppOptions.RayTracing | args.options;
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);

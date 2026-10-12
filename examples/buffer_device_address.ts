@@ -310,6 +310,10 @@ namespace BufferDeviceAddress {
         // -time <t>: the animation time fixed at t (a fraction).
         fixedTime = -1.0;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -327,8 +331,8 @@ namespace BufferDeviceAddress {
 
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        const args = new BufferDeviceAddressArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new BufferDeviceAddressArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // Device addresses are Vulkan's.
         if (args.api != GraphicsAPI.VULKAN) {

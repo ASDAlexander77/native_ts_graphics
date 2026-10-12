@@ -393,6 +393,10 @@ namespace SeparateImageSampler {
         // -nearest: nearest filtering at first.
         selectedSampler = 0;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -407,8 +411,8 @@ namespace SeparateImageSampler {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("separate_image_sampler");
 
-        const args = new SeparateImageSamplerArgs();
-        args.parseArgs(argc, argv);
+        const args = new SeparateImageSamplerArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

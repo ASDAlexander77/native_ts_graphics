@@ -247,6 +247,10 @@ namespace Headless {
         // program before the test.
         firstExit: int = EXIT_NONE;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -284,8 +288,8 @@ namespace Headless {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("headless");
 
-        const args = new HeadlessArgs();
-        args.parseArgs(argc, argv);
+        const args = new HeadlessArgs(argc, argv);
+        args.parseArgs();
 
         // The C++ sample does this in release builds only.
         Donut_SetLogMinSeverity(LogSeverity.Warning);

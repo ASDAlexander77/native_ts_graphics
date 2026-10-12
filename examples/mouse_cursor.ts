@@ -1162,8 +1162,8 @@ namespace MouseCursor {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mouse_cursor");
 
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         // The sample's B8G8R8A8_UNORM back buffers, in a 1280 x 720 window.
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.UnormBackBuffer | args.options);

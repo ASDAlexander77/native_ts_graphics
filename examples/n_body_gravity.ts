@@ -521,6 +521,10 @@ namespace NBodyGravity {
         // -steps <n>: simulation steps per frame (10 by default).
         stepsPerFrame = DEFAULT_STEPS_PER_FRAME;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -536,10 +540,10 @@ namespace NBodyGravity {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("n_body_gravity");
 
-        const args = new NBodyGravityArgs();
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new NBodyGravityArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // UNORM back buffers, as the sample's R8G8B8A8_UNORM; a compute queue for the simulation.
         const options = AppOptions.UnormBackBuffer | AppOptions.ComputeQueue | args.options;

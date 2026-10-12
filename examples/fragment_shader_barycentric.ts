@@ -402,6 +402,10 @@ namespace FragmentShaderBarycentric {
         // -effect <0..4>: the effect selected at start.
         effect: int = 0;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -417,8 +421,8 @@ namespace FragmentShaderBarycentric {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shader_barycentric");
 
-        const args = new FragmentShaderBarycentricArgs();
-        args.parseArgs(argc, argv);
+        const args = new FragmentShaderBarycentricArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

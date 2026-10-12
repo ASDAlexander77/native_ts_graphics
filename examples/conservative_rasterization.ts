@@ -429,6 +429,10 @@ namespace ConservativeRasterization {
         // -noconservative: start with conservative rasterization off.
         conservative = true;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -443,8 +447,8 @@ namespace ConservativeRasterization {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("conservative_rasterization");
 
-        const args = new ConservativeRasterizationArgs();
-        args.parseArgs(argc, argv);
+        const args = new ConservativeRasterizationArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

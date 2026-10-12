@@ -691,6 +691,10 @@ namespace MultiDrawIndirect {
         // -freeze: culling frozen.
         freezeCull = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -710,8 +714,8 @@ namespace MultiDrawIndirect {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("multi_draw_indirect");
 
-        const args = new MultiDrawIndirectArgs();
-        args.parseArgs(argc, argv);
+        const args = new MultiDrawIndirectArgs(argc, argv);
+        args.parseArgs();
 
         // The scene's 225 textures are one array: more than D3D11's 128 texture slots.
         if (args.api == GraphicsAPI.D3D11) {

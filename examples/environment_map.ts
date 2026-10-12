@@ -274,6 +274,10 @@ namespace EnvironmentMap {
         // -ktx2: the environment map from its KTX 2 file instead of the DDS one.
         useKtx2 = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -288,8 +292,8 @@ namespace EnvironmentMap {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("environment_map");
 
-        const args = new EnvironmentMapArgs();
-        args.parseArgs(argc, argv);
+        const args = new EnvironmentMapArgs(argc, argv);
+        args.parseArgs();
 
         // --scene <path>: relative to the executable's directory, or absolute.
         let scenePath = DEFAULT_SCENE;
