@@ -40,7 +40,7 @@ EXE = ".exe" if IS_WINDOWS else ""
 ABIS = {"x86_64": "x86_64", "arm64": "arm64-v8a", "arm32": "armeabi-v7a"}
 
 # Examples with an APK target that can't run on Vulkan, which build leaves out.
-NO_HEADLESS = {"arm32"}  # no core/nvrhi.ts there (tslang has no 32-bit ARM @cppvtable struct returns), so no headless
+NO_HEADLESS = {"arm32"}  # no core/nvrhi.ts there (tslang has no 32-bit ARM @cpp struct returns), so no headless
 NOT_ON_VULKAN = {"rt_reflections"}  # D3D12-only, no SPIR-V shaders
 
 # What test runs by default: the examples that run on the emulator's Vulkan (the host GPU's, through

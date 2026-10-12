@@ -7,10 +7,10 @@ import { nvrhi } from "../core/nvrhi";
 
 namespace NvrhiDirect {
     // Calls NVRHI's C++ interfaces directly, with no wrapper in donut_interop.cpp: core/nvrhi.ts
-    // lays tslang @cppvtable classes over nvrhi::IDevice, ICommandList, IBuffer, ITexture and the
+    // lays tslang @cpp classes over nvrhi::IDevice, ICommandList, IBuffer, ITexture and the
     // compute pipeline's objects, and each call below goes through the C++ object's own vtable. Not
-    // a port of a sample: a test of those bindings, of every method core/nvrhi.ts gives a
-    // signature. Headless, like headless.ts.
+    // a port of a sample: a test of those bindings, through a method of each kind of signature
+    // (struct returns and arguments, narrow arguments, callbacks). Headless, like headless.ts.
     //
     // One command list:
     // - uploads numbers into a buffer and clears another to a value;
@@ -42,13 +42,13 @@ namespace NvrhiDirect {
         return value >= expected - 1 && value <= expected + 1;
     }
 
-    // NVRHI's messages, through an nvrhi::IMessageCallback implemented here: a @cppvtable class
+    // NVRHI's messages, through an nvrhi::IMessageCallback implemented here: a @cpp class
     // whose message() has a body, which NVRHI calls through the vtable tslang makes for it. Each
     // goes on to Donut's handling (it logs them, and CTest fails on an error it logs), except the
     // one the test provokes.
     const PROVOKED_MESSAGE = "Cannot close a command list before it is opened";
 
-    @cppvtable
+    @cpp
     class MessageLog extends nvrhi.IMessageCallback {
         expecting = false;
         provoked = 0;
@@ -222,12 +222,12 @@ namespace NvrhiDirect {
         commandList.copyBuffer(readback, SIZE, cleared, 0, SIZE);
 
         // the output's copy with the barriers made by hand
-        commandList.setEnableAutomaticBarriers(0);
+        commandList.setEnableAutomaticBarriers(false);
         commandList.setBufferState(output, nvrhi.RESOURCE_STATE_COPY_SOURCE);
         commandList.setBufferState(readback, nvrhi.RESOURCE_STATE_COPY_DEST);
         commandList.commitBarriers();
         commandList.copyBuffer(readback, 2 * SIZE, output, 0, SIZE);
-        commandList.setEnableAutomaticBarriers(1);
+        commandList.setEnableAutomaticBarriers(true);
 
         nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [1.0, 0.5, 0.25, 1.0]);
         commandList.endMarker();

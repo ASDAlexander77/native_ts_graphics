@@ -1,23 +1,26 @@
-// NVRHI's interfaces, called directly: nvrhi::IDevice, ICommandList, IBuffer, ITexture, IShader,
-// IBindingLayout, IBindingSet and IComputePipeline over IResource as @cppvtable classes. Import with
-// `import { nvrhi } from "../core/nvrhi";` (from examples/) and list NVRHI_TS_SOURCES in the
-// example's add_tslang_example sources; get the device with `<nvrhi.IDevice>app.getNvrhiDevice()`.
-// Donut's handles (donut_handles.d.ts) are these objects' pointers: `<nvrhi.IBuffer><Opaque>bufferHandle`,
-// `<BufferHandle><Opaque>buffer`.
+// NVRHI's interfaces, called directly: nvrhi::IDevice, ICommandList, IBuffer, ITexture and the other
+// nvrhi::I* classes as tslang @cpp classes, whose methods are called through the C++ object's own
+// vtable. Import with `import { nvrhi } from "../core/nvrhi";` (from examples/) and list
+// NVRHI_TS_SOURCES in the example's add_tslang_example sources; get the device with
+// `<nvrhi.IDevice>app.getNvrhiDevice()`. Donut's handles (donut_handles.d.ts) are these objects'
+// pointers: `<nvrhi.IBuffer><Opaque>bufferHandle`, `<BufferHandle><Opaque>buffer`.
 //
-// The `nvrhi` namespace is made of three modules, as the default library is of lib.ts and
-// lib.<os>.ts:
+// The `nvrhi` namespace is made of four modules, as the default library is of lib.ts and
+// lib.<os>.ts; the imports of "./nvrhi_abi" and "./nvrhi_classes" take the target's files, for
+// the C++ ABI of MSVC x64 on Windows (win32), the Itanium ABI of Android's clang (linux):
 // - core/nvrhi_types.ts: the structs and constants every C++ ABI lays out the same way;
-// - core/nvrhi_abi.<os>.ts, which the import of "./nvrhi_abi" below takes for the target (a tslang
-//   newer than pre-alpha94): the classes, whose slots are the C++ ABI's - MSVC x64's on Windows
-//   (win32), the Itanium ABI of Android's clang (linux) - and the structs holding an std::string,
-//   the C++ library's (the release CRT's, libc++'s);
+// - core/nvrhi_abi.<os>.ts: the structs holding an std::string, the C++ library's (the release
+//   CRT's, libc++'s);
+// - core/nvrhi_classes.<os>.ts: the classes, generated from NVRHI's headers by
+//   tools/gen_nvrhi_classes.py (with tsbindgen; run it again after updating NVRHI or tslang),
+//   every method with its C++ compiler's slot. A struct a method takes whose tuple isn't declared
+//   in the files above is an Opaque there: declare it to call the method with it;
 // - this file: the functions below, the same for both.
 //
 // Objects returned with a reference (createBuffer, createTexture, createCommandList,
-// createComputePipeline) are released with Release().
+// createComputePipeline, ...) are released with Release().
 //
-// nvrhi.IMessageCallback is implemented here, not called: a @cppvtable class extending it whose
+// nvrhi.IMessageCallback is implemented here, not called: a @cpp class extending it whose
 // message() has a body is one NVRHI calls (examples/nvrhi_direct.ts' MessageLog). Hand it to
 // Donut_SetNvrhiMessageCallback before creating the app, and keep it in a global while the device
 // lives: NVRHI holds a pointer the collector doesn't see. The text is NVRHI's, valid during the
@@ -25,7 +28,7 @@
 
 /// <reference path="donut_interop.d.ts" />
 
-import "./nvrhi_abi";
+import "./nvrhi_classes";
 
 export namespace nvrhi {
 
@@ -121,7 +124,7 @@ export namespace nvrhi {
     // IDevice::executeCommandList: one command list on the graphics queue; returns its submission
     // fence value.
     export function executeCommandList(device: IDevice, commandList: ICommandList): u64 {
-        let lists: Opaque[] = [<Opaque>commandList];
+        let lists: ICommandList[] = [commandList];
         return device.executeCommandLists(Ref(lists[0]), 1, COMMAND_QUEUE_GRAPHICS);
     }
 
