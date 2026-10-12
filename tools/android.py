@@ -1,6 +1,6 @@
 """Builds the examples for Android and runs them on an emulator or a device.
 
-    python tools/android.py build [--abi x86_64|arm64] [<example>...]
+    python tools/android.py build [--abi x86_64|arm64|arm32] [<example>...]
     python tools/android.py emulator [--avd <name>] [--no-window]
     python tools/android.py run <example> [--screenshot <file.png>]
     python tools/android.py headless
@@ -37,9 +37,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IS_WINDOWS = os.name == "nt"
 EXE = ".exe" if IS_WINDOWS else ""
 
-ABIS = {"x86_64": "x86_64", "arm64": "arm64-v8a"}
+ABIS = {"x86_64": "x86_64", "arm64": "arm64-v8a", "arm32": "armeabi-v7a"}
 
 # Examples with an APK target that can't run on Vulkan, which build leaves out.
+NO_HEADLESS = {"arm32"}  # no core/nvrhi.ts there (tslang has no 32-bit ARM @cppvtable struct returns), so no headless
 NOT_ON_VULKAN = {"rt_reflections"}  # D3D12-only, no SPIR-V shaders
 
 # What test runs by default: the examples that run on the emulator's CPU Vulkan (lavapipe), which
@@ -257,7 +258,8 @@ def command_build(tools, args):
     if unknown:
         fail(f"no APK target for {', '.join(unknown)}; there are: {', '.join(available)}")
 
-    run(["cmake", "--build", "--preset", preset, "--target", "headless"] + [f"{name}_apk" for name in examples],
+    targets = [] if args.abi in NO_HEADLESS else ["headless"]
+    run(["cmake", "--build", "--preset", preset, "--target"] + targets + [f"{name}_apk" for name in examples],
         env=environment, cwd=ROOT)
     log(f"APKs in {os.path.join(folder, 'bin')}")
 
@@ -387,6 +389,8 @@ def run_headless(tools, abi):
 
 
 def command_headless(tools, args):
+    if args.abi in NO_HEADLESS:
+        fail(f"no headless for {args.abi}")
     ensure_device(tools, args)
     if not run_headless(tools, args.abi):
         fail("headless failed")
@@ -434,7 +438,9 @@ def command_test(tools, args):
     output = os.path.join(build_folder(args.abi), "android-test")
     os.makedirs(output, exist_ok=True)
 
-    results = [("headless", None if run_headless(tools, args.abi) else "failed")]
+    results = []
+    if args.abi not in NO_HEADLESS:
+        results.append(("headless", None if run_headless(tools, args.abi) else "failed"))
     for example in args.examples or EMULATOR_EXAMPLES:
         log(f"testing {example}")
         results.append((example, smoke_test(tools, args.abi, example, args.seconds, output)))
@@ -450,7 +456,7 @@ def command_test(tools, args):
 def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--abi", choices=list(ABIS), default="x86_64",
-                        help="x86_64 for the emulator (default), arm64 for devices")
+                        help="x86_64 for the emulator (default), arm64 for devices, arm32 for 32-bit ones")
     common.add_argument("--sdk", help="the Android SDK")
     common.add_argument("--ndk", help="the Android NDK")
     common.add_argument("--serial", help="the device to use, as adb devices lists it")

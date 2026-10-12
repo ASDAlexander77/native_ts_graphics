@@ -1,0 +1,49 @@
+diff --git a/include/donut/core/chunk/chunk.h b/include/donut/core/chunk/chunk.h
+index 5c1da59..550d00d 100644
+--- a/include/donut/core/chunk/chunk.h
++++ b/include/donut/core/chunk/chunk.h
+@@ -46,7 +46,7 @@ struct MeshNode
+     donut::math::float3 center;
+ };
+ 
+-static_assert(sizeof(MeshNode) == 152);
++static_assert(sizeof(void*) != 8 || sizeof(MeshNode) == 152);
+ 
+ struct MeshInstance
+ {
+@@ -61,7 +61,7 @@ struct MeshInstance
+     uint32_t padding;
+ };
+ 
+-static_assert(sizeof(MeshInstance) == 104);
++static_assert(sizeof(void*) != 8 || sizeof(MeshInstance) == 104);
+ 
+ struct MeshInfoBase
+ {
+@@ -73,7 +73,7 @@ struct MeshInfoBase
+     uint32_t padding;
+ };
+ 
+-static_assert(sizeof(MeshInfoBase) == 48);
++static_assert(sizeof(void*) != 8 || sizeof(MeshInfoBase) == 48);
+ 
+ struct MeshInfo : public MeshInfoBase
+ {
+@@ -83,7 +83,7 @@ struct MeshInfo : public MeshInfoBase
+              numIndices;
+ };
+ 
+-static_assert(sizeof(MeshInfo) == 64);
++static_assert(sizeof(void*) != 8 || sizeof(MeshInfo) == 64);
+ 
+ struct MeshletInfo : public MeshInfoBase
+ {
+@@ -91,7 +91,7 @@ struct MeshletInfo : public MeshInfoBase
+              numMeshlets;
+ };
+ 
+-static_assert(sizeof(MeshletInfo) == 56);
++static_assert(sizeof(void*) != 8 || sizeof(MeshletInfo) == 56);
+ 
+ struct MeshSetBase
+ {

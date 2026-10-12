@@ -66,6 +66,36 @@
 
 #if DONUT_WITH_VULKAN
 #include <donut/app/DeviceManager_VK.h>
+
+// NVRHI's Object holds a Vulkan handle as `pointer` where handles are pointers (64-bit targets) and
+// as `integer` where they are 64-bit integers (32-bit ones); the *Bits functions keep a handle as
+// its 64 bits either way.
+template <typename Handle>
+static Handle vkHandleFrom(const nvrhi::Object& object)
+{
+    if constexpr (std::is_pointer_v<Handle>)
+        return static_cast<Handle>(object.pointer);
+    else
+        return static_cast<Handle>(object.integer);
+}
+
+template <typename Handle>
+static uint64_t vkHandleBits(Handle handle)
+{
+    if constexpr (std::is_pointer_v<Handle>)
+        return reinterpret_cast<uintptr_t>(handle);
+    else
+        return static_cast<uint64_t>(handle);
+}
+
+template <typename Handle>
+static Handle vkHandleFromBits(uint64_t bits)
+{
+    if constexpr (std::is_pointer_v<Handle>)
+        return reinterpret_cast<Handle>(static_cast<uintptr_t>(bits));
+    else
+        return static_cast<Handle>(bits);
+}
 #endif
 #if DONUT_WITH_DX12
 #include <donut/app/DeviceManager_DX12.h>
@@ -356,7 +386,7 @@ namespace
         // Shader printf (AppOption_ShaderPrintf): the validation layer's messenger (a
         // VkDebugUtilsMessengerEXT, null without printf), the messages it has received since
         // Donut_UpdateShaderPrintfOutput last took them, and the ones that call took.
-        void* printfMessenger = nullptr;
+        uint64_t printfMessenger = 0;  // vkHandleBits
         std::mutex printfMutex;
         std::vector<std::string> printfReceived;
         std::vector<std::string> printfLines;
@@ -486,7 +516,7 @@ namespace
             {
                 VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyDebugUtilsMessengerEXT(
                     device()->getNativeObject(nvrhi::ObjectTypes::VK_Instance),
-                    static_cast<VkDebugUtilsMessengerEXT>(printfMessenger), nullptr);
+                    vkHandleFromBits<VkDebugUtilsMessengerEXT>(printfMessenger), nullptr);
             }
 #endif
             deviceManager->Shutdown();
@@ -1896,7 +1926,7 @@ namespace
         VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
         if (VULKAN_HPP_DEFAULT_DISPATCHER.vkCreateDebugUtilsMessengerEXT(
                 app->device()->getNativeObject(nvrhi::ObjectTypes::VK_Instance), &info, nullptr, &messenger) == VK_SUCCESS)
-            app->printfMessenger = messenger;
+            app->printfMessenger = vkHandleBits(messenger);
     }
 
     // The core features of a Vulkan device that Donut's device manager leaves off and the examples
@@ -12521,7 +12551,7 @@ extern "C"
         {
             stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
             stages[i].stage = stageBits[i];
-            stages[i].module = shaders[i]->getNativeObject(nvrhi::ObjectTypes::VK_ShaderModule);
+            stages[i].module = vkHandleFrom<VkShaderModule>(shaders[i]->getNativeObject(nvrhi::ObjectTypes::VK_ShaderModule));
             stages[i].pName = shaders[i]->getDesc().entryName.c_str();
         }
 
@@ -12648,8 +12678,8 @@ extern "C"
         for (const auto& attachment : fbDesc.colorAttachments)
         {
             VkRenderingAttachmentInfo a{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-            a.imageView = attachment.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView, attachment.format,
-                attachment.subresources, nvrhi::TextureDimension::Texture2D);
+            a.imageView = vkHandleFrom<VkImageView>(attachment.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView, attachment.format,
+                attachment.subresources, nvrhi::TextureDimension::Texture2D));
             a.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             a.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             a.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -12659,8 +12689,8 @@ extern "C"
         bool hasStencil = false;
         if (fbDesc.depthAttachment.valid())
         {
-            depthAttachment.imageView = fbDesc.depthAttachment.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView,
-                fbDesc.depthAttachment.format, fbDesc.depthAttachment.subresources, nvrhi::TextureDimension::Texture2D);
+            depthAttachment.imageView = vkHandleFrom<VkImageView>(fbDesc.depthAttachment.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView,
+                fbDesc.depthAttachment.format, fbDesc.depthAttachment.subresources, nvrhi::TextureDimension::Texture2D));
             depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -12686,10 +12716,10 @@ extern "C"
     // A raw pass's indexed draw: its vertex and index buffers (R16_UINT indices, else 32-bit).
     static void RawDrawIndexed(VkCommandBuffer cmd, const RawDraw& draw)
     {
-        const VkBuffer vertexBuffer = draw.vertexBuffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer);
+        const VkBuffer vertexBuffer = vkHandleFrom<VkBuffer>(draw.vertexBuffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer));
         const VkDeviceSize offset = 0;
         VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-        VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBindIndexBuffer(cmd, draw.indexBuffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer), 0,
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBindIndexBuffer(cmd, vkHandleFrom<VkBuffer>(draw.indexBuffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer)), 0,
             draw.indexBuffer->getDesc().format == nvrhi::Format::R16_UINT ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
         VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdDrawIndexed(cmd, draw.indexCount, 1, 0, 0, 0);
     }
@@ -12842,15 +12872,15 @@ extern "C"
                     write.descriptorType = ConvertRawDescriptorType(d.type);
                     if (d.type == RawDescriptor_ConstantBuffer)
                     {
-                        bufferInfos[i] = { VkBuffer(d.buffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer)), 0, VK_WHOLE_SIZE };
+                        bufferInfos[i] = { vkHandleFrom<VkBuffer>(d.buffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer)), 0, VK_WHOLE_SIZE };
                         write.pBufferInfo = &bufferInfos[i];
                     }
                     else
                     {
                         if (d.texture)
-                            imageInfos[i].imageView = d.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView);
+                            imageInfos[i].imageView = vkHandleFrom<VkImageView>(d.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView));
                         if (d.sampler)
-                            imageInfos[i].sampler = d.sampler->getNativeObject(nvrhi::ObjectTypes::VK_Sampler);
+                            imageInfos[i].sampler = vkHandleFrom<VkSampler>(d.sampler->getNativeObject(nvrhi::ObjectTypes::VK_Sampler));
                         imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                         write.pImageInfo = &imageInfos[i];
                     }
@@ -13051,15 +13081,15 @@ extern "C"
             size = properties.uniformBufferDescriptorSize;
             break;
         case RawDescriptor_Sampler:
-            sampler = descriptor.sampler->getNativeObject(nvrhi::ObjectTypes::VK_Sampler);
+            sampler = vkHandleFrom<VkSampler>(descriptor.sampler->getNativeObject(nvrhi::ObjectTypes::VK_Sampler));
             info.data.pSampler = &sampler;
             size = properties.samplerDescriptorSize;
             break;
         default:
             if (descriptor.texture)
-                imageInfo.imageView = descriptor.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView);
+                imageInfo.imageView = vkHandleFrom<VkImageView>(descriptor.texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView));
             if (descriptor.sampler)
-                imageInfo.sampler = descriptor.sampler->getNativeObject(nvrhi::ObjectTypes::VK_Sampler);
+                imageInfo.sampler = vkHandleFrom<VkSampler>(descriptor.sampler->getNativeObject(nvrhi::ObjectTypes::VK_Sampler));
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             if (descriptor.type == RawDescriptor_TextureSampler)
             {

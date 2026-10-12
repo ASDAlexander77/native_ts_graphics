@@ -131,7 +131,7 @@ def main():
     parser.add_argument("--name", required=True, help="the example: lib<name>.so, the app's label")
     parser.add_argument("--package", help="the application ID (default: org.native_ts_graphics.<name>)")
     parser.add_argument("--lib", required=True, help="the example's shared library")
-    parser.add_argument("--abi", required=True, help="its Android ABI: arm64-v8a or x86_64")
+    parser.add_argument("--abi", required=True, help="its Android ABI: arm64-v8a, armeabi-v7a or x86_64")
     parser.add_argument("--assets", action="append", default=[], metavar="SOURCE=PATH",
                         help="a file or folder to package, and its path among the assets")
     parser.add_argument("--sdk", required=True, help="the Android SDK")
