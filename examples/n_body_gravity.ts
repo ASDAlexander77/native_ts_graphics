@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { dot3, matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, XM_PI } from "../core/directx_math";
 
 namespace NBodyGravity {
@@ -516,38 +517,42 @@ namespace NBodyGravity {
         return "";
     }
 
+    class NBodyGravityArgs extends Args {
+        // -steps <n>: simulation steps per frame (10 by default).
+        stepsPerFrame = DEFAULT_STEPS_PER_FRAME;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-steps" && i + 1 < this.argc) {
+                    this.stepsPerFrame = parseInt(this[i + 1]);
+                    i++;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("n_body_gravity");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -steps <n>: simulation steps per frame (10 by default).
+        const args = new NBodyGravityArgs();
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
+        args.parseArgs(argc, argv, TEST_FRAMES);
+
         // UNORM back buffers, as the sample's R8G8B8A8_UNORM; a compute queue for the simulation.
-        let options = AppOptions.UnormBackBuffer | AppOptions.ComputeQueue;
-        let stepsPerFrame = DEFAULT_STEPS_PER_FRAME;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-steps" && i + 1 < argc) {
-                stepsPerFrame = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const options = AppOptions.UnormBackBuffer | AppOptions.ComputeQueue | args.options;
 
         // The sample's window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
         const pass = new NBodyGravityPass(app);
-        pass.stepsPerFrame = stepsPerFrame;
+        pass.stepsPerFrame = args.stepsPerFrame;
         if (!pass.init()) {
             app.destroy();
             return 1;
@@ -557,7 +562,7 @@ namespace NBodyGravity {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             result = app.finishTest(checkFrame(app));
         }
         app.destroy();

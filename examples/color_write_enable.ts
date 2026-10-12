@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace ColorWriteEnable {
     const WINDOW_TITLE = "Donut Example: Color Write Enable";
@@ -218,42 +219,41 @@ namespace ColorWriteEnable {
         }
     }
 
+    class ColorWriteEnableArgs extends Args {
+        // -nored, -nogreen, -noblue: the targets' initial write switches.
+        r = true;
+        g = true;
+        b = true;
+        // -background <r> <g> <b>: the initial background color.
+        background: number[] = [0.5, 0.5, 0.5];
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-nored") {
+                    this.r = false;
+                } else if (arg == "-nogreen") {
+                    this.g = false;
+                } else if (arg == "-noblue") {
+                    this.b = false;
+                } else if (arg == "-background" && i + 3 < this.argc) {
+                    for (let k = 0; k < 3; k++) {
+                        this.background[k] = parseFloat(this[i + 1 + k]);
+                    }
+                    i += 3;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("color_write_enable");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -nored, -nogreen, -noblue: the targets' initial write switches.
-        // -background <r> <g> <b>: the initial background color.
-        let options = AppOptions.None;
-        let withUI = true;
-        let r = true;
-        let g = true;
-        let b = true;
-        let background: number[] = [0.5, 0.5, 0.5];
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-nored") {
-                r = false;
-            } else if (arg == "-nogreen") {
-                g = false;
-            } else if (arg == "-noblue") {
-                b = false;
-            } else if (arg == "-background" && i + 3 < argc) {
-                for (let k = 0; k < 3; k++) {
-                    background[k] = parseFloat(Donut_GetArg(argv, i + 1 + k));
-                }
-                i += 3;
-            }
-        }
+        const args = new ColorWriteEnableArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -262,11 +262,11 @@ namespace ColorWriteEnable {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new ColorWriteEnablePass(app);
-        sample.rBitEnabled = r;
-        sample.gBitEnabled = g;
-        sample.bBitEnabled = b;
+        sample.rBitEnabled = args.r;
+        sample.gBitEnabled = args.g;
+        sample.bBitEnabled = args.b;
         for (let k = 0; k < 3; k++) {
-            sample.backgroundColor[k] = background[k];
+            sample.backgroundColor[k] = args.background[k];
         }
         if (!sample.init()) {
             app.destroy();
@@ -275,7 +275,7 @@ namespace ColorWriteEnable {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

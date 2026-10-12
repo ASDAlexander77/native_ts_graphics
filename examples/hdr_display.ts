@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace HdrDisplay {
     const WINDOW_TITLE = "D3D12 HDR sample";
@@ -549,34 +550,35 @@ namespace HdrDisplay {
         return "";
     }
 
+    class HdrDisplayArgs extends Args {
+        // -testFormat 8|10|16: the bits of the back buffers of -test.
+        testFormat = 8;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-testFormat" && i + 1 < this.argc) {
+                    i++;
+                    this.testFormat = parseInt(this[i]);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("hdr_display");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
         // -noui: without the UI layer (U).
         // -test [-testOutput <file>] [-testFormat 8|10|16]: render a few frames without a window,
         // with back buffers of that many bits (8 by default), and check the last one (checkFrame).
-        // UNORM back buffers, as the sample's R8G8B8A8_UNORM; R10G10B10A2 and scRGB too.
-        let options = AppOptions.UnormBackBuffer;
-        let noUI = false;
-        let testFormat = 8;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                noUI = true;
-            } else if (arg == "-testFormat" && i + 1 < argc) {
-                i++;
-                testFormat = parseInt(Donut_GetArg(argv, i));
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const args = new HdrDisplayArgs();
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
-        // The sample's window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options | AppOptions.HdrBackBuffer);
+        // The sample's window, with UNORM back buffers, as the sample's R8G8B8A8_UNORM; R10G10B10A2
+        // and scRGB too.
+        const options = AppOptions.UnormBackBuffer | args.options;
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options | AppOptions.HdrBackBuffer);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -589,12 +591,12 @@ namespace HdrDisplay {
         }
         // The sample starts with 8-bit back buffers.
         pass.setBitDepth(BIT_DEPTH_8);
-        if (noUI) {
+        if (args.noUI) {
             pass.enableUI = false;
         }
-        if (test && testFormat == 10) {
+        if (args.test && args.testFormat == 10) {
             pass.setBitDepth(BIT_DEPTH_10);
-        } else if (test && testFormat == 16) {
+        } else if (args.test && args.testFormat == 16) {
             pass.setBitDepth(BIT_DEPTH_16);
         }
 
@@ -602,8 +604,8 @@ namespace HdrDisplay {
 
         app.run();
         let result = 0;
-        if (test) {
-            result = app.finishTest(checkFrame(app, pass));
+        if (args.test) {
+            result =app.finishTest(checkFrame(app, pass));
         }
         app.destroy();
         return result;

@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace DynamicRenderingLocalRead {
     const WINDOW_TITLE = "Donut Example: Dynamic Rendering Local Read";
@@ -680,25 +681,10 @@ namespace DynamicRenderingLocalRead {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_rendering_local_read");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the overlay.
-        // -benchmark: the lights' random engine seeded with 0 (as vulkan_samples' --benchmark).
-        let options = AppOptions.None;
-        let withUI = true;
-        let benchmark = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-benchmark") {
-                benchmark = true;
-            }
-        }
+        const args = new Args();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -707,7 +693,8 @@ namespace DynamicRenderingLocalRead {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new LocalReadPass(app);
-        sample.benchmark = benchmark;
+        // -benchmark: the lights' random engine seeded with 0 (as vulkan_samples' --benchmark).
+        sample.benchmark = args.benchmark;
         if (!sample.init()) {
             app.destroy();
             return 1;
@@ -715,7 +702,7 @@ namespace DynamicRenderingLocalRead {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

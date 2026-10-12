@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace PatchControlPoints {
     const WINDOW_TITLE = "Donut Example: Patch Control Points";
@@ -457,33 +458,32 @@ namespace PatchControlPoints {
         }
     }
 
+    class PatchControlPointsArgs extends Args {
+        // -notessellation, -level <3..7>: the settings' initial values.
+        tessellation = true;
+        tessLevel = 3.0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-notessellation") {
+                    this.tessellation = false;
+                } else if (arg == "-level" && i + 1 < this.argc) {
+                    i++;
+                    this.tessLevel = Math.min(Math.max(parseFloat(this[i]), 3.0), 7.0);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("patch_control_points");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -notessellation, -level <3..7>: the settings' initial values.
-        let options = AppOptions.None;
-        let withUI = true;
-        let tessellation = true;
-        let tessLevel = 3.0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-notessellation") {
-                tessellation = false;
-            } else if (arg == "-level" && i + 1 < argc) {
-                i++;
-                tessLevel = Math.min(Math.max(parseFloat(Donut_GetArg(argv, i)), 3.0), 7.0);
-            }
-        }
+        const args = new PatchControlPointsArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -492,8 +492,8 @@ namespace PatchControlPoints {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new PatchControlPointsPass(app);
-        sample.tessellation = tessellation;
-        sample.tessLevel = tessLevel;
+        sample.tessellation = args.tessellation;
+        sample.tessLevel = args.tessLevel;
         if (!sample.init()) {
             app.destroy();
             return 1;
@@ -501,7 +501,7 @@ namespace PatchControlPoints {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

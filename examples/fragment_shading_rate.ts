@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace FragmentShadingRate {
     const WINDOW_TITLE = "Donut Example: Fragment Shading Rate";
@@ -511,35 +512,36 @@ namespace FragmentShadingRate {
         }
     }
 
+    class FragmentShadingRateArgs extends Args {
+        // -color: the shading rates shown.
+        color = false;
+        // -noattachment: the full rate everywhere.
+        noAttachment = false;
+        // -nosky: without the sky sphere.
+        noSky = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-color") {
+                    this.color = true;
+                } else if (arg == "-noattachment") {
+                    this.noAttachment = true;
+                } else if (arg == "-nosky") {
+                    this.noSky = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shading_rate");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window. -color: the shading rates shown. -noattachment: the
-        // full rate everywhere. -nosky: without the sky sphere.
-        let options = AppOptions.None;
-        let withUI = true;
-        let color = false;
-        let noAttachment = false;
-        let noSky = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-color") {
-                color = true;
-            } else if (arg == "-noattachment") {
-                noAttachment = true;
-            } else if (arg == "-nosky") {
-                noSky = true;
-            }
-        }
+        const args = new FragmentShadingRateArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -558,13 +560,13 @@ namespace FragmentShadingRate {
             app.destroy();
             return 1;
         }
-        pass.colorShadingRate = color;
-        pass.enableAttachmentShadingRate = !noAttachment;
-        pass.displaySkySphere = !noSky;
+        pass.colorShadingRate = args.color;
+        pass.enableAttachmentShadingRate = !args.noAttachment;
+        pass.displaySkySphere = !args.noSky;
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(pass);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

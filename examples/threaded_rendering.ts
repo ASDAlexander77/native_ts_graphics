@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace ThreadedRendering {
     // GLFW values, as passed to the keyboard callback.
@@ -142,27 +143,22 @@ namespace ThreadedRendering {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("threaded_rendering");
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api == GraphicsAPI.D3D11) {
+        const args = new Args();
+        args.parseArgs(argc, argv);
+
+        if (args.api == GraphicsAPI.D3D11) {
             console.log("The Threaded Rendering example does not support D3D11.");
             return 1;
         }
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
         // --scene <path>: relative to the executable's directory, or absolute.
-        let options = AppOptions.None;
         let scenePath = DEFAULT_SCENE;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "--scene" && i + 1 < argc) {
-                scenePath = Donut_GetArg(argv, i + 1);
-            }
+        if (args.scenePath != "") {
+            scenePath = args.scenePath;
         }
 
         // The window size matches the layout of the rendered cube faces.
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1024, 768, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1024, 768, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;

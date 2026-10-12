@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace VariableShading {
     const WINDOW_TITLE = "Donut Example: Variable Rate Shading";
@@ -269,35 +270,38 @@ namespace VariableShading {
         }
     }
 
+    class VariableShadingArgs extends Args {
+        // -raw: on D3D12, bind the shading rate surface through the D3D12 API directly.
+        rawD3D12 = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                if (this[i] == "-raw") {
+                    this.rawD3D12 = this.api == GraphicsAPI.D3D12;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("variable_shading");
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api == GraphicsAPI.D3D11) {
+        const args = new VariableShadingArgs();
+        args.parseArgs(argc, argv);
+
+        // --scene <path>: relative to the executable's directory, or absolute.
+        let scenePath = DEFAULT_SCENE;
+        if (args.scenePath != "") {
+            scenePath = args.scenePath;
+        }
+
+        if (args.api == GraphicsAPI.D3D11) {
             console.log("The Variable Rate Shading example does not support D3D11.");
             return 1;
         }
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -raw: on D3D12, bind the shading rate surface through the D3D12 API directly.
-        // --scene <path>: relative to the executable's directory, or absolute.
-        let options = AppOptions.None;
-        let rawD3D12 = false;
-        let scenePath = DEFAULT_SCENE;
-        for (let i = 1; i < argc; i++) {
-            if (Donut_GetArg(argv, i) == "-debug") {
-                options = AppOptions.DebugRuntime;
-            }
-            if (Donut_GetArg(argv, i) == "-raw") {
-                rawD3D12 = api == GraphicsAPI.D3D12;
-            }
-            if (Donut_GetArg(argv, i) == "--scene" && i + 1 < argc) {
-                scenePath = Donut_GetArg(argv, i + 1);
-            }
-        }
-
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -311,7 +315,7 @@ namespace VariableShading {
 
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        const variableRateShading = new VariableRateShadingPass(app, rawD3D12);
+        const variableRateShading = new VariableRateShadingPass(app, args.rawD3D12);
         if (!variableRateShading.init(scenePath)) {
             app.destroy();
             return 1;

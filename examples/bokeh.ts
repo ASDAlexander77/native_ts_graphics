@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { SdkMesh } from "../core/sdk_mesh";
 
 namespace Bokeh {
@@ -1230,34 +1231,37 @@ namespace Bokeh {
         }
     }
 
+    class BokehArgs extends Args {
+        // -preset N: start with preset scene N (0..3; Down cycles them).
+        preset: int = 0;
+        // -slow: start with the full (not the fast) bokeh geometry shader (Up toggles it).
+        slow = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-preset" && i + 1 < this.argc) {
+                    this.preset = Math.floor(parseFloat(this[i + 1]));
+                    i++;
+                } else if (arg == "-slow") {
+                    this.slow = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("bokeh");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -preset N: start with preset scene N (0..3; Down cycles them).
-        // -slow: start with the full (not the fast) bokeh geometry shader (Up toggles it).
-        let options = AppOptions.UnormBackBuffer;
-        let preset: int = 0;
-        let slow = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-preset" && i + 1 < argc) {
-                preset = Math.floor(parseFloat(Donut_GetArg(argv, i + 1)));
-                i++;
-            } else if (arg == "-slow") {
-                slow = true;
-            }
-        }
+        const args = new BokehArgs();
+        args.parseArgs(argc, argv);
 
         // The sample's R8G8B8A8_UNORM back buffers (its FP16 scene copied as is), in a 1280 x 720
         // window.
         const width = 1280;
         const height = 720;
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, width, height, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, width, height, AppOptions.UnormBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -1275,9 +1279,9 @@ namespace Bokeh {
             app.destroy();
             return 1;
         }
-        sample.presetScene = preset % PRESET_SCENE_COUNT;
+        sample.presetScene = args.preset % PRESET_SCENE_COUNT;
         sample.setPredefinedScene(sample.presetScene);
-        sample.useFastShader = !slow;
+        sample.useFastShader = !args.slow;
 
         const input = new InputPass(app.handle);
 

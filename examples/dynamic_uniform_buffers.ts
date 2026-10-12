@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace DynamicUniformBuffers {
     const WINDOW_TITLE = "Donut Example: Dynamic Uniform Buffers";
@@ -429,29 +430,28 @@ namespace DynamicUniformBuffers {
         }
     }
 
+    class DynamicUniformBuffersArgs extends Args {
+        // -pause: the cubes not turning.
+        paused = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-pause") {
+                    this.paused = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_uniform_buffers");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -benchmark: 1/60 second per frame and fixed random numbers (as vulkan_samples' --benchmark).
-        // -pause: the cubes not turning.
-        let options = AppOptions.None;
-        let benchmark = false;
-        let paused = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-benchmark") {
-                benchmark = true;
-            } else if (arg == "-pause") {
-                paused = true;
-            }
-        }
+        const args = new DynamicUniformBuffersArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -460,8 +460,8 @@ namespace DynamicUniformBuffers {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const pass = new DynamicUniformBuffersPass(app);
-        pass.benchmark = benchmark;
-        pass.paused = paused;
+        pass.benchmark = args.benchmark;
+        pass.paused = args.paused;
         if (!pass.init()) {
             app.destroy();
             return 1;

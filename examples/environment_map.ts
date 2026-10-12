@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace EnvironmentMap {
     // GLFW values, as passed to the keyboard callback.
@@ -269,36 +270,41 @@ namespace EnvironmentMap {
         }
     }
 
+    class EnvironmentMapArgs extends Args {
+        // -ktx2: the environment map from its KTX 2 file instead of the DDS one.
+        useKtx2 = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-ktx2") {
+                    this.useKtx2 = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("environment_map");
 
-        // -ktx2: the environment map from its KTX 2 file instead of the DDS one.
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
+        const args = new EnvironmentMapArgs();
+        args.parseArgs(argc, argv);
+
         // --scene <path>: relative to the executable's directory, or absolute.
-        let useKtx2 = false;
-        let options = AppOptions.None;
         let scenePath = DEFAULT_SCENE;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-ktx2") {
-                useKtx2 = true;
-            } else if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "--scene" && i + 1 < argc) {
-                scenePath = Donut_GetArg(argv, i + 1);
-            }
+        if (args.scenePath != "") {
+            scenePath = args.scenePath;
         }
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        const environmentMap = new EnvironmentMapExample(app, useKtx2);
+        const environmentMap = new EnvironmentMapExample(app, args.useKtx2);
         if (!environmentMap.init(scenePath)) {
             app.destroy();
             return 1;

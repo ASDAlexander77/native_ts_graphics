@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace WaveIntrinsics {
     const WINDOW_TITLE = "D3D12 Shader Model 6 WaveIntrinsics Sample";
@@ -363,19 +364,11 @@ namespace WaveIntrinsics {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("wave_intrinsics");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
-        let options = AppOptions.UnormBackBuffer;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            }
-        }
+        const args = new Args();
+        args.parseArgs(argc, argv);
 
-        // The sample's window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        // The sample's window. UNORM back buffers, as the sample's R8G8B8A8_UNORM.
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.UnormBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;

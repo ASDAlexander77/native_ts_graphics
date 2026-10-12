@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace Msaa {
     const WINDOW_TITLE = "Donut Example: MSAA";
@@ -953,55 +954,56 @@ namespace Msaa {
         }
     }
 
+    class MsaaArgs extends Args {
+        // -samples <n>: n samples per pixel (1 for no MSAA) instead of the preferred supported count.
+        samples = 0;
+        // -post: with the post-processing pass.
+        postprocessing = false;
+        // -separate: the color resolved in a separate pass.
+        separate = false;
+        // -nodepthresolve: the post-processing reads multisampled depth even where the render pass
+        // can resolve it.
+        noDepthResolve = false;
+        // -depthresolve zero|average|min|max: the depth resolve mode.
+        depthResolveMode: ResolveMode = ResolveMode.None;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-samples" && i + 1 < this.argc) {
+                    this.samples = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-post") {
+                    this.postprocessing = true;
+                } else if (arg == "-separate") {
+                    this.separate = true;
+                } else if (arg == "-nodepthresolve") {
+                    this.noDepthResolve = true;
+                } else if (arg == "-depthresolve" && i + 1 < this.argc) {
+                    const mode = this[i + 1];
+                    i++;
+                    if (mode == "zero") {
+                        this.depthResolveMode = ResolveMode.SampleZero;
+                    } else if (mode == "average") {
+                        this.depthResolveMode = ResolveMode.Average;
+                    } else if (mode == "min") {
+                        this.depthResolveMode = ResolveMode.Min;
+                    } else if (mode == "max") {
+                        this.depthResolveMode = ResolveMode.Max;
+                    }
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("msaa");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window.
-        // -samples <n>: n samples per pixel (1 for no MSAA) instead of the preferred supported count.
-        // -post: with the post-processing pass. -separate: the color resolved in a separate pass.
-        // -nodepthresolve: the post-processing reads multisampled depth even where the render pass
-        // can resolve it. -depthresolve zero|average|min|max: the depth resolve mode.
-        let options = AppOptions.None;
-        let withUI = true;
-        let samples = 0;
-        let postprocessing = false;
-        let separate = false;
-        let noDepthResolve = false;
-        let depthResolveMode = ResolveMode.None;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-samples" && i + 1 < argc) {
-                samples = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-post") {
-                postprocessing = true;
-            } else if (arg == "-separate") {
-                separate = true;
-            } else if (arg == "-nodepthresolve") {
-                noDepthResolve = true;
-            } else if (arg == "-depthresolve" && i + 1 < argc) {
-                const mode = Donut_GetArg(argv, i + 1);
-                i++;
-                if (mode == "zero") {
-                    depthResolveMode = ResolveMode.SampleZero;
-                } else if (mode == "average") {
-                    depthResolveMode = ResolveMode.Average;
-                } else if (mode == "min") {
-                    depthResolveMode = ResolveMode.Min;
-                } else if (mode == "max") {
-                    depthResolveMode = ResolveMode.Max;
-                }
-            }
-        }
+        const args = new MsaaArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -1014,27 +1016,27 @@ namespace Msaa {
             app.destroy();
             return 1;
         }
-        if (samples > 0) {
-            if ((msaa.supportedSampleCounts & samples) != 0) {
-                msaa.sampleCount = samples;
+        if (args.samples > 0) {
+            if ((msaa.supportedSampleCounts & args.samples) != 0) {
+                msaa.sampleCount = args.samples;
             } else {
-                console.log(`${samples} samples per pixel aren't supported: ${sampleCountName(msaa.sampleCount)}`);
+                console.log(`${args.samples} samples per pixel aren't supported: ${sampleCountName(msaa.sampleCount)}`);
             }
         }
-        msaa.postprocessing = postprocessing;
-        if (separate) {
+        msaa.postprocessing = args.postprocessing;
+        if (args.separate) {
             msaa.colorResolveMethod = RESOLVE_SEPARATE;
         }
-        if (noDepthResolve) {
+        if (args.noDepthResolve) {
             msaa.resolveDepthOnWriteback = false;
         }
-        if (depthResolveMode != ResolveMode.None && (msaa.depthResolveModes & (1 << depthResolveMode)) != 0) {
-            msaa.depthResolveMode = depthResolveMode;
+        if (args.depthResolveMode != ResolveMode.None && (msaa.depthResolveModes & (1 << args.depthResolveMode)) != 0) {
+            msaa.depthResolveMode = args.depthResolveMode;
         }
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(msaa);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

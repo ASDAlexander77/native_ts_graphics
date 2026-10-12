@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { PagedImageSet } from "../core/paged_images";
 
 namespace MemoryManagement {
@@ -747,46 +748,50 @@ namespace MemoryManagement {
         return "";
     }
 
+    class MemoryManagementArgs extends Args {
+        // -budget <MB>: the budget override to start with (0: the kernel's); with -budgetFrame <n>,
+        // set at frame n instead (e.g. after everything is paged in, to trim).
+        budgetMB = 0.0;
+        budgetFrame = 0;
+        // -mips, -stats: the mip overlays and the statistics on from the start.
+        mips = false;
+        stats = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-budget" && i + 1 < this.argc) {
+                    this.budgetMB = parseFloat(this[i + 1]);
+                    i++;
+                } else if (arg == "-budgetFrame" && i + 1 < this.argc) {
+                    this.budgetFrame = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-mips") {
+                    this.mips = true;
+                } else if (arg == "-stats") {
+                    this.stats = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("memory_management");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -budget <MB>: the budget override to start with (0: the kernel's); with -budgetFrame <n>,
-        // set at frame n instead (e.g. after everything is paged in, to trim).
-        // -mips, -stats: the mip overlays and the statistics on from the start.
         // -test [-testOutput <file>]: render a few frames without a window, each after the paging
         // thread goes idle, and check the result (see checkResult).
-        let options = AppOptions.UnormBackBuffer;
-        let budgetMB = 0.0;
-        let budgetFrame = 0;
-        let mips = false;
-        let stats = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-budget" && i + 1 < argc) {
-                budgetMB = parseFloat(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-budgetFrame" && i + 1 < argc) {
-                budgetFrame = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-mips") {
-                mips = true;
-            } else if (arg == "-stats") {
-                stats = true;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const args = new MemoryManagementArgs();
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
         // Residency (MakeResident / Evict) is D3D12's.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api != GraphicsAPI.D3D12) {
+        if (args.api != GraphicsAPI.D3D12) {
             console.log("The Memory Management example can only run on D3D12.");
             return 1;
         }
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
+        const options = AppOptions.UnormBackBuffer | args.options;
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -800,18 +805,18 @@ namespace MemoryManagement {
             app.destroy();
             return 1;
         }
-        const budgetOverride = budgetMB * MB;
-        if (budgetFrame == 0) {
+        const budgetOverride = args.budgetMB * MB;
+        if (args.budgetFrame == 0) {
             images.setBudgetOverride(budgetOverride);
         }
 
         const sample = new MemoryManagementPass(app, images);
-        sample.drawMipColors = mips;
-        sample.renderStats = stats;
-        sample.waitForIdle = test;
-        if (budgetFrame > 0) {
+        sample.drawMipColors = args.mips;
+        sample.renderStats = args.stats;
+        sample.waitForIdle = args.test;
+        if (args.budgetFrame > 0) {
             sample.delayedBudget = budgetOverride;
-            sample.delayedBudgetFrame = budgetFrame;
+            sample.delayedBudgetFrame = args.budgetFrame;
         }
         if (!sample.init()) {
             images.destroy();
@@ -830,8 +835,8 @@ namespace MemoryManagement {
 
         app.run();
         let result = 0;
-        if (test) {
-            result = app.finishTest(checkResult(app, images, budgetOverride));
+        if (args.test) {
+            result =app.finishTest(checkResult(app, images, budgetOverride));
         }
         images.destroy();
         app.destroy();

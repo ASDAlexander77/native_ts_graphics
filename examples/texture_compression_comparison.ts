@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { TranscodedTexture } from "../core/transcoded_texture";
 
 namespace TextureCompressionComparison {
@@ -626,30 +627,29 @@ namespace TextureCompressionComparison {
         }
     }
 
+    class TextureCompressionComparisonArgs extends Args {
+        // -format <n>: 0 RGBA 32 (the default), 1 BC7, 2 BC3, 3 ASTC 4x4, 4 ETC2.
+        format: int = 0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-format" && i + 1 < this.argc) {
+                    this.format = Math.min(4, Math.max(0, parseInt(this[i + 1])));
+                    i++;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_compression_comparison");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window.
-        // -format <n>: 0 RGBA 32 (the default), 1 BC7, 2 BC3, 3 ASTC 4x4, 4 ETC2.
-        let options = AppOptions.None;
-        let withUI = true;
-        let format: int = 0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-format" && i + 1 < argc) {
-                format = Math.min(4, Math.max(0, parseInt(Donut_GetArg(argv, i + 1))));
-                i++;
-            }
-        }
+        const args = new TextureCompressionComparisonArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -662,16 +662,16 @@ namespace TextureCompressionComparison {
             app.destroy();
             return 1;
         }
-        pass.guiFormat = format;
-        if (pass.isFormatSupported(format)) {
-            pass.currentFormat = format;
+        pass.guiFormat = args.format;
+        if (pass.isFormatSupported(args.format)) {
+            pass.currentFormat = args.format;
         } else {
-            console.log(`${SHORT_NAMES[format]} isn't supported here: ${SHORT_NAMES[pass.currentFormat]}`);
+            console.log(`${SHORT_NAMES[args.format]} isn't supported here: ${SHORT_NAMES[pass.currentFormat]}`);
         }
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(pass);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

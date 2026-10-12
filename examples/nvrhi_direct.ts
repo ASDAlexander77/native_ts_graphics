@@ -2,6 +2,7 @@
 // donut_interop.d.ts), whose code every example links from its object. Referencing donut.ts here
 // would compile that code into this object too, defining its symbols twice.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { nvrhi } from "../core/nvrhi";
 
 namespace NvrhiDirect {
@@ -286,27 +287,37 @@ namespace NvrhiDirect {
         readback.Release();
     }
 
+    class NvrhiDirectArgs extends Args {
+        // --help: print the usage and exit.
+        help = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                if (this[i] == "--help") {
+                    this.help = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("nvrhi_direct");
+
+        const args = new NvrhiDirectArgs();
+        args.parseArgs(argc, argv);
+
         Donut_SetLogMinSeverity(LogSeverity.Warning);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        let options = AppOptions.None;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "--help") {
-                console.log(`Usage: ${Donut_GetArg(argv, 0)} [options]
+        const api = args.api;
+        const options = args.options;
+        if (args.help) {
+            console.log(`Usage: ${args[0]} [options]
  -dx12            Use DX12 API (default)
  -vk              Use Vulkan API
  -debug           Enable the graphics API's debug layer and NVRHI's validation layer
  -test            Accepted for the test runner: it always runs headless`);
-                return 0;
-            }
-
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            }
+            return 0;
         }
 
         // the devices made from here on report to messageLog

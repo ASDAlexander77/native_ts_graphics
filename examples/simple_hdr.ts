@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace SimpleHdr {
     const WINDOW_TITLE = "Donut Example: Simple HDR";
@@ -673,35 +674,39 @@ namespace SimpleHdr {
         }
     }
 
+    class SimpleHdrArgs extends Args {
+        // -curve: start with the ST.2084 curve.
+        curve = false;
+        // -bright: the bright blocks without the countdown.
+        bright = false;
+        // -sdr: the SDR signal (sRGB back buffers) even on an HDR display.
+        sdr = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-curve") {
+                    this.curve = true;
+                } else if (arg == "-bright") {
+                    this.bright = true;
+                } else if (arg == "-sdr") {
+                    this.sdr = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_hdr");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -curve: start with the ST.2084 curve. -bright: the bright blocks without the countdown.
-        // -sdr: the SDR signal (sRGB back buffers) even on an HDR display.
-        let options = AppOptions.HdrBackBuffer;
-        let curve = false;
-        let bright = false;
-        let sdr = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-curve") {
-                curve = true;
-            } else if (arg == "-bright") {
-                bright = true;
-            } else if (arg == "-sdr") {
-                sdr = true;
-            }
-        }
+        const args = new SimpleHdrArgs();
+        args.parseArgs(argc, argv);
 
         // The sample's 1920 x 1080, in a smaller window.
         const width = 1280;
         const height = 720;
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, width, height, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, width, height, AppOptions.HdrBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -721,10 +726,10 @@ namespace SimpleHdr {
             return 1;
         }
         sample.initPrepareSwapChain();
-        sample.apiName = api == GraphicsAPI.D3D11 ? "DirectX 11" : api == GraphicsAPI.D3D12 ? "DirectX 12" : "Vulkan";
-        sample.render2084Curve = curve;
-        sample.forceSdr = sdr;
-        if (bright) {
+        sample.apiName = args.api == GraphicsAPI.D3D11 ? "DirectX 11" : args.api == GraphicsAPI.D3D12 ? "DirectX 12" : "Vulkan";
+        sample.render2084Curve = args.curve;
+        sample.forceSdr = args.sdr;
+        if (args.bright) {
             sample.countDownToBright = -1.0;
             sample.showOnlyPaperWhite = false;
         }

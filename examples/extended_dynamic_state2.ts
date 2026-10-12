@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace ExtendedDynamicState2 {
     const WINDOW_TITLE = "Donut Example: Extended Dynamic State 2";
@@ -741,46 +742,43 @@ namespace ExtendedDynamicState2 {
         }
     }
 
+    class ExtendedDynamicState2Args extends Args {
+        // -tessellation <factor>: tessellation on.
+        tessFactor = 0.0;
+        // -bias <object>, -discard <object>: depth bias or rasterizer discard for an object of the
+        // UI's list.
+        bias = -1;
+        discard = -1;
+        // -noselection: the selection effect off.
+        selection = true;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-tessellation" && i + 1 < this.argc) {
+                    this.tessFactor = parseFloat(this[i + 1]);
+                    i++;
+                } else if (arg == "-bias" && i + 1 < this.argc) {
+                    this.bias = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-discard" && i + 1 < this.argc) {
+                    this.discard = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-noselection") {
+                    this.selection = false;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("extended_dynamic_state2");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window. -benchmark: 1/60 second per frame (as vulkan_samples'
-        // --benchmark). -tessellation <factor>: tessellation on. -bias <object>, -discard <object>:
-        // depth bias or rasterizer discard for an object of the UI's list. -noselection: the
-        // selection effect off.
-        let options = AppOptions.None;
-        let withUI = true;
-        let benchmark = false;
-        let tessFactor = 0.0;
-        let bias = -1;
-        let discard = -1;
-        let selection = true;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-benchmark") {
-                benchmark = true;
-            } else if (arg == "-tessellation" && i + 1 < argc) {
-                tessFactor = parseFloat(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-bias" && i + 1 < argc) {
-                bias = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-discard" && i + 1 < argc) {
-                discard = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-noselection") {
-                selection = false;
-            }
-        }
+        const args = new ExtendedDynamicState2Args();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -793,24 +791,25 @@ namespace ExtendedDynamicState2 {
             app.destroy();
             return 1;
         }
-        if (benchmark) {
+        // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).
+        if (args.benchmark) {
             pass.fixedDelta = 1.0 / 60.0;
         }
-        if (tessFactor > 0.0) {
+        if (args.tessFactor > 0.0) {
             pass.tessellation = true;
-            pass.tessFactor = Math.min(tessFactor, 4.0);
+            pass.tessFactor = Math.min(args.tessFactor, 4.0);
         }
-        if (bias >= 0 && bias < pass.baselineNodes.length) {
-            pass.baselineNodes[bias].depthBias = true;
+        if (args.bias >= 0 && args.bias < pass.baselineNodes.length) {
+            pass.baselineNodes[args.bias].depthBias = true;
         }
-        if (discard >= 0 && discard < pass.baselineNodes.length) {
-            pass.baselineNodes[discard].rasterizerDiscard = true;
+        if (args.discard >= 0 && args.discard < pass.baselineNodes.length) {
+            pass.baselineNodes[args.discard].rasterizerDiscard = true;
         }
-        pass.selectionActive = selection;
+        pass.selectionActive = args.selection;
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(pass);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

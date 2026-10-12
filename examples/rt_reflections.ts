@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace RtReflections {
     const WINDOW_TITLE = "Donut Example: Ray Traced Reflections";
@@ -370,21 +371,17 @@ namespace RtReflections {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_reflections");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
+        const args = new Args();
+        args.parseArgs(argc, argv);
+
         // --scene <path>: relative to the executable's directory, or absolute.
-        let options = AppOptions.None;
         let scenePath = DEFAULT_SCENE;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "--scene" && i + 1 < argc) {
-                scenePath = Donut_GetArg(argv, i + 1);
-            }
+        if (args.scenePath != "") {
+            scenePath = args.scenePath;
         }
 
         // Always D3D12, as in the sample: the reflection hit group's local binding layout needs it.
-        const app = App.createWithOptions(GraphicsAPI.D3D12, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(GraphicsAPI.D3D12, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;

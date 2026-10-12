@@ -2,6 +2,7 @@
 // donut_interop.d.ts), whose code every example links from its object. Referencing donut.ts here
 // would compile that code into this object too, defining its symbols twice.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { nvrhi } from "../core/nvrhi";
 
 namespace Headless {
@@ -231,21 +232,66 @@ namespace Headless {
         return 0;
     }
 
+    // What the command line asks for instead of the test (the first of them on the command line).
+    const EXIT_NONE = 0;
+    const EXIT_HELP = 1;
+    const EXIT_LIST_ADAPTERS = 2;
+    const EXIT_ADAPTER_MISSING = 3;
+
+    class HeadlessArgs extends Args {
+        // --adapter <n>: use graphics adapter with index <n> as reported by --list-adapters.
+        adapterIndex = -1;
+        // -donut: call NVRHI through Donut's wrappers even where it can be called directly.
+        forceDonut = false;
+        // --help, --list-adapters and --adapter without its value: the first of them, which ends the
+        // program before the test.
+        firstExit: int = EXIT_NONE;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "--help") {
+                    if (this.firstExit == EXIT_NONE) {
+                        this.firstExit = EXIT_HELP;
+                    }
+                }
+
+                if (arg == "-donut") {
+                    this.forceDonut = true;
+                }
+
+                if (arg == "--list-adapters") {
+                    if (this.firstExit == EXIT_NONE) {
+                        this.firstExit = EXIT_LIST_ADAPTERS;
+                    }
+                }
+
+                if (arg == "--adapter") {
+                    if (i + 1 >= this.argc) {
+                        if (this.firstExit == EXIT_NONE) {
+                            this.firstExit = EXIT_ADAPTER_MISSING;
+                        }
+                    } else {
+                        this.adapterIndex = parseInt(this[i + 1]);
+                        i++;
+                    }
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("headless");
+
+        const args = new HeadlessArgs();
+        args.parseArgs(argc, argv);
+
         // The C++ sample does this in release builds only.
         Donut_SetLogMinSeverity(LogSeverity.Warning);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        let adapterIndex = -1;
-        let options = AppOptions.None;
-        let forceDonut = false;
-
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "--help") {
-                console.log(`Usage: ${Donut_GetArg(argv, 0)} [options]
+        if (args.firstExit == EXIT_HELP) {
+            console.log(`Usage: ${args[0]} [options]
  -dx11            Use DX11 API
  -dx12            Use DX12 API (default)
  -vk              Use Vulkan API
@@ -253,40 +299,27 @@ namespace Headless {
  --adapter <n>    Use graphics adapter with index <n> as reported by --list-adapters
  -debug           Enable the graphics API's debug layer and NVRHI's validation layer
  -donut           Call NVRHI through Donut's wrappers even where it can be called directly`);
-                return 0;
-            }
-
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            }
-
-            if (arg == "-donut") {
-                forceDonut = true;
-            }
-
-            if (arg == "--list-adapters") {
-                return listAdapters(api);
-            }
-
-            if (arg == "--adapter") {
-                if (i + 1 >= argc) {
-                    console.log("--adapter requires a parameter");
-                    return 1;
-                }
-                adapterIndex = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            }
+            return 0;
         }
 
-        const app = App.createHeadlessWithOptions(api, adapterIndex, options);
+        if (args.firstExit == EXIT_LIST_ADAPTERS) {
+            return listAdapters(args.api);
+        }
+
+        if (args.firstExit == EXIT_ADAPTER_MISSING) {
+            console.log("--adapter requires a parameter");
+            return 1;
+        }
+
+        const app = App.createHeadlessWithOptions(args.api, args.adapterIndex, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
 
-        console.log(`Using ${Donut_GraphicsAPIToString(api)} API with ${app.getRendererString()}.`);
+        console.log(`Using ${Donut_GraphicsAPIToString(args.api)} API with ${app.getRendererString()}.`);
 
-        const passed = runTest(app, forceDonut);
+        const passed = runTest(app, args.forceDonut);
         app.destroy();
         return passed ? 0 : 1;
     }

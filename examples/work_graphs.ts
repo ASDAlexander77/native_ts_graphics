@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace WorkGraphs {
     const WINDOW_TITLE = "Donut Example: Work Graphs";
@@ -1340,21 +1341,15 @@ namespace WorkGraphs {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("work_graphs");
 
-        // -debug: the D3D12 debug layer and NVRHI's validation layer.
-        let options = AppOptions.None;
-        for (let i = 1; i < argc; i++) {
-            if (Donut_GetArg(argv, i) == "-debug") {
-                options = AppOptions.DebugRuntime;
-            }
-        }
+        const args = new Args();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api != GraphicsAPI.D3D12) {
+        if (args.api != GraphicsAPI.D3D12) {
             console.log("The Work Graphs example can only run on D3D12 API.");
             return 1;
         }
 
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1920, 1080, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1920, 1080, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
