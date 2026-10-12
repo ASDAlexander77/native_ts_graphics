@@ -384,9 +384,11 @@ python tools/android.py test
 - `test` runs `headless`, then installs and starts each example: it has to be running after 20 s
   (`--seconds`), and to close without a crash on Back. Screenshots and logs go to
   `build-android-x86_64/android-test`. With no examples named, it tests the ones that run on the
-  emulator, whose Vulkan is lavapipe, on the CPU, with no ray tracing or mesh shaders:
-  basic_triangle, vertex_buffer, deferred_shading, shader_specializations, threaded_rendering,
-  async_compute and feature_demo.
+  emulator: 65 of them (`EMULATOR_EXAMPLES` in `tools/android.py`). Its Vulkan is lavapipe, on the
+  CPU, so the others, which need ray tracing, mesh shaders, variable rate shading, conditional
+  rendering, push descriptors, descriptor buffers, sparse or reserved resources and the like, stop
+  at once with a message saying what the device lacks (`test` reports them as failures; they
+  are for devices).
 - `run <example>` installs and starts one and follows its log (Ctrl+C stops following);
   `--screenshot shot.png` takes a screenshot instead. `headless` runs headless alone.
 
