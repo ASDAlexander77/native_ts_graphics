@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, normalize3,
     normalize4, radians, transform3, vsub,
@@ -366,24 +367,19 @@ namespace RaytracingLibrarySubobjects {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("raytracing_library_subobjects");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        let options = AppOptions.RayTracing;
-        for (let i = 1; i < argc; i++) {
-            if (Donut_GetArg(argv, i) == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const args = new Args();
+        args.parseArgs(argc, argv, TEST_FRAMES);
+
+        const options = AppOptions.RayTracing | args.options;
 
         // The sample's window. Library subobjects are DXIL's: D3D12 only.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api != GraphicsAPI.D3D12) {
+        if (args.api != GraphicsAPI.D3D12) {
             console.log("The Raytracing Library Subobjects example can only run on D3D12 API.");
             return 1;
         }
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -405,7 +401,7 @@ namespace RaytracingLibrarySubobjects {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             result = app.finishTest(checkFrame(app));
         }
         app.destroy();

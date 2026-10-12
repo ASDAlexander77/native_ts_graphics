@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace SimpleBezier {
     const WINDOW_TITLE = "Donut Example: Simple Bezier";
@@ -559,43 +560,46 @@ namespace SimpleBezier {
         }
     }
 
+    // The initial settings: -wireframe, -partition <0..2>, -subdivs <4..16>, -rotate <steps>, -help
+    // (wireframe, partition mode, subdivisions, the camera turned by Left/Right steps, the help
+    // screen).
+    class SimpleBezierArgs extends Args {
+        wireframe = false;
+        partitionMode: int = PARTITION_INTEGER;
+        subdivs: number = DEFAULT_SUBDIVS;
+        rotateSteps = 0;
+        showHelp = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-wireframe") {
+                    this.wireframe = true;
+                } else if (arg == "-partition" && i + 1 < this.argc) {
+                    i++;
+                    this.partitionMode = Math.min(Math.max(parseInt(this[i]), 0), 2);
+                } else if (arg == "-subdivs" && i + 1 < this.argc) {
+                    i++;
+                    this.subdivs = Math.min(Math.max(Math.fround(parseFloat(this[i])), MIN_DIVS), MAX_DIVS);
+                } else if (arg == "-rotate" && i + 1 < this.argc) {
+                    i++;
+                    this.rotateSteps = parseInt(this[i]);
+                } else if (arg == "-help") {
+                    this.showHelp = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_bezier");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -wireframe, -partition <0..2>, -subdivs <4..16>, -rotate <steps>, -help: the initial
-        // settings (wireframe, partition mode, subdivisions, the camera turned by Left/Right
-        // steps, the help screen).
-        let options = AppOptions.None;
-        let wireframe = false;
-        let partitionMode: int = PARTITION_INTEGER;
-        let subdivs = DEFAULT_SUBDIVS;
-        let rotateSteps = 0;
-        let showHelp = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-wireframe") {
-                wireframe = true;
-            } else if (arg == "-partition" && i + 1 < argc) {
-                i++;
-                partitionMode = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), 0), 2);
-            } else if (arg == "-subdivs" && i + 1 < argc) {
-                i++;
-                subdivs = Math.min(Math.max(Math.fround(parseFloat(Donut_GetArg(argv, i))), MIN_DIVS), MAX_DIVS);
-            } else if (arg == "-rotate" && i + 1 < argc) {
-                i++;
-                rotateSteps = parseInt(Donut_GetArg(argv, i));
-            } else if (arg == "-help") {
-                showHelp = true;
-            }
-        }
+        const args = new SimpleBezierArgs();
+        args.parseArgs(argc, argv);
 
         // The sample's sRGB back buffers (gamma-correct rendering), in a 1280 x 720 window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -611,14 +615,14 @@ namespace SimpleBezier {
             app.destroy();
             return 1;
         }
-        sample.drawWires = wireframe;
-        sample.partitionMode = partitionMode;
-        sample.subdivs = subdivs;
-        sample.showHelp = showHelp;
-        if (rotateSteps > 0) {
-            sample.rotateCamera(ROTATION_ANGLE_PER_STEP, rotateSteps);
-        } else if (rotateSteps < 0) {
-            sample.rotateCamera(-ROTATION_ANGLE_PER_STEP, -rotateSteps);
+        sample.drawWires = args.wireframe;
+        sample.partitionMode = args.partitionMode;
+        sample.subdivs = args.subdivs;
+        sample.showHelp = args.showHelp;
+        if (args.rotateSteps > 0) {
+            sample.rotateCamera(ROTATION_ANGLE_PER_STEP, args.rotateSteps);
+        } else if (args.rotateSteps < 0) {
+            sample.rotateCamera(-ROTATION_ANGLE_PER_STEP, -args.rotateSteps);
         }
 
         const ui = new UserInterface(sample, app);

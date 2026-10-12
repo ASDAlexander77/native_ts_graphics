@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { SdkMesh } from "../core/sdk_mesh";
 
 namespace RaytracingAo {
@@ -1516,43 +1517,48 @@ namespace RaytracingAo {
         }
     }
 
+    class RaytracingAoArgs extends Args {
+        // -maze: start with the maze (Space toggles).
+        maze = false;
+        // -full: start not split (S toggles).
+        full = false;
+        // -ssao: SSAO rather than AO (Tab toggles).
+        ssao = false;
+        // -help: start with the options menu (F1).
+        help = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-maze") {
+                    this.maze = true;
+                } else if (arg == "-full") {
+                    this.full = true;
+                } else if (arg == "-ssao") {
+                    this.ssao = true;
+                } else if (arg == "-help") {
+                    this.help = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("raytracing_ao");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -maze: start with the maze (Space toggles). -full: start not split (S toggles), with
-        // -ssao: SSAO rather than AO (Tab toggles). -help: start with the options menu (F1).
-        let options = AppOptions.RayTracing | AppOptions.UnormBackBuffer;
-        let maze = false;
-        let full = false;
-        let ssao = false;
-        let help = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-maze") {
-                maze = true;
-            } else if (arg == "-full") {
-                full = true;
-            } else if (arg == "-ssao") {
-                ssao = true;
-            } else if (arg == "-help") {
-                help = true;
-            }
-        }
+        const args = new RaytracingAoArgs();
+        args.parseArgs(argc, argv);
 
         // The sample's B8G8R8A8_UNORM back buffers (UNORM: its outputs copied as they are), at its
         // default 1280 x 720.
         const width = 1280;
         const height = 720;
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api == GraphicsAPI.D3D11) {
+        if (args.api == GraphicsAPI.D3D11) {
             console.log("This example needs ray tracing: D3D12 or Vulkan");
             return 1;
         }
-        const app = App.createWithOptions(api, WINDOW_TITLE, width, height, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, width, height, AppOptions.RayTracing | AppOptions.UnormBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -1575,10 +1581,10 @@ namespace RaytracingAo {
             app.destroy();
             return 1;
         }
-        sample.meshIndex = maze ? 1 : 0;
-        sample.isSplit = !full;
-        sample.lightingModel = ssao ? LIGHTING_SSAO : LIGHTING_AO;
-        sample.showHelp = help;
+        sample.meshIndex = args.maze ? 1 : 0;
+        sample.isSplit = !args.full;
+        sample.lightingModel = args.ssao ? LIGHTING_SSAO : LIGHTING_AO;
+        sample.showHelp = args.help;
 
         const input = new InputPass(app.handle);
 

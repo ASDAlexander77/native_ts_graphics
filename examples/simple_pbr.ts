@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { SdkMesh } from "../core/sdk_mesh";
 
 namespace SimplePbr {
@@ -1107,29 +1108,32 @@ namespace SimplePbr {
         }
     }
 
+    class SimplePbrArgs extends Args {
+        // -sdr: the tone mapped SDR signal even on an HDR display.
+        sdr = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-sdr") {
+                    this.sdr = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_pbr");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -sdr: the tone mapped SDR signal even on an HDR display.
-        let options = AppOptions.HdrBackBuffer;
-        let sdr = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-sdr") {
-                sdr = true;
-            }
-        }
+        const args = new SimplePbrArgs();
+        args.parseArgs(argc, argv);
 
         // The sample's R10G10B10A2_UNORM back buffers (HDR10 when the display is in HDR mode), at
         // its default 1280 x 720.
         const width = 1280;
         const height = 720;
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, width, height, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, width, height, AppOptions.HdrBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -1149,7 +1153,7 @@ namespace SimplePbr {
             return 1;
         }
         sample.initToneMap();
-        sample.forceSdr = sdr;
+        sample.forceSdr = args.sdr;
         sample.updateColorSpace();
 
         const input = new InputPass(app.handle);

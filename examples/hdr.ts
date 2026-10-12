@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace Hdr {
     const WINDOW_TITLE = "Donut Example: High Dynamic Range Rendering";
@@ -543,40 +544,39 @@ namespace Hdr {
         }
     }
 
+    class HdrArgs extends Args {
+        // -object <0..2>, -exposure <value>, -nobloom, -noskybox: the settings' initial values.
+        objectIndex: int = 0;
+        exposure = 1.0;
+        bloom = true;
+        displaySkybox = true;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-nobloom") {
+                    this.bloom = false;
+                } else if (arg == "-noskybox") {
+                    this.displaySkybox = false;
+                } else if (arg == "-object" && i + 1 < this.argc) {
+                    i++;
+                    this.objectIndex = Math.min(Math.max(parseInt(this[i]), 0), 2);
+                } else if (arg == "-exposure" && i + 1 < this.argc) {
+                    i++;
+                    this.exposure = parseFloat(this[i]);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("hdr");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -object <0..2>, -exposure <value>, -nobloom, -noskybox: the settings' initial values.
-        let options = AppOptions.None;
-        let withUI = true;
-        let objectIndex: int = 0;
-        let exposure = 1.0;
-        let bloom = true;
-        let displaySkybox = true;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-nobloom") {
-                bloom = false;
-            } else if (arg == "-noskybox") {
-                displaySkybox = false;
-            } else if (arg == "-object" && i + 1 < argc) {
-                i++;
-                objectIndex = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), 0), 2);
-            } else if (arg == "-exposure" && i + 1 < argc) {
-                i++;
-                exposure = parseFloat(Donut_GetArg(argv, i));
-            }
-        }
+        const args = new HdrArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -585,10 +585,10 @@ namespace Hdr {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const hdr = new HdrPass(app);
-        hdr.objectIndex = objectIndex;
-        hdr.exposure = exposure;
-        hdr.bloom = bloom;
-        hdr.displaySkybox = displaySkybox;
+        hdr.objectIndex = args.objectIndex;
+        hdr.exposure = args.exposure;
+        hdr.bloom = args.bloom;
+        hdr.displaySkybox = args.displaySkybox;
         if (!hdr.init()) {
             app.destroy();
             return 1;
@@ -596,7 +596,7 @@ namespace Hdr {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(hdr);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace SimpleCompute {
     const WINDOW_TITLE = "Donut Example: Simple Compute";
@@ -395,35 +396,38 @@ namespace SimpleCompute {
         }
     }
 
+    class SimpleComputeArgs extends Args {
+        // -async: start with asynchronous compute (Space toggles it).
+        startAsync = false;
+        // -window X Y CX CY: the fractal window's size and center instead of the default (Home).
+        hasWindow = false;
+        windowValues: number[] = [0.0, 0.0, 0.0, 0.0];
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-async") {
+                    this.startAsync = true;
+                } else if (arg == "-window" && i + 4 < this.argc) {
+                    for (let j = 0; j < 4; j++) {
+                        this.windowValues[j] = parseFloat(this[i + 1 + j]);
+                    }
+                    this.hasWindow = true;
+                    i += 4;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_compute");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -async: start with asynchronous compute (Space toggles it).
-        // -window X Y CX CY: the fractal window's size and center instead of the default (Home).
-        let options = AppOptions.ComputeQueue | AppOptions.UnormBackBuffer;
-        let startAsync = false;
-        let hasWindow = false;
-        let windowValues: number[] = [0.0, 0.0, 0.0, 0.0];
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-async") {
-                startAsync = true;
-            } else if (arg == "-window" && i + 4 < argc) {
-                for (let j = 0; j < 4; j++) {
-                    windowValues[j] = parseFloat(Donut_GetArg(argv, i + 1 + j));
-                }
-                hasWindow = true;
-                i += 4;
-            }
-        }
+        const args = new SimpleComputeArgs();
+        args.parseArgs(argc, argv);
 
         // The sample's B8G8R8A8_UNORM back buffers, in a 1280 x 720 window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.ComputeQueue | AppOptions.UnormBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -436,10 +440,10 @@ namespace SimpleCompute {
             app.destroy();
             return 1;
         }
-        if (hasWindow) {
-            sample.setWindow(windowValues[0], windowValues[1], windowValues[2], windowValues[3]);
+        if (args.hasWindow) {
+            sample.setWindow(args.windowValues[0], args.windowValues[1], args.windowValues[2], args.windowValues[3]);
         }
-        sample.setUsingAsyncCompute(startAsync);
+        sample.setUsingAsyncCompute(args.startAsync);
 
         const ui = new UserInterface(sample, app);
         if (!ui.init()) {

@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { VideoPlayer } from "../core/video_player";
 
 namespace VideoTexture {
@@ -471,29 +472,34 @@ namespace VideoTexture {
         }
     }
 
+    class VideoTextureArgs extends Args {
+        // -mute: without the video's sound.
+        muted = false;
+        // -sprite: start with the video as a sprite.
+        sprite = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-mute") {
+                    this.muted = true;
+                } else if (arg == "-sprite") {
+                    this.sprite = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("video_texture");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -mute: without the video's sound. -sprite: start with the video as a sprite.
-        // The back buffers are UNORM, as the sample's (B8G8R8A8_UNORM).
-        let options = AppOptions.UnormBackBuffer;
-        let muted = false;
-        let sprite = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-mute") {
-                muted = true;
-            } else if (arg == "-sprite") {
-                sprite = true;
-            }
-        }
+        const args = new VideoTextureArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        // The back buffers are UNORM, as the sample's (B8G8R8A8_UNORM).
+        const options = AppOptions.UnormBackBuffer | args.options;
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -502,11 +508,11 @@ namespace VideoTexture {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new VideoTexturePass(app);
-        if (!sample.init(muted)) {
+        if (!sample.init(args.muted)) {
             app.destroy();
             return 1;
         }
-        sample.show3D = !sprite;
+        sample.show3D = !args.sprite;
         const ui = new UserInterface(sample);
         if (!ui.init(app)) {
             app.destroy();

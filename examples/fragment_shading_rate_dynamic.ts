@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace FragmentShadingRateDynamic {
     const WINDOW_TITLE = "Donut Example: Dynamic Fragment Shading Rate";
@@ -675,42 +676,42 @@ namespace FragmentShadingRateDynamic {
         }
     }
 
+    class FragmentShadingRateDynamicArgs extends Args {
+        // -visualize <n>: 0 the render output, 1 the shading rates, 2 the frequency content.
+        visualize: int = 0;
+        // -ratio <n>: the reduced size pass's ratio (1, 2, 4, 8 or 16).
+        ratio: int = 4;
+        // -noattachment: the full rate everywhere.
+        noAttachment = false;
+        // -nosky: without the sky sphere.
+        noSky = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-visualize" && i + 1 < this.argc) {
+                    this.visualize = Math.min(2, Math.max(0, parseInt(this[i + 1])));
+                    i++;
+                } else if (arg == "-ratio" && i + 1 < this.argc) {
+                    this.ratio = Math.min(16, Math.max(1, parseInt(this[i + 1])));
+                    i++;
+                } else if (arg == "-noattachment") {
+                    this.noAttachment = true;
+                } else if (arg == "-nosky") {
+                    this.noSky = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shading_rate_dynamic");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window.
-        // -visualize <n>: 0 the render output, 1 the shading rates, 2 the frequency content.
-        // -ratio <n>: the reduced size pass's ratio (1, 2, 4, 8 or 16). -noattachment: the full rate
-        // everywhere. -nosky: without the sky sphere.
-        let options = AppOptions.None;
-        let withUI = true;
-        let visualize: int = 0;
-        let ratio: int = 4;
-        let noAttachment = false;
-        let noSky = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-visualize" && i + 1 < argc) {
-                visualize = Math.min(2, Math.max(0, parseInt(Donut_GetArg(argv, i + 1))));
-                i++;
-            } else if (arg == "-ratio" && i + 1 < argc) {
-                ratio = Math.min(16, Math.max(1, parseInt(Donut_GetArg(argv, i + 1))));
-                i++;
-            } else if (arg == "-noattachment") {
-                noAttachment = true;
-            } else if (arg == "-nosky") {
-                noSky = true;
-            }
-        }
+        const args = new FragmentShadingRateDynamicArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -725,18 +726,18 @@ namespace FragmentShadingRateDynamic {
         }
 
         const pass = new FragmentShadingRateDynamicPass(app);
-        pass.subpassExtentRatio = ratio;
+        pass.subpassExtentRatio = args.ratio;
         if (!pass.init()) {
             app.destroy();
             return 1;
         }
-        pass.colorShadingRate = visualize;
-        pass.enableAttachmentShadingRate = !noAttachment;
-        pass.displaySkySphere = !noSky;
+        pass.colorShadingRate = args.visualize;
+        pass.enableAttachmentShadingRate = !args.noAttachment;
+        pass.displaySkySphere = !args.noSky;
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(pass);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI &&!gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

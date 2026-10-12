@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace GraphicsPipelineLibrary {
     const WINDOW_TITLE = "Donut Example: Graphics Pipeline Library";
@@ -421,39 +422,35 @@ namespace GraphicsPipelineLibrary {
         }
     }
 
+    class GraphicsPipelineLibraryArgs extends Args {
+        // -pipelines <n>: start with n pipelines (as if "Add pipeline" was pressed n - 1 times).
+        pipelines: int = 1;
+        // -seed <n>: the random colors' and lighting models' seed (random by default).
+        seed: int = -1;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-pipelines" && i + 1 < this.argc) {
+                    i++;
+                    this.pipelines = Math.max(parseInt(this[i]), 1);
+                } else if (arg == "-seed" && i + 1 < this.argc) {
+                    i++;
+                    this.seed = Math.max(parseInt(this[i]), 0);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("graphics_pipeline_library");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -pipelines <n>: start with n pipelines (as if "Add pipeline" was pressed n - 1 times).
-        // -seed <n>: the random colors' and lighting models' seed (random by default).
         // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).
-        let options = AppOptions.None;
-        let withUI = true;
-        let pipelines: int = 1;
-        let seed: int = -1;
-        let benchmark = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-benchmark") {
-                benchmark = true;
-            } else if (arg == "-pipelines" && i + 1 < argc) {
-                i++;
-                pipelines = Math.max(parseInt(Donut_GetArg(argv, i)), 1);
-            } else if (arg == "-seed" && i + 1 < argc) {
-                i++;
-                seed = Math.max(parseInt(Donut_GetArg(argv, i)), 0);
-            }
-        }
+        const args = new GraphicsPipelineLibraryArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -462,16 +459,16 @@ namespace GraphicsPipelineLibrary {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new GraphicsPipelineLibraryPass(app);
-        sample.benchmark = benchmark;
-        if (!sample.init(seed)) {
+        sample.benchmark = args.benchmark;
+        if (!sample.init(args.seed)) {
             app.destroy();
             return 1;
         }
-        sample.pendingPipelines = pipelines;
+        sample.pendingPipelines = args.pipelines;
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

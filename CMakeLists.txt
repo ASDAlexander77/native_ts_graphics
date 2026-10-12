@@ -532,7 +532,7 @@ endif()
 # lib<name>.so and bin/<name>.apk (see above), with the media files and folders listed in
 # <media> (paths in the media folder) and the further sources after it
 function(add_tslang_android_app name media)
-    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts core/input_pass.ts core/donut.ts ${ARGN}
+    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts core/input_pass.ts core/args.ts core/donut.ts ${ARGN}
         core/android_main.cpp "${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c")
     set_target_properties(${name}_app PROPERTIES
         OUTPUT_NAME ${name}
@@ -598,11 +598,16 @@ set(TSLANG_DONUT_DECLARATIONS
     "${CMAKE_CURRENT_SOURCE_DIR}/core/donut_globals.d.ts")
 set(TSLANG_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts"
-    "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/args.ts"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts")
+set(TSLANG_CORE_SOURCES_WITH_DECLARATIONS
+    ${TSLANG_CORE_SOURCES}
     ${TSLANG_DONUT_DECLARATIONS})
 set_source_files_properties(core/donut.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_DONUT_DECLARATIONS}")
-set_source_files_properties(core/input_pass.ts PROPERTIES OBJECT_DEPENDS
+foreach(TSLANG_CORE_SOURCE IN LISTS TSLANG_CORE_SOURCES)
+    set_source_files_properties(${TSLANG_CORE_SOURCE} PROPERTIES OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts;${TSLANG_DONUT_DECLARATIONS}")
+endforeach()
 
 # add_tslang_example(<name> [MEDIA <path>...] [<source>...]): examples/<name>.ts and the further
 # sources. MEDIA lists the files and folders of the media folder it reads (paths in it), which
@@ -612,15 +617,15 @@ function(add_tslang_example name)
     # .ts files compile with the TSLANG command. Most targets have no .cpp, so link with the C++
     # rule explicitly: the C++ link flags (debug info, CRT) apply and the tslang compile flags
     # stay off the link line.
-    add_executable(${name} examples/${name}.ts core/input_pass.ts core/donut.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
+    add_executable(${name} examples/${name}.ts ${TSLANG_CORE_SOURCES} ${EXAMPLE_UNPARSED_ARGUMENTS})
     set(module_ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     list(FILTER module_ts INCLUDE REGEX "\\.ts$")
     # The example imports the modules listed with it, and compiles their declarations in; so may
     # they each other (core/nvrhi.ts imports core/nvrhi_abi.<os>.ts).
     set(module_ts_paths ${module_ts})
     list(TRANSFORM module_ts_paths PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
-    set_source_files_properties(${module_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES};${module_ts_paths}")
-    set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES};${module_ts_paths}")
+    set_source_files_properties(${module_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES_WITH_DECLARATIONS};${module_ts_paths}")
+    set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES_WITH_DECLARATIONS};${module_ts_paths}")
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop)
     if (TARGET ${name}_shaders)

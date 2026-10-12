@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { ObjModel } from "../core/obj_model";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationAxis, matrixRotationY, normalize3,
@@ -792,48 +793,47 @@ namespace SakuraForestSER {
         return "";
     }
 
+    class SakuraForestSERArgs extends Args {
+        // -seed <n> <n>: the two random engines' seeds (by default from std::random_device, as the
+        // sample's: a different forest every run). Negative: seeded from std::random_device, as the
+        // sample's.
+        seed = -1;
+        bushSeed = -1;
+        // -sortMode <0..3>: off, by hit, by reflection hint, by both (the sample starts by hit).
+        sortMode: int = SORTMODE_BY_HIT;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-seed" && i + 2 < this.argc) {
+                    this.seed = parseInt(this[i + 1]);
+                    this.bushSeed = parseInt(this[i + 2]);
+                    i += 2;
+                } else if (arg == "-sortMode" && i + 1 < this.argc) {
+                    this.sortMode = parseInt(this[i + 1]);
+                    i++;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("sakura_forest_ser");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -seed <n> <n>: the two random engines' seeds (by default from std::random_device, as the
-        // sample's: a different forest every run).
-        // -sortMode <0..3>: off, by hit, by reflection hint, by both (the sample starts by hit).
-        // -noui: without the text.
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
-        let options = AppOptions.RayTracing | AppOptions.UnormBackBuffer;
-        // Negative: seeded from std::random_device, as the sample's.
-        let seed = -1;
-        let bushSeed = -1;
-        let sortMode = SORTMODE_BY_HIT;
-        let withUI = true;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-seed" && i + 2 < argc) {
-                seed = parseInt(Donut_GetArg(argv, i + 1));
-                bushSeed = parseInt(Donut_GetArg(argv, i + 2));
-                i += 2;
-            } else if (arg == "-sortMode" && i + 1 < argc) {
-                sortMode = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-noui") {
-                withUI = false;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const args = new SakuraForestSERArgs();
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
         // The sample's window. Hit objects are shader model 6.9's: D3D12 only.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api != GraphicsAPI.D3D12) {
+        if (args.api != GraphicsAPI.D3D12) {
             console.log("The Sakura Forest SER example can only run on D3D12 API.");
             return 1;
         }
-        const app = App.createWithOptions(api, WINDOW_TITLE, WIDTH, HEIGHT, options);
+        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
+        const options = AppOptions.RayTracing | AppOptions.UnormBackBuffer | args.options;
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, WIDTH, HEIGHT, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -851,14 +851,14 @@ namespace SakuraForestSER {
         }
 
         const pass = new SakuraForestPass(app);
-        pass.setSortMode(sortMode);
-        if (!pass.init(seed, bushSeed)) {
+        pass.setSortMode(args.sortMode);
+        if (!pass.init(args.seed, args.bushSeed)) {
             app.destroy();
             return 1;
         }
 
         const gui = new UserInterface(pass);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             app.destroy();
             return 1;
         }
@@ -867,7 +867,7 @@ namespace SakuraForestSER {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             result = app.finishTest(checkFrame(app));
         }
         app.destroy();

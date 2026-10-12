@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace AsyncComputeBloom {
     const WINDOW_TITLE = "Donut Example: Async Compute Bloom";
@@ -934,40 +935,36 @@ namespace AsyncComputeBloom {
         }
     }
 
+    class AsyncComputeBloomArgs extends Args {
+        // -async: async queues on.
+        asyncEnabled = false;
+        // -doublebuffer: double buffered HDR.
+        doubleBufferHdr = false;
+        // -norotate: shadows fixed.
+        rotateShadows = true;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-async") {
+                    this.asyncEnabled = true;
+                } else if (arg == "-doublebuffer") {
+                    this.doubleBufferHdr = true;
+                } else if (arg == "-norotate") {
+                    this.rotateShadows = false;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("async_compute_bloom");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window.
-        // -async: async queues on; -doublebuffer: double buffered HDR; -norotate: shadows fixed.
-        // -benchmark: simulated at 60 frames per second whatever the frame rate, as the sample's
-        // --benchmark.
-        let options = AppOptions.ComputeQueue;
-        let withUI = true;
-        let asyncEnabled = false;
-        let doubleBufferHdr = false;
-        let rotateShadows = true;
-        let benchmark = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.ComputeQueue | AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-async") {
-                asyncEnabled = true;
-            } else if (arg == "-doublebuffer") {
-                doubleBufferHdr = true;
-            } else if (arg == "-norotate") {
-                rotateShadows = false;
-            } else if (arg == "-benchmark") {
-                benchmark = true;
-            }
-        }
+        const args = new AsyncComputeBloomArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.ComputeQueue | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -976,21 +973,23 @@ namespace AsyncComputeBloom {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const post = new AsyncComputeBloomPass(app);
-        post.asyncEnabled = asyncEnabled;
-        post.doubleBufferHdr = doubleBufferHdr;
-        post.rotateShadows = rotateShadows;
-        post.benchmark = benchmark;
+        post.asyncEnabled = args.asyncEnabled;
+        post.doubleBufferHdr = args.doubleBufferHdr;
+        post.rotateShadows = args.rotateShadows;
+        // -benchmark: simulated at 60 frames per second whatever the frame rate, as the sample's
+        // --benchmark.
+        post.benchmark = args.benchmark;
         if (!post.init()) {
             app.destroy();
             return 1;
         }
-        if (asyncEnabled && !post.hasComputeQueue()) {
+        if (args.asyncEnabled && !post.hasComputeQueue()) {
             console.log("The graphics device has no compute queue: running on one queue");
         }
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(post);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

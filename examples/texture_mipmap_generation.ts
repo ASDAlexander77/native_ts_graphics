@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace TextureMipmapGeneration {
     const WINDOW_TITLE = "Donut Example: Texture MipMap Generation";
@@ -484,38 +485,38 @@ namespace TextureMipmapGeneration {
         }
     }
 
+    class TextureMipmapGenerationArgs extends Args {
+        // -sampler <n>: sampler 0 (no mip maps), 1 (mip maps) or 2 (anisotropic, the default).
+        samplerIndex: int = 2;
+        // -lodbias <x>: the level of detail bias.
+        lodBias = 0.0;
+        // -rotate: the scene rotating.
+        rotateScene = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-sampler" && i + 1 < this.argc) {
+                    this.samplerIndex = Math.min(2, Math.max(0, parseInt(this[i + 1])));
+                    i++;
+                } else if (arg == "-lodbias" && i + 1 < this.argc) {
+                    this.lodBias = parseFloat(this[i + 1]);
+                    i++;
+                } else if (arg == "-rotate") {
+                    this.rotateScene = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_mipmap_generation");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window.
-        // -sampler <n>: sampler 0 (no mip maps), 1 (mip maps) or 2 (anisotropic, the default).
-        // -lodbias <x>: the level of detail bias. -rotate: the scene rotating.
-        let options = AppOptions.None;
-        let withUI = true;
-        let samplerIndex: int = 2;
-        let lodBias = 0.0;
-        let rotateScene = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-sampler" && i + 1 < argc) {
-                samplerIndex = Math.min(2, Math.max(0, parseInt(Donut_GetArg(argv, i + 1))));
-                i++;
-            } else if (arg == "-lodbias" && i + 1 < argc) {
-                lodBias = parseFloat(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-rotate") {
-                rotateScene = true;
-            }
-        }
+        const args = new TextureMipmapGenerationArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -528,13 +529,13 @@ namespace TextureMipmapGeneration {
             app.destroy();
             return 1;
         }
-        pass.samplerIndex = samplerIndex;
-        pass.lodBias = lodBias;
-        pass.rotateScene = rotateScene;
+        pass.samplerIndex = args.samplerIndex;
+        pass.lodBias = args.lodBias;
+        pass.rotateScene = args.rotateScene;
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(pass);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace GenericPrograms {
     const WINDOW_TITLE = "D3D12 Hello Generic Programs";
@@ -194,25 +195,19 @@ namespace GenericPrograms {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("generic_programs");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
-        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
-        let options = AppOptions.UnormBackBuffer;
-        for (let i = 1; i < argc; i++) {
-            if (Donut_GetArg(argv, i) == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const args = new Args();
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
         // The sample's window. Generic programs are D3D12's.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api != GraphicsAPI.D3D12) {
+        if (args.api != GraphicsAPI.D3D12) {
             console.log("The Generic Programs example can only run on D3D12 API.");
             return 1;
         }
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
+        const options = AppOptions.UnormBackBuffer | args.options;
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -233,7 +228,7 @@ namespace GenericPrograms {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             result = app.finishTest(checkFrame(app));
         }
         app.waitForIdle();

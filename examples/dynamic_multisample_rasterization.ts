@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace DynamicMultisampleRasterization {
     const WINDOW_TITLE = "Donut Example: Dynamic Multisample Rasterization";
@@ -609,30 +610,28 @@ namespace DynamicMultisampleRasterization {
         }
     }
 
+    class DynamicMultisampleArgs extends Args {
+        // -samples <count>: the initial sample count (when supported).
+        samples = 0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                if (this[i] == "-samples" && i + 1 < this.argc) {
+                    i++;
+                    this.samples = parseInt(this[i]);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_multisample_rasterization");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -samples <count>: the initial sample count (when supported).
-        let options = AppOptions.None;
-        let withUI = true;
-        let samples = 0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-samples" && i + 1 < argc) {
-                i++;
-                samples = parseInt(Donut_GetArg(argv, i));
-            }
-        }
+        const args = new DynamicMultisampleArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -646,14 +645,14 @@ namespace DynamicMultisampleRasterization {
             return 1;
         }
         for (let i = 0; i < sample.supportedCounts.length; i++) {
-            if (sample.supportedCounts[i] == samples) {
-                sample.sampleCount = samples;
+            if (sample.supportedCounts[i] == args.samples) {
+                sample.sampleCount = args.samples;
             }
         }
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

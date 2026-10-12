@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace OitDepthPeeling {
     const WINDOW_TITLE = "Donut Example: OIT Depth Peeling";
@@ -508,45 +509,44 @@ namespace OitDepthPeeling {
         }
     }
 
+    class OitDepthPeelingArgs extends Args {
+        // -layers <front> <back>: the layers combined (0..7).
+        frontLayer: int = 0;
+        backLayer = LAYER_MAX_COUNT - 1;
+        // -alpha <value>, -grayscale <value>: the object's opacity, the background's brightness.
+        alpha = 0.5;
+        grayscale = 0.3;
+        // -rotate: start with the camera's auto-rotation on.
+        rotate = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-rotate") {
+                    this.rotate = true;
+                } else if (arg == "-layers" && i + 2 < this.argc) {
+                    this.backLayer = Math.min(Math.max(parseInt(this[i + 2]), 0), LAYER_MAX_COUNT - 1);
+                    this.frontLayer = Math.min(Math.max(parseInt(this[i + 1]), 0), this.backLayer);
+                    i += 2;
+                } else if (arg == "-alpha" && i + 1 < this.argc) {
+                    i++;
+                    this.alpha = parseFloat(this[i]);
+                } else if (arg == "-grayscale" && i + 1 < this.argc) {
+                    i++;
+                    this.grayscale = parseFloat(this[i]);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("oit_depth_peeling");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -layers <front> <back>: the layers combined (0..7).
-        // -alpha <value>, -grayscale <value>: the object's opacity, the background's brightness.
-        // -rotate: start with the camera's auto-rotation on.
-        let options = AppOptions.None;
-        let withUI = true;
-        let frontLayer: int = 0;
-        let backLayer = LAYER_MAX_COUNT - 1;
-        let alpha = 0.5;
-        let grayscale = 0.3;
-        let rotate = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-rotate") {
-                rotate = true;
-            } else if (arg == "-layers" && i + 2 < argc) {
-                backLayer = Math.min(Math.max(parseInt(Donut_GetArg(argv, i + 2)), 0), LAYER_MAX_COUNT - 1);
-                frontLayer = Math.min(Math.max(parseInt(Donut_GetArg(argv, i + 1)), 0), backLayer);
-                i += 2;
-            } else if (arg == "-alpha" && i + 1 < argc) {
-                i++;
-                alpha = parseFloat(Donut_GetArg(argv, i));
-            } else if (arg == "-grayscale" && i + 1 < argc) {
-                i++;
-                grayscale = parseFloat(Donut_GetArg(argv, i));
-            }
-        }
+        const args = new OitDepthPeelingArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -555,11 +555,11 @@ namespace OitDepthPeeling {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new DepthPeelingPass(app);
-        sample.frontLayerIndex = frontLayer;
-        sample.backLayerIndex = backLayer;
-        sample.objectAlpha = alpha;
-        sample.backgroundGrayscale = grayscale;
-        sample.cameraAutoRotation = rotate;
+        sample.frontLayerIndex = args.frontLayer;
+        sample.backLayerIndex = args.backLayer;
+        sample.objectAlpha = args.alpha;
+        sample.backgroundGrayscale = args.grayscale;
+        sample.cameraAutoRotation = args.rotate;
         if (!sample.init()) {
             app.destroy();
             return 1;
@@ -567,7 +567,7 @@ namespace OitDepthPeeling {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

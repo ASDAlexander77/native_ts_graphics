@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace CalibratedTimestampsSample {
     const WINDOW_TITLE = "Donut Example: Calibrated Timestamps";
@@ -737,39 +738,37 @@ namespace CalibratedTimestampsSample {
         return "";
     }
 
+    // -object <0..2>, -nobloom, -noskybox: the settings' initial values.
+    class CalibratedTimestampsSampleArgs extends Args {
+        objectIndex: int = 0;
+        bloom = true;
+        displaySkybox = true;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-nobloom") {
+                    this.bloom = false;
+                } else if (arg == "-noskybox") {
+                    this.displaySkybox = false;
+                } else if (arg == "-object" && i + 1 < this.argc) {
+                    i++;
+                    this.objectIndex = Math.min(Math.max(parseInt(this[i]), 0), 2);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("calibrated_timestamps");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the overlay.
-        // -object <0..2>, -nobloom, -noskybox: the settings' initial values.
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // and the times (see checkFrame).
-        let options = AppOptions.None;
-        let withUI = true;
-        let objectIndex: int = 0;
-        let bloom = true;
-        let displaySkybox = true;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-nobloom") {
-                bloom = false;
-            } else if (arg == "-noskybox") {
-                displaySkybox = false;
-            } else if (arg == "-object" && i + 1 < argc) {
-                i++;
-                objectIndex = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), 0), 2);
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const args = new CalibratedTimestampsSampleArgs();
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -779,9 +778,9 @@ namespace CalibratedTimestampsSample {
         const timestampPeriod = app.getTimestampPeriod();
 
         const hdr = new HdrPass(app);
-        hdr.objectIndex = objectIndex;
-        hdr.bloom = bloom;
-        hdr.displaySkybox = displaySkybox;
+        hdr.objectIndex = args.objectIndex;
+        hdr.bloom = args.bloom;
+        hdr.displaySkybox = args.displaySkybox;
         if (!hdr.init()) {
             app.destroy();
             return 1;
@@ -794,7 +793,7 @@ namespace CalibratedTimestampsSample {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(hdr, timestampPeriod);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;
@@ -804,7 +803,7 @@ namespace CalibratedTimestampsSample {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             result = app.finishTest(checkFrame(app, hdr.timestamps, timestampPeriod));
         }
         app.destroy();

@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace MultiDrawIndirect {
     const WINDOW_TITLE = "Donut Example: Multi-Draw Indirect";
@@ -682,43 +683,43 @@ namespace MultiDrawIndirect {
         }
     }
 
+    class MultiDrawIndirectArgs extends Args {
+        // -mode <0..2>: the cull mode (CPU, GPU, GPU device address).
+        renderMode: int = RENDER_GPU;
+        // -nomdi: a draw call per model.
+        enableMdi = true;
+        // -freeze: culling frozen.
+        freezeCull = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-nomdi") {
+                    this.enableMdi = false;
+                } else if (arg == "-freeze") {
+                    this.freezeCull = true;
+                } else if (arg == "-mode" && i + 1 < this.argc) {
+                    i++;
+                    this.renderMode = Math.min(Math.max(parseInt(this[i]), RENDER_CPU), RENDER_GPU_DEVICE_ADDRESS);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("multi_draw_indirect");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -mode <0..2>: the cull mode (CPU, GPU, GPU device address); -nomdi: a draw call per model;
-        // -freeze: culling frozen.
-        let options = AppOptions.None;
-        let withUI = true;
-        let renderMode: int = RENDER_GPU;
-        let enableMdi = true;
-        let freezeCull = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-nomdi") {
-                enableMdi = false;
-            } else if (arg == "-freeze") {
-                freezeCull = true;
-            } else if (arg == "-mode" && i + 1 < argc) {
-                i++;
-                renderMode = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), RENDER_CPU), RENDER_GPU_DEVICE_ADDRESS);
-            }
-        }
+        const args = new MultiDrawIndirectArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
         // The scene's 225 textures are one array: more than D3D11's 128 texture slots.
-        if (api == GraphicsAPI.D3D11) {
+        if (args.api == GraphicsAPI.D3D11) {
             console.log("This example needs D3D12 or Vulkan (-dx12 or -vk)");
             return 1;
         }
 
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -727,9 +728,9 @@ namespace MultiDrawIndirect {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const mdi = new MultiDrawIndirectPass(app);
-        mdi.renderMode = renderMode;
-        mdi.enableMdi = enableMdi;
-        mdi.freezeCull = freezeCull;
+        mdi.renderMode = args.renderMode;
+        mdi.enableMdi = args.enableMdi;
+        mdi.freezeCull = args.freezeCull;
         if (!mdi.init()) {
             app.destroy();
             return 1;
@@ -737,7 +738,7 @@ namespace MultiDrawIndirect {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(mdi);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { MeshletModel } from "../core/meshlet_model";
 import {
     matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose, XM_PI,
@@ -594,21 +595,14 @@ namespace MeshletInstancing {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("meshlet_instancing");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
+        const args = new Args();
         // -test [-testOutput <file>]: render a few frames without a window at instance level 2 and
         // check the last one (see checkFrame).
-        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
-        let options = AppOptions.UnormBackBuffer;
-        for (let i = 1; i < argc; i++) {
-            if (Donut_GetArg(argv, i) == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
         // The sample's window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.UnormBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -624,7 +618,7 @@ namespace MeshletInstancing {
             app.destroy();
             return 1;
         }
-        if (test) {
+        if (args.test) {
             pass.instanceLevel = TEST_LEVEL;
             pass.regenerateInstances();
         }
@@ -633,7 +627,7 @@ namespace MeshletInstancing {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             result = app.finishTest(checkFrame(app, pass));
         }
         app.destroy();

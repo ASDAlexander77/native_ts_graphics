@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace FragmentShaderBarycentric {
     const WINDOW_TITLE = "Donut Example: Fragment Shader Barycentric";
@@ -397,30 +398,29 @@ namespace FragmentShaderBarycentric {
         }
     }
 
+    class FragmentShaderBarycentricArgs extends Args {
+        // -effect <0..4>: the effect selected at start.
+        effect: int = 0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-effect" && i + 1 < this.argc) {
+                    i++;
+                    this.effect = Math.min(Math.max(parseInt(this[i]), 0), EFFECT_COUNT - 1);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shader_barycentric");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -effect <0..4>: the effect selected at start.
-        let options = AppOptions.None;
-        let withUI = true;
-        let effect: int = 0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-effect" && i + 1 < argc) {
-                i++;
-                effect = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), 0), EFFECT_COUNT - 1);
-            }
-        }
+        const args = new FragmentShaderBarycentricArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -429,7 +429,7 @@ namespace FragmentShaderBarycentric {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new BarycentricPass(app);
-        sample.selectedEffect = effect;
+        sample.selectedEffect = args.effect;
         if (!sample.init()) {
             app.destroy();
             return 1;
@@ -437,7 +437,7 @@ namespace FragmentShaderBarycentric {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

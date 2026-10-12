@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { MeshletModel } from "../core/meshlet_model";
 import {
     matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
@@ -635,31 +636,35 @@ namespace DynamicLod {
         return "";
     }
 
+    class DynamicLodArgs extends Args {
+        // -instanceLevel <n>: start at instance level n (0 by default, as the sample; 2 for -test).
+        instanceLevel = -1;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-instanceLevel" && i + 1 < this.argc) {
+                    i++;
+                    this.instanceLevel = parseInt(this[i]);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_lod");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
+        const args = new DynamicLodArgs();
         // -test [-testOutput <file>]: render a few frames without a window at instance level 2 and
         // check the last one (see checkFrame).
-        // -instanceLevel <n>: start at instance level n (0 by default, as the sample; 2 for -test).
+        args.parseArgs(argc, argv, TEST_FRAMES);
+
         // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
-        let options = AppOptions.UnormBackBuffer;
-        let instanceLevel = -1;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-instanceLevel" && i + 1 < argc) {
-                i++;
-                instanceLevel = parseInt(Donut_GetArg(argv, i));
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const options = AppOptions.UnormBackBuffer | args.options;
 
         // The sample's window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -675,7 +680,8 @@ namespace DynamicLod {
             app.destroy();
             return 1;
         }
-        if (instanceLevel < 0 && test) {
+        let instanceLevel = args.instanceLevel;
+        if (instanceLevel < 0 && args.test) {
             instanceLevel = TEST_LEVEL;
         }
         if (instanceLevel > 0) {
@@ -687,7 +693,7 @@ namespace DynamicLod {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             result = app.finishTest(checkFrame(app, pass));
         }
         app.destroy();

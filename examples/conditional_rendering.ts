@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace ConditionalRendering {
     const WINDOW_TITLE = "Donut Example: Conditional Rendering";
@@ -508,32 +509,31 @@ namespace ConditionalRendering {
         }
     }
 
+    class ConditionalRenderingArgs extends Args {
+        // -hide <first> <count>: start with those nodes hidden.
+        hideFirst = 0;
+        hideCount = 0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-hide" && i + 2 < this.argc) {
+                    this.hideFirst = parseInt(this[i + 1]);
+                    this.hideCount = parseInt(this[i + 2]);
+                    i += 2;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("conditional_rendering");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -hide <first> <count>: start with those nodes hidden.
-        let options = AppOptions.None;
-        let withUI = true;
-        let hideFirst = 0;
-        let hideCount = 0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-hide" && i + 2 < argc) {
-                hideFirst = parseInt(Donut_GetArg(argv, i + 1));
-                hideCount = parseInt(Donut_GetArg(argv, i + 2));
-                i += 2;
-            }
-        }
+        const args = new ConditionalRenderingArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -546,13 +546,13 @@ namespace ConditionalRendering {
             app.destroy();
             return 1;
         }
-        for (let i = hideFirst; i < hideFirst + hideCount && i < sample.names.length; i++) {
+        for (let i = args.hideFirst; i < args.hideFirst + args.hideCount && i < sample.names.length; i++) {
             sample.setVisible(i, false);
         }
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

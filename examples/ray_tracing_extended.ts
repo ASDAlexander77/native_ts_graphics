@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace RayTracingExtended {
     const WINDOW_TITLE = "Donut Example: Ray Tracing with Extended Features";
@@ -777,29 +778,33 @@ namespace RayTracingExtended {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
-        // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("ray_tracing_extended");
-
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
+    class RayTracingExtendedArgs extends Args {
         // -mode <0..6>: the sample's render mode (its specialization constant): 0 default,
         // 1 barycentric, 2 instance ID, 3 distance, 4 global XYZ, 5 shadow map, 6 ambient occlusion
         // (as in the sample, 5 and 6 show the hit's texture: its ray generation shader stops before
         // their shadow and AO output).
-        let options = AppOptions.RayTracing;
-        let renderMode: int = RENDER_DEFAULT;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-mode" && i + 1 < argc) {
-                i++;
-                renderMode = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), RENDER_DEFAULT), RENDER_AO);
+        renderMode: int = RENDER_DEFAULT;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-mode" && i + 1 < this.argc) {
+                    i++;
+                    this.renderMode = Math.min(Math.max(parseInt(this[i]), RENDER_DEFAULT), RENDER_AO);
+                }
             }
         }
+    }
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+    export function main(argc: int, argv: Ref<string>): int {
+        // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
+        Donut_SetAppName("ray_tracing_extended");
+
+        const args = new RayTracingExtendedArgs();
+        args.parseArgs(argc, argv);
+
+        const options = AppOptions.RayTracing | args.options;
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -814,7 +819,7 @@ namespace RayTracingExtended {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const rayTracing = new RayTracingExtendedPass(app);
-        rayTracing.renderMode = renderMode;
+        rayTracing.renderMode = args.renderMode;
         if (!rayTracing.init()) {
             app.destroy();
             return 1;

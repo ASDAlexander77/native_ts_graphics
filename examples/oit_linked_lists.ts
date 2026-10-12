@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace OitLinkedLists {
     const WINDOW_TITLE = "Donut Example: OIT Linked Lists";
@@ -554,46 +555,42 @@ namespace OitLinkedLists {
         }
     }
 
+    class OitLinkedListsArgs extends Args {
+        // -nosort: fragments blended unsorted.
+        sortFragments = true;
+        // -sorted <1..16>: sorted fragments per pixel.
+        sortedFragmentCount: int = SORTED_FRAGMENT_MAX_COUNT;
+        // -rotate: camera auto-rotation.
+        cameraAutoRotation = false;
+        // -grayscale <0..1>: the background's brightness.
+        backgroundGrayscale = 0.3;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-nosort") {
+                    this.sortFragments = false;
+                } else if (arg == "-rotate") {
+                    this.cameraAutoRotation = true;
+                } else if (arg == "-sorted" && i + 1 < this.argc) {
+                    i++;
+                    this.sortedFragmentCount = Math.min(Math.max(parseInt(this[i]), SORTED_FRAGMENT_MIN_COUNT), SORTED_FRAGMENT_MAX_COUNT);
+                } else if (arg == "-grayscale" && i + 1 < this.argc) {
+                    i++;
+                    this.backgroundGrayscale = Math.min(Math.max(parseFloat(this[i]), 0.0), 1.0);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("oit_linked_lists");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -nosort: fragments blended unsorted; -sorted <1..16>: sorted fragments per pixel;
-        // -rotate: camera auto-rotation; -grayscale <0..1>: the background's brightness.
-        // -benchmark: simulated at 60 frames per second whatever the frame rate, as the sample's
-        // --benchmark.
-        let options = AppOptions.None;
-        let withUI = true;
-        let sortFragments = true;
-        let sortedFragmentCount: int = SORTED_FRAGMENT_MAX_COUNT;
-        let cameraAutoRotation = false;
-        let backgroundGrayscale = 0.3;
-        let benchmark = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-nosort") {
-                sortFragments = false;
-            } else if (arg == "-rotate") {
-                cameraAutoRotation = true;
-            } else if (arg == "-benchmark") {
-                benchmark = true;
-            } else if (arg == "-sorted" && i + 1 < argc) {
-                i++;
-                sortedFragmentCount = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), SORTED_FRAGMENT_MIN_COUNT), SORTED_FRAGMENT_MAX_COUNT);
-            } else if (arg == "-grayscale" && i + 1 < argc) {
-                i++;
-                backgroundGrayscale = Math.min(Math.max(parseFloat(Donut_GetArg(argv, i)), 0.0), 1.0);
-            }
-        }
+        const args = new OitLinkedListsArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -602,11 +599,13 @@ namespace OitLinkedLists {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const oit = new OitLinkedListsPass(app);
-        oit.sortFragments = sortFragments;
-        oit.sortedFragmentCount = sortedFragmentCount;
-        oit.cameraAutoRotation = cameraAutoRotation;
-        oit.backgroundGrayscale = backgroundGrayscale;
-        oit.benchmark = benchmark;
+        oit.sortFragments = args.sortFragments;
+        oit.sortedFragmentCount = args.sortedFragmentCount;
+        oit.cameraAutoRotation = args.cameraAutoRotation;
+        oit.backgroundGrayscale = args.backgroundGrayscale;
+        // -benchmark: simulated at 60 frames per second whatever the frame rate, as the sample's
+        // --benchmark.
+        oit.benchmark = args.benchmark;
         if (!oit.init()) {
             app.destroy();
             return 1;
@@ -614,7 +613,7 @@ namespace OitLinkedLists {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(oit);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

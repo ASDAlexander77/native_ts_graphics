@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace DynamicLineRasterization {
     const WINDOW_TITLE = "Donut Example: Dynamic Line Rasterization";
@@ -566,44 +567,46 @@ namespace DynamicLineRasterization {
         }
     }
 
+    class DynamicLineRasterizationArgs extends Args {
+        // -mode <n>: the rasterization mode (0 DEFAULT, 1 RECT, 2 BRESENHAM, 3 SMOOTH).
+        mode = 0;
+        // -width <w>: the line width.
+        lineWidth = 1.0;
+        // -nostipple: stipple off.
+        stipple = true;
+        // -nofill: fill off.
+        fill = true;
+        // -nogrid: grid off.
+        gridOn = true;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-mode" && i + 1 < this.argc) {
+                    this.mode = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-width" && i + 1 < this.argc) {
+                    this.lineWidth = parseFloat(this[i + 1]);
+                    i++;
+                } else if (arg == "-nostipple") {
+                    this.stipple = false;
+                } else if (arg == "-nofill") {
+                    this.fill = false;
+                } else if (arg == "-nogrid") {
+                    this.gridOn = false;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_line_rasterization");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window.
-        // -mode <n>: the rasterization mode (0 DEFAULT, 1 RECT, 2 BRESENHAM, 3 SMOOTH).
-        // -width <w>: the line width. -nostipple: stipple off. -nofill, -nogrid.
-        let options = AppOptions.None;
-        let withUI = true;
-        let mode = 0;
-        let lineWidth = 1.0;
-        let stipple = true;
-        let fill = true;
-        let gridOn = true;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-mode" && i + 1 < argc) {
-                mode = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-width" && i + 1 < argc) {
-                lineWidth = parseFloat(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-nostipple") {
-                stipple = false;
-            } else if (arg == "-nofill") {
-                fill = false;
-            } else if (arg == "-nogrid") {
-                gridOn = false;
-            }
-        }
+        const args = new DynamicLineRasterizationArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -616,19 +619,19 @@ namespace DynamicLineRasterization {
             app.destroy();
             return 1;
         }
-        if (mode > 0 && mode < MODE_NAMES.length && (lines.modes & MODE_BITS[mode]) != 0) {
-            lines.rasterizationMode = mode;
-        } else if (mode != 0) {
+        if (args.mode > 0 && args.mode < MODE_NAMES.length && (lines.modes & MODE_BITS[args.mode]) != 0) {
+            lines.rasterizationMode = args.mode;
+        } else if (args.mode != 0) {
             console.log("The graphics device doesn't have that line rasterization mode");
         }
-        lines.lineWidth = Math.max(1.0, Math.min(lineWidth, lines.maxLineWidth));
-        lines.stippleEnabled = stipple;
-        lines.fillEnabled = fill;
-        lines.gridEnabled = gridOn;
+        lines.lineWidth = Math.max(1.0, Math.min(args.lineWidth, lines.maxLineWidth));
+        lines.stippleEnabled = args.stipple;
+        lines.fillEnabled = args.fill;
+        lines.gridEnabled = args.gridOn;
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(lines);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

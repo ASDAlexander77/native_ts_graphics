@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace RayTracingPositionFetch {
     const WINDOW_TITLE = "Donut Example: Ray Tracing Position Fetch";
@@ -409,36 +410,35 @@ namespace RayTracingPositionFetch {
         }
     }
 
+    class RayTracingPositionFetchArgs extends Args {
+        // -mode <n>: display mode 0 (geometric normal) or 1 (vertex position).
+        displayMode: int = 0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-mode" && i + 1 < this.argc) {
+                    this.displayMode = Math.min(1, Math.max(0, parseInt(this[i + 1])));
+                    i++;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_position_fetch");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window.
-        // -mode <n>: display mode 0 (geometric normal) or 1 (vertex position).
-        let options = AppOptions.RayTracing;
-        let withUI = true;
-        let displayMode: int = 0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-mode" && i + 1 < argc) {
-                displayMode = Math.min(1, Math.max(0, parseInt(Donut_GetArg(argv, i + 1))));
-                i++;
-            }
-        }
+        const args = new RayTracingPositionFetchArgs();
+        args.parseArgs(argc, argv);
 
         // Position fetch is Vulkan's (VK_KHR_ray_tracing_position_fetch); D3D12 has it only through
         // NVAPI's HLSL extensions, which this build doesn't have.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api != GraphicsAPI.VULKAN) {
+        if (args.api != GraphicsAPI.VULKAN) {
             console.log("This example needs Vulkan (-vk): it reads vertex positions in hit shaders, VK_KHR_ray_tracing_position_fetch");
             return 1;
         }
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.RayTracing | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -458,11 +458,11 @@ namespace RayTracingPositionFetch {
             app.destroy();
             return 1;
         }
-        pass.displayMode = displayMode;
+        pass.displayMode = args.displayMode;
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(pass);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

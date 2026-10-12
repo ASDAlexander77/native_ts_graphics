@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { FbcTexture } from "../core/fbc_texture";
 
 namespace FastBlockCompress {
@@ -825,57 +826,57 @@ namespace FastBlockCompress {
         }
     }
 
+    class FastBlockCompressArgs extends Args {
+        // -image <n>, -method <n> (0 GPU, 1 CPU, 2 offline, 3 offline BC7), -mip <n>: what is shown.
+        image: int = 0;
+        method: int = 0;
+        mip: int = 0;
+        // -fullscreen [original]: one image full size (the method's, or the original).
+        fullscreen = false;
+        original = false;
+        // -highlight: block boundaries highlighted.
+        highlight = false;
+        // -diffs <n>: 1 color, 2 alpha differences.
+        diffs = 0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-image" && i + 1 < this.argc) {
+                    i++;
+                    this.image = Math.min(Math.max(parseInt(this[i]), 0), IMAGE_NAMES.length - 1);
+                } else if (arg == "-method" && i + 1 < this.argc) {
+                    i++;
+                    this.method = Math.min(Math.max(parseInt(this[i]), 0), MAX_METHOD - 1);
+                } else if (arg == "-mip" && i + 1 < this.argc) {
+                    i++;
+                    this.mip = Math.max(parseInt(this[i]), 0);
+                } else if (arg == "-fullscreen") {
+                    this.fullscreen = true;
+                    if (i + 1 < this.argc && this[i + 1] == "original") {
+                        i++;
+                        this.original = true;
+                    }
+                } else if (arg == "-highlight") {
+                    this.highlight = true;
+                } else if (arg == "-diffs" && i + 1 < this.argc) {
+                    i++;
+                    this.diffs = parseInt(this[i]);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fast_block_compress");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the controls and text.
-        // -image <n>, -method <n> (0 GPU, 1 CPU, 2 offline, 3 offline BC7), -mip <n>: what is shown.
-        // -fullscreen [original]: one image full size (the method's, or the original).
-        // -highlight: block boundaries highlighted. -diffs <n>: 1 color, 2 alpha differences.
-        // The back buffers are UNORM, as the sample's (B8G8R8A8_UNORM): values shown as stored.
-        let options = AppOptions.UnormBackBuffer;
-        let withUI = true;
-        let image: int = 0;
-        let method: int = 0;
-        let mip: int = 0;
-        let fullscreen = false;
-        let original = false;
-        let highlight = false;
-        let diffs = 0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-image" && i + 1 < argc) {
-                i++;
-                image = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), 0), IMAGE_NAMES.length - 1);
-            } else if (arg == "-method" && i + 1 < argc) {
-                i++;
-                method = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), 0), MAX_METHOD - 1);
-            } else if (arg == "-mip" && i + 1 < argc) {
-                i++;
-                mip = Math.max(parseInt(Donut_GetArg(argv, i)), 0);
-            } else if (arg == "-fullscreen") {
-                fullscreen = true;
-                if (i + 1 < argc && Donut_GetArg(argv, i + 1) == "original") {
-                    i++;
-                    original = true;
-                }
-            } else if (arg == "-highlight") {
-                highlight = true;
-            } else if (arg == "-diffs" && i + 1 < argc) {
-                i++;
-                diffs = parseInt(Donut_GetArg(argv, i));
-            }
-        }
+        const args = new FastBlockCompressArgs();
+        args.parseArgs(argc, argv);
 
-        // The sample's 1920 x 1080, in a smaller window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        // The sample's 1920 x 1080, in a smaller window. The back buffers are UNORM, as the
+        // sample's (B8G8R8A8_UNORM): values shown as stored.
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.UnormBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -888,16 +889,16 @@ namespace FastBlockCompress {
             app.destroy();
             return 1;
         }
-        pass.currentImage = image;
-        pass.currentMethod = method;
-        pass.mipLevel = mip;
-        pass.fullscreen = fullscreen;
-        pass.toggleOriginal = original;
-        pass.highlightBlocks = highlight;
-        pass.colorDiffs = diffs == 1;
-        pass.alphaDiffs = diffs == 2;
+        pass.currentImage = args.image;
+        pass.currentMethod = args.method;
+        pass.mipLevel = args.mip;
+        pass.fullscreen = args.fullscreen;
+        pass.toggleOriginal = args.original;
+        pass.highlightBlocks = args.highlight;
+        pass.colorDiffs = args.diffs == 1;
+        pass.alphaDiffs = args.diffs == 2;
 
-        if (withUI) {
+        if (!args.noUI) {
             const ui = new UserInterface(pass);
             if (!ui.init(app)) {
                 app.destroy();

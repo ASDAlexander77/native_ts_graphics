@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace DynamicPrimitiveClipping {
     const WINDOW_TITLE = "Donut Example: Dynamic Primitive Clipping";
@@ -412,46 +413,47 @@ namespace DynamicPrimitiveClipping {
         }
     }
 
+    class DynamicPrimitiveClippingArgs extends Args {
+        // -object <n>: 0 teapot, 1 torus knot, 2 sphere.
+        objectIndex: int = 0;
+        // -visualization <n>: the clip distance function (0 ... 8, as the UI lists them).
+        visualization: int = 0;
+        // -noclipping: primitive clipping off.
+        clipping = true;
+        // -depthclip: depth clipping on.
+        depthClip = false;
+        // -only <n>: draw only object 1 or 2.
+        only = 0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-object" && i + 1 < this.argc) {
+                    this.objectIndex = Math.min(MODEL_NAMES.length - 1, Math.max(0, parseInt(this[i + 1])));
+                    i++;
+                } else if (arg == "-visualization" && i + 1 < this.argc) {
+                    this.visualization = Math.min(VISUALIZATION_NAMES.length - 1, Math.max(0, parseInt(this[i + 1])));
+                    i++;
+                } else if (arg == "-noclipping") {
+                    this.clipping = false;
+                } else if (arg == "-depthclip") {
+                    this.depthClip = true;
+                } else if (arg == "-only" && i + 1 < this.argc) {
+                    this.only = parseInt(this[i + 1]);
+                    i++;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_primitive_clipping");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window. -object <n>: 0 teapot, 1 torus knot, 2 sphere.
-        // -visualization <n>: the clip distance function (0 ... 8, as the UI lists them).
-        // -noclipping: primitive clipping off. -depthclip: depth clipping on. -only <n>: draw only
-        // object 1 or 2.
-        let options = AppOptions.None;
-        let withUI = true;
-        let objectIndex: int = 0;
-        let visualization: int = 0;
-        let clipping = true;
-        let depthClip = false;
-        let only = 0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-object" && i + 1 < argc) {
-                objectIndex = Math.min(MODEL_NAMES.length - 1, Math.max(0, parseInt(Donut_GetArg(argv, i + 1))));
-                i++;
-            } else if (arg == "-visualization" && i + 1 < argc) {
-                visualization = Math.min(VISUALIZATION_NAMES.length - 1, Math.max(0, parseInt(Donut_GetArg(argv, i + 1))));
-                i++;
-            } else if (arg == "-noclipping") {
-                clipping = false;
-            } else if (arg == "-depthclip") {
-                depthClip = true;
-            } else if (arg == "-only" && i + 1 < argc) {
-                only = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            }
-        }
+        const args = new DynamicPrimitiveClippingArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -464,17 +466,17 @@ namespace DynamicPrimitiveClipping {
             app.destroy();
             return 1;
         }
-        pass.objectIndex = objectIndex;
-        pass.visualization = visualization;
-        pass.usePrimitiveClipping = clipping;
-        pass.useDepthClipping = depthClip;
-        if (only == 1 || only == 2) {
-            pass.drawObject[2 - only] = false;
+        pass.objectIndex = args.objectIndex;
+        pass.visualization = args.visualization;
+        pass.usePrimitiveClipping = args.clipping;
+        pass.useDepthClipping = args.depthClip;
+        if (args.only == 1 || args.only == 2) {
+            pass.drawObject[2 - args.only] = false;
         }
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(pass);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

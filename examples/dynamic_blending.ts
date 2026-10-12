@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace DynamicBlending {
     const WINDOW_TITLE = "Donut Example: Dynamic Blending";
@@ -643,34 +644,33 @@ namespace DynamicBlending {
         }
     }
 
+    class DynamicBlendingArgs extends Args {
+        // -advanced <n>: the advanced blend operation n (0 ZERO_EXT ... 45 BLUE_EXT; Vulkan).
+        advanced = -1;
+        // -noblend: blending off.
+        noBlend = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-advanced" && i + 1 < this.argc) {
+                    this.advanced = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-noblend") {
+                    this.noBlend = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_blending");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the options window.
-        // -advanced <n>: the advanced blend operation n (0 ZERO_EXT ... 45 BLUE_EXT; Vulkan).
-        // -noblend: blending off.
-        let options = AppOptions.None;
-        let withUI = true;
-        let advanced = -1;
-        let noBlend = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-advanced" && i + 1 < argc) {
-                advanced = parseInt(Donut_GetArg(argv, i + 1));
-                i++;
-            } else if (arg == "-noblend") {
-                noBlend = true;
-            }
-        }
+        const args = new DynamicBlendingArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -683,19 +683,19 @@ namespace DynamicBlending {
             app.destroy();
             return 1;
         }
-        if (advanced >= 0) {
-            if ((blending.advancedBlendOperations & AdvancedBlend.Available) != 0 && advanced < ADVANCED_BLEND_OP_NAMES.length) {
+        if (args.advanced >= 0) {
+            if ((blending.advancedBlendOperations & AdvancedBlend.Available) != 0 && args.advanced < ADVANCED_BLEND_OP_NAMES.length) {
                 blending.blendOption = BLEND_ADVANCED;
-                blending.advancedOperator = advanced;
+                blending.advancedOperator = args.advanced;
             } else {
                 console.log("No advanced blend operations (Vulkan's VK_EXT_blend_operation_advanced)");
             }
         }
-        blending.blendEnable = !noBlend;
+        blending.blendEnable = !args.noBlend;
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(blending);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

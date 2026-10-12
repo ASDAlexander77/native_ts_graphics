@@ -2,6 +2,7 @@
 // donut_interop.d.ts), whose code every example links from its object. Referencing donut.ts here
 // would compile that code into this object too, defining its symbols twice.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace FeatureDemoExample {
     // GLFW values, as passed to the input callbacks.
@@ -1461,49 +1462,74 @@ namespace FeatureDemoExample {
         }
     }
 
+    class FeatureDemoExampleArgs extends Args {
+        // ProcessCommandLine
+        // -width <pixels>, -height <pixels>: the window's size.
+        width = 1920;
+        height = 1080;
+        // -fullscreen
+        fullscreen = false;
+        // -no-vsync
+        noVsync = false;
+        // -print-graph, -print-formats: print the scene graph / the formats' support.
+        printSceneGraph = false;
+        printFormats = false;
+        // -screenshot <file>
+        screenshotPath = "";
+        // The scene: the argument which is not an option.
+        sceneName = "";
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-width") {
+                    i++;
+                    this.width = parseInt(this[i]);
+                } else if (arg == "-height") {
+                    i++;
+                    this.height = parseInt(this[i]);
+                } else if (arg == "-fullscreen") {
+                    this.fullscreen = true;
+                } else if (arg == "-no-vsync") {
+                    this.noVsync = true;
+                } else if (arg == "-print-graph") {
+                    this.printSceneGraph = true;
+                } else if (arg == "-print-formats") {
+                    this.printFormats = true;
+                } else if (arg == "-screenshot") {
+                    i++;
+                    this.screenshotPath = this[i];
+                } else if (!arg.startsWith("-")) {
+                    this.sceneName = arg;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("feature_demo");
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
 
-        // ProcessCommandLine
-        let width = 1920;
-        let height = 1080;
+        const args = new FeatureDemoExampleArgs();
+        args.parseArgs(argc, argv);
+
+        g_PrintSceneGraph = args.printSceneGraph;
+        g_PrintFormats = args.printFormats;
+        g_ScreenshotPath = args.screenshotPath;
+
         // Dlss: the Vulkan extensions DLSS needs, if built with it.
-        let options = AppOptions.PerMonitorDpi | AppOptions.Dlss;
-        let vsync = true;
-        let sceneName = "";
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-width") {
-                i++;
-                width = parseInt(Donut_GetArg(argv, i));
-            } else if (arg == "-height") {
-                i++;
-                height = parseInt(Donut_GetArg(argv, i));
-            } else if (arg == "-fullscreen") {
-                options = options | AppOptions.Fullscreen;
-            } else if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-no-vsync") {
-                options = options | AppOptions.NoVsync;
-                vsync = false;
-            } else if (arg == "-print-graph") {
-                g_PrintSceneGraph = true;
-            } else if (arg == "-print-formats") {
-                g_PrintFormats = true;
-            } else if (arg == "-screenshot") {
-                i++;
-                g_ScreenshotPath = Donut_GetArg(argv, i);
-            } else if (!arg.startsWith("-")) {
-                sceneName = arg;
-            }
+        let options = AppOptions.PerMonitorDpi | AppOptions.Dlss | args.options;
+        if (args.fullscreen) {
+            options = options | AppOptions.Fullscreen;
+        }
+        if (args.noVsync) {
+            options = options | AppOptions.NoVsync;
         }
 
-        const apiString = Donut_GraphicsAPIToString(api);
+        const apiString = Donut_GraphicsAPIToString(args.api);
         const windowTitle = `Donut Feature Demo (${apiString})`;
 
-        const app = App.createWithOptions(api, windowTitle, width, height, options);
+        const app = App.createWithOptions(args.api, windowTitle, args.width, args.height, options);
         if (app.isNull()) {
             console.log(`Cannot initialize a ${apiString} graphics device with the requested parameters`);
             return 1;
@@ -1515,10 +1541,10 @@ namespace FeatureDemoExample {
 
         const uiData = new UIData();
         // The UI applies its VSync setting every frame; in the C++ sample that overrides -no-vsync.
-        uiData.enableVsync = vsync;
+        uiData.enableVsync = !args.noVsync;
 
         const demo = new FeatureDemo(app, uiData);
-        if (!demo.init(sceneName)) {
+        if (!demo.init(args.sceneName)) {
             app.destroy();
             return 1;
         }

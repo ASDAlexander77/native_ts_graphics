@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace MeshShaderCulling {
     const WINDOW_TITLE = "Donut Example: Mesh Shader Culling";
@@ -240,34 +241,34 @@ namespace MeshShaderCulling {
         }
     }
 
+    class MeshShaderCullingArgs extends Args {
+        // -radius <0.5..2>: the culling circle's radius.
+        cullRadius = 1.0;
+        // -density <0..2>: 4 x 4, 6 x 6 or 8 x 8.
+        densityLevel: int = 2;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-radius" && i + 1 < this.argc) {
+                    i++;
+                    this.cullRadius = Math.min(Math.max(parseFloat(this[i]), 0.5), 2.0);
+                } else if (arg == "-density" && i + 1 < this.argc) {
+                    i++;
+                    this.densityLevel = Math.min(Math.max(parseInt(this[i]), 0), 2);
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mesh_shader_culling");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -radius <0.5..2>: the culling circle's radius; -density <0..2>: 4 x 4, 6 x 6 or 8 x 8.
-        let options = AppOptions.None;
-        let withUI = true;
-        let cullRadius = 1.0;
-        let densityLevel: int = 2;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-radius" && i + 1 < argc) {
-                i++;
-                cullRadius = Math.min(Math.max(parseFloat(Donut_GetArg(argv, i)), 0.5), 2.0);
-            } else if (arg == "-density" && i + 1 < argc) {
-                i++;
-                densityLevel = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), 0), 2);
-            }
-        }
+        const args = new MeshShaderCullingArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -276,8 +277,8 @@ namespace MeshShaderCulling {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new MeshShaderCullingPass(app);
-        sample.cullRadius = cullRadius;
-        sample.densityLevel = densityLevel;
+        sample.cullRadius = args.cullRadius;
+        sample.densityLevel = args.densityLevel;
         if (!sample.init()) {
             app.destroy();
             return 1;
@@ -285,7 +286,7 @@ namespace MeshShaderCulling {
 
         // Drawn after (over) the scene.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI &&!gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

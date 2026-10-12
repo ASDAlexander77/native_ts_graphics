@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace BufferDeviceAddress {
     const WINDOW_TITLE = "Donut Example: Buffer Device Address";
@@ -305,34 +306,36 @@ namespace BufferDeviceAddress {
         return "";
     }
 
+    class BufferDeviceAddressArgs extends Args {
+        // -time <t>: the animation time fixed at t (a fraction).
+        fixedTime = -1.0;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-time" && i + 1 < this.argc) {
+                    this.fixedTime = parseFloat(this[i + 1]);
+                    i++;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("buffer_device_address");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -time <t>: the animation time fixed at t (a fraction).
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        let options = AppOptions.None;
-        let fixedTime = -1.0;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-time" && i + 1 < argc) {
-                fixedTime = parseFloat(Donut_GetArg(argv, i + 1));
-                i++;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const args = new BufferDeviceAddressArgs();
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
         // Device addresses are Vulkan's.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api != GraphicsAPI.VULKAN) {
+        if (args.api != GraphicsAPI.VULKAN) {
             console.log("The Buffer Device Address example can only run on Vulkan API.");
             return 1;
         }
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -344,7 +347,7 @@ namespace BufferDeviceAddress {
         }
 
         const pass = new BufferDeviceAddressPass(app);
-        pass.fixedTime = fixedTime;
+        pass.fixedTime = args.fixedTime;
         if (!pass.init()) {
             app.destroy();
             return 1;
@@ -354,7 +357,7 @@ namespace BufferDeviceAddress {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             result = app.finishTest(checkFrame(app));
         }
         app.destroy();

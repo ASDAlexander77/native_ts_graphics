@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace ShaderDebugPrintf {
     const WINDOW_TITLE = "Donut Example: Shader debugprintf";
@@ -468,37 +469,34 @@ namespace ShaderDebugPrintf {
         return "";
     }
 
+    class ShaderDebugPrintfArgs extends Args {
+        // -nosky: without the sky sphere.
+        noSky = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                if (this[i] == "-nosky") {
+                    this.noSky = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_debugprintf");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the overlay.
-        // -nosky: without the sky sphere.
+        const args = new ShaderDebugPrintfArgs();
         // -test [-testOutput <file>]: render a few frames without a window and check the shader's
         // output (see checkOutput).
-        let options = AppOptions.ShaderPrintf;
-        let withUI = true;
-        let noSky = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-nosky") {
-                noSky = true;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
         // printf in shaders is the Vulkan validation layer's.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        if (api != GraphicsAPI.VULKAN) {
+        if (args.api != GraphicsAPI.VULKAN) {
             console.log("The Shader debugprintf example can only run on Vulkan API.");
             return 1;
         }
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.ShaderPrintf | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -511,8 +509,8 @@ namespace ShaderDebugPrintf {
         }
 
         const sample = new ShaderDebugPrintfPass(app);
-        sample.displaySkysphere = !noSky;
-        sample.keepAllOutput = test;
+        sample.displaySkysphere = !args.noSky;
+        sample.keepAllOutput = args.test;
         if (!sample.init()) {
             app.destroy();
             return 1;
@@ -520,7 +518,7 @@ namespace ShaderDebugPrintf {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;
@@ -530,7 +528,7 @@ namespace ShaderDebugPrintf {
 
         app.run();
         let result = 0;
-        if (test) {
+        if (args.test) {
             // The last frames' output, which the layer delivers once they're finished.
             app.waitForIdle();
             sample.takeOutput();

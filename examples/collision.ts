@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace Collision {
     const WINDOW_TITLE = "Donut Example: Collision";
@@ -1143,35 +1144,39 @@ namespace Collision {
         }
     }
 
+    class CollisionArgs extends Args {
+        // -group <1..4>: the group looked at first.
+        group: int = 0;
+        // -time <seconds>: the objects frozen at that time.
+        fixedTime = -1.0;
+        // -help: start with the help screen.
+        showHelp = false;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-group" && i + 1 < this.argc) {
+                    i++;
+                    this.group = Math.min(Math.max(parseInt(this[i]), 1), GROUP_COUNT) - 1;
+                } else if (arg == "-time" && i + 1 < this.argc) {
+                    i++;
+                    this.fixedTime = parseFloat(this[i]);
+                } else if (arg == "-help") {
+                    this.showHelp = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("collision");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -group <1..4>: the group looked at first. -time <seconds>: the objects frozen at that time.
-        // -help: start with the help screen.
-        let options = AppOptions.UnormBackBuffer;
-        let group: int = 0;
-        let fixedTime = -1.0;
-        let showHelp = false;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-group" && i + 1 < argc) {
-                i++;
-                group = Math.min(Math.max(parseInt(Donut_GetArg(argv, i)), 1), GROUP_COUNT) - 1;
-            } else if (arg == "-time" && i + 1 < argc) {
-                i++;
-                fixedTime = parseFloat(Donut_GetArg(argv, i));
-            } else if (arg == "-help") {
-                showHelp = true;
-            }
-        }
+        const args = new CollisionArgs();
+        args.parseArgs(argc, argv);
 
         // The sample's B8G8R8A8_UNORM back buffers, in a 1280 x 720 window.
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.UnormBackBuffer | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -1187,9 +1192,9 @@ namespace Collision {
             app.destroy();
             return 1;
         }
-        sample.setViewForGroup(group);
-        sample.fixedTime = fixedTime;
-        sample.showHelp = showHelp;
+        sample.setViewForGroup(args.group);
+        sample.fixedTime = args.fixedTime;
+        sample.showHelp = args.showHelp;
 
         const ui = new UserInterface(sample, app);
         if (!ui.init()) {

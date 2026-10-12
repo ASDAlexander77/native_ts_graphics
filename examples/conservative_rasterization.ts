@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 
 namespace ConservativeRasterization {
     const WINDOW_TITLE = "Donut Example: Conservative Rasterization";
@@ -424,29 +425,28 @@ namespace ConservativeRasterization {
         }
     }
 
+    class ConservativeRasterizationArgs extends Args {
+        // -noconservative: start with conservative rasterization off.
+        conservative = true;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-noconservative") {
+                    this.conservative = false;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("conservative_rasterization");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -noui: without the settings window.
-        // -noconservative: start with conservative rasterization off.
-        let options = AppOptions.None;
-        let withUI = true;
-        let conservative = true;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = AppOptions.DebugRuntime;
-            } else if (arg == "-noui") {
-                withUI = false;
-            } else if (arg == "-noconservative") {
-                conservative = false;
-            }
-        }
+        const args = new ConservativeRasterizationArgs();
+        args.parseArgs(argc, argv);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, 1280, 720, options);
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -455,7 +455,7 @@ namespace ConservativeRasterization {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new ConservativeRasterizationPass(app);
-        sample.conservativeRasterEnabled = conservative;
+        sample.conservativeRasterEnabled = args.conservative;
         if (!sample.init()) {
             app.destroy();
             return 1;
@@ -463,7 +463,7 @@ namespace ConservativeRasterization {
 
         // Drawn after (over) the scene, and sees the mouse first.
         const gui = new UserInterface(sample);
-        if (withUI && !gui.init(app)) {
+        if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;

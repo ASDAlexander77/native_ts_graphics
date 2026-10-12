@@ -1,6 +1,7 @@
 // donut.ts (the class wrappers over donut_interop.d.ts) comes in through input_pass.ts: tslang
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
+import { Args } from "../core/args";
 import { PbrtScene } from "../core/pbrt_scene";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, matrixScaling,
@@ -1666,31 +1667,34 @@ namespace DenoisedRtao {
         return "";
     }
 
+    class DenoisedRtaoArgs extends Args {
+        // -raw / -shaded: start in the raw AO (key 1) or shaded (key 3) view.
+        mode: int = COMPOSITION_AO_DENOISED;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-raw") {
+                    this.mode = COMPOSITION_AO_RAW;
+                } else if (arg == "-shaded") {
+                    this.mode = COMPOSITION_PBR_SHADING;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("denoised_rtao");
 
-        // -debug: the graphics API's debug layer and NVRHI's validation layer.
-        // -raw / -shaded: start in the raw AO (key 1) or shaded (key 3) view.
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
-        let options = AppOptions.UnormBackBuffer | AppOptions.RayTracing;
-        let mode = COMPOSITION_AO_DENOISED;
-        for (let i = 1; i < argc; i++) {
-            const arg = Donut_GetArg(argv, i);
-            if (arg == "-debug") {
-                options = options | AppOptions.DebugRuntime;
-            } else if (arg == "-raw") {
-                mode = COMPOSITION_AO_RAW;
-            } else if (arg == "-shaded") {
-                mode = COMPOSITION_PBR_SHADING;
-            }
-        }
-        const test = Donut_ParseTestArgs(argc, argv, TEST_FRAMES, 1.0 / 60.0) != 0;
+        const args = new DenoisedRtaoArgs();
+        args.parseArgs(argc, argv, TEST_FRAMES);
 
-        const api = Donut_GetGraphicsAPIFromCommandLine(argc, argv);
-        const app = App.createWithOptions(api, WINDOW_TITLE, WIDTH, HEIGHT, options);
+        // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
+        const options = AppOptions.UnormBackBuffer | AppOptions.RayTracing | args.options;
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, WIDTH, HEIGHT, options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -1702,8 +1706,8 @@ namespace DenoisedRtao {
         }
 
         const pass = new DenoisedRtaoPass(app);
-        pass.test = test;
-        pass.compositionMode = mode;
+        pass.test = args.test;
+        pass.compositionMode = args.mode;
         if (!pass.init()) {
             app.destroy();
             return 1;
@@ -1713,8 +1717,8 @@ namespace DenoisedRtao {
 
         app.run();
         let result = 0;
-        if (test) {
-            result = app.finishTest(checkFrame(app, mode));
+        if (args.test) {
+            result = app.finishTest(checkFrame(app, args.mode));
         }
         app.destroy();
         return result;
