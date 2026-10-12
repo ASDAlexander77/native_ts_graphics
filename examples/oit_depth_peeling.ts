@@ -519,10 +519,6 @@ namespace OitDepthPeeling {
         // -rotate: start with the camera's auto-rotation on.
         rotate = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

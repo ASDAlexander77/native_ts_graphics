@@ -631,10 +631,6 @@ namespace TextureCompressionComparison {
         // -format <n>: 0 RGBA 32 (the default), 1 BC7, 2 BC3, 3 ASTC 4x4, 4 ETC2.
         format: int = 0;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

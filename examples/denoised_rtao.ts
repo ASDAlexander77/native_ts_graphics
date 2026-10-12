@@ -1671,10 +1671,6 @@ namespace DenoisedRtao {
         // -raw / -shaded: start in the raw AO (key 1) or shaded (key 3) view.
         mode: int = COMPOSITION_AO_DENOISED;
 
-        constructor(argc: int, argv: Ref<string>, testFrames: int) {
-            super(argc, argv, testFrames);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

@@ -614,10 +614,6 @@ namespace DynamicMultisampleRasterization {
         // -samples <count>: the initial sample count (when supported).
         samples = 0;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "-samples" && i + 1 < this.argc) {

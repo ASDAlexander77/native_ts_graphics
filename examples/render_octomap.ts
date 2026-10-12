@@ -1177,10 +1177,6 @@ namespace RenderOctomap {
         // -view <0..2>: the view at start (octomap, glTF map, splats).
         view: int = VIEW_OCTOMAP;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

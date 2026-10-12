@@ -967,10 +967,6 @@ namespace Msaa {
         // -depthresolve zero|average|min|max: the depth resolve mode.
         depthResolveMode: ResolveMode = ResolveMode.None;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

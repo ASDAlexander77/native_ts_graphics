@@ -544,10 +544,6 @@ namespace LogicOpDynamicState {
         // -op <0..15>: the logic operation at start (LogicOp, Vulkan's order: 3 is COPY).
         operation: int = LogicOp.Copy;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

@@ -227,10 +227,6 @@ namespace ColorWriteEnable {
         // -background <r> <g> <b>: the initial background color.
         background: number[] = [0.5, 0.5, 0.5];
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

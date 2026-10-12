@@ -379,10 +379,6 @@ namespace Khr16BitArithmetic {
         // -fp16: start with 16-bit arithmetic enabled (where the device has it).
         fp16 = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

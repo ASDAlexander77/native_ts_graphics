@@ -408,10 +408,6 @@ namespace ReservedResources {
         // -mip <level>: the level the test steps to.
         testMip = 0;
 
-        constructor(argc: int, argv: Ref<string>, testFrames: int) {
-            super(argc, argv, testFrames);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

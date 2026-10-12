@@ -291,10 +291,6 @@ namespace NvrhiDirect {
         // --help: print the usage and exit.
         help = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "--help") {

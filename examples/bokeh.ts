@@ -1237,10 +1237,6 @@ namespace Bokeh {
         // -slow: start with the full (not the fast) bokeh geometry shader (Up toggles it).
         slow = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

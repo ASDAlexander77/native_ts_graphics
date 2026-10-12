@@ -247,10 +247,6 @@ namespace MeshShaderCulling {
         // -density <0..2>: 4 x 4, 6 x 6 or 8 x 8.
         densityLevel: int = 2;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

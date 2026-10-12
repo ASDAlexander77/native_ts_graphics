@@ -310,10 +310,6 @@ namespace BufferDeviceAddress {
         // -time <t>: the animation time fixed at t (a fraction).
         fixedTime = -1.0;
 
-        constructor(argc: int, argv: Ref<string>, testFrames: int) {
-            super(argc, argv, testFrames);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

@@ -757,10 +757,6 @@ namespace MemoryManagement {
         mips = false;
         stats = false;
 
-        constructor(argc: int, argv: Ref<string>, testFrames: int) {
-            super(argc, argv, testFrames);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

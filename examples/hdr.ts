@@ -551,10 +551,6 @@ namespace Hdr {
         bloom = true;
         displaySkybox = true;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

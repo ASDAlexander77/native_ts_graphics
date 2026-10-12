@@ -682,10 +682,6 @@ namespace SimpleHdr {
         // -sdr: the SDR signal (sRGB back buffers) even on an HDR display.
         sdr = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

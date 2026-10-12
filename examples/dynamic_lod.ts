@@ -640,10 +640,6 @@ namespace DynamicLod {
         // -instanceLevel <n>: start at instance level n (0 by default, as the sample; 2 for -test).
         instanceLevel = -1;
 
-        constructor(argc: int, argv: Ref<string>, testFrames: int) {
-            super(argc, argv, testFrames);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
