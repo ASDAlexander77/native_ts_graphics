@@ -11,10 +11,13 @@ Run it after updating NVRHI or tslang, and commit what it writes; never edit the
 tsbindgen's output is then made to fit core/nvrhi.ts:
 - the namespace is exported, and imports core/nvrhi_abi.<os>.ts, whose desc structs are named;
 - a struct NVRHI takes by reference whose tuple the project declares (core/nvrhi_types.ts,
-  nvrhi_abi.<os>.ts) is a Ref to it, instead of an Opaque: tsbindgen leaves the structs of a C++
-  namespace out. So is the desc a getDesc() returns, for the classes in GET_DESC;
+  nvrhi_abi.<os>.ts) is a Ref to it. tsbindgen up to pre-alpha98 leaves a C++ namespace's structs
+  out (an Opaque with the C++ name in a comment; getDesc()'s desc for the classes in GET_DESC); a
+  newer one declares them, as a tuple, or as an Opaque when it can't spell a field (std::string,
+  static_vector): the project's declaration replaces its own, and a reference to one it made an
+  Opaque is a Ref;
 - RefCountPtr<T> and nvrhi::Object returned by value are nvrhi.RefCountPtr and nvrhi.NativeObject;
-- a pointer parameter (an Opaque) may be null;
+- a pointer parameter (an Opaque) may be null (a newer tsbindgen says so itself);
 - the methods tsbindgen skips because they take a struct by value are written here, for those in
   BY_VALUE, as each ABI passes it, with a function calling it.
 """
@@ -136,7 +139,19 @@ def adapt(body, os_name):
     cls = None
     used = set()
     last_slot = None
+    opaque = []  # STRUCTS tsbindgen declared as an Opaque: a reference to one is a Ref
     for line in body:
+        # a struct the project declares, which a newer tsbindgen declares too (before the classes)
+        m = re.match(r"\s*export type (\w+) = (.*);$", line)
+        if m and m.group(1) in STRUCTS:
+            if m.group(2) == "Opaque":
+                opaque.append(m.group(1))
+            if out and re.match(rf"\s*// skipped: {m.group(1)} ", out[-1]):
+                out.pop()
+            continue
+        if opaque:
+            line = re.sub(rf"(?<=: )({'|'.join(opaque)})(?=[,;) ])", r"Ref<\1>", line)
+
         m = re.match(r"\s*@cpp$|\s*export class (\w+)", line)
         if m and m.group(1):
             cls = m.group(1)
