@@ -43,10 +43,26 @@ ABIS = {"x86_64": "x86_64", "arm64": "arm64-v8a", "arm32": "armeabi-v7a"}
 NO_HEADLESS = {"arm32"}  # no core/nvrhi.ts there (tslang has no 32-bit ARM @cppvtable struct returns), so no headless
 NOT_ON_VULKAN = {"rt_reflections"}  # D3D12-only, no SPIR-V shaders
 
-# What test runs by default: the examples that run on the emulator's CPU Vulkan (lavapipe), which
-# has no ray tracing or mesh shaders.
-EMULATOR_EXAMPLES = ["basic_triangle", "vertex_buffer", "deferred_shading", "shader_specializations",
-                     "threaded_rendering", "async_compute", "feature_demo"]
+# What test runs by default: the examples that run on the emulator's CPU Vulkan (lavapipe). The
+# others stop at once saying what the device lacks (ray tracing, mesh shaders, variable rate
+# shading, conditional rendering, push descriptors, sparse and reserved resources, ...).
+EMULATOR_EXAMPLES = ["16bit_arithmetic", "async_compute", "async_compute_bloom", "basic_triangle",
+                     "bindless_rendering", "bokeh", "buffer_device_address", "bundles",
+                     "collision", "color_write_enable", "compute_nbody", "compute_nbody_collisions",
+                     "deferred_shading", "depth_bounds_test", "descriptor_indexing", "dynamic_blending",
+                     "dynamic_indexing", "dynamic_line_rasterization", "dynamic_multisample_rasterization", "dynamic_primitive_clipping",
+                     "dynamic_rendering", "dynamic_rendering_local_read", "dynamic_uniform_buffers", "environment_map",
+                     "execute_indirect", "extended_dynamic_state2", "fast_block_compress", "feature_demo",
+                     "graphics_pipeline_library", "gshader_to_mshader", "hdr", "hdr_display",
+                     "instancing", "logic_op_dynamic_state", "memory_budget", "mobile_nerf",
+                     "mouse_cursor", "msaa", "multi_draw_indirect", "multithreading",
+                     "n_body_gravity", "oit_depth_peeling", "oit_linked_lists", "patch_control_points",
+                     "rasterization_order_attachment_access", "render_octomap", "separate_image_sampler", "shader_object",
+                     "shader_specializations", "simple_bezier", "simple_compute", "simple_hdr",
+                     "simple_pbr", "small_resources", "terrain_tessellation", "texture_compression_basisu",
+                     "texture_compression_comparison", "texture_loading", "texture_mipmap_generation", "threaded_rendering",
+                     "timeline_semaphore", "timestamp_queries", "vertex_buffer", "vertex_dynamic_state",
+                     "wave_intrinsics"]
 
 REMOTE_FOLDER = "/data/local/tmp/native_ts_graphics"
 
