@@ -154,9 +154,25 @@ namespace ExecuteIndirect {
             this.hasTargets = false;
         }
 
+        // The projection of every triangle's constants for the back buffer's aspect ratio: the
+        // sample's window is always 1280x720, this one's is the display's on Android.
+        updateProjection(): void {
+            const aspectRatio = Math.fround(Math.fround(this.width) / Math.fround(this.height));
+            const projection = matrixTranspose(matrixPerspectiveFovLH(Math.fround(0.785398163), aspectRatio, 0.01, 20.0));
+            for (let n = 0; n < TRIANGLE_COUNT; n++) {
+                for (let i = 0; i < 16; i++) {
+                    this.constants[n * CONSTANT_FLOATS + 12 + i] = projection[i];
+                }
+            }
+        }
+
         // The sample's back buffer and depth buffer, and its pipeline state: triangle strips, the
         // default rasterizer state (back faces culled), blend state (opaque), depth state (less).
+        // The culling band and the projection follow its size.
         createTargets(width: int, height: int): void {
+            this.width = width;
+            this.height = height;
+            this.updateProjection();
             this.colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             this.depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.framebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
