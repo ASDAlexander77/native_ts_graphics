@@ -10,17 +10,82 @@
 import "./nvrhi_abi";
 
 export namespace nvrhi {
+    export type MemoryRequirements = [size: u64, alignment: u64];
+    // skipped: HeapDesc — field 'debugName': C++ class 'class std::basic_string<char>'
+    export type HeapDesc = Opaque;
+    export type TextureSlice = [x: u32, y: u32, z: u32, width: u32, height: u32, depth: u32, mipLevel: u32, arraySlice: u32];
+    export type TiledTextureCoordinate = [mipLevel: u16, arrayLevel: u16, x: u32, y: u32, z: u32];
+    export type TiledTextureRegion = [tilesNum: u32, width: u32, height: u32, depth: u32];
+    export type TextureTilesMapping = [tiledTextureCoordinates: Ref<TiledTextureCoordinate> | null, tiledTextureRegions: Ref<TiledTextureRegion> | null, byteOffsets: Ref<u64> | null, numTextureRegions: u32, heap: IHeap | null];
+    export type PackedMipDesc = [numStandardMips: u32, numPackedMips: u32, numTilesForPackedMips: u32, startTileIndexInOverallResource: u32];
+    export type TileShape = [widthInTexels: u32, heightInTexels: u32, depthInTexels: u32];
+    export type SubresourceTiling = [widthInTiles: u32, heightInTiles: u32, depthInTiles: u32, startTileIndexInOverallResource: u32];
+    export type SamplerFeedbackTextureDesc = [samplerFeedbackFormat: u8, samplerFeedbackMipRegionX: u32, samplerFeedbackMipRegionY: u32, samplerFeedbackMipRegionZ: u32, initialState: u32, keepInitialState: boolean];
+    // skipped: VertexAttributeDesc — field 'name': C++ class 'class std::basic_string<char>'
+    export type VertexAttributeDesc = Opaque;
+    // skipped: ShaderDesc — field 'debugName': C++ class 'class std::basic_string<char>'
+    export type ShaderDesc = Opaque;
+    // skipped: ShaderSpecialization — field 'value': anonymous struct
+    export type ShaderSpecialization = Opaque;
+    export type SamplerDesc = [borderColor: Color, maxAnisotropy: f32, mipBias: f32, minFilter: boolean, magFilter: boolean, mipFilter: boolean, addressU: u8, addressV: u8, addressW: u8, reductionType: u8, minLod: f32, maxLod: f32];
+    // skipped: FramebufferDesc — field 'colorAttachments': C++ class 'struct nvrhi::static_vector<struct nvrhi::FramebufferAttachment, 8>'
+    export type FramebufferDesc = Opaque;
+    // skipped: FramebufferInfo — field 'colorFormats': C++ class 'struct nvrhi::static_vector<enum nvrhi::Format, 8>'
+    export type FramebufferInfo = Opaque;
+    // skipped: FramebufferInfoEx — derived C++ class
+    export type FramebufferInfoEx = Opaque;
+    // skipped: OpacityMicromapDesc — field 'debugName': C++ class 'class std::basic_string<char>'
+    export type OpacityMicromapDesc = Opaque;
+    // skipped: GeometryDesc — field 'geometryData': 'GeomTypeUnion' is skipped (union)
+    export type GeometryDesc = Opaque;
+    // skipped: InstanceDesc — field 'transform': array
+    export type InstanceDesc = Opaque;
+    export type AccelStructPrebuildInfo = [resultBytes: u64, scratchBytes: u64, updateScratchBytes: u64];
+    // skipped: AccelStructDesc — field 'bottomLevelGeometries': C++ class 'class std::vector<struct nvrhi::rt::GeometryDesc>'
+    export type AccelStructDesc = Opaque;
+    export type OperationMoveParams = [type: u8, maxBytes: u32];
+    export type OperationClasBuildParams = [vertexFormat: u8, maxGeometryIndex: u32, maxUniqueGeometryCount: u32, maxTriangleCount: u32, maxVertexCount: u32, maxTotalTriangleCount: u32, maxTotalVertexCount: u32, minPositionTruncateBitCount: u32];
+    export type OperationBlasBuildParams = [maxClasPerBlasCount: u32, maxTotalClasCount: u32];
+    export type OperationParams = [maxArgCount: u32, type: u8, mode: u8, flags: u8, move: OperationMoveParams, clas: OperationClasBuildParams, blas: OperationBlasBuildParams];
+    export type OperationDesc = [params: OperationParams, scratchSizeInBytes: u64, inIndirectArgCountBuffer: IBuffer | null, inIndirectArgCountOffsetInBytes: u64, inIndirectArgsBuffer: IBuffer | null, inIndirectArgsOffsetInBytes: u64, inOutAddressesBuffer: IBuffer | null, inOutAddressesOffsetInBytes: u64, outSizesBuffer: IBuffer | null, outSizesOffsetInBytes: u64, outAccelerationStructuresBuffer: IBuffer | null, outAccelerationStructuresOffsetInBytes: u64];
+    // skipped: BindingLayoutDesc — field 'bindings': C++ class 'class std::vector<struct nvrhi::BindingLayoutItem>'
+    export type BindingLayoutDesc = Opaque;
+    // skipped: BindlessLayoutDesc — field 'registerSpaces': C++ class 'struct nvrhi::static_vector<struct nvrhi::BindingLayoutItem, 16>'
+    export type BindlessLayoutDesc = Opaque;
+    // skipped: BindingSetItem — bitfield 'type'
+    export type BindingSetItem = Opaque;
+    // skipped: BindingSetDesc — field 'bindings': C++ class 'class std::vector<struct nvrhi::BindingSetItem>'
+    export type BindingSetDesc = Opaque;
+    // skipped: GraphicsPipelineDesc — field 'inputLayout': C++ class 'class nvrhi::RefCountPtr<class nvrhi::IInputLayout>'
+    export type GraphicsPipelineDesc = Opaque;
+    // skipped: MeshletPipelineDesc — field 'AS': C++ class 'class nvrhi::RefCountPtr<class nvrhi::IShader>'
+    export type MeshletPipelineDesc = Opaque;
+    export type IndexBufferBinding = [buffer: IBuffer | null, format: u8, offset: u32];
+    // skipped: GraphicsState — field 'viewport': 'ViewportState' is skipped (field 'viewports': C++ class 'struct nvrhi::static_vector<struct nvrhi::Viewport, 16>')
+    export type GraphicsState = Opaque;
+    export type DrawArguments = [vertexCount: u32, instanceCount: u32, startIndexLocation: u32, startVertexLocation: u32, startInstanceLocation: u32];
+    // skipped: MeshletState — field 'viewport': 'ViewportState' is skipped (field 'viewports': C++ class 'struct nvrhi::static_vector<struct nvrhi::Viewport, 16>')
+    export type MeshletState = Opaque;
+    // skipped: PipelineDesc — field 'shaders': C++ class 'class std::vector<struct nvrhi::rt::PipelineShaderDesc>'
+    export type PipelineDesc = Opaque;
+    // skipped: State — field 'bindings': C++ class 'struct nvrhi::static_vector<class nvrhi::IBindingSet *, 8>'
+    export type State = Opaque;
+    export type DispatchRaysArguments = [width: u32, height: u32, depth: u32];
+    export type MatMulFormatCombo = [inputType: s32, inputInterpretation: s32, matrixInterpretation: s32, biasInterpretation: s32, outputType: s32, transposeSupported: boolean];
+    export type MatrixLayoutDesc = [buffer: IBuffer | null, offset: u64, type: s32, layout: s32, size: index, stride: index];
+    export type ConvertMatrixLayoutDesc = [src: MatrixLayoutDesc, dst: MatrixLayoutDesc, numRows: u32, numColumns: u32];
+    export type AftermathCrashDumpHelper = Opaque;
     @cpp
     export class IResource { // nvrhi::IResource
         @slot(1) AddRef(): u32;
         @slot(2) Release(): u32;
         @slot(3) GetRefCount(): u32;
         @slot(4) getNativeObject(objectType: u32): NativeObject;
-        @slot(5) queryMemoryRequirements(outRequirements: Opaque /* MemoryRequirements */): boolean;
+        @slot(5) queryMemoryRequirements(outRequirements: Ref<MemoryRequirements>): boolean;
     }
     @cpp
     export class IHeap extends IResource { // nvrhi::IHeap
-        @slot(6) getDesc(): Opaque;
+        @slot(6) getDesc(): HeapDesc;
     }
     @cpp
     export class ITexture extends IResource { // nvrhi::ITexture
@@ -29,18 +94,18 @@ export namespace nvrhi {
     }
     @cpp
     export class IStagingTexture extends IResource { // nvrhi::IStagingTexture
-        @slot(6) getDesc(): Opaque;
+        @slot(6) getDesc(): Ref<TextureDesc>;
     }
     @cpp
     export class ISamplerFeedbackTexture extends IResource { // nvrhi::ISamplerFeedbackTexture
-        @slot(6) getDesc(): Opaque;
+        @slot(6) getDesc(): Ref<SamplerFeedbackTextureDesc>;
         @cppnontrivial
         @slot(7) getPairedTexture(): RefCountPtr;
     }
     @cpp
     export class IInputLayout extends IResource { // nvrhi::IInputLayout
         @slot(6) getNumAttributes(): u32;
-        @slot(7) getAttributeDesc(index: u32): Opaque;
+        @slot(7) getAttributeDesc(index: u32): VertexAttributeDesc;
     }
     @cpp
     export class IBuffer extends IResource { // nvrhi::IBuffer
@@ -49,44 +114,44 @@ export namespace nvrhi {
     }
     @cpp
     export class IShader extends IResource { // nvrhi::IShader
-        @slot(6) getDesc(): Opaque;
-        @slot(7) getBytecode(ppBytecode: Ref<Opaque>, pSize: Ref<index>): void;
+        @slot(6) getDesc(): ShaderDesc;
+        @slot(7) getBytecode(ppBytecode: Ref<Opaque | null> | null, pSize: Ref<index> | null): void;
     }
     @cpp
     export class IShaderLibrary extends IResource { // nvrhi::IShaderLibrary
-        @slot(6) getBytecode(ppBytecode: Ref<Opaque>, pSize: Ref<index>): void;
+        @slot(6) getBytecode(ppBytecode: Ref<Opaque | null> | null, pSize: Ref<index> | null): void;
         @cppnontrivial
-        @slot(7) getShader(entryName: string, shaderType: u16): RefCountPtr;
+        @slot(7) getShader(entryName: string | null, shaderType: u16): RefCountPtr;
     }
     @cpp
     export class ISampler extends IResource { // nvrhi::ISampler
-        @slot(6) getDesc(): Opaque;
+        @slot(6) getDesc(): Ref<SamplerDesc>;
     }
     @cpp
     export class IFramebuffer extends IResource { // nvrhi::IFramebuffer
-        @slot(6) getDesc(): Opaque;
-        @slot(7) getFramebufferInfo(): Opaque;
+        @slot(6) getDesc(): FramebufferDesc;
+        @slot(7) getFramebufferInfo(): FramebufferInfoEx;
     }
     @cpp
     export class IOpacityMicromap extends IResource { // nvrhi::rt::IOpacityMicromap
-        @slot(6) getDesc(): Opaque;
+        @slot(6) getDesc(): OpacityMicromapDesc;
         @slot(7) isCompacted(): boolean;
         @slot(8) getDeviceAddress(): u64;
     }
     @cpp
     export class IAccelStruct extends IResource { // nvrhi::rt::IAccelStruct
-        @slot(6) getDesc(): Opaque;
+        @slot(6) getDesc(): AccelStructDesc;
         @slot(7) isCompacted(): boolean;
         @slot(8) getDeviceAddress(): u64;
     }
     @cpp
     export class IBindingLayout extends IResource { // nvrhi::IBindingLayout
-        @slot(6) getDesc(): Opaque;
-        @slot(7) getBindlessDesc(): Opaque;
+        @slot(6) getDesc(): BindingLayoutDesc;
+        @slot(7) getBindlessDesc(): BindlessLayoutDesc;
     }
     @cpp
     export class IBindingSet extends IResource { // nvrhi::IBindingSet
-        @slot(6) getDesc(): Opaque;
+        @slot(6) getDesc(): BindingSetDesc;
         @slot(7) getLayout(): IBindingLayout;
     }
     @cpp
@@ -96,17 +161,17 @@ export namespace nvrhi {
     }
     @cpp
     export class IGraphicsPipeline extends IResource { // nvrhi::IGraphicsPipeline
-        @slot(6) getDesc(): Opaque;
-        @slot(7) getFramebufferInfo(): Opaque;
+        @slot(6) getDesc(): GraphicsPipelineDesc;
+        @slot(7) getFramebufferInfo(): FramebufferInfo;
     }
     @cpp
     export class IComputePipeline extends IResource { // nvrhi::IComputePipeline
-        @slot(6) getDesc(): Opaque;
+        @slot(6) getDesc(): Ref<ComputePipelineDesc>;
     }
     @cpp
     export class IMeshletPipeline extends IResource { // nvrhi::IMeshletPipeline
-        @slot(6) getDesc(): Opaque;
-        @slot(7) getFramebufferInfo(): Opaque;
+        @slot(6) getDesc(): MeshletPipelineDesc;
+        @slot(7) getFramebufferInfo(): FramebufferInfo;
     }
     @cpp
     export class IEventQuery extends IResource { // nvrhi::IEventQuery
@@ -116,90 +181,90 @@ export namespace nvrhi {
     }
     @cpp
     export class IMessageCallback { // nvrhi::IMessageCallback
-        @slot(1) message(severity: u8, messageText: string): void;
+        @slot(1) message(severity: u8, messageText: string | null): void;
     }
     @cpp
     export class IDevice extends IResource { // nvrhi::IDevice
         @cppnontrivial
-        @slot(6) createHeap(d: Opaque /* HeapDesc */): RefCountPtr;
-        @slot(7) queryTopLevelAccelStructPrebuildInfo(desc: Opaque /* rt::AccelStructDesc */, instanceCount: u32, outInfo: Opaque /* rt::AccelStructPrebuildInfo */): boolean;
+        @slot(6) createHeap(d: HeapDesc): RefCountPtr;
+        @slot(7) queryTopLevelAccelStructPrebuildInfo(desc: AccelStructDesc, instanceCount: u32, outInfo: Ref<AccelStructPrebuildInfo>): boolean;
         @cppnontrivial
         @slot(8) createTexture(d: Ref<TextureDesc>): RefCountPtr;
-        @slot(9) getTextureMemoryRequirements(texture: ITexture): [size: u64, alignment: u64];
-        @slot(10) bindTextureMemory(texture: ITexture, heap: IHeap, offset: u64): boolean;
+        @slot(9) getTextureMemoryRequirements(texture: ITexture | null): [size: u64, alignment: u64];
+        @slot(10) bindTextureMemory(texture: ITexture | null, heap: IHeap | null, offset: u64): boolean;
         // skipped: createHandleForNativeTexture — parameter 'texture': struct passed by value
         @cppnontrivial
         @slot(12) createStagingTexture(d: Ref<TextureDesc>, cpuAccess: u8): RefCountPtr;
-        @slot(13) mapStagingTexture(tex: IStagingTexture, slice: Opaque /* TextureSlice */, cpuAccess: u8, outRowPitch: Ref<index>): Opaque;
-        @slot(14) unmapStagingTexture(tex: IStagingTexture): void;
-        @slot(15) getTextureTiling(texture: ITexture, numTiles: Ref<u32>, desc: Opaque /* PackedMipDesc */, tileShape: Opaque /* TileShape */, subresourceTilingsNum: Ref<u32>, subresourceTilings: Opaque /* SubresourceTiling */): void;
-        @slot(16) updateTextureTileMappings(texture: ITexture, tileMappings: Opaque /* TextureTilesMapping */, numTileMappings: u32, executionQueue: u8): void;
+        @slot(13) mapStagingTexture(tex: IStagingTexture | null, slice: Ref<TextureSlice>, cpuAccess: u8, outRowPitch: Ref<index> | null): Opaque;
+        @slot(14) unmapStagingTexture(tex: IStagingTexture | null): void;
+        @slot(15) getTextureTiling(texture: ITexture | null, numTiles: Ref<u32> | null, desc: Ref<PackedMipDesc> | null, tileShape: Ref<TileShape> | null, subresourceTilingsNum: Ref<u32> | null, subresourceTilings: Ref<SubresourceTiling> | null): void;
+        @slot(16) updateTextureTileMappings(texture: ITexture | null, tileMappings: Ref<TextureTilesMapping> | null, numTileMappings: u32, executionQueue: u8): void;
         @cppnontrivial
-        @slot(17) createSamplerFeedbackTexture(pairedTexture: ITexture, desc: Opaque /* SamplerFeedbackTextureDesc */): RefCountPtr;
+        @slot(17) createSamplerFeedbackTexture(pairedTexture: ITexture | null, desc: Ref<SamplerFeedbackTextureDesc>): RefCountPtr;
         // skipped: createSamplerFeedbackForNativeTexture — parameter 'texture': struct passed by value
         @cppnontrivial
         @slot(19) createBuffer(d: Ref<BufferDesc>): RefCountPtr;
-        @slot(20) mapBuffer(buffer: IBuffer, cpuAccess: u8): Opaque;
-        @slot(21) unmapBuffer(buffer: IBuffer): void;
-        @slot(22) getBufferMemoryRequirements(buffer: IBuffer): [size: u64, alignment: u64];
-        @slot(23) bindBufferMemory(buffer: IBuffer, heap: IHeap, offset: u64): boolean;
+        @slot(20) mapBuffer(buffer: IBuffer | null, cpuAccess: u8): Opaque;
+        @slot(21) unmapBuffer(buffer: IBuffer | null): void;
+        @slot(22) getBufferMemoryRequirements(buffer: IBuffer | null): [size: u64, alignment: u64];
+        @slot(23) bindBufferMemory(buffer: IBuffer | null, heap: IHeap | null, offset: u64): boolean;
         // skipped: createHandleForNativeBuffer — parameter 'buffer': struct passed by value
         @cppnontrivial
-        @slot(25) createShader(d: Opaque /* ShaderDesc */, binary: Opaque | null, binarySize: index): RefCountPtr;
+        @slot(25) createShader(d: ShaderDesc, binary: Opaque | null, binarySize: index): RefCountPtr;
         @cppnontrivial
-        @slot(26) createShaderSpecialization(baseShader: IShader, constants: Opaque /* ShaderSpecialization */, numConstants: u32): RefCountPtr;
+        @slot(26) createShaderSpecialization(baseShader: IShader | null, constants: ShaderSpecialization | null, numConstants: u32): RefCountPtr;
         @cppnontrivial
         @slot(27) createShaderLibrary(binary: Opaque | null, binarySize: index): RefCountPtr;
         @cppnontrivial
-        @slot(28) createSampler(d: Opaque /* SamplerDesc */): RefCountPtr;
+        @slot(28) createSampler(d: Ref<SamplerDesc>): RefCountPtr;
         @cppnontrivial
-        @slot(29) createInputLayout(d: Opaque /* VertexAttributeDesc */, attributeCount: u32, vertexShader: IShader): RefCountPtr;
+        @slot(29) createInputLayout(d: VertexAttributeDesc | null, attributeCount: u32, vertexShader: IShader | null): RefCountPtr;
         @cppnontrivial
         @slot(30) createEventQuery(): RefCountPtr;
-        @slot(31) setEventQuery(query: IEventQuery, queue: u8): void;
-        @slot(32) pollEventQuery(query: IEventQuery): boolean;
-        @slot(33) waitEventQuery(query: IEventQuery): void;
-        @slot(34) resetEventQuery(query: IEventQuery): void;
+        @slot(31) setEventQuery(query: IEventQuery | null, queue: u8): void;
+        @slot(32) pollEventQuery(query: IEventQuery | null): boolean;
+        @slot(33) waitEventQuery(query: IEventQuery | null): void;
+        @slot(34) resetEventQuery(query: IEventQuery | null): void;
         @cppnontrivial
         @slot(35) createTimerQuery(): RefCountPtr;
-        @slot(36) pollTimerQuery(query: ITimerQuery): boolean;
-        @slot(37) getTimerQueryTime(query: ITimerQuery): f32;
-        @slot(38) resetTimerQuery(query: ITimerQuery): void;
+        @slot(36) pollTimerQuery(query: ITimerQuery | null): boolean;
+        @slot(37) getTimerQueryTime(query: ITimerQuery | null): f32;
+        @slot(38) resetTimerQuery(query: ITimerQuery | null): void;
         @slot(39) getGraphicsAPI(): u8;
         @cppnontrivial
-        @slot(40) createFramebuffer(desc: Opaque /* FramebufferDesc */): RefCountPtr;
+        @slot(40) createFramebuffer(desc: FramebufferDesc): RefCountPtr;
         @cppnontrivial
-        @slot(42) createGraphicsPipeline(desc: Opaque /* GraphicsPipelineDesc */, fbinfo: Opaque /* FramebufferInfo */): RefCountPtr;
+        @slot(42) createGraphicsPipeline(desc: GraphicsPipelineDesc, fbinfo: FramebufferInfo): RefCountPtr;
         @cppnontrivial
-        @slot(41) createGraphicsPipeline_2(desc: Opaque /* GraphicsPipelineDesc */, fb: IFramebuffer): RefCountPtr;
+        @slot(41) createGraphicsPipeline_2(desc: GraphicsPipelineDesc, fb: IFramebuffer | null): RefCountPtr;
         @cppnontrivial
         @slot(43) createComputePipeline(desc: Ref<ComputePipelineDesc>): RefCountPtr;
         @cppnontrivial
-        @slot(45) createMeshletPipeline(desc: Opaque /* MeshletPipelineDesc */, fbinfo: Opaque /* FramebufferInfo */): RefCountPtr;
+        @slot(45) createMeshletPipeline(desc: MeshletPipelineDesc, fbinfo: FramebufferInfo): RefCountPtr;
         @cppnontrivial
-        @slot(44) createMeshletPipeline_2(desc: Opaque /* MeshletPipelineDesc */, fb: IFramebuffer): RefCountPtr;
+        @slot(44) createMeshletPipeline_2(desc: MeshletPipelineDesc, fb: IFramebuffer | null): RefCountPtr;
         @cppnontrivial
-        @slot(46) createRayTracingPipeline(desc: Opaque /* rt::PipelineDesc */): RefCountPtr;
+        @slot(46) createRayTracingPipeline(desc: PipelineDesc): RefCountPtr;
         @cppnontrivial
-        @slot(47) createBindingLayout(desc: Opaque /* BindingLayoutDesc */): RefCountPtr;
+        @slot(47) createBindingLayout(desc: BindingLayoutDesc): RefCountPtr;
         @cppnontrivial
-        @slot(48) createBindlessLayout(desc: Opaque /* BindlessLayoutDesc */): RefCountPtr;
+        @slot(48) createBindlessLayout(desc: BindlessLayoutDesc): RefCountPtr;
         @cppnontrivial
-        @slot(49) createBindingSet(desc: Opaque /* BindingSetDesc */, layout: IBindingLayout): RefCountPtr;
+        @slot(49) createBindingSet(desc: BindingSetDesc, layout: IBindingLayout | null): RefCountPtr;
         @cppnontrivial
-        @slot(50) createDescriptorTable(layout: IBindingLayout): RefCountPtr;
-        @slot(51) resizeDescriptorTable(descriptorTable: IDescriptorTable, newSize: u32, keepContents: boolean): void;
-        @slot(52) writeDescriptorTable(descriptorTable: IDescriptorTable, item: Opaque /* BindingSetItem */): boolean;
+        @slot(50) createDescriptorTable(layout: IBindingLayout | null): RefCountPtr;
+        @slot(51) resizeDescriptorTable(descriptorTable: IDescriptorTable | null, newSize: u32, keepContents: boolean): void;
+        @slot(52) writeDescriptorTable(descriptorTable: IDescriptorTable | null, item: BindingSetItem): boolean;
         @cppnontrivial
-        @slot(53) createOpacityMicromap(desc: Opaque /* rt::OpacityMicromapDesc */): RefCountPtr;
+        @slot(53) createOpacityMicromap(desc: OpacityMicromapDesc): RefCountPtr;
         @cppnontrivial
-        @slot(54) createAccelStruct(desc: Opaque /* rt::AccelStructDesc */): RefCountPtr;
-        @slot(55) getAccelStructMemoryRequirements(as: IAccelStruct): [size: u64, alignment: u64];
-        @slot(56) getClusterOperationSizeInfo(params: Opaque /* rt::cluster::OperationParams */): [resultMaxSizeInBytes: u64, scratchSizeInBytes: u64];
-        @slot(57) bindAccelStructMemory(as: IAccelStruct, heap: IHeap, offset: u64): boolean;
+        @slot(54) createAccelStruct(desc: AccelStructDesc): RefCountPtr;
+        @slot(55) getAccelStructMemoryRequirements(as: IAccelStruct | null): [size: u64, alignment: u64];
+        @slot(56) getClusterOperationSizeInfo(params: Ref<OperationParams>): [resultMaxSizeInBytes: u64, scratchSizeInBytes: u64];
+        @slot(57) bindAccelStructMemory(as: IAccelStruct | null, heap: IHeap | null, offset: u64): boolean;
         @cppnontrivial
         @slot(58) createCommandList(params: Ref<CommandListParameters>): RefCountPtr;
-        @slot(59) executeCommandLists(pCommandLists: Ref<ICommandList>, numCommandLists: index, executionQueue: u8): u64;
+        @slot(59) executeCommandLists(pCommandLists: Ref<ICommandList | null> | null, numCommandLists: index, executionQueue: u8): u64;
         @slot(60) queueWaitForCommandList(waitQueue: u8, executionQueue: u8, instance: u64): void;
         @slot(61) waitForIdle(): boolean;
         @cppnontrivial
@@ -208,13 +273,13 @@ export namespace nvrhi {
         @slot(64) queryFeatureSupport(feature: u8, pInfo: Opaque | null, infoSize: index): boolean;
         @slot(65) queryFormatSupport(format: u8): u32;
         // skipped: queryCoopVecFeatures — result: record returned by value: field 'matMulFormats': C++ class 'class std::vector<struct nvrhi::coopvec::MatMulFormatCombo>'
-        @slot(67) queryCoopVecMatMulFormatSupport(combination: Opaque /* coopvec::MatMulFormatCombo */): [supported: boolean, transposeSupported: boolean, emulatedInputs: boolean];
+        @slot(67) queryCoopVecMatMulFormatSupport(combination: Ref<MatMulFormatCombo>): [supported: boolean, transposeSupported: boolean, emulatedInputs: boolean];
         @slot(68) queryCoopVecTrainingFormatSupport(componentType: s32): [bufferTrainingSupported: boolean, threadOuterProductSupported: boolean, bufferAccumulateStoreSupported: boolean, groupSharedAccumulateStoreSupported: boolean];
         @slot(69) getCoopVecMatrixSize(type: s32, layout: s32, rows: s32, columns: s32): index;
         @slot(70) getNativeQueue(objectType: u32, queue: u8): NativeObject;
         @slot(71) getMessageCallback(): IMessageCallback;
         @slot(72) isAftermathEnabled(): boolean;
-        @slot(73) getAftermathCrashDumpHelper(): Opaque;
+        @slot(73) getAftermathCrashDumpHelper(): AftermathCrashDumpHelper;
         // skipped: executeCommandList — inline method: no symbol to link against
     }
     @cpp
@@ -229,60 +294,60 @@ export namespace nvrhi {
         @slot(9) clearTextureFloat(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: Ref<Color>): void;
         // skipped: clearDepthStencilTexture — parameter 'subresources': struct passed by value
         // skipped: clearTextureUInt — parameter 'subresources': struct passed by value
-        @slot(14) copyTexture(dest: ITexture, destSlice: Opaque /* TextureSlice */, src: ITexture, srcSlice: Opaque /* TextureSlice */): void;
-        @slot(13) copyTexture_2(dest: IStagingTexture, destSlice: Opaque /* TextureSlice */, src: ITexture, srcSlice: Opaque /* TextureSlice */): void;
-        @slot(12) copyTexture_3(dest: ITexture, destSlice: Opaque /* TextureSlice */, src: IStagingTexture, srcSlice: Opaque /* TextureSlice */): void;
-        @slot(15) writeTexture(dest: ITexture, arraySlice: u32, mipLevel: u32, data: Opaque | null, rowPitch: index, depthPitch: index): void;
-        @slot(16) resolveTexture(dest: ITexture, dstSubresources: Ref<TextureSubresourceSet>, src: ITexture, srcSubresources: Ref<TextureSubresourceSet>): void;
-        @slot(17) writeBuffer(b: IBuffer, data: Opaque | null, dataSize: index, destOffsetBytes: u64): void;
-        @slot(18) clearBufferUInt(b: IBuffer, clearValue: u32): void;
-        @slot(19) copyBuffer(dest: IBuffer, destOffsetBytes: u64, src: IBuffer, srcOffsetBytes: u64, dataSizeBytes: u64): void;
-        @slot(20) clearSamplerFeedbackTexture(texture: ISamplerFeedbackTexture): void;
-        @slot(21) decodeSamplerFeedbackTexture(buffer: IBuffer, texture: ISamplerFeedbackTexture, format: u8): void;
-        @slot(22) setSamplerFeedbackTextureState(texture: ISamplerFeedbackTexture, stateBits: u32): void;
+        @slot(14) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
+        @slot(13) copyTexture_2(dest: IStagingTexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
+        @slot(12) copyTexture_3(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: IStagingTexture | null, srcSlice: Ref<TextureSlice>): void;
+        @slot(15) writeTexture(dest: ITexture | null, arraySlice: u32, mipLevel: u32, data: Opaque | null, rowPitch: index, depthPitch: index): void;
+        @slot(16) resolveTexture(dest: ITexture | null, dstSubresources: Ref<TextureSubresourceSet>, src: ITexture | null, srcSubresources: Ref<TextureSubresourceSet>): void;
+        @slot(17) writeBuffer(b: IBuffer | null, data: Opaque | null, dataSize: index, destOffsetBytes: u64): void;
+        @slot(18) clearBufferUInt(b: IBuffer | null, clearValue: u32): void;
+        @slot(19) copyBuffer(dest: IBuffer | null, destOffsetBytes: u64, src: IBuffer | null, srcOffsetBytes: u64, dataSizeBytes: u64): void;
+        @slot(20) clearSamplerFeedbackTexture(texture: ISamplerFeedbackTexture | null): void;
+        @slot(21) decodeSamplerFeedbackTexture(buffer: IBuffer | null, texture: ISamplerFeedbackTexture | null, format: u8): void;
+        @slot(22) setSamplerFeedbackTextureState(texture: ISamplerFeedbackTexture | null, stateBits: u32): void;
         @slot(23) setPushConstants(data: Opaque | null, byteSize: index): void;
-        @slot(24) setGraphicsState(state: Opaque /* GraphicsState */): void;
-        @slot(25) draw(args: Opaque /* DrawArguments */): void;
-        @slot(26) drawIndexed(args: Opaque /* DrawArguments */): void;
+        @slot(24) setGraphicsState(state: GraphicsState): void;
+        @slot(25) draw(args: Ref<DrawArguments>): void;
+        @slot(26) drawIndexed(args: Ref<DrawArguments>): void;
         @slot(27) drawIndirect(offsetBytes: u32, drawCount: u32): void;
         @slot(28) drawIndexedIndirect(offsetBytes: u32, drawCount: u32): void;
         @slot(29) drawIndexedIndirectCount(paramOffsetBytes: u32, countOffsetBytes: u32, maxDrawCount: u32): void;
         @slot(30) setComputeState(state: Ref<ComputeState>): void;
         @slot(31) dispatch(groupsX: u32, groupsY: u32, groupsZ: u32): void;
         @slot(32) dispatchIndirect(offsetBytes: u32): void;
-        @slot(33) setMeshletState(state: Opaque /* MeshletState */): void;
+        @slot(33) setMeshletState(state: MeshletState): void;
         @slot(34) dispatchMesh(groupsX: u32, groupsY: u32, groupsZ: u32): void;
         @slot(35) dispatchMeshIndirect(offsetBytes: u32, maxDrawCount: u32): void;
         @slot(36) dispatchMeshIndirectCount(paramOffsetBytes: u32, countOffsetBytes: u32, maxDrawCount: u32): void;
-        @slot(37) setRayTracingState(state: Opaque /* rt::State */): void;
-        @slot(38) dispatchRays(args: Opaque /* rt::DispatchRaysArguments */): void;
-        @slot(39) buildOpacityMicromap(omm: IOpacityMicromap, desc: Opaque /* rt::OpacityMicromapDesc */): void;
-        @slot(40) buildBottomLevelAccelStruct(as: IAccelStruct, pGeometries: Opaque /* rt::GeometryDesc */, numGeometries: index, buildFlags: u8): void;
+        @slot(37) setRayTracingState(state: State): void;
+        @slot(38) dispatchRays(args: Ref<DispatchRaysArguments>): void;
+        @slot(39) buildOpacityMicromap(omm: IOpacityMicromap | null, desc: OpacityMicromapDesc): void;
+        @slot(40) buildBottomLevelAccelStruct(as: IAccelStruct | null, pGeometries: GeometryDesc | null, numGeometries: index, buildFlags: u8): void;
         @slot(41) compactBottomLevelAccelStructs(): void;
-        @slot(42) copyRaytracingAccelerationStructure(destination: IAccelStruct, source: IAccelStruct): void;
-        @slot(43) buildTopLevelAccelStruct(as: IAccelStruct, pInstances: Opaque /* rt::InstanceDesc */, numInstances: index, buildFlags: u8): void;
-        @slot(44) executeMultiIndirectClusterOperation(desc: Opaque /* rt::cluster::OperationDesc */): void;
-        @slot(45) buildTopLevelAccelStructFromBuffer(as: IAccelStruct, instanceBuffer: IBuffer, instanceBufferOffset: u64, numInstances: index, buildFlags: u8): void;
-        @slot(46) convertCoopVecMatrices(convertDescs: Opaque /* coopvec::ConvertMatrixLayoutDesc */, numDescs: index): void;
-        @slot(47) beginTimerQuery(query: ITimerQuery): void;
-        @slot(48) endTimerQuery(query: ITimerQuery): void;
-        @slot(49) beginMarker(name: string): void;
+        @slot(42) copyRaytracingAccelerationStructure(destination: IAccelStruct | null, source: IAccelStruct | null): void;
+        @slot(43) buildTopLevelAccelStruct(as: IAccelStruct | null, pInstances: InstanceDesc | null, numInstances: index, buildFlags: u8): void;
+        @slot(44) executeMultiIndirectClusterOperation(desc: Ref<OperationDesc>): void;
+        @slot(45) buildTopLevelAccelStructFromBuffer(as: IAccelStruct | null, instanceBuffer: IBuffer | null, instanceBufferOffset: u64, numInstances: index, buildFlags: u8): void;
+        @slot(46) convertCoopVecMatrices(convertDescs: Ref<ConvertMatrixLayoutDesc> | null, numDescs: index): void;
+        @slot(47) beginTimerQuery(query: ITimerQuery | null): void;
+        @slot(48) endTimerQuery(query: ITimerQuery | null): void;
+        @slot(49) beginMarker(name: string | null): void;
         @slot(50) endMarker(): void;
         @slot(51) setEnableAutomaticBarriers(enable: boolean): void;
-        @slot(52) setResourceStatesForBindingSet(bindingSet: IBindingSet): void;
-        @linkname("?setResourceStatesForFramebuffer@ICommandList@nvrhi@@QEAAXPEAVIFramebuffer@2@@Z") setResourceStatesForFramebuffer(framebuffer: IFramebuffer): void;
-        @slot(53) setEnableUavBarriersForTexture(texture: ITexture, enableBarriers: boolean): void;
-        @slot(54) setEnableUavBarriersForBuffer(buffer: IBuffer, enableBarriers: boolean): void;
+        @slot(52) setResourceStatesForBindingSet(bindingSet: IBindingSet | null): void;
+        @linkname("?setResourceStatesForFramebuffer@ICommandList@nvrhi@@QEAAXPEAVIFramebuffer@2@@Z") setResourceStatesForFramebuffer(framebuffer: IFramebuffer | null): void;
+        @slot(53) setEnableUavBarriersForTexture(texture: ITexture | null, enableBarriers: boolean): void;
+        @slot(54) setEnableUavBarriersForBuffer(buffer: IBuffer | null, enableBarriers: boolean): void;
         // skipped: beginTrackingTextureState — parameter 'subresources': struct passed by value
-        @slot(56) beginTrackingBufferState(buffer: IBuffer, stateBits: u32): void;
+        @slot(56) beginTrackingBufferState(buffer: IBuffer | null, stateBits: u32): void;
         // skipped: setTextureState — parameter 'subresources': struct passed by value
-        @slot(58) setBufferState(buffer: IBuffer, stateBits: u32): void;
-        @slot(59) setAccelStructState(as: IAccelStruct, stateBits: u32): void;
-        @slot(60) setPermanentTextureState(texture: ITexture, stateBits: u32): void;
-        @slot(61) setPermanentBufferState(buffer: IBuffer, stateBits: u32): void;
+        @slot(58) setBufferState(buffer: IBuffer | null, stateBits: u32): void;
+        @slot(59) setAccelStructState(as: IAccelStruct | null, stateBits: u32): void;
+        @slot(60) setPermanentTextureState(texture: ITexture | null, stateBits: u32): void;
+        @slot(61) setPermanentBufferState(buffer: IBuffer | null, stateBits: u32): void;
         @slot(62) commitBarriers(): void;
-        @slot(63) getTextureSubresourceState(texture: ITexture, arraySlice: u32, mipLevel: u32): u32;
-        @slot(64) getBufferState(buffer: IBuffer): u32;
+        @slot(63) getTextureSubresourceState(texture: ITexture | null, arraySlice: u32, mipLevel: u32): u32;
+        @slot(64) getBufferState(buffer: IBuffer | null): u32;
         @slot(65) getDevice(): IDevice;
         @slot(66) getDesc(): Ref<CommandListParameters>;
     }
