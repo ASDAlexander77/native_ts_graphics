@@ -180,7 +180,9 @@ class Tools:
         return command + list(arguments)
 
     def adb(self, *arguments, check=True, capture=True, binary=False):
-        result = subprocess.run(self.adb_command(*arguments), capture_output=capture, text=not binary)
+        # logcat has UTF-8 text, which the Windows locale's codepage can't always decode
+        result = subprocess.run(self.adb_command(*arguments), capture_output=capture, text=not binary,
+                                encoding=None if binary else "utf-8", errors=None if binary else "replace")
         if check and result.returncode != 0:
             output = (result.stdout or "") + (result.stderr or "") if capture and not binary else ""
             fail(f"adb {' '.join(arguments)} failed with exit code {result.returncode}\n{output}".rstrip())
