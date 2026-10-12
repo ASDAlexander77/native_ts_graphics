@@ -802,10 +802,6 @@ namespace SakuraForestSER {
         // -sortMode <0..3>: off, by hit, by reflection hint, by both (the sample starts by hit).
         sortMode: int = SORTMODE_BY_HIT;
 
-        constructor(argc: int, argv: Ref<string>, testFrames: int) {
-            super(argc, argv, testFrames);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

@@ -274,10 +274,6 @@ namespace EnvironmentMap {
         // -ktx2: the environment map from its KTX 2 file instead of the DDS one.
         useKtx2 = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

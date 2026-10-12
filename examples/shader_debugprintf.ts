@@ -473,10 +473,6 @@ namespace ShaderDebugPrintf {
         // -nosky: without the sky sphere.
         noSky = false;
 
-        constructor(argc: int, argv: Ref<string>, testFrames: int) {
-            super(argc, argv, testFrames);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "-nosky") {

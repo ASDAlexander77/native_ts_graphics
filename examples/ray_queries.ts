@@ -515,10 +515,6 @@ namespace RayQueries {
         // -time <ms>: the light where it is that many milliseconds after the start, not moving.
         fixedTimeMs = -1.0;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

@@ -322,10 +322,6 @@ namespace RtBindless {
         // -rayQuery: inline ray queries in a compute shader instead of a ray tracing pipeline.
         useRayQuery = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

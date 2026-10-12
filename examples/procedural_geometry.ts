@@ -643,10 +643,6 @@ namespace ProceduralGeometry {
         // -time <seconds>: the geometry animation's time, fixed.
         fixedTime = -1.0;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

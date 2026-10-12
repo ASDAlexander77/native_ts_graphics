@@ -285,10 +285,6 @@ namespace SmallResources {
         // -committed: start with committed resources (the sample starts with placed ones).
         committed = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

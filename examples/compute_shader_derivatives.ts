@@ -197,10 +197,6 @@ namespace ComputeShaderDerivatives {
         // -linear: linear derivative groups (4 threads in a row) where the device has them.
         linear = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

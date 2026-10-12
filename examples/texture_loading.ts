@@ -378,10 +378,6 @@ namespace TextureLoading {
         // -lodbias <value>: the initial level of detail bias.
         lodBias = 0.0;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

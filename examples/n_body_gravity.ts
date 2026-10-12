@@ -521,10 +521,6 @@ namespace NBodyGravity {
         // -steps <n>: simulation steps per frame (10 by default).
         stepsPerFrame = DEFAULT_STEPS_PER_FRAME;
 
-        constructor(argc: int, argv: Ref<string>, testFrames: int) {
-            super(argc, argv, testFrames);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];

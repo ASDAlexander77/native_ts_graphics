@@ -101,10 +101,6 @@ namespace ShaderQuadControl {
         // -broadcast: each quad shows its top left pixel's coordinates.
         broadcast = false;
 
-        constructor(argc: int, argv: Ref<string>) {
-            super(argc, argv);
-        }
-
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
