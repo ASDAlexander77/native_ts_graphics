@@ -173,7 +173,7 @@ cmake --preset default -DVULKAN_SAMPLES_ASSETS_DIR=E:/Vulkan-Samples/assets
 ```
 native_ts_graphics/
 ├── CMakeLists.txt        # the TSLANG language, Donut, and one add_tslang_example() per example
-├── CMakePresets.json     # default, release, dlss, android-x86_64, android-arm64
+├── CMakePresets.json     # default, release, dlss, android-x86_64, android-arm64, android-arm32
 ├── cmake/                # CMake language support for .ts (CMakeDetermineTSLANGCompiler.cmake, ...)
 ├── core/                 # donut.ts (TypeScript classes) over donut_interop.cpp (flat C API over Donut);
 │                         # nvrhi.ts: NVRHI's interfaces, called directly
@@ -342,8 +342,8 @@ Valid values are `gc` (default), `rc` and `none`; only `gc` links Boehm.
 
 ## Android
 
-The `android-x86_64` (emulator) and `android-arm64` (devices) presets cross-compile with the
-Android NDK for API 29, Vulkan only. `tools/android.py` builds them, starts an emulator, and runs
+The `android-x86_64` (emulator), `android-arm64` (devices) and `android-arm32` (32-bit devices,
+`armeabi-v7a`) presets cross-compile with the Android NDK for API 29, Vulkan only. `tools/android.py` builds them, starts an emulator, and runs
 and tests the examples on it; what it does by hand is under *Without the script*.
 
 ### What to install
@@ -393,6 +393,14 @@ python tools/android.py test
 `test`, `run` and `headless` start an emulator themselves if no device is connected; with more
 than one, pass `--serial`. On a phone: enable USB debugging, `build --abi arm64`, and
 `test --abi arm64 <examples>`.
+
+`--abi arm32` builds `armeabi-v7a`. It needs a tslang release carrying the armeabi-v7a collector,
+async runtime and default library (`android/armeabi-v7a/lib`, `defaultlib/lib/arm`). It has no
+`headless` or `nvrhi_direct`: tslang cannot call C++ vtables that return structs on 32-bit ARM, so
+`core/nvrhi.ts` is not built there (the other examples go through Donut's wrappers). Donut needs
+Vulkan 1.3, which many 32-bit-only devices lack (a Galaxy Tab A 10.1 reports 1.1: the app starts,
+creates its Vulkan instance and stops there). So far it has only been built and started on that
+device: no frame has been rendered on 32-bit ARM, and only `basic_triangle` has been built.
 
 ### How the examples run
 

@@ -1,0 +1,187 @@
+diff --git a/src/vulkan/vulkan-allocator.cpp b/src/vulkan/vulkan-allocator.cpp
+index 7bc888b..175d6aa 100644
+--- a/src/vulkan/vulkan-allocator.cpp
++++ b/src/vulkan/vulkan-allocator.cpp
+@@ -53,7 +53,7 @@ namespace nvrhi::vulkan
+ 
+         // allocate memory
+         const bool enableMemoryExport = (buffer->desc.sharedResourceFlags & SharedResourceFlags::Shared) != 0;
+-        const vk::Result res = allocateMemory(buffer, memRequirements, pickBufferMemoryProperties(buffer->desc), enableDeviceAddress, enableMemoryExport, nullptr, buffer->buffer);
++        const vk::Result res = allocateMemory(buffer, memRequirements, pickBufferMemoryProperties(buffer->desc), enableDeviceAddress, enableMemoryExport, VK_NULL_HANDLE, buffer->buffer);
+         CHECK_VK_RETURN(res)
+ 
+         m_Context.device.bindBufferMemory(buffer->buffer, buffer->memory, 0);
+@@ -76,7 +76,7 @@ namespace nvrhi::vulkan
+         const vk::MemoryPropertyFlags memProperties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+         const bool enableDeviceAddress = false;
+         const bool enableMemoryExport = (texture->desc.sharedResourceFlags & SharedResourceFlags::Shared) != 0;
+-        const vk::Result res = allocateMemory(texture, memRequirements, memProperties, enableDeviceAddress, enableMemoryExport, texture->image, nullptr);
++        const vk::Result res = allocateMemory(texture, memRequirements, memProperties, enableDeviceAddress, enableMemoryExport, texture->image, VK_NULL_HANDLE);
+         CHECK_VK_RETURN(res)
+ 
+         m_Context.device.bindImageMemory(texture->image, texture->memory, 0);
+diff --git a/src/vulkan/vulkan-backend.h b/src/vulkan/vulkan-backend.h
+index 7fe3135..a08b467 100644
+--- a/src/vulkan/vulkan-backend.h
++++ b/src/vulkan/vulkan-backend.h
+@@ -117,6 +117,13 @@ namespace nvrhi::vulkan
+     };
+ #endif
+ 
++    // A Vulkan handle as 64 bits: a pointer on 64-bit targets, a 64-bit integer on 32-bit ones, where
++    // non-dispatchable handles are not pointers, and the vk:: wrapper of either
++    inline uint64_t rawHandle(uint64_t handle) { return handle; }
++    inline uint64_t rawHandle(const void* handle) { return reinterpret_cast<uintptr_t>(handle); }
++    template <typename T, typename = typename T::CType>
++    uint64_t rawHandle(const T& handle) { return rawHandle(static_cast<typename T::CType>(handle)); }
++
+     // underlying vulkan context
+     struct VulkanContext
+     {
+@@ -184,7 +191,7 @@ namespace nvrhi::vulkan
+ #endif
+         vk::DescriptorSetLayout emptyDescriptorSetLayout;
+ 
+-        void nameVKObject(const void* handle, const vk::ObjectType objtype,
++        void nameVKObject(uint64_t handle, const vk::ObjectType objtype,
+             const vk::DebugReportObjectTypeEXT objtypeEXT, const char* name) const;
+         void error(const std::string& message) const;
+         void warning(const std::string& message) const;
+@@ -326,8 +333,8 @@ namespace nvrhi::vulkan
+             vk::MemoryPropertyFlags memPropertyFlags,
+             bool enableDeviceAddress = false,
+             bool enableExportMemory = false,
+-            VkImage dedicatedImage = nullptr,
+-            VkBuffer dedicatedBuffer = nullptr) const;
++            VkImage dedicatedImage = VK_NULL_HANDLE,
++            VkBuffer dedicatedBuffer = VK_NULL_HANDLE) const;
+         void freeMemory(MemoryResource* res) const;
+ 
+     private:
+diff --git a/src/vulkan/vulkan-buffer.cpp b/src/vulkan/vulkan-buffer.cpp
+index af3c619..2814252 100644
+--- a/src/vulkan/vulkan-buffer.cpp
++++ b/src/vulkan/vulkan-buffer.cpp
+@@ -134,14 +134,14 @@ namespace nvrhi::vulkan
+         vk::Result res = m_Context.device.createBuffer(&bufferInfo, m_Context.allocationCallbacks, &buffer->buffer);
+         CHECK_VK_FAIL(res);
+ 
+-        m_Context.nameVKObject(VkBuffer(buffer->buffer), vk::ObjectType::eBuffer, vk::DebugReportObjectTypeEXT::eBuffer, desc.debugName.c_str());
++        m_Context.nameVKObject(rawHandle(buffer->buffer), vk::ObjectType::eBuffer, vk::DebugReportObjectTypeEXT::eBuffer, desc.debugName.c_str());
+ 
+         if (!desc.isVirtual)
+         {
+             res = m_Allocator.allocateBufferMemory(buffer, (usageFlags & vk::BufferUsageFlagBits::eShaderDeviceAddress) != vk::BufferUsageFlags(0));
+             CHECK_VK_FAIL(res)
+ 
+-            m_Context.nameVKObject(buffer->memory, vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, desc.debugName.c_str());
++            m_Context.nameVKObject(rawHandle(buffer->memory), vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, desc.debugName.c_str());
+ 
+             if (desc.isVolatile)
+             {
+@@ -184,7 +184,7 @@ namespace nvrhi::vulkan
+ 
+             std::stringstream ss;
+             ss << "Create buffer: " << desc.debugName
+-                << " Buf:0x" << std::hex << reinterpret_cast<uintptr_t>(VkBuffer(buffer->buffer))
++                << " Buf:0x" << std::hex << rawHandle(buffer->buffer)
+                 << " Gpu:0x" << std::hex << buffer->getGpuVirtualAddress() << "->0x" << std::hex << buffer->getGpuVirtualAddress() + desc.byteSize;
+ 
+             if (desc.structStride)
+diff --git a/src/vulkan/vulkan-device.cpp b/src/vulkan/vulkan-device.cpp
+index afd866d..0eccc5b 100644
+--- a/src/vulkan/vulkan-device.cpp
++++ b/src/vulkan/vulkan-device.cpp
+@@ -816,7 +816,7 @@ namespace nvrhi::vulkan
+ 
+         if (!d.debugName.empty())
+         {
+-            m_Context.nameVKObject(heap->memory, vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, d.debugName.c_str());
++            m_Context.nameVKObject(rawHandle(heap->memory), vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, d.debugName.c_str());
+         }
+ 
+         return HeapHandle::Create(heap);
+@@ -831,7 +831,7 @@ namespace nvrhi::vulkan
+         }
+     }
+ 
+-    void VulkanContext::nameVKObject(const void* handle, const vk::ObjectType objtype,
++    void VulkanContext::nameVKObject(uint64_t handle, const vk::ObjectType objtype,
+         const vk::DebugReportObjectTypeEXT objtypeEXT, const char* name) const
+     {
+         if (!(name && *name && handle))
+@@ -841,7 +841,7 @@ namespace nvrhi::vulkan
+         {
+             auto info = vk::DebugUtilsObjectNameInfoEXT()
+                 .setObjectType(objtype)
+-                .setObjectHandle(reinterpret_cast<uint64_t>(handle))
++                .setObjectHandle(handle)
+                 .setPObjectName(name);
+             device.setDebugUtilsObjectNameEXT(info);
+         }
+@@ -849,7 +849,7 @@ namespace nvrhi::vulkan
+         {
+             auto info = vk::DebugMarkerObjectNameInfoEXT()
+                 .setObjectType(objtypeEXT)
+-                .setObject(reinterpret_cast<uint64_t>(handle))
++                .setObject(handle)
+                 .setPObjectName(name);
+ 
+             (void)device.debugMarkerSetObjectNameEXT(&info);
+diff --git a/src/vulkan/vulkan-queue.cpp b/src/vulkan/vulkan-queue.cpp
+index ec5c0ad..fce0a30 100644
+--- a/src/vulkan/vulkan-queue.cpp
++++ b/src/vulkan/vulkan-queue.cpp
+@@ -245,7 +245,7 @@ namespace nvrhi::vulkan
+         {
+             uint32_t numRegions = tileMappings[i].numTextureRegions;
+             Heap* heap = tileMappings[i].heap ? checked_cast<Heap*>(tileMappings[i].heap) : nullptr;
+-            vk::DeviceMemory deviceMemory = heap ? heap->memory : VK_NULL_HANDLE;
++            vk::DeviceMemory deviceMemory = heap ? heap->memory : vk::DeviceMemory();
+ 
+             for (uint32_t j = 0; j < numRegions; ++j)
+             {
+diff --git a/src/vulkan/vulkan-shader.cpp b/src/vulkan/vulkan-shader.cpp
+index 8a6d649..0f4de82 100644
+--- a/src/vulkan/vulkan-shader.cpp
++++ b/src/vulkan/vulkan-shader.cpp
+@@ -41,7 +41,7 @@ namespace nvrhi::vulkan
+         CHECK_VK_FAIL(res)
+ 
+         const std::string debugName = desc.debugName + ":" + desc.entryName;
+-        m_Context.nameVKObject(VkShaderModule(shader->shaderModule), vk::ObjectType::eShaderModule, vk::DebugReportObjectTypeEXT::eShaderModule, debugName.c_str());
++        m_Context.nameVKObject(rawHandle(shader->shaderModule), vk::ObjectType::eShaderModule, vk::DebugReportObjectTypeEXT::eShaderModule, debugName.c_str());
+ 
+         return ShaderHandle::Create(shader);
+     }
+diff --git a/src/vulkan/vulkan-texture.cpp b/src/vulkan/vulkan-texture.cpp
+index 1aca85e..bfde1be 100644
+--- a/src/vulkan/vulkan-texture.cpp
++++ b/src/vulkan/vulkan-texture.cpp
+@@ -343,7 +343,7 @@ namespace nvrhi::vulkan
+         ASSERT_VK_OK(res);
+ 
+         const std::string debugName = std::string("ImageView for: ") + utils::DebugNameToString(desc.debugName);
+-        m_Context.nameVKObject(VkImageView(view.view), vk::ObjectType::eImageView, vk::DebugReportObjectTypeEXT::eImageView, debugName.c_str());
++        m_Context.nameVKObject(rawHandle(view.view), vk::ObjectType::eImageView, vk::DebugReportObjectTypeEXT::eImageView, debugName.c_str());
+ 
+         return view;
+     }
+@@ -358,7 +358,7 @@ namespace nvrhi::vulkan
+         ASSERT_VK_OK(res);
+         CHECK_VK_FAIL(res)
+ 
+-        m_Context.nameVKObject(texture->image, vk::ObjectType::eImage, vk::DebugReportObjectTypeEXT::eImage, desc.debugName.c_str());
++        m_Context.nameVKObject(rawHandle(texture->image), vk::ObjectType::eImage, vk::DebugReportObjectTypeEXT::eImage, desc.debugName.c_str());
+ 
+         if (!desc.isVirtual && !desc.isTiled)
+         {
+@@ -375,7 +375,7 @@ namespace nvrhi::vulkan
+ #endif
+             }
+ 
+-            m_Context.nameVKObject(texture->memory, vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, desc.debugName.c_str());
++            m_Context.nameVKObject(rawHandle(texture->memory), vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, desc.debugName.c_str());
+         }
+ 
+         return TextureHandle::Create(texture);

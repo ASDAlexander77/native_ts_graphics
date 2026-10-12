@@ -41,12 +41,23 @@ set_property(CACHE TSLANG_MEMORY_MODEL PROPERTY STRINGS gc rc none)
 if (ANDROID)
 	if (CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
 		set(TSLANG_ANDROID_ARCH "aarch64")
+		set(TSLANG_ANDROID_ENV "android")
+	elseif (CMAKE_ANDROID_ARCH_ABI STREQUAL "armeabi-v7a")
+		set(TSLANG_ANDROID_ARCH "armv7a")
+		set(TSLANG_ANDROID_ENV "androideabi")
 	elseif (CMAKE_ANDROID_ARCH_ABI STREQUAL "x86_64")
 		set(TSLANG_ANDROID_ARCH "x86_64")
+		set(TSLANG_ANDROID_ENV "android")
 	else()
-		message(FATAL_ERROR "No tslang runtime for the Android ABI '${CMAKE_ANDROID_ARCH_ABI}': use arm64-v8a or x86_64")
+		message(FATAL_ERROR "No tslang runtime for the Android ABI '${CMAKE_ANDROID_ARCH_ABI}': use arm64-v8a, armeabi-v7a or x86_64")
 	endif()
-	set(TSLANG_TARGET_TRIPLE_FLAG "-mtriple=${TSLANG_ANDROID_ARCH}-linux-android${CMAKE_SYSTEM_VERSION}")
+	set(TSLANG_TARGET_TRIPLE_FLAG "-mtriple=${TSLANG_ANDROID_ARCH}-linux-${TSLANG_ANDROID_ENV}${CMAKE_SYSTEM_VERSION}")
+	if (CMAKE_ANDROID_ARCH_ABI STREQUAL "armeabi-v7a")
+		# Vulkan's non-dispatchable handles are 64-bit integers on 32-bit targets, not pointers: Vulkan-Hpp
+		# then converts its wrappers to and from the C handles implicitly, which NVRHI and Donut rely on
+		# (the rest of NVRHI's 32-bit changes are patches/nvrhi-vulkan-32bit-handles.patch).
+		add_compile_definitions(VULKAN_HPP_TYPESAFE_CONVERSION=1)
+	endif()
 else()
 	set(TSLANG_TARGET_TRIPLE_FLAG "")
 endif()
@@ -133,6 +144,12 @@ set(DONUT_PATCHES
     # DeviceCreationParameters::messageCallback, NVRHI's IMessageCallback, on Vulkan and D3D11 too
     # (D3D12 has it): the application's, as a tslang class implementing it (nvrhi_direct).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-message-callback-all-apis.patch"
+    # Donut's chunk file structs hold pointers, and static_assert their 64-bit sizes; those asserts
+    # only hold on 64-bit targets (armeabi-v7a would otherwise stop at them).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-chunk-layout-64bit-only.patch"
+    # Scene::CreateMeshBuffers passes a size_t as the uint64_t& AppendBufferRange takes: 32-bit targets
+    # have the two apart.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-skinned-buffer-size-uint64.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
@@ -199,6 +216,9 @@ set(DONUT_NVRHI_PATCHES
     # Donut's CommonRenderPasses gives its black depth textures a permanent ShaderResource state, so
     # DeferredLightingPass's default shadow map was sampled in the wrong layout (deferred_shading).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-depth-srv-layout.patch"
+    # Vulkan handles on 32-bit targets (armeabi-v7a), where non-dispatchable ones are 64-bit integers, not
+    # pointers: names, null defaults and the debug string in the backend take them through rawHandle().
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-32bit-handles.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -693,11 +713,20 @@ else()
     set(NVRHI_ABI_OS linux)
 endif()
 set(NVRHI_TS_SOURCES core/nvrhi_types.ts core/nvrhi_abi.${NVRHI_ABI_OS}.ts core/nvrhi.ts)
+# tslang has no @cppvtable struct returns for 32-bit ARM (the Itanium ABI there returns them another
+# way than x86-64 and AArch64), so armeabi-v7a has no core/nvrhi.ts: no headless or nvrhi_direct.
+if (ANDROID AND CMAKE_ANDROID_ARCH_ABI STREQUAL "armeabi-v7a")
+    set(NVRHI_DIRECT_BUILDS OFF)
+else()
+    set(NVRHI_DIRECT_BUILDS ON)
+endif()
 
 # It calls NVRHI directly through core/nvrhi.ts where the build can (MSVC, Android), as headless.cpp
 # does, and through Donut's wrappers elsewhere or with -donut: headless.<api> tests the one path,
 # headless.donut.<api> the other.
-add_tslang_example(headless ${NVRHI_TS_SOURCES})
+if (NVRHI_DIRECT_BUILDS)
+    add_tslang_example(headless ${NVRHI_TS_SOURCES})
+endif()
 if (NOT ANDROID)
     set(headless_result "[\r\n]+Expected result: [0-9]+, computed result: [0-9]+[\r\n]+Test PASSED")
     if (MSVC)
@@ -725,7 +754,9 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct
 )
-add_tslang_example(nvrhi_direct ${NVRHI_TS_SOURCES})
+if (NVRHI_DIRECT_BUILDS)
+    add_tslang_example(nvrhi_direct ${NVRHI_TS_SOURCES})
+endif()
 if (NOT ANDROID)
     add_tslang_example_test(nvrhi_direct)
 endif()
