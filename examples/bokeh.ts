@@ -1237,6 +1237,10 @@ namespace Bokeh {
         // -slow: start with the full (not the fast) bokeh geometry shader (Up toggles it).
         slow = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -1254,8 +1258,8 @@ namespace Bokeh {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("bokeh");
 
-        const args = new BokehArgs();
-        args.parseArgs(argc, argv);
+        const args = new BokehArgs(argc, argv);
+        args.parseArgs();
 
         // The sample's R8G8B8A8_UNORM back buffers (its FP16 scene copied as is), in a 1280 x 720
         // window.

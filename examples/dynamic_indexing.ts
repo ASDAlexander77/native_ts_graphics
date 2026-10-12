@@ -382,8 +382,8 @@ namespace DynamicIndexing {
 
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
-        const args = new Args();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new Args(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
         const options = AppOptions.UnormBackBuffer | args.options;

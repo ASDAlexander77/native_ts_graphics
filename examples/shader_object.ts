@@ -1117,8 +1117,8 @@ namespace ShaderObjectSample {
 
         // -noui: without the options and the frame time graph.
         // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

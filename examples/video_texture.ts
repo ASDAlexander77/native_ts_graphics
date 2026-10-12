@@ -478,6 +478,10 @@ namespace VideoTexture {
         // -sprite: start with the video as a sprite.
         sprite = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -494,8 +498,8 @@ namespace VideoTexture {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("video_texture");
 
-        const args = new VideoTextureArgs();
-        args.parseArgs(argc, argv);
+        const args = new VideoTextureArgs(argc, argv);
+        args.parseArgs();
 
         // The back buffers are UNORM, as the sample's (B8G8R8A8_UNORM).
         const options = AppOptions.UnormBackBuffer | args.options;

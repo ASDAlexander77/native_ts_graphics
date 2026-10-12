@@ -640,6 +640,10 @@ namespace DynamicLod {
         // -instanceLevel <n>: start at instance level n (0 by default, as the sample; 2 for -test).
         instanceLevel = -1;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -655,10 +659,10 @@ namespace DynamicLod {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_lod");
 
-        const args = new DynamicLodArgs();
         // -test [-testOutput <file>]: render a few frames without a window at instance level 2 and
         // check the last one (see checkFrame).
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new DynamicLodArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
         const options = AppOptions.UnormBackBuffer | args.options;

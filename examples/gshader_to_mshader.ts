@@ -663,6 +663,10 @@ namespace GshaderToMshader {
         showNormalsGeo = false;
         showNormalsMesh = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -681,8 +685,8 @@ namespace GshaderToMshader {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("gshader_to_mshader");
 
-        const args = new GshaderToMshaderArgs();
-        args.parseArgs(argc, argv);
+        const args = new GshaderToMshaderArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

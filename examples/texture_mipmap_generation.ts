@@ -493,6 +493,10 @@ namespace TextureMipmapGeneration {
         // -rotate: the scene rotating.
         rotateScene = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -513,8 +517,8 @@ namespace TextureMipmapGeneration {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_mipmap_generation");
 
-        const args = new TextureMipmapGenerationArgs();
-        args.parseArgs(argc, argv);
+        const args = new TextureMipmapGenerationArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

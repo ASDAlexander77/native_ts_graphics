@@ -227,6 +227,10 @@ namespace ColorWriteEnable {
         // -background <r> <g> <b>: the initial background color.
         background: number[] = [0.5, 0.5, 0.5];
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -250,8 +254,8 @@ namespace ColorWriteEnable {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("color_write_enable");
 
-        const args = new ColorWriteEnableArgs();
-        args.parseArgs(argc, argv);
+        const args = new ColorWriteEnableArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

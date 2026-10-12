@@ -639,6 +639,10 @@ namespace TimestampQueries {
         bloom = true;
         displaySkybox = true;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -661,8 +665,8 @@ namespace TimestampQueries {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("timestamp_queries");
 
-        const args = new TimestampQueriesArgs();
-        args.parseArgs(argc, argv);
+        const args = new TimestampQueriesArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

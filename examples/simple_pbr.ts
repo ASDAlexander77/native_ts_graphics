@@ -1112,6 +1112,10 @@ namespace SimplePbr {
         // -sdr: the tone mapped SDR signal even on an HDR display.
         sdr = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -1126,8 +1130,8 @@ namespace SimplePbr {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_pbr");
 
-        const args = new SimplePbrArgs();
-        args.parseArgs(argc, argv);
+        const args = new SimplePbrArgs(argc, argv);
+        args.parseArgs();
 
         // The sample's R10G10B10A2_UNORM back buffers (HDR10 when the display is in HDR mode), at
         // its default 1280 x 720.

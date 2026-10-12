@@ -274,6 +274,10 @@ namespace VariableShading {
         // -raw: on D3D12, bind the shading rate surface through the D3D12 API directly.
         rawD3D12 = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "-raw") {
@@ -287,8 +291,8 @@ namespace VariableShading {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("variable_shading");
 
-        const args = new VariableShadingArgs();
-        args.parseArgs(argc, argv);
+        const args = new VariableShadingArgs(argc, argv);
+        args.parseArgs();
 
         // --scene <path>: relative to the executable's directory, or absolute.
         let scenePath = DEFAULT_SCENE;

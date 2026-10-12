@@ -682,6 +682,10 @@ namespace SimpleHdr {
         // -sdr: the SDR signal (sRGB back buffers) even on an HDR display.
         sdr = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -700,8 +704,8 @@ namespace SimpleHdr {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_hdr");
 
-        const args = new SimpleHdrArgs();
-        args.parseArgs(argc, argv);
+        const args = new SimpleHdrArgs(argc, argv);
+        args.parseArgs();
 
         // The sample's 1920 x 1080, in a smaller window.
         const width = 1280;

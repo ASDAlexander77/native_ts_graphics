@@ -554,6 +554,10 @@ namespace HdrDisplay {
         // -testFormat 8|10|16: the bits of the back buffers of -test.
         testFormat = 8;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -572,8 +576,8 @@ namespace HdrDisplay {
         // -noui: without the UI layer (U).
         // -test [-testOutput <file>] [-testFormat 8|10|16]: render a few frames without a window,
         // with back buffers of that many bits (8 by default), and check the last one (checkFrame).
-        const args = new HdrDisplayArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new HdrDisplayArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // The sample's window, with UNORM back buffers, as the sample's R8G8B8A8_UNORM; R10G10B10A2
         // and scRGB too.

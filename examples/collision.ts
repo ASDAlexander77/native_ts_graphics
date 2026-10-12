@@ -1152,6 +1152,10 @@ namespace Collision {
         // -help: start with the help screen.
         showHelp = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -1172,8 +1176,8 @@ namespace Collision {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("collision");
 
-        const args = new CollisionArgs();
-        args.parseArgs(argc, argv);
+        const args = new CollisionArgs(argc, argv);
+        args.parseArgs();
 
         // The sample's B8G8R8A8_UNORM back buffers, in a 1280 x 720 window.
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.UnormBackBuffer | args.options);

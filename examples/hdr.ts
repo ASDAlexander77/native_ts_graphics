@@ -551,6 +551,10 @@ namespace Hdr {
         bloom = true;
         displaySkybox = true;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -573,8 +577,8 @@ namespace Hdr {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("hdr");
 
-        const args = new HdrArgs();
-        args.parseArgs(argc, argv);
+        const args = new HdrArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

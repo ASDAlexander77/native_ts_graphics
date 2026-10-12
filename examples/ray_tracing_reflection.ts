@@ -547,8 +547,8 @@ namespace RayTracingReflection {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_reflection");
 
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.RayTracing | args.options);
         if (app.isNull()) {

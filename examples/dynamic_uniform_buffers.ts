@@ -434,6 +434,10 @@ namespace DynamicUniformBuffers {
         // -pause: the cubes not turning.
         paused = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -448,8 +452,8 @@ namespace DynamicUniformBuffers {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_uniform_buffers");
 
-        const args = new DynamicUniformBuffersArgs();
-        args.parseArgs(argc, argv);
+        const args = new DynamicUniformBuffersArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

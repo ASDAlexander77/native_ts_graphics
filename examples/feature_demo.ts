@@ -1479,6 +1479,10 @@ namespace FeatureDemoExample {
         // The scene: the argument which is not an option.
         sceneName = "";
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -1510,8 +1514,8 @@ namespace FeatureDemoExample {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("feature_demo");
 
-        const args = new FeatureDemoExampleArgs();
-        args.parseArgs(argc, argv);
+        const args = new FeatureDemoExampleArgs(argc, argv);
+        args.parseArgs();
 
         g_PrintSceneGraph = args.printSceneGraph;
         g_PrintFormats = args.printFormats;

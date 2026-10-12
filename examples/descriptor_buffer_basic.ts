@@ -508,6 +508,10 @@ namespace DescriptorBufferBasic {
         // -noanimate: the cubes don't turn.
         animate = true;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -522,10 +526,10 @@ namespace DescriptorBufferBasic {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("descriptor_buffer_basic");
 
-        const args = new DescriptorBufferBasicArgs();
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new DescriptorBufferBasicArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // Descriptor buffers are asked for (the validation layer's shader instrumentation is off
         // with them).

@@ -1000,8 +1000,8 @@ namespace MeshletCull {
 
         // -test [-testOutput <file>]: render a few frames without a window, the meshlet under the
         // window's center selected, and check the last one (see checkFrame).
-        const args = new Args();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new Args(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // The sample's window, with UNORM back buffers, as the sample's R8G8B8A8_UNORM.
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.UnormBackBuffer | args.options);

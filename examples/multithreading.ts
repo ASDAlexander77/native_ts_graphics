@@ -529,6 +529,10 @@ namespace Multithreading {
         // -singleThreaded: record the draws on the main thread.
         singleThreaded = false;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -545,8 +549,8 @@ namespace Multithreading {
 
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        const args = new MultithreadingArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new MultithreadingArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // The sample's window, with UNORM back buffers, as the sample's R8G8B8A8_UNORM.
         const options = AppOptions.UnormBackBuffer | args.options;

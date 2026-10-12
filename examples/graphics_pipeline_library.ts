@@ -428,6 +428,10 @@ namespace GraphicsPipelineLibrary {
         // -seed <n>: the random colors' and lighting models' seed (random by default).
         seed: int = -1;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -447,8 +451,8 @@ namespace GraphicsPipelineLibrary {
         Donut_SetAppName("graphics_pipeline_library");
 
         // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).
-        const args = new GraphicsPipelineLibraryArgs();
-        args.parseArgs(argc, argv);
+        const args = new GraphicsPipelineLibraryArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

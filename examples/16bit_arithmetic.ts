@@ -379,6 +379,10 @@ namespace Khr16BitArithmetic {
         // -fp16: start with 16-bit arithmetic enabled (where the device has it).
         fp16 = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -393,8 +397,8 @@ namespace Khr16BitArithmetic {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("16bit_arithmetic");
 
-        const args = new Khr16BitArithmeticArgs();
-        args.parseArgs(argc, argv);
+        const args = new Khr16BitArithmeticArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

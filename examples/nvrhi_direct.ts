@@ -291,6 +291,10 @@ namespace NvrhiDirect {
         // --help: print the usage and exit.
         help = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "--help") {
@@ -304,8 +308,8 @@ namespace NvrhiDirect {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("nvrhi_direct");
 
-        const args = new NvrhiDirectArgs();
-        args.parseArgs(argc, argv);
+        const args = new NvrhiDirectArgs(argc, argv);
+        args.parseArgs();
 
         Donut_SetLogMinSeverity(LogSeverity.Warning);
 

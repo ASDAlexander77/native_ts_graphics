@@ -414,6 +414,10 @@ namespace RayTracingPositionFetch {
         // -mode <n>: display mode 0 (geometric normal) or 1 (vertex position).
         displayMode: int = 0;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -429,8 +433,8 @@ namespace RayTracingPositionFetch {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_position_fetch");
 
-        const args = new RayTracingPositionFetchArgs();
-        args.parseArgs(argc, argv);
+        const args = new RayTracingPositionFetchArgs(argc, argv);
+        args.parseArgs();
 
         // Position fetch is Vulkan's (VK_KHR_ray_tracing_position_fetch); D3D12 has it only through
         // NVAPI's HLSL extensions, which this build doesn't have.

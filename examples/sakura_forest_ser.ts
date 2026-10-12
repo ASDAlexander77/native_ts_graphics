@@ -802,6 +802,10 @@ namespace SakuraForestSER {
         // -sortMode <0..3>: off, by hit, by reflection hint, by both (the sample starts by hit).
         sortMode: int = SORTMODE_BY_HIT;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -823,8 +827,8 @@ namespace SakuraForestSER {
 
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        const args = new SakuraForestSERArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new SakuraForestSERArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // The sample's window. Hit objects are shader model 6.9's: D3D12 only.
         if (args.api != GraphicsAPI.D3D12) {

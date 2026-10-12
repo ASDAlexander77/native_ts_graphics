@@ -785,6 +785,10 @@ namespace RayTracingExtended {
         // their shadow and AO output).
         renderMode: int = RENDER_DEFAULT;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -800,8 +804,8 @@ namespace RayTracingExtended {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_extended");
 
-        const args = new RayTracingExtendedArgs();
-        args.parseArgs(argc, argv);
+        const args = new RayTracingExtendedArgs(argc, argv);
+        args.parseArgs();
 
         const options = AppOptions.RayTracing | args.options;
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, options);

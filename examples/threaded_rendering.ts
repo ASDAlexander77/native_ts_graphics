@@ -143,8 +143,8 @@ namespace ThreadedRendering {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("threaded_rendering");
 
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         if (args.api == GraphicsAPI.D3D11) {
             console.log("The Threaded Rendering example does not support D3D11.");

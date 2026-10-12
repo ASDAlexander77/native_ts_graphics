@@ -520,6 +520,10 @@ namespace FragmentShadingRate {
         // -nosky: without the sky sphere.
         noSky = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -538,8 +542,8 @@ namespace FragmentShadingRate {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shading_rate");
 
-        const args = new FragmentShadingRateArgs();
-        args.parseArgs(argc, argv);
+        const args = new FragmentShadingRateArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

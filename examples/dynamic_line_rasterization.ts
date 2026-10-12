@@ -579,6 +579,10 @@ namespace DynamicLineRasterization {
         // -nogrid: grid off.
         gridOn = true;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -603,8 +607,8 @@ namespace DynamicLineRasterization {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_line_rasterization");
 
-        const args = new DynamicLineRasterizationArgs();
-        args.parseArgs(argc, argv);
+        const args = new DynamicLineRasterizationArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

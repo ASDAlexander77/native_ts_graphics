@@ -168,8 +168,8 @@ namespace DepthBoundsTest {
         Donut_SetAppName("depth_bounds_test");
 
         // -benchmark: one animation step a frame, as the sample.
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         // The sample's window, with UNORM back buffers, as the sample's R8G8B8A8_UNORM.
         const options = AppOptions.UnormBackBuffer | args.options;

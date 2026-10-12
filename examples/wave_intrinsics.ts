@@ -364,8 +364,8 @@ namespace WaveIntrinsics {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("wave_intrinsics");
 
-        const args = new Args();
-        args.parseArgs(argc, argv);
+        const args = new Args(argc, argv);
+        args.parseArgs();
 
         // The sample's window. UNORM back buffers, as the sample's R8G8B8A8_UNORM.
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.UnormBackBuffer | args.options);

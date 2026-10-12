@@ -1527,6 +1527,10 @@ namespace RaytracingAo {
         // -help: start with the options menu (F1).
         help = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -1547,8 +1551,8 @@ namespace RaytracingAo {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("raytracing_ao");
 
-        const args = new RaytracingAoArgs();
-        args.parseArgs(argc, argv);
+        const args = new RaytracingAoArgs(argc, argv);
+        args.parseArgs();
 
         // The sample's B8G8R8A8_UNORM back buffers (UNORM: its outputs copied as they are), at its
         // default 1280 x 720.

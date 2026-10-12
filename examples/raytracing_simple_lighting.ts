@@ -402,8 +402,8 @@ namespace RaytracingSimpleLighting {
 
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).
-        const args = new Args();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new Args(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // The sample's window.
         const options = AppOptions.RayTracing | args.options;

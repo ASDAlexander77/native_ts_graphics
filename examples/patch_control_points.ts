@@ -463,6 +463,10 @@ namespace PatchControlPoints {
         tessellation = true;
         tessLevel = 3.0;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -480,8 +484,8 @@ namespace PatchControlPoints {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("patch_control_points");
 
-        const args = new PatchControlPointsArgs();
-        args.parseArgs(argc, argv);
+        const args = new PatchControlPointsArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

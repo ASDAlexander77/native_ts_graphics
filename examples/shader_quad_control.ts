@@ -101,6 +101,10 @@ namespace ShaderQuadControl {
         // -broadcast: each quad shows its top left pixel's coordinates.
         broadcast = false;
 
+        constructor(argc: int, argv: Ref<string>) {
+            super(argc, argv);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -115,8 +119,8 @@ namespace ShaderQuadControl {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_quad_control");
 
-        const args = new ShaderQuadControlArgs();
-        args.parseArgs(argc, argv);
+        const args = new ShaderQuadControlArgs(argc, argv);
+        args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
         if (app.isNull()) {

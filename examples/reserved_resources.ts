@@ -408,6 +408,10 @@ namespace ReservedResources {
         // -mip <level>: the level the test steps to.
         testMip = 0;
 
+        constructor(argc: int, argv: Ref<string>, testFrames: int) {
+            super(argc, argv, testFrames);
+        }
+
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
@@ -425,8 +429,8 @@ namespace ReservedResources {
 
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).
-        const args = new ReservedResourcesArgs();
-        args.parseArgs(argc, argv, TEST_FRAMES);
+        const args = new ReservedResourcesArgs(argc, argv, TEST_FRAMES);
+        args.parseArgs();
 
         // The sample's window. Reserved resources need D3D12 (tiled resources) or Vulkan (sparse
         // residency). UNORM back buffers, as the sample's R8G8B8A8_UNORM.
