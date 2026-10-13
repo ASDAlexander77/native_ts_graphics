@@ -158,6 +158,17 @@ export namespace nvrhi {
         commandList.copyTexture(destArg, Ref(destSliceValue), srcArg, Ref(srcSliceValue));
     }
 
+    // ICommandList::copyTexture of a staging texture into a texture, to upload it
+    export function copyTextureFromStaging(commandList: ICommandList, dest: ITexture, destSlice: TextureSlice,
+        src: IStagingTexture, srcSlice: TextureSlice): void {
+        // (as in copyTexture: TSLANG_ISSUES.md #19)
+        const destArg: ITexture | null = dest;
+        const srcArg: IStagingTexture | null = src;
+        let destSliceValue = destSlice;
+        let srcSliceValue = srcSlice;
+        commandList.copyTexture(destArg, Ref(destSliceValue), srcArg, Ref(srcSliceValue));
+    }
+
     // A ShaderDesc as nvrhi::ShaderDesc's defaults make it, with the shader's stage (SHADER_TYPE_*),
     // a debug name and its entry point's name (see stdString).
     export function shaderDesc(shaderType: u16, debugName: string, entryName: string): ShaderDesc {
