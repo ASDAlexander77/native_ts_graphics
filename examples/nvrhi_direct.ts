@@ -14,9 +14,9 @@ namespace NvrhiDirect {
     //
     // One command list:
     // - uploads numbers into a buffer and clears another to a value;
-    // - runs a compute shader (output = input * 2 + 1) over the uploaded numbers, its pipeline made
-    //   here and its binding set by Donut over buffers made here (Donut's handles are NVRHI's
-    //   pointers);
+    // - runs a compute shader (output = input * 2 + 1) over the uploaded numbers, its shader, binding
+    //   layout, binding set and pipeline made here, the shader from the bytecode ShaderMake compiled
+    //   (read through Donut);
     // - copies the three into a readback buffer, the last copy with the state changes made by hand
     //   instead of NVRHI's automatic barriers;
     // - clears a texture, read back through Donut.
@@ -157,18 +157,29 @@ namespace NvrhiDirect {
         check(nvrhi.getNativeObject(texture, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE) != null,
             "the texture has its native resource");
 
-        // The compute pipeline: the shader through Donut's shader factory, IShader::getBytecode; its
-        // binding layout and set, IDevice::createComputePipeline
-        const shader = <nvrhi.IShader><Opaque>app.createShader("nvrhi_direct.hlsl", "main", ShaderType.Compute);
-        if (!shader) {
-            check(false, "the compute shader");
+        // The compute pipeline: IDevice::createShader of the bytecode ShaderMake compiled (DXIL,
+        // SPIR-V), IShader::getDesc, getBytecode; its binding layout and set,
+        // IDevice::createComputePipeline
+        const shaderFile = app.loadBinaryFile(`shaders/nvrhi_direct/${isD3D12 ? "dxil" : "spirv"}/nvrhi_direct.bin`);
+        if (shaderFile.isNull()) {
+            check(false, "the compute shader's bytecode");
             return;
         }
-        // NVRHI keeps the bytecode on D3D12 only; on Vulkan it writes null and 0
+        const shader = nvrhi.createShader(device, nvrhi.shaderDesc(nvrhi.SHADER_TYPE_COMPUTE, "nvrhi_direct", "main"),
+            shaderFile.getData(), shaderFile.getSize());
+        if (!shader) {
+            check(false, "IDevice::createShader");
+            return;
+        }
+        const shaderDesc = Deref(shader.getDesc());
+        check(shaderDesc.shaderType == nvrhi.SHADER_TYPE_COMPUTE
+            && nvrhi.sameShortStdString(shaderDesc.entryName, nvrhi.stdString("main"))
+            && nvrhi.sameShortStdString(shaderDesc.debugName, nvrhi.stdString("nvrhi_direct")), "IShader::getDesc");
+        // NVRHI keeps a copy of the bytecode on D3D12 only; on Vulkan it writes null and 0
         let bytecode: Opaque | null = null;
         let bytecodeSize: index = 12345;
         shader.getBytecode(Ref(bytecode), Ref(bytecodeSize));
-        check(isD3D12 ? bytecode != null && bytecodeSize > 0 : bytecodeSize == 0, "IShader::getBytecode");
+        check(isD3D12 ? bytecode != null && bytecodeSize == shaderFile.getSize() : bytecodeSize == 0, "IShader::getBytecode");
 
         // IDevice::createBindingLayout, createBindingSet, IBindingLayout::getDesc, IBindingSet::getDesc,
         // getLayout: the compute shader reads a typed buffer (t0) and writes another (u0)
@@ -293,6 +304,7 @@ namespace NvrhiDirect {
         pipeline.Release();
         bindingSet.Release();
         bindingLayout.Release();
+        shader.Release();
         texture.Release();
         input.Release();
         output.Release();

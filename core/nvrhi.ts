@@ -16,7 +16,7 @@
 // - core/nvrhi_abi.<os>.ts: debug names, std::strings made the C++ library's way;
 // - this file: the functions below, the same for both.
 //
-// Objects returned with a reference (createBuffer, createTexture, createCommandList,
+// Objects returned with a reference (createBuffer, createTexture, createShader, createCommandList,
 // createComputePipeline, ...) are released with Release().
 //
 // nvrhi.IMessageCallback is implemented here, not called: a @cpp class extending it whose
@@ -51,7 +51,8 @@ export namespace nvrhi {
             && sizeof<BindingLayoutItem>() == Donut_GetNvrhiStructSize("BindingLayoutItem")
             && sizeof<BindingLayoutDesc>() == Donut_GetNvrhiStructSize("BindingLayoutDesc")
             && sizeof<BindingSetItem>() == Donut_GetNvrhiStructSize("BindingSetItem")
-            && sizeof<BindingSetDesc>() == Donut_GetNvrhiStructSize("BindingSetDesc");
+            && sizeof<BindingSetDesc>() == Donut_GetNvrhiStructSize("BindingSetDesc")
+            && sizeof<ShaderDesc>() == Donut_GetNvrhiStructSize("ShaderDesc");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -103,6 +104,20 @@ export namespace nvrhi {
         let descValue = desc;
         const handle = device.createTexture(Ref(descValue));
         return handle.pointer ? <ITexture><Opaque>handle.pointer : null;
+    }
+
+    // A ShaderDesc as nvrhi::ShaderDesc's defaults make it, with the shader's stage (SHADER_TYPE_*),
+    // a debug name and its entry point's name (see stdString).
+    export function shaderDesc(shaderType: u16, debugName: string, entryName: string): ShaderDesc {
+        return [shaderType, stdString(debugName), stdString(entryName), -1, false, 0, null, 0, null];
+    }
+
+    // IDevice::createShader of the API's bytecode (DXIL, SPIR-V: a file ShaderMake compiled, without
+    // permutations), which NVRHI copies; null on failure. Release() it.
+    export function createShader(device: IDevice, desc: ShaderDesc, bytecode: Opaque, byteSize: index): IShader | null {
+        let descValue = desc;
+        const handle = device.createShader(Ref(descValue), bytecode, byteSize);
+        return handle.pointer ? <IShader><Opaque>handle.pointer : null;
     }
 
     // nvrhi::BindingLayoutItem's initializers (Texture_SRV(slot), TypedBuffer_UAV(slot), ...): a
