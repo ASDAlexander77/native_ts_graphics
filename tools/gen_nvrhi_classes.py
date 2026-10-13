@@ -216,8 +216,9 @@ ABIS = {
 }
 
 
-# The C++ library's templates tsbindgen lays out once per specialization (vector_BindingSetItem,
-# static_vector_IBindingSet_8, RefCountPtr_IShader), written once as a generic tuple instead:
+# The C++ library's templates as generic tuples. A tsbindgen newer than pre-alpha100 writes them so
+# itself; an older one lays out each specialization on its own (vector_BindingSetItem,
+# static_vector_IBindingSet_8, RefCountPtr_IShader), which is made generic here. Either way, they are:
 # std::vector<T> as each library lays it out (MSVC's in its two helper structs, which go too);
 # nvrhi::static_vector<T, N> as static_vector<N><T>, as tslang has no type of N elements;
 # nvrhi::RefCountPtr<T> in core/nvrhi_types.ts, the same for both.
@@ -235,7 +236,24 @@ def static_vector(os_name, size, element):
 
 def generic_templates(body, os_name):
     """body with the specializations of VECTOR's, static_vector's and RefCountPtr's templates
-    replaced by the generic types, which it declares first (see VECTOR)."""
+    replaced by the generic types, which it declares first (see VECTOR). The generics a newer
+    tsbindgen declares itself are checked and declared there the same way."""
+    # tsbindgen's own generics: laid out as the ones written here, or it stops
+    known = {"vector": VECTOR[os_name], "RefCountPtr": "[ptr_: T | null]"}
+    kept = []
+    for line in body:
+        m = re.match(r"\s*export type (\w+)<(\w+)> = (.*);$", line)
+        if not m:
+            kept.append(line)
+            continue
+        name, parameter, definition = m.groups()
+        size = re.match(r"static_vector(\d+)$", name)
+        expected = static_vector(os_name, int(size.group(1)), "T") if size else known.get(name)
+        if parameter != "T" or definition != expected:
+            sys.exit(f"gen_nvrhi_classes: tsbindgen's {name}<{parameter}> isn't the generic expected ({os_name}):\n"
+                     f"  {definition}\n  {expected}")
+    body = kept
+
     aliases = {}
     for line in body:
         m = re.match(r"\s*export type (\w+) = (.*);$", line)
@@ -247,7 +265,6 @@ def generic_templates(body, os_name):
         return re.sub(r"\b_\w+\b", lambda m: expand(aliases[m.group(0)]) if m.group(0) in aliases else m.group(0), text)
 
     generic = {}
-    sizes = set()
     for name, definition in aliases.items():
         m = re.match(r"vector_(\w+)$", name)
         if m:
@@ -259,7 +276,6 @@ def generic_templates(body, os_name):
                 sys.exit(f"gen_nvrhi_classes: {name} isn't a static_vector: {definition}")
             size = int(m.group(1))
             expected, generic[name] = static_vector(os_name, size, element.group(1)), f"static_vector{size}<{element.group(1)}>"
-            sizes.add(size)
         m = re.match(r"RefCountPtr_(\w+)$", name)
         if m:
             expected, generic[name] = f"[ptr_: {m.group(1)} | null]", f"RefCountPtr<{m.group(1)}>"
@@ -290,8 +306,11 @@ def generic_templates(body, os_name):
     if left:
         sys.exit(f"gen_nvrhi_classes: not made generic: {', '.join(sorted(set(left)))}")
 
-    declarations = [f"    export type vector<T> = {VECTOR[os_name]};"]
-    declarations += [f"    export type static_vector{size}<T> = {static_vector(os_name, size, 'T')};" for size in sorted(sizes)]
+    # the generics used, first, in one order whichever wrote them (RefCountPtr<T> is nvrhi_types.ts')
+    text = "\n".join(out)
+    declarations = [f"    export type vector<T> = {VECTOR[os_name]};"] if re.search(r"\bvector<", text) else []
+    declarations += [f"    export type static_vector{size}<T> = {static_vector(os_name, size, 'T')};"
+                     for size in sorted({int(size) for size in re.findall(r"\bstatic_vector(\d+)<", text)})]
     return declarations + out
 
 
