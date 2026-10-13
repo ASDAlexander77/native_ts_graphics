@@ -212,6 +212,12 @@ export namespace nvrhi {
         return [texture, slot, 0, [<u32>RESOURCE_TYPE_TEXTURE_SRV], 0, 0, [0xffffffff00000000, 0xffffffff00000000]];
     }
 
+    // nvrhi::BindingSetItem::Texture_UAV(slot, texture): mip level 0 (one level) of all its array
+    // slices, its own format and dimension
+    export function textureUavBindingSetItem(slot: u32, texture: ITexture): BindingSetItem {
+        return [texture, slot, 0, [<u32>RESOURCE_TYPE_TEXTURE_UAV], 0, 0, [0x100000000, 0xffffffff00000000]];
+    }
+
     // nvrhi::BindingSetItem::Sampler(slot, sampler)
     export function samplerBindingSetItem(slot: u32, sampler: ISampler): BindingSetItem {
         return [sampler, slot, 0, [<u32>RESOURCE_TYPE_SAMPLER], 0, 0, [0, 0]];
