@@ -35,7 +35,7 @@ namespace NvrhiDirect {
     // upload through a staging texture the CPU writes (testStagingUpload); and another, multiple
     // render targets (testMultipleRenderTargets); and another, multisampling and its resolve
     // (testMultisampleResolve); and another, event and timer queries (testQueries); and another,
-    // the stencil test (testStencil).
+    // the stencil test (testStencil); and another, instancing (testInstancing).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -970,6 +970,99 @@ namespace NvrhiDirect {
         color.Release();
     }
 
+    // An instance's attributes in the instancing test: its offset (x, y) and color (RGBA, floats)
+    const INSTANCE_SIZE = 24;
+
+    // Instancing, with a command list of its own: a vertex buffer of two instances' attributes,
+    // an input layout reading them once an instance (VertexAttributeDesc::isInstanced), one draw of
+    // two instances of a quad over the left half (nvrhi_direct_instanced.hlsl, its vertices from
+    // SV_VertexID): the first left in red, the second moved right in blue. Read back through a
+    // staging texture.
+    function testInstancing(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct_instanced", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct_instanced", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        let instanceBufferDesc = nvrhi.bufferDesc(2 * INSTANCE_SIZE, "Instances", nvrhi.RESOURCE_STATE_VERTEX_BUFFER,
+            nvrhi.CPU_ACCESS_NONE);
+        instanceBufferDesc.isVertexBuffer = true;
+        const instanceBuffer = nvrhi.createBuffer(device, instanceBufferDesc);
+        if (!color || !staging || !vertexShader || !pixelShader || !commandList || !instanceBuffer) {
+            check(false, "the instancing test's textures, shaders, command list and instance buffer");
+            return;
+        }
+        let offset = nvrhi.vertexAttributeDesc("OFFSET", Format.RG32_FLOAT, 0, 0, INSTANCE_SIZE);
+        offset.isInstanced = true;
+        let instanceColor = nvrhi.vertexAttributeDesc("COLOR", Format.RGBA32_FLOAT, 0, 8, INSTANCE_SIZE);
+        instanceColor.isInstanced = true;
+        const inputLayout = nvrhi.createInputLayout(device, [offset, instanceColor], vertexShader);
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], null));
+        if (!inputLayout || !framebuffer) {
+            check(false, "IDevice::createInputLayout of instance attributes and createFramebuffer");
+            return;
+        }
+        check(inputLayout.getNumAttributes() == 2 && Deref(inputLayout.getAttributeDesc(1)).isInstanced,
+            "IInputLayout::getAttributeDesc's isInstanced");
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(inputLayout, vertexShader, pixelShader, null, renderState), framebuffer);
+        if (!pipeline) {
+            check(false, "IDevice::createGraphicsPipeline for instancing");
+            return;
+        }
+
+        // the instances: no offset, red; one to the right (clip space x + 1), blue
+        let instances: f32[] = [0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1];
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        commandList.writeBuffer(instanceBuffer, <Opaque>Ref(instances[0]), 2 * INSTANCE_SIZE, 0);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(pipeline, framebuffer,
+            [0, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1], null, instanceBuffer, null, Format.UNKNOWN));
+        nvrhi.drawInstanced(commandList, 6, 2);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the instancing test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let firstMismatches = 0;
+            let secondMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColor(pixels, i, 255, 0, 0)) {
+                            firstMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 0, 0, 255)) {
+                        secondMismatches++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Instances (${pixels[0]}, ${pixels[1]}, ${pixels[2]}) and `
+                + `(${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(firstMismatches == 0, `the first instance (${firstMismatches} of ${half} pixels differ)`);
+            check(secondMismatches == 0, `the second instance (${secondMismatches} of ${half} pixels differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        inputLayout.Release();
+        instanceBuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        color.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -1348,6 +1441,7 @@ namespace NvrhiDirect {
         testMultisampleResolve(app, device, isD3D12);
         testQueries(device);
         testStencil(app, device, isD3D12);
+        testInstancing(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();

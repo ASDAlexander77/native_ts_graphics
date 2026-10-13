@@ -373,6 +373,12 @@ export namespace nvrhi {
         commandList.draw(Ref(args));
     }
 
+    // ICommandList::draw of vertexCount vertices, instanceCount instances
+    export function drawInstanced(commandList: ICommandList, vertexCount: u32, instanceCount: u32): void {
+        let args: DrawArguments = [vertexCount, instanceCount, 0, 0, 0];
+        commandList.draw(Ref(args));
+    }
+
     // ICommandList::drawIndexed of indexCount indices, one instance (DrawArguments' vertexCount is
     // the index count)
     export function drawIndexed(commandList: ICommandList, indexCount: u32): void {
