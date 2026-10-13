@@ -53,7 +53,11 @@ export namespace nvrhi {
             && sizeof<BindingLayoutDesc>() == Donut_GetNvrhiStructSize("BindingLayoutDesc")
             && sizeof<BindingSetItem>() == Donut_GetNvrhiStructSize("BindingSetItem")
             && sizeof<BindingSetDesc>() == Donut_GetNvrhiStructSize("BindingSetDesc")
-            && sizeof<ShaderDesc>() == Donut_GetNvrhiStructSize("ShaderDesc");
+            && sizeof<ShaderDesc>() == Donut_GetNvrhiStructSize("ShaderDesc")
+            && sizeof<FramebufferDesc>() == Donut_GetNvrhiStructSize("FramebufferDesc")
+            && sizeof<GraphicsPipelineDesc>() == Donut_GetNvrhiStructSize("GraphicsPipelineDesc")
+            && sizeof<GraphicsState>() == Donut_GetNvrhiStructSize("GraphicsState")
+            && sizeof<DrawArguments>() == Donut_GetNvrhiStructSize("DrawArguments");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -152,6 +156,97 @@ export namespace nvrhi {
         const handle = device.createBindingSet(Ref(desc), layout);
         const set = handle.ptr_ ? <IBindingSet><Opaque>handle.ptr_ : null;
         return set;
+    }
+
+    // A FramebufferDesc of one color attachment, the texture's first mip and array slice in its own
+    // format, as nvrhi::FramebufferDesc().addColorAttachment(texture) makes it.
+    export function framebufferDesc(colorTexture: ITexture): FramebufferDesc {
+        const none: FramebufferAttachment = [null, [0, 1, 0, 1], 0, false];
+        const color: FramebufferAttachment = [colorTexture, [0, 1, 0, 1], 0, false];
+        return [[[color, none, none, none, none, none, none, none], 1], none, none,
+            [[none, none, none, none, none, none, none, none], 0], none, 0];
+    }
+
+    // IDevice::createFramebuffer; null on failure. Release() it.
+    export function createFramebuffer(device: IDevice, desc: FramebufferDesc): IFramebuffer | null {
+        let descValue = desc;
+        const handle = device.createFramebuffer(Ref(descValue));
+        return handle.ptr_ ? <IFramebuffer><Opaque>handle.ptr_ : null;
+    }
+
+    // nvrhi::RenderState's defaults: no blending, depth test and writes (Less), back faces culled
+    export function renderState(): RenderState {
+        const target: RenderTarget = [false, 2, 1, 1, 2, 1, 1, 0xf];   // One, Zero, Add; One, Zero, Add; All
+        const keep: StencilOpDesc = [1, 1, 1, 8];                      // Keep, Keep, Keep, Always
+        return [
+            [[target, target, target, target, target, target, target, target], false, false, 3, -1, true, true, 0],
+            [true, true, 2, false, 0xff, 0xff, 0, false, keep, keep, false],
+            [0, CULL_BACK, false, false, false, false, false, 0, 0, 0, 0, false, false, 0, false,
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                0, 1, false, 1, 0xffff],
+            [false, false, 0]];
+    }
+
+    // A GraphicsPipelineDesc of a triangle list, a vertex and a pixel shader (no input layout) and up
+    // to one binding layout, with the given render state. Its RefCountPtrs hold no reference, as in
+    // computePipelineDesc.
+    export function graphicsPipelineDesc(vertexShader: IShader, pixelShader: IShader, bindingLayout: IBindingLayout | null,
+        state: RenderState): GraphicsPipelineDesc {
+        // (`bindingLayout ? 1 : 0` as the count fails to compile: TSLANG_ISSUES.md #14)
+        let layouts: index = 0;
+        if (bindingLayout) {
+            layouts = 1;
+        }
+
+        return [3, 0, [null], [vertexShader], [null], [null], [null], [pixelShader], state, [false, 0, 0, 0],
+            [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], layouts], 0];
+    }
+
+    // IDevice::createGraphicsPipeline for the framebuffer's formats; null on failure. Release() it.
+    export function createGraphicsPipeline(device: IDevice, desc: GraphicsPipelineDesc, framebuffer: IFramebuffer): IGraphicsPipeline | null {
+        let descValue = desc;
+        const handle = device.createGraphicsPipeline_2(Ref(descValue), framebuffer);
+        return handle.ptr_ ? <IGraphicsPipeline><Opaque>handle.ptr_ : null;
+    }
+
+    // A GraphicsState drawing into the framebuffer with the pipeline, through one viewport and its
+    // scissor rectangle (ViewportState::addViewportAndScissorRect: without one, D3D12 draws nothing
+    // and Vulkan's is unset), and up to one binding set, with no vertex or index buffer.
+    export function graphicsState(pipeline: IGraphicsPipeline, framebuffer: IFramebuffer, viewport: Viewport,
+        bindingSet: IBindingSet | null): GraphicsState {
+        const noViewport: Viewport = [0, 0, 0, 0, 0, 0];
+        const noRect: Rect = [0, 0, 0, 0];
+        // nvrhi::Rect(viewport): the pixels it covers
+        const scissor: Rect = [<s32>Math.floor(viewport.minX), <s32>Math.ceil(viewport.maxX),
+            <s32>Math.floor(viewport.minY), <s32>Math.ceil(viewport.maxY)];
+        const noBuffer: VertexBufferBinding = [null, 0, 0];
+        let bindingSets: index = 0;
+        if (bindingSet) {
+            bindingSets = 1;
+        }
+
+        return [pipeline, framebuffer,
+            [[[viewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport,
+                noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport], 1],
+                [[scissor, noRect, noRect, noRect, noRect, noRect, noRect, noRect,
+                    noRect, noRect, noRect, noRect, noRect, noRect, noRect, noRect], 1]],
+            [false, 0, 0, 0], [0, 0, 0, 0], 0, 0, 1,
+            [[bindingSet, null, null, null, null, null, null, null], bindingSets],
+            [[noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer,
+                noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer], 0],
+            [null, 0, 0], null, null];
+    }
+
+    // ICommandList::setGraphicsState
+    export function setGraphicsState(commandList: ICommandList, state: GraphicsState): void {
+        let stateValue = state;
+        commandList.setGraphicsState(Ref(stateValue));
+    }
+
+    // ICommandList::draw of vertexCount vertices, one instance
+    export function draw(commandList: ICommandList, vertexCount: u32): void {
+        let args: DrawArguments = [vertexCount, 1, 0, 0, 0];
+        commandList.draw(Ref(args));
     }
 
     // IDevice::createCommandList; null on failure. Release() it.

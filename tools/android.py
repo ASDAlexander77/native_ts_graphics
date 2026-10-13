@@ -6,15 +6,16 @@
     python tools/android.py headless
     python tools/android.py test [--seconds N] [<example>...]
 
-build      configures the android-<abi> preset if its folder has none, then builds headless and the
-           APKs (<example>_apk, all of them if none are named). It finds the NDK for the preset
+build      configures the android-<abi> preset if its folder has none, then builds the headless
+           tests (headless, nvrhi_direct) and the APKs (<example>_apk, all of them if none are named). It finds the NDK for the preset
            (ANDROID_NDK_HOME is set for it if it isn't), and builds the desktop ShaderMake the
            shaders are compiled with first if there is none, in the Visual Studio environment.
 emulator   starts an Android Virtual Device unless a device is connected, and waits for it to boot.
 run        installs bin/<example>.apk, starts it and follows its log (Ctrl+C stops following, the
            app keeps running); with --screenshot, takes one after --seconds and stops there.
-headless   pushes headless and its shaders to /data/local/tmp/native_ts_graphics and runs it.
-test       a smoke test: headless, then each example's APK installed and started, alive after
+headless   pushes each headless test (headless, nvrhi_direct) and its shaders to
+           /data/local/tmp/native_ts_graphics and runs it.
+test       a smoke test: the headless tests, then each example's APK installed and started, alive after
            --seconds, a screenshot, then Back, which has to close it without a crash. Starts an
            emulator if no device is connected. The screenshots and logs go to
            <build folder>/android-test. With no examples, the ones that run on the emulator.
@@ -40,7 +41,9 @@ EXE = ".exe" if IS_WINDOWS else ""
 ABIS = {"x86_64": "x86_64", "arm64": "arm64-v8a", "arm32": "armeabi-v7a"}
 
 # Examples with an APK target that can't run on Vulkan, which build leaves out.
-NO_HEADLESS = {"arm32"}  # no core/nvrhi.ts there (tslang has no 32-bit ARM @cpp struct returns), so no headless
+NO_HEADLESS = {"arm32"}  # no core/nvrhi.ts there (tslang has no 32-bit ARM @cpp struct returns), so no headless tests
+# executables run through adb shell, not APKs: each pushed with its shaders and run, "Test PASSED" expected
+HEADLESS_TESTS = ["headless", "nvrhi_direct"]
 NOT_ON_VULKAN = {"rt_reflections"}  # D3D12-only, no SPIR-V shaders
 
 # What test runs by default: the examples that run on the emulator's Vulkan (the host GPU's, through
@@ -277,7 +280,7 @@ def command_build(tools, args):
     if unknown:
         fail(f"no APK target for {', '.join(unknown)}; there are: {', '.join(available)}")
 
-    targets = [] if args.abi in NO_HEADLESS else ["headless"]
+    targets = [] if args.abi in NO_HEADLESS else HEADLESS_TESTS
     run(["cmake", "--build", "--preset", preset, "--target"] + targets + [f"{name}_apk" for name in examples],
         env=environment, cwd=ROOT)
     log(f"APKs in {os.path.join(folder, 'bin')}")
@@ -392,28 +395,30 @@ def command_run(tools, args):
         pass
 
 
-def run_headless(tools, abi):
-    """Pushes headless and its shaders, as they are laid out in bin/, and runs it."""
+def run_headless(tools, abi, name):
+    """Pushes a headless test (HEADLESS_TESTS) and its shaders, as they are laid out in bin/, and
+    runs it."""
     binaries = os.path.join(build_folder(abi), "bin")
-    executable = os.path.join(binaries, "headless")
+    executable = os.path.join(binaries, name)
     if not os.path.isfile(executable):
         fail(f"no {executable}: build it first (python tools/android.py build --abi {abi})")
     tools.shell(f"rm -rf {REMOTE_FOLDER} && mkdir -p {REMOTE_FOLDER}/shaders", check=True)
-    tools.adb("push", executable, f"{REMOTE_FOLDER}/headless")
-    for shaders in ("framework", "headless"):
+    tools.adb("push", executable, f"{REMOTE_FOLDER}/{name}")
+    for shaders in ("framework", name):
         tools.adb("push", os.path.join(binaries, "shaders", shaders), f"{REMOTE_FOLDER}/shaders/")
-    result = tools.shell(f"cd {REMOTE_FOLDER} && chmod +x headless && ./headless")
+    result = tools.shell(f"cd {REMOTE_FOLDER} && chmod +x {name} && ./{name}")
     print((result.stdout + result.stderr).rstrip())
     return result.returncode == 0 and "Test PASSED" in result.stdout
 
 
 def command_headless(tools, args):
     if args.abi in NO_HEADLESS:
-        fail(f"no headless for {args.abi}")
+        fail(f"no headless tests for {args.abi}")
     ensure_device(tools, args)
-    if not run_headless(tools, args.abi):
-        fail("headless failed")
-    log("headless passed")
+    failed = [name for name in HEADLESS_TESTS if not run_headless(tools, args.abi, name)]
+    if failed:
+        fail(f"{', '.join(failed)} failed")
+    log(f"{', '.join(HEADLESS_TESTS)} passed")
 
 
 def smoke_test(tools, abi, example, seconds, output):
@@ -459,7 +464,8 @@ def command_test(tools, args):
 
     results = []
     if args.abi not in NO_HEADLESS:
-        results.append(("headless", None if run_headless(tools, args.abi) else "failed"))
+        for name in HEADLESS_TESTS:
+            results.append((name, None if run_headless(tools, args.abi, name) else "failed"))
     for example in args.examples or EMULATOR_EXAMPLES:
         log(f"testing {example}")
         results.append((example, smoke_test(tools, args.abi, example, args.seconds, output)))
@@ -501,7 +507,7 @@ def main():
     run_parser.add_argument("--seconds", type=int, default=10)
     run_parser.set_defaults(handler=command_run)
 
-    headless = commands.add_parser("headless", parents=[common, devices], help="run headless on the device")
+    headless = commands.add_parser("headless", parents=[common, devices], help="run the headless tests (headless, nvrhi_direct) on the device")
     headless.set_defaults(handler=command_headless)
 
     test = commands.add_parser("test", parents=[common, devices], help="smoke-test headless and the examples")

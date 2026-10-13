@@ -27,6 +27,9 @@ export namespace nvrhi {
             }
         }
 
+        // (`shift *= 256` would multiply in 32 bits, losing the characters from the fifth on:
+        // TSLANG_ISSUES.md #15)
+        const BYTE: u64 = 256;
         let buffer0: u64 = 0;
         let buffer1: u64 = 0;
         let shift: u64 = 1;
@@ -40,7 +43,7 @@ export namespace nvrhi {
             } else {
                 buffer1 += char * shift;
             }
-            shift *= 256;
+            shift *= BYTE;
         }
 
         return [[[[buffer0, buffer1], size, 15]]];
@@ -51,11 +54,24 @@ export namespace nvrhi {
         return <int>value._Mypair._Myval2._Mysize;
     }
 
-    // Whether two short std::strings (see stdString) hold the same characters
-    export function sameShortStdString(a: StdString, b: StdString): boolean {
-        const x = a._Mypair._Myval2;
-        const y = b._Mypair._Myval2;
-        return x._Mysize == y._Mysize && x._Mysize <= 15 && x._Bx._0 == y._Bx._0 && x._Bx._1 == y._Bx._1;
+    // Whether an std::string (NVRHI's copy of a debug name, say) is short and holds text: its
+    // characters and terminating zero, read byte by byte from its buffer (_Bx, at its start)
+    export function stdStringIs(value: StdString, text: string): boolean {
+        const size = stdStringSize(value);
+        if (size > 15) {
+            return false;
+        }
+
+        const chars = <Ref<u8>><Opaque>text;
+        let copy = value;
+        const bytes = <Ref<u8>><Opaque>Ref(copy);
+        for (let i = 0; i <= size; i++) {
+            if (Deref(bytes[i]) != Deref(chars[i])) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // MSVC's std::vector: _Mypair._Myval2 {_Myfirst, _Mylast, _Myend}

@@ -19,7 +19,9 @@ namespace NvrhiDirect {
     //   (read through Donut);
     // - copies the three into a readback buffer, the last copy with the state changes made by hand
     //   instead of NVRHI's automatic barriers;
-    // - clears a texture, read back through Donut.
+    // - clears a texture, then draws into its left half with a graphics pipeline made here (a
+    //   framebuffer over the texture, vertex and pixel shaders, the render state with no depth test
+    //   and no culling, a viewport), read back through Donut.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -72,6 +74,17 @@ namespace NvrhiDirect {
             nvrhi.RESOURCE_STATE_RENDER_TARGET);
         desc.isRenderTarget = true;
         return desc;
+    }
+
+    // IDevice::createShader of a shader ShaderMake compiled from shaders/nvrhi_direct.hlsl (its
+    // entry point's name in the file's: nvrhi_direct_main_vs.bin)
+    function loadShader(app: App, device: nvrhi.IDevice, isD3D12: boolean, entryName: string, shaderType: u16): nvrhi.IShader | null {
+        const file = app.loadBinaryFile(`shaders/nvrhi_direct/${isD3D12 ? "dxil" : "spirv"}/nvrhi_direct_${entryName}.bin`);
+        if (file.isNull()) {
+            return null;
+        }
+
+        return nvrhi.createShader(device, nvrhi.shaderDesc(shaderType, entryName, entryName), file.getData(), file.getSize());
     }
 
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
@@ -135,10 +148,9 @@ namespace NvrhiDirect {
 
         // IBuffer::getDesc: NVRHI's copy of the desc, debug name included; getGpuVirtualAddress (D3D12)
         const desc = Deref(cleared.getDesc());
-        const name = nvrhi.stdString("Cleared");
         check(desc.byteSize == SIZE && desc.canHaveUAVs && desc.initialState == nvrhi.RESOURCE_STATE_COPY_DEST
             && desc.keepInitialState && desc.cpuAccess == nvrhi.CPU_ACCESS_NONE, "IBuffer::getDesc");
-        check(nvrhi.stdStringSize(desc.debugName) == 7 && nvrhi.sameShortStdString(desc.debugName, name),
+        check(nvrhi.stdStringIs(desc.debugName, "Cleared"),
             "the buffer's debug name");
         if (isD3D12) {
             check(input.getGpuVirtualAddress() != 0, "IBuffer::getGpuVirtualAddress");
@@ -153,7 +165,7 @@ namespace NvrhiDirect {
         const textureDesc = Deref(texture.getDesc());
         check(textureDesc.width == TEXTURE_SIZE && textureDesc.height == TEXTURE_SIZE
             && textureDesc.format == <u8>Format.RGBA8_UNORM && textureDesc.isRenderTarget
-            && nvrhi.stdStringSize(textureDesc.debugName) == 15, "ITexture::getDesc");
+            && nvrhi.stdStringIs(textureDesc.debugName, "Cleared texture"), "ITexture::getDesc");
         check(nvrhi.getNativeObject(texture, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE) != null,
             "the texture has its native resource");
 
@@ -173,8 +185,8 @@ namespace NvrhiDirect {
         }
         const shaderDesc = Deref(shader.getDesc());
         check(shaderDesc.shaderType == nvrhi.SHADER_TYPE_COMPUTE
-            && nvrhi.sameShortStdString(shaderDesc.entryName, nvrhi.stdString("main"))
-            && nvrhi.sameShortStdString(shaderDesc.debugName, nvrhi.stdString("nvrhi_direct")), "IShader::getDesc");
+            && nvrhi.stdStringIs(shaderDesc.entryName, "main") && nvrhi.stdStringIs(shaderDesc.debugName, "nvrhi_direct"),
+            "IShader::getDesc");
         // NVRHI keeps a copy of the bytecode on D3D12 only; on Vulkan it writes null and 0
         let bytecode: Opaque | null = null;
         let bytecodeSize: index = 12345;
@@ -207,6 +219,39 @@ namespace NvrhiDirect {
             check(false, "IDevice::createComputePipeline");
             return;
         }
+
+        // The graphics pipeline: IDevice::createFramebuffer over the texture, IFramebuffer::
+        // getFramebufferInfo; the vertex and pixel shaders; IDevice::createGraphicsPipeline (for the
+        // framebuffer) with the default render state but for the depth test and culling,
+        // IGraphicsPipeline::getDesc
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(texture));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer");
+            return;
+        }
+        const framebufferInfo = Deref(framebuffer.getFramebufferInfo());
+        check(framebufferInfo.width == TEXTURE_SIZE && framebufferInfo.height == TEXTURE_SIZE
+            && framebufferInfo.colorFormats.current_size == 1,
+            "IFramebuffer::getFramebufferInfo");
+        const vertexShader = loadShader(app, device, isD3D12, "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        if (!vertexShader || !pixelShader) {
+            check(false, "the vertex and pixel shaders");
+            return;
+        }
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const graphicsPipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(vertexShader, pixelShader, null, renderState), framebuffer);
+        if (!graphicsPipeline) {
+            check(false, "IDevice::createGraphicsPipeline");
+            return;
+        }
+        const graphicsDesc = Deref(graphicsPipeline.getDesc());
+        check(graphicsDesc.renderState.rasterState.cullMode == nvrhi.CULL_NONE && !graphicsDesc.renderState.depthStencilState.depthTestEnable
+            && <index><Opaque>graphicsDesc.VS.ptr_ == <index><Opaque>vertexShader, "IGraphicsPipeline::getDesc");
 
         // IDevice::createCommandList; ICommandList::open, clearState, beginMarker, writeBuffer,
         // clearBufferUInt, setComputeState, dispatch, setEnableAutomaticBarriers, setBufferState,
@@ -252,6 +297,10 @@ namespace NvrhiDirect {
         commandList.setEnableAutomaticBarriers(true);
 
         nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [1.0, 0.5, 0.25, 1.0]);
+        // ICommandList::setGraphicsState, draw: a triangle covering the viewport, the left half
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(graphicsPipeline, framebuffer,
+            [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1], null));
+        nvrhi.draw(commandList, 3);
         commandList.endMarker();
         commandList.close();
 
@@ -288,19 +337,34 @@ namespace NvrhiDirect {
         if (app.readTextureLevel(<TextureHandle><Opaque>texture, 0, <Opaque>Ref(pixels[0]), pixels.length) == 0) {
             check(false, "the texture's readback");
         } else {
-            let pixelMismatches = 0;
+            // the left half drawn green, the right half as cleared
+            let clearMismatches = 0;
+            let drawMismatches = 0;
             for (let i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE; i++) {
-                if (!near(pixels[4 * i], 255) || !near(pixels[4 * i + 1], 128) || !near(pixels[4 * i + 2], 64)
+                if (i % TEXTURE_SIZE < TEXTURE_SIZE / 2) {
+                    if (!near(pixels[4 * i], 0) || !near(pixels[4 * i + 1], 255) || !near(pixels[4 * i + 2], 0)
+                        || !near(pixels[4 * i + 3], 255)) {
+                        drawMismatches++;
+                    }
+                } else if (!near(pixels[4 * i], 255) || !near(pixels[4 * i + 1], 128) || !near(pixels[4 * i + 2], 64)
                     || !near(pixels[4 * i + 3], 255)) {
-                    pixelMismatches++;
+                    clearMismatches++;
                 }
             }
-            console.log(`Texture cleared to (${pixels[0]}, ${pixels[1]}, ${pixels[2]}, ${pixels[3]})`);
-            check(pixelMismatches == 0, `ICommandList::clearTextureFloat (${pixelMismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+            const last = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Texture drawn (${pixels[0]}, ${pixels[1]}, ${pixels[2]}, ${pixels[3]}), `
+                + `cleared to (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]}, ${pixels[last + 3]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(clearMismatches == 0, `ICommandList::clearTextureFloat (${clearMismatches} of ${half} pixels differ)`);
+            check(drawMismatches == 0, `ICommandList::draw (${drawMismatches} of ${half} pixels differ)`);
         }
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
+        graphicsPipeline.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        framebuffer.Release();
         pipeline.Release();
         bindingSet.Release();
         bindingLayout.Release();
