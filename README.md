@@ -347,7 +347,9 @@ of 16 bytes for the pixel shader) before each of two draws, a color for each hal
 indirectly (`drawIndirect`), from arguments the command list writes into a buffer: from offset
 16 into one half, and from offset 0, no instance, into the other, which stays as cleared. A sixth
 dispatches the compute pipeline indirectly (`dispatchIndirect`) the same way: from offset 12 into
-one output buffer, and from offset 0, no group, into another, which stays as cleared.
+one output buffer, and from offset 0, no group, into another, which stays as cleared. A seventh
+uploads a texture through a staging texture the CPU writes (`mapStagingTexture` for writing,
+`copyTexture`'s third overload) and reads it back, pixel for pixel.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

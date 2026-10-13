@@ -31,7 +31,8 @@ namespace NvrhiDirect {
     // transparent color drawn over a cleared texture, alpha blended and added under a write mask;
     // and another, push constants (testPushConstants): a color set before each of two draws; and
     // another, indirect draws (testDrawIndirect): two draws' arguments from a buffer; and another,
-    // indirect dispatches (testDispatchIndirect) of the compute pipeline above.
+    // indirect dispatches (testDispatchIndirect) of the compute pipeline above; and another, an
+    // upload through a staging texture the CPU writes (testStagingUpload).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -579,6 +580,77 @@ namespace NvrhiDirect {
         skipped.Release();
     }
 
+    // The upload staging texture's pixel (x, y): a different color for each
+    function uploadedPixel(x: int, y: int): u8[] {
+        return [<u8>(40 + 50 * x), <u8>(40 + 50 * y), <u8>(220 - 20 * x - 30 * y), 255];
+    }
+
+    // An upload through a staging texture, with a command list of its own: a staging texture the
+    // CPU writes (IDevice::createStagingTexture with CPU_ACCESS_WRITE, mapStagingTexture for writing,
+    // its rows rowPitch bytes apart), ICommandList::copyTexture from it into a texture (the third
+    // overload), and that read back through a staging texture: the same pixels.
+    function testStagingUpload(device: nvrhi.IDevice): void {
+        const upload = nvrhi.createStagingTexture(device, nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE,
+            Format.RGBA8_UNORM, "Upload texture", nvrhi.RESOURCE_STATE_COPY_SOURCE), nvrhi.CPU_ACCESS_WRITE);
+        const uploaded = nvrhi.createTexture(device, nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE,
+            Format.RGBA8_UNORM, "Uploaded", nvrhi.RESOURCE_STATE_COPY_DEST));
+        const readback = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!upload || !uploaded || !readback || !commandList) {
+            check(false, "the staging upload test's textures and command list");
+            return;
+        }
+
+        let rowPitch: index = 0;
+        const mapped = nvrhi.mapStagingTexture(device, upload, nvrhi.entireTexture(), nvrhi.CPU_ACCESS_WRITE, Ref(rowPitch));
+        if (!mapped || rowPitch < TEXTURE_SIZE * 4) {
+            check(false, `IDevice::mapStagingTexture for writing (row pitch ${rowPitch})`);
+            if (mapped) {
+                device.unmapStagingTexture(upload);
+            }
+            return;
+        }
+        const rows = <Ref<u8>>mapped;
+        for (let y = 0; y < TEXTURE_SIZE; y++) {
+            for (let x = 0; x < TEXTURE_SIZE; x++) {
+                const pixel = uploadedPixel(x, y);
+                for (let c = 0; c < 4; c++) {
+                    Deref(rows[y * rowPitch + 4 * x + c]) = pixel[c];
+                }
+            }
+        }
+        device.unmapStagingTexture(upload);
+
+        commandList.open();
+        nvrhi.copyTextureFromStaging(commandList, uploaded, nvrhi.entireTexture(), upload, nvrhi.entireTexture());
+        nvrhi.copyTextureToStaging(commandList, readback, nvrhi.entireTexture(), uploaded, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the staging upload test");
+
+        const pixels = readStaging(device, readback);
+        if (pixels.length != 0) {
+            let mismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    const pixel = uploadedPixel(x, y);
+                    if (pixels[i] != pixel[0] || pixels[i + 1] != pixel[1] || pixels[i + 2] != pixel[2] || pixels[i + 3] != pixel[3]) {
+                        mismatches++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE * TEXTURE_SIZE - 1);
+            console.log(`Uploaded (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), ..., (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            check(mismatches == 0, `ICommandList::copyTexture from a staging texture the CPU wrote (${mismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+        }
+
+        commandList.Release();
+        readback.Release();
+        uploaded.Release();
+        upload.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -952,6 +1024,7 @@ namespace NvrhiDirect {
         testPushConstants(app, device, isD3D12);
         testDrawIndirect(app, device, isD3D12);
         testDispatchIndirect(device, pipeline, bindingLayout, input, data);
+        testStagingUpload(device);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
