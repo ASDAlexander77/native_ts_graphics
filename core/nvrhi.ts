@@ -216,12 +216,14 @@ export namespace nvrhi {
         return set;
     }
 
-    // A FramebufferDesc of one color attachment, the texture's first mip and array slice in its own
-    // format, as nvrhi::FramebufferDesc().addColorAttachment(texture) makes it.
-    export function framebufferDesc(colorTexture: ITexture): FramebufferDesc {
+    // A FramebufferDesc of one color attachment and up to one depth attachment (null: none), each
+    // the texture's first mip and array slice in its own format, as nvrhi::FramebufferDesc()
+    // .addColorAttachment(colorTexture).setDepthAttachment(depthTexture) makes it.
+    export function framebufferDesc(colorTexture: ITexture, depthTexture: ITexture | null): FramebufferDesc {
         const none: FramebufferAttachment = [null, [0, 1, 0, 1], 0, false];
         const color: FramebufferAttachment = [colorTexture, [0, 1, 0, 1], 0, false];
-        return [[[color, none, none, none, none, none, none, none], 1], none, none,
+        const depth: FramebufferAttachment = [depthTexture, [0, 1, 0, 1], 0, false];
+        return [[[color, none, none, none, none, none, none, none], 1], depth, none,
             [[none, none, none, none, none, none, none, none], 0], none, 0];
     }
 

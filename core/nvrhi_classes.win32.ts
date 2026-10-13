@@ -330,7 +330,7 @@ export namespace nvrhi {
         @slot(7) close(): void;
         @slot(8) clearState(): void;
         @slot(9) clearTextureFloat(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: Ref<Color>): void;
-        // skipped: clearDepthStencilTexture — parameter 'subresources': struct passed by value
+        @slot(10) clearDepthStencilTexture(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;
         // skipped: clearTextureUInt — parameter 'subresources': struct passed by value
         @slot(14) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(13) copyTexture(dest: IStagingTexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
@@ -396,5 +396,13 @@ export namespace nvrhi {
         let subresourcesValue = subresources;
         let colorValue = color;
         commandList.clearTextureFloat(texture, Ref(subresourcesValue), Ref(colorValue));
+    }
+
+    // ICommandList::clearDepthStencilTexture: the TextureSubresourceSet by value, which MSVC passes
+    // as a pointer to a copy
+    export function clearDepthStencilTexture(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
+        let subresourcesValue = subresources;
+        commandList.clearDepthStencilTexture(texture, Ref(subresourcesValue), clearDepth, depth, clearStencil, stencil);
     }
 }

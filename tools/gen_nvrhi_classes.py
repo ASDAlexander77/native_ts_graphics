@@ -76,6 +76,29 @@ BY_VALUE = {
         commandList.clearTextureFloat(texture, mips, arraySlices, Ref(colorValue));
     }"""),
     },
+    ("ICommandList", "clearDepthStencilTexture"): {
+        "win32": (
+            "@slot({slot}) clearDepthStencilTexture(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;",
+            """\
+    // ICommandList::clearDepthStencilTexture: the TextureSubresourceSet by value, which MSVC passes
+    // as a pointer to a copy
+    export function clearDepthStencilTexture(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
+        let subresourcesValue = subresources;
+        commandList.clearDepthStencilTexture(texture, Ref(subresourcesValue), clearDepth, depth, clearStencil, stencil);
+    }"""),
+        "linux": (
+            "@slot({slot}) clearDepthStencilTexture(t: ITexture, mips: u64, arraySlices: u64, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;",
+            """\
+    // ICommandList::clearDepthStencilTexture: the TextureSubresourceSet by value, its two halves in
+    // two registers (as in clearTextureFloat)
+    export function clearDepthStencilTexture(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        commandList.clearDepthStencilTexture(texture, mips, arraySlices, clearDepth, depth, clearStencil, stencil);
+    }"""),
+    },
 }
 
 
