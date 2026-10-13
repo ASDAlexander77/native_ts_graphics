@@ -14,7 +14,10 @@ tsbindgen also lays out the structs the classes take, with the C++ library's lay
 std::string, static_vector and RefCountPtr fields (BufferDesc's debugName is a basic_string_char,
 ComputeState's bindings a static_vector_IBindingSet_8). Its output is then made to fit core/nvrhi.ts:
 - the namespace is exported, and imports core/nvrhi_types.ts;
-- RefCountPtr<T> and nvrhi::Object returned by value are nvrhi.RefCountPtr and nvrhi.NativeObject;
+- RefCountPtr<T> and nvrhi::Object returned by value are nvrhi.RefCountPtr<Opaque> and
+  nvrhi.NativeObject;
+- the specializations of std::vector, nvrhi::static_vector and RefCountPtr are generic types
+  (vector<T>, static_vector8<T>, RefCountPtr<T>; see VECTOR);
 - the methods tsbindgen skips because they take a struct by value are written here, for those in
   BY_VALUE, as each ABI passes it, with a function calling it.
 It needs a tsbindgen that lays out std::string and static_vector fields (tslang newer than
@@ -159,7 +162,7 @@ def adapt(body, os_name):
             last_slot = int(m.group(1))
 
         line = line.replace("Reference<", "Ref<")
-        line = re.sub(r"\[ptr_: Opaque \| null\]", "RefCountPtr", line)
+        line = re.sub(r"\[ptr_: Opaque \| null\]", "RefCountPtr<Opaque>", line)
         line = re.sub(r"\[integer: Opaque \| null\]", "NativeObject", line)
 
         m = re.match(r"(\s*)// skipped: (\w+) ", line)
@@ -213,6 +216,85 @@ ABIS = {
 }
 
 
+# The C++ library's templates tsbindgen lays out once per specialization (vector_BindingSetItem,
+# static_vector_IBindingSet_8, RefCountPtr_IShader), written once as a generic tuple instead:
+# std::vector<T> as each library lays it out (MSVC's in its two helper structs, which go too);
+# nvrhi::static_vector<T, N> as static_vector<N><T>, as tslang has no type of N elements;
+# nvrhi::RefCountPtr<T> in core/nvrhi_types.ts, the same for both.
+VECTOR = {
+    "win32": "[_Mypair: [_Myval2: [_Myfirst: Ref<T> | null, _Mylast: Ref<T> | null, _Myend: Ref<T> | null]]]",
+    "linux": "[__begin_: Ref<T> | null, __end_: Ref<T> | null, __cap_: Ref<T> | null]",
+}
+STATIC_VECTOR_ELEMENTS = {"win32": "_Elems", "linux": "__elems_"}
+
+
+def static_vector(os_name, size, element):
+    elements = ", ".join(f"_{i}: {element}" for i in range(size))
+    return f"[{STATIC_VECTOR_ELEMENTS[os_name]}: [{elements}], current_size: index]"
+
+
+def generic_templates(body, os_name):
+    """body with the specializations of VECTOR's, static_vector's and RefCountPtr's templates
+    replaced by the generic types, which it declares first (see VECTOR)."""
+    aliases = {}
+    for line in body:
+        m = re.match(r"\s*export type (\w+) = (.*);$", line)
+        if m:
+            aliases[m.group(1)] = m.group(2)
+
+    def expand(text):
+        # the MSVC library's helper structs (_Vector_val..., _Compressed_pair...) inlined
+        return re.sub(r"\b_\w+\b", lambda m: expand(aliases[m.group(0)]) if m.group(0) in aliases else m.group(0), text)
+
+    generic = {}
+    sizes = set()
+    for name, definition in aliases.items():
+        m = re.match(r"vector_(\w+)$", name)
+        if m:
+            expected, generic[name] = VECTOR[os_name].replace("<T>", f"<{m.group(1)}>"), f"vector<{m.group(1)}>"
+        m = re.match(r"static_vector_\w+_(\d+)$", name)
+        if m:
+            element = re.match(r"\[\w+: \[_0: (.*?), _1: ", definition)
+            if not element:
+                sys.exit(f"gen_nvrhi_classes: {name} isn't a static_vector: {definition}")
+            size = int(m.group(1))
+            expected, generic[name] = static_vector(os_name, size, element.group(1)), f"static_vector{size}<{element.group(1)}>"
+            sizes.add(size)
+        m = re.match(r"RefCountPtr_(\w+)$", name)
+        if m:
+            expected, generic[name] = f"[ptr_: {m.group(1)} | null]", f"RefCountPtr<{m.group(1)}>"
+        if name in generic and expand(definition) != expected:
+            sys.exit(f"gen_nvrhi_classes: {name} isn't laid out as the generic type ({os_name}):\n"
+                     f"  {expand(definition)}\n  {expected}")
+
+    pattern = re.compile(r"\b(" + "|".join(sorted(generic, key=len, reverse=True)) + r")\b") if generic else None
+    out = []
+    for line in body:
+        m = re.match(r"\s*export type (\w+) = ", line)
+        if m and m.group(1) in generic:
+            continue
+        while pattern and pattern.search(line):
+            line = pattern.sub(lambda m: generic[m.group(1)], line)
+        out.append(line)
+
+    # the helper structs nothing refers to any more
+    while True:
+        text = "\n".join(out)
+        unused = [name for name in aliases if name.startswith("_") and name not in generic
+                  and len(re.findall(rf"\b{name}\b", text)) == 1]
+        if not unused:
+            break
+        out = [line for line in out if not re.match(rf"\s*export type ({'|'.join(unused)}) = ", line)]
+
+    left = re.findall(r"\b(?:vector|static_vector|RefCountPtr)_\w+", "\n".join(out))
+    if left:
+        sys.exit(f"gen_nvrhi_classes: not made generic: {', '.join(sorted(set(left)))}")
+
+    declarations = [f"    export type vector<T> = {VECTOR[os_name]};"]
+    declarations += [f"    export type static_vector{size}<T> = {static_vector(os_name, size, 'T')};" for size in sorted(sizes)]
+    return declarations + out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--tsbindgen", help="tsbindgen's path (default: on PATH, or next to tslang)")
@@ -233,6 +315,7 @@ def main():
             sys.exit(f"gen_nvrhi_classes: the bindings of {', '.join(TARGETS[os_name])} differ")
 
         body, functions = adapt(bodies[0], os_name)
+        body = generic_templates(body, os_name)
         abi, platform = ABIS[os_name]
         text = HEADER.format(command=command, abi=abi, platform=platform)
         text += "\n".join(body) + "\n"

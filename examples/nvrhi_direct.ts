@@ -198,9 +198,9 @@ namespace NvrhiDirect {
             return;
         }
         const layoutDesc = Deref(bindingLayout.getDesc());
-        check(layoutDesc.visibility == nvrhi.SHADER_TYPE_COMPUTE && nvrhi.bindingLayoutItemCount(layoutDesc.bindings) == 2,
+        check(layoutDesc.visibility == nvrhi.SHADER_TYPE_COMPUTE && nvrhi.stdVectorSize<nvrhi.BindingLayoutItem>(layoutDesc.bindings) == 2,
             "IBindingLayout::getDesc");
-        check(nvrhi.bindingSetItemCount(Deref(bindingSet.getDesc()).bindings) == 2, "IBindingSet::getDesc");
+        check(nvrhi.stdVectorSize<nvrhi.BindingSetItem>(Deref(bindingSet.getDesc()).bindings) == 2, "IBindingSet::getDesc");
         check(<index><Opaque>bindingSet.getLayout() == <index><Opaque>bindingLayout, "IBindingSet::getLayout");
         const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, bindingLayout));
         if (!pipeline) {

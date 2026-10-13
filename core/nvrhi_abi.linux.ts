@@ -68,41 +68,22 @@ export namespace nvrhi {
     }
 
     // libc++'s std::vector: {__begin_, __end_, __cap_}
-    // A std::vector<BindingLayoutItem> over items' elements, for a desc NVRHI copies: nothing destroys
-    // it here, and items has to stay alive during the call.
-    export function bindingLayoutItems(items: BindingLayoutItem[]): vector_BindingLayoutItem {
+    // A std::vector<T> over items' elements, for a desc NVRHI copies: nothing destroys it here,
+    // and items has to stay alive during the call.
+    export function stdVector<T>(items: T[]): vector<T> {
         if (items.length == 0) {
             return [null, null, null];
         }
 
         const first = Ref(items[0]);
-        const end = <Ref<BindingLayoutItem>><Opaque>(<index><Opaque>first + items.length * sizeof<BindingLayoutItem>());
+        const end = <Ref<T>><Opaque>(<index><Opaque>first + items.length * sizeof<T>());
         return [first, end, end];
     }
 
-    // A std::vector<BindingSetItem> over items' elements, for a desc NVRHI copies: nothing destroys
-    // it here, and items has to stay alive during the call.
-    export function bindingSetItems(items: BindingSetItem[]): vector_BindingSetItem {
-        if (items.length == 0) {
-            return [null, null, null];
-        }
-
-        const first = Ref(items[0]);
-        const end = <Ref<BindingSetItem>><Opaque>(<index><Opaque>first + items.length * sizeof<BindingSetItem>());
-        return [first, end, end];
-    }
-
-    // A std::vector<BindingLayoutItem>'s size
-    export function bindingLayoutItemCount(items: vector_BindingLayoutItem): int {
+    // A std::vector<T>'s size
+    export function stdVectorSize<T>(items: vector<T>): int {
         const a = <index><Opaque>items.__begin_;
         const b = <index><Opaque>items.__end_;
-        return <int>((b - a) / sizeof<BindingLayoutItem>());
-    }
-
-    // A std::vector<BindingSetItem>'s size
-    export function bindingSetItemCount(items: vector_BindingSetItem): int {
-        const a = <index><Opaque>items.__begin_;
-        const b = <index><Opaque>items.__end_;
-        return <int>((b - a) / sizeof<BindingSetItem>());
+        return <int>((b - a) / sizeof<T>());
     }
 }
