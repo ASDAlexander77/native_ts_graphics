@@ -175,11 +175,10 @@ namespace NvrhiDirect {
             check(false, "IDevice::createTexture");
             return;
         }
-        // (named so as not to hide nvrhi.textureDesc below: TSLANG_ISSUES.md #18)
-        const keptTextureDesc = Deref(texture.getDesc());
-        check(keptTextureDesc.width == TEXTURE_SIZE && keptTextureDesc.height == TEXTURE_SIZE
-            && keptTextureDesc.format == <u8>Format.RGBA8_UNORM && keptTextureDesc.isRenderTarget
-            && nvrhi.stdStringIs(keptTextureDesc.debugName, "Cleared texture"), "ITexture::getDesc");
+        const textureDesc = Deref(texture.getDesc());
+        check(textureDesc.width == TEXTURE_SIZE && textureDesc.height == TEXTURE_SIZE
+            && textureDesc.format == <u8>Format.RGBA8_UNORM && textureDesc.isRenderTarget
+            && nvrhi.stdStringIs(textureDesc.debugName, "Cleared texture"), "ITexture::getDesc");
         check(nvrhi.getNativeObject(texture, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE) != null,
             "the texture has its native resource");
 
@@ -224,9 +223,9 @@ namespace NvrhiDirect {
             return;
         }
         const layoutDesc = Deref(bindingLayout.getDesc());
-        check(layoutDesc.visibility == nvrhi.SHADER_TYPE_COMPUTE && nvrhi.stdVectorSize<nvrhi.BindingLayoutItem>(layoutDesc.bindings) == 2,
+        check(layoutDesc.visibility == nvrhi.SHADER_TYPE_COMPUTE && nvrhi.stdVectorSize(layoutDesc.bindings) == 2,
             "IBindingLayout::getDesc");
-        check(nvrhi.stdVectorSize<nvrhi.BindingSetItem>(Deref(bindingSet.getDesc()).bindings) == 2, "IBindingSet::getDesc");
+        check(nvrhi.stdVectorSize(Deref(bindingSet.getDesc()).bindings) == 2, "IBindingSet::getDesc");
         check(<index><Opaque>bindingSet.getLayout() == <index><Opaque>bindingLayout, "IBindingSet::getLayout");
         const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, bindingLayout));
         if (!pipeline) {

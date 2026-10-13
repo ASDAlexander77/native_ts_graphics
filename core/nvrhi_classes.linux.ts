@@ -271,13 +271,13 @@ export namespace nvrhi {
         @cppnontrivial
         @slot(42) createGraphicsPipeline(desc: Ref<GraphicsPipelineDesc>, fbinfo: Ref<FramebufferInfo>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(43) createGraphicsPipeline_2(desc: Ref<GraphicsPipelineDesc>, fb: IFramebuffer | null): RefCountPtr<Opaque>;
+        @slot(43) createGraphicsPipeline(desc: Ref<GraphicsPipelineDesc>, fb: IFramebuffer | null): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(44) createComputePipeline(desc: Ref<ComputePipelineDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(45) createMeshletPipeline(desc: Ref<MeshletPipelineDesc>, fbinfo: Ref<FramebufferInfo>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(46) createMeshletPipeline_2(desc: Ref<MeshletPipelineDesc>, fb: IFramebuffer | null): RefCountPtr<Opaque>;
+        @slot(46) createMeshletPipeline(desc: Ref<MeshletPipelineDesc>, fb: IFramebuffer | null): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(47) createRayTracingPipeline(desc: Ref<PipelineDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
@@ -331,8 +331,8 @@ export namespace nvrhi {
         // skipped: clearDepthStencilTexture — parameter 'subresources': struct passed by value
         // skipped: clearTextureUInt — parameter 'subresources': struct passed by value
         @slot(13) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
-        @slot(14) copyTexture_2(dest: IStagingTexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
-        @slot(15) copyTexture_3(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: IStagingTexture | null, srcSlice: Ref<TextureSlice>): void;
+        @slot(14) copyTexture(dest: IStagingTexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
+        @slot(15) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: IStagingTexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(16) writeTexture(dest: ITexture | null, arraySlice: u32, mipLevel: u32, data: Opaque | null, rowPitch: index, depthPitch: index): void;
         @slot(17) resolveTexture(dest: ITexture | null, dstSubresources: Ref<TextureSubresourceSet>, src: ITexture | null, srcSubresources: Ref<TextureSubresourceSet>): void;
         @slot(18) writeBuffer(b: IBuffer | null, data: Opaque | null, dataSize: index, destOffsetBytes: u64): void;

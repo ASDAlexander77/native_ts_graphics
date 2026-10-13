@@ -26,13 +26,11 @@ export namespace nvrhi {
             }
         }
 
-        // byte 0 is the size times two, byte k + 1 character k. (`shift *= 256` would multiply in
-        // 32 bits, losing the characters from the fourth on: TSLANG_ISSUES.md #15)
-        const BYTE: u64 = 256;
+        // byte 0 is the size times two, byte k + 1 character k
         let word0: u64 = size * 2;
         let word1: u64 = 0;
         let word2: u64 = 0;
-        let shift: u64 = BYTE;
+        let shift: u64 = 256;
         for (let i = 0; i < size; i++) {
             const byte = i + 1;
             if (byte == 8 || byte == 16) {
@@ -46,7 +44,7 @@ export namespace nvrhi {
             } else {
                 word2 += char * shift;
             }
-            shift *= BYTE;
+            shift *= 256;
         }
 
         return [[word0, word1, word2]];
