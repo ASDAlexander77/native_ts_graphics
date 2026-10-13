@@ -349,7 +349,8 @@ indirectly (`drawIndirect`), from arguments the command list writes into a buffe
 dispatches the compute pipeline indirectly (`dispatchIndirect`) the same way: from offset 12 into
 one output buffer, and from offset 0, no group, into another, which stays as cleared. A seventh
 uploads a texture through a staging texture the CPU writes (`mapStagingTexture` for writing,
-`copyTexture`'s third overload) and reads it back, pixel for pixel.
+`copyTexture`'s third overload) and reads it back, pixel for pixel. An eighth draws into two
+render targets at once (a framebuffer of two color textures, `SV_Target0` and `SV_Target1`).
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;
