@@ -42,3 +42,9 @@ declare function ReferenceOf<T>(r: T): Ref<T>;
 declare function LoadReference<T>(r: Ref<T>): T;
 
 declare function sizeof<T>(v?: T): index;
+
+// tslang's decorators of C++ classes (tslang's docs/cpp-classes.md), declared for the editor
+declare function cpp(target: any, context?: any): any;
+declare function cppnontrivial(target: any, context?: any): any;
+declare function slot(index: number): (target: any, context?: any) => any;
+declare function linkname(symbol: string): (target: any, context?: any) => any;
