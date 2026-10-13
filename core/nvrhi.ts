@@ -232,20 +232,17 @@ export namespace nvrhi {
     // render state. Its RefCountPtrs hold no reference, as in computePipelineDesc.
     export function graphicsPipelineDesc(inputLayout: IInputLayout | null, vertexShader: IShader, pixelShader: IShader,
         bindingLayout: IBindingLayout | null, state: RenderState): GraphicsPipelineDesc {
-        // (`bindingLayout ? 1 : 0` as the count fails to compile: TSLANG_ISSUES.md #14)
-        let layouts: index = 0;
-        if (bindingLayout) {
-            layouts = 1;
-        }
-
         return [3, 0, [inputLayout], [vertexShader], [null], [null], [null], [pixelShader], state, [false, 0, 0, 0],
-            [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], layouts], 0];
+            [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], bindingLayout ? 1 : 0], 0];
     }
 
     // IDevice::createGraphicsPipeline for the framebuffer's formats; null on failure. Release() it.
     export function createGraphicsPipeline(device: IDevice, desc: GraphicsPipelineDesc, framebuffer: IFramebuffer): IGraphicsPipeline | null {
         let descValue = desc;
-        const handle = device.createGraphicsPipeline_2(Ref(descValue), framebuffer);
+        // (passed as the overload's `IFramebuffer | null`: an IFramebuffer fits no overload,
+        // TSLANG_ISSUES.md #19)
+        const framebufferArg: IFramebuffer | null = framebuffer;
+        const handle = device.createGraphicsPipeline(Ref(descValue), framebufferArg);
         return handle.ptr_ ? <IGraphicsPipeline><Opaque>handle.ptr_ : null;
     }
 
@@ -261,15 +258,6 @@ export namespace nvrhi {
         const scissor: Rect = [<s32>Math.floor(viewport.minX), <s32>Math.ceil(viewport.maxX),
             <s32>Math.floor(viewport.minY), <s32>Math.ceil(viewport.maxY)];
         const noBuffer: VertexBufferBinding = [null, 0, 0];
-        // (counts from `x ? 1 : 0` fail to compile: TSLANG_ISSUES.md #14)
-        let bindingSets: index = 0;
-        if (bindingSet) {
-            bindingSets = 1;
-        }
-        let vertexBuffers: index = 0;
-        if (vertexBuffer) {
-            vertexBuffers = 1;
-        }
         const vertexBinding: VertexBufferBinding = [vertexBuffer, 0, 0];
 
         return [pipeline, framebuffer,
@@ -278,9 +266,9 @@ export namespace nvrhi {
                 [[scissor, noRect, noRect, noRect, noRect, noRect, noRect, noRect,
                     noRect, noRect, noRect, noRect, noRect, noRect, noRect, noRect], 1]],
             [false, 0, 0, 0], [0, 0, 0, 0], 0, 0, 1,
-            [[bindingSet, null, null, null, null, null, null, null], bindingSets],
+            [[bindingSet, null, null, null, null, null, null, null], bindingSet ? 1 : 0],
             [[vertexBinding, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer,
-                noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer], vertexBuffers],
+                noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer], vertexBuffer ? 1 : 0],
             [indexBuffer, <u8>indexFormat, 0], null, null];
     }
 

@@ -27,9 +27,6 @@ export namespace nvrhi {
             }
         }
 
-        // (`shift *= 256` would multiply in 32 bits, losing the characters from the fifth on:
-        // TSLANG_ISSUES.md #15)
-        const BYTE: u64 = 256;
         let buffer0: u64 = 0;
         let buffer1: u64 = 0;
         let shift: u64 = 1;
@@ -43,7 +40,7 @@ export namespace nvrhi {
             } else {
                 buffer1 += char * shift;
             }
-            shift *= BYTE;
+            shift *= 256;
         }
 
         return [[[[buffer0, buffer1], size, 15]]];
