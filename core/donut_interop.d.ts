@@ -1018,6 +1018,7 @@ enum Format {
     D16 = 50,
     D24S8 = 51,
     D32 = 53,
+    D32S8 = 54,
     RG32_UINT = 41,
     RG32_FLOAT = 43,
     RGB32_FLOAT = 46,

@@ -355,7 +355,9 @@ ninth draws a triangle into a texture of 4 samples a pixel, its edge through the
 diagonal's pixels, and resolves it (`resolveTexture`): the diagonal half covered, as 2 of the
 standard sample positions are. A tenth times its work with a timer query (`beginTimerQuery`,
 `endTimerQuery`, `getTimerQueryTime`) and waits for it with an event query (`setEventQuery`,
-`waitEventQuery`) instead of `waitForIdle`.
+`waitEventQuery`) instead of `waitForIdle`. An eleventh tests the stencil test: a D32S8 texture's
+stencil cleared to 0 (`clearDepthStencilTexture`), set to 1 over one half by a draw writing no
+color, then a draw over everything where the stencil is 1, which colors that half only.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

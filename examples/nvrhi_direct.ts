@@ -34,7 +34,8 @@ namespace NvrhiDirect {
     // indirect dispatches (testDispatchIndirect) of the compute pipeline above; and another, an
     // upload through a staging texture the CPU writes (testStagingUpload); and another, multiple
     // render targets (testMultipleRenderTargets); and another, multisampling and its resolve
-    // (testMultisampleResolve); and another, event and timer queries (testQueries).
+    // (testMultisampleResolve); and another, event and timer queries (testQueries); and another,
+    // the stencil test (testStencil).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -865,6 +866,110 @@ namespace NvrhiDirect {
         eventQuery.Release();
     }
 
+    // A pipeline drawing nvrhi_direct.hlsl's green over the viewport into the framebuffer with the
+    // stencil test of stencilFunc and passOp against reference 1 (failing pixels keep the
+    // stencil), its color writes as colorWriteMask, no depth test or culling
+    function stencilPipeline(device: nvrhi.IDevice, vertexShader: nvrhi.IShader, pixelShader: nvrhi.IShader,
+        framebuffer: nvrhi.IFramebuffer, stencilFunc: u8, passOp: u8, colorWriteMask: u8): nvrhi.IGraphicsPipeline | null {
+        let renderState = nvrhi.renderState();
+        renderState.blendState.targets._0.colorWriteMask = colorWriteMask;
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.depthStencilState.stencilEnable = true;
+        renderState.depthStencilState.stencilRefValue = 1;
+        const ops: nvrhi.StencilOpDesc = [nvrhi.STENCIL_OP_KEEP, nvrhi.STENCIL_OP_KEEP, passOp, stencilFunc];
+        renderState.depthStencilState.frontFaceStencil = ops;
+        renderState.depthStencilState.backFaceStencil = ops;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        return nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
+    }
+
+    // The stencil test, with a command list of its own: a color texture and a D32S8 depth stencil
+    // texture, a framebuffer of both; ICommandList::clearDepthStencilTexture of the stencil to 0.
+    // A draw over the left half that writes 1 into the stencil (Always, Replace) and no color, then
+    // one over the whole texture where the stencil is 1 (Equal): the left half green, the right
+    // half as cleared. Read back through a staging texture.
+    function testStencil(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        let depthStencilDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.D32S8, "Stencil texture",
+            nvrhi.RESOURCE_STATE_DEPTH_WRITE);
+        depthStencilDesc.isRenderTarget = true;
+        const depthStencil = nvrhi.createTexture(device, depthStencilDesc);
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!color || !depthStencil || !staging || !vertexShader || !pixelShader || !commandList) {
+            check(false, "the stencil test's textures, shaders and command list");
+            return;
+        }
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], depthStencil));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer with a depth stencil attachment");
+            return;
+        }
+        const mark = stencilPipeline(device, vertexShader, pixelShader, framebuffer,
+            nvrhi.COMPARISON_ALWAYS, nvrhi.STENCIL_OP_REPLACE, 0);
+        const masked = stencilPipeline(device, vertexShader, pixelShader, framebuffer,
+            nvrhi.COMPARISON_EQUAL, nvrhi.STENCIL_OP_KEEP, nvrhi.COLOR_MASK_ALL);
+        if (!mark || !masked) {
+            check(false, "IDevice::createGraphicsPipeline with the stencil test");
+            return;
+        }
+        const kept = Deref(masked.getDesc()).renderState.depthStencilState;
+        check(kept.stencilEnable && kept.stencilRefValue == 1 && kept.frontFaceStencil.stencilFunc == nvrhi.COMPARISON_EQUAL,
+            "IGraphicsPipeline::getDesc's stencil state");
+
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        nvrhi.clearDepthStencilTexture(commandList, depthStencil, nvrhi.allSubresources(), true, 1.0, true, 0);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(mark, framebuffer,
+            [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1], null, null, null, Format.UNKNOWN));
+        nvrhi.draw(commandList, 3);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(masked, framebuffer,
+            [0, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1], null, null, null, Format.UNKNOWN));
+        nvrhi.draw(commandList, 3);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the stencil test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let passedMismatches = 0;
+            let failedMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColor(pixels, i, 0, 255, 0)) {
+                            passedMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 0, 0, 0)) {
+                        failedMismatches++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Stencil test: passed (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), `
+                + `failed (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(passedMismatches == 0, `the stencil test where the stencil was written (${passedMismatches} of ${half} pixels differ)`);
+            check(failedMismatches == 0, `the stencil test where it was cleared (${failedMismatches} of ${half} pixels differ)`);
+        }
+
+        commandList.Release();
+        masked.Release();
+        mark.Release();
+        framebuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        depthStencil.Release();
+        color.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -1242,6 +1347,7 @@ namespace NvrhiDirect {
         testMultipleRenderTargets(app, device, isD3D12);
         testMultisampleResolve(app, device, isD3D12);
         testQueries(device);
+        testStencil(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
