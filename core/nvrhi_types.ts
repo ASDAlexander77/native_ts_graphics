@@ -36,6 +36,7 @@ export namespace nvrhi {
 
     // nvrhi::TextureDimension (some)
     export const TEXTURE_DIMENSION_2D: u8 = 3;
+    export const TEXTURE_DIMENSION_2D_MS: u8 = 7;
 
     // nvrhi::Feature (some)
     export const FEATURE_COMPUTE_QUEUE: u8 = 0;
