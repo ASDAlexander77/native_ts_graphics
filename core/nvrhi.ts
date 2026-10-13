@@ -59,7 +59,8 @@ export namespace nvrhi {
             && sizeof<GraphicsState>() == Donut_GetNvrhiStructSize("GraphicsState")
             && sizeof<DrawArguments>() == Donut_GetNvrhiStructSize("DrawArguments")
             && sizeof<SamplerDesc>() == Donut_GetNvrhiStructSize("SamplerDesc")
-            && sizeof<VertexAttributeDesc>() == Donut_GetNvrhiStructSize("VertexAttributeDesc");
+            && sizeof<VertexAttributeDesc>() == Donut_GetNvrhiStructSize("VertexAttributeDesc")
+            && sizeof<TextureSlice>() == Donut_GetNvrhiStructSize("TextureSlice");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -111,6 +112,50 @@ export namespace nvrhi {
         let descValue = desc;
         const handle = device.createTexture(Ref(descValue));
         return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
+    }
+
+    // nvrhi::TextureSlice's defaults: the whole of mip level 0 of array slice 0 (its -1 sizes are the
+    // texture's, as TextureSlice::resolve makes them)
+    export function entireTexture(): TextureSlice {
+        return [0, 0, 0, 0xffffffff, 0xffffffff, 0xffffffff, 0, 0];
+    }
+
+    // IDevice::createStagingTexture: a texture of desc's size and format that the CPU maps with
+    // cpuAccess (CPU_ACCESS_READ, CPU_ACCESS_WRITE); null on failure. Release() it.
+    export function createStagingTexture(device: IDevice, desc: TextureDesc, cpuAccess: u8): IStagingTexture | null {
+        let descValue = desc;
+        const handle = device.createStagingTexture(Ref(descValue), cpuAccess);
+        return handle.ptr_ ? <IStagingTexture><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::mapStagingTexture: the slice's first byte, its rows rowPitch bytes apart; null on
+    // failure. unmapStagingTexture it.
+    export function mapStagingTexture(device: IDevice, texture: IStagingTexture, slice: TextureSlice, cpuAccess: u8,
+        rowPitch: Ref<index>): Opaque | null {
+        let sliceValue = slice;
+        return device.mapStagingTexture(texture, Ref(sliceValue), cpuAccess, rowPitch);
+    }
+
+    // ICommandList::copyTexture between two textures
+    export function copyTexture(commandList: ICommandList, dest: ITexture, destSlice: TextureSlice,
+        src: ITexture, srcSlice: TextureSlice): void {
+        // (passed as the overload's `| null`: a class fits no overload, TSLANG_ISSUES.md #19)
+        const destArg: ITexture | null = dest;
+        const srcArg: ITexture | null = src;
+        let destSliceValue = destSlice;
+        let srcSliceValue = srcSlice;
+        commandList.copyTexture(destArg, Ref(destSliceValue), srcArg, Ref(srcSliceValue));
+    }
+
+    // ICommandList::copyTexture of a texture into a staging texture, to read it back
+    export function copyTextureToStaging(commandList: ICommandList, dest: IStagingTexture, destSlice: TextureSlice,
+        src: ITexture, srcSlice: TextureSlice): void {
+        // (as in copyTexture: TSLANG_ISSUES.md #19)
+        const destArg: IStagingTexture | null = dest;
+        const srcArg: ITexture | null = src;
+        let destSliceValue = destSlice;
+        let srcSliceValue = srcSlice;
+        commandList.copyTexture(destArg, Ref(destSliceValue), srcArg, Ref(srcSliceValue));
     }
 
     // A ShaderDesc as nvrhi::ShaderDesc's defaults make it, with the shader's stage (SHADER_TYPE_*),

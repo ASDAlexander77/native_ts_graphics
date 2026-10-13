@@ -3328,6 +3328,8 @@ extern "C"
             return int(sizeof(nvrhi::SamplerDesc));
         if (n == "VertexAttributeDesc")
             return int(sizeof(nvrhi::VertexAttributeDesc));
+        if (n == "TextureSlice")
+            return int(sizeof(nvrhi::TextureSlice));
         return -1;
     }
 

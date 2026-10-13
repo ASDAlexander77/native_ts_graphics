@@ -331,8 +331,10 @@ Donut's wrappers elsewhere or with `-donut`. CTest runs both: `headless.<api>` a
    depth test and no culling, a viewport and its scissor rectangle);
 5. draws an indexed quad into its top right quarter from a vertex buffer (an input layout of
    position and texture coordinates), sampling a 2 x 2 texture uploaded with `writeTexture` through
-   a point sampler, scaled by a constant buffer: one texel a pixel. The texture is read back through
-   Donut, its bottom right quarter as cleared.
+   a point sampler, scaled by a constant buffer: one texel a pixel. Its bottom right quarter is as
+   cleared;
+6. copies the texture into another, and that into a staging texture (two of `copyTexture`'s
+   overloads), which it maps to read the pixels back, row by row (`mapStagingTexture`'s row pitch).
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;
