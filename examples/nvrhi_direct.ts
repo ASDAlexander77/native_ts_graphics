@@ -33,7 +33,8 @@ namespace NvrhiDirect {
     // another, indirect draws (testDrawIndirect): two draws' arguments from a buffer; and another,
     // indirect dispatches (testDispatchIndirect) of the compute pipeline above; and another, an
     // upload through a staging texture the CPU writes (testStagingUpload); and another, multiple
-    // render targets (testMultipleRenderTargets).
+    // render targets (testMultipleRenderTargets); and another, multisampling and its resolve
+    // (testMultisampleResolve).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -729,6 +730,99 @@ namespace NvrhiDirect {
         first.Release();
     }
 
+    // Multisampling, with a command list of its own: a texture of 4 samples a pixel (sampleCount,
+    // TEXTURE_DIMENSION_2D_MS), a framebuffer over it (getFramebufferInfo: its sample count), a
+    // triangle drawn green over its bottom left half (nvrhi_direct_msaa.hlsl), its edge through the
+    // centers of the diagonal's pixels; ICommandList::resolveTexture into a texture of one sample,
+    // read back through a staging texture. Below the diagonal green, above it as cleared (black),
+    // on it half and half: 2 of the standard positions' 4 samples are covered.
+    function testMultisampleResolve(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        let multisampledDesc = renderTargetDesc();
+        multisampledDesc.sampleCount = 4;
+        multisampledDesc.dimension = nvrhi.TEXTURE_DIMENSION_2D_MS;
+        multisampledDesc.debugName = nvrhi.stdString("Multisampled");
+        const multisampled = nvrhi.createTexture(device, multisampledDesc);
+        const resolved = nvrhi.createTexture(device, nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM,
+            "Resolved", nvrhi.RESOURCE_STATE_COPY_SOURCE));
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct_msaa", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!multisampled || !resolved || !staging || !vertexShader || !pixelShader || !commandList) {
+            check(false, "the multisample test's textures, shaders and command list");
+            return;
+        }
+        const keptDesc = Deref(multisampled.getDesc());
+        check(keptDesc.sampleCount == 4 && keptDesc.dimension == nvrhi.TEXTURE_DIMENSION_2D_MS, "the multisampled texture's desc");
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([multisampled], null));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer over a multisampled texture");
+            return;
+        }
+        check(Deref(framebuffer.getFramebufferInfo()).sampleCount == 4, "IFramebuffer::getFramebufferInfo's sample count");
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
+        if (!pipeline) {
+            check(false, "IDevice::createGraphicsPipeline for 4 samples");
+            return;
+        }
+
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, multisampled, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(pipeline, framebuffer,
+            [0, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1], null, null, null, Format.UNKNOWN));
+        nvrhi.draw(commandList, 3);
+        nvrhi.resolveTexture(commandList, resolved, multisampled);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), resolved, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the multisample test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let coveredMismatches = 0;
+            let edgeMismatches = 0;
+            let emptyMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < y) {
+                        if (!sameColor(pixels, i, 0, 255, 0)) {
+                            coveredMismatches++;
+                        }
+                    } else if (x == y) {
+                        if (!sameColor(pixels, i, 0, 128, 0)) {
+                            edgeMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 0, 0, 0)) {
+                        emptyMismatches++;
+                    }
+                }
+            }
+            const bottomLeft = 4 * (TEXTURE_SIZE - 1) * TEXTURE_SIZE;
+            console.log(`Resolved: covered (${pixels[bottomLeft]}, ${pixels[bottomLeft + 1]}, ${pixels[bottomLeft + 2]}), `
+                + `on the edge (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), `
+                + `empty (${pixels[4 * (TEXTURE_SIZE - 1)]}, ${pixels[4 * (TEXTURE_SIZE - 1) + 1]}, ${pixels[4 * (TEXTURE_SIZE - 1) + 2]})`);
+            const triangle = TEXTURE_SIZE * (TEXTURE_SIZE - 1) / 2;
+            check(coveredMismatches == 0, `the resolved covered pixels (${coveredMismatches} of ${triangle} differ)`);
+            check(edgeMismatches == 0, `the resolved edge pixels, half their samples covered (${edgeMismatches} of ${TEXTURE_SIZE} differ)`);
+            check(emptyMismatches == 0, `the resolved empty pixels (${emptyMismatches} of ${triangle} differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        resolved.Release();
+        multisampled.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -1104,6 +1198,7 @@ namespace NvrhiDirect {
         testDispatchIndirect(device, pipeline, bindingLayout, input, data);
         testStagingUpload(device);
         testMultipleRenderTargets(app, device, isD3D12);
+        testMultisampleResolve(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();

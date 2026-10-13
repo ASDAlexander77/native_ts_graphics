@@ -158,6 +158,14 @@ export namespace nvrhi {
         commandList.copyTexture(destArg, Ref(destSliceValue), srcArg, Ref(srcSliceValue));
     }
 
+    // ICommandList::resolveTexture: a multisampled texture's samples averaged into a texture, all
+    // their subresources
+    export function resolveTexture(commandList: ICommandList, dest: ITexture, src: ITexture): void {
+        let destSubresources = allSubresources();
+        let srcSubresources = allSubresources();
+        commandList.resolveTexture(dest, Ref(destSubresources), src, Ref(srcSubresources));
+    }
+
     // ICommandList::copyTexture of a staging texture into a texture, to upload it
     export function copyTextureFromStaging(commandList: ICommandList, dest: ITexture, destSlice: TextureSlice,
         src: IStagingTexture, srcSlice: TextureSlice): void {
