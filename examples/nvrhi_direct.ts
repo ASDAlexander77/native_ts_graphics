@@ -37,7 +37,8 @@ namespace NvrhiDirect {
     // (testMultisampleResolve); and another, event and timer queries (testQueries); and another,
     // the stencil test (testStencil); and another, instancing (testInstancing); and another, a
     // compute shader writing a texture (testTextureUav); and another, structured and raw buffers
-    // (testStructuredAndRawBuffers).
+    // (testStructuredAndRawBuffers); and another, a texture array's mip levels and a region copy
+    // (testTextureSubresources).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -1204,6 +1205,134 @@ namespace NvrhiDirect {
         items.Release();
     }
 
+    // The texture array's mip levels and array slices in testTextureSubresources
+    const MIP_LEVELS = 3;
+    const ARRAY_SIZE = 2;
+
+    // The color of a mip level of an array slice in testTextureSubresources
+    function subresourceColor(mipLevel: int, arraySlice: int): u8[] {
+        return [<u8>(50 + 100 * arraySlice), <u8>(40 + 80 * mipLevel), <u8>(7 + 20 * arraySlice + 30 * mipLevel), 255];
+    }
+
+    // A texture array's subresources and a region copy, with a command list of its own: a 4 x 4
+    // texture of 3 mip levels and 2 array slices (TEXTURE_DIMENSION_2D_ARRAY), each of its 6
+    // subresources filled with a color by ICommandList::writeTexture (its array slice and mip
+    // level); copyTexture of mip level 1 of array slice 1 (2 x 2) into a region at (1, 1) of a
+    // cleared texture; copyTexture of each subresource into a staging texture of the same shape,
+    // mapped a subresource at a time (mapStagingTexture of its slice). Each subresource its color;
+    // the region its color in the cleared texture.
+    function testTextureSubresources(device: nvrhi.IDevice): void {
+        let arrayDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Texture array",
+            nvrhi.RESOURCE_STATE_COPY_DEST);
+        arrayDesc.mipLevels = MIP_LEVELS;
+        arrayDesc.arraySize = ARRAY_SIZE;
+        arrayDesc.dimension = nvrhi.TEXTURE_DIMENSION_2D_ARRAY;
+        const textureArray = nvrhi.createTexture(device, arrayDesc);
+        arrayDesc.debugName = nvrhi.stdString("Array staging");
+        const arrayStaging = nvrhi.createStagingTexture(device, arrayDesc, nvrhi.CPU_ACCESS_READ);
+        const regionTarget = nvrhi.createTexture(device, renderTargetDesc());
+        const regionStaging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!textureArray || !arrayStaging || !regionTarget || !regionStaging || !commandList) {
+            check(false, "the subresource test's textures and command list");
+            return;
+        }
+        const keptDesc = Deref(textureArray.getDesc());
+        check(keptDesc.mipLevels == MIP_LEVELS && keptDesc.arraySize == ARRAY_SIZE
+            && keptDesc.dimension == nvrhi.TEXTURE_DIMENSION_2D_ARRAY, "the texture array's desc");
+
+        commandList.open();
+        for (let arraySlice = 0; arraySlice < ARRAY_SIZE; arraySlice++) {
+            for (let mipLevel = 0; mipLevel < MIP_LEVELS; mipLevel++) {
+                const size = TEXTURE_SIZE >> mipLevel;
+                const color = subresourceColor(mipLevel, arraySlice);
+                let texels: u8[] = [];
+                for (let i = 0; i < size * size; i++) {
+                    texels.push(color[0]);
+                    texels.push(color[1]);
+                    texels.push(color[2]);
+                    texels.push(color[3]);
+                }
+                commandList.writeTexture(textureArray, arraySlice, mipLevel, <Opaque>Ref(texels[0]), size * 4, 0);
+                nvrhi.copyTextureToStaging(commandList, arrayStaging, nvrhi.subresourceSlice(mipLevel, arraySlice),
+                    textureArray, nvrhi.subresourceSlice(mipLevel, arraySlice));
+            }
+        }
+        nvrhi.clearTextureFloat(commandList, regionTarget, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        nvrhi.copyTexture(commandList, regionTarget, nvrhi.textureRegion(1, 1, 2, 2, 0, 0),
+            textureArray, nvrhi.textureRegion(0, 0, 2, 2, 1, 1));
+        nvrhi.copyTextureToStaging(commandList, regionStaging, nvrhi.entireTexture(), regionTarget, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the subresource test");
+
+        // each subresource, mapped by its slice
+        let subresourceMismatches = 0;
+        for (let arraySlice = 0; arraySlice < ARRAY_SIZE; arraySlice++) {
+            for (let mipLevel = 0; mipLevel < MIP_LEVELS; mipLevel++) {
+                const size = TEXTURE_SIZE >> mipLevel;
+                const color = subresourceColor(mipLevel, arraySlice);
+                let rowPitch: index = 0;
+                const mapped = nvrhi.mapStagingTexture(device, arrayStaging, nvrhi.subresourceSlice(mipLevel, arraySlice),
+                    nvrhi.CPU_ACCESS_READ, Ref(rowPitch));
+                if (!mapped || rowPitch < size * 4) {
+                    check(false, `IDevice::mapStagingTexture of mip level ${mipLevel} of array slice ${arraySlice} (row pitch ${rowPitch})`);
+                    if (mapped) {
+                        device.unmapStagingTexture(arrayStaging);
+                    }
+                    continue;
+                }
+                const rows = <Ref<u8>>mapped;
+                let differs = false;
+                for (let y = 0; y < size; y++) {
+                    for (let i = 0; i < size * 4; i++) {
+                        if (Deref(rows[y * rowPitch + i]) != color[i % 4]) {
+                            differs = true;
+                        }
+                    }
+                }
+                if (differs) {
+                    console.log(`Mip level ${mipLevel} of array slice ${arraySlice}: (${Deref(rows[0])}, ${Deref(rows[1])}, ${Deref(rows[2])}), `
+                        + `expected (${color[0]}, ${color[1]}, ${color[2]})`);
+                    subresourceMismatches++;
+                }
+                device.unmapStagingTexture(arrayStaging);
+            }
+        }
+        check(subresourceMismatches == 0, `ICommandList::writeTexture and copyTexture of each subresource (${subresourceMismatches} of ${MIP_LEVELS * ARRAY_SIZE} differ)`);
+
+        // the region: mip level 1 of array slice 1 at (1, 1) to (2, 2), the rest as cleared
+        const pixels = readStaging(device, regionStaging);
+        if (pixels.length != 0) {
+            const color = subresourceColor(1, 1);
+            let regionMismatches = 0;
+            let outsideMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x >= 1 && x <= 2 && y >= 1 && y <= 2) {
+                        if (!sameColor(pixels, i, color[0], color[1], color[2])) {
+                            regionMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 0, 0, 0)) {
+                        outsideMismatches++;
+                    }
+                }
+            }
+            const inside = 4 * (TEXTURE_SIZE + 1);
+            console.log(`Subresources: region (${pixels[inside]}, ${pixels[inside + 1]}, ${pixels[inside + 2]}), `
+                + `outside (${pixels[0]}, ${pixels[1]}, ${pixels[2]})`);
+            check(regionMismatches == 0, `ICommandList::copyTexture of a region (${regionMismatches} of 4 pixels differ)`);
+            check(outsideMismatches == 0, `ICommandList::copyTexture outside its region (${outsideMismatches} of 12 pixels differ)`);
+        }
+
+        commandList.Release();
+        regionStaging.Release();
+        regionTarget.Release();
+        arrayStaging.Release();
+        textureArray.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -1585,6 +1714,7 @@ namespace NvrhiDirect {
         testInstancing(app, device, isD3D12);
         testTextureUav(app, device, isD3D12);
         testStructuredAndRawBuffers(app, device, isD3D12);
+        testTextureSubresources(device);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
