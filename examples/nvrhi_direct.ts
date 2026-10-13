@@ -32,7 +32,8 @@ namespace NvrhiDirect {
     // and another, push constants (testPushConstants): a color set before each of two draws; and
     // another, indirect draws (testDrawIndirect): two draws' arguments from a buffer; and another,
     // indirect dispatches (testDispatchIndirect) of the compute pipeline above; and another, an
-    // upload through a staging texture the CPU writes (testStagingUpload).
+    // upload through a staging texture the CPU writes (testStagingUpload); and another, multiple
+    // render targets (testMultipleRenderTargets).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -158,7 +159,7 @@ namespace NvrhiDirect {
             && nvrhi.stdStringIs(keptDepthDesc.debugName, "Depth texture"), "the depth texture's desc");
 
         // IFramebuffer::getFramebufferInfo: the depth format; the pipeline for it
-        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(color, depth));
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], depth));
         if (!framebuffer) {
             check(false, "IDevice::createFramebuffer with a depth attachment");
             return;
@@ -250,7 +251,7 @@ namespace NvrhiDirect {
             check(false, "the blend test's textures, shaders and command list");
             return;
         }
-        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(color, null));
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], null));
         if (!framebuffer) {
             check(false, "IDevice::createFramebuffer for the blend test");
             return;
@@ -339,7 +340,7 @@ namespace NvrhiDirect {
         check(nvrhi.stdVectorSize(layoutItems) == 1 && item.type._0 == <u32>nvrhi.RESOURCE_TYPE_PUSH_CONSTANTS + 16 * 0x10000,
             "IBindingLayout::getDesc's push constants");
         const bindingSet = nvrhi.createBindingSet(device, layout, [nvrhi.pushConstantsBindingSetItem(0, 16)]);
-        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(color, null));
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], null));
         if (!bindingSet || !framebuffer) {
             check(false, "IDevice::createBindingSet and createFramebuffer for the push constant test");
             return;
@@ -427,7 +428,7 @@ namespace NvrhiDirect {
             return;
         }
         check(Deref(argumentsBuffer.getDesc()).isDrawIndirectArgs, "IBuffer::getDesc's isDrawIndirectArgs");
-        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(color, null));
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], null));
         if (!framebuffer) {
             check(false, "IDevice::createFramebuffer for the indirect draw test");
             return;
@@ -651,6 +652,83 @@ namespace NvrhiDirect {
         upload.Release();
     }
 
+    // Multiple render targets, with a command list of its own: a framebuffer of two color
+    // textures (IFramebuffer::getFramebufferInfo: two color formats), a pipeline whose pixel shader
+    // (nvrhi_direct_mrt.hlsl) writes a color to each, one draw over both. Each read back through a
+    // staging texture.
+    function testMultipleRenderTargets(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const first = nvrhi.createTexture(device, renderTargetDesc());
+        const second = nvrhi.createTexture(device, renderTargetDesc());
+        const firstStaging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const secondStaging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct_mrt", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!first || !second || !firstStaging || !secondStaging || !vertexShader || !pixelShader || !commandList) {
+            check(false, "the render target test's textures, shaders and command list");
+            return;
+        }
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([first, second], null));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer of two color textures");
+            return;
+        }
+        check(Deref(framebuffer.getFramebufferInfo()).colorFormats.current_size == 2, "IFramebuffer::getFramebufferInfo's two color formats");
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
+        if (!pipeline) {
+            check(false, "IDevice::createGraphicsPipeline for two render targets");
+            return;
+        }
+
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, first, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        nvrhi.clearTextureFloat(commandList, second, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(pipeline, framebuffer,
+            [0, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1], null, null, null, Format.UNKNOWN));
+        nvrhi.draw(commandList, 3);
+        nvrhi.copyTextureToStaging(commandList, firstStaging, nvrhi.entireTexture(), first, nvrhi.entireTexture());
+        nvrhi.copyTextureToStaging(commandList, secondStaging, nvrhi.entireTexture(), second, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the render target test");
+
+        // render target 0 (1, 0.5, 0), render target 1 (0, 0.25, 1)
+        const firstPixels = readStaging(device, firstStaging);
+        const secondPixels = readStaging(device, secondStaging);
+        if (firstPixels.length != 0 && secondPixels.length != 0) {
+            let firstMismatches = 0;
+            let secondMismatches = 0;
+            for (let i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE * 4; i += 4) {
+                if (!sameColor(firstPixels, i, 255, 128, 0)) {
+                    firstMismatches++;
+                }
+                if (!sameColor(secondPixels, i, 0, 64, 255)) {
+                    secondMismatches++;
+                }
+            }
+            console.log(`Render targets (${firstPixels[0]}, ${firstPixels[1]}, ${firstPixels[2]}) and `
+                + `(${secondPixels[0]}, ${secondPixels[1]}, ${secondPixels[2]})`);
+            const all = TEXTURE_SIZE * TEXTURE_SIZE;
+            check(firstMismatches == 0, `render target 0 (${firstMismatches} of ${all} pixels differ)`);
+            check(secondMismatches == 0, `render target 1 (${secondMismatches} of ${all} pixels differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        secondStaging.Release();
+        firstStaging.Release();
+        second.Release();
+        first.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -804,7 +882,7 @@ namespace NvrhiDirect {
         // getFramebufferInfo; the vertex and pixel shaders; IDevice::createGraphicsPipeline (for the
         // framebuffer) with the default render state but for the depth test and culling,
         // IGraphicsPipeline::getDesc
-        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(texture, null));
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([texture], null));
         if (!framebuffer) {
             check(false, "IDevice::createFramebuffer");
             return;
@@ -1025,6 +1103,7 @@ namespace NvrhiDirect {
         testDrawIndirect(app, device, isD3D12);
         testDispatchIndirect(device, pipeline, bindingLayout, input, data);
         testStagingUpload(device);
+        testMultipleRenderTargets(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();

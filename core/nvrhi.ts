@@ -238,14 +238,26 @@ export namespace nvrhi {
         return set;
     }
 
-    // A FramebufferDesc of one color attachment and up to one depth attachment (null: none), each
-    // the texture's first mip and array slice in its own format, as nvrhi::FramebufferDesc()
-    // .addColorAttachment(colorTexture).setDepthAttachment(depthTexture) makes it.
-    export function framebufferDesc(colorTexture: ITexture, depthTexture: ITexture | null): FramebufferDesc {
-        const none: FramebufferAttachment = [null, [0, 1, 0, 1], 0, false];
-        const color: FramebufferAttachment = [colorTexture, [0, 1, 0, 1], 0, false];
-        const depth: FramebufferAttachment = [depthTexture, [0, 1, 0, 1], 0, false];
-        return [[[color, none, none, none, none, none, none, none], 1], depth, none,
+    // A FramebufferAttachment of the texture's first mip and array slice in its own format (null:
+    // none)
+    function framebufferAttachment(texture: ITexture | null): FramebufferAttachment {
+        return [texture, [0, 1, 0, 1], 0, false];
+    }
+
+    // Color attachment i of a FramebufferDesc of colorTextures: none past the last
+    function colorAttachment(colorTextures: ITexture[], i: int): FramebufferAttachment {
+        return framebufferAttachment(i < colorTextures.length ? colorTextures[i] : null);
+    }
+
+    // A FramebufferDesc of up to 8 color attachments (render targets 0, 1, ... in order) and up to
+    // one depth attachment (null: none), as nvrhi::FramebufferDesc().addColorAttachment(...)
+    // .setDepthAttachment(depthTexture) makes it.
+    export function framebufferDesc(colorTextures: ITexture[], depthTexture: ITexture | null): FramebufferDesc {
+        const none = framebufferAttachment(null);
+        return [[[colorAttachment(colorTextures, 0), colorAttachment(colorTextures, 1), colorAttachment(colorTextures, 2),
+            colorAttachment(colorTextures, 3), colorAttachment(colorTextures, 4), colorAttachment(colorTextures, 5),
+            colorAttachment(colorTextures, 6), colorAttachment(colorTextures, 7)], <index>Math.min(colorTextures.length, 8)],
+            framebufferAttachment(depthTexture), none,
             [[none, none, none, none, none, none, none, none], 0], none, 0];
     }
 
