@@ -157,9 +157,8 @@ namespace NvrhiDirect {
         check(nvrhi.getNativeObject(texture, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE) != null,
             "the texture has its native resource");
 
-        // The compute pipeline: the shader through Donut's shader factory, IShader::getBytecode; the
-        // binding set and its layout through Donut (nvrhi::utils::CreateBindingSetAndLayout, C++
-        // code, not a method); IBindingSet::getLayout, IDevice::createComputePipeline
+        // The compute pipeline: the shader through Donut's shader factory, IShader::getBytecode; its
+        // binding layout and set, IDevice::createComputePipeline
         const shader = <nvrhi.IShader><Opaque>app.createShader("nvrhi_direct.hlsl", "main", ShaderType.Compute);
         if (!shader) {
             check(false, "the compute shader");
@@ -171,16 +170,28 @@ namespace NvrhiDirect {
         shader.getBytecode(Ref(bytecode), Ref(bytecodeSize));
         check(isD3D12 ? bytecode != null && bytecodeSize > 0 : bytecodeSize == 0, "IShader::getBytecode");
 
-        const bindingSetDesc = BindingSetDesc.create();
-        bindingSetDesc.bindTypedBufferSRV(0, <BufferHandle><Opaque>input);
-        bindingSetDesc.bindTypedBufferUAV(0, <BufferHandle><Opaque>output);
-        const donutBindingSet = app.createBindingSet(bindingSetDesc, ShaderType.Compute);
-        if (donutBindingSet.isNull()) {
-            check(false, "the binding set");
+        // IDevice::createBindingLayout, createBindingSet, IBindingLayout::getDesc, IBindingSet::getDesc,
+        // getLayout: the compute shader reads a typed buffer (t0) and writes another (u0)
+        const bindingLayout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_COMPUTE, [
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_SRV),
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_UAV)]);
+        if (!bindingLayout) {
+            check(false, "IDevice::createBindingLayout");
             return;
         }
-        const bindingSet = <nvrhi.IBindingSet><Opaque>donutBindingSet.handle;
-        const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, bindingSet.getLayout()));
+        const bindingSet = nvrhi.createBindingSet(device, bindingLayout, [
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_SRV, input),
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_UAV, output)]);
+        if (!bindingSet) {
+            check(false, "IDevice::createBindingSet");
+            return;
+        }
+        const layoutDesc = Deref(bindingLayout.getDesc());
+        check(layoutDesc.visibility == nvrhi.SHADER_TYPE_COMPUTE && nvrhi.bindingLayoutItemCount(layoutDesc.bindings) == 2,
+            "IBindingLayout::getDesc");
+        check(nvrhi.bindingSetItemCount(Deref(bindingSet.getDesc()).bindings) == 2, "IBindingSet::getDesc");
+        check(<index><Opaque>bindingSet.getLayout() == <index><Opaque>bindingLayout, "IBindingSet::getLayout");
+        const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, bindingLayout));
         if (!pipeline) {
             check(false, "IDevice::createComputePipeline");
             return;
@@ -280,6 +291,8 @@ namespace NvrhiDirect {
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
         pipeline.Release();
+        bindingSet.Release();
+        bindingLayout.Release();
         texture.Release();
         input.Release();
         output.Release();

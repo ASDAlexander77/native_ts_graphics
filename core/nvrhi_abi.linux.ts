@@ -66,4 +66,43 @@ export namespace nvrhi {
         const y = b.__rep_;
         return (x._0 & 1) == 0 && x._0 == y._0 && x._1 == y._1 && x._2 == y._2;
     }
+
+    // libc++'s std::vector: {__begin_, __end_, __cap_}
+    // A std::vector<BindingLayoutItem> over items' elements, for a desc NVRHI copies: nothing destroys
+    // it here, and items has to stay alive during the call.
+    export function bindingLayoutItems(items: BindingLayoutItem[]): vector_BindingLayoutItem {
+        if (items.length == 0) {
+            return [null, null, null];
+        }
+
+        const first = Ref(items[0]);
+        const end = <Ref<BindingLayoutItem>><Opaque>(<index><Opaque>first + items.length * sizeof<BindingLayoutItem>());
+        return [first, end, end];
+    }
+
+    // A std::vector<BindingSetItem> over items' elements, for a desc NVRHI copies: nothing destroys
+    // it here, and items has to stay alive during the call.
+    export function bindingSetItems(items: BindingSetItem[]): vector_BindingSetItem {
+        if (items.length == 0) {
+            return [null, null, null];
+        }
+
+        const first = Ref(items[0]);
+        const end = <Ref<BindingSetItem>><Opaque>(<index><Opaque>first + items.length * sizeof<BindingSetItem>());
+        return [first, end, end];
+    }
+
+    // A std::vector<BindingLayoutItem>'s size
+    export function bindingLayoutItemCount(items: vector_BindingLayoutItem): int {
+        const a = <index><Opaque>items.__begin_;
+        const b = <index><Opaque>items.__end_;
+        return <int>((b - a) / sizeof<BindingLayoutItem>());
+    }
+
+    // A std::vector<BindingSetItem>'s size
+    export function bindingSetItemCount(items: vector_BindingSetItem): int {
+        const a = <index><Opaque>items.__begin_;
+        const b = <index><Opaque>items.__end_;
+        return <int>((b - a) / sizeof<BindingSetItem>());
+    }
 }
