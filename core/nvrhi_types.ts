@@ -96,6 +96,7 @@ export namespace nvrhi {
     export const RESOURCE_TYPE_CONSTANT_BUFFER: u8 = 9;
     export const RESOURCE_TYPE_VOLATILE_CONSTANT_BUFFER: u8 = 10;
     export const RESOURCE_TYPE_SAMPLER: u8 = 11;
+    export const RESOURCE_TYPE_PUSH_CONSTANTS: u8 = 13;
 
     // nvrhi::ObjectTypes (some)
     export const OBJECT_TYPE_D3D11_DEVICE: u32 = 0x00010001;

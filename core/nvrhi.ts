@@ -198,6 +198,17 @@ export namespace nvrhi {
         return [sampler, slot, 0, [<u32>RESOURCE_TYPE_SAMPLER], 0, 0, [0, 0]];
     }
 
+    // nvrhi::BindingLayoutItem::PushConstants(slot, byteSize): byteSize bytes of push constants
+    // (D3D12 root constants), the size in the word's top 16 bits
+    export function pushConstantsLayoutItem(slot: u32, byteSize: u32): BindingLayoutItem {
+        return [slot, [<u32>RESOURCE_TYPE_PUSH_CONSTANTS + byteSize * 0x10000]];
+    }
+
+    // nvrhi::BindingSetItem::PushConstants(slot, byteSize): no resource, the size in the buffer range
+    export function pushConstantsBindingSetItem(slot: u32, byteSize: u32): BindingSetItem {
+        return [null, slot, 0, [<u32>RESOURCE_TYPE_PUSH_CONSTANTS], 0, 0, [0, byteSize]];
+    }
+
     // IDevice::createBindingLayout of the items, visible to the shader stages in visibility
     // (SHADER_TYPE_*); null on failure. Release() it.
     export function createBindingLayout(device: IDevice, visibility: u16, items: BindingLayoutItem[]): IBindingLayout | null {
