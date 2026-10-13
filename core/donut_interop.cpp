@@ -3324,6 +3324,10 @@ extern "C"
             return int(sizeof(nvrhi::GraphicsState));
         if (n == "DrawArguments")
             return int(sizeof(nvrhi::DrawArguments));
+        if (n == "SamplerDesc")
+            return int(sizeof(nvrhi::SamplerDesc));
+        if (n == "VertexAttributeDesc")
+            return int(sizeof(nvrhi::VertexAttributeDesc));
         return -1;
     }
 

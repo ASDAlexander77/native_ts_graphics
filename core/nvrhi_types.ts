@@ -43,6 +43,9 @@ export namespace nvrhi {
     // nvrhi::ResourceStates (some)
     export const RESOURCE_STATE_UNKNOWN: u32 = 0;
     export const RESOURCE_STATE_COMMON: u32 = 0x1;
+    export const RESOURCE_STATE_CONSTANT_BUFFER: u32 = 0x2;
+    export const RESOURCE_STATE_VERTEX_BUFFER: u32 = 0x4;
+    export const RESOURCE_STATE_INDEX_BUFFER: u32 = 0x8;
     export const RESOURCE_STATE_SHADER_RESOURCE: u32 = 0x60;
     export const RESOURCE_STATE_UNORDERED_ACCESS: u32 = 0x80;
     export const RESOURCE_STATE_RENDER_TARGET: u32 = 0x100;
@@ -53,6 +56,10 @@ export namespace nvrhi {
     export const SHADER_TYPE_VERTEX: u16 = 0x01;
     export const SHADER_TYPE_PIXEL: u16 = 0x10;
     export const SHADER_TYPE_COMPUTE: u16 = 0x20;
+
+    // nvrhi::SamplerAddressMode (some)
+    export const SAMPLER_ADDRESS_CLAMP: u8 = 0;
+    export const SAMPLER_ADDRESS_WRAP: u8 = 1;
 
     // nvrhi::RasterCullMode
     export const CULL_BACK: u8 = 0;

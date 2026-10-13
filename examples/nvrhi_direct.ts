@@ -21,7 +21,9 @@ namespace NvrhiDirect {
     //   instead of NVRHI's automatic barriers;
     // - clears a texture, then draws into its left half with a graphics pipeline made here (a
     //   framebuffer over the texture, vertex and pixel shaders, the render state with no depth test
-    //   and no culling, a viewport), read back through Donut.
+    //   and no culling, a viewport), and into its top right quarter an indexed quad from a vertex
+    //   buffer (an input layout), sampling a 2 x 2 texture (writeTexture, a sampler) scaled by a
+    //   constant buffer; read back through Donut, the bottom right quarter as cleared.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -43,6 +45,16 @@ namespace NvrhiDirect {
     function near(value: int, expected: int): boolean {
         return value >= expected - 1 && value <= expected + 1;
     }
+
+    // Whether the RGBA8 pixel at pixels[i] is (r, g, b) and opaque, give or take one
+    function sameColor(pixels: u8[], i: int, r: int, g: int, b: int): boolean {
+        return near(pixels[i], r) && near(pixels[i + 1], g) && near(pixels[i + 2], b) && near(pixels[i + 3], 255);
+    }
+
+    // The textured draw's vertex: position, texture coordinates (two floats each)
+    const QUAD_VERTEX_SIZE = 16;
+    // Its 2 x 2 texels (RGBA8, row by row): red, blue; yellow, cyan (green 254, which halves exactly)
+    const TEXELS: u8[] = [255, 0, 0, 255, 0, 0, 255, 255, 255, 254, 0, 255, 0, 254, 255, 255];
 
     // NVRHI's messages, through an nvrhi::IMessageCallback implemented here: a @cpp class
     // whose message() has a body, which NVRHI calls through the vtable tslang makes for it. Each
@@ -76,10 +88,11 @@ namespace NvrhiDirect {
         return desc;
     }
 
-    // IDevice::createShader of a shader ShaderMake compiled from shaders/nvrhi_direct.hlsl (its
+    // IDevice::createShader of a shader ShaderMake compiled from shaders/<fileName>.hlsl (its
     // entry point's name in the file's: nvrhi_direct_main_vs.bin)
-    function loadShader(app: App, device: nvrhi.IDevice, isD3D12: boolean, entryName: string, shaderType: u16): nvrhi.IShader | null {
-        const file = app.loadBinaryFile(`shaders/nvrhi_direct/${isD3D12 ? "dxil" : "spirv"}/nvrhi_direct_${entryName}.bin`);
+    function loadShader(app: App, device: nvrhi.IDevice, isD3D12: boolean, fileName: string, entryName: string,
+        shaderType: u16): nvrhi.IShader | null {
+        const file = app.loadBinaryFile(`shaders/nvrhi_direct/${isD3D12 ? "dxil" : "spirv"}/${fileName}_${entryName}.bin`);
         if (file.isNull()) {
             return null;
         }
@@ -162,10 +175,11 @@ namespace NvrhiDirect {
             check(false, "IDevice::createTexture");
             return;
         }
-        const textureDesc = Deref(texture.getDesc());
-        check(textureDesc.width == TEXTURE_SIZE && textureDesc.height == TEXTURE_SIZE
-            && textureDesc.format == <u8>Format.RGBA8_UNORM && textureDesc.isRenderTarget
-            && nvrhi.stdStringIs(textureDesc.debugName, "Cleared texture"), "ITexture::getDesc");
+        // (named so as not to hide nvrhi.textureDesc below: TSLANG_ISSUES.md #18)
+        const keptTextureDesc = Deref(texture.getDesc());
+        check(keptTextureDesc.width == TEXTURE_SIZE && keptTextureDesc.height == TEXTURE_SIZE
+            && keptTextureDesc.format == <u8>Format.RGBA8_UNORM && keptTextureDesc.isRenderTarget
+            && nvrhi.stdStringIs(keptTextureDesc.debugName, "Cleared texture"), "ITexture::getDesc");
         check(nvrhi.getNativeObject(texture, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE) != null,
             "the texture has its native resource");
 
@@ -233,8 +247,8 @@ namespace NvrhiDirect {
         check(framebufferInfo.width == TEXTURE_SIZE && framebufferInfo.height == TEXTURE_SIZE
             && framebufferInfo.colorFormats.current_size == 1,
             "IFramebuffer::getFramebufferInfo");
-        const vertexShader = loadShader(app, device, isD3D12, "main_vs", nvrhi.SHADER_TYPE_VERTEX);
-        const pixelShader = loadShader(app, device, isD3D12, "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
         if (!vertexShader || !pixelShader) {
             check(false, "the vertex and pixel shaders");
             return;
@@ -244,7 +258,7 @@ namespace NvrhiDirect {
         renderState.depthStencilState.depthWriteEnable = false;
         renderState.rasterState.cullMode = nvrhi.CULL_NONE;
         const graphicsPipeline = nvrhi.createGraphicsPipeline(device,
-            nvrhi.graphicsPipelineDesc(vertexShader, pixelShader, null, renderState), framebuffer);
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
         if (!graphicsPipeline) {
             check(false, "IDevice::createGraphicsPipeline");
             return;
@@ -252,6 +266,59 @@ namespace NvrhiDirect {
         const graphicsDesc = Deref(graphicsPipeline.getDesc());
         check(graphicsDesc.renderState.rasterState.cullMode == nvrhi.CULL_NONE && !graphicsDesc.renderState.depthStencilState.depthTestEnable
             && <index><Opaque>graphicsDesc.VS.ptr_ == <index><Opaque>vertexShader, "IGraphicsPipeline::getDesc");
+
+        // The textured draw's resources: IDevice::createTexture of the texels, createSampler (point
+        // sampling), the vertex, index and constant buffers, the shaders, createInputLayout (the
+        // vertex's position and texture coordinates), a binding layout and set of the constant
+        // buffer, texture and sampler, its pipeline
+        const texels = nvrhi.createTexture(device, nvrhi.textureDesc(2, 2, Format.RGBA8_UNORM, "Texels",
+            nvrhi.RESOURCE_STATE_SHADER_RESOURCE));
+        let pointSampling = nvrhi.samplerDesc();
+        pointSampling.minFilter = false;
+        pointSampling.magFilter = false;
+        pointSampling.mipFilter = false;
+        const sampler = nvrhi.createSampler(device, pointSampling);
+        let vertexBufferDesc = nvrhi.bufferDesc(4 * QUAD_VERTEX_SIZE, "Quad vertices", nvrhi.RESOURCE_STATE_VERTEX_BUFFER,
+            nvrhi.CPU_ACCESS_NONE);
+        vertexBufferDesc.isVertexBuffer = true;
+        let indexBufferDesc = nvrhi.bufferDesc(6 * 2, "Quad indices", nvrhi.RESOURCE_STATE_INDEX_BUFFER, nvrhi.CPU_ACCESS_NONE);
+        indexBufferDesc.isIndexBuffer = true;
+        // (D3D12 reads a constant buffer in 256-byte steps)
+        let constantBufferDesc = nvrhi.bufferDesc(256, "Scale", nvrhi.RESOURCE_STATE_CONSTANT_BUFFER, nvrhi.CPU_ACCESS_NONE);
+        constantBufferDesc.isConstantBuffer = true;
+        const vertexBuffer = nvrhi.createBuffer(device, vertexBufferDesc);
+        const indexBuffer = nvrhi.createBuffer(device, indexBufferDesc);
+        const constantBuffer = nvrhi.createBuffer(device, constantBufferDesc);
+        const texturedVertexShader = loadShader(app, device, isD3D12, "nvrhi_direct_textured", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const texturedPixelShader = loadShader(app, device, isD3D12, "nvrhi_direct_textured", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        if (!texels || !sampler || !vertexBuffer || !indexBuffer || !constantBuffer || !texturedVertexShader || !texturedPixelShader) {
+            check(false, "the textured draw's texture, sampler, buffers and shaders");
+            return;
+        }
+        const inputLayout = nvrhi.createInputLayout(device, [
+            nvrhi.vertexAttributeDesc("POSITION", Format.RG32_FLOAT, 0, 0, QUAD_VERTEX_SIZE),
+            nvrhi.vertexAttributeDesc("TEXCOORD", Format.RG32_FLOAT, 0, 8, QUAD_VERTEX_SIZE)], texturedVertexShader);
+        const texturedLayout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_PIXEL, [
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_CONSTANT_BUFFER),
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_TEXTURE_SRV),
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_SAMPLER)]);
+        if (!inputLayout || !texturedLayout) {
+            check(false, "IDevice::createInputLayout, createBindingLayout");
+            return;
+        }
+        const texturedSet = nvrhi.createBindingSet(device, texturedLayout, [
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_CONSTANT_BUFFER, constantBuffer),
+            nvrhi.textureBindingSetItem(0, texels),
+            nvrhi.samplerBindingSetItem(0, sampler)]);
+        const texturedPipeline = texturedSet ? nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(inputLayout, texturedVertexShader, texturedPixelShader, texturedLayout, renderState),
+            framebuffer) : null;
+        if (!texturedSet || !texturedPipeline) {
+            check(false, "the textured draw's binding set and pipeline");
+            return;
+        }
+        check(<index><Opaque>Deref(texturedPipeline.getDesc()).inputLayout.ptr_ == <index><Opaque>inputLayout,
+            "the textured pipeline's input layout");
 
         // IDevice::createCommandList; ICommandList::open, clearState, beginMarker, writeBuffer,
         // clearBufferUInt, setComputeState, dispatch, setEnableAutomaticBarriers, setBufferState,
@@ -299,8 +366,23 @@ namespace NvrhiDirect {
         nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [1.0, 0.5, 0.25, 1.0]);
         // ICommandList::setGraphicsState, draw: a triangle covering the viewport, the left half
         nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(graphicsPipeline, framebuffer,
-            [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1], null));
+            [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1], null, null, null, Format.UNKNOWN));
         nvrhi.draw(commandList, 3);
+
+        // ICommandList::writeBuffer of the quad's vertices (position, texture coordinates: the
+        // texture's top at the top) and indices (two triangles), and of the scale (green halved);
+        // writeTexture of the 2 x 2 texels; setGraphicsState with the vertex and index buffers,
+        // drawIndexed: the quad over the top right quarter, a texel a pixel
+        let vertices: f32[] = [-1, -1, 0, 1, -1, 1, 0, 0, 1, 1, 1, 0, 1, -1, 1, 1];
+        let indices: u16[] = [0, 1, 2, 0, 2, 3];
+        let scale: f32[] = [1, 0.5, 1, 1];
+        commandList.writeBuffer(vertexBuffer, <Opaque>Ref(vertices[0]), 4 * QUAD_VERTEX_SIZE, 0);
+        commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 6 * 2, 0);
+        commandList.writeBuffer(constantBuffer, <Opaque>Ref(scale[0]), 4 * 4, 0);
+        commandList.writeTexture(texels, 0, 0, <Opaque>Ref(TEXELS[0]), 2 * 4, 0);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(texturedPipeline, framebuffer,
+            [TEXTURE_SIZE / 2, TEXTURE_SIZE, 0, TEXTURE_SIZE / 2, 0, 1], texturedSet, vertexBuffer, indexBuffer, Format.R16_UINT));
+        nvrhi.drawIndexed(commandList, 6);
         commandList.endMarker();
         commandList.close();
 
@@ -337,30 +419,51 @@ namespace NvrhiDirect {
         if (app.readTextureLevel(<TextureHandle><Opaque>texture, 0, <Opaque>Ref(pixels[0]), pixels.length) == 0) {
             check(false, "the texture's readback");
         } else {
-            // the left half drawn green, the right half as cleared
+            // the left half drawn green; the top right quarter the texels, a pixel each, green
+            // halved; the bottom right quarter as cleared
             let clearMismatches = 0;
             let drawMismatches = 0;
-            for (let i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE; i++) {
-                if (i % TEXTURE_SIZE < TEXTURE_SIZE / 2) {
-                    if (!near(pixels[4 * i], 0) || !near(pixels[4 * i + 1], 255) || !near(pixels[4 * i + 2], 0)
-                        || !near(pixels[4 * i + 3], 255)) {
-                        drawMismatches++;
+            let texturedMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColor(pixels, i, 0, 255, 0)) {
+                            drawMismatches++;
+                        }
+                    } else if (y < TEXTURE_SIZE / 2) {
+                        const texel = 4 * (y * 2 + x - TEXTURE_SIZE / 2);
+                        if (!sameColor(pixels, i, TEXELS[texel], TEXELS[texel + 1] / 2, TEXELS[texel + 2])) {
+                            texturedMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 255, 128, 64)) {
+                        clearMismatches++;
                     }
-                } else if (!near(pixels[4 * i], 255) || !near(pixels[4 * i + 1], 128) || !near(pixels[4 * i + 2], 64)
-                    || !near(pixels[4 * i + 3], 255)) {
-                    clearMismatches++;
                 }
             }
-            const last = 4 * (TEXTURE_SIZE - 1);
-            console.log(`Texture drawn (${pixels[0]}, ${pixels[1]}, ${pixels[2]}, ${pixels[3]}), `
-                + `cleared to (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]}, ${pixels[last + 3]})`);
-            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
-            check(clearMismatches == 0, `ICommandList::clearTextureFloat (${clearMismatches} of ${half} pixels differ)`);
-            check(drawMismatches == 0, `ICommandList::draw (${drawMismatches} of ${half} pixels differ)`);
+            const last = 4 * (TEXTURE_SIZE * TEXTURE_SIZE - 1);
+            const topRight = 4 * (TEXTURE_SIZE / 2);
+            console.log(`Texture drawn (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), textured (${pixels[topRight]}, `
+                + `${pixels[topRight + 1]}, ${pixels[topRight + 2]}), cleared to (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            const quarter = TEXTURE_SIZE * TEXTURE_SIZE / 4;
+            check(clearMismatches == 0, `ICommandList::clearTextureFloat (${clearMismatches} of ${quarter} pixels differ)`);
+            check(drawMismatches == 0, `ICommandList::draw (${drawMismatches} of ${2 * quarter} pixels differ)`);
+            check(texturedMismatches == 0, `ICommandList::drawIndexed, the texture and the constant buffer (${texturedMismatches} of ${quarter} pixels differ)`);
         }
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
+        texturedPipeline.Release();
+        texturedSet.Release();
+        texturedLayout.Release();
+        inputLayout.Release();
+        texturedVertexShader.Release();
+        texturedPixelShader.Release();
+        vertexBuffer.Release();
+        indexBuffer.Release();
+        constantBuffer.Release();
+        sampler.Release();
+        texels.Release();
         graphicsPipeline.Release();
         vertexShader.Release();
         pixelShader.Release();
