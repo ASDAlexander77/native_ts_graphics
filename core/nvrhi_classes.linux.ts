@@ -6,6 +6,10 @@
 // "./nvrhi_abi" brings this file on Android). Each @slot is the C++ compiler's. A method taking
 // a struct by value is left out, except those tools/gen_nvrhi_classes.py writes, with a function
 // calling it.
+//
+// Not checked by TypeScript's editor tooling (@ts-nocheck): a @slot method has no body, which it
+// reports twice per method (TS2391, TS1249), whatever the class's form. tslang ignores the line.
+// @ts-nocheck
 
 import "./nvrhi_types";
 
