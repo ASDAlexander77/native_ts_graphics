@@ -359,7 +359,8 @@ standard sample positions are. A tenth times its work with a timer query (`begin
 stencil cleared to 0 (`clearDepthStencilTexture`), set to 1 over one half by a draw writing no
 color, then a draw over everything where the stencil is 1, which colors that half only. A
 twelfth draws two instances of a quad in one draw, their offsets and colors instance attributes
-(`isInstanced`) from a vertex buffer: one in each half.
+(`isInstanced`) from a vertex buffer: one in each half. A thirteenth has a compute shader write
+every pixel of a texture through a UAV (`isUAV`, a `Texture_UAV` binding) and reads it back.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

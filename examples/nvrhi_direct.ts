@@ -35,7 +35,8 @@ namespace NvrhiDirect {
     // upload through a staging texture the CPU writes (testStagingUpload); and another, multiple
     // render targets (testMultipleRenderTargets); and another, multisampling and its resolve
     // (testMultisampleResolve); and another, event and timer queries (testQueries); and another,
-    // the stencil test (testStencil); and another, instancing (testInstancing).
+    // the stencil test (testStencil); and another, instancing (testInstancing); and another, a
+    // compute shader writing a texture (testTextureUav).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -1063,6 +1064,69 @@ namespace NvrhiDirect {
         color.Release();
     }
 
+    // A compute shader writing a texture, with a command list of its own: a texture with UAVs
+    // (TextureDesc::isUAV), a binding layout and set of its UAV (Texture_UAV, mip level 0), a
+    // compute pipeline (nvrhi_direct_texture_uav.hlsl), one group of 4 x 4 threads, each writing a
+    // pixel (64 x, 64 y, 128). Read back through a staging texture, exactly.
+    function testTextureUav(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        let outputDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Texture UAV",
+            nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
+        outputDesc.isUAV = true;
+        const output = nvrhi.createTexture(device, outputDesc);
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const shader = loadShader(app, device, isD3D12, "nvrhi_direct_texture_uav", "main_cs", nvrhi.SHADER_TYPE_COMPUTE);
+        const layout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_COMPUTE,
+            [nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_TEXTURE_UAV)]);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!output || !staging || !shader || !layout || !commandList) {
+            check(false, "the texture UAV test's textures, shader, binding layout and command list");
+            return;
+        }
+        check(Deref(output.getDesc()).isUAV, "ITexture::getDesc's isUAV");
+        const bindingSet = nvrhi.createBindingSet(device, layout, [nvrhi.textureUavBindingSetItem(0, output)]);
+        if (!bindingSet) {
+            check(false, "IDevice::createBindingSet of a texture UAV");
+            return;
+        }
+        const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, layout));
+        if (!pipeline) {
+            check(false, "IDevice::createComputePipeline writing a texture");
+            return;
+        }
+
+        commandList.open();
+        nvrhi.setComputeState(commandList, nvrhi.computeState(pipeline, bindingSet));
+        commandList.dispatch(1, 1, 1);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), output, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the texture UAV test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let mismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (pixels[i] != 64 * x || pixels[i + 1] != 64 * y || pixels[i + 2] != 128 || pixels[i + 3] != 255) {
+                        mismatches++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE * TEXTURE_SIZE - 1);
+            console.log(`Texture UAV (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), ..., (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            check(mismatches == 0, `a compute shader writing a texture UAV (${mismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        bindingSet.Release();
+        layout.Release();
+        shader.Release();
+        staging.Release();
+        output.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -1442,6 +1506,7 @@ namespace NvrhiDirect {
         testQueries(device);
         testStencil(app, device, isD3D12);
         testInstancing(app, device, isD3D12);
+        testTextureUav(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
