@@ -120,6 +120,16 @@ export namespace nvrhi {
         return [0, 0, 0, 0xffffffff, 0xffffffff, 0xffffffff, 0, 0];
     }
 
+    // A TextureSlice of the whole of a mip level of an array slice
+    export function subresourceSlice(mipLevel: u32, arraySlice: u32): TextureSlice {
+        return [0, 0, 0, 0xffffffff, 0xffffffff, 0xffffffff, mipLevel, arraySlice];
+    }
+
+    // A TextureSlice of a width x height region at (x, y) of a mip level of an array slice
+    export function textureRegion(x: u32, y: u32, width: u32, height: u32, mipLevel: u32, arraySlice: u32): TextureSlice {
+        return [x, y, 0, width, height, 1, mipLevel, arraySlice];
+    }
+
     // IDevice::createStagingTexture: a texture of desc's size and format that the CPU maps with
     // cpuAccess (CPU_ACCESS_READ, CPU_ACCESS_WRITE); null on failure. Release() it.
     export function createStagingTexture(device: IDevice, desc: TextureDesc, cpuAccess: u8): IStagingTexture | null {
