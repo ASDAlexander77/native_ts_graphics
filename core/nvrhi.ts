@@ -380,6 +380,18 @@ export namespace nvrhi {
         commandList.drawIndexed(Ref(args));
     }
 
+    // IDevice::createEventQuery; null on failure. Release() it.
+    export function createEventQuery(device: IDevice): IEventQuery | null {
+        const handle = device.createEventQuery();
+        return handle.ptr_ ? <IEventQuery><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createTimerQuery; null on failure. Release() it.
+    export function createTimerQuery(device: IDevice): ITimerQuery | null {
+        const handle = device.createTimerQuery();
+        return handle.ptr_ ? <ITimerQuery><Opaque>handle.ptr_ : null;
+    }
+
     // IDevice::createCommandList; null on failure. Release() it.
     export function createCommandList(device: IDevice, params: CommandListParameters): ICommandList | null {
         let paramsValue = params;

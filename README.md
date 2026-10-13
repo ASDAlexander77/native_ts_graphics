@@ -353,7 +353,9 @@ uploads a texture through a staging texture the CPU writes (`mapStagingTexture` 
 render targets at once (a framebuffer of two color textures, `SV_Target0` and `SV_Target1`). A
 ninth draws a triangle into a texture of 4 samples a pixel, its edge through the centers of the
 diagonal's pixels, and resolves it (`resolveTexture`): the diagonal half covered, as 2 of the
-standard sample positions are.
+standard sample positions are. A tenth times its work with a timer query (`beginTimerQuery`,
+`endTimerQuery`, `getTimerQueryTime`) and waits for it with an event query (`setEventQuery`,
+`waitEventQuery`) instead of `waitForIdle`.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

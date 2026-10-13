@@ -34,7 +34,7 @@ namespace NvrhiDirect {
     // indirect dispatches (testDispatchIndirect) of the compute pipeline above; and another, an
     // upload through a staging texture the CPU writes (testStagingUpload); and another, multiple
     // render targets (testMultipleRenderTargets); and another, multisampling and its resolve
-    // (testMultisampleResolve).
+    // (testMultisampleResolve); and another, event and timer queries (testQueries).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -823,6 +823,48 @@ namespace NvrhiDirect {
         multisampled.Release();
     }
 
+    // Event and timer queries, with a command list of its own: IDevice::createEventQuery,
+    // createTimerQuery; ICommandList::beginTimerQuery and endTimerQuery around work to time (a
+    // 1024 x 1024 texture cleared 16 times). After executing it, IDevice::setEventQuery on the
+    // graphics queue and waitEventQuery, without waitForIdle: pollEventQuery says it is done (not
+    // yet without the wait). pollTimerQuery, getTimerQueryTime: the time the work took, in seconds,
+    // more than 0 and less than 1. (Not a readback: mapBuffer waits for the buffer by itself.)
+    function testQueries(device: nvrhi.IDevice): void {
+        const WORK_SIZE = 1024;
+        const eventQuery = nvrhi.createEventQuery(device);
+        const timerQuery = nvrhi.createTimerQuery(device);
+        let workDesc = nvrhi.textureDesc(WORK_SIZE, WORK_SIZE, Format.RGBA8_UNORM, "Timed work", nvrhi.RESOURCE_STATE_RENDER_TARGET);
+        workDesc.isRenderTarget = true;
+        const work = nvrhi.createTexture(device, workDesc);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!eventQuery || !timerQuery || !work || !commandList) {
+            check(false, "the query test's queries, texture and command list");
+            return;
+        }
+
+        commandList.open();
+        commandList.beginTimerQuery(timerQuery);
+        for (let i = 0; i < 16; i++) {
+            nvrhi.clearTextureFloat(commandList, work, nvrhi.allSubresources(), [i / 16, 0.5, 0.25, 1.0]);
+        }
+        commandList.endTimerQuery(timerQuery);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        device.setEventQuery(eventQuery, nvrhi.COMMAND_QUEUE_GRAPHICS);
+        device.waitEventQuery(eventQuery);
+        check(device.pollEventQuery(eventQuery), "IDevice::pollEventQuery after waitEventQuery");
+
+        check(device.pollTimerQuery(timerQuery), "IDevice::pollTimerQuery after the command list");
+        const seconds = device.getTimerQueryTime(timerQuery);
+        console.log(`Timer query: ${seconds * 1000000} microseconds`);
+        check(seconds > 0 && seconds < 1, `IDevice::getTimerQueryTime (${seconds} s)`);
+
+        commandList.Release();
+        work.Release();
+        timerQuery.Release();
+        eventQuery.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -1199,6 +1241,7 @@ namespace NvrhiDirect {
         testStagingUpload(device);
         testMultipleRenderTargets(app, device, isD3D12);
         testMultisampleResolve(app, device, isD3D12);
+        testQueries(device);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
