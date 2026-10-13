@@ -326,11 +326,14 @@ Donut's wrappers elsewhere or with `-donut`. CTest runs both: `headless.<api>` a
 2. runs a compute shader over the uploaded numbers, its shader (from the bytecode ShaderMake
    compiled), binding layout, binding set and pipeline made directly;
 3. copies the three into a readback buffer, the last copy with hand-made barriers;
-4. clears a texture, read back through Donut.
+4. clears a texture, then draws a triangle into its left half with a graphics pipeline made
+   directly (a framebuffer over the texture, vertex and pixel shaders, the render state with no
+   depth test and no culling, a viewport and its scissor rectangle), read back through Donut.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;
-- reference counting, debug names, the descs NVRHI keeps and the struct layouts;
+- reference counting, the descs NVRHI keeps and the struct layouts, and debug and entry point
+  names, which it reads from NVRHI's `std::string`s byte by byte (`nvrhi.stdStringIs`);
 - NVRHI's messages, which go through an `IMessageCallback` implemented in tslang. With `-debug`,
   it provokes a validation error and checks that NVRHI called the callback.
 
@@ -384,12 +387,12 @@ python tools/android.py emulator
 python tools/android.py test
 ```
 
-- `build` configures `build-android-x86_64` if it isn't, and builds `headless` and every
-  example's APK, `bin/<example>.apk`; name examples to build only theirs
+- `build` configures `build-android-x86_64` if it isn't, and builds the headless tests
+  (`headless`, `nvrhi_direct`) and every example's APK, `bin/<example>.apk`; name examples to build only theirs
   (`build basic_triangle vertex_buffer`), and `--abi arm64` builds for devices.
 - `emulator` starts the newest virtual device (`--avd <name>` picks one, `--no-window` hides
   it) unless a device is connected, and waits for it to boot. `adb emu kill` stops it.
-- `test` runs `headless`, then installs and starts each example: it has to be running after 20 s
+- `test` runs the headless tests, then installs and starts each example: it has to be running after 20 s
   (`--seconds`), and to close without a crash on Back. Screenshots and logs go to
   `build-android-x86_64/android-test`. With no examples named, it tests the ones that run on the
   emulator: 65 of them (`EMULATOR_EXAMPLES` in `tools/android.py`). Its Vulkan is the host GPU's, through
@@ -399,7 +402,7 @@ python tools/android.py test
   at once with a message saying what the device lacks (`test` reports them as failures; they
   are for devices).
 - `run <example>` installs and starts one and follows its log (Ctrl+C stops following);
-  `--screenshot shot.png` takes a screenshot instead. `headless` runs headless alone.
+  `--screenshot shot.png` takes a screenshot instead. `headless` runs the headless tests alone (`headless`, `nvrhi_direct`, through `adb shell`).
 
 `test`, `run` and `headless` start an emulator themselves if no device is connected; with more
 than one, pass `--serial`. On a phone: enable USB debugging, `build --abi arm64`, and

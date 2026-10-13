@@ -50,7 +50,14 @@ export namespace nvrhi {
     export const RESOURCE_STATE_COPY_SOURCE: u32 = 0x2000;
 
     // nvrhi::ShaderType (a bit mask)
+    export const SHADER_TYPE_VERTEX: u16 = 0x01;
+    export const SHADER_TYPE_PIXEL: u16 = 0x10;
     export const SHADER_TYPE_COMPUTE: u16 = 0x20;
+
+    // nvrhi::RasterCullMode
+    export const CULL_BACK: u8 = 0;
+    export const CULL_FRONT: u8 = 1;
+    export const CULL_NONE: u8 = 2;
 
     // nvrhi::ResourceType
     export const RESOURCE_TYPE_NONE: u8 = 0;

@@ -3316,6 +3316,14 @@ extern "C"
             return int(sizeof(nvrhi::BindingSetDesc));
         if (n == "ShaderDesc")
             return int(sizeof(nvrhi::ShaderDesc));
+        if (n == "FramebufferDesc")
+            return int(sizeof(nvrhi::FramebufferDesc));
+        if (n == "GraphicsPipelineDesc")
+            return int(sizeof(nvrhi::GraphicsPipelineDesc));
+        if (n == "GraphicsState")
+            return int(sizeof(nvrhi::GraphicsState));
+        if (n == "DrawArguments")
+            return int(sizeof(nvrhi::DrawArguments));
         return -1;
     }
 

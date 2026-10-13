@@ -26,11 +26,13 @@ export namespace nvrhi {
             }
         }
 
-        // byte 0 is the size times two, byte k + 1 character k
+        // byte 0 is the size times two, byte k + 1 character k. (`shift *= 256` would multiply in
+        // 32 bits, losing the characters from the fourth on: TSLANG_ISSUES.md #15)
+        const BYTE: u64 = 256;
         let word0: u64 = size * 2;
         let word1: u64 = 0;
         let word2: u64 = 0;
-        let shift: u64 = 256;
+        let shift: u64 = BYTE;
         for (let i = 0; i < size; i++) {
             const byte = i + 1;
             if (byte == 8 || byte == 16) {
@@ -44,7 +46,7 @@ export namespace nvrhi {
             } else {
                 word2 += char * shift;
             }
-            shift *= 256;
+            shift *= BYTE;
         }
 
         return [[word0, word1, word2]];
@@ -60,11 +62,24 @@ export namespace nvrhi {
         return <int>((rep._0 & 0xff) >> 1);
     }
 
-    // Whether two short std::strings (see stdString) hold the same characters
-    export function sameShortStdString(a: StdString, b: StdString): boolean {
-        const x = a.__rep_;
-        const y = b.__rep_;
-        return (x._0 & 1) == 0 && x._0 == y._0 && x._1 == y._1 && x._2 == y._2;
+    // Whether an std::string (NVRHI's copy of a debug name, say) is short and holds text: its
+    // characters and terminating zero, read byte by byte from after its size byte
+    export function stdStringIs(value: StdString, text: string): boolean {
+        if ((value.__rep_._0 & 1) != 0) {
+            return false;
+        }
+
+        const size = stdStringSize(value);
+        const chars = <Ref<u8>><Opaque>text;
+        let copy = value;
+        const bytes = <Ref<u8>><Opaque>Ref(copy);
+        for (let i = 0; i <= size; i++) {
+            if (Deref(bytes[i + 1]) != Deref(chars[i])) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // libc++'s std::vector: {__begin_, __end_, __cap_}
