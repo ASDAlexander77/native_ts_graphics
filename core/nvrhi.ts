@@ -57,7 +57,9 @@ export namespace nvrhi {
             && sizeof<FramebufferDesc>() == Donut_GetNvrhiStructSize("FramebufferDesc")
             && sizeof<GraphicsPipelineDesc>() == Donut_GetNvrhiStructSize("GraphicsPipelineDesc")
             && sizeof<GraphicsState>() == Donut_GetNvrhiStructSize("GraphicsState")
-            && sizeof<DrawArguments>() == Donut_GetNvrhiStructSize("DrawArguments");
+            && sizeof<DrawArguments>() == Donut_GetNvrhiStructSize("DrawArguments")
+            && sizeof<SamplerDesc>() == Donut_GetNvrhiStructSize("SamplerDesc")
+            && sizeof<VertexAttributeDesc>() == Donut_GetNvrhiStructSize("VertexAttributeDesc");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -140,6 +142,17 @@ export namespace nvrhi {
         return [buffer, slot, 0, [<u32>type], 0, 0, [0, 0xffffffffffffffff]];
     }
 
+    // nvrhi::BindingSetItem::Texture_SRV(slot, texture): all its mips and array slices
+    // (AllSubresources, two u32s in each of the union's words), its own format and dimension
+    export function textureBindingSetItem(slot: u32, texture: ITexture): BindingSetItem {
+        return [texture, slot, 0, [<u32>RESOURCE_TYPE_TEXTURE_SRV], 0, 0, [0xffffffff00000000, 0xffffffff00000000]];
+    }
+
+    // nvrhi::BindingSetItem::Sampler(slot, sampler)
+    export function samplerBindingSetItem(slot: u32, sampler: ISampler): BindingSetItem {
+        return [sampler, slot, 0, [<u32>RESOURCE_TYPE_SAMPLER], 0, 0, [0, 0]];
+    }
+
     // IDevice::createBindingLayout of the items, visible to the shader stages in visibility
     // (SHADER_TYPE_*); null on failure. Release() it.
     export function createBindingLayout(device: IDevice, visibility: u16, items: BindingLayoutItem[]): IBindingLayout | null {
@@ -167,6 +180,33 @@ export namespace nvrhi {
             [[none, none, none, none, none, none, none, none], 0], none, 0];
     }
 
+    // nvrhi::SamplerDesc's defaults: linear filtering, clamped, border color white
+    export function samplerDesc(): SamplerDesc {
+        return [[1, 1, 1, 1], 1, 0, true, true, true, SAMPLER_ADDRESS_CLAMP, SAMPLER_ADDRESS_CLAMP, SAMPLER_ADDRESS_CLAMP,
+            0, 0, 3.402823466e+38];
+    }
+
+    // IDevice::createSampler; null on failure. Release() it.
+    export function createSampler(device: IDevice, desc: SamplerDesc): ISampler | null {
+        let descValue = desc;
+        const handle = device.createSampler(Ref(descValue));
+        return handle.ptr_ ? <ISampler><Opaque>handle.ptr_ : null;
+    }
+
+    // A VertexAttributeDesc: the shader input's semantic name (see stdString), its format (Donut's
+    // Format is NVRHI's), the vertex buffer slot it is read from, its offset there and the
+    // vertex's stride
+    export function vertexAttributeDesc(name: string, format: Format, bufferIndex: u32, offset: u32, elementStride: u32): VertexAttributeDesc {
+        return [stdString(name), <u8>format, 1, bufferIndex, offset, elementStride, false];
+    }
+
+    // IDevice::createInputLayout of the attributes, for the vertex shader; null on failure.
+    // Release() it.
+    export function createInputLayout(device: IDevice, attributes: VertexAttributeDesc[], vertexShader: IShader): IInputLayout | null {
+        const handle = device.createInputLayout(Ref(attributes[0]), attributes.length, vertexShader);
+        return handle.ptr_ ? <IInputLayout><Opaque>handle.ptr_ : null;
+    }
+
     // IDevice::createFramebuffer; null on failure. Release() it.
     export function createFramebuffer(device: IDevice, desc: FramebufferDesc): IFramebuffer | null {
         let descValue = desc;
@@ -187,18 +227,18 @@ export namespace nvrhi {
             [false, false, 0]];
     }
 
-    // A GraphicsPipelineDesc of a triangle list, a vertex and a pixel shader (no input layout) and up
-    // to one binding layout, with the given render state. Its RefCountPtrs hold no reference, as in
-    // computePipelineDesc.
-    export function graphicsPipelineDesc(vertexShader: IShader, pixelShader: IShader, bindingLayout: IBindingLayout | null,
-        state: RenderState): GraphicsPipelineDesc {
+    // A GraphicsPipelineDesc of a triangle list, an input layout (null: none, the vertex shader
+    // makes its vertices), a vertex and a pixel shader and up to one binding layout, with the given
+    // render state. Its RefCountPtrs hold no reference, as in computePipelineDesc.
+    export function graphicsPipelineDesc(inputLayout: IInputLayout | null, vertexShader: IShader, pixelShader: IShader,
+        bindingLayout: IBindingLayout | null, state: RenderState): GraphicsPipelineDesc {
         // (`bindingLayout ? 1 : 0` as the count fails to compile: TSLANG_ISSUES.md #14)
         let layouts: index = 0;
         if (bindingLayout) {
             layouts = 1;
         }
 
-        return [3, 0, [null], [vertexShader], [null], [null], [null], [pixelShader], state, [false, 0, 0, 0],
+        return [3, 0, [inputLayout], [vertexShader], [null], [null], [null], [pixelShader], state, [false, 0, 0, 0],
             [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], layouts], 0];
     }
 
@@ -211,19 +251,26 @@ export namespace nvrhi {
 
     // A GraphicsState drawing into the framebuffer with the pipeline, through one viewport and its
     // scissor rectangle (ViewportState::addViewportAndScissorRect: without one, D3D12 draws nothing
-    // and Vulkan's is unset), and up to one binding set, with no vertex or index buffer.
+    // and Vulkan's is unset), with up to one binding set, a vertex buffer (slot 0) and an index
+    // buffer of indexFormat (R16_UINT, R32_UINT) - null for none.
     export function graphicsState(pipeline: IGraphicsPipeline, framebuffer: IFramebuffer, viewport: Viewport,
-        bindingSet: IBindingSet | null): GraphicsState {
+        bindingSet: IBindingSet | null, vertexBuffer: IBuffer | null, indexBuffer: IBuffer | null, indexFormat: Format): GraphicsState {
         const noViewport: Viewport = [0, 0, 0, 0, 0, 0];
         const noRect: Rect = [0, 0, 0, 0];
         // nvrhi::Rect(viewport): the pixels it covers
         const scissor: Rect = [<s32>Math.floor(viewport.minX), <s32>Math.ceil(viewport.maxX),
             <s32>Math.floor(viewport.minY), <s32>Math.ceil(viewport.maxY)];
         const noBuffer: VertexBufferBinding = [null, 0, 0];
+        // (counts from `x ? 1 : 0` fail to compile: TSLANG_ISSUES.md #14)
         let bindingSets: index = 0;
         if (bindingSet) {
             bindingSets = 1;
         }
+        let vertexBuffers: index = 0;
+        if (vertexBuffer) {
+            vertexBuffers = 1;
+        }
+        const vertexBinding: VertexBufferBinding = [vertexBuffer, 0, 0];
 
         return [pipeline, framebuffer,
             [[[viewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport,
@@ -232,9 +279,9 @@ export namespace nvrhi {
                     noRect, noRect, noRect, noRect, noRect, noRect, noRect, noRect], 1]],
             [false, 0, 0, 0], [0, 0, 0, 0], 0, 0, 1,
             [[bindingSet, null, null, null, null, null, null, null], bindingSets],
-            [[noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer,
-                noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer], 0],
-            [null, 0, 0], null, null];
+            [[vertexBinding, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer,
+                noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer], vertexBuffers],
+            [indexBuffer, <u8>indexFormat, 0], null, null];
     }
 
     // ICommandList::setGraphicsState
@@ -247,6 +294,13 @@ export namespace nvrhi {
     export function draw(commandList: ICommandList, vertexCount: u32): void {
         let args: DrawArguments = [vertexCount, 1, 0, 0, 0];
         commandList.draw(Ref(args));
+    }
+
+    // ICommandList::drawIndexed of indexCount indices, one instance (DrawArguments' vertexCount is
+    // the index count)
+    export function drawIndexed(commandList: ICommandList, indexCount: u32): void {
+        let args: DrawArguments = [indexCount, 1, 0, 0, 0];
+        commandList.drawIndexed(Ref(args));
     }
 
     // IDevice::createCommandList; null on failure. Release() it.

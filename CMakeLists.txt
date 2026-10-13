@@ -766,7 +766,7 @@ donut_compile_shaders_all_platforms(
     TARGET nvrhi_direct_shaders
     PROJECT_NAME "NVRHI Direct"
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.cfg
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.hlsl
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_textured.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct
 )
 if (NVRHI_DIRECT_BUILDS)
