@@ -23,7 +23,9 @@ namespace NvrhiDirect {
     //   framebuffer over the texture, vertex and pixel shaders, the render state with no depth test
     //   and no culling, a viewport), and into its top right quarter an indexed quad from a vertex
     //   buffer (an input layout), sampling a 2 x 2 texture (writeTexture, a sampler) scaled by a
-    //   constant buffer; read back through Donut, the bottom right quarter as cleared.
+    //   constant buffer, the bottom right quarter as cleared;
+    // - copies the texture into another (copyTexture), and that into a staging texture, mapped to
+    //   read it back.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -181,6 +183,22 @@ namespace NvrhiDirect {
             && nvrhi.stdStringIs(textureDesc.debugName, "Cleared texture"), "ITexture::getDesc");
         check(nvrhi.getNativeObject(texture, isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE) != null,
             "the texture has its native resource");
+
+        // the texture's copy, and a staging texture the copy is read back through:
+        // IDevice::createStagingTexture, IStagingTexture::getDesc
+        const copied = nvrhi.createTexture(device, nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM,
+            "Copied texture", nvrhi.RESOURCE_STATE_COPY_DEST));
+        let stagingDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Staging texture",
+            nvrhi.RESOURCE_STATE_COPY_DEST);
+        const staging = nvrhi.createStagingTexture(device, stagingDesc, nvrhi.CPU_ACCESS_READ);
+        if (!copied || !staging) {
+            check(false, "IDevice::createTexture and createStagingTexture");
+            return;
+        }
+        const keptStagingDesc = Deref(staging.getDesc());
+        check(keptStagingDesc.width == TEXTURE_SIZE && keptStagingDesc.height == TEXTURE_SIZE
+            && keptStagingDesc.format == <u8>Format.RGBA8_UNORM
+            && nvrhi.stdStringIs(keptStagingDesc.debugName, "Staging texture"), "IStagingTexture::getDesc");
 
         // The compute pipeline: IDevice::createShader of the bytecode ShaderMake compiled (DXIL,
         // SPIR-V), IShader::getDesc, getBytecode; its binding layout and set,
@@ -382,6 +400,11 @@ namespace NvrhiDirect {
         nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(texturedPipeline, framebuffer,
             [TEXTURE_SIZE / 2, TEXTURE_SIZE, 0, TEXTURE_SIZE / 2, 0, 1], texturedSet, vertexBuffer, indexBuffer, Format.R16_UINT));
         nvrhi.drawIndexed(commandList, 6);
+
+        // ICommandList::copyTexture, two of its overloads: the texture into its copy, the copy into
+        // the staging texture
+        nvrhi.copyTexture(commandList, copied, nvrhi.entireTexture(), texture, nvrhi.entireTexture());
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), copied, nvrhi.entireTexture());
         commandList.endMarker();
         commandList.close();
 
@@ -412,11 +435,26 @@ namespace NvrhiDirect {
         check(clearMismatches == 0, `ICommandList::clearBufferUInt (${clearMismatches} of ${COUNT} differ)`);
         check(computeMismatches == 0, `the compute dispatch (${computeMismatches} of ${COUNT} differ)`);
 
-        // the texture, read back through Donut (a staging texture)
+        // the texture's copy, read back through the staging texture: IDevice::mapStagingTexture (its
+        // rows rowPitch bytes apart: 256 on D3D12), unmapStagingTexture
         let pixels: u8[] = [];
         pixels.length = TEXTURE_SIZE * TEXTURE_SIZE * 4;
-        if (app.readTextureLevel(<TextureHandle><Opaque>texture, 0, <Opaque>Ref(pixels[0]), pixels.length) == 0) {
-            check(false, "the texture's readback");
+        let rowPitch: index = 0;
+        const mappedPixels = nvrhi.mapStagingTexture(device, staging, nvrhi.entireTexture(), nvrhi.CPU_ACCESS_READ, Ref(rowPitch));
+        const readBack = mappedPixels != null && rowPitch >= TEXTURE_SIZE * 4;
+        if (mappedPixels) {
+            if (readBack) {
+                const rows = <Ref<u8>>mappedPixels;
+                for (let y = 0; y < TEXTURE_SIZE; y++) {
+                    for (let i = 0; i < TEXTURE_SIZE * 4; i++) {
+                        pixels[y * TEXTURE_SIZE * 4 + i] = Deref(rows[y * rowPitch + i]);
+                    }
+                }
+            }
+            device.unmapStagingTexture(staging);
+        }
+        if (!readBack) {
+            check(false, `IDevice::mapStagingTexture (row pitch ${rowPitch})`);
         } else {
             // the left half drawn green; the top right quarter the texels, a pixel each, green
             // halved; the bottom right quarter as cleared
@@ -472,6 +510,8 @@ namespace NvrhiDirect {
         bindingLayout.Release();
         shader.Release();
         texture.Release();
+        copied.Release();
+        staging.Release();
         input.Release();
         output.Release();
         cleared.Release();
