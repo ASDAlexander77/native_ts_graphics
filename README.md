@@ -360,7 +360,8 @@ stencil cleared to 0 (`clearDepthStencilTexture`), set to 1 over one half by a d
 color, then a draw over everything where the stencil is 1, which colors that half only. A
 twelfth draws two instances of a quad in one draw, their offsets and colors instance attributes
 (`isInstanced`) from a vertex buffer: one in each half. A thirteenth has a compute shader write
-every pixel of a texture through a UAV (`isUAV`, a `Texture_UAV` binding) and reads it back.
+every pixel of a texture through a UAV (`isUAV`, a `Texture_UAV` binding) and reads it back. A
+fourteenth has one read a structured buffer (`structStride`) into a raw buffer (`canHaveRawViews`).
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

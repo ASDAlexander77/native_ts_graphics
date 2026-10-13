@@ -771,6 +771,7 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_push_constants.hlsl
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_mrt.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_msaa.hlsl
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_instanced.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_texture_uav.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_buffers.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct
 )
 if (NVRHI_DIRECT_BUILDS)
