@@ -49,6 +49,7 @@ export namespace nvrhi {
     export const RESOURCE_STATE_SHADER_RESOURCE: u32 = 0x60;
     export const RESOURCE_STATE_UNORDERED_ACCESS: u32 = 0x80;
     export const RESOURCE_STATE_RENDER_TARGET: u32 = 0x100;
+    export const RESOURCE_STATE_DEPTH_WRITE: u32 = 0x200;
     export const RESOURCE_STATE_COPY_DEST: u32 = 0x1000;
     export const RESOURCE_STATE_COPY_SOURCE: u32 = 0x2000;
 

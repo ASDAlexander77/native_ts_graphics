@@ -328,7 +328,7 @@ export namespace nvrhi {
         @slot(8) close(): void;
         @slot(9) clearState(): void;
         @slot(10) clearTextureFloat(t: ITexture, mips: u64, arraySlices: u64, clearColor: Ref<Color>): void;
-        // skipped: clearDepthStencilTexture — parameter 'subresources': struct passed by value
+        @slot(11) clearDepthStencilTexture(t: ITexture, mips: u64, arraySlices: u64, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;
         // skipped: clearTextureUInt — parameter 'subresources': struct passed by value
         @slot(13) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(14) copyTexture(dest: IStagingTexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
@@ -395,5 +395,14 @@ export namespace nvrhi {
         const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
         let colorValue = color;
         commandList.clearTextureFloat(texture, mips, arraySlices, Ref(colorValue));
+    }
+
+    // ICommandList::clearDepthStencilTexture: the TextureSubresourceSet by value, its two halves in
+    // two registers (as in clearTextureFloat)
+    export function clearDepthStencilTexture(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        commandList.clearDepthStencilTexture(texture, mips, arraySlices, clearDepth, depth, clearStencil, stencil);
     }
 }

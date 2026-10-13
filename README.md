@@ -306,7 +306,8 @@ if (commandList) {
   `ComputePipelineDesc`, `ComputeState`, ...). That layout depends on the C++ build (`std::string`'s
   on the CRT's debug or release build), so `nvrhi.layoutMatches()` compares the tuples' sizes with the C++ ones. A
   struct passed by value is the ABIs' difference: MSVC passes a pointer to a copy, the Itanium ABI
-  the fields in registers (`clearTextureFloat`'s `TextureSubresourceSet`, see the script).
+  the fields in registers (the `TextureSubresourceSet` of `clearTextureFloat` and
+  `clearDepthStencilTexture`, see the script).
 - **Callbacks.** `nvrhi.IMessageCallback` goes the other way: a `@cpp` class extending it
   whose `message()` has a body is an object NVRHI calls, through the vtable tslang makes for it.
   Pass it to `Donut_SetNvrhiMessageCallback` before creating the app, and keep it in a global
@@ -335,6 +336,11 @@ Donut's wrappers elsewhere or with `-donut`. CTest runs both: `headless.<api>` a
    cleared;
 6. copies the texture into another, and that into a staging texture (two of `copyTexture`'s
    overloads), which it maps to read the pixels back, row by row (`mapStagingTexture`'s row pitch).
+
+A second command list tests the depth test: a framebuffer of a color and a D32 depth texture, the
+depth cleared to 1 (`clearDepthStencilTexture`), and the default render state (Less, depth writes).
+One draw of a near quad over the left half, then a far triangle over the whole texture: the left half
+keeps the near one's color.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

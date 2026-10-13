@@ -26,6 +26,8 @@ namespace NvrhiDirect {
     //   constant buffer, the bottom right quarter as cleared;
     // - copies the texture into another (copyTexture), and that into a staging texture, mapped to
     //   read it back.
+    // Then another, the depth test (testDepth): two triangles drawn into a color texture with a
+    // depth texture, the nearer drawn first.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -100,6 +102,115 @@ namespace NvrhiDirect {
         }
 
         return nvrhi.createShader(device, nvrhi.shaderDesc(shaderType, entryName, entryName), file.getData(), file.getSize());
+    }
+
+    // The pixels of a TEXTURE_SIZE x TEXTURE_SIZE RGBA8 staging texture: IDevice::mapStagingTexture
+    // (its rows rowPitch bytes apart: 256 on D3D12), unmapStagingTexture. None on failure, reported.
+    function readStaging(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture): u8[] {
+        let pixels: u8[] = [];
+        let rowPitch: index = 0;
+        const mapped = nvrhi.mapStagingTexture(device, staging, nvrhi.entireTexture(), nvrhi.CPU_ACCESS_READ, Ref(rowPitch));
+        if (!mapped) {
+            check(false, "IDevice::mapStagingTexture");
+            return pixels;
+        }
+        if (rowPitch < TEXTURE_SIZE * 4) {
+            check(false, `IDevice::mapStagingTexture's row pitch (${rowPitch})`);
+        } else {
+            pixels.length = TEXTURE_SIZE * TEXTURE_SIZE * 4;
+            const rows = <Ref<u8>>mapped;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let i = 0; i < TEXTURE_SIZE * 4; i++) {
+                    pixels[y * TEXTURE_SIZE * 4 + i] = Deref(rows[y * rowPitch + i]);
+                }
+            }
+        }
+        device.unmapStagingTexture(staging);
+        return pixels;
+    }
+
+    // The depth test, with a command list of its own: a color texture and a D32 depth texture
+    // (IDevice::createTexture), a framebuffer of both; ICommandList::clearDepthStencilTexture to 1;
+    // a pipeline with the default render state (depth test Less, depth writes) but for culling. One
+    // draw of a near red quad over the left half, then a far blue triangle over the whole texture
+    // (triangles are drawn in order): the left half stays red. Read back through a staging texture.
+    function testDepth(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        let depthDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.D32, "Depth texture",
+            nvrhi.RESOURCE_STATE_DEPTH_WRITE);
+        depthDesc.isRenderTarget = true;
+        const depth = nvrhi.createTexture(device, depthDesc);
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct_depth", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct_depth", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!color || !depth || !staging || !vertexShader || !pixelShader || !commandList) {
+            check(false, "the depth test's textures, shaders and command list");
+            return;
+        }
+        const keptDepthDesc = Deref(depth.getDesc());
+        check(keptDepthDesc.format == <u8>Format.D32 && keptDepthDesc.isRenderTarget
+            && nvrhi.stdStringIs(keptDepthDesc.debugName, "Depth texture"), "the depth texture's desc");
+
+        // IFramebuffer::getFramebufferInfo: the depth format; the pipeline for it
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(color, depth));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer with a depth attachment");
+            return;
+        }
+        check(Deref(framebuffer.getFramebufferInfo()).depthFormat == <u8>Format.D32, "IFramebuffer::getFramebufferInfo's depth format");
+        let renderState = nvrhi.renderState();
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
+        if (!pipeline) {
+            check(false, "IDevice::createGraphicsPipeline with the depth test");
+            return;
+        }
+
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        nvrhi.clearDepthStencilTexture(commandList, depth, nvrhi.allSubresources(), true, 1.0, false, 0);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(pipeline, framebuffer,
+            [0, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1], null, null, null, Format.UNKNOWN));
+        nvrhi.draw(commandList, 9);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the depth test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let nearMismatches = 0;
+            let farMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColor(pixels, i, 255, 0, 0)) {
+                            nearMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 0, 0, 255)) {
+                        farMismatches++;
+                    }
+                }
+            }
+            const right = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Depth tested: near (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), `
+                + `far (${pixels[right]}, ${pixels[right + 1]}, ${pixels[right + 2]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(nearMismatches == 0, `the depth test keeps the nearer triangle (${nearMismatches} of ${half} pixels differ)`);
+            check(farMismatches == 0, `the farther triangle where the depth is cleared (${farMismatches} of ${half} pixels differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        depth.Release();
+        color.Release();
     }
 
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
@@ -255,7 +366,7 @@ namespace NvrhiDirect {
         // getFramebufferInfo; the vertex and pixel shaders; IDevice::createGraphicsPipeline (for the
         // framebuffer) with the default render state but for the depth test and culling,
         // IGraphicsPipeline::getDesc
-        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(texture));
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(texture, null));
         if (!framebuffer) {
             check(false, "IDevice::createFramebuffer");
             return;
@@ -435,27 +546,9 @@ namespace NvrhiDirect {
         check(clearMismatches == 0, `ICommandList::clearBufferUInt (${clearMismatches} of ${COUNT} differ)`);
         check(computeMismatches == 0, `the compute dispatch (${computeMismatches} of ${COUNT} differ)`);
 
-        // the texture's copy, read back through the staging texture: IDevice::mapStagingTexture (its
-        // rows rowPitch bytes apart: 256 on D3D12), unmapStagingTexture
-        let pixels: u8[] = [];
-        pixels.length = TEXTURE_SIZE * TEXTURE_SIZE * 4;
-        let rowPitch: index = 0;
-        const mappedPixels = nvrhi.mapStagingTexture(device, staging, nvrhi.entireTexture(), nvrhi.CPU_ACCESS_READ, Ref(rowPitch));
-        const readBack = mappedPixels != null && rowPitch >= TEXTURE_SIZE * 4;
-        if (mappedPixels) {
-            if (readBack) {
-                const rows = <Ref<u8>>mappedPixels;
-                for (let y = 0; y < TEXTURE_SIZE; y++) {
-                    for (let i = 0; i < TEXTURE_SIZE * 4; i++) {
-                        pixels[y * TEXTURE_SIZE * 4 + i] = Deref(rows[y * rowPitch + i]);
-                    }
-                }
-            }
-            device.unmapStagingTexture(staging);
-        }
-        if (!readBack) {
-            check(false, `IDevice::mapStagingTexture (row pitch ${rowPitch})`);
-        } else {
+        // the texture's copy, read back through the staging texture
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
             // the left half drawn green; the top right quarter the texels, a pixel each, green
             // halved; the bottom right quarter as cleared
             let clearMismatches = 0;
@@ -487,6 +580,8 @@ namespace NvrhiDirect {
             check(drawMismatches == 0, `ICommandList::draw (${drawMismatches} of ${2 * quarter} pixels differ)`);
             check(texturedMismatches == 0, `ICommandList::drawIndexed, the texture and the constant buffer (${texturedMismatches} of ${quarter} pixels differ)`);
         }
+
+        testDepth(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
