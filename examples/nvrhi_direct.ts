@@ -36,7 +36,8 @@ namespace NvrhiDirect {
     // render targets (testMultipleRenderTargets); and another, multisampling and its resolve
     // (testMultisampleResolve); and another, event and timer queries (testQueries); and another,
     // the stencil test (testStencil); and another, instancing (testInstancing); and another, a
-    // compute shader writing a texture (testTextureUav).
+    // compute shader writing a texture (testTextureUav); and another, structured and raw buffers
+    // (testStructuredAndRawBuffers).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -1127,6 +1128,82 @@ namespace NvrhiDirect {
         output.Release();
     }
 
+    // Structured and raw buffers, with a command list of its own: a structured buffer of 16 items
+    // of two uints (BufferDesc::structStride 8) and a raw buffer (canHaveRawViews), a binding
+    // layout and set of their views (StructuredBuffer_SRV, RawBuffer_UAV), a compute pipeline
+    // (nvrhi_direct_buffers.hlsl) storing item i's a * 100 + b at byte 4 i. Read back through a
+    // buffer.
+    function testStructuredAndRawBuffers(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const ITEMS = 16;
+        let itemsDesc = nvrhi.bufferDesc(ITEMS * 8, "Items", nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
+        itemsDesc.structStride = 8;
+        const items = nvrhi.createBuffer(device, itemsDesc);
+        let rawDesc = nvrhi.bufferDesc(ITEMS * 4, "Raw output", nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
+        rawDesc.canHaveRawViews = true;
+        rawDesc.canHaveUAVs = true;
+        const raw = nvrhi.createBuffer(device, rawDesc);
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(ITEMS * 4, "Raw readback", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const shader = loadShader(app, device, isD3D12, "nvrhi_direct_buffers", "main_cs", nvrhi.SHADER_TYPE_COMPUTE);
+        const layout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_COMPUTE, [
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_STRUCTURED_BUFFER_SRV),
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_RAW_BUFFER_UAV)]);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!items || !raw || !readback || !shader || !layout || !commandList) {
+            check(false, "the structured and raw buffer test's buffers, shader, binding layout and command list");
+            return;
+        }
+        check(Deref(items.getDesc()).structStride == 8 && Deref(raw.getDesc()).canHaveRawViews,
+            "IBuffer::getDesc's structStride and canHaveRawViews");
+        const bindingSet = nvrhi.createBindingSet(device, layout, [
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_STRUCTURED_BUFFER_SRV, items),
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_RAW_BUFFER_UAV, raw)]);
+        if (!bindingSet) {
+            check(false, "IDevice::createBindingSet of a structured and a raw buffer");
+            return;
+        }
+        const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, layout));
+        if (!pipeline) {
+            check(false, "IDevice::createComputePipeline over structured and raw buffers");
+            return;
+        }
+
+        // item i: a = i, b = 2 i + 1
+        let itemData: u32[] = [];
+        for (let i = 0; i < ITEMS; i++) {
+            itemData.push(i);
+            itemData.push(2 * i + 1);
+        }
+        commandList.open();
+        commandList.writeBuffer(items, <Opaque>Ref(itemData[0]), ITEMS * 8, 0);
+        nvrhi.setComputeState(commandList, nvrhi.computeState(pipeline, bindingSet));
+        commandList.dispatch(1, 1, 1);
+        commandList.copyBuffer(readback, 0, raw, 0, ITEMS * 4);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the structured and raw buffer test");
+
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let mismatches = 0;
+        for (let i = 0; i < ITEMS; i++) {
+            if (Deref(mapped[i]) != i * 100 + 2 * i + 1) {
+                mismatches++;
+            }
+        }
+        console.log(`Structured into raw: [${Deref(mapped[0])}, ${Deref(mapped[1])}, ..., ${Deref(mapped[ITEMS - 1])}]`);
+        device.unmapBuffer(readback);
+        check(mismatches == 0, `a structured buffer read into a raw buffer (${mismatches} of ${ITEMS} differ)`);
+
+        commandList.Release();
+        pipeline.Release();
+        bindingSet.Release();
+        layout.Release();
+        shader.Release();
+        readback.Release();
+        raw.Release();
+        items.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -1507,6 +1584,7 @@ namespace NvrhiDirect {
         testStencil(app, device, isD3D12);
         testInstancing(app, device, isD3D12);
         testTextureUav(app, device, isD3D12);
+        testStructuredAndRawBuffers(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
