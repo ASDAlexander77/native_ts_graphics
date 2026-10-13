@@ -8,13 +8,12 @@
 // The `nvrhi` namespace is made of four modules, as the default library is of lib.ts and
 // lib.<os>.ts; the imports of "./nvrhi_abi" and "./nvrhi_classes" take the target's files, for
 // the C++ ABI of MSVC x64 on Windows (win32), the Itanium ABI of Android's clang (linux):
-// - core/nvrhi_types.ts: the structs and constants every C++ ABI lays out the same way;
-// - core/nvrhi_abi.<os>.ts: the structs holding an std::string, the C++ library's (the release
-//   CRT's, libc++'s);
-// - core/nvrhi_classes.<os>.ts: the classes, generated from NVRHI's headers by
-//   tools/gen_nvrhi_classes.py (with tsbindgen; run it again after updating NVRHI or tslang),
-//   every method with its C++ compiler's slot. A struct a method takes whose tuple isn't declared
-//   in the files above is an Opaque there: declare it to call the method with it;
+// - core/nvrhi_types.ts: the constants, and the records methods return, the same for every ABI;
+// - core/nvrhi_classes.<os>.ts: the classes and the structs they take, generated from NVRHI's
+//   headers by tools/gen_nvrhi_classes.py (with tsbindgen; run it again after updating NVRHI or
+//   tslang): every method with its C++ compiler's slot, every struct with the ABI's layout, the
+//   C++ library's std::string (basic_string_char), static_vector and RefCountPtr included;
+// - core/nvrhi_abi.<os>.ts: debug names, std::strings made the C++ library's way;
 // - this file: the functions below, the same for both.
 //
 // Objects returned with a reference (createBuffer, createTexture, createCommandList,
@@ -28,7 +27,7 @@
 
 /// <reference path="donut_interop.d.ts" />
 
-import "./nvrhi_classes";
+import "./nvrhi_abi";
 
 export namespace nvrhi {
 
@@ -63,7 +62,7 @@ export namespace nvrhi {
     // Format is NVRHI's), a debug name (see stdString) and the state NVRHI keeps it in.
     export function textureDesc(width: int, height: int, format: Format, debugName: string, initialState: u32): TextureDesc {
         return [width, height, 1, 1, 1, 1, 0, <u8>format, TEXTURE_DIMENSION_2D, stdString(debugName),
-            0, 1, 2, 3, true, false, false, false, false, 0, false, false, 0, 0, 0, 0, false,
+            [0, 1, 2, 3], true, false, false, false, false, 0, false, false, [0, 0, 0, 0], false,
             initialState, initialState != RESOURCE_STATE_UNKNOWN];
     }
 
@@ -77,14 +76,15 @@ export namespace nvrhi {
         return [true, 64 * 1024, 64 * 1024, 1024 * 1024 * 1024, COMMAND_QUEUE_GRAPHICS, null];
     }
 
-    // A ComputePipelineDesc of a shader and one binding layout
+    // A ComputePipelineDesc of a shader and one binding layout. Its RefCountPtrs hold no reference
+    // here: NVRHI copies the desc, adding the references it keeps, and nothing destroys this one.
     export function computePipelineDesc(shader: IShader, bindingLayout: IBindingLayout): ComputePipelineDesc {
-        return [<Opaque>shader, <Opaque>bindingLayout, null, null, null, null, null, null, null, 1];
+        return [[shader], [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], 1]];
     }
 
     // A ComputeState of a pipeline and one binding set
     export function computeState(pipeline: IComputePipeline, bindingSet: IBindingSet): ComputeState {
-        return [<Opaque>pipeline, <Opaque>bindingSet, null, null, null, null, null, null, null, 1, null];
+        return [pipeline, [[bindingSet, null, null, null, null, null, null, null], 1], null];
     }
 
     // IDevice::createBuffer; null on failure. Release() it.
