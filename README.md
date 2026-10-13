@@ -345,7 +345,9 @@ cleared texture, alpha blended (SrcAlpha, InvSrcAlpha) into one half and added (
 other under a write mask of red and blue. A fourth sets push constants (a binding layout and set
 of 16 bytes for the pixel shader) before each of two draws, a color for each half. A fifth draws
 indirectly (`drawIndirect`), from arguments the command list writes into a buffer: from offset
-16 into one half, and from offset 0, no instance, into the other, which stays as cleared.
+16 into one half, and from offset 0, no instance, into the other, which stays as cleared. A sixth
+dispatches the compute pipeline indirectly (`dispatchIndirect`) the same way: from offset 12 into
+one output buffer, and from offset 0, no group, into another, which stays as cleared.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;
