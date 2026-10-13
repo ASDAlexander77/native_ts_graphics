@@ -3306,6 +3306,14 @@ extern "C"
             return int(sizeof(nvrhi::ComputePipelineDesc));
         if (n == "ComputeState")
             return int(sizeof(nvrhi::ComputeState));
+        if (n == "BindingLayoutItem")
+            return int(sizeof(nvrhi::BindingLayoutItem));
+        if (n == "BindingLayoutDesc")
+            return int(sizeof(nvrhi::BindingLayoutDesc));
+        if (n == "BindingSetItem")
+            return int(sizeof(nvrhi::BindingSetItem));
+        if (n == "BindingSetDesc")
+            return int(sizeof(nvrhi::BindingSetDesc));
         return -1;
     }
 

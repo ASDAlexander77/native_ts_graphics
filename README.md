@@ -291,7 +291,9 @@ if (commandList) {
   the ABI's layout: `BufferDesc`'s `debugName` is the C++ library's `std::string`
   (`basic_string_char`), `ComputeState`'s `bindings` a `static_vector_IBindingSet_8` (its
   elements, then `current_size`), `ComputePipelineDesc`'s `CS` a `RefCountPtr_IShader`. Those are
-  nested tuples, so a literal nests too (`nvrhi.computeState()`). The script writes the methods
+  nested tuples, so a literal nests too (`nvrhi.computeState()`). A `std::vector` field
+  (`BindingLayoutDesc`'s and `BindingSetDesc`'s items) points at a tslang array's elements, for
+  the call only: `nvrhi.createBindingLayout()` and `createBindingSet()` build it. The script writes the methods
   taking a struct by value that tsbindgen leaves out, for each ABI (`BY_VALUE`).
 - **Signatures.** An object returned by value is a tuple with its layout: `RefCountPtr<T>`
   (`@cppnontrivial`, as it has a destructor) and `nvrhi::Object`. tslang passes the hidden pointer
@@ -317,8 +319,8 @@ Donut's wrappers elsewhere or with `-donut`. CTest runs both: `headless.<api>` a
 `nvrhi_direct` is a headless test of every bound method, not a sample; on Android it runs through
 `adb shell`, as `headless` does. One command list:
 1. uploads numbers into a buffer and clears another;
-2. runs a compute shader over the uploaded numbers (its pipeline made directly, its binding set by
-   Donut);
+2. runs a compute shader over the uploaded numbers (its binding layout, binding set and pipeline
+   made directly, its shader by Donut);
 3. copies the three into a readback buffer, the last copy with hand-made barriers;
 4. clears a texture, read back through Donut.
 

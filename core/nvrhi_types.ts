@@ -49,6 +49,23 @@ export namespace nvrhi {
     export const RESOURCE_STATE_COPY_DEST: u32 = 0x1000;
     export const RESOURCE_STATE_COPY_SOURCE: u32 = 0x2000;
 
+    // nvrhi::ShaderType (a bit mask)
+    export const SHADER_TYPE_COMPUTE: u16 = 0x20;
+
+    // nvrhi::ResourceType
+    export const RESOURCE_TYPE_NONE: u8 = 0;
+    export const RESOURCE_TYPE_TEXTURE_SRV: u8 = 1;
+    export const RESOURCE_TYPE_TEXTURE_UAV: u8 = 2;
+    export const RESOURCE_TYPE_TYPED_BUFFER_SRV: u8 = 3;
+    export const RESOURCE_TYPE_TYPED_BUFFER_UAV: u8 = 4;
+    export const RESOURCE_TYPE_STRUCTURED_BUFFER_SRV: u8 = 5;
+    export const RESOURCE_TYPE_STRUCTURED_BUFFER_UAV: u8 = 6;
+    export const RESOURCE_TYPE_RAW_BUFFER_SRV: u8 = 7;
+    export const RESOURCE_TYPE_RAW_BUFFER_UAV: u8 = 8;
+    export const RESOURCE_TYPE_CONSTANT_BUFFER: u8 = 9;
+    export const RESOURCE_TYPE_VOLATILE_CONSTANT_BUFFER: u8 = 10;
+    export const RESOURCE_TYPE_SAMPLER: u8 = 11;
+
     // nvrhi::ObjectTypes (some)
     export const OBJECT_TYPE_D3D11_DEVICE: u32 = 0x00010001;
     export const OBJECT_TYPE_D3D12_DEVICE: u32 = 0x00020001;

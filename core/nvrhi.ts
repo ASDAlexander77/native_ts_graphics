@@ -47,7 +47,11 @@ export namespace nvrhi {
             && sizeof<Color>() == Donut_GetNvrhiStructSize("Color")
             && sizeof<CommandListParameters>() == Donut_GetNvrhiStructSize("CommandListParameters")
             && sizeof<ComputePipelineDesc>() == Donut_GetNvrhiStructSize("ComputePipelineDesc")
-            && sizeof<ComputeState>() == Donut_GetNvrhiStructSize("ComputeState");
+            && sizeof<ComputeState>() == Donut_GetNvrhiStructSize("ComputeState")
+            && sizeof<BindingLayoutItem>() == Donut_GetNvrhiStructSize("BindingLayoutItem")
+            && sizeof<BindingLayoutDesc>() == Donut_GetNvrhiStructSize("BindingLayoutDesc")
+            && sizeof<BindingSetItem>() == Donut_GetNvrhiStructSize("BindingSetItem")
+            && sizeof<BindingSetDesc>() == Donut_GetNvrhiStructSize("BindingSetDesc");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -99,6 +103,39 @@ export namespace nvrhi {
         let descValue = desc;
         const handle = device.createTexture(Ref(descValue));
         return handle.pointer ? <ITexture><Opaque>handle.pointer : null;
+    }
+
+    // nvrhi::BindingLayoutItem's initializers (Texture_SRV(slot), TypedBuffer_UAV(slot), ...): a
+    // resource of a type in a slot, an array of one. Its type, unused byte and size are bit fields
+    // of one 32-bit word.
+    export function bindingLayoutItem(slot: u32, type: u8): BindingLayoutItem {
+        return [slot, [<u32>type + 0x10000]];
+    }
+
+    // nvrhi::BindingSetItem::TypedBuffer_SRV and the like (a buffer of the type's kind in a slot), the
+    // whole buffer, its format the buffer's. The type, the texture dimension (0), the format (0), and
+    // an unused byte are bit fields of one word; the buffer range (offset 0, size ~0, which
+    // BufferRange resolves to the buffer's) shares its bytes with a texture's subresources.
+    export function bufferBindingSetItem(slot: u32, type: u8, buffer: IBuffer): BindingSetItem {
+        return [buffer, slot, 0, [<u32>type], 0, 0, [0, 0xffffffffffffffff]];
+    }
+
+    // IDevice::createBindingLayout of the items, visible to the shader stages in visibility
+    // (SHADER_TYPE_*); null on failure. Release() it.
+    export function createBindingLayout(device: IDevice, visibility: u16, items: BindingLayoutItem[]): IBindingLayout | null {
+        let desc: BindingLayoutDesc = [visibility, 0, false, bindingLayoutItems(items), [0, 128, 256, 384]];
+        const handle = device.createBindingLayout(Ref(desc));
+        const layout = handle.pointer ? <IBindingLayout><Opaque>handle.pointer : null;
+        return layout;
+    }
+
+    // IDevice::createBindingSet of the items on the layout, which NVRHI keeps alive; null on
+    // failure. Release() it.
+    export function createBindingSet(device: IDevice, layout: IBindingLayout, items: BindingSetItem[]): IBindingSet | null {
+        let desc: BindingSetDesc = [bindingSetItems(items), true];
+        const handle = device.createBindingSet(Ref(desc), layout);
+        const set = handle.pointer ? <IBindingSet><Opaque>handle.pointer : null;
+        return set;
     }
 
     // IDevice::createCommandList; null on failure. Release() it.
