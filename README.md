@@ -289,11 +289,15 @@ if (commandList) {
   agree but for plain `char`'s sign; needs the Android NDK). Run it after updating NVRHI or tslang,
   and commit the output; don't edit it. tsbindgen also lays out every struct the classes take, in
   the ABI's layout: `BufferDesc`'s `debugName` is the C++ library's `std::string`
-  (`basic_string_char`), `ComputeState`'s `bindings` a `static_vector_IBindingSet_8` (its
-  elements, then `current_size`), `ComputePipelineDesc`'s `CS` a `RefCountPtr_IShader`. Those are
-  nested tuples, so a literal nests too (`nvrhi.computeState()`). A `std::vector` field
+  (`basic_string_char`), `ComputeState`'s `bindings` a `static_vector8<IBindingSet | null>` (its
+  elements, then `current_size`), `ComputePipelineDesc`'s `CS` a `RefCountPtr<IShader>`. The
+  script writes a template's specializations, which tsbindgen lays out one by one, as one generic
+  tuple: `vector<T>` (each C++ library's `std::vector`), `static_vector8<T>` and
+  `static_vector16<T>` (tslang has no type of N elements), `RefCountPtr<T>`. Those are nested
+  tuples, so a literal nests too (`nvrhi.computeState()`). A `std::vector` field
   (`BindingLayoutDesc`'s and `BindingSetDesc`'s items) points at a tslang array's elements, for
-  the call only: `nvrhi.createBindingLayout()` and `createBindingSet()` build it. The script writes the methods
+  the call only: `nvrhi.stdVector()` makes it, as `nvrhi.createBindingLayout()` and
+  `createBindingSet()` do. The script writes the methods
   taking a struct by value that tsbindgen leaves out, for each ABI (`BY_VALUE`).
 - **Signatures.** An object returned by value is a tuple with its layout: `RefCountPtr<T>`
   (`@cppnontrivial`, as it has a destructor) and `nvrhi::Object`. tslang passes the hidden pointer

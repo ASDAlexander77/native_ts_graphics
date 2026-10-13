@@ -10,6 +10,9 @@
 import "./nvrhi_types";
 
 export namespace nvrhi {
+    export type vector<T> = [__begin_: Ref<T> | null, __end_: Ref<T> | null, __cap_: Ref<T> | null];
+    export type static_vector8<T> = [__elems_: [_0: T, _1: T, _2: T, _3: T, _4: T, _5: T, _6: T, _7: T], current_size: index];
+    export type static_vector16<T> = [__elems_: [_0: T, _1: T, _2: T, _3: T, _4: T, _5: T, _6: T, _7: T, _8: T, _9: T, _10: T, _11: T, _12: T, _13: T, _14: T, _15: T], current_size: index];
     export type MemoryRequirements = [size: u64, alignment: u64];
     export type Color = [r: f32, g: f32, b: f32, a: f32];
     export type Viewport = [minX: f32, maxX: f32, minY: f32, maxY: f32, minZ: f32, maxZ: f32];
@@ -36,19 +39,19 @@ export namespace nvrhi {
     export type RasterState = [fillMode: u8, cullMode: u8, frontCounterClockwise: boolean, depthClipEnable: boolean, scissorEnable: boolean, multisampleEnable: boolean, antialiasedLineEnable: boolean, depthBias: s32, depthBiasClamp: f32, slopeScaledDepthBias: f32, forcedSampleCount: u8, programmableSamplePositionsEnable: boolean, conservativeRasterEnable: boolean, conservativeRasterExtraOverestimation: f32, quadFillEnable: boolean, samplePositionsX: [_0: s8, _1: s8, _2: s8, _3: s8, _4: s8, _5: s8, _6: s8, _7: s8, _8: s8, _9: s8, _10: s8, _11: s8, _12: s8, _13: s8, _14: s8, _15: s8], samplePositionsY: [_0: s8, _1: s8, _2: s8, _3: s8, _4: s8, _5: s8, _6: s8, _7: s8, _8: s8, _9: s8, _10: s8, _11: s8, _12: s8, _13: s8, _14: s8, _15: s8], lineRasterizationMode: u8, lineWidth: f32, lineStippleEnable: boolean, lineStippleFactor: u32, lineStipplePattern: u16];
     export type DepthStencilState = [depthTestEnable: boolean, depthWriteEnable: boolean, depthFunc: u8, stencilEnable: boolean, stencilReadMask: u8, stencilWriteMask: u8, stencilRefValue: u8, dynamicStencilRef: boolean, frontFaceStencil: StencilOpDesc, backFaceStencil: StencilOpDesc, depthBoundsTestEnable: boolean];
     export type StencilOpDesc = [failOp: u8, depthFailOp: u8, passOp: u8, stencilFunc: u8];
-    export type ViewportState = [viewports: static_vector_Viewport_16, scissorRects: static_vector_Rect_16];
+    export type ViewportState = [viewports: static_vector16<Viewport>, scissorRects: static_vector16<Rect>];
     export type SamplerDesc = [borderColor: Color, maxAnisotropy: f32, mipBias: f32, minFilter: boolean, magFilter: boolean, mipFilter: boolean, addressU: u8, addressV: u8, addressW: u8, reductionType: u8, minLod: f32, maxLod: f32];
     export type FramebufferAttachment = [texture: ITexture | null, subresources: TextureSubresourceSet, format: u8, isReadOnly: boolean];
-    export type FramebufferDesc = [colorAttachments: static_vector_FramebufferAttachment_8, depthAttachment: FramebufferAttachment, shadingRateAttachment: FramebufferAttachment, colorResolveAttachments: static_vector_FramebufferAttachment_8, depthResolveAttachment: FramebufferAttachment, depthResolveMode: u8];
-    export type FramebufferInfo = [colorFormats: static_vector_Format_8, depthFormat: u8, sampleCount: u32, sampleQuality: u32];
-    export type FramebufferInfoEx = [colorFormats: static_vector_Format_8, depthFormat: u8, sampleCount: u32, sampleQuality: u32, width: u32, height: u32, arraySize: u32];
+    export type FramebufferDesc = [colorAttachments: static_vector8<FramebufferAttachment>, depthAttachment: FramebufferAttachment, shadingRateAttachment: FramebufferAttachment, colorResolveAttachments: static_vector8<FramebufferAttachment>, depthResolveAttachment: FramebufferAttachment, depthResolveMode: u8];
+    export type FramebufferInfo = [colorFormats: static_vector8<u8>, depthFormat: u8, sampleCount: u32, sampleQuality: u32];
+    export type FramebufferInfoEx = [colorFormats: static_vector8<u8>, depthFormat: u8, sampleCount: u32, sampleQuality: u32, width: u32, height: u32, arraySize: u32];
     export type OpacityMicromapUsageCount = [count: u32, subdivisionLevel: u32, format: s32];
-    export type OpacityMicromapDesc = [debugName: basic_string_char, trackLiveness: boolean, flags: u8, counts: vector_OpacityMicromapUsageCount, inputBuffer: IBuffer | null, inputBufferOffset: u64, perOmmDescs: IBuffer | null, perOmmDescsOffset: u64];
+    export type OpacityMicromapDesc = [debugName: basic_string_char, trackLiveness: boolean, flags: u8, counts: vector<OpacityMicromapUsageCount>, inputBuffer: IBuffer | null, inputBufferOffset: u64, perOmmDescs: IBuffer | null, perOmmDescsOffset: u64];
     export type GeometryTriangles = [indexBuffer: IBuffer | null, vertexBuffer: IBuffer | null, indexFormat: u8, vertexFormat: u8, indexOffset: u64, vertexOffset: u64, indexCount: u32, vertexCount: u32, vertexStride: u32, opacityMicromap: IOpacityMicromap | null, ommIndexBuffer: IBuffer | null, ommIndexBufferOffset: u64, ommIndexFormat: u8, pOmmUsageCounts: Ref<OpacityMicromapUsageCount> | null, numOmmUsageCounts: u32];
     export type GeometryDesc = [geometryData: GeometryTriangles, useTransform: boolean, transform: [_0: f32, _1: f32, _2: f32, _3: f32, _4: f32, _5: f32, _6: f32, _7: f32, _8: f32, _9: f32, _10: f32, _11: f32], flags: u8, geometryType: u8];
     export type InstanceDesc = [transform: [_0: f32, _1: f32, _2: f32, _3: f32, _4: f32, _5: f32, _6: f32, _7: f32, _8: f32, _9: f32, _10: f32, _11: f32], instanceID: [_0: u64], bottomLevelAS: IAccelStruct | null];
     export type AccelStructPrebuildInfo = [resultBytes: u64, scratchBytes: u64, updateScratchBytes: u64];
-    export type AccelStructDesc = [topLevelMaxInstances: index, bottomLevelGeometries: vector_GeometryDesc, buildFlags: u8, debugName: basic_string_char, trackLiveness: boolean, isTopLevel: boolean, isVirtual: boolean];
+    export type AccelStructDesc = [topLevelMaxInstances: index, bottomLevelGeometries: vector<GeometryDesc>, buildFlags: u8, debugName: basic_string_char, trackLiveness: boolean, isTopLevel: boolean, isVirtual: boolean];
     export type OperationMoveParams = [type: u8, maxBytes: u32];
     export type OperationClasBuildParams = [vertexFormat: u8, maxGeometryIndex: u32, maxUniqueGeometryCount: u32, maxTriangleCount: u32, maxVertexCount: u32, maxTotalTriangleCount: u32, maxTotalVertexCount: u32, minPositionTruncateBitCount: u32];
     export type OperationBlasBuildParams = [maxClasPerBlasCount: u32, maxTotalClasCount: u32];
@@ -56,27 +59,27 @@ export namespace nvrhi {
     export type OperationDesc = [params: OperationParams, scratchSizeInBytes: u64, inIndirectArgCountBuffer: IBuffer | null, inIndirectArgCountOffsetInBytes: u64, inIndirectArgsBuffer: IBuffer | null, inIndirectArgsOffsetInBytes: u64, inOutAddressesBuffer: IBuffer | null, inOutAddressesOffsetInBytes: u64, outSizesBuffer: IBuffer | null, outSizesOffsetInBytes: u64, outAccelerationStructuresBuffer: IBuffer | null, outAccelerationStructuresOffsetInBytes: u64];
     export type BindingLayoutItem = [slot: u32, type: [_0: u32]];
     export type VulkanBindingOffsets = [shaderResource: u32, sampler: u32, constantBuffer: u32, unorderedAccess: u32];
-    export type BindingLayoutDesc = [visibility: u16, registerSpace: u32, registerSpaceIsDescriptorSet: boolean, bindings: vector_BindingLayoutItem, bindingOffsets: VulkanBindingOffsets];
-    export type BindlessLayoutDesc = [visibility: u16, firstSlot: u32, maxCapacity: u32, registerSpaces: static_vector_BindingLayoutItem_16, layoutType: s32];
+    export type BindingLayoutDesc = [visibility: u16, registerSpace: u32, registerSpaceIsDescriptorSet: boolean, bindings: vector<BindingLayoutItem>, bindingOffsets: VulkanBindingOffsets];
+    export type BindlessLayoutDesc = [visibility: u16, firstSlot: u32, maxCapacity: u32, registerSpaces: static_vector16<BindingLayoutItem>, layoutType: s32];
     export type BindingSetItem = [resourceHandle: IResource | null, slot: u32, arrayElement: u32, type: [_0: u32], overrideComponentMapping: u16, unused2: u16, _union: [_0: u64, _1: u64]];
-    export type BindingSetDesc = [bindings: vector_BindingSetItem, trackLiveness: boolean];
+    export type BindingSetDesc = [bindings: vector<BindingSetItem>, trackLiveness: boolean];
     export type SinglePassStereoState = [enabled: boolean, independentViewportMask: boolean, renderTargetIndexOffset: u16];
     export type RenderState = [blendState: BlendState, depthStencilState: DepthStencilState, rasterState: RasterState, singlePassStereo: SinglePassStereoState];
     export type VariableRateShadingState = [enabled: boolean, shadingRate: u8, pipelinePrimitiveCombiner: u8, imageCombiner: u8];
-    export type GraphicsPipelineDesc = [primType: u8, patchControlPoints: u32, inputLayout: RefCountPtr_IInputLayout, VS: RefCountPtr_IShader, HS: RefCountPtr_IShader, DS: RefCountPtr_IShader, GS: RefCountPtr_IShader, PS: RefCountPtr_IShader, renderState: RenderState, shadingRateState: VariableRateShadingState, bindingLayouts: static_vector_RefCountPtr_IBindingLayout_8, primitiveRestartIndexFormat: u8];
-    export type ComputePipelineDesc = [CS: RefCountPtr_IShader, bindingLayouts: static_vector_RefCountPtr_IBindingLayout_8];
-    export type MeshletPipelineDesc = [primType: u8, AS: RefCountPtr_IShader, MS: RefCountPtr_IShader, PS: RefCountPtr_IShader, renderState: RenderState, bindingLayouts: static_vector_RefCountPtr_IBindingLayout_8];
+    export type GraphicsPipelineDesc = [primType: u8, patchControlPoints: u32, inputLayout: RefCountPtr<IInputLayout>, VS: RefCountPtr<IShader>, HS: RefCountPtr<IShader>, DS: RefCountPtr<IShader>, GS: RefCountPtr<IShader>, PS: RefCountPtr<IShader>, renderState: RenderState, shadingRateState: VariableRateShadingState, bindingLayouts: static_vector8<RefCountPtr<IBindingLayout>>, primitiveRestartIndexFormat: u8];
+    export type ComputePipelineDesc = [CS: RefCountPtr<IShader>, bindingLayouts: static_vector8<RefCountPtr<IBindingLayout>>];
+    export type MeshletPipelineDesc = [primType: u8, AS: RefCountPtr<IShader>, MS: RefCountPtr<IShader>, PS: RefCountPtr<IShader>, renderState: RenderState, bindingLayouts: static_vector8<RefCountPtr<IBindingLayout>>];
     export type VertexBufferBinding = [buffer: IBuffer | null, slot: u32, offset: u64];
     export type IndexBufferBinding = [buffer: IBuffer | null, format: u8, offset: u32];
-    export type GraphicsState = [pipeline: IGraphicsPipeline | null, framebuffer: IFramebuffer | null, viewport: ViewportState, shadingRateState: VariableRateShadingState, blendConstantColor: Color, dynamicStencilRefValue: u8, depthBoundsMin: f32, depthBoundsMax: f32, bindings: static_vector_IBindingSet_8, vertexBuffers: static_vector_VertexBufferBinding_16, indexBuffer: IndexBufferBinding, indirectParams: IBuffer | null, indirectCountBuffer: IBuffer | null];
+    export type GraphicsState = [pipeline: IGraphicsPipeline | null, framebuffer: IFramebuffer | null, viewport: ViewportState, shadingRateState: VariableRateShadingState, blendConstantColor: Color, dynamicStencilRefValue: u8, depthBoundsMin: f32, depthBoundsMax: f32, bindings: static_vector8<IBindingSet | null>, vertexBuffers: static_vector16<VertexBufferBinding>, indexBuffer: IndexBufferBinding, indirectParams: IBuffer | null, indirectCountBuffer: IBuffer | null];
     export type DrawArguments = [vertexCount: u32, instanceCount: u32, startIndexLocation: u32, startVertexLocation: u32, startInstanceLocation: u32];
-    export type ComputeState = [pipeline: IComputePipeline | null, bindings: static_vector_IBindingSet_8, indirectParams: IBuffer | null];
-    export type MeshletState = [pipeline: IMeshletPipeline | null, framebuffer: IFramebuffer | null, viewport: ViewportState, blendConstantColor: Color, dynamicStencilRefValue: u8, bindings: static_vector_IBindingSet_8, indirectParams: IBuffer | null, indirectCountBuffer: IBuffer | null];
-    export type PipelineShaderDesc = [exportName: basic_string_char, shader: RefCountPtr_IShader, bindingLayout: RefCountPtr_IBindingLayout];
-    export type PipelineHitGroupDesc = [exportName: basic_string_char, closestHitShader: RefCountPtr_IShader, anyHitShader: RefCountPtr_IShader, intersectionShader: RefCountPtr_IShader, bindingLayout: RefCountPtr_IBindingLayout, isProceduralPrimitive: boolean];
-    export type PipelineDesc = [shaders: vector_PipelineShaderDesc, hitGroups: vector_PipelineHitGroupDesc, globalBindingLayouts: static_vector_RefCountPtr_IBindingLayout_8, maxPayloadSize: u32, maxAttributeSize: u32, maxRecursionDepth: u32, hlslExtensionsUAV: s32, allowOpacityMicromaps: boolean];
+    export type ComputeState = [pipeline: IComputePipeline | null, bindings: static_vector8<IBindingSet | null>, indirectParams: IBuffer | null];
+    export type MeshletState = [pipeline: IMeshletPipeline | null, framebuffer: IFramebuffer | null, viewport: ViewportState, blendConstantColor: Color, dynamicStencilRefValue: u8, bindings: static_vector8<IBindingSet | null>, indirectParams: IBuffer | null, indirectCountBuffer: IBuffer | null];
+    export type PipelineShaderDesc = [exportName: basic_string_char, shader: RefCountPtr<IShader>, bindingLayout: RefCountPtr<IBindingLayout>];
+    export type PipelineHitGroupDesc = [exportName: basic_string_char, closestHitShader: RefCountPtr<IShader>, anyHitShader: RefCountPtr<IShader>, intersectionShader: RefCountPtr<IShader>, bindingLayout: RefCountPtr<IBindingLayout>, isProceduralPrimitive: boolean];
+    export type PipelineDesc = [shaders: vector<PipelineShaderDesc>, hitGroups: vector<PipelineHitGroupDesc>, globalBindingLayouts: static_vector8<RefCountPtr<IBindingLayout>>, maxPayloadSize: u32, maxAttributeSize: u32, maxRecursionDepth: u32, hlslExtensionsUAV: s32, allowOpacityMicromaps: boolean];
     export type ShaderTableDesc = [isCached: boolean, maxEntries: u32, debugName: basic_string_char];
-    export type State = [shaderTable: IShaderTable | null, bindings: static_vector_IBindingSet_8];
+    export type State = [shaderTable: IShaderTable | null, bindings: static_vector8<IBindingSet | null>];
     export type DispatchRaysArguments = [width: u32, height: u32, depth: u32];
     export type MatMulFormatCombo = [inputType: s32, inputInterpretation: s32, matrixInterpretation: s32, biasInterpretation: s32, outputType: s32, transposeSupported: boolean];
     export type MatrixLayoutDesc = [buffer: IBuffer | null, offset: u64, type: s32, layout: s32, size: index, stride: index];
@@ -84,24 +87,6 @@ export namespace nvrhi {
     export type CommandListParameters = [enableImmediateExecution: boolean, uploadChunkSize: index, scratchChunkSize: index, scratchMaxMemory: index, queueType: u8, lifetimeTracker: ICommandListLifetimeTracker | null];
     export type AftermathCrashDumpHelper = Opaque;
     export type basic_string_char = [__rep_: [_0: u64, _1: u64, _2: u64]];
-    export type static_vector_FramebufferAttachment_8 = [__elems_: [_0: FramebufferAttachment, _1: FramebufferAttachment, _2: FramebufferAttachment, _3: FramebufferAttachment, _4: FramebufferAttachment, _5: FramebufferAttachment, _6: FramebufferAttachment, _7: FramebufferAttachment], current_size: index];
-    export type static_vector_Format_8 = [__elems_: [_0: u8, _1: u8, _2: u8, _3: u8, _4: u8, _5: u8, _6: u8, _7: u8], current_size: index];
-    export type vector_OpacityMicromapUsageCount = [__begin_: Ref<OpacityMicromapUsageCount> | null, __end_: Ref<OpacityMicromapUsageCount> | null, __cap_: Ref<OpacityMicromapUsageCount> | null];
-    export type vector_GeometryDesc = [__begin_: Ref<GeometryDesc> | null, __end_: Ref<GeometryDesc> | null, __cap_: Ref<GeometryDesc> | null];
-    export type vector_BindingLayoutItem = [__begin_: Ref<BindingLayoutItem> | null, __end_: Ref<BindingLayoutItem> | null, __cap_: Ref<BindingLayoutItem> | null];
-    export type static_vector_BindingLayoutItem_16 = [__elems_: [_0: BindingLayoutItem, _1: BindingLayoutItem, _2: BindingLayoutItem, _3: BindingLayoutItem, _4: BindingLayoutItem, _5: BindingLayoutItem, _6: BindingLayoutItem, _7: BindingLayoutItem, _8: BindingLayoutItem, _9: BindingLayoutItem, _10: BindingLayoutItem, _11: BindingLayoutItem, _12: BindingLayoutItem, _13: BindingLayoutItem, _14: BindingLayoutItem, _15: BindingLayoutItem], current_size: index];
-    export type vector_BindingSetItem = [__begin_: Ref<BindingSetItem> | null, __end_: Ref<BindingSetItem> | null, __cap_: Ref<BindingSetItem> | null];
-    export type RefCountPtr_IInputLayout = [ptr_: IInputLayout | null];
-    export type RefCountPtr_IShader = [ptr_: IShader | null];
-    export type RefCountPtr_IBindingLayout = [ptr_: IBindingLayout | null];
-    export type static_vector_RefCountPtr_IBindingLayout_8 = [__elems_: [_0: RefCountPtr_IBindingLayout, _1: RefCountPtr_IBindingLayout, _2: RefCountPtr_IBindingLayout, _3: RefCountPtr_IBindingLayout, _4: RefCountPtr_IBindingLayout, _5: RefCountPtr_IBindingLayout, _6: RefCountPtr_IBindingLayout, _7: RefCountPtr_IBindingLayout], current_size: index];
-    export type vector_PipelineShaderDesc = [__begin_: Ref<PipelineShaderDesc> | null, __end_: Ref<PipelineShaderDesc> | null, __cap_: Ref<PipelineShaderDesc> | null];
-    export type vector_PipelineHitGroupDesc = [__begin_: Ref<PipelineHitGroupDesc> | null, __end_: Ref<PipelineHitGroupDesc> | null, __cap_: Ref<PipelineHitGroupDesc> | null];
-    export type vector_MatMulFormatCombo = [__begin_: Ref<MatMulFormatCombo> | null, __end_: Ref<MatMulFormatCombo> | null, __cap_: Ref<MatMulFormatCombo> | null];
-    export type static_vector_Viewport_16 = [__elems_: [_0: Viewport, _1: Viewport, _2: Viewport, _3: Viewport, _4: Viewport, _5: Viewport, _6: Viewport, _7: Viewport, _8: Viewport, _9: Viewport, _10: Viewport, _11: Viewport, _12: Viewport, _13: Viewport, _14: Viewport, _15: Viewport], current_size: index];
-    export type static_vector_Rect_16 = [__elems_: [_0: Rect, _1: Rect, _2: Rect, _3: Rect, _4: Rect, _5: Rect, _6: Rect, _7: Rect, _8: Rect, _9: Rect, _10: Rect, _11: Rect, _12: Rect, _13: Rect, _14: Rect, _15: Rect], current_size: index];
-    export type static_vector_IBindingSet_8 = [__elems_: [_0: IBindingSet | null, _1: IBindingSet | null, _2: IBindingSet | null, _3: IBindingSet | null, _4: IBindingSet | null, _5: IBindingSet | null, _6: IBindingSet | null, _7: IBindingSet | null], current_size: index];
-    export type static_vector_VertexBufferBinding_16 = [__elems_: [_0: VertexBufferBinding, _1: VertexBufferBinding, _2: VertexBufferBinding, _3: VertexBufferBinding, _4: VertexBufferBinding, _5: VertexBufferBinding, _6: VertexBufferBinding, _7: VertexBufferBinding, _8: VertexBufferBinding, _9: VertexBufferBinding, _10: VertexBufferBinding, _11: VertexBufferBinding, _12: VertexBufferBinding, _13: VertexBufferBinding, _14: VertexBufferBinding, _15: VertexBufferBinding], current_size: index];
     @cpp
     export class IResource { // nvrhi::IResource
         @slot(2) AddRef(): u64;
@@ -127,7 +112,7 @@ export namespace nvrhi {
     export class ISamplerFeedbackTexture extends IResource { // nvrhi::ISamplerFeedbackTexture
         @slot(7) getDesc(): Ref<SamplerFeedbackTextureDesc>;
         @cppnontrivial
-        @slot(8) getPairedTexture(): RefCountPtr;
+        @slot(8) getPairedTexture(): RefCountPtr<Opaque>;
     }
     @cpp
     export class IInputLayout extends IResource { // nvrhi::IInputLayout
@@ -148,7 +133,7 @@ export namespace nvrhi {
     export class IShaderLibrary extends IResource { // nvrhi::IShaderLibrary
         @slot(7) getBytecode(ppBytecode: Ref<Opaque | null> | null, pSize: Ref<index> | null): void;
         @cppnontrivial
-        @slot(8) getShader(entryName: string | null, shaderType: u16): RefCountPtr;
+        @slot(8) getShader(entryName: string | null, shaderType: u16): RefCountPtr<Opaque>;
     }
     @cpp
     export class ISampler extends IResource { // nvrhi::ISampler
@@ -210,7 +195,7 @@ export namespace nvrhi {
     export class IPipeline extends IResource { // nvrhi::rt::IPipeline
         @slot(7) getDesc(): Ref<PipelineDesc>;
         @cppnontrivial
-        @slot(8) createShaderTable(desc: Ref<ShaderTableDesc>): RefCountPtr;
+        @slot(8) createShaderTable(desc: Ref<ShaderTableDesc>): RefCountPtr<Opaque>;
     }
     @cpp
     export class IShaderTable extends IResource { // nvrhi::rt::IShaderTable
@@ -232,94 +217,94 @@ export namespace nvrhi {
     @cpp
     export class IDevice extends IResource { // nvrhi::IDevice
         @cppnontrivial
-        @slot(7) createHeap(d: Ref<HeapDesc>): RefCountPtr;
+        @slot(7) createHeap(d: Ref<HeapDesc>): RefCountPtr<Opaque>;
         @slot(8) queryTopLevelAccelStructPrebuildInfo(desc: Ref<AccelStructDesc>, instanceCount: u32, outInfo: Ref<AccelStructPrebuildInfo>): boolean;
         @cppnontrivial
-        @slot(9) createTexture(d: Ref<TextureDesc>): RefCountPtr;
+        @slot(9) createTexture(d: Ref<TextureDesc>): RefCountPtr<Opaque>;
         @slot(10) getTextureMemoryRequirements(texture: ITexture | null): [size: u64, alignment: u64];
         @slot(11) bindTextureMemory(texture: ITexture | null, heap: IHeap | null, offset: u64): boolean;
         // skipped: createHandleForNativeTexture — parameter 'texture': struct passed by value
         @cppnontrivial
-        @slot(13) createStagingTexture(d: Ref<TextureDesc>, cpuAccess: u8): RefCountPtr;
+        @slot(13) createStagingTexture(d: Ref<TextureDesc>, cpuAccess: u8): RefCountPtr<Opaque>;
         @slot(14) mapStagingTexture(tex: IStagingTexture | null, slice: Ref<TextureSlice>, cpuAccess: u8, outRowPitch: Ref<index> | null): Opaque;
         @slot(15) unmapStagingTexture(tex: IStagingTexture | null): void;
         @slot(16) getTextureTiling(texture: ITexture | null, numTiles: Ref<u32> | null, desc: Ref<PackedMipDesc> | null, tileShape: Ref<TileShape> | null, subresourceTilingsNum: Ref<u32> | null, subresourceTilings: Ref<SubresourceTiling> | null): void;
         @slot(17) updateTextureTileMappings(texture: ITexture | null, tileMappings: Ref<TextureTilesMapping> | null, numTileMappings: u32, executionQueue: u8): void;
         @cppnontrivial
-        @slot(18) createSamplerFeedbackTexture(pairedTexture: ITexture | null, desc: Ref<SamplerFeedbackTextureDesc>): RefCountPtr;
+        @slot(18) createSamplerFeedbackTexture(pairedTexture: ITexture | null, desc: Ref<SamplerFeedbackTextureDesc>): RefCountPtr<Opaque>;
         // skipped: createSamplerFeedbackForNativeTexture — parameter 'texture': struct passed by value
         @cppnontrivial
-        @slot(20) createBuffer(d: Ref<BufferDesc>): RefCountPtr;
+        @slot(20) createBuffer(d: Ref<BufferDesc>): RefCountPtr<Opaque>;
         @slot(21) mapBuffer(buffer: IBuffer | null, cpuAccess: u8): Opaque;
         @slot(22) unmapBuffer(buffer: IBuffer | null): void;
         @slot(23) getBufferMemoryRequirements(buffer: IBuffer | null): [size: u64, alignment: u64];
         @slot(24) bindBufferMemory(buffer: IBuffer | null, heap: IHeap | null, offset: u64): boolean;
         // skipped: createHandleForNativeBuffer — parameter 'buffer': struct passed by value
         @cppnontrivial
-        @slot(26) createShader(d: Ref<ShaderDesc>, binary: Opaque | null, binarySize: index): RefCountPtr;
+        @slot(26) createShader(d: Ref<ShaderDesc>, binary: Opaque | null, binarySize: index): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(27) createShaderSpecialization(baseShader: IShader | null, constants: Ref<ShaderSpecialization> | null, numConstants: u32): RefCountPtr;
+        @slot(27) createShaderSpecialization(baseShader: IShader | null, constants: Ref<ShaderSpecialization> | null, numConstants: u32): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(28) createShaderLibrary(binary: Opaque | null, binarySize: index): RefCountPtr;
+        @slot(28) createShaderLibrary(binary: Opaque | null, binarySize: index): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(29) createSampler(d: Ref<SamplerDesc>): RefCountPtr;
+        @slot(29) createSampler(d: Ref<SamplerDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(30) createInputLayout(d: Ref<VertexAttributeDesc> | null, attributeCount: u32, vertexShader: IShader | null): RefCountPtr;
+        @slot(30) createInputLayout(d: Ref<VertexAttributeDesc> | null, attributeCount: u32, vertexShader: IShader | null): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(31) createEventQuery(): RefCountPtr;
+        @slot(31) createEventQuery(): RefCountPtr<Opaque>;
         @slot(32) setEventQuery(query: IEventQuery | null, queue: u8): void;
         @slot(33) pollEventQuery(query: IEventQuery | null): boolean;
         @slot(34) waitEventQuery(query: IEventQuery | null): void;
         @slot(35) resetEventQuery(query: IEventQuery | null): void;
         @cppnontrivial
-        @slot(36) createTimerQuery(): RefCountPtr;
+        @slot(36) createTimerQuery(): RefCountPtr<Opaque>;
         @slot(37) pollTimerQuery(query: ITimerQuery | null): boolean;
         @slot(38) getTimerQueryTime(query: ITimerQuery | null): f32;
         @slot(39) resetTimerQuery(query: ITimerQuery | null): void;
         @slot(40) getGraphicsAPI(): u8;
         @cppnontrivial
-        @slot(41) createFramebuffer(desc: Ref<FramebufferDesc>): RefCountPtr;
+        @slot(41) createFramebuffer(desc: Ref<FramebufferDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(42) createGraphicsPipeline(desc: Ref<GraphicsPipelineDesc>, fbinfo: Ref<FramebufferInfo>): RefCountPtr;
+        @slot(42) createGraphicsPipeline(desc: Ref<GraphicsPipelineDesc>, fbinfo: Ref<FramebufferInfo>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(43) createGraphicsPipeline_2(desc: Ref<GraphicsPipelineDesc>, fb: IFramebuffer | null): RefCountPtr;
+        @slot(43) createGraphicsPipeline_2(desc: Ref<GraphicsPipelineDesc>, fb: IFramebuffer | null): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(44) createComputePipeline(desc: Ref<ComputePipelineDesc>): RefCountPtr;
+        @slot(44) createComputePipeline(desc: Ref<ComputePipelineDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(45) createMeshletPipeline(desc: Ref<MeshletPipelineDesc>, fbinfo: Ref<FramebufferInfo>): RefCountPtr;
+        @slot(45) createMeshletPipeline(desc: Ref<MeshletPipelineDesc>, fbinfo: Ref<FramebufferInfo>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(46) createMeshletPipeline_2(desc: Ref<MeshletPipelineDesc>, fb: IFramebuffer | null): RefCountPtr;
+        @slot(46) createMeshletPipeline_2(desc: Ref<MeshletPipelineDesc>, fb: IFramebuffer | null): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(47) createRayTracingPipeline(desc: Ref<PipelineDesc>): RefCountPtr;
+        @slot(47) createRayTracingPipeline(desc: Ref<PipelineDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(48) createBindingLayout(desc: Ref<BindingLayoutDesc>): RefCountPtr;
+        @slot(48) createBindingLayout(desc: Ref<BindingLayoutDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(49) createBindlessLayout(desc: Ref<BindlessLayoutDesc>): RefCountPtr;
+        @slot(49) createBindlessLayout(desc: Ref<BindlessLayoutDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(50) createBindingSet(desc: Ref<BindingSetDesc>, layout: IBindingLayout | null): RefCountPtr;
+        @slot(50) createBindingSet(desc: Ref<BindingSetDesc>, layout: IBindingLayout | null): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(51) createDescriptorTable(layout: IBindingLayout | null): RefCountPtr;
+        @slot(51) createDescriptorTable(layout: IBindingLayout | null): RefCountPtr<Opaque>;
         @slot(52) resizeDescriptorTable(descriptorTable: IDescriptorTable | null, newSize: u32, keepContents: boolean): void;
         @slot(53) writeDescriptorTable(descriptorTable: IDescriptorTable | null, item: Ref<BindingSetItem>): boolean;
         @cppnontrivial
-        @slot(54) createOpacityMicromap(desc: Ref<OpacityMicromapDesc>): RefCountPtr;
+        @slot(54) createOpacityMicromap(desc: Ref<OpacityMicromapDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(55) createAccelStruct(desc: Ref<AccelStructDesc>): RefCountPtr;
+        @slot(55) createAccelStruct(desc: Ref<AccelStructDesc>): RefCountPtr<Opaque>;
         @slot(56) getAccelStructMemoryRequirements(as: IAccelStruct | null): [size: u64, alignment: u64];
         @slot(57) getClusterOperationSizeInfo(params: Ref<OperationParams>): [resultMaxSizeInBytes: u64, scratchSizeInBytes: u64];
         @slot(58) bindAccelStructMemory(as: IAccelStruct | null, heap: IHeap | null, offset: u64): boolean;
         @cppnontrivial
-        @slot(59) createCommandList(params: Ref<CommandListParameters>): RefCountPtr;
+        @slot(59) createCommandList(params: Ref<CommandListParameters>): RefCountPtr<Opaque>;
         @slot(60) executeCommandLists(pCommandLists: Ref<ICommandList | null> | null, numCommandLists: index, executionQueue: u8): u64;
         @slot(61) queueWaitForCommandList(waitQueue: u8, executionQueue: u8, instance: u64): void;
         @slot(62) waitForIdle(): boolean;
         @cppnontrivial
-        @slot(63) createCommandListLifetimeTracker(executionQueue: u8): RefCountPtr;
+        @slot(63) createCommandListLifetimeTracker(executionQueue: u8): RefCountPtr<Opaque>;
         @slot(64) runGarbageCollection(): void;
         @slot(65) queryFeatureSupport(feature: u8, pInfo: Opaque | null, infoSize: index): boolean;
         @slot(66) queryFormatSupport(format: u8): u32;
         @cppnontrivial
-        @slot(67) queryCoopVecFeatures(): [matMulFormats: vector_MatMulFormatCombo, trainingFloat16: boolean, trainingFloat32: boolean];
+        @slot(67) queryCoopVecFeatures(): [matMulFormats: vector<MatMulFormatCombo>, trainingFloat16: boolean, trainingFloat32: boolean];
         // skipped: queryCoopVecMatMulFormatSupport — result: trivial record returned by value in registers by its fields
         // skipped: queryCoopVecTrainingFormatSupport — result: trivial record returned by value in registers by its fields
         @slot(70) getCoopVecMatrixSize(type: s32, layout: s32, rows: s32, columns: s32): index;

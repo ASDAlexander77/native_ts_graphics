@@ -6,9 +6,9 @@
 
 export namespace nvrhi {
 
-    // nvrhi::RefCountPtr<T> by value, as a method returns it: the object's pointer, holding a
-    // reference. It has a destructor, so a method returning it is @cppnontrivial.
-    export type RefCountPtr = [pointer: Opaque | null];
+    // nvrhi::RefCountPtr<T> by value: the object's pointer, holding a reference. It has a
+    // destructor, so a method returning it is @cppnontrivial; returned, its T is Opaque.
+    export type RefCountPtr<T> = [ptr_: T | null];
 
     // nvrhi::Object by value (getNativeObject, getNativeQueue): the API object's pointer.
     export type NativeObject = [pointer: Opaque | null];

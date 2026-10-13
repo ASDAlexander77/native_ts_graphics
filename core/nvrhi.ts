@@ -12,8 +12,9 @@
 // - core/nvrhi_classes.<os>.ts: the classes and the structs they take, generated from NVRHI's
 //   headers by tools/gen_nvrhi_classes.py (with tsbindgen; run it again after updating NVRHI or
 //   tslang): every method with its C++ compiler's slot, every struct with the ABI's layout, the
-//   C++ library's std::string (basic_string_char), static_vector and RefCountPtr included;
-// - core/nvrhi_abi.<os>.ts: debug names, std::strings made the C++ library's way;
+//   C++ library's std::string (basic_string_char) and std::vector (vector<T>), static_vector
+//   (static_vector8<T>, static_vector16<T>) and RefCountPtr<T> included;
+// - core/nvrhi_abi.<os>.ts: std::strings and std::vectors made the C++ library's way;
 // - this file: the functions below, the same for both.
 //
 // Objects returned with a reference (createBuffer, createTexture, createShader, createCommandList,
@@ -96,14 +97,14 @@ export namespace nvrhi {
     export function createBuffer(device: IDevice, desc: BufferDesc): IBuffer | null {
         let descValue = desc;
         const handle = device.createBuffer(Ref(descValue));
-        return handle.pointer ? <IBuffer><Opaque>handle.pointer : null;
+        return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
     }
 
     // IDevice::createTexture; null on failure. Release() it.
     export function createTexture(device: IDevice, desc: TextureDesc): ITexture | null {
         let descValue = desc;
         const handle = device.createTexture(Ref(descValue));
-        return handle.pointer ? <ITexture><Opaque>handle.pointer : null;
+        return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
     }
 
     // A ShaderDesc as nvrhi::ShaderDesc's defaults make it, with the shader's stage (SHADER_TYPE_*),
@@ -117,7 +118,7 @@ export namespace nvrhi {
     export function createShader(device: IDevice, desc: ShaderDesc, bytecode: Opaque, byteSize: index): IShader | null {
         let descValue = desc;
         const handle = device.createShader(Ref(descValue), bytecode, byteSize);
-        return handle.pointer ? <IShader><Opaque>handle.pointer : null;
+        return handle.ptr_ ? <IShader><Opaque>handle.ptr_ : null;
     }
 
     // nvrhi::BindingLayoutItem's initializers (Texture_SRV(slot), TypedBuffer_UAV(slot), ...): a
@@ -138,18 +139,18 @@ export namespace nvrhi {
     // IDevice::createBindingLayout of the items, visible to the shader stages in visibility
     // (SHADER_TYPE_*); null on failure. Release() it.
     export function createBindingLayout(device: IDevice, visibility: u16, items: BindingLayoutItem[]): IBindingLayout | null {
-        let desc: BindingLayoutDesc = [visibility, 0, false, bindingLayoutItems(items), [0, 128, 256, 384]];
+        let desc: BindingLayoutDesc = [visibility, 0, false, stdVector(items), [0, 128, 256, 384]];
         const handle = device.createBindingLayout(Ref(desc));
-        const layout = handle.pointer ? <IBindingLayout><Opaque>handle.pointer : null;
+        const layout = handle.ptr_ ? <IBindingLayout><Opaque>handle.ptr_ : null;
         return layout;
     }
 
     // IDevice::createBindingSet of the items on the layout, which NVRHI keeps alive; null on
     // failure. Release() it.
     export function createBindingSet(device: IDevice, layout: IBindingLayout, items: BindingSetItem[]): IBindingSet | null {
-        let desc: BindingSetDesc = [bindingSetItems(items), true];
+        let desc: BindingSetDesc = [stdVector(items), true];
         const handle = device.createBindingSet(Ref(desc), layout);
-        const set = handle.pointer ? <IBindingSet><Opaque>handle.pointer : null;
+        const set = handle.ptr_ ? <IBindingSet><Opaque>handle.ptr_ : null;
         return set;
     }
 
@@ -157,14 +158,14 @@ export namespace nvrhi {
     export function createCommandList(device: IDevice, params: CommandListParameters): ICommandList | null {
         let paramsValue = params;
         const handle = device.createCommandList(Ref(paramsValue));
-        return handle.pointer ? <ICommandList><Opaque>handle.pointer : null;
+        return handle.ptr_ ? <ICommandList><Opaque>handle.ptr_ : null;
     }
 
     // IDevice::createComputePipeline; null on failure. Release() it.
     export function createComputePipeline(device: IDevice, desc: ComputePipelineDesc): IComputePipeline | null {
         let descValue = desc;
         const handle = device.createComputePipeline(Ref(descValue));
-        return handle.pointer ? <IComputePipeline><Opaque>handle.pointer : null;
+        return handle.ptr_ ? <IComputePipeline><Opaque>handle.ptr_ : null;
     }
 
     // ICommandList::setComputeState
