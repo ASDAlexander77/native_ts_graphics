@@ -29,7 +29,8 @@ namespace NvrhiDirect {
     // Then another, the depth test (testDepth): two triangles drawn into a color texture with a
     // depth texture, the nearer drawn first; and another, the blend state (testBlend): a half
     // transparent color drawn over a cleared texture, alpha blended and added under a write mask;
-    // and another, push constants (testPushConstants): a color set before each of two draws.
+    // and another, push constants (testPushConstants): a color set before each of two draws; and
+    // another, indirect draws (testDrawIndirect): two draws' arguments from a buffer.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -398,6 +399,97 @@ namespace NvrhiDirect {
         framebuffer.Release();
         bindingSet.Release();
         layout.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        color.Release();
+    }
+
+    // Indirect draws, with a command list of its own: a buffer of draw arguments
+    // (isDrawIndirectArgs), written by the command list, the graphics state's indirectParams.
+    // ICommandList::drawIndirect into the left half from the second arguments (offset 16: three
+    // vertices, one instance), then into the right half from the first (no instance): the left
+    // half drawn green (nvrhi_direct.hlsl), the right half as cleared. Read back through a staging
+    // texture.
+    function testDrawIndirect(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        let argumentsDesc = nvrhi.bufferDesc(32, "Draw arguments", nvrhi.RESOURCE_STATE_INDIRECT_ARGUMENT, nvrhi.CPU_ACCESS_NONE);
+        argumentsDesc.isDrawIndirectArgs = true;
+        const argumentsBuffer = nvrhi.createBuffer(device, argumentsDesc);
+        if (!color || !staging || !vertexShader || !pixelShader || !commandList || !argumentsBuffer) {
+            check(false, "the indirect draw test's textures, shaders, command list and argument buffer");
+            return;
+        }
+        check(Deref(argumentsBuffer.getDesc()).isDrawIndirectArgs, "IBuffer::getDesc's isDrawIndirectArgs");
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(color, null));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer for the indirect draw test");
+            return;
+        }
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
+        if (!pipeline) {
+            check(false, "IDevice::createGraphicsPipeline for the indirect draw test");
+            return;
+        }
+
+        // two DrawIndirectArguments (vertexCount, instanceCount, startVertexLocation,
+        // startInstanceLocation): no instance, then one
+        let drawArguments: u32[] = [3, 0, 0, 0, 3, 1, 0, 0];
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        commandList.writeBuffer(argumentsBuffer, <Opaque>Ref(drawArguments[0]), 32, 0);
+        let left = nvrhi.graphicsState(pipeline, framebuffer, [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1],
+            null, null, null, Format.UNKNOWN);
+        left.indirectParams = argumentsBuffer;
+        nvrhi.setGraphicsState(commandList, left);
+        commandList.drawIndirect(16, 1);
+        let right = nvrhi.graphicsState(pipeline, framebuffer, [TEXTURE_SIZE / 2, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1],
+            null, null, null, Format.UNKNOWN);
+        right.indirectParams = argumentsBuffer;
+        nvrhi.setGraphicsState(commandList, right);
+        commandList.drawIndirect(0, 1);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the indirect draw test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let drawnMismatches = 0;
+            let skippedMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColor(pixels, i, 0, 255, 0)) {
+                            drawnMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 0, 0, 0)) {
+                        skippedMismatches++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Drawn indirectly (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), `
+                + `no instance (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(drawnMismatches == 0, `ICommandList::drawIndirect from offset 16 (${drawnMismatches} of ${half} pixels differ)`);
+            check(skippedMismatches == 0, `ICommandList::drawIndirect of no instance (${skippedMismatches} of ${half} pixels differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        argumentsBuffer.Release();
         vertexShader.Release();
         pixelShader.Release();
         staging.Release();
@@ -775,6 +867,7 @@ namespace NvrhiDirect {
         testDepth(app, device, isD3D12);
         testBlend(app, device, isD3D12);
         testPushConstants(app, device, isD3D12);
+        testDrawIndirect(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
