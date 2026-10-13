@@ -319,8 +319,8 @@ Donut's wrappers elsewhere or with `-donut`. CTest runs both: `headless.<api>` a
 `nvrhi_direct` is a headless test of every bound method, not a sample; on Android it runs through
 `adb shell`, as `headless` does. One command list:
 1. uploads numbers into a buffer and clears another;
-2. runs a compute shader over the uploaded numbers (its binding layout, binding set and pipeline
-   made directly, its shader by Donut);
+2. runs a compute shader over the uploaded numbers, its shader (from the bytecode ShaderMake
+   compiled), binding layout, binding set and pipeline made directly;
 3. copies the three into a readback buffer, the last copy with hand-made barriers;
 4. clears a texture, read back through Donut.
 

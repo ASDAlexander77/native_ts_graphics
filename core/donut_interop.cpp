@@ -3314,6 +3314,8 @@ extern "C"
             return int(sizeof(nvrhi::BindingSetItem));
         if (n == "BindingSetDesc")
             return int(sizeof(nvrhi::BindingSetDesc));
+        if (n == "ShaderDesc")
+            return int(sizeof(nvrhi::ShaderDesc));
         return -1;
     }
 
