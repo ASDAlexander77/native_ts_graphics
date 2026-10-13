@@ -343,7 +343,9 @@ One draw of a near quad over the left half, then a far triangle over the whole t
 keeps the near one's color. A third tests the blend state: a half transparent color drawn over a
 cleared texture, alpha blended (SrcAlpha, InvSrcAlpha) into one half and added (One, One) into the
 other under a write mask of red and blue. A fourth sets push constants (a binding layout and set
-of 16 bytes for the pixel shader) before each of two draws, a color for each half.
+of 16 bytes for the pixel shader) before each of two draws, a color for each half. A fifth draws
+indirectly (`drawIndirect`), from arguments the command list writes into a buffer: from offset
+16 into one half, and from offset 0, no instance, into the other, which stays as cleared.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

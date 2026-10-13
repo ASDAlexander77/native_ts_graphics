@@ -46,6 +46,7 @@ export namespace nvrhi {
     export const RESOURCE_STATE_CONSTANT_BUFFER: u32 = 0x2;
     export const RESOURCE_STATE_VERTEX_BUFFER: u32 = 0x4;
     export const RESOURCE_STATE_INDEX_BUFFER: u32 = 0x8;
+    export const RESOURCE_STATE_INDIRECT_ARGUMENT: u32 = 0x10;
     export const RESOURCE_STATE_SHADER_RESOURCE: u32 = 0x60;
     export const RESOURCE_STATE_UNORDERED_ACCESS: u32 = 0x80;
     export const RESOURCE_STATE_RENDER_TARGET: u32 = 0x100;
