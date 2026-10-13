@@ -69,6 +69,14 @@ export namespace nvrhi {
     export const CULL_FRONT: u8 = 1;
     export const CULL_NONE: u8 = 2;
 
+    // nvrhi::ComparisonFunc (some)
+    export const COMPARISON_EQUAL: u8 = 3;
+    export const COMPARISON_ALWAYS: u8 = 8;
+
+    // nvrhi::StencilOp (some)
+    export const STENCIL_OP_KEEP: u8 = 1;
+    export const STENCIL_OP_REPLACE: u8 = 3;
+
     // nvrhi::BlendFactor (some)
     export const BLEND_ZERO: u8 = 1;
     export const BLEND_ONE: u8 = 2;
