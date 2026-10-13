@@ -14,6 +14,15 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # .cpp source is needed in the target.
 project(native_ts_graphics CXX TSLANG)
 
+# The Windows build is x64 only (tslang's default library, the Agility SDK, the NVRHI bindings'
+# ABI). A 32-bit developer prompt picks the x86 cl, which fails later and less clearly
+# (ShaderMake's /W4 /WX on 32-bit conversions, among others).
+if (WIN32 AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    message(FATAL_ERROR "The C++ compiler targets 32-bit x86 (${CMAKE_CXX_COMPILER}): configure from an x64 "
+        "developer prompt (vcvars64.bat, \"x64 Native Tools Command Prompt\") and delete this build folder's "
+        "CMakeCache.txt first")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
