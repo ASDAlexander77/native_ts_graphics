@@ -28,7 +28,8 @@ namespace NvrhiDirect {
     //   read it back.
     // Then another, the depth test (testDepth): two triangles drawn into a color texture with a
     // depth texture, the nearer drawn first; and another, the blend state (testBlend): a half
-    // transparent color drawn over a cleared texture, alpha blended and added under a write mask.
+    // transparent color drawn over a cleared texture, alpha blended and added under a write mask;
+    // and another, push constants (testPushConstants): a color set before each of two draws.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -308,6 +309,95 @@ namespace NvrhiDirect {
         alphaBlend.Release();
         addMasked.Release();
         framebuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        color.Release();
+    }
+
+    // Push constants, with a command list of its own: a binding layout of 16 bytes of push
+    // constants for the pixel shader (nvrhi_direct_push_constants.hlsl, the color), its binding set,
+    // a pipeline of both. ICommandList::setPushConstants before each draw, after the graphics state
+    // (which discards them): one color into the left half, another into the right half. Read back
+    // through a staging texture; IBindingLayout::getDesc keeps the item's type and size.
+    function testPushConstants(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct_push_constants", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        const layout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_PIXEL, [nvrhi.pushConstantsLayoutItem(0, 16)]);
+        if (!color || !staging || !vertexShader || !pixelShader || !commandList || !layout) {
+            check(false, "the push constant test's textures, shaders, command list and binding layout");
+            return;
+        }
+        const layoutItems = Deref(layout.getDesc()).bindings;
+        const item = Deref(nvrhi.stdVectorAt(layoutItems, 0));
+        check(nvrhi.stdVectorSize(layoutItems) == 1 && item.type._0 == <u32>nvrhi.RESOURCE_TYPE_PUSH_CONSTANTS + 16 * 0x10000,
+            "IBindingLayout::getDesc's push constants");
+        const bindingSet = nvrhi.createBindingSet(device, layout, [nvrhi.pushConstantsBindingSetItem(0, 16)]);
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(color, null));
+        if (!bindingSet || !framebuffer) {
+            check(false, "IDevice::createBindingSet and createFramebuffer for the push constant test");
+            return;
+        }
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, layout, renderState), framebuffer);
+        if (!pipeline) {
+            check(false, "IDevice::createGraphicsPipeline with push constants");
+            return;
+        }
+
+        let left: f32[] = [0.25, 0.5, 0.75, 1];
+        let right: f32[] = [1, 0.25, 0, 1];
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(pipeline, framebuffer,
+            [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1], bindingSet, null, null, Format.UNKNOWN));
+        commandList.setPushConstants(<Opaque>Ref(left[0]), 16);
+        nvrhi.draw(commandList, 3);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(pipeline, framebuffer,
+            [TEXTURE_SIZE / 2, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1], bindingSet, null, null, Format.UNKNOWN));
+        commandList.setPushConstants(<Opaque>Ref(right[0]), 16);
+        nvrhi.draw(commandList, 3);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the push constant test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let leftMismatches = 0;
+            let rightMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColor(pixels, i, 64, 128, 191)) {
+                            leftMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 255, 64, 0)) {
+                        rightMismatches++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Push constants: (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), `
+                + `then (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(leftMismatches == 0, `ICommandList::setPushConstants, the first draw's (${leftMismatches} of ${half} pixels differ)`);
+            check(rightMismatches == 0, `ICommandList::setPushConstants, the second draw's (${rightMismatches} of ${half} pixels differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        bindingSet.Release();
+        layout.Release();
         vertexShader.Release();
         pixelShader.Release();
         staging.Release();
@@ -684,6 +774,7 @@ namespace NvrhiDirect {
 
         testDepth(app, device, isD3D12);
         testBlend(app, device, isD3D12);
+        testPushConstants(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();

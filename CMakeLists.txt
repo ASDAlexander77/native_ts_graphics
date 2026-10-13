@@ -768,6 +768,7 @@ donut_compile_shaders_all_platforms(
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.cfg
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_textured.hlsl
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_depth.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_blend.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_push_constants.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct
 )
 if (NVRHI_DIRECT_BUILDS)

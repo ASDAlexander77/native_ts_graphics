@@ -90,4 +90,9 @@ export namespace nvrhi {
         const b = <index><Opaque>items._Mypair._Myval2._Mylast;
         return <int>((b - a) / sizeof<T>());
     }
+
+    // A std::vector<T>'s element i (below stdVectorSize)
+    export function stdVectorAt<T>(items: vector<T>, i: int): Ref<T> {
+        return <Ref<T>><Opaque>(<index><Opaque>items._Mypair._Myval2._Myfirst + i * sizeof<T>());
+    }
 }
