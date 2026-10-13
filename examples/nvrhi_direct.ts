@@ -30,7 +30,8 @@ namespace NvrhiDirect {
     // depth texture, the nearer drawn first; and another, the blend state (testBlend): a half
     // transparent color drawn over a cleared texture, alpha blended and added under a write mask;
     // and another, push constants (testPushConstants): a color set before each of two draws; and
-    // another, indirect draws (testDrawIndirect): two draws' arguments from a buffer.
+    // another, indirect draws (testDrawIndirect): two draws' arguments from a buffer; and another,
+    // indirect dispatches (testDispatchIndirect) of the compute pipeline above.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -496,6 +497,88 @@ namespace NvrhiDirect {
         color.Release();
     }
 
+    // Indirect dispatches, with a command list of its own, of runTest's compute pipeline over its
+    // input buffer (holding data): two output buffers, each in a binding set, cleared; a buffer of
+    // dispatch arguments (isDrawIndirectArgs, as NVRHI has it for both), written by the command
+    // list, the compute state's indirectParams. ICommandList::dispatchIndirect into the first output
+    // from the second arguments (offset 12: one group), into the second from the first (no group):
+    // the first computed, the second as cleared. Read back through a buffer.
+    function testDispatchIndirect(device: nvrhi.IDevice, pipeline: nvrhi.IComputePipeline,
+        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]): void {
+        let outputDesc = nvrhi.bufferDesc(SIZE, "Dispatched", nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
+        outputDesc.format = <u8>Format.R32_UINT;
+        outputDesc.canHaveTypedViews = true;
+        outputDesc.canHaveUAVs = true;
+        const dispatched = nvrhi.createBuffer(device, outputDesc);
+        outputDesc.debugName = nvrhi.stdString("Not dispatched");
+        const skipped = nvrhi.createBuffer(device, outputDesc);
+        let argumentsDesc = nvrhi.bufferDesc(24, "Dispatch args", nvrhi.RESOURCE_STATE_INDIRECT_ARGUMENT, nvrhi.CPU_ACCESS_NONE);
+        argumentsDesc.isDrawIndirectArgs = true;
+        const argumentsBuffer = nvrhi.createBuffer(device, argumentsDesc);
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(2 * SIZE, "Readback", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!dispatched || !skipped || !argumentsBuffer || !readback || !commandList) {
+            check(false, "the indirect dispatch test's buffers and command list");
+            return;
+        }
+        const dispatchedSet = nvrhi.createBindingSet(device, bindingLayout, [
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_SRV, input),
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_UAV, dispatched)]);
+        const skippedSet = nvrhi.createBindingSet(device, bindingLayout, [
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_SRV, input),
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_UAV, skipped)]);
+        if (!dispatchedSet || !skippedSet) {
+            check(false, "IDevice::createBindingSet for the indirect dispatch test");
+            return;
+        }
+
+        // two DispatchIndirectArguments (groupsX, groupsY, groupsZ): no group, then one
+        let dispatchArguments: u32[] = [0, 1, 1, 1, 1, 1];
+        commandList.open();
+        commandList.clearBufferUInt(dispatched, CLEAR_VALUE);
+        commandList.clearBufferUInt(skipped, CLEAR_VALUE);
+        commandList.writeBuffer(argumentsBuffer, <Opaque>Ref(dispatchArguments[0]), 24, 0);
+        let first = nvrhi.computeState(pipeline, dispatchedSet);
+        first.indirectParams = argumentsBuffer;
+        nvrhi.setComputeState(commandList, first);
+        commandList.dispatchIndirect(12);
+        let second = nvrhi.computeState(pipeline, skippedSet);
+        second.indirectParams = argumentsBuffer;
+        nvrhi.setComputeState(commandList, second);
+        commandList.dispatchIndirect(0);
+        commandList.copyBuffer(readback, 0, dispatched, 0, SIZE);
+        commandList.copyBuffer(readback, SIZE, skipped, 0, SIZE);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the indirect dispatch test");
+
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let dispatchedMismatches = 0;
+        let skippedMismatches = 0;
+        for (let i = 0; i < COUNT; i++) {
+            if (Deref(mapped[i]) != data[i] * 2 + 1) {
+                dispatchedMismatches++;
+            }
+            if (Deref(mapped[COUNT + i]) != CLEAR_VALUE) {
+                skippedMismatches++;
+            }
+        }
+        console.log(`Dispatched indirectly [${Deref(mapped[0])}, ..., ${Deref(mapped[COUNT - 1])}], `
+            + `no group [${Deref(mapped[COUNT])}, ...]`);
+        device.unmapBuffer(readback);
+        check(dispatchedMismatches == 0, `ICommandList::dispatchIndirect from offset 12 (${dispatchedMismatches} of ${COUNT} differ)`);
+        check(skippedMismatches == 0, `ICommandList::dispatchIndirect of no group (${skippedMismatches} of ${COUNT} differ)`);
+
+        commandList.Release();
+        dispatchedSet.Release();
+        skippedSet.Release();
+        readback.Release();
+        argumentsBuffer.Release();
+        dispatched.Release();
+        skipped.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -868,6 +951,7 @@ namespace NvrhiDirect {
         testBlend(app, device, isD3D12);
         testPushConstants(app, device, isD3D12);
         testDrawIndirect(app, device, isD3D12);
+        testDispatchIndirect(device, pipeline, bindingLayout, input, data);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
