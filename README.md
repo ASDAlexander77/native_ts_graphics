@@ -357,7 +357,9 @@ standard sample positions are. A tenth times its work with a timer query (`begin
 `endTimerQuery`, `getTimerQueryTime`) and waits for it with an event query (`setEventQuery`,
 `waitEventQuery`) instead of `waitForIdle`. An eleventh tests the stencil test: a D32S8 texture's
 stencil cleared to 0 (`clearDepthStencilTexture`), set to 1 over one half by a draw writing no
-color, then a draw over everything where the stencil is 1, which colors that half only.
+color, then a draw over everything where the stencil is 1, which colors that half only. A
+twelfth draws two instances of a quad in one draw, their offsets and colors instance attributes
+(`isInstanced`) from a vertex buffer: one in each half.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;
