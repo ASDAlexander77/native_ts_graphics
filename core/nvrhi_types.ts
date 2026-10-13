@@ -67,6 +67,22 @@ export namespace nvrhi {
     export const CULL_FRONT: u8 = 1;
     export const CULL_NONE: u8 = 2;
 
+    // nvrhi::BlendFactor (some)
+    export const BLEND_ZERO: u8 = 1;
+    export const BLEND_ONE: u8 = 2;
+    export const BLEND_SRC_ALPHA: u8 = 5;
+    export const BLEND_INV_SRC_ALPHA: u8 = 6;
+
+    // nvrhi::BlendOp (some)
+    export const BLEND_OP_ADD: u8 = 1;
+
+    // nvrhi::ColorMask
+    export const COLOR_MASK_RED: u8 = 1;
+    export const COLOR_MASK_GREEN: u8 = 2;
+    export const COLOR_MASK_BLUE: u8 = 4;
+    export const COLOR_MASK_ALPHA: u8 = 8;
+    export const COLOR_MASK_ALL: u8 = 0xf;
+
     // nvrhi::ResourceType
     export const RESOURCE_TYPE_NONE: u8 = 0;
     export const RESOURCE_TYPE_TEXTURE_SRV: u8 = 1;

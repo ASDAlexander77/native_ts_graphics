@@ -27,7 +27,8 @@ namespace NvrhiDirect {
     // - copies the texture into another (copyTexture), and that into a staging texture, mapped to
     //   read it back.
     // Then another, the depth test (testDepth): two triangles drawn into a color texture with a
-    // depth texture, the nearer drawn first.
+    // depth texture, the nearer drawn first; and another, the blend state (testBlend): a half
+    // transparent color drawn over a cleared texture, alpha blended and added under a write mask.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -210,6 +211,106 @@ namespace NvrhiDirect {
         pixelShader.Release();
         staging.Release();
         depth.Release();
+        color.Release();
+    }
+
+    // Whether the RGBA8 pixel at pixels[i] is (r, g, b, a), give or take one
+    function sameColorAlpha(pixels: u8[], i: int, r: int, g: int, b: int, a: int): boolean {
+        return near(pixels[i], r) && near(pixels[i + 1], g) && near(pixels[i + 2], b) && near(pixels[i + 3], a);
+    }
+
+    // A pipeline drawing over the viewport (nvrhi_direct.hlsl's vertex shader) the pixel shader's
+    // (0, 0.5, 0.5, 0.5) into the framebuffer, blended as target, without culling or a depth test
+    function blendPipeline(device: nvrhi.IDevice, vertexShader: nvrhi.IShader, pixelShader: nvrhi.IShader,
+        framebuffer: nvrhi.IFramebuffer, target: nvrhi.RenderTarget): nvrhi.IGraphicsPipeline | null {
+        let renderState = nvrhi.renderState();
+        renderState.blendState.targets._0 = target;
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        return nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
+    }
+
+    // The blend state, with a command list of its own: a texture cleared to (1, 0, 0.25, 1), its
+    // left half drawn over with alpha blending (SrcAlpha, InvSrcAlpha; the alpha One, Zero), its
+    // right half added (One, One) under a write mask of red and blue only. Read back through a
+    // staging texture; IGraphicsPipeline::getDesc keeps the blend state.
+    function testBlend(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct_blend", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!color || !staging || !vertexShader || !pixelShader || !commandList) {
+            check(false, "the blend test's textures, shaders and command list");
+            return;
+        }
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc(color, null));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer for the blend test");
+            return;
+        }
+        const alphaBlend = blendPipeline(device, vertexShader, pixelShader, framebuffer, [true,
+            nvrhi.BLEND_SRC_ALPHA, nvrhi.BLEND_INV_SRC_ALPHA, nvrhi.BLEND_OP_ADD,
+            nvrhi.BLEND_ONE, nvrhi.BLEND_ZERO, nvrhi.BLEND_OP_ADD, nvrhi.COLOR_MASK_ALL]);
+        const addMasked = blendPipeline(device, vertexShader, pixelShader, framebuffer, [true,
+            nvrhi.BLEND_ONE, nvrhi.BLEND_ONE, nvrhi.BLEND_OP_ADD,
+            nvrhi.BLEND_ONE, nvrhi.BLEND_ONE, nvrhi.BLEND_OP_ADD, nvrhi.COLOR_MASK_RED | nvrhi.COLOR_MASK_BLUE]);
+        if (!alphaBlend || !addMasked) {
+            check(false, "IDevice::createGraphicsPipeline with blending");
+            return;
+        }
+        const kept = Deref(addMasked.getDesc()).renderState.blendState.targets._0;
+        check(kept.blendEnable && kept.srcBlend == nvrhi.BLEND_ONE && kept.destBlend == nvrhi.BLEND_ONE
+            && kept.colorWriteMask == (nvrhi.COLOR_MASK_RED | nvrhi.COLOR_MASK_BLUE), "IGraphicsPipeline::getDesc's blend state");
+
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [1.0, 0.0, 0.25, 1.0]);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(alphaBlend, framebuffer,
+            [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1], null, null, null, Format.UNKNOWN));
+        nvrhi.draw(commandList, 3);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(addMasked, framebuffer,
+            [TEXTURE_SIZE / 2, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1], null, null, null, Format.UNKNOWN));
+        nvrhi.draw(commandList, 3);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the blend test");
+
+        // the left half (0.5, 0.25, 0.375, 0.5): the color half and half; the right half (1, 0,
+        // 0.75, 1): blue added, green and alpha masked
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let blendMismatches = 0;
+            let addMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColorAlpha(pixels, i, 128, 64, 96, 128)) {
+                            blendMismatches++;
+                        }
+                    } else if (!sameColorAlpha(pixels, i, 255, 0, 191, 255)) {
+                        addMismatches++;
+                    }
+                }
+            }
+            const right = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Blended (${pixels[0]}, ${pixels[1]}, ${pixels[2]}, ${pixels[3]}), `
+                + `added (${pixels[right]}, ${pixels[right + 1]}, ${pixels[right + 2]}, ${pixels[right + 3]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(blendMismatches == 0, `alpha blending (${blendMismatches} of ${half} pixels differ)`);
+            check(addMismatches == 0, `additive blending under a write mask (${addMismatches} of ${half} pixels differ)`);
+        }
+
+        commandList.Release();
+        alphaBlend.Release();
+        addMasked.Release();
+        framebuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
         color.Release();
     }
 
@@ -582,6 +683,7 @@ namespace NvrhiDirect {
         }
 
         testDepth(app, device, isD3D12);
+        testBlend(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
