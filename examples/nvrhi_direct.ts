@@ -49,8 +49,9 @@ namespace NvrhiDirect {
     // queries reset and used again (testQueryResets), the compute queue (testComputeQueue), UAV
     // barriers turned off (testUavBarrierControl), a binding set's states set at once
     // (testBindingSetStates), indexed indirect draws with a count (testDrawIndexedIndirectCount),
-    // mesh shaders (testMeshShaders), a tiled texture (testTiledTexture) and sampler feedback
-    // (testSamplerFeedback); the last three where the device has them.
+    // mesh shaders (testMeshShaders), a tiled texture (testTiledTexture), sampler feedback
+    // (testSamplerFeedback) and ray tracing (testRayTracing); the last four where the device has
+    // them.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -2876,6 +2877,297 @@ namespace NvrhiDirect {
         paired.Release();
     }
 
+    // The ray tracing test's triangle, the x, y, z of its vertices: it covers x < 0 of the plane its
+    // rays start from, where y is from -1 to 1
+    const RT_VERTICES: f32[] = [-4, -4, 1, 0, -4, 1, 0, 4, 1];
+
+    // A 4 x 4 RGBA8 texture with UAVs that testRayTracing traces into; null on failure, reported.
+    function rayTracingOutput(device: nvrhi.IDevice, name: string): nvrhi.ITexture | null {
+        let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, name, nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
+        desc.isUAV = true;
+        const texture = nvrhi.createTexture(device, desc);
+        if (!texture) {
+            check(false, `the texture ${name}`);
+        }
+        return texture;
+    }
+
+    // Checks what testRayTracing's rays traced into a staging texture: the left half hit (red), the
+    // right half missed (blue), half green from the callable shader
+    function rayTracedMismatches(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture, what: string): void {
+        const pixels = readStaging(device, staging);
+        if (pixels.length == 0) {
+            return;
+        }
+        let hitMismatches = 0;
+        let missMismatches = 0;
+        for (let y = 0; y < TEXTURE_SIZE; y++) {
+            for (let x = 0; x < TEXTURE_SIZE; x++) {
+                const i = 4 * (y * TEXTURE_SIZE + x);
+                if (x < TEXTURE_SIZE / 2) {
+                    if (!sameColor(pixels, i, 255, 128, 0)) {
+                        hitMismatches++;
+                    }
+                } else if (!sameColor(pixels, i, 0, 128, 255)) {
+                    missMismatches++;
+                }
+            }
+        }
+        const last = 4 * (TEXTURE_SIZE - 1);
+        console.log(`Rays through ${what}: hit (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), missed (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+        const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+        check(hitMismatches == 0, `rays hitting the triangle through ${what} (${hitMismatches} of ${half} pixels differ)`);
+        check(missMismatches == 0, `rays missing the triangle through ${what} (${missMismatches} of ${half} pixels differ)`);
+    }
+
+    // Ray tracing, with command lists of its own, where the device has it (queryFeatureSupport
+    // RayTracingAccelStruct, RayTracingPipeline; main asks Donut for Vulkan's extensions):
+    // - a bottom level acceleration structure of a triangle (IDevice::createAccelStruct of an
+    //   rt::AccelStructDesc of an rt::GeometryDesc; ICommandList::buildBottomLevelAccelStruct,
+    //   compactBottomLevelAccelStructs; IAccelStruct::getDesc, isCompacted, getDeviceAddress);
+    // - three top level ones of an instance of it: one built from an rt::InstanceDesc
+    //   (buildTopLevelAccelStruct); a copy of that one (copyRaytracingAccelerationStructure); one
+    //   created virtual and placed in a heap (queryTopLevelAccelStructPrebuildInfo,
+    //   getAccelStructMemoryRequirements, bindAccelStructMemory), built from a buffer of the
+    //   instance as the APIs lay it out, the bottom level one's device address in it
+    //   (buildTopLevelAccelStructFromBuffer); setAccelStructState;
+    // - a library of nvrhi_direct_rt.hlsl's shaders (IDevice::createShaderLibrary,
+    //   IShaderLibrary::getShader, getBytecode), a ray tracing pipeline of them
+    //   (createRayTracingPipeline, rt::IPipeline::getDesc) and its shader table
+    //   (rt::IPipeline::createShaderTable; IShaderTable::setRayGenerationShader, addMissShader,
+    //   addHitGroup, addCallableShader, getNumEntries, getPipeline, getDesc); another table, its
+    //   entries cleared (clearMissShaders, clearHitShaders, clearCallableShaders);
+    // - setRayTracingState and dispatchRays through each top level structure into a texture of its
+    //   own, read back: the triangle's half hit, the other missed.
+    function testRayTracing(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const supported = device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_ACCEL_STRUCT, null, 0)
+            && device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_PIPELINE, null, 0);
+        console.log(`IDevice::queryFeatureSupport(RayTracingAccelStruct, RayTracingPipeline): ${supported}`);
+        if (!supported) {
+            console.log("Ray tracing: none, not tested");
+            return;
+        }
+
+        // the geometry and instance buffers (isAccelStructBuildInput)
+        let inputDesc = nvrhi.bufferDesc(3 * 4, "RT indices", nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
+        inputDesc.isAccelStructBuildInput = true;
+        const indexBuffer = nvrhi.createBuffer(device, inputDesc);
+        inputDesc.byteSize = 9 * 4;
+        inputDesc.debugName = nvrhi.stdString("RT vertices");
+        const vertexBuffer = nvrhi.createBuffer(device, inputDesc);
+        inputDesc.byteSize = 64;
+        inputDesc.debugName = nvrhi.stdString("RT instances");
+        const instanceBuffer = nvrhi.createBuffer(device, inputDesc);
+        const buildList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        const traceList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!indexBuffer || !vertexBuffer || !instanceBuffer || !buildList || !traceList) {
+            check(false, "the ray tracing test's buffers and command lists");
+            return;
+        }
+
+        // the bottom level structure, and the top level ones
+        let geometries: nvrhi.GeometryDesc[] = [nvrhi.triangleGeometryDesc(indexBuffer, 3, vertexBuffer, 3)];
+        const blas = nvrhi.createAccelStruct(device,
+            nvrhi.accelStructDesc(geometries, 0, nvrhi.ACCEL_STRUCT_BUILD_ALLOW_COMPACTION, "BLAS", false));
+        let noGeometries: nvrhi.GeometryDesc[] = [];
+        const tlasDesc = nvrhi.accelStructDesc(noGeometries, 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE, "TLAS", false);
+        const tlas = nvrhi.createAccelStruct(device, tlasDesc);
+        let copyDesc = tlasDesc;
+        copyDesc.debugName = nvrhi.stdString("TLAS copy");
+        const tlasCopy = nvrhi.createAccelStruct(device, copyDesc);
+        let placedDesc = tlasDesc;
+        placedDesc.debugName = nvrhi.stdString("Placed TLAS");
+        placedDesc.isVirtual = true;
+        const placedTlas = nvrhi.createAccelStruct(device, placedDesc);
+        if (!blas || !tlas || !tlasCopy || !placedTlas) {
+            check(false, "IDevice::createAccelStruct");
+            return;
+        }
+        const blasKept = Deref(blas.getDesc());
+        check(!blasKept.isTopLevel && nvrhi.stdVectorSize(blasKept.bottomLevelGeometries) == 1
+            && Deref(tlas.getDesc()).isTopLevel && Deref(tlas.getDesc()).topLevelMaxInstances == 1, "IAccelStruct::getDesc");
+
+        // the placed one's memory: what a build of one instance needs, in a heap
+        let prebuildInfo: nvrhi.AccelStructPrebuildInfo = [0, 0, 0];
+        let prebuildDesc = placedDesc;
+        const prebuilt = device.queryTopLevelAccelStructPrebuildInfo(Ref(prebuildDesc), 1, Ref(prebuildInfo));
+        const requirements = device.getAccelStructMemoryRequirements(placedTlas);
+        console.log(`TLAS prebuild info: ${prebuilt}, ${prebuildInfo.resultBytes} bytes (scratch ${prebuildInfo.scratchBytes}); `
+            + `memory requirements ${requirements.size} (alignment ${requirements.alignment})`);
+        check(prebuilt && prebuildInfo.resultBytes > 0 && prebuildInfo.scratchBytes > 0, "IDevice::queryTopLevelAccelStructPrebuildInfo");
+        check(requirements.size >= prebuildInfo.resultBytes && requirements.alignment != 0, "IDevice::getAccelStructMemoryRequirements");
+        const heap = nvrhi.createHeap(device, requirements.size, nvrhi.HEAP_TYPE_DEVICE_LOCAL, "TLAS heap");
+        if (!heap) {
+            check(false, "IDevice::createHeap for the placed TLAS");
+            return;
+        }
+        check(device.bindAccelStructMemory(placedTlas, heap, 0), "IDevice::bindAccelStructMemory");
+
+        // the shaders, pipeline and shader table
+        const libraryFile = app.loadBinaryFile(`shaders/nvrhi_direct/${isD3D12 ? "dxil" : "spirv"}/nvrhi_direct_rt.bin`);
+        if (libraryFile.isNull()) {
+            check(false, "the ray tracing shader library's bytecode");
+            return;
+        }
+        const library = nvrhi.createShaderLibrary(device, libraryFile.getData(), libraryFile.getSize());
+        if (!library) {
+            check(false, "IDevice::createShaderLibrary");
+            return;
+        }
+        let libraryBytecode: Opaque | null = null;
+        let libraryBytecodeSize: index = 12345;
+        library.getBytecode(Ref(libraryBytecode), Ref(libraryBytecodeSize));
+        check(isD3D12 ? libraryBytecode != null && libraryBytecodeSize == libraryFile.getSize() : libraryBytecodeSize == 0,
+            "IShaderLibrary::getBytecode");
+        const rayGen = nvrhi.getLibraryShader(library, "RayGen", nvrhi.SHADER_TYPE_RAY_GENERATION);
+        const miss = nvrhi.getLibraryShader(library, "Miss", nvrhi.SHADER_TYPE_MISS);
+        const closestHit = nvrhi.getLibraryShader(library, "ClosestHit", nvrhi.SHADER_TYPE_CLOSEST_HIT);
+        const callable = nvrhi.getLibraryShader(library, "Callable", nvrhi.SHADER_TYPE_CALLABLE);
+        const layout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_ALL_RAY_TRACING, [
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_RAY_TRACING_ACCEL_STRUCT),
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_TEXTURE_UAV)]);
+        if (!rayGen || !miss || !closestHit || !callable || !layout) {
+            check(false, "IShaderLibrary::getShader, and the ray tracing binding layout");
+            return;
+        }
+        check(Deref(rayGen.getDesc()).shaderType == nvrhi.SHADER_TYPE_RAY_GENERATION, "IShaderLibrary::getShader's shader");
+        const pipeline = nvrhi.createRayTracingPipeline(device,
+            [nvrhi.pipelineShaderDesc(rayGen), nvrhi.pipelineShaderDesc(miss), nvrhi.pipelineShaderDesc(callable)],
+            [nvrhi.pipelineHitGroupDesc("HitGroup", closestHit)], layout, 16);
+        if (!pipeline) {
+            check(false, "IDevice::createRayTracingPipeline");
+            return;
+        }
+        const pipelineDesc = Deref(pipeline.getDesc());
+        check(pipelineDesc.maxPayloadSize == 16 && nvrhi.stdVectorSize(pipelineDesc.shaders) == 3
+            && nvrhi.stdVectorSize(pipelineDesc.hitGroups) == 1, "rt::IPipeline::getDesc");
+        const shaderTable = nvrhi.createShaderTable(pipeline, "Shader table");
+        const clearedTable = nvrhi.createShaderTable(pipeline, "Cleared table");
+        if (!shaderTable || !clearedTable) {
+            check(false, "rt::IPipeline::createShaderTable");
+            return;
+        }
+        shaderTable.setRayGenerationShader("RayGen", null);
+        const missIndex = shaderTable.addMissShader("Miss", null);
+        const hitIndex = shaderTable.addHitGroup("HitGroup", null);
+        const callableIndex = shaderTable.addCallableShader("Callable", null);
+        check(missIndex == 0 && hitIndex == 0 && callableIndex == 0 && shaderTable.getNumEntries() == 4,
+            `IShaderTable's entries (${shaderTable.getNumEntries()})`);
+        check(<index><Opaque>shaderTable.getPipeline() == <index><Opaque>pipeline
+            && nvrhi.stdStringIs(Deref(shaderTable.getDesc()).debugName, "Shader table"), "IShaderTable::getPipeline, getDesc");
+        clearedTable.setRayGenerationShader("RayGen", null);
+        clearedTable.addMissShader("Miss", null);
+        clearedTable.addHitGroup("HitGroup", null);
+        clearedTable.addCallableShader("Callable", null);
+        clearedTable.addCallableShader("Callable", null);
+        const entriesBefore = clearedTable.getNumEntries();
+        clearedTable.clearMissShaders();
+        clearedTable.clearHitShaders();
+        clearedTable.clearCallableShaders();
+        const entriesAfter = clearedTable.getNumEntries();
+        check(entriesBefore == 5 && entriesAfter == 1,
+            `IShaderTable::clearMissShaders, clearHitShaders, clearCallableShaders (${entriesBefore} entries, then ${entriesAfter})`);
+
+        // the outputs, one per top level structure
+        const outputs: (nvrhi.ITexture | null)[] = [rayTracingOutput(device, "Traced"), rayTracingOutput(device, "Traced copy"),
+            rayTracingOutput(device, "Traced placed")];
+        const tlases: nvrhi.IAccelStruct[] = [tlas, tlasCopy, placedTlas];
+        let stagings: nvrhi.IStagingTexture[] = [];
+        let bindingSets: nvrhi.IBindingSet[] = [];
+        for (let i = 0; i < 3; i++) {
+            const output = outputs[i];
+            const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+            const bindingSet = output ? nvrhi.createBindingSet(device, layout, [
+                nvrhi.accelStructBindingSetItem(0, tlases[i]), nvrhi.textureUavBindingSetItem(0, output)]) : null;
+            if (!output || !staging || !bindingSet) {
+                check(false, "the ray tracing test's outputs and binding sets");
+                return;
+            }
+            stagings.push(staging);
+            bindingSets.push(bindingSet);
+        }
+
+        // the builds: the bottom level structure, then the top level one of an InstanceDesc and its
+        // copy; the one from the buffer once the bottom level one's address is known
+        let indices: u32[] = [0, 1, 2];
+        let vertices = RT_VERTICES;
+        buildList.open();
+        buildList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
+        buildList.writeBuffer(vertexBuffer, <Opaque>Ref(vertices[0]), 9 * 4, 0);
+        buildList.buildBottomLevelAccelStruct(blas, Ref(geometries[0]), 1, nvrhi.ACCEL_STRUCT_BUILD_ALLOW_COMPACTION);
+        let instances: nvrhi.InstanceDesc[] = [nvrhi.instanceDesc(blas)];
+        buildList.buildTopLevelAccelStruct(tlas, Ref(instances[0]), 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE);
+        buildList.copyRaytracingAccelerationStructure(tlasCopy, tlas);
+        buildList.close();
+        nvrhi.executeCommandList(device, buildList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the acceleration structures' builds");
+
+        // compaction: NVRHI compacts with RTXMU only, which this build hasn't (it does nothing)
+        buildList.open();
+        buildList.compactBottomLevelAccelStructs();
+        buildList.close();
+        nvrhi.executeCommandList(device, buildList);
+        check(!blas.isCompacted(), "IAccelStruct::isCompacted: no compaction without RTXMU");
+
+        // the instance as the APIs lay it out (D3D12_RAYTRACING_INSTANCE_DESC,
+        // VkAccelerationStructureInstanceKHR): the transform, the ID and mask, the hit group
+        // contribution and flags, the bottom level structure's address
+        const blasAddress = blas.getDeviceAddress();
+        check(blasAddress != 0, "IAccelStruct::getDeviceAddress");
+        let transform: f32[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+        let instanceWords: u32[] = [0xff000000, 0];
+        let address: u64[] = [blasAddress];
+        traceList.open();
+        traceList.writeBuffer(instanceBuffer, <Opaque>Ref(transform[0]), 48, 0);
+        traceList.writeBuffer(instanceBuffer, <Opaque>Ref(instanceWords[0]), 8, 48);
+        traceList.writeBuffer(instanceBuffer, <Opaque>Ref(address[0]), 8, 56);
+        traceList.buildTopLevelAccelStructFromBuffer(placedTlas, instanceBuffer, 0, 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE);
+        for (let i = 0; i < 3; i++) {
+            traceList.setAccelStructState(tlases[i], nvrhi.RESOURCE_STATE_ACCEL_STRUCT_READ);
+            nvrhi.setRayTracingState(traceList, shaderTable, bindingSets[i]);
+            nvrhi.dispatchRays(traceList, TEXTURE_SIZE, TEXTURE_SIZE);
+            const output = outputs[i];
+            if (output) {
+                nvrhi.copyTextureToStaging(traceList, stagings[i], nvrhi.entireTexture(), output, nvrhi.entireTexture());
+            }
+        }
+        traceList.close();
+        nvrhi.executeCommandList(device, traceList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the rays");
+
+        rayTracedMismatches(device, stagings[0], "a TLAS of an InstanceDesc");
+        rayTracedMismatches(device, stagings[1], "its copy");
+        rayTracedMismatches(device, stagings[2], "a placed TLAS built from a buffer");
+
+        for (let i = 0; i < 3; i++) {
+            bindingSets[i].Release();
+            stagings[i].Release();
+            const output = outputs[i];
+            if (output) {
+                output.Release();
+            }
+        }
+        clearedTable.Release();
+        shaderTable.Release();
+        pipeline.Release();
+        layout.Release();
+        callable.Release();
+        closestHit.Release();
+        miss.Release();
+        rayGen.Release();
+        library.Release();
+        placedTlas.Release();
+        heap.Release();
+        tlasCopy.Release();
+        tlas.Release();
+        blas.Release();
+        traceList.Release();
+        buildList.Release();
+        instanceBuffer.Release();
+        vertexBuffer.Release();
+        indexBuffer.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -3284,6 +3576,7 @@ namespace NvrhiDirect {
         testMeshShaders(app, device, isD3D12);
         testTiledTexture(app, device);
         testSamplerFeedback(app, device, isD3D12);
+        testRayTracing(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
@@ -3351,8 +3644,9 @@ namespace NvrhiDirect {
         // the devices made from here on report to messageLog
         Donut_SetNvrhiMessageCallback(<Opaque>messageLog);
 
-        // with a compute queue (testComputeQueue) where the device has one; without, elsewhere
-        let app = App.createHeadlessWithOptions(api, -1, <AppOptions>(options | AppOptions.ComputeQueue));
+        // with a compute queue (testComputeQueue) and Vulkan's ray tracing extensions
+        // (testRayTracing) where the device has them; without, elsewhere
+        let app = App.createHeadlessWithOptions(api, -1, <AppOptions>(options | AppOptions.ComputeQueue | AppOptions.RayTracing));
         if (app.isNull()) {
             app = App.createHeadlessWithOptions(api, -1, options);
         }

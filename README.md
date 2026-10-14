@@ -410,7 +410,17 @@ Then one test for each of these, each with a command list of its own but the for
 - sampler feedback, where the device has it (D3D12): `createSamplerFeedbackTexture` and
   `createSamplerFeedbackForNativeTexture`, `clearSamplerFeedbackTexture`,
   `setSamplerFeedbackTextureState`, a pixel shader writing feedback of two mip levels, and
-  `decodeSamplerFeedbackTexture` into a buffer read back.
+  `decodeSamplerFeedbackTexture` into a buffer read back;
+- ray tracing, where the device has it: a bottom level acceleration structure of a triangle
+  (`createAccelStruct`, `buildBottomLevelAccelStruct`, `compactBottomLevelAccelStructs`,
+  `getDeviceAddress`); three top level ones, built from an `InstanceDesc`
+  (`buildTopLevelAccelStruct`), copied (`copyRaytracingAccelerationStructure`), and placed in a heap
+  (`queryTopLevelAccelStructPrebuildInfo`, `getAccelStructMemoryRequirements`,
+  `bindAccelStructMemory`) and built from a buffer of instances
+  (`buildTopLevelAccelStructFromBuffer`); a shader library (`createShaderLibrary`, `getShader`), a
+  ray tracing pipeline and shader tables with a ray generation, miss, hit group and callable
+  entry (and their `clear*` methods); `setRayTracingState` and `dispatchRays` through each top
+  level structure.
 
 The tests of what a device may not have say "not tested" when it doesn't. Headless devices are
 made with the core features windowed ones are (Vulkan's `drawIndirectCount` and sparse residency

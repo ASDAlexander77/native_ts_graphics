@@ -72,7 +72,17 @@ export namespace nvrhi {
             && sizeof<TiledTextureCoordinate>() == Donut_GetNvrhiStructSize("TiledTextureCoordinate")
             && sizeof<TiledTextureRegion>() == Donut_GetNvrhiStructSize("TiledTextureRegion")
             && sizeof<PackedMipDesc>() == Donut_GetNvrhiStructSize("PackedMipDesc")
-            && sizeof<SubresourceTiling>() == Donut_GetNvrhiStructSize("SubresourceTiling");
+            && sizeof<SubresourceTiling>() == Donut_GetNvrhiStructSize("SubresourceTiling")
+            && sizeof<AccelStructDesc>() == Donut_GetNvrhiStructSize("AccelStructDesc")
+            && sizeof<GeometryDesc>() == Donut_GetNvrhiStructSize("GeometryDesc")
+            && sizeof<InstanceDesc>() == Donut_GetNvrhiStructSize("InstanceDesc")
+            && sizeof<AccelStructPrebuildInfo>() == Donut_GetNvrhiStructSize("AccelStructPrebuildInfo")
+            && sizeof<PipelineDesc>() == Donut_GetNvrhiStructSize("PipelineDesc")
+            && sizeof<PipelineShaderDesc>() == Donut_GetNvrhiStructSize("PipelineShaderDesc")
+            && sizeof<PipelineHitGroupDesc>() == Donut_GetNvrhiStructSize("PipelineHitGroupDesc")
+            && sizeof<ShaderTableDesc>() == Donut_GetNvrhiStructSize("ShaderTableDesc")
+            && sizeof<State>() == Donut_GetNvrhiStructSize("rt::State")
+            && sizeof<DispatchRaysArguments>() == Donut_GetNvrhiStructSize("DispatchRaysArguments");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -518,6 +528,101 @@ export namespace nvrhi {
     // nvrhi::BindingSetItem::SamplerFeedbackTexture_UAV(slot, texture): all its subresources
     export function samplerFeedbackBindingSetItem(slot: u32, texture: ISamplerFeedbackTexture): BindingSetItem {
         return [texture, slot, 0, [<u32>RESOURCE_TYPE_SAMPLER_FEEDBACK_TEXTURE_UAV], 0, 0, [0xffffffff00000000, 0xffffffff00000000]];
+    }
+
+    // An rt::GeometryDesc of opaque triangles: indexCount R32_UINT indices and vertexCount
+    // RGB32_FLOAT vertices, from the start of their buffers, untransformed
+    export function triangleGeometryDesc(indexBuffer: IBuffer, indexCount: u32, vertexBuffer: IBuffer, vertexCount: u32): GeometryDesc {
+        return [[indexBuffer, vertexBuffer, <u8>Format.R32_UINT, <u8>Format.RGB32_FLOAT, 0, 0, indexCount, vertexCount, 12,
+            null, null, 0, <u8>Format.UNKNOWN, null, 0],
+            false, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], GEOMETRY_FLAGS_OPAQUE, GEOMETRY_TYPE_TRIANGLES];
+    }
+
+    // An rt::AccelStructDesc: a bottom level one of the geometries (topLevelMaxInstances 0) or a
+    // top level one of up to topLevelMaxInstances instances (no geometries), with build flags
+    // (ACCEL_STRUCT_BUILD_*) and a debug name (see stdString); its geometries point at the array's
+    // elements, for the call only (see stdVector).
+    export function accelStructDesc(geometries: GeometryDesc[], topLevelMaxInstances: index, buildFlags: u8, debugName: string,
+        isVirtual: boolean): AccelStructDesc {
+        return [topLevelMaxInstances, stdVector(geometries), buildFlags, stdString(debugName), false,
+            topLevelMaxInstances != 0, isVirtual];
+    }
+
+    // IDevice::createAccelStruct; null on failure. Release() it.
+    export function createAccelStruct(device: IDevice, desc: AccelStructDesc): IAccelStruct | null {
+        let descValue = desc;
+        const handle = device.createAccelStruct(Ref(descValue));
+        return handle.ptr_ ? <IAccelStruct><Opaque>handle.ptr_ : null;
+    }
+
+    // An rt::InstanceDesc of a bottom level structure: the identity transform, instance ID 0,
+    // instance mask 0xff (the 24-bit ID, the mask, the hit group index contribution and the flags
+    // are bit fields of one 64-bit word), no flags
+    export function instanceDesc(bottomLevelAS: IAccelStruct): InstanceDesc {
+        return [[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], [0xff000000], bottomLevelAS];
+    }
+
+    // nvrhi::BindingSetItem::RayTracingAccelStruct(slot, as)
+    export function accelStructBindingSetItem(slot: u32, accelStruct: IAccelStruct): BindingSetItem {
+        return [accelStruct, slot, 0, [<u32>RESOURCE_TYPE_RAY_TRACING_ACCEL_STRUCT], 0, 0, [0, 0]];
+    }
+
+    // IDevice::createShaderLibrary of a library's bytecode (DXIL, SPIR-V), which NVRHI copies; null
+    // on failure. Release() it.
+    export function createShaderLibrary(device: IDevice, bytecode: Opaque, byteSize: index): IShaderLibrary | null {
+        const handle = device.createShaderLibrary(bytecode, byteSize);
+        return handle.ptr_ ? <IShaderLibrary><Opaque>handle.ptr_ : null;
+    }
+
+    // IShaderLibrary::getShader: the library's entry point of a stage (SHADER_TYPE_*); null on
+    // failure. Release() it.
+    export function getLibraryShader(library: IShaderLibrary, entryName: string, shaderType: u16): IShader | null {
+        const handle = library.getShader(entryName, shaderType);
+        return handle.ptr_ ? <IShader><Opaque>handle.ptr_ : null;
+    }
+
+    // An rt::PipelineShaderDesc of a shader under its own entry point's name, with no local binding
+    // layout
+    export function pipelineShaderDesc(shader: IShader): PipelineShaderDesc {
+        return [stdString(""), [shader], [null]];
+    }
+
+    // An rt::PipelineHitGroupDesc of a closest hit shader for triangles, exported as exportName
+    // (see stdString)
+    export function pipelineHitGroupDesc(exportName: string, closestHitShader: IShader): PipelineHitGroupDesc {
+        return [stdString(exportName), [closestHitShader], [null], [null], [null], false];
+    }
+
+    // IDevice::createRayTracingPipeline of the shaders (ray generation, miss, callable) and hit
+    // groups, with one global binding layout, payloads of up to maxPayloadSize bytes, triangle
+    // attributes (8 bytes) and no recursion; the descs' arrays for the call only (see stdVector).
+    // Null on failure. Release() it.
+    export function createRayTracingPipeline(device: IDevice, shaders: PipelineShaderDesc[], hitGroups: PipelineHitGroupDesc[],
+        bindingLayout: IBindingLayout, maxPayloadSize: u32): IPipeline | null {
+        let desc: PipelineDesc = [stdVector(shaders), stdVector(hitGroups),
+            [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], 1], maxPayloadSize, 8, 1, -1, false];
+        const handle = device.createRayTracingPipeline(Ref(desc));
+        return handle.ptr_ ? <IPipeline><Opaque>handle.ptr_ : null;
+    }
+
+    // rt::IPipeline::createShaderTable, uncached (built when a command list first uses it), with a
+    // debug name (see stdString); null on failure. Release() it.
+    export function createShaderTable(pipeline: IPipeline, debugName: string): IShaderTable | null {
+        let desc: ShaderTableDesc = [false, 0, stdString(debugName)];
+        const handle = pipeline.createShaderTable(Ref(desc));
+        return handle.ptr_ ? <IShaderTable><Opaque>handle.ptr_ : null;
+    }
+
+    // ICommandList::setRayTracingState of the shader table and one binding set
+    export function setRayTracingState(commandList: ICommandList, shaderTable: IShaderTable, bindingSet: IBindingSet): void {
+        let state: State = [shaderTable, [[bindingSet, null, null, null, null, null, null, null], 1]];
+        commandList.setRayTracingState(Ref(state));
+    }
+
+    // ICommandList::dispatchRays of width x height rays
+    export function dispatchRays(commandList: ICommandList, width: u32, height: u32): void {
+        let args: DispatchRaysArguments = [width, height, 1];
+        commandList.dispatchRays(Ref(args));
     }
 
     // IDevice::createEventQuery; null on failure. Release() it.

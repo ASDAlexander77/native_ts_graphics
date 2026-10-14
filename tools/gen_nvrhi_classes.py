@@ -47,7 +47,8 @@ TARGETS = {
 TUPLES = ["BufferDesc", "TextureDesc", "TextureSubresourceSet", "Color", "CommandListParameters",
           "ComputePipelineDesc", "ComputeState", "HeapDesc", "BindlessLayoutDesc", "ShaderSpecialization",
           "MeshletPipelineDesc", "MeshletState", "SamplerFeedbackTextureDesc", "TextureTilesMapping",
-          "basic_string_char"]
+          "AccelStructDesc", "GeometryDesc", "InstanceDesc", "PipelineDesc", "PipelineShaderDesc",
+          "PipelineHitGroupDesc", "ShaderTableDesc", "State", "basic_string_char"]
 
 # Methods taking a struct by value, which tsbindgen skips: {(class, method): {os: (declaration,
 # function)}}. The declaration's slot is the one tsbindgen leaves free where it skips the method,

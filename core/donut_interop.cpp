@@ -3395,6 +3395,26 @@ extern "C"
             return int(sizeof(nvrhi::PackedMipDesc));
         if (n == "SubresourceTiling")
             return int(sizeof(nvrhi::SubresourceTiling));
+        if (n == "AccelStructDesc")
+            return int(sizeof(nvrhi::rt::AccelStructDesc));
+        if (n == "GeometryDesc")
+            return int(sizeof(nvrhi::rt::GeometryDesc));
+        if (n == "InstanceDesc")
+            return int(sizeof(nvrhi::rt::InstanceDesc));
+        if (n == "AccelStructPrebuildInfo")
+            return int(sizeof(nvrhi::rt::AccelStructPrebuildInfo));
+        if (n == "PipelineDesc")
+            return int(sizeof(nvrhi::rt::PipelineDesc));
+        if (n == "PipelineShaderDesc")
+            return int(sizeof(nvrhi::rt::PipelineShaderDesc));
+        if (n == "PipelineHitGroupDesc")
+            return int(sizeof(nvrhi::rt::PipelineHitGroupDesc));
+        if (n == "ShaderTableDesc")
+            return int(sizeof(nvrhi::rt::ShaderTableDesc));
+        if (n == "rt::State")
+            return int(sizeof(nvrhi::rt::State));
+        if (n == "DispatchRaysArguments")
+            return int(sizeof(nvrhi::rt::DispatchRaysArguments));
         return -1;
     }
 

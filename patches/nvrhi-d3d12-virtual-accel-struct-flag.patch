@@ -1,0 +1,29 @@
+diff --git a/src/d3d12/d3d12-buffer.cpp b/src/d3d12/d3d12-buffer.cpp
+index f5de976..fce763d 100644
+--- a/src/d3d12/d3d12-buffer.cpp
++++ b/src/d3d12/d3d12-buffer.cpp
+@@ -89,6 +89,12 @@ namespace nvrhi::d3d12
+         if (buffer->desc.canHaveUAVs)
+             resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+ 
++        // Also for virtual buffers, which bindBufferMemory places with this desc
++        if (d.isAccelStructStorage)
++        {
++            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
++        }
++
+         if (d.isVirtual)
+         {
+             return BufferHandle::Create(buffer);
+@@ -129,11 +135,6 @@ namespace nvrhi::d3d12
+                 break;
+         }
+ 
+-        if (d.isAccelStructStorage)
+-        {
+-            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_RAYTRACING_ACCELERATION_STRUCTURE;
+-        }
+-
+         // Allow readback buffers to be used as resolve destination targets
+         if ((buffer->desc.cpuAccess == CpuAccessMode::Read) && (d.initialState == ResourceStates::ResolveDest))
+         {
