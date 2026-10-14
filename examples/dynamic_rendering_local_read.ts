@@ -2,8 +2,34 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace DynamicRenderingLocalRead {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame (the lights seeded with 0, as under -benchmark): the room lit by
+    // the deferred lights (about 66% of the frame), its colored glass about 16%, blue about 3%.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            55.0, 80.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        const colored = check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            10.0, 25.0, "Colored");
+        if (colored != "") {
+            return colored;
+        }
+        return check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
+            1.5, 6.0, "Blue glass");
+    }
+
     const WINDOW_TITLE = "Donut Example: Dynamic Rendering Local Read";
 
     // The sample's scenes and glass texture (Vulkan-Samples' assets, copied at build time, the KTX
@@ -583,15 +609,14 @@ namespace DynamicRenderingLocalRead {
                 return false;
             }
 
-            // The opaque pipeline reads positions and normals, the transparent one texture
-            // coordinates too.
+            // The opaque pipeline reads positions and normals, the transparent one positions and
+            // texture coordinates.
             const opaqueLayoutDesc = InputLayoutDesc.create();
             opaqueLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
             opaqueLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
             this.opaqueInputLayout = this.app.createInputLayout(opaqueLayoutDesc, this.opaqueVS);
             const transparentLayoutDesc = InputLayoutDesc.create();
             transparentLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            transparentLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
             transparentLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
             this.transparentInputLayout = this.app.createInputLayout(transparentLayoutDesc, this.transparentVS);
 
@@ -681,7 +706,7 @@ namespace DynamicRenderingLocalRead {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_rendering_local_read");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -693,8 +718,9 @@ namespace DynamicRenderingLocalRead {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new LocalReadPass(app);
-        // -benchmark: the lights' random engine seeded with 0 (as vulkan_samples' --benchmark).
-        sample.benchmark = args.benchmark;
+        // -benchmark: the lights' random engine seeded with 0 (as vulkan_samples' --benchmark); so
+        // under -test, for the same lights every run.
+        sample.benchmark = args.benchmark || args.test;
         if (!sample.init()) {
             app.destroy();
             return 1;
@@ -711,8 +737,12 @@ namespace DynamicRenderingLocalRead {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

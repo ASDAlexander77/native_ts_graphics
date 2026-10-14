@@ -1684,6 +1684,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_blending
 )
 add_tslang_example(dynamic_blending)
+add_tslang_example_test(dynamic_blending)
 
 # Port of Vulkan-Samples' texture_mipmap_generation: a texture's mip chain generated on the GPU from
 # its first level, and a tunnel sampled through it without mip maps, with them, and with
@@ -1889,6 +1890,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_line_rasterization
 )
 add_tslang_example(dynamic_line_rasterization)
+add_tslang_example_test(dynamic_line_rasterization)
 
 # Port of Vulkan-Samples' extended_dynamic_state2: primitives over an environment cube map, each
 # with depth bias and rasterizer discard switched in the UI, a cube of triangle strips with
@@ -1904,6 +1906,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/extended_dynamic_state2
 )
 add_tslang_example(extended_dynamic_state2 MEDIA extended_dynamic_state2)
+add_tslang_example_test(extended_dynamic_state2)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/uffizi_rgba16f_cube.ktx")
@@ -2051,6 +2054,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_primitive_clipping
 )
 add_tslang_example(dynamic_primitive_clipping MEDIA dynamic_primitive_clipping)
+add_tslang_example_test(dynamic_primitive_clipping)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(dynamic_primitive_clipping_media)
     foreach(model teapot torusknot geosphere)
@@ -2140,6 +2144,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/patch_control_points
 )
 add_tslang_example(patch_control_points MEDIA patch_control_points)
+add_tslang_example_test(patch_control_points)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/terrain/terrain.gltf")
     set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/patch_control_points/terrain.gltf")
@@ -2205,6 +2210,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_multisample_rasterization
 )
 add_tslang_example(dynamic_multisample_rasterization MEDIA msaa dynamic_multisample_rasterization)
+add_tslang_example_test(dynamic_multisample_rasterization)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(sources)
     set(outputs)
@@ -2237,6 +2243,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/vertex_dynamic_state
 )
 add_tslang_example(vertex_dynamic_state MEDIA hdr)
+add_tslang_example_test(vertex_dynamic_state)
 if (TARGET hdr_media)
     add_dependencies(vertex_dynamic_state hdr_media)
 endif()
@@ -2252,6 +2259,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_rendering
 )
 add_tslang_example(dynamic_rendering MEDIA hdr)
+add_tslang_example_test(dynamic_rendering)
 if (TARGET hdr_media)
     add_dependencies(dynamic_rendering hdr_media)
 endif()
@@ -2442,6 +2450,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_rendering_local_read
 )
 add_tslang_example(dynamic_rendering_local_read MEDIA dynamic_rendering_local_read)
+add_tslang_example_test(dynamic_rendering_local_read)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(dynamic_rendering_local_read_media)
     foreach(scene subpass_scene_opaque subpass_scene_transparent)
@@ -3253,6 +3262,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/depth_bounds_test
 )
 add_tslang_example(depth_bounds_test)
+add_tslang_example_test(depth_bounds_test)
 
 # Port of DirectX-Graphics-Samples' D3D12PredicationQueries: a translucent quad moving across a far
 # one, which is drawn only if the previous frame's binary occlusion query found its bounding box

@@ -62,6 +62,14 @@ struct VSInput
     float3 normal : NORMAL;
 };
 
+// The background's and the tessellation's input: positions only, as their input layout has (an
+// attribute a shader doesn't read is a Vulkan validation warning; D3D12 wants the input layout to
+// have every one it declares).
+struct PositionVSInput
+{
+    float3 pos : POSITION;
+};
+
 // --- baseline: the scene's objects and the restarting cube, lit ------------------------------
 
 struct BaselineVSOutput
@@ -114,7 +122,7 @@ struct BackgroundVSOutput
     float3 uvw : UVW;
 };
 
-BackgroundVSOutput background_vs(VSInput input)
+BackgroundVSOutput background_vs(PositionVSInput input)
 {
     BackgroundVSOutput output;
     output.uvw = input.pos;
@@ -136,7 +144,7 @@ struct TessVSOutput
     float4 position : POSITION;
 };
 
-TessVSOutput tess_vs(VSInput input)
+TessVSOutput tess_vs(PositionVSInput input)
 {
     TessVSOutput output;
     output.position = float4(input.pos, 1.0);

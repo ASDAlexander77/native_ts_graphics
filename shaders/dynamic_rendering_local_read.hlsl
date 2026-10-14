@@ -165,10 +165,11 @@ float4 composition_ps(float4 position : SV_Position) : SV_Target
 Texture2D t_Glass : register(t4);
 SamplerState s_Glass : register(s0);
 
+// Without the normal, which the transparent pass doesn't read (an attribute a shader doesn't read
+// is a Vulkan validation warning; D3D12 wants the input layout to have every one it declares).
 struct TransparentVSInput
 {
     float3 pos : POSITION;
-    float3 normal : NORMAL;
     float2 uv : TEXCOORD;
 };
 

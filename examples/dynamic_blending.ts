@@ -2,8 +2,28 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace DynamicBlending {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the gray background; the two blended quads,
+    // right of the settings window, cover about a fifth of the frame's right half and its middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0xBCBCBC);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(check.width / 2, check.height / 2) == 0xBCBCBC) {
+            return "no quad in the middle";
+        }
+        const half = check.width / 2;
+        return check.share(check.countOtherThan(0xBCBCBC, half, 0, half, check.height), half * check.height,
+            12.0, 35.0, "Quads, right half");
+    }
+
     const WINDOW_TITLE = "Donut Example: Dynamic Blending";
 
     // The sample's two faces: float3 position, float2 texture coordinates per vertex.
@@ -667,7 +687,7 @@ namespace DynamicBlending {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_blending");
 
-        const args = new DynamicBlendingArgs(argc, argv);
+        const args = new DynamicBlendingArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -704,8 +724,12 @@ namespace DynamicBlending {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
