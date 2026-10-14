@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace RayQueries {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: Sponza in gray, lit with ray queried shadows, about 20% in full
+    // light (white), no color.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const full = check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            12.0, 30.0, "Full light");
+        if (full != "") {
+            return full;
+        }
+        return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            0.0, 0.5, "Colored");
+    }
+
     const WINDOW_TITLE = "Donut Example: Ray Queries";
 
     // The sample's scene (Vulkan-Samples' assets, ray_tracing_extended's copy; see
@@ -490,9 +511,11 @@ namespace RayQueries {
             }
 
             this.topLevelAS = this.app.createTopLevelAS(1);
-            this.globalBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "GlobalUniform");
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+            // -test's unthrottled frames on Vulkan.
+            this.globalBuffer = this.app.createConstantBuffer(UBO_FLOATS * 4, "GlobalUniform");
             const layout = BindingLayoutDesc.create();
-            layout.layoutVolatileConstantBuffer(0);
+            layout.layoutConstantBuffer(0);
             layout.layoutAccelStruct(0);
             this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
             const setDesc = BindingSetDesc.create();
@@ -530,7 +553,7 @@ namespace RayQueries {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_queries");
 
-        const args = new RayQueriesArgs(argc, argv);
+        const args = new RayQueriesArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const options = AppOptions.RayTracing | args.options;
@@ -558,8 +581,12 @@ namespace RayQueries {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

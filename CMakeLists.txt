@@ -838,6 +838,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_triangle/spirv
 )
 add_tslang_example(rt_triangle)
+add_tslang_example_test(rt_triangle)
 
 # Port of Donut-Samples' vertex_buffer.
 donut_compile_shaders_all_platforms(
@@ -898,6 +899,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_shadows/spirv
 )
 add_tslang_example(rt_shadows MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example_test(rt_shadows)
 
 # Port of Donut-Samples' variable_shading: variable rate shading of Sponza (see
 # DONUT_SAMPLES_MEDIA_DIR above) from a compute-generated shading rate surface. D3D12 or Vulkan.
@@ -1103,6 +1105,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/spirv
 )
 add_tslang_example(ray_tracing_extended MEDIA ray_tracing_extended)
+add_tslang_example_test(ray_tracing_extended)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(sponza_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/sponza")
@@ -1733,6 +1736,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_position_fetch/spirv
 )
 add_tslang_example(ray_tracing_position_fetch MEDIA ray_tracing_position_fetch)
+add_tslang_example_test(ray_tracing_position_fetch APIS vk)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(position_fetch_media)
     foreach(file scene.gltf scene.bin)
@@ -2101,6 +2105,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_queries/spirv
 )
 add_tslang_example(ray_queries MEDIA ray_tracing_extended)
+add_tslang_example_test(ray_queries)
 if (TARGET ray_tracing_extended_media)
     add_dependencies(ray_queries ray_tracing_extended_media)
 endif()
@@ -2117,6 +2122,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_reflection/spirv
 )
 add_tslang_example(ray_tracing_reflection)
+add_tslang_example_test(ray_tracing_reflection)
 
 # Port of Vulkan-Samples' timestamp_queries: its hdr sample (hdr's shaders and models) with the GPU
 # time of each pass measured by timer queries and shown in the UI.
@@ -2847,6 +2853,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/procedural_geometry/spirv
 )
 add_tslang_example(procedural_geometry core/directx_math.ts)
+add_tslang_example_test(procedural_geometry)
 
 # Copies files of a DirectX-Graphics-Samples checkout (DIRECTX_GRAPHICS_SAMPLES_DIR; paths relative
 # to it) into media/<dir> for an example, if the checkout is set.
@@ -3320,6 +3327,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_bindless/spirv
 )
 add_tslang_example(rt_bindless MEDIA sponza-plus.scene.json glTF-Sample-Assets/Models/Sponza glTF-Sample-Assets/Models/BrainStem)
+add_tslang_example_test(rt_bindless)
 
 # Port of Donut-Samples' bindless_rendering: Sponza (see DONUT_SAMPLES_MEDIA_DIR above) drawn with
 # no vertex or index buffers bound, the vertex shader fetching them, and the pixel shader the
@@ -3365,6 +3373,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections/dxil
 )
 add_tslang_example(rt_reflections MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example_test(rt_reflections)
 
 # Port of Donut-Samples' rt_particles: ray query rendering of billboard and intersection
 # particles with multi-layer alpha blending (see DONUT_SAMPLES_MEDIA_DIR above), with an ImGui
@@ -3383,6 +3392,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/spirv
 )
 add_tslang_example(rt_particles MEDIA rt_particles nvidia-logo.png)
+add_tslang_example_test(rt_particles)
 
 # Port of Donut-Samples' work_graphs: deferred shading of a procedural scene with one D3D12 work
 # graph (light culling and per-material shading nodes), or with two compute dispatches. D3D12 only,
