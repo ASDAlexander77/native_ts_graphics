@@ -2,8 +2,27 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace SimpleCompute {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the dark red outside of the Mandelbrot set;
+    // its main cardioid is yellow at (860, 360) of the 1280x720 frame, and the set about 17% of it.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x000040);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(860, 360) != 0x00FFFF) {
+            return "the main cardioid isn't yellow at (860, 360)";
+        }
+        return check.share(check.countInRange(201, 255, 201, 255, 0, 79, 0, 0, check.width, check.height),
+            check.width * check.height, 10.0, 25.0, "Mandelbrot set");
+    }
+
     const WINDOW_TITLE = "Donut Example: Simple Compute";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
     // The sample's SegoeUI_18 sprite font, its lines 32 pixels apart.
@@ -423,7 +442,7 @@ namespace SimpleCompute {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_compute");
 
-        const args = new SimpleComputeArgs(argc, argv);
+        const args = new SimpleComputeArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's B8G8R8A8_UNORM back buffers, in a 1280 x 720 window.
@@ -456,8 +475,12 @@ namespace SimpleCompute {
 
         app.run();
         sample.stop();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

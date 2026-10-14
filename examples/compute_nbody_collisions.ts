@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck, absolute, isFinite32 } from "../core/test_check";
 
 namespace ComputeNBodyCollisions {
     const WINDOW_TITLE = "Donut Example: Compute N-Body Collisions";
@@ -11,10 +12,16 @@ namespace ComputeNBodyCollisions {
     const KEY_C = 67;
     const ACTION_PRESS = 1;
 
+    // The defaults of -attractors and -particles.
     const NUM_ATTRACTORS = 6;
     // A quarter of compute_nbody's: collisions test every pair, and fewer, larger particles make
-    // the bounces visible. Still a multiple of 1024, where the gravity pass expects the heavy centers.
+    // the bounces visible. Still a multiple of 1024, where the gravity pass expects the heavy centers
+    // (it reads the first 256 particles of every 1024: any count works up to 256 particles in all).
     const PARTICLES_PER_ATTRACTOR = 1024;
+    const MAX_ATTRACTORS = 6;
+    // Test mode: the frames rendered (15 seconds). Head on (-attractors 2 -particles 1), the two
+    // heavy centers have met once by then and are moving apart again.
+    const TEST_FRAMES = 900;
     // The compute passes in compute_nbody_collisions.hlsl run 256 threads per group.
     const WORKGROUP_SIZE = 256;
     // struct Particle: float4 pos, float4 vel, float4 info.
@@ -108,7 +115,7 @@ namespace ComputeNBodyCollisions {
         private viewMatrix: f32[];
         private projMatrix: f32[];
 
-        constructor(app: App) {
+        constructor(app: App, private numAttractors: int, private particlesPerAttractor: int) {
             this.app = app;
             this.paused = false;
             this.collisions = true;
@@ -230,20 +237,20 @@ namespace ComputeNBodyCollisions {
                 0.0, 4.0, 0.0,
                 0.0, -8.0, 0.0,
             ];
-            this.numParticles = NUM_ATTRACTORS * PARTICLES_PER_ATTRACTOR;
+            this.numParticles = this.numAttractors * this.particlesPerAttractor;
 
             let particles: f32[] = [];
             for (let i = 0; i < this.numParticles * PARTICLE_FLOATS; i++) {
                 particles.push(0.0);
             }
 
-            for (let i = 0; i < NUM_ATTRACTORS; i++) {
+            for (let i = 0; i < this.numAttractors; i++) {
                 const ax = attractors[i * 3 + 0];
                 const ay = attractors[i * 3 + 1];
                 const az = attractors[i * 3 + 2];
 
-                for (let j = 0; j < PARTICLES_PER_ATTRACTOR; j++) {
-                    const p = (i * PARTICLES_PER_ATTRACTOR + j) * PARTICLE_FLOATS;
+                for (let j = 0; j < this.particlesPerAttractor; j++) {
+                    const p = (i * this.particlesPerAttractor + j) * PARTICLE_FLOATS;
 
                     if (j == 0) {
                         // First particle in group as heavy center of gravity
@@ -285,7 +292,7 @@ namespace ComputeNBodyCollisions {
                     }
 
                     // Color gradient offset
-                    particles[p + 7] = i / NUM_ATTRACTORS;
+                    particles[p + 7] = i / this.numAttractors;
                 }
             }
 
@@ -301,6 +308,50 @@ namespace ComputeNBodyCollisions {
 
             // Written by collide_cs before integrate_cs reads it, every frame.
             this.contactBuffer = this.app.createRWStructuredBuffer(CONTACT_FLOATS * 4, this.numParticles, "Contacts");
+        }
+
+        // -test: checks the particles after the last frame. Every position and velocity is finite
+        // (light particles slung out of the scene go far, legitimately). Head on (2 heavy centers
+        // alone), the two have bounced off each other once, symmetrically: equal and opposite
+        // positions and velocities (the momentum kept), as far apart and as fast as a CPU run of the
+        // shaders has them at frame 900. Then the frame: black corners, and particles drawn.
+        checkTest(): string {
+            const check = new TestCheck(this.app);
+            const particles = check.readFloats(this.particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
+            if (particles.length == 0) {
+                return "cannot read the particles back";
+            }
+            for (let i = 0; i < this.numParticles; i++) {
+                for (let k = 0; k < 7; k++) {
+                    // Position xyz, then velocity xyz (not w, the mass).
+                    const value = particles[i * PARTICLE_FLOATS + k];
+                    if (k != 3 && !isFinite32(value)) {
+                        return `particle ${i}: ${k < 3 ? "position" : "velocity"} ${value} is not finite`;
+                    }
+                }
+            }
+
+            if (this.numAttractors == 2 && this.particlesPerAttractor == 1) {
+                const x0 = particles[0];
+                const x1 = particles[PARTICLE_FLOATS];
+                const v0 = particles[4];
+                const v1 = particles[PARTICLE_FLOATS + 4];
+                console.log(`Head on: x ${x0}, ${x1}; v ${v0}, ${v1}`);
+                // Symmetric to float precision: a race of the passes broke the momentum by tens.
+                if (absolute(x0 + x1) > 0.01 || absolute(v0 + v1) > 0.01) {
+                    return `positions ${x0}, ${x1} and velocities ${v0}, ${v1} are not symmetric: momentum not kept`;
+                }
+                // The CPU run: x 3.773, v 5.698.
+                if (absolute(x0 - 3.773) > 0.1 || absolute(v0 - 5.698) > 0.1) {
+                    return `position ${x0}, velocity ${v0}: not the CPU run's 3.773, 5.698 after one bounce`;
+                }
+            }
+
+            const corners = check.corners(0x000000);
+            if (corners != "") {
+                return corners;
+            }
+            return check.drawn(0x000000, 100, "Particles");
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
@@ -342,10 +393,12 @@ namespace ComputeNBodyCollisions {
             for (let i = 0; i < this.viewConstantsSize / 4; i++) {
                 this.viewConstants.push(0.0);
             }
-            this.viewConstantBuffer = this.app.createVolatileConstantBuffer(this.viewConstantsSize, "ViewConstants");
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+            // -test's unthrottled frames on Vulkan.
+            this.viewConstantBuffer = this.app.createConstantBuffer(this.viewConstantsSize, "ViewConstants");
 
             const drawLayoutDesc = BindingLayoutDesc.create();
-            drawLayoutDesc.layoutVolatileConstantBuffer(1);
+            drawLayoutDesc.layoutConstantBuffer(1);
             drawLayoutDesc.layoutStructuredBufferSRV(0);
             this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
 
@@ -375,11 +428,42 @@ namespace ComputeNBodyCollisions {
         }
     }
 
+    class NBodyCollisionsArgs extends Args {
+        // -attractors <n>: heavy centers, 1 to 6 (6 by default), each with its group of particles.
+        numAttractors: int = NUM_ATTRACTORS;
+        // -particles <n>: particles per attractor, the heavy center first (1024 by default).
+        particlesPerAttractor: int = PARTICLES_PER_ATTRACTOR;
+
+        protected parseOptions(): void {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-attractors" && i + 1 < this.argc) {
+                    this.numAttractors = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-particles" && i + 1 < this.argc) {
+                    this.particlesPerAttractor = parseInt(this[i + 1]);
+                    i++;
+                }
+            }
+            if (this.numAttractors < 1) {
+                this.numAttractors = 1;
+            }
+            if (this.numAttractors > MAX_ATTRACTORS) {
+                this.numAttractors = MAX_ATTRACTORS;
+            }
+            if (this.particlesPerAttractor < 1) {
+                this.particlesPerAttractor = 1;
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("compute_nbody_collisions");
 
-        const args = new Args(argc, argv);
+        // -test [-testOutput <file>]: render TEST_FRAMES frames without a window and check the
+        // particles and the last frame (see checkTest).
+        const args = new NBodyCollisionsArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -390,7 +474,7 @@ namespace ComputeNBodyCollisions {
 
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        const nbody = new NBodyCollisionsPass(app);
+        const nbody = new NBodyCollisionsPass(app, args.numAttractors, args.particlesPerAttractor);
         if (!nbody.init()) {
             app.destroy();
             return 1;
@@ -399,8 +483,12 @@ namespace ComputeNBodyCollisions {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(nbody.checkTest());
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

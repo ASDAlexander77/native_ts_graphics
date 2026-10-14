@@ -561,7 +561,7 @@ endif()
 # lib<name>.so and bin/<name>.apk (see above), with the media files and folders listed in
 # <media> (paths in the media folder) and the further sources after it
 function(add_tslang_android_app name media)
-    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts core/input_pass.ts core/args.ts core/donut.ts ${ARGN}
+    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts core/input_pass.ts core/args.ts core/test_check.ts core/donut.ts ${ARGN}
         core/android_main.cpp "${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c")
     set_target_properties(${name}_app PROPERTIES
         OUTPUT_NAME ${name}
@@ -628,6 +628,7 @@ set(TSLANG_DONUT_DECLARATIONS
 set(TSLANG_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts"
     "${CMAKE_CURRENT_SOURCE_DIR}/core/args.ts"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/test_check.ts"
     "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts")
 set(TSLANG_CORE_SOURCES_WITH_DECLARATIONS
     ${TSLANG_CORE_SOURCES}
@@ -929,6 +930,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_nbody
 )
 add_tslang_example(compute_nbody)
+add_tslang_example_test(compute_nbody)
 
 # compute_nbody with collisions: a third compute pass makes the particles bounce off each other
 # and off the heavy centers.
@@ -940,6 +942,10 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_nbody_collisions
 )
 add_tslang_example(compute_nbody_collisions)
+add_tslang_example_test(compute_nbody_collisions)
+# Two heavy centers head on: their bounce keeps the momentum only if the compute passes, which
+# share one binding set, are separated by UAV barriers (patches/nvrhi-uav-barriers-same-binding-set.patch).
+add_tslang_example_test(compute_nbody_collisions SUFFIX head_on ARGS -attractors 2 -particles 1)
 
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
@@ -1148,6 +1154,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multi_draw_indirect/spirv
 )
 add_tslang_example(multi_draw_indirect MEDIA multi_draw_indirect)
+add_tslang_example_test(multi_draw_indirect)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(vokselia_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/vokselia")
@@ -1198,6 +1205,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/async_compute_bloom
 )
 add_tslang_example(async_compute_bloom MEDIA async_compute_bloom)
+add_tslang_example_test(async_compute_bloom)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(bonza_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/bonza")
@@ -1249,6 +1257,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_linked_lists
 )
 add_tslang_example(oit_linked_lists MEDIA oit_linked_lists)
+add_tslang_example_test(oit_linked_lists)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(oit_linked_lists_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/oit_linked_lists")
@@ -1477,6 +1486,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/16bit_arithmetic/spirv
 )
 add_tslang_example(16bit_arithmetic)
+add_tslang_example_test(16bit_arithmetic)
 add_dependencies(16bit_arithmetic 16bit_arithmetic_fp16_shaders)
 
 # Port of Vulkan-Samples' compute_shader_derivatives: a compute shader taking derivatives of a
@@ -2162,6 +2172,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/timeline_semaphore
 )
 add_tslang_example(timeline_semaphore)
+add_tslang_example_test(timeline_semaphore)
 
 # Port of Vulkan-Samples' color_write_enable: a triangle drawn into three targets, each written in
 # one channel (or not at all, switched in the UI), then added up into the back buffer.
@@ -2519,6 +2530,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fast_block_compress
 )
 add_tslang_example(fast_block_compress core/fbc_texture.ts core/fast_block_compress.cpp core/fbc_cpu.cpp MEDIA fast_block_compress)
+add_tslang_example_test(fast_block_compress)
 if (XBOX_ATG_SAMPLES_DIR)
     set(fbc_media)
     foreach(file opaque_1024.DDS opaque_1024_offline_bc1.DDS opaque_1024_offline_bc7.dds
@@ -2660,6 +2672,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_ao/spirv
 )
 add_tslang_example(raytracing_ao core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts raytracing_ao)
+add_tslang_example_test(raytracing_ao)
 add_atg_media(raytracing_ao raytracing_ao
     Media/Meshes/Dragon/Dragon.sdkmesh
     Media/Meshes/Dragon/Dragon_Normal.dds
@@ -2711,6 +2724,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_compute
 )
 add_tslang_example(simple_compute MEDIA fonts)
+add_tslang_example_test(simple_compute)
 
 # Port of the Xbox ATG SimpleBezierPC12 sample (PCSamples/IntroGraphics/SimpleBezierPC12): a Mobius
 # strip of four Bezier patches tessellated by hull and domain shaders, in integer, fractional even
@@ -3371,6 +3385,7 @@ if (NVRHI_WITH_DX12)
         SHADER_MODEL 6_8
     )
     add_tslang_example(work_graphs core/d3d12_agility_sdk.cpp)
+    add_tslang_example_test(work_graphs APIS dx12)
 endif()
 
 # Port of Donut-Samples' feature_demo: Donut's full renderer (deferred or forward shading, cascaded

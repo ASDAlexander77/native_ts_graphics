@@ -2,9 +2,36 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 import { FbcTexture } from "../core/fbc_texture";
 
 namespace FastBlockCompress {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+    // -test: the largest RMS error of the compressed image, of 255 (the default, BC1 on the GPU, has 2.2).
+    const RMS_ERROR_LIMIT = 5.0;
+
+    // -test: checks the last frame and the compression. The corners are the gray clear color; the
+    // images drawn; the RMS error of the compressed image against the source, which the GPU computes
+    // (an error pass, then reduce passes), small but not 0.
+    function checkFrame(app: App, pass: FastBlockCompressPass): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x414141);
+        if (corners != "") {
+            return corners;
+        }
+        const drawn = check.drawn(0x414141, (check.width * check.height) / 4, "Images");
+        if (drawn != "") {
+            return drawn;
+        }
+        const rms = pass.rmsError[0];
+        console.log(`RMS error: color ${rms}, alpha ${pass.rmsError[1]}`);
+        if (!(rms > 0.0 && rms < RMS_ERROR_LIMIT)) {
+            return `RMS error ${rms}: not above 0 and below ${RMS_ERROR_LIMIT}`;
+        }
+        return "";
+    }
+
     const WINDOW_TITLE = "Donut Example: Fast Block Compress";
     const MEDIA_DIR = "media/fast_block_compress/";
 
@@ -871,7 +898,7 @@ namespace FastBlockCompress {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fast_block_compress");
 
-        const args = new FastBlockCompressArgs(argc, argv);
+        const args = new FastBlockCompressArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's 1920 x 1080, in a smaller window. The back buffers are UNORM, as the
@@ -909,8 +936,12 @@ namespace FastBlockCompress {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app, pass));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
