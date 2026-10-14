@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace ComputeShaderDerivatives {
     // Test mode: the frames rendered.
@@ -43,6 +43,7 @@ namespace ComputeShaderDerivatives {
     // with -linear).
     class DerivativesPass {
         private app: App;
+        unsupportedReason: string;
 
         // Quads of 4 threads in a row rather than 2 x 2.
         useLinear: boolean;
@@ -62,6 +63,7 @@ namespace ComputeShaderDerivatives {
 
         constructor(app: App) {
             this.app = app;
+            this.unsupportedReason = "";
             this.useLinear = false;
             this.colorBuffer = null;
             this.framebuffer = null;
@@ -138,7 +140,7 @@ namespace ComputeShaderDerivatives {
             // Prefer quads when available; otherwise, fall back to linear.
             const support = this.app.getComputeShaderDerivatives();
             if (support == 0) {
-                console.log("This example needs derivatives in compute shaders (D3D12 shader model 6.6 or Vulkan's VK_KHR_compute_shader_derivatives)");
+                this.unsupportedReason = "This example needs derivatives in compute shaders (D3D12 shader model 6.6 or Vulkan's VK_KHR_compute_shader_derivatives)";
                 return false;
             }
             if ((support & ComputeDerivatives.Quads) == 0) {
@@ -251,7 +253,7 @@ namespace ComputeShaderDerivatives {
         sample.useLinear = args.linear;
         if (!sample.init()) {
             app.destroy();
-            return 1;
+            return sample.unsupportedReason != "" ? unsupported(args.test, sample.unsupportedReason) : 1;
         }
 
         // Drawn after (over) the scene, and sees the mouse first.

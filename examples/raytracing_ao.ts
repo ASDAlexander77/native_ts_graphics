@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 
 namespace RaytracingAo {
@@ -1588,9 +1588,8 @@ namespace RaytracingAo {
             return 1;
         }
         if (app.isFeatureSupported(Feature.RayTracingPipeline) == 0) {
-            console.log("The graphics device doesn't support ray tracing pipelines");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device doesn't support ray tracing pipelines");
         }
 
         console.log(`Renderer: ${app.getRendererString()}`);

@@ -1,0 +1,169 @@
+diff --git a/src/vulkan/vulkan-backend.h b/src/vulkan/vulkan-backend.h
+--- a/src/vulkan/vulkan-backend.h
++++ b/src/vulkan/vulkan-backend.h
+@@ -97,6 +97,9 @@ namespace nvrhi::vulkan
+     coopvec::DataType convertCoopVecDataType(vk::ComponentTypeKHR type);
+     vk::CooperativeVectorMatrixLayoutNV convertCoopVecMatrixLayout(coopvec::MatrixLayout layout);
+ 
++    // Sets a draw state's viewports and scissor rects (vulkan-graphics.cpp).
++    void setViewportsWithCount(vk::CommandBuffer cmdBuf, const ViewportState& state, const ViewportState& current);
++
+     void countSpecializationConstants(
+         Shader* shader,
+         size_t& numShaders,
+diff --git a/src/vulkan/vulkan-graphics.cpp b/src/vulkan/vulkan-graphics.cpp
+--- a/src/vulkan/vulkan-graphics.cpp
++++ b/src/vulkan/vulkan-graphics.cpp
+@@ -357,9 +357,11 @@ namespace nvrhi::vulkan
+         const auto& depthStencilState = desc.renderState.depthStencilState;
+         const auto& blendState = desc.renderState.blendState;
+ 
++        // The viewport and scissor counts come with each draw state (eViewportWithCount): a
++        // geometry shader's SV_ViewportArrayIndex must be below the pipeline's viewport count.
+         auto viewportState = vk::PipelineViewportStateCreateInfo()
+-            .setViewportCount(1)
+-            .setScissorCount(1);
++            .setViewportCount(0)
++            .setScissorCount(0);
+ 
+         auto rasterizer = vk::PipelineRasterizationStateCreateInfo()
+                             // .setDepthClampEnable(??)
+@@ -463,8 +465,8 @@ namespace nvrhi::vulkan
+         }
+ 
+         static_vector<vk::DynamicState, 5> dynamicStates = {
+-            vk::DynamicState::eViewport,
+-            vk::DynamicState::eScissor
++            vk::DynamicState::eViewportWithCount,
++            vk::DynamicState::eScissorWithCount
+         };
+         if (pso->usesBlendConstants)
+             dynamicStates.push_back(vk::DynamicState::eBlendConstants);
+@@ -617,6 +619,28 @@ namespace nvrhi::vulkan
+         return vk::Viewport(v.minX, v.maxY, v.maxX - v.minX, -(v.maxY - v.minY), v.minZ, v.maxZ);
+     }
+ 
++    // Sets the viewports and as many scissor rects (Vulkan's counts must match), those missing
++    // covering their viewports, as D3D12's; unless state has no viewports or they didn't change.
++    void setViewportsWithCount(vk::CommandBuffer cmdBuf, const ViewportState& state, const ViewportState& current)
++    {
++        if (state.viewports.empty() || (!arraysAreDifferent(state.viewports, current.viewports)
++            && !arraysAreDifferent(state.scissorRects, current.scissorRects)))
++            return;
++
++        nvrhi::static_vector<vk::Viewport, c_MaxViewports> viewports;
++        nvrhi::static_vector<vk::Rect2D, c_MaxViewports> scissors;
++        for (size_t i = 0; i < state.viewports.size(); i++)
++        {
++            viewports.push_back(VKViewportWithDXCoords(state.viewports[i]));
++            const Rect sc = i < state.scissorRects.size() ? state.scissorRects[i] : Rect(state.viewports[i]);
++            scissors.push_back(vk::Rect2D(vk::Offset2D(sc.minX, sc.minY),
++                vk::Extent2D(std::abs(sc.maxX - sc.minX), std::abs(sc.maxY - sc.minY))));
++        }
++
++        cmdBuf.setViewportWithCount(uint32_t(viewports.size()), viewports.data());
++        cmdBuf.setScissorWithCount(uint32_t(scissors.size()), scissors.data());
++    }
++
+     void CommandList::setGraphicsState(const GraphicsState& state)
+     {
+         assert(m_CurrentCmdBuf);
+@@ -660,28 +684,7 @@ namespace nvrhi::vulkan
+             bindBindingSets(vk::PipelineBindPoint::eGraphics, pso->pipelineLayout, state.bindings, pso->descriptorSetIdxToBindingIdx);
+         }
+ 
+-        if (!state.viewport.viewports.empty() && arraysAreDifferent(state.viewport.viewports, m_CurrentGraphicsState.viewport.viewports))
+-        {
+-            nvrhi::static_vector<vk::Viewport, c_MaxViewports> viewports;
+-            for (const auto& vp : state.viewport.viewports)
+-            {
+-                viewports.push_back(VKViewportWithDXCoords(vp));
+-            }
+-
+-            m_CurrentCmdBuf->cmdBuf.setViewport(0, uint32_t(viewports.size()), viewports.data());
+-        }
+-
+-        if (!state.viewport.scissorRects.empty() && arraysAreDifferent(state.viewport.scissorRects, m_CurrentGraphicsState.viewport.scissorRects))
+-        {
+-            nvrhi::static_vector<vk::Rect2D, c_MaxViewports> scissors;
+-            for (const auto& sc : state.viewport.scissorRects)
+-            {
+-                scissors.push_back(vk::Rect2D(vk::Offset2D(sc.minX, sc.minY),
+-                    vk::Extent2D(std::abs(sc.maxX - sc.minX), std::abs(sc.maxY - sc.minY))));
+-            }
+-
+-            m_CurrentCmdBuf->cmdBuf.setScissor(0, uint32_t(scissors.size()), scissors.data());
+-        }
++        setViewportsWithCount(m_CurrentCmdBuf->cmdBuf, state.viewport, m_CurrentGraphicsState.viewport);
+ 
+         if (pso->desc.renderState.depthStencilState.dynamicStencilRef && (updatePipeline || m_CurrentGraphicsState.dynamicStencilRefValue != state.dynamicStencilRefValue))
+         {
+diff --git a/src/vulkan/vulkan-meshlets.cpp b/src/vulkan/vulkan-meshlets.cpp
+--- a/src/vulkan/vulkan-meshlets.cpp
++++ b/src/vulkan/vulkan-meshlets.cpp
+@@ -95,9 +95,10 @@ namespace nvrhi::vulkan
+         const auto& depthStencilState = desc.renderState.depthStencilState;
+         const auto& blendState = desc.renderState.blendState;
+ 
++        // The counts come with each draw state (see createGraphicsPipeline).
+         auto viewportState = vk::PipelineViewportStateCreateInfo()
+-            .setViewportCount(1)
+-            .setScissorCount(1);
++            .setViewportCount(0)
++            .setScissorCount(0);
+ 
+         auto rasterizer = vk::PipelineRasterizationStateCreateInfo()
+                             // .setDepthClampEnable(??)
+@@ -149,8 +150,8 @@ namespace nvrhi::vulkan
+         pso->usesBlendConstants = blendState.usesConstantColor(uint32_t(fbinfo.colorFormats.size()));
+         
+         static_vector<vk::DynamicState, 4> dynamicStates = {
+-            vk::DynamicState::eViewport,
+-            vk::DynamicState::eScissor
++            vk::DynamicState::eViewportWithCount,
++            vk::DynamicState::eScissorWithCount
+         };
+         if (pso->usesBlendConstants)
+             dynamicStates.push_back(vk::DynamicState::eBlendConstants);
+@@ -236,11 +237,6 @@ namespace nvrhi::vulkan
+         }
+     }
+ 
+-    static vk::Viewport VKViewportWithDXCoords(const Viewport& v)
+-    {
+-        return vk::Viewport(v.minX, v.maxY, v.maxX - v.minX, -(v.maxY - v.minY), v.minZ, v.maxZ);
+-    }
+-
+     void CommandList::setMeshletState(const MeshletState& state)
+     {
+         assert(m_CurrentCmdBuf);
+@@ -284,28 +280,7 @@ namespace nvrhi::vulkan
+             bindBindingSets(vk::PipelineBindPoint::eGraphics, pso->pipelineLayout, state.bindings, pso->descriptorSetIdxToBindingIdx);
+         }
+ 
+-        if (!state.viewport.viewports.empty() && arraysAreDifferent(state.viewport.viewports, m_CurrentMeshletState.viewport.viewports))
+-        {
+-            nvrhi::static_vector<vk::Viewport, c_MaxViewports> viewports;
+-            for (const auto& vp : state.viewport.viewports)
+-            {
+-                viewports.push_back(VKViewportWithDXCoords(vp));
+-            }
+-
+-            m_CurrentCmdBuf->cmdBuf.setViewport(0, uint32_t(viewports.size()), viewports.data());
+-        }
+-
+-        if (!state.viewport.scissorRects.empty() && arraysAreDifferent(state.viewport.scissorRects, m_CurrentMeshletState.viewport.scissorRects))
+-        {
+-            nvrhi::static_vector<vk::Rect2D, c_MaxViewports> scissors;
+-            for (const auto& sc : state.viewport.scissorRects)
+-            {
+-                scissors.push_back(vk::Rect2D(vk::Offset2D(sc.minX, sc.minY),
+-                    vk::Extent2D(std::abs(sc.maxX - sc.minX), std::abs(sc.maxY - sc.minY))));
+-            }
+-
+-            m_CurrentCmdBuf->cmdBuf.setScissor(0, uint32_t(scissors.size()), scissors.data());
+-        }
++        setViewportsWithCount(m_CurrentCmdBuf->cmdBuf, state.viewport, m_CurrentMeshletState.viewport);
+         
+         if (pso->desc.renderState.depthStencilState.dynamicStencilRef && (updatePipeline || m_CurrentMeshletState.dynamicStencilRefValue != state.dynamicStencilRefValue))
+         {

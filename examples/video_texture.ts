@@ -8,9 +8,12 @@ import { VideoPlayer } from "../core/video_player";
 namespace VideoTexture {
     // Test mode: the frames rendered.
     const TEST_FRAMES = 120;
+    // The video frame the first test frame waits for (about 2 seconds in).
+    const TEST_VIDEO_FRAMES = 60;
 
     // -test: checks the last frame. The corners are the gray clear color; the cube in the middle
-    // shows the video (the first frame waited for it), its light making bright pixels there.
+    // shows the video (the first frame waits for TEST_VIDEO_FRAMES of it), its light making bright
+    // pixels there.
     function checkFrame(app: App): string {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
@@ -300,12 +303,13 @@ namespace VideoTexture {
             const commandList = frame.getCommandList();
 
             // The sample's Render starts with the video's next frame (under -test the first one
-            // waits up to 5 seconds for it).
+            // waits up to 10 seconds for its TEST_VIDEO_FRAMES-th: the first ones are near black).
             let transferred = this.transferVideoFrame(commandList);
             if (this.waitForVideo) {
-                for (let i = 0; i < 500 && transferred == 0; i++) {
+                let frames = transferred;
+                for (let i = 0; i < 1000 && frames < TEST_VIDEO_FRAMES; i++) {
                     Donut_SleepMilliseconds(10);
-                    transferred = this.transferVideoFrame(commandList);
+                    frames += this.transferVideoFrame(commandList);
                 }
                 this.waitForVideo = false;
             }

@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace VariableShading {
     // Test mode: the frames rendered.
@@ -323,9 +323,8 @@ namespace VariableShading {
         }
 
         if (!app.isFeatureSupported(Feature.VariableRateShading)) {
-            console.log("The device does not support Variable Rate Shading");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The device does not support Variable Rate Shading");
         }
 
         console.log(`Renderer: ${app.getRendererString()}`);

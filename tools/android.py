@@ -451,7 +451,9 @@ def smoke_test(tools, abi, example, seconds, output):
         failure = "crashed: " + crashes[0].strip()
     elif failure:
         # what it printed last, which says why it stopped ("meshlets exited with 1" after the reason)
-        printed = [line.split(f" {example}: ", 1)[1] for line in log_text.splitlines() if f" {example}: " in line]
+        # logcat pads short tags: "I hdr     : ..."
+        tag = re.compile(r"\s[VDIWEF]\s+" + re.escape(example) + r"\s*: (.*)$")
+        printed = [m.group(1) for m in (tag.search(line) for line in log_text.splitlines()) if m]
         if printed:
             failure += " (" + " / ".join(printed[-2:]) + ")"
     return failure
@@ -475,6 +477,123 @@ def command_test(tools, args):
         print(f"  {'FAIL' if failure else 'ok  '}  {name}{': ' + failure if failure else ''}")
     print(f"\nscreenshots and logs in {output}")
     if any(failure for _, failure in results):
+        sys.exit(1)
+
+
+def example_tests():
+    """CTest's example tests, from CMakeLists.txt's add_tslang_example_test calls: (name, the test's
+    name without its API, the example's arguments) for each one that runs on Vulkan, in order."""
+    cmake = open(os.path.join(ROOT, "CMakeLists.txt"), encoding="utf-8").read()
+    tests = []
+    for m in re.finditer(r"^\s*add_tslang_example_test\((\w+)([^)\n]*)\)", cmake, re.M):
+        name, rest = m.group(1), m.group(2).split()
+        options = {"SUFFIX": [], "APIS": [], "ARGS": []}
+        key = None
+        for word in rest:
+            if word in options:
+                key = word
+            elif key:
+                options[key].append(word)
+        if options["APIS"] and "vk" not in options["APIS"]:
+            continue
+        # a foreach's variable (sakura_forest_ser's modes): only D3D12 tests have them
+        if any("${" in word for word in options["SUFFIX"] + options["ARGS"]):
+            continue
+        test = name + ("." + options["SUFFIX"][0] if options["SUFFIX"] else "")
+        tests.append((name, test, options["ARGS"]))
+    return tests
+
+
+def run_example_test(tools, abi, name, test, arguments, timeout, output):
+    """Starts the example's APK with -test and its arguments (through the intent's args, see
+    core/android_main.cpp) and waits for it to end. Returns (result, what it printed last): PASSED,
+    FAILED, SKIPPED (exit code 77: the device lacks a feature it needs) or CRASHED."""
+    tools.shell(f"am force-stop {package_of(name)}")
+    tools.adb("logcat", "-c", check=False)
+    args = " ".join(["-test", *arguments])
+    tools.shell(f"am start -W -n {package_of(name)}/android.app.NativeActivity --es args '{args}'")
+    deadline = time.time() + timeout
+    time.sleep(1)
+    while is_running(tools, name) and time.time() < deadline:
+        time.sleep(1)
+    timed_out = is_running(tools, name)
+    if timed_out:
+        tools.shell(f"am force-stop {package_of(name)}")
+
+    log_text = tools.adb("logcat", "-d", check=False).stdout
+    with open(os.path.join(output, f"{test}.log"), "w", encoding="utf-8") as file:
+        file.write(log_text)
+    # logcat pads short tags: "I hdr     : ..."
+    tag = re.compile(r"\s[VDIWEF]\s+" + re.escape(name) + r"\s*: (.*)$")
+    printed = [m.group(1) for m in (tag.search(line) for line in log_text.splitlines()) if m]
+    verdict = [line for line in printed if line.startswith("Test ")]
+    exited = [line for line in printed if line.startswith(f"{name} exited with ")]
+    # what the example printed, from native_app_glue's thread: ART logs under the same tag (the
+    # process name, when it fits) from the main thread, whose id is the process's
+    thread = re.compile(r"^\S+ \S+\s+(\d+)\s+(\d+)\s")
+    ran = [line for line in log_text.splitlines() if tag.search(line)
+           and (m := thread.match(line)) and m.group(1) != m.group(2)]
+    crashes = crash_lines(log_text)
+    if timed_out:
+        return "FAILED", f"still running after {timeout} s"
+    if (crashes and not ran and "FATAL EXCEPTION" in crashes[0]
+            and "Fatal signal" not in log_text and "at android.app.ActivityThread" in log_text):
+        # Android's activity start racing the previous app's teardown, before the example ran: a
+        # Java exception in ActivityThread (a null client record, Application, metadata Bundle),
+        # with no native crash and nothing printed
+        return "RETRY", crashes[0].strip()
+    if crashes:
+        return "CRASHED", crashes[0].strip()
+    if exited and exited[-1].endswith(" 77"):
+        return "SKIPPED", verdict[-1] if verdict else (printed[-2] if len(printed) > 1 else "")
+    if verdict and verdict[-1] == "Test PASSED" and exited and exited[-1].endswith(" 0"):
+        return "PASSED", ""
+    return "FAILED", verdict[-1] if verdict else " / ".join(printed[-2:])
+
+
+def command_ctest(tools, args):
+    ensure_device(tools, args)
+    output = os.path.join(build_folder(args.abi), "android-ctest")
+    os.makedirs(output, exist_ok=True)
+    tests = example_tests()
+    if args.tests:
+        tests = [t for t in tests if any(re.search(pattern, t[1]) for pattern in args.tests)]
+
+    results = []
+    # The headless tests are executables run through adb shell (run_headless), not APKs.
+    if args.abi not in NO_HEADLESS:
+        for name in HEADLESS_TESTS:
+            if not args.tests or any(re.search(pattern, name) for pattern in args.tests):
+                results.append((name, "PASSED" if run_headless(tools, args.abi, name) else "FAILED", ""))
+    installed = set()
+    for name, test, arguments in tests:
+        if name in HEADLESS_TESTS:
+            continue
+        apk = os.path.join(build_folder(args.abi), "bin", f"{name}.apk")
+        if not os.path.isfile(apk):
+            # not built for Android (D3D12 only, or Windows-only APIs): build decides
+            results.append((test, "NO APK", ""))
+            continue
+        if name not in installed:
+            install(tools, args.abi, name)
+            installed.add(name)
+        for attempt in range(3):
+            result, detail = run_example_test(tools, args.abi, name, test, arguments, args.timeout, output)
+            if result != "RETRY":
+                break
+            log(f"{test}: the activity's start failed in Android itself, starting it again")
+            time.sleep(3)
+        if result == "RETRY":
+            result = "CRASHED"
+        log(f"{test}: {result}{' - ' + detail if detail else ''}")
+        results.append((test, result, detail))
+
+    print()
+    for test, result, detail in results:
+        print(f"  {result:9} {test}{': ' + detail if detail and result != 'PASSED' else ''}")
+    counts = {r: sum(1 for _, x, _ in results if x == r) for r in ("PASSED", "SKIPPED", "FAILED", "CRASHED", "NO APK")}
+    print("\n" + ", ".join(f"{n} {r.lower()}" for r, n in counts.items() if n) + f"; logs in {output}")
+    if counts["FAILED"] or counts["CRASHED"]:
         sys.exit(1)
 
 
@@ -514,6 +633,11 @@ def main():
     test.add_argument("examples", nargs="*", help=f"default: {' '.join(EMULATOR_EXAMPLES)}")
     test.add_argument("--seconds", type=int, default=20, help="how long each has to keep running")
     test.set_defaults(handler=command_test)
+
+    ctest = commands.add_parser("ctest", parents=[common, devices], help="run the examples' -test checks on the device")
+    ctest.add_argument("tests", nargs="*", help="regular expressions of the tests to run (CTest's names without the API; default: all on Vulkan)")
+    ctest.add_argument("--timeout", type=int, default=300, help="seconds each test may take")
+    ctest.set_defaults(handler=command_ctest)
 
     args = parser.parse_args()
     args.handler(Tools(args), args)

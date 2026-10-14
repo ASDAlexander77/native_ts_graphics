@@ -9,18 +9,31 @@ namespace SimpleCompute {
     const TEST_FRAMES = 120;
 
     // -test: checks the last frame. The corners are the dark red outside of the Mandelbrot set;
-    // its main cardioid is yellow at (860, 360) of the 1280x720 frame, and the set about 17% of it.
+    // its boundary's colored bands cover about 3% of the 1280x720 frame. The set itself (its main
+    // cardioid at (860, 360)) is yellow, about 17% of the frame, where the driver divides by an
+    // approximate reciprocal (NVIDIA's), or the outside's dark red where it divides exactly
+    // (lavapipe, on Android's emulator): see fractal_cs.
     function checkFrame(app: App): string {
         const check = new TestCheck(app);
         const corners = check.corners(0x000040);
         if (corners != "") {
             return corners;
         }
-        if (check.rgb(860, 360) != 0x00FFFF) {
-            return "the main cardioid isn't yellow at (860, 360)";
+        const total = check.width * check.height;
+        const yellow = check.countInRange(201, 255, 201, 255, 0, 79, 0, 0, check.width, check.height);
+        const bands = check.share(check.countOtherThan(0x000040, 0, 0, check.width, check.height) - yellow, total,
+            2.0, 5.0, "Boundary bands");
+        if (bands != "") {
+            return bands;
         }
-        return check.share(check.countInRange(201, 255, 201, 255, 0, 79, 0, 0, check.width, check.height),
-            check.width * check.height, 10.0, 25.0, "Mandelbrot set");
+        const cardioid = check.rgb(860, 360);
+        if (cardioid == 0x000040) {
+            return check.share(yellow, total, 0.0, 0.1, "Mandelbrot set in yellow (exact division)");
+        }
+        if (cardioid != 0x00FFFF) {
+            return "the main cardioid is neither yellow nor dark red at (860, 360)";
+        }
+        return check.share(yellow, total, 10.0, 25.0, "Mandelbrot set");
     }
 
     const WINDOW_TITLE = "Donut Example: Simple Compute";

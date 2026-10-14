@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace ConditionalRendering {
     // Test mode: the frames rendered.
@@ -124,6 +124,7 @@ namespace ConditionalRendering {
     // draws themselves are always recorded.
     class ConditionalRenderingPass {
         private app: App;
+        unsupportedReason: string;
 
         // The sample's linear_scene_nodes: per mesh, per node instancing it, per primitive.
         names: string[];
@@ -164,6 +165,7 @@ namespace ConditionalRendering {
 
         constructor(app: App) {
             this.app = app;
+            this.unsupportedReason = "";
             this.names = [];
             this.visible = [];
             this.nodeTransform = [];
@@ -427,7 +429,7 @@ namespace ConditionalRendering {
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             if (this.app.hasConditionalRendering() == 0) {
-                console.log("This example needs conditional rendering (D3D12 predication or Vulkan's VK_EXT_conditional_rendering)");
+                this.unsupportedReason = "This example needs conditional rendering (D3D12 predication or Vulkan's VK_EXT_conditional_rendering)";
                 return false;
             }
 
@@ -567,7 +569,7 @@ namespace ConditionalRendering {
         const sample = new ConditionalRenderingPass(app);
         if (!sample.init()) {
             app.destroy();
-            return 1;
+            return sample.unsupportedReason != "" ? unsupported(args.test, sample.unsupportedReason) : 1;
         }
         for (let i = args.hideFirst; i < args.hideFirst + args.hideCount && i < sample.names.length; i++) {
             sample.setVisible(i, false);

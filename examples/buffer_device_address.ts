@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 
 namespace BufferDeviceAddress {
     const WINDOW_TITLE = "Donut Example: Buffer Device Address";
@@ -341,9 +342,8 @@ namespace BufferDeviceAddress {
             return 1;
         }
         if (app.hasBufferDeviceAddress() == 0) {
-            console.log("The device doesn't support buffer device addresses (bufferDeviceAddress).");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The device doesn't support buffer device addresses (bufferDeviceAddress).");
         }
 
         const pass = new BufferDeviceAddressPass(app);

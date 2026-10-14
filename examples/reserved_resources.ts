@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 
 namespace ReservedResources {
     const WINDOW_TITLE = "D3D12 Reserved resources sample - Use arrow keys to cycle through resources";
@@ -436,9 +437,8 @@ namespace ReservedResources {
             return 1;
         }
         if (app.hasSparseResidency() == 0) {
-            console.log("Reserved resources are not supported by your GPU.");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "Reserved resources are not supported by your GPU.");
         }
 
         const pass = new ReservedResourcesPass(app);

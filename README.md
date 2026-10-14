@@ -510,6 +510,14 @@ python tools/android.py test
   rendering, push descriptors, descriptor buffers, sparse or reserved resources and the like, stop
   at once with a message saying what the device lacks (`test` reports them as failures; they
   are for devices).
+- `ctest` runs CTest's Vulkan tests on the device: the headless tests, then each example's
+  `-test` (with its CTest arguments, passed in the activity's `args` extra), PASSED when it
+  prints "Test PASSED" and exits with 0, SKIPPED when it exits with 77 (the device lacks a
+  feature it needs, see `unsupported` in `core/test_check.ts`). Name regular expressions to run
+  only those (`ctest bokeh "^simple_"`); `--timeout` is each test's limit (300 s). Logs go to
+  `build-android-x86_64/android-ctest`. On the emulator started without its window, Vulkan is
+  llvmpipe (Mesa's software renderer): it divides exactly where GPUs approximate, which a few
+  checks allow for (`simple_compute`).
 - `run <example>` installs and starts one and follows its log (Ctrl+C stops following);
   `--screenshot shot.png` takes a screenshot instead. `headless` runs the headless tests alone (`headless`, `nvrhi_direct`, through `adb shell`).
 

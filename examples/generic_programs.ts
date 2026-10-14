@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 
 namespace GenericPrograms {
     const WINDOW_TITLE = "D3D12 Hello Generic Programs";
@@ -213,9 +214,8 @@ namespace GenericPrograms {
             return 1;
         }
         if (app.getD3D12ShaderModel() < SHADER_MODEL_6_8) {
-            console.log("Generic Programs require a device with shader model 6.8 support (though the shaders used don't have be 6.8 shaders).");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "Generic Programs require a device with shader model 6.8 support (though the shaders used don't have be 6.8 shaders).");
         }
 
         const pass = new GenericProgramsPass(app);

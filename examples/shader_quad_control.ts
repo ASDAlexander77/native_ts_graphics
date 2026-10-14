@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace ShaderQuadControl {
     // Test mode: the frames rendered.
@@ -152,9 +152,8 @@ namespace ShaderQuadControl {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         if (app.hasShaderQuadControl() == 0) {
-            console.log("The graphics device has no shader quad control (Vulkan's VK_KHR_shader_quad_control, or D3D12)");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device has no shader quad control (Vulkan's VK_KHR_shader_quad_control, or D3D12)");
         }
 
         const pass = new ShaderQuadControlPass(app);

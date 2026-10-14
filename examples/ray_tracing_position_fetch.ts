@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace RayTracingPositionFetch {
     // Test mode: the frames rendered.
@@ -469,9 +469,8 @@ namespace RayTracingPositionFetch {
 
         if (app.isFeatureSupported(Feature.RayTracingPipeline) == 0
             || app.isFeatureSupported(Feature.RayTracingPositionFetch) == 0) {
-            console.log("The graphics device has no ray tracing pipelines with position fetch (VK_KHR_ray_tracing_position_fetch)");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device has no ray tracing pipelines with position fetch (VK_KHR_ray_tracing_position_fetch)");
         }
 
         const pass = new RayTracingPositionFetchPass(app);

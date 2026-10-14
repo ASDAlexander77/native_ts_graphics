@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 
 namespace PushDescriptors {
     const WINDOW_TITLE = "Donut Example: Push Descriptors";
@@ -514,9 +515,8 @@ namespace PushDescriptors {
         }
         console.log(`Renderer: ${app.getRendererString()}`);
         if (app.hasPushDescriptors() == 0) {
-            console.log("The device doesn't support push descriptors (VK_KHR_push_descriptor).");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The device doesn't support push descriptors (VK_KHR_push_descriptor).");
         }
 
         const sample = new PushDescriptorsPass(app);

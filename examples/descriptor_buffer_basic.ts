@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 
 namespace DescriptorBufferBasic {
     const WINDOW_TITLE = "Donut Example: Descriptor Buffers";
@@ -543,9 +544,8 @@ namespace DescriptorBufferBasic {
         }
         console.log(`Renderer: ${app.getRendererString()}`);
         if (app.hasDescriptorBuffers() == 0) {
-            console.log("The device doesn't support descriptor buffers (VK_EXT_descriptor_buffer).");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The device doesn't support descriptor buffers (VK_EXT_descriptor_buffer).");
         }
         // Two descriptor buffers with resource descriptors are bound at once.
         if (app.getMaxResourceDescriptorBufferBindings() < 2) {
