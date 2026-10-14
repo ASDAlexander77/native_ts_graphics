@@ -1,0 +1,73 @@
+diff --git a/src/d3d12/d3d12-resource-bindings.cpp b/src/d3d12/d3d12-resource-bindings.cpp
+index be458e2..34eafde 100644
+--- a/src/d3d12/d3d12-resource-bindings.cpp
++++ b/src/d3d12/d3d12-resource-bindings.cpp
+@@ -1057,6 +1057,17 @@ namespace nvrhi::d3d12
+ 
+             m_CurrentComputeVolatileCBs = newVolatileCBs;
+         }
++        else if (m_EnableAutomaticBarriers)
++        {
++            // The same binding sets as before: their resources still need their states back after
++            // other uses (copies, clears), and their UAVs a barrier after the previous dispatch.
++            for (IBindingSet* _bindingSet : bindings)
++            {
++                if (_bindingSet && _bindingSet->getDesc() &&
++                    (m_BindingStatesDirty || checked_cast<BindingSet*>(_bindingSet)->hasUavBindings))
++                    setResourceStatesForBindingSet(_bindingSet);
++            }
++        }
+ 
+         if (indirectParams && updateIndirectParams)
+         {
+@@ -1184,6 +1195,17 @@ namespace nvrhi::d3d12
+ 
+             m_CurrentGraphicsVolatileCBs = newVolatileCBs;
+         }
++        else if (m_EnableAutomaticBarriers)
++        {
++            // The same binding sets as before: their resources still need their states back after
++            // other uses (copies, clears), and their UAVs a barrier after the previous draw.
++            for (IBindingSet* _bindingSet : bindings)
++            {
++                if (_bindingSet && _bindingSet->getDesc() &&
++                    (m_BindingStatesDirty || checked_cast<BindingSet*>(_bindingSet)->hasUavBindings))
++                    setResourceStatesForBindingSet(_bindingSet);
++            }
++        }
+ 
+         if (indirectParams && updateIndirectParams)
+         {
+diff --git a/src/vulkan/vulkan-state-tracking.cpp b/src/vulkan/vulkan-state-tracking.cpp
+index 9a6a0d6..c625f9f 100644
+--- a/src/vulkan/vulkan-state-tracking.cpp
++++ b/src/vulkan/vulkan-state-tracking.cpp
+@@ -98,19 +98,18 @@ namespace nvrhi::vulkan
+         if (bindingUpdateMask == 0)
+             bindingUpdateMask = arrayDifferenceMask(newBindings, oldBindings);
+ 
+-        if (bindingUpdateMask != 0)
++        // Also when no set changed: those with UAV bindings need a barrier after the previous
++        // draw or dispatch.
++        for (size_t i = 0; i < newBindings.size(); i++)
+         {
+-            for (size_t i = 0; i < newBindings.size(); i++)
+-            {
+-                if (newBindings[i]->getDesc() == nullptr) // Ignore bindless sets
+-                    continue;
++            if (newBindings[i]->getDesc() == nullptr) // Ignore bindless sets
++                continue;
+ 
+-                BindingSet const* bindingSet = checked_cast<BindingSet const*>(newBindings[i]);
++            BindingSet const* bindingSet = checked_cast<BindingSet const*>(newBindings[i]);
+ 
+-                bool const updateThisSet = (bindingUpdateMask & (1u << i)) != 0;
+-                if (updateThisSet || bindingSet->hasUavBindings) // UAV bindings may place UAV barriers on the same binding set
+-                    setResourceStatesForBindingSet(newBindings[i]);
+-            }
++            bool const updateThisSet = (bindingUpdateMask & (1u << i)) != 0;
++            if (updateThisSet || bindingSet->hasUavBindings) // UAV bindings may place UAV barriers on the same binding set
++                setResourceStatesForBindingSet(newBindings[i]);
+         }
+     }
+ 
