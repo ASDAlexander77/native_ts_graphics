@@ -321,6 +321,10 @@ namespace
     {
         std::vector<nvrhi::TextureHandle> textures;
         std::vector<nvrhi::FramebufferHandle> framebuffers;
+        // Signaled on the graphics queue after each back buffer's frame: Donut_RunApp waits for
+        // the one of the back buffer it renders into next, as a swap chain does. Unthrottled,
+        // the CPU ran so far ahead that volatile constant buffers ran out of versions on Vulkan.
+        std::vector<nvrhi::EventQueryHandle> frameQueries;
         uint32_t current = 0;
         int frameCount = 0;
         double frameSeconds = 0.0;
@@ -3246,16 +3250,26 @@ extern "C"
         }
 
         DeviceManager* deviceManager = app->deviceManager.get();
+        nvrhi::IDevice* device = app->device();
+        offscreen->frameQueries.resize(offscreen->textures.size());
         for (int frame = 0; frame < offscreen->frameCount; frame++)
         {
             if (frame > 0)
                 offscreen->current = (offscreen->current + 1) % uint32_t(offscreen->textures.size());
+            // At most one frame in flight per back buffer.
+            nvrhi::EventQueryHandle& query = offscreen->frameQueries[offscreen->current];
+            if (query)
+                device->waitEventQuery(query);
+            else
+                query = device->createEventQuery();
+            device->resetEventQuery(query);
             // Copied: a pass may add or remove passes.
             const std::list<donut::app::IRenderPass*> passes = DeviceManagerAccess::RenderPasses(deviceManager);
             for (donut::app::IRenderPass* pass : passes)
                 pass->Animate(float(offscreen->frameSeconds));
             for (donut::app::IRenderPass* pass : passes)
                 pass->Render(offscreen->framebuffers[offscreen->current]);
+            device->setEventQuery(query, nvrhi::CommandQueue::Graphics);
             app->device()->runGarbageCollection();
             DeviceManagerAccess::FrameIndex(deviceManager)++;
         }
