@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace SparseImage {
     // Test mode: the frames rendered.
@@ -298,6 +298,7 @@ namespace SparseImage {
     // shader uses the most detailed level that is mapped at each pixel.
     class SparseImagePass {
         private app: App;
+        unsupportedReason: string;
 
         // The sample's settings.
         colorHighlight: boolean;
@@ -417,6 +418,7 @@ namespace SparseImage {
 
         constructor(app: App) {
             this.app = app;
+            this.unsupportedReason = "";
             this.colorHighlight = true;
             this.colorHighlightChanged = false;
             this.memoryDefragmentation = true;
@@ -1355,7 +1357,7 @@ namespace SparseImage {
             this.tileWidth = tiling[0];
             this.tileHeight = tiling[1];
             if (this.tileWidth <= 1 || this.tileHeight <= 1 || tiling[2] < MIP_LEVELS) {
-                console.log("The texture's levels can't be mapped page by page on this device");
+                this.unsupportedReason = "The texture's levels can't be mapped page by page on this device";
                 return false;
             }
             this.pageSize = this.tileWidth * this.tileHeight * TEXEL_SIZE;
@@ -1416,7 +1418,7 @@ namespace SparseImage {
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             if (this.app.hasSparseResidency() == 0) {
-                console.log("Sparse binding not supported: this example needs tiled textures with residency queries (D3D12 or Vulkan)");
+                this.unsupportedReason = "Sparse binding not supported: this example needs tiled textures with residency queries (D3D12 or Vulkan)";
                 return false;
             }
 
@@ -1587,7 +1589,7 @@ namespace SparseImage {
         sample.colorHighlight = args.colorHighlight;
         if (!sample.init()) {
             app.destroy();
-            return 1;
+            return sample.unsupportedReason != "" ? unsupported(args.test, sample.unsupportedReason) : 1;
         }
 
         // Drawn after (over) the scene, and sees the mouse first.

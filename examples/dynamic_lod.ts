@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 import { MeshletModel } from "../core/meshlet_model";
 import {
     matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
@@ -670,9 +671,8 @@ namespace DynamicLod {
             return 1;
         }
         if (app.isFeatureSupported(Feature.Meshlets) == 0) {
-            console.log("The graphics device has no mesh shaders");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device has no mesh shaders");
         }
 
         const pass = new DynamicLodPass(app);

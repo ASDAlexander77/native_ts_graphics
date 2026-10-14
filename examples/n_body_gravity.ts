@@ -475,12 +475,13 @@ namespace NBodyGravity {
         if (app.readBackBufferRGBA8(Ref(pixels[0]), pixels.length) == 0) {
             return "cannot read the back buffer";
         }
-        // The clear color as the sample's back buffer has it: 0.1 is 25 of 255 there too.
-        const background = 25 << 16;
+        // The clear color as the sample's back buffer has it: 0.1 is 25 of 255 there too (26 where
+        // 25.5 rounds up, as on Android's emulator).
         const corners = [0, width - 1, (height - 1) * width, height * width - 1];
         for (let k = 0; k < 4; k++) {
             const p = pixels[corners[k]] & 0xFFFFFF;
-            if (p != background) {
+            const blue = (p >> 16) & 0xFF;
+            if ((p & 0xFFFF) != 0 || blue < 25 || blue > 26) {
                 return `corner pixel ${corners[k]} is ${p & 0xFF}, ${(p >> 8) & 0xFF}, ${(p >> 16) & 0xFF}, not the clear color`;
             }
         }

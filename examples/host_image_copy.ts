@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 
 namespace HostImageCopy {
     const WINDOW_TITLE = "Donut Example: Host Image Copy";
@@ -437,9 +438,8 @@ namespace HostImageCopy {
 
         console.log(`Renderer: ${app.getRendererString()}`);
         if (app.hasHostImageCopy() == 0) {
-            console.log("The device can't write images from the CPU (VK_EXT_host_image_copy on Vulkan; D3D12).");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The device can't write images from the CPU (VK_EXT_host_image_copy on Vulkan; D3D12).");
         }
 
         const sample = new HostImageCopyPass(app);

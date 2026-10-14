@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace FragmentShadingRate {
     // Test mode: the frames rendered.
@@ -193,6 +193,8 @@ namespace FragmentShadingRate {
         enableAttachmentShadingRate: boolean;
         colorShadingRate: boolean;
         displaySkySphere: boolean;
+        // Set by init() when the device lacks a feature it needs ("" otherwise).
+        unsupportedReason: string;
 
         // The device's shading rates (width, height pairs, largest first) and the shading rate
         // image's tile size.
@@ -231,6 +233,7 @@ namespace FragmentShadingRate {
             this.enableAttachmentShadingRate = true;
             this.colorShadingRate = false;
             this.displaySkySphere = true;
+            this.unsupportedReason = "";
             this.rates = [];
             for (let i = 0; i < 32; i++) {
                 this.rates.push(0);
@@ -444,7 +447,7 @@ namespace FragmentShadingRate {
             this.rateCount = this.app.getFragmentShadingRates(Ref(this.rates[0]));
             this.tileSize = this.app.getShadingRateTileSize();
             if (this.rateCount == 0 || this.tileSize == 0) {
-                console.log("The graphics device has no variable rate shading with shading rate images");
+                this.unsupportedReason = "The graphics device has no variable rate shading with shading rate images";
                 return false;
             }
 
@@ -575,15 +578,14 @@ namespace FragmentShadingRate {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         if (app.isFeatureSupported(Feature.VariableRateShading) == 0) {
-            console.log("The graphics device has no variable rate shading (D3D12 tier 2 or Vulkan's VK_KHR_fragment_shading_rate)");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device has no variable rate shading (D3D12 tier 2 or Vulkan's VK_KHR_fragment_shading_rate)");
         }
 
         const pass = new FragmentShadingRatePass(app);
         if (!pass.init()) {
             app.destroy();
-            return 1;
+            return pass.unsupportedReason != "" ? unsupported(args.test, pass.unsupportedReason) : 1;
         }
         pass.colorShadingRate = args.color;
         pass.enableAttachmentShadingRate = !args.noAttachment;

@@ -165,6 +165,22 @@ export class TestCheck {
     }
 }
 
+// The exit code of a test the device can't run (CTest's SKIP_RETURN_CODE, see
+// add_tslang_example_test; tools/android.py ctest reports it as SKIPPED).
+export const TEST_SKIPPED = 77;
+
+// An example that can't run on this device (it lacks a feature the example needs) returns this
+// from main: under -test (`test`, Args.test), "Test SKIPPED: <why>" and TEST_SKIPPED, a skip, not
+// a failure; otherwise why, and 1.
+export function unsupported(test: boolean, why: string): int {
+    if (test) {
+        console.log(`Test SKIPPED: ${why}`);
+        return TEST_SKIPPED;
+    }
+    console.log(why);
+    return 1;
+}
+
 // |x| (tslang's Math.max is wrong for negative numbers, so the checks don't use Math).
 export function absolute(x: number): number {
     return x < 0.0 ? -x : x;

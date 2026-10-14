@@ -6,6 +6,7 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, normalize3,
     normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
+import { unsupported } from "../core/test_check";
 
 namespace RaytracingSimpleLighting {
     const WINDOW_TITLE = "D3D12 Raytracing - Simple Lighting";
@@ -414,9 +415,8 @@ namespace RaytracingSimpleLighting {
         }
 
         if (!app.isFeatureSupported(Feature.RayTracingPipeline)) {
-            console.log("The graphics device does not support Ray Tracing Pipelines");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device does not support Ray Tracing Pipelines");
         }
 
         const pass = new RaytracingSimpleLightingPass(app);

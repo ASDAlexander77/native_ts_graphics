@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace PredicationQueries {
     // Test mode: the frames rendered.
@@ -73,6 +73,8 @@ namespace PredicationQueries {
         private stepFraction: number;
 
         benchmark: boolean;
+        // Set by init() when the device lacks predication (main then skips under -test).
+        unsupportedReason: string;
 
         constructor(app: App) {
             this.app = app;
@@ -87,6 +89,7 @@ namespace PredicationQueries {
             }
             this.stepFraction = 0.0;
             this.benchmark = false;
+            this.unsupportedReason = "";
         }
 
         onBackBufferResizing(): void {
@@ -193,7 +196,7 @@ namespace PredicationQueries {
         init(): boolean {
             const occlusion = this.app.createOcclusionPredication(1);
             if (!occlusion) {
-                console.log("The graphics device has no predication (D3D12, or Vulkan with VK_EXT_conditional_rendering)");
+                this.unsupportedReason = "The graphics device has no predication (D3D12, or Vulkan with VK_EXT_conditional_rendering)";
                 return false;
             }
             this.occlusion = occlusion as OcclusionPredicationHandle;
@@ -282,7 +285,7 @@ namespace PredicationQueries {
         pass.benchmark = args.benchmark;
         if (!pass.init()) {
             app.destroy();
-            return 1;
+            return pass.unsupportedReason != "" ? unsupported(args.test, pass.unsupportedReason) : 1;
         }
 
         const input = new InputPass(app.handle);

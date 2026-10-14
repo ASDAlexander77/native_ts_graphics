@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 
 namespace CalibratedTimestampsSample {
     const WINDOW_TITLE = "Donut Example: Calibrated Timestamps";
@@ -786,9 +787,8 @@ namespace CalibratedTimestampsSample {
             return 1;
         }
         if (!hdr.timestamps.available()) {
-            console.log("The device has no calibrated timestamps (VK_EXT_calibrated_timestamps on Vulkan; D3D12).");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The device has no calibrated timestamps (VK_EXT_calibrated_timestamps on Vulkan; D3D12).");
         }
 
         // Drawn after (over) the scene, and sees the mouse first.

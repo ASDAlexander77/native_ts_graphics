@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace FragmentShaderBarycentric {
     // Test mode: the frames rendered.
@@ -124,6 +124,7 @@ namespace FragmentShaderBarycentric {
     // barycentrics, a wireframe, the color of the nearest vertex, a texture lookup.
     class BarycentricPass {
         private app: App;
+        unsupportedReason: string;
 
         // The sample's settings.
         selectedEffect: int;
@@ -161,6 +162,7 @@ namespace FragmentShaderBarycentric {
 
         constructor(app: App) {
             this.app = app;
+            this.unsupportedReason = "";
             this.selectedEffect = 0;
             this.cameraRotation = [0.0, 0.0, 0.0];
             this.cameraPosition = [CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]];
@@ -337,7 +339,7 @@ namespace FragmentShaderBarycentric {
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             if (this.app.hasBarycentrics() == 0) {
-                console.log("This example needs barycentrics in pixel shaders (D3D12 shader model 6.1 or Vulkan's VK_KHR_fragment_shader_barycentric)");
+                this.unsupportedReason = "This example needs barycentrics in pixel shaders (D3D12 shader model 6.1 or Vulkan's VK_KHR_fragment_shader_barycentric)";
                 return false;
             }
 
@@ -457,7 +459,7 @@ namespace FragmentShaderBarycentric {
         sample.selectedEffect = args.effect;
         if (!sample.init()) {
             app.destroy();
-            return 1;
+            return sample.unsupportedReason != "" ? unsupported(args.test, sample.unsupportedReason) : 1;
         }
 
         // Drawn after (over) the scene, and sees the mouse first.

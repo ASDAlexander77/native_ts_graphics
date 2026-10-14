@@ -197,6 +197,41 @@ namespace
         return true;
     }
 
+    // The arguments the activity was started with, its intent's "args" string split at spaces
+    // (`adb shell am start -n <package>/android.app.NativeActivity --es args "-test"`, as
+    // tools/android.py ctest does); none without it.
+    std::vector<std::string> IntentArgs(ANativeActivity* activity)
+    {
+        std::vector<std::string> args;
+        JNIEnv* env = nullptr;
+        if (activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env)
+            return args;
+
+        jclass activityClass = env->GetObjectClass(activity->clazz);
+        jmethodID getIntent = env->GetMethodID(activityClass, "getIntent", "()Landroid/content/Intent;");
+        jobject intent = getIntent ? env->CallObjectMethod(activity->clazz, getIntent) : nullptr;
+        if (intent)
+        {
+            jclass intentClass = env->GetObjectClass(intent);
+            jmethodID getStringExtra = env->GetMethodID(intentClass, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;");
+            jstring key = env->NewStringUTF("args");
+            auto value = getStringExtra ? static_cast<jstring>(env->CallObjectMethod(intent, getStringExtra, key)) : nullptr;
+            if (value)
+            {
+                const char* chars = env->GetStringUTFChars(value, nullptr);
+                std::istringstream words(chars);
+                std::string word;
+                while (words >> word)
+                    args.push_back(word);
+                env->ReleaseStringUTFChars(value, chars);
+            }
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        activity->vm->DetachCurrentThread();
+        return args;
+    }
+
     // Runs the activity's events (its commands, through the glue) for up to timeoutMillis
     void PumpEvents(struct android_app* app, int timeoutMillis)
     {
@@ -251,10 +286,14 @@ extern "C" void android_main(struct android_app* app)
         const bool registered = GC_get_stack_base(&stackBase) == GC_SUCCESS && GC_register_my_thread(&stackBase) == GC_SUCCESS;
 #endif
 
-        std::vector<char> argv0(name.begin(), name.end());
-        argv0.push_back('\0');
-        char* argv[] = { argv0.data(), nullptr };
-        result = main(1, argv);
+        // The example's name, then the intent's arguments
+        std::vector<std::string> words = IntentArgs(app->activity);
+        words.insert(words.begin(), name);
+        std::vector<char*> argv;
+        for (std::string& word : words)
+            argv.push_back(word.data());
+        argv.push_back(nullptr);
+        result = main(int(words.size()), argv.data());
 
 #if TSLANG_MEMORY_MODEL_GC
         if (registered)

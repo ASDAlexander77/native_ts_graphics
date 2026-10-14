@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 
 namespace ShaderDebugPrintf {
     const WINDOW_TITLE = "Donut Example: Shader debugprintf";
@@ -503,9 +504,8 @@ namespace ShaderDebugPrintf {
         }
         console.log(`Renderer: ${app.getRendererString()}`);
         if (app.hasShaderPrintf() == 0) {
-            console.log("Shader printf needs the Vulkan validation layer (VK_LAYER_KHRONOS_validation, from the Vulkan SDK).");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "Shader printf needs the Vulkan validation layer (VK_LAYER_KHRONOS_validation, from the Vulkan SDK).");
         }
 
         const sample = new ShaderDebugPrintfPass(app);

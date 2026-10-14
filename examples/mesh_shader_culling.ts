@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace MeshShaderCulling {
     // Test mode: the frames rendered.
@@ -75,6 +75,7 @@ namespace MeshShaderCulling {
     // colored quads. WASD moves the square; pipeline statistics count the shader invocations.
     class MeshShaderCullingPass {
         private app: App;
+        unsupportedReason: string;
 
         // The sample's settings (its UBO and density level).
         cullRadius: number;
@@ -103,6 +104,7 @@ namespace MeshShaderCulling {
 
         constructor(app: App) {
             this.app = app;
+            this.unsupportedReason = "";
             this.cullRadius = 1.0;
             this.densityLevel = 2;
             this.hasStatistics = false;
@@ -199,7 +201,7 @@ namespace MeshShaderCulling {
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
-                console.log("This example needs task and mesh shaders (D3D12 or Vulkan)");
+                this.unsupportedReason = "This example needs task and mesh shaders (D3D12 or Vulkan)";
                 return false;
             }
 
@@ -306,7 +308,7 @@ namespace MeshShaderCulling {
         sample.densityLevel = args.densityLevel;
         if (!sample.init()) {
             app.destroy();
-            return 1;
+            return sample.unsupportedReason != "" ? unsupported(args.test, sample.unsupportedReason) : 1;
         }
 
         // Drawn after (over) the scene.

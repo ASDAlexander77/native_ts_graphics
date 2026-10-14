@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 import { ObjModel } from "../core/obj_model";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationAxis, matrixRotationY, normalize3,
@@ -839,15 +840,13 @@ namespace SakuraForestSER {
             return 1;
         }
         if (!app.isFeatureSupported(Feature.RayTracingPipeline)) {
-            console.log("ERROR: DirectX Raytracing is not supported by your OS, GPU and/or driver.");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "ERROR: DirectX Raytracing is not supported by your OS, GPU and/or driver.");
         }
         // D3D_SHADER_MODEL_6_9.
         if (app.getD3D12ShaderModel() < 0x69) {
-            console.log("ERROR: Device doesn't support Shader Model 6.9.");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "ERROR: Device doesn't support Shader Model 6.9.");
         }
 
         const pass = new SakuraForestPass(app);

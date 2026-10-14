@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { unsupported } from "../core/test_check";
 import { PbrtScene } from "../core/pbrt_scene";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, matrixScaling,
@@ -1700,9 +1701,8 @@ namespace DenoisedRtao {
             return 1;
         }
         if (app.isFeatureSupported(Feature.RayTracingPipeline) == 0) {
-            console.log("Ray tracing pipelines are not supported by this device");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "Ray tracing pipelines are not supported by this device");
         }
 
         const pass = new DenoisedRtaoPass(app);

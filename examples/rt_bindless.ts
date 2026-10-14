@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace RtBindless {
     // Test mode: the frames rendered.
@@ -369,15 +369,13 @@ namespace RtBindless {
         }
 
         if (!useRayQuery && !app.isFeatureSupported(Feature.RayTracingPipeline)) {
-            console.log("The graphics device does not support Ray Tracing Pipelines");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device does not support Ray Tracing Pipelines");
         }
 
         if (useRayQuery && !app.isFeatureSupported(Feature.RayQuery)) {
-            console.log("The graphics device does not support Ray Queries");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device does not support Ray Queries");
         }
 
         console.log(`Renderer: ${app.getRendererString()}`);

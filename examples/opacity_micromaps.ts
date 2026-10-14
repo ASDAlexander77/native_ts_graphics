@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY,
     normalize3, normalize4, radians, transform3, vsub,
@@ -763,14 +763,12 @@ namespace OpacityMicromaps {
         }
 
         if (!app.isFeatureSupported(Feature.RayTracingPipeline)) {
-            console.log("The graphics device does not support Ray Tracing Pipelines");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device does not support Ray Tracing Pipelines");
         }
         if (!app.isFeatureSupported(Feature.RayTracingOpacityMicromap)) {
-            console.log("The graphics device does not support opacity micromaps (D3D12: raytracing tier 1.2; Vulkan: VK_EXT_opacity_micromap)");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device does not support opacity micromaps (D3D12: raytracing tier 1.2; Vulkan: VK_EXT_opacity_micromap)");
         }
 
         console.log(`Renderer: ${app.getRendererString()}`);

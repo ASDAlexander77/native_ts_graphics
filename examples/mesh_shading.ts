@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace MeshShading {
     // Test mode: the frames rendered.
@@ -42,10 +42,13 @@ namespace MeshShading {
         private pixelShader: ShaderHandle;
         private pipeline: MeshletPipelineHandle;
         private pipelineCreated: boolean;
+        // Set by init() when the device lacks a feature it needs ("" otherwise).
+        unsupportedReason: string;
 
         constructor(app: App) {
             this.app = app;
             this.pipelineCreated = false;
+            this.unsupportedReason = "";
         }
 
         onAnimate(elapsedSeconds: number): void {
@@ -71,7 +74,7 @@ namespace MeshShading {
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
-                console.log("The graphics device does not support mesh shaders");
+                this.unsupportedReason = "The graphics device does not support mesh shaders";
                 return false;
             }
             this.meshShader = this.app.createShader("mesh_shading.hlsl", "triangle_ms", ShaderType.Mesh);
@@ -105,7 +108,7 @@ namespace MeshShading {
         const pass = new MeshShadingPass(app);
         if (!pass.init()) {
             app.destroy();
-            return 1;
+            return pass.unsupportedReason != "" ? unsupported(args.test, pass.unsupportedReason) : 1;
         }
 
         const input = new InputPass(app.handle);

@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace ConservativeRasterization {
     // Test mode: the frames rendered.
@@ -136,6 +136,7 @@ namespace ConservativeRasterization {
     // stretched over the screen without filtering, with the triangle's real outline drawn over it.
     class ConservativeRasterizationPass {
         private app: App;
+        unsupportedReason: string;
 
         // The sample's settings.
         conservativeRasterEnabled: boolean;
@@ -184,6 +185,7 @@ namespace ConservativeRasterization {
 
         constructor(app: App) {
             this.app = app;
+            this.unsupportedReason = "";
             this.conservativeRasterEnabled = true;
             this.hasVulkanProperties = false;
             this.vulkanProperties = [];
@@ -343,7 +345,7 @@ namespace ConservativeRasterization {
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             if (this.app.isFeatureSupported(Feature.ConservativeRasterization) == 0) {
-                console.log("This example needs conservative rasterization");
+                this.unsupportedReason = "This example needs conservative rasterization";
                 return false;
             }
             this.hasVulkanProperties = this.app.getVulkanConservativeRasterizationProperties(Ref(this.vulkanProperties[0])) != 0;
@@ -483,7 +485,7 @@ namespace ConservativeRasterization {
         sample.conservativeRasterEnabled = args.conservative;
         if (!sample.init()) {
             app.destroy();
-            return 1;
+            return sample.unsupportedReason != "" ? unsupported(args.test, sample.unsupportedReason) : 1;
         }
 
         // Drawn after (over) the scene, and sees the mouse first.

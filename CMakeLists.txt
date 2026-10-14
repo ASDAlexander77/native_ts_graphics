@@ -248,6 +248,11 @@ set(DONUT_NVRHI_PATCHES
     # clears since. Only bindings that changed got any, so passes writing and reading one binding
     # set overlapped (compute_nbody_collisions).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-uav-barriers-same-binding-set.patch"
+    # Vulkan pipelines take their viewport and scissor counts from each draw state (Vulkan 1.3's
+    # eViewportWithCount), not 1: a geometry shader's SV_ViewportArrayIndex must be below the
+    # pipeline's count, and lavapipe drops the primitives past it (bokeh's far layer, on Android's
+    # emulator).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-viewport-count.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -692,6 +697,8 @@ function(add_tslang_example_test name)
             WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
         set_tests_properties(${test_name}.${api} PROPERTIES
             FAIL_REGULAR_EXPRESSION "ERROR|Validation Error|D3D12 ERROR|D3D12 CORRUPTION|layerPrefix='Validation'"
+            # core/test_check.ts' unsupported: the device lacks a feature the example needs
+            SKIP_RETURN_CODE 77
             LABELS ${api}
             TIMEOUT 300)
     endforeach()

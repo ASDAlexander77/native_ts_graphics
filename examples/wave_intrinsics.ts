@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck } from "../core/test_check";
+import { TestCheck, unsupported } from "../core/test_check";
 
 namespace WaveIntrinsics {
     // Test mode: the frames rendered.
@@ -397,9 +397,8 @@ namespace WaveIntrinsics {
         // The sample needs shader model 6 with wave intrinsics.
         const laneCount = app.getWaveLaneCountMin();
         if (laneCount == 0) {
-            console.log("The graphics device does not support wave intrinsics (D3D12 or Vulkan)");
             app.destroy();
-            return 1;
+            return unsupported(args.test, "The graphics device does not support wave intrinsics (D3D12 or Vulkan)");
         }
         console.log(`Renderer: ${app.getRendererString()}, wave lanes: ${laneCount} to ${app.getWaveLaneCountMax()}`);
 
