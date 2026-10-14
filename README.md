@@ -297,7 +297,7 @@ if (commandList) {
   tuples, so a literal nests too (`nvrhi.computeState()`). A `std::vector` field
   (`BindingLayoutDesc`'s and `BindingSetDesc`'s items) points at a tslang array's elements, for
   the call only: `nvrhi.stdVector()` makes it, as `nvrhi.createBindingLayout()` and
-  `createBindingSet()` do. It needs a tsbindgen newer than pre-alpha101, which binds the methods
+  `createBindingSet()` do. It needs tsbindgen pre-alpha102 or newer, which binds the methods
   taking a struct by value too.
 - **Signatures.** An object returned by value is a tuple with its layout: `RefCountPtr<T>`
   (`@cppnontrivial`, as it has a destructor) and `nvrhi::Object`. tslang passes the hidden pointer

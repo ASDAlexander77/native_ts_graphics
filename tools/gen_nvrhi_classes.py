@@ -21,7 +21,7 @@ ComputeState's bindings a static_vector_IBindingSet_8). Its output is then made 
 A method taking a struct by value (TextureSubresourceSet, nvrhi::Object) or returning a small one
 in registers is tsbindgen's too, which tslang calls as each ABI passes the struct.
 It needs a tsbindgen that lays out std::string and static_vector fields (tslang newer than
-pre-alpha99), and one that binds methods taking structs by value (newer than pre-alpha101): it
+pre-alpha99), and one that binds methods taking structs by value (pre-alpha102 or newer): it
 stops if a struct in TUPLES isn't a tuple, or a method is skipped for a struct by value.
 """
 
@@ -131,7 +131,7 @@ def adapt(body):
 
     if byValue:
         sys.exit(f"gen_nvrhi_classes: tsbindgen left out {', '.join(byValue)} for a struct by value: it needs a "
-                 "tsbindgen that binds them (tslang newer than pre-alpha101)")
+                 "tsbindgen that binds them (tslang pre-alpha102 or newer)")
     untupled = [name for name in TUPLES if name not in tuples]
     if untupled:
         sys.exit(f"gen_nvrhi_classes: tsbindgen didn't lay out {', '.join(untupled)}: it needs a tsbindgen that "
