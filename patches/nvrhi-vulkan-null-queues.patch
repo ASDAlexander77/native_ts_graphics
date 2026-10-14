@@ -1,0 +1,19 @@
+diff --git a/include/nvrhi/vulkan.h b/include/nvrhi/vulkan.h
+index 5d47552..14314c9 100644
+--- a/include/nvrhi/vulkan.h
++++ b/include/nvrhi/vulkan.h
+@@ -56,11 +56,11 @@ namespace nvrhi::vulkan
+         VkDevice device;
+ 
+         // any of the queues can be null if this context doesn't intend to use them
+-        VkQueue graphicsQueue;
++        VkQueue graphicsQueue = VK_NULL_HANDLE;
+         int graphicsQueueIndex = -1;
+-        VkQueue transferQueue;
++        VkQueue transferQueue = VK_NULL_HANDLE;
+         int transferQueueIndex = -1;
+-        VkQueue computeQueue;
++        VkQueue computeQueue = VK_NULL_HANDLE;
+         int computeQueueIndex = -1;
+ 
+         VkAllocationCallbacks *allocationCallbacks = nullptr;

@@ -228,6 +228,11 @@ set(DONUT_NVRHI_PATCHES
     # Vulkan handles on 32-bit targets (armeabi-v7a), where non-dispatchable ones are 64-bit integers, not
     # pointers: names, null defaults and the debug string in the backend take them through rawHandle().
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-32bit-handles.patch"
+    # vulkan::DeviceDesc's queues are null unless given: Donut gives the compute and transfer queues
+    # only when asked for them, and NVRHI took the uninitialized handles for queues it had, saying
+    # it had a compute queue (queryFeatureSupport) and crashing in a command list's open() for it
+    # (nvrhi_direct).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-null-queues.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.

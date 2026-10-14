@@ -43,8 +43,12 @@ namespace NvrhiDirect {
     // tracked by hand (testTextureStateTracking, testBufferStateTracking), resources placed in heaps
     // (testPlacedResources), indexed indirect draws (testDrawIndexedIndirect), format support
     // (testFormatSupport), two command lists in one submission (testExecuteCommandLists), a command
-    // list lifetime tracker (testLifetimeTracker), shader specialization (testShaderSpecialization)
-    // and a bindless descriptor table (testBindless).
+    // list lifetime tracker (testLifetimeTracker), shader specialization (testShaderSpecialization),
+    // a bindless descriptor table (testBindless), native views (testNativeViews), handles of API
+    // objects (testNativeHandles), a resource's memory requirements (testResourceMemoryRequirements),
+    // queries reset and used again (testQueryResets), the compute queue (testComputeQueue), UAV
+    // barriers turned off (testUavBarrierControl), a binding set's states set at once
+    // (testBindingSetStates) and indexed indirect draws with a count (testDrawIndexedIndirectCount).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -1955,12 +1959,26 @@ namespace NvrhiDirect {
             return;
         }
         const table = nvrhi.createDescriptorTable(device, bindlessLayout);
-        if (!table) {
+        const otherTable = nvrhi.createDescriptorTable(device, bindlessLayout);
+        if (!table || !otherTable) {
             check(false, "IDevice::createDescriptorTable");
             return;
         }
-        // (Vulkan's table has the layout's capacity from the start, and resizing it does nothing)
+        // IBindingLayout::getBindlessDesc: the desc NVRHI keeps; below, IDescriptorTable::
+        // getFirstDescriptorIndexInHeap: where each table starts in D3D12's shader visible heap
+        // (two tables: two places), 0 on Vulkan (a descriptor set each)
+        const bindlessDesc = Deref(bindlessLayout.getBindlessDesc());
+        check(bindlessDesc.maxCapacity == MAX_CAPACITY && bindlessDesc.visibility == nvrhi.SHADER_TYPE_COMPUTE
+            && bindlessDesc.registerSpaces.current_size == 1, "IBindingLayout::getBindlessDesc");
+        // (Vulkan's table has the layout's capacity from the start, and resizing it does nothing;
+        // D3D12's has its place in the heap once resized)
         device.resizeDescriptorTable(table, BUFFERS, true);
+        device.resizeDescriptorTable(otherTable, BUFFERS, true);
+        const first = table.getFirstDescriptorIndexInHeap();
+        const otherFirst = otherTable.getFirstDescriptorIndexInHeap();
+        console.log(`IDescriptorTable::getFirstDescriptorIndexInHeap: ${first}, another table ${otherFirst}`);
+        check(isD3D12 ? first != otherFirst : first == 0 && otherFirst == 0, "IDescriptorTable::getFirstDescriptorIndexInHeap");
+        otherTable.Release();
         check(table.getCapacity() == (isD3D12 ? BUFFERS : MAX_CAPACITY),
             `IDevice::resizeDescriptorTable, IDescriptorTable::getCapacity (${table.getCapacity()})`);
         let buffers: nvrhi.IBuffer[] = [];
@@ -2029,6 +2047,475 @@ namespace NvrhiDirect {
         shader.Release();
     }
 
+    // Native views of a texture's subresources, with no command list: ITexture::getNativeView (a
+    // TextureSubresourceSet by value; the API's view: D3D12 a shader resource view's GPU
+    // descriptor, Vulkan a VkImageView) of a texture of 2 mip levels, of all its subresources, of mip
+    // level 1, then of all again. NVRHI makes a view per subresource set and keeps it: the first and
+    // the third the same, the second another.
+    function testNativeViews(device: nvrhi.IDevice, isD3D12: boolean): void {
+        let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Viewed texture", nvrhi.RESOURCE_STATE_SHADER_RESOURCE);
+        desc.mipLevels = 2;
+        const texture = nvrhi.createTexture(device, desc);
+        if (!texture) {
+            check(false, "the native view test's texture");
+            return;
+        }
+
+        const viewType = isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_SRV_GPU_DESCRIPTOR : nvrhi.OBJECT_TYPE_VK_IMAGE_VIEW;
+        const all = nvrhi.getNativeView(texture, viewType, <u8>Format.RGBA8_UNORM, nvrhi.allSubresources(), nvrhi.TEXTURE_DIMENSION_2D);
+        const mip1 = nvrhi.getNativeView(texture, viewType, <u8>Format.RGBA8_UNORM, [1, 1, 0, 1], nvrhi.TEXTURE_DIMENSION_2D);
+        const allAgain = nvrhi.getNativeView(texture, viewType, <u8>Format.RGBA8_UNORM, nvrhi.allSubresources(), nvrhi.TEXTURE_DIMENSION_2D);
+        if (!all || !mip1 || !allAgain) {
+            check(false, "ITexture::getNativeView");
+        } else {
+            console.log(`ITexture::getNativeView: all ${<index>all}, mip level 1 ${<index>mip1}, all again ${<index>allAgain}`);
+            check(<index>all == <index>allAgain, "ITexture::getNativeView of the same subresources: the same view");
+            check(<index>all != <index>mip1, "ITexture::getNativeView of another mip level: another view");
+        }
+
+        texture.Release();
+    }
+
+    // Handles of API objects, with two command lists: a texture and a buffer, their API objects
+    // (getNativeObject: D3D12 resources; a VkImage, a VkBuffer), and an NVRHI handle of each
+    // (IDevice::createHandleForNativeTexture, createHandleForNativeBuffer: an nvrhi::Object by
+    // value). The first command list clears the texture and writes the buffer through the new
+    // handles, the second copies them through the old ones: what the first wrote.
+    function testNativeHandles(device: nvrhi.IDevice, isD3D12: boolean): void {
+        const VALUES = 16;
+        const texture = nvrhi.createTexture(device, renderTargetDesc());
+        const buffer = nvrhi.createBuffer(device, nvrhi.bufferDesc(VALUES * 4, "Native buffer", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_NONE));
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(VALUES * 4, "Native readback", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const writer = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        const reader = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!texture || !buffer || !staging || !readback || !writer || !reader) {
+            check(false, "the native handle test's resources and command lists");
+            return;
+        }
+        const textureType = isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_IMAGE;
+        const bufferType = isD3D12 ? nvrhi.OBJECT_TYPE_D3D12_RESOURCE : nvrhi.OBJECT_TYPE_VK_BUFFER;
+        const nativeTexture = nvrhi.getNativeObject(texture, textureType);
+        const nativeBuffer = nvrhi.getNativeObject(buffer, bufferType);
+        if (!nativeTexture || !nativeBuffer) {
+            check(false, "the native handle test's API objects");
+            return;
+        }
+        let aliasDesc = renderTargetDesc();
+        aliasDesc.debugName = nvrhi.stdString("Texture handle");
+        const textureHandle = nvrhi.createHandleForNativeTexture(device, textureType, nativeTexture, aliasDesc);
+        const bufferHandle = nvrhi.createHandleForNativeBuffer(device, bufferType, nativeBuffer,
+            nvrhi.bufferDesc(VALUES * 4, "Buffer handle", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_NONE));
+        if (!textureHandle || !bufferHandle) {
+            check(false, "IDevice::createHandleForNativeTexture and createHandleForNativeBuffer");
+            return;
+        }
+        const handleTextureObject = nvrhi.getNativeObject(textureHandle, textureType);
+        const handleBufferObject = nvrhi.getNativeObject(bufferHandle, bufferType);
+        check(handleTextureObject != null && <index>handleTextureObject == <index>nativeTexture
+            && nvrhi.stdStringIs(Deref(textureHandle.getDesc()).debugName, "Texture handle"),
+            "IDevice::createHandleForNativeTexture's texture: the API object, the desc given");
+        check(handleBufferObject != null && <index>handleBufferObject == <index>nativeBuffer
+            && nvrhi.stdStringIs(Deref(bufferHandle.getDesc()).debugName, "Buffer handle"),
+            "IDevice::createHandleForNativeBuffer's buffer: the API object, the desc given");
+
+        let values: u32[] = [];
+        for (let i = 0; i < VALUES; i++) {
+            values.push(500 + 3 * i);
+        }
+        writer.open();
+        nvrhi.clearTextureFloat(writer, textureHandle, nvrhi.allSubresources(), [0.5, 0.0, 1.0, 1.0]);
+        writer.writeBuffer(bufferHandle, <Opaque>Ref(values[0]), VALUES * 4, 0);
+        writer.close();
+        nvrhi.executeCommandList(device, writer);
+        reader.open();
+        nvrhi.copyTextureToStaging(reader, staging, nvrhi.entireTexture(), texture, nvrhi.entireTexture());
+        reader.copyBuffer(readback, 0, buffer, 0, VALUES * 4);
+        reader.close();
+        nvrhi.executeCommandList(device, reader);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the native handle test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let textureMismatches = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+                if (!sameColor(pixels, i, 128, 0, 255)) {
+                    textureMismatches++;
+                }
+            }
+            check(textureMismatches == 0, `a texture cleared through another handle (${textureMismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+        }
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let bufferMismatches = 0;
+        for (let i = 0; i < VALUES; i++) {
+            if (Deref(mapped[i]) != 500 + 3 * i) {
+                bufferMismatches++;
+            }
+        }
+        device.unmapBuffer(readback);
+        check(bufferMismatches == 0, `a buffer written through another handle (${bufferMismatches} of ${VALUES} differ)`);
+
+        reader.Release();
+        writer.Release();
+        bufferHandle.Release();
+        textureHandle.Release();
+        readback.Release();
+        staging.Release();
+        buffer.Release();
+        texture.Release();
+    }
+
+    // IResource::queryMemoryRequirements of a buffer, with no command list: what its memory takes,
+    // at least its bytes (NVRHI reports buffers', not textures': those assert)
+    function testResourceMemoryRequirements(device: nvrhi.IDevice): void {
+        const buffer = nvrhi.createBuffer(device, nvrhi.bufferDesc(256, "Queried buffer", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_NONE));
+        if (!buffer) {
+            check(false, "the memory requirement test's buffer");
+            return;
+        }
+        let requirements: nvrhi.MemoryRequirements = [0, 0];
+        const queried = buffer.queryMemoryRequirements(Ref(requirements));
+        console.log(`IResource::queryMemoryRequirements: ${queried}, ${requirements.size} (alignment ${requirements.alignment})`);
+        check(queried && requirements.size >= 256 && requirements.alignment != 0, "IResource::queryMemoryRequirements of a buffer");
+
+        buffer.Release();
+    }
+
+    // Queries used twice, with a command list of their own: an event query and a timer query used
+    // as testQueries uses them, IDevice::resetEventQuery and resetTimerQuery (pollTimerQuery false
+    // again, the time not read yet), then used again: each done again, the timer's time more than 0.
+    function testQueryResets(device: nvrhi.IDevice): void {
+        const eventQuery = nvrhi.createEventQuery(device);
+        const timerQuery = nvrhi.createTimerQuery(device);
+        const texture = nvrhi.createTexture(device, renderTargetDesc());
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!eventQuery || !timerQuery || !texture || !commandList) {
+            check(false, "the query reset test's queries, texture and command list");
+            return;
+        }
+
+        for (let round = 0; round < 2; round++) {
+            commandList.open();
+            commandList.beginTimerQuery(timerQuery);
+            nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [round, 0.0, 0.0, 1.0]);
+            commandList.endTimerQuery(timerQuery);
+            commandList.close();
+            nvrhi.executeCommandList(device, commandList);
+            device.setEventQuery(eventQuery, nvrhi.COMMAND_QUEUE_GRAPHICS);
+            device.waitEventQuery(eventQuery);
+            check(device.pollEventQuery(eventQuery), `IDevice::pollEventQuery after waitEventQuery, use ${round + 1}`);
+            check(device.pollTimerQuery(timerQuery), `IDevice::pollTimerQuery after the command list, use ${round + 1}`);
+            // (the time read on the second use only: Vulkan's getTimerQueryTime ends the query itself)
+            if (round == 1) {
+                const seconds = device.getTimerQueryTime(timerQuery);
+                check(seconds > 0 && seconds < 1, `IDevice::getTimerQueryTime after resetTimerQuery (${seconds} s)`);
+            }
+
+            device.resetEventQuery(eventQuery);
+            device.resetTimerQuery(timerQuery);
+            check(!device.pollTimerQuery(timerQuery), `IDevice::resetTimerQuery after use ${round + 1}: not done`);
+        }
+
+        commandList.Release();
+        texture.Release();
+        timerQuery.Release();
+        eventQuery.Release();
+    }
+
+    // An output buffer of runTest's compute pipeline (input * 2 + 1); null on failure.
+    function computeOutputBuffer(device: nvrhi.IDevice, name: string): nvrhi.IBuffer | null {
+        let outputDesc = nvrhi.bufferDesc(SIZE, name, nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
+        outputDesc.format = <u8>Format.R32_UINT;
+        outputDesc.canHaveTypedViews = true;
+        outputDesc.canHaveUAVs = true;
+        return nvrhi.createBuffer(device, outputDesc);
+    }
+
+    // A binding set of runTest's compute pipeline over input and an output buffer; null on failure.
+    function computeBindingSet(device: nvrhi.IDevice, bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer,
+        output: nvrhi.IBuffer): nvrhi.IBindingSet | null {
+        return nvrhi.createBindingSet(device, bindingLayout, [
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_SRV, input),
+            nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_UAV, output)]);
+    }
+
+    // How many of a readback buffer's COUNT values at offset (in values) differ from data * 2 + 1
+    function computedMismatches(readback: nvrhi.IBuffer, device: nvrhi.IDevice, offset: int, data: u32[]): int {
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let mismatches = 0;
+        for (let i = 0; i < COUNT; i++) {
+            if (Deref(mapped[offset + i]) != data[i] * 2 + 1) {
+                mismatches++;
+            }
+        }
+        device.unmapBuffer(readback);
+        return mismatches;
+    }
+
+    // The compute queue, where the device has one (main asks Donut for one: D3D12's, Vulkan's
+    // compute family or the graphics family's second queue): runTest's compute pipeline dispatched by a command list of the compute
+    // queue (CommandListParameters::queueType), executed there (IDevice::executeCommandLists on it),
+    // the graphics queue waiting for it (queueWaitForCommandList of its submission) before a copy
+    // into a readback buffer: input * 2 + 1.
+    function testComputeQueue(device: nvrhi.IDevice, hasComputeQueue: boolean, pipeline: nvrhi.IComputePipeline,
+        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]): void {
+        if (!hasComputeQueue) {
+            console.log("Compute queue: none, not tested");
+            return;
+        }
+        const output = computeOutputBuffer(device, "Async output");
+        const bindingSet = output ? computeBindingSet(device, bindingLayout, input, output) : null;
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(SIZE, "Async readback", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        let computeParams = nvrhi.commandListParameters();
+        computeParams.queueType = nvrhi.COMMAND_QUEUE_COMPUTE;
+        const computeList = nvrhi.createCommandList(device, computeParams);
+        const copyList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!bindingSet || !output || !readback || !computeList || !copyList) {
+            check(false, "the compute queue test's buffers and command lists");
+            return;
+        }
+        check(Deref(computeList.getDesc()).queueType == nvrhi.COMMAND_QUEUE_COMPUTE, "ICommandList::getDesc's queueType");
+
+        computeList.open();
+        nvrhi.setComputeState(computeList, nvrhi.computeState(pipeline, bindingSet));
+        computeList.dispatch(1, 1, 1);
+        computeList.close();
+        const instance = nvrhi.executeCommandListOn(device, computeList, nvrhi.COMMAND_QUEUE_COMPUTE);
+        device.queueWaitForCommandList(nvrhi.COMMAND_QUEUE_GRAPHICS, nvrhi.COMMAND_QUEUE_COMPUTE, instance);
+        copyList.open();
+        copyList.copyBuffer(readback, 0, output, 0, SIZE);
+        copyList.close();
+        nvrhi.executeCommandList(device, copyList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the compute queue test");
+
+        const mismatches = computedMismatches(readback, device, 0, data);
+        console.log(`Compute queue: submission ${instance}`);
+        check(mismatches == 0, `a dispatch on the compute queue (${mismatches} of ${COUNT} differ)`);
+
+        copyList.Release();
+        computeList.Release();
+        readback.Release();
+        bindingSet.Release();
+        output.Release();
+    }
+
+    // UAV barriers turned off and on, with a command list of its own: runTest's compute pipeline
+    // dispatched twice into one buffer with ICommandList::setEnableUavBarriersForBuffer off between
+    // them (the two write the same values, which needs no barrier), then once more with it on; an
+    // R32_UINT texture with UAVs cleared twice to one value with setEnableUavBarriersForTexture off,
+    // then on. The buffer: input * 2 + 1; the texture: the value.
+    function testUavBarrierControl(device: nvrhi.IDevice, pipeline: nvrhi.IComputePipeline,
+        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]): void {
+        const output = computeOutputBuffer(device, "Unbarriered");
+        const bindingSet = output ? computeBindingSet(device, bindingLayout, input, output) : null;
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(SIZE, "UAV readback", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        let textureDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.R32_UINT, "Unbarriered UAV",
+            nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
+        textureDesc.isUAV = true;
+        const texture = nvrhi.createTexture(device, textureDesc);
+        textureDesc.debugName = nvrhi.stdString("UAV staging");
+        const staging = nvrhi.createStagingTexture(device, textureDesc, nvrhi.CPU_ACCESS_READ);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!bindingSet || !output || !readback || !texture || !staging || !commandList) {
+            check(false, "the UAV barrier test's resources and command list");
+            return;
+        }
+
+        commandList.open();
+        nvrhi.setComputeState(commandList, nvrhi.computeState(pipeline, bindingSet));
+        commandList.setEnableUavBarriersForBuffer(output, false);
+        commandList.dispatch(1, 1, 1);
+        commandList.dispatch(1, 1, 1);
+        commandList.setEnableUavBarriersForBuffer(output, true);
+        commandList.dispatch(1, 1, 1);
+        commandList.copyBuffer(readback, 0, output, 0, SIZE);
+        commandList.setEnableUavBarriersForTexture(texture, false);
+        nvrhi.clearTextureUInt(commandList, texture, nvrhi.allSubresources(), UINT_CLEAR_MIP);
+        nvrhi.clearTextureUInt(commandList, texture, nvrhi.allSubresources(), UINT_CLEAR_MIP);
+        commandList.setEnableUavBarriersForTexture(texture, true);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), texture, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the UAV barrier test");
+
+        const bufferMismatches = computedMismatches(readback, device, 0, data);
+        check(bufferMismatches == 0, `dispatches with UAV barriers off (${bufferMismatches} of ${COUNT} differ)`);
+        const texels = readStagingUInts(device, staging, 0, TEXTURE_SIZE);
+        if (texels.length != 0) {
+            let textureMismatches = 0;
+            for (let i = 0; i < texels.length; i++) {
+                if (texels[i] != UINT_CLEAR_MIP) {
+                    textureMismatches++;
+                }
+            }
+            check(textureMismatches == 0, `UAV clears with UAV barriers off (${textureMismatches} of ${texels.length} differ)`);
+        }
+
+        commandList.Release();
+        staging.Release();
+        texture.Release();
+        readback.Release();
+        bindingSet.Release();
+        output.Release();
+    }
+
+    // A binding set's resources put in their states at once, with a command list of its own and
+    // automatic barriers off: ICommandList::setResourceStatesForBindingSet of a binding set over
+    // runTest's input (a typed buffer SRV, CopyDest between command lists) and a new output (a UAV),
+    // commitBarriers; getBufferState of each (NonPixelShaderResource: a compute binding set's;
+    // UnorderedAccess); then a dispatch, which
+    // NVRHI doesn't transition for, and a copy into a readback buffer: input * 2 + 1.
+    function testBindingSetStates(device: nvrhi.IDevice, pipeline: nvrhi.IComputePipeline,
+        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]): void {
+        const output = computeOutputBuffer(device, "Set states");
+        const bindingSet = output ? computeBindingSet(device, bindingLayout, input, output) : null;
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(SIZE, "States readback", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!bindingSet || !output || !readback || !commandList) {
+            check(false, "the binding set state test's buffers and command list");
+            return;
+        }
+
+        commandList.open();
+        commandList.setEnableAutomaticBarriers(false);
+        commandList.setResourceStatesForBindingSet(bindingSet);
+        commandList.commitBarriers();
+        const inputState = commandList.getBufferState(input);
+        const outputState = commandList.getBufferState(output);
+        nvrhi.setComputeState(commandList, nvrhi.computeState(pipeline, bindingSet));
+        commandList.dispatch(1, 1, 1);
+        commandList.setBufferState(output, nvrhi.RESOURCE_STATE_COPY_SOURCE);
+        commandList.commitBarriers();
+        commandList.copyBuffer(readback, 0, output, 0, SIZE);
+        commandList.setEnableAutomaticBarriers(true);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the binding set state test");
+
+        console.log(`ICommandList::setResourceStatesForBindingSet: input ${inputState}, output ${outputState}`);
+        check(inputState == nvrhi.RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE && outputState == nvrhi.RESOURCE_STATE_UNORDERED_ACCESS,
+            "ICommandList::setResourceStatesForBindingSet");
+        const mismatches = computedMismatches(readback, device, 0, data);
+        check(mismatches == 0, `a dispatch after setResourceStatesForBindingSet (${mismatches} of ${COUNT} differ)`);
+
+        commandList.Release();
+        readback.Release();
+        bindingSet.Release();
+        output.Release();
+    }
+
+    // Indexed indirect draws with a count from a buffer, D3D12 only (Donut's Vulkan device doesn't
+    // enable drawIndirectCount), with a command list of their own, as testDrawIndexedIndirect's: a
+    // buffer of DrawIndexedIndirectArguments (three indices, one instance) and a buffer of draw
+    // counts (1, 0), the graphics state's indirectCountBuffer. ICommandList::drawIndexedIndirectCount
+    // of at most one draw into the left half with the count at offset 0, into the right half with
+    // the count at offset 4: the left half green, the right half as cleared.
+    function testDrawIndexedIndirectCount(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        if (!isD3D12) {
+            console.log("drawIndexedIndirectCount: not on Vulkan (drawIndirectCount isn't enabled), not tested");
+            return;
+        }
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        let indexDesc = nvrhi.bufferDesc(3 * 4, "Counted indices", nvrhi.RESOURCE_STATE_INDEX_BUFFER, nvrhi.CPU_ACCESS_NONE);
+        indexDesc.isIndexBuffer = true;
+        const indexBuffer = nvrhi.createBuffer(device, indexDesc);
+        let argumentsDesc = nvrhi.bufferDesc(20, "Counted args", nvrhi.RESOURCE_STATE_INDIRECT_ARGUMENT, nvrhi.CPU_ACCESS_NONE);
+        argumentsDesc.isDrawIndirectArgs = true;
+        const argumentsBuffer = nvrhi.createBuffer(device, argumentsDesc);
+        argumentsDesc.byteSize = 8;
+        argumentsDesc.debugName = nvrhi.stdString("Draw counts");
+        const countBuffer = nvrhi.createBuffer(device, argumentsDesc);
+        if (!color || !staging || !vertexShader || !pixelShader || !commandList || !indexBuffer || !argumentsBuffer || !countBuffer) {
+            check(false, "the counted indirect draw test's textures, shaders, command list and buffers");
+            return;
+        }
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], null));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer for the counted indirect draw test");
+            return;
+        }
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
+        if (!pipeline) {
+            check(false, "IDevice::createGraphicsPipeline for the counted indirect draw test");
+            return;
+        }
+
+        let indices: u32[] = [0, 1, 2];
+        let drawArguments: u32[] = [3, 1, 0, 0, 0];
+        let counts: u32[] = [1, 0];
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
+        commandList.writeBuffer(argumentsBuffer, <Opaque>Ref(drawArguments[0]), 20, 0);
+        commandList.writeBuffer(countBuffer, <Opaque>Ref(counts[0]), 8, 0);
+        let left = nvrhi.graphicsState(pipeline, framebuffer, [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1],
+            null, null, indexBuffer, Format.R32_UINT);
+        left.indirectParams = argumentsBuffer;
+        left.indirectCountBuffer = countBuffer;
+        nvrhi.setGraphicsState(commandList, left);
+        commandList.drawIndexedIndirectCount(0, 0, 1);
+        let right = nvrhi.graphicsState(pipeline, framebuffer, [TEXTURE_SIZE / 2, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1],
+            null, null, indexBuffer, Format.R32_UINT);
+        right.indirectParams = argumentsBuffer;
+        right.indirectCountBuffer = countBuffer;
+        nvrhi.setGraphicsState(commandList, right);
+        commandList.drawIndexedIndirectCount(0, 4, 1);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the counted indirect draw test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let drawnMismatches = 0;
+            let skippedMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColor(pixels, i, 0, 255, 0)) {
+                            drawnMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 0, 0, 0)) {
+                        skippedMismatches++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Drawn with a count (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), `
+                + `count 0 (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(drawnMismatches == 0, `ICommandList::drawIndexedIndirectCount of count 1 (${drawnMismatches} of ${half} pixels differ)`);
+            check(skippedMismatches == 0, `ICommandList::drawIndexedIndirectCount of count 0 (${skippedMismatches} of ${half} pixels differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        countBuffer.Release();
+        argumentsBuffer.Release();
+        indexBuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        color.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -2041,7 +2528,7 @@ namespace NvrhiDirect {
 
         // IDevice::getGraphicsAPI; IResource::getNativeObject and IDevice::getNativeQueue (an
         // nvrhi::Object returned by value); IDevice::queryFeatureSupport, which says whether the
-        // device has a compute queue (Donut's headless device has one on Vulkan, not on D3D12), as
+        // device has a compute queue (main asks Donut for one, which a device may not have), as
         // getNativeQueue does; runGarbageCollection
         const deviceApi: int = device.getGraphicsAPI();
         console.log(`IDevice::getGraphicsAPI: ${deviceApi}`);
@@ -2060,6 +2547,11 @@ namespace NvrhiDirect {
                 "IDevice::queryFeatureSupport(ComputeQueue) and getNativeQueue agree");
         }
         device.runGarbageCollection();
+
+        // IDevice::isAftermathEnabled: Donut doesn't enable Aftermath; getAftermathCrashDumpHelper
+        // (a reference, the device's helper all the same)
+        check(!device.isAftermathEnabled(), "IDevice::isAftermathEnabled: off");
+        check(device.getAftermathCrashDumpHelper() != null, "IDevice::getAftermathCrashDumpHelper");
 
         // IResource::AddRef, Release, GetRefCount
         const refCount: int = device.GetRefCount();
@@ -2421,6 +2913,14 @@ namespace NvrhiDirect {
         testLifetimeTracker(device);
         testShaderSpecialization(app, device, isD3D12);
         testBindless(app, device, isD3D12);
+        testNativeViews(device, isD3D12);
+        testNativeHandles(device, isD3D12);
+        testResourceMemoryRequirements(device);
+        testQueryResets(device);
+        testComputeQueue(device, hasComputeQueue, pipeline, bindingLayout, input, data);
+        testUavBarrierControl(device, pipeline, bindingLayout, input, data);
+        testBindingSetStates(device, pipeline, bindingLayout, input, data);
+        testDrawIndexedIndirectCount(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();
@@ -2488,7 +2988,11 @@ namespace NvrhiDirect {
         // the devices made from here on report to messageLog
         Donut_SetNvrhiMessageCallback(<Opaque>messageLog);
 
-        const app = App.createHeadlessWithOptions(api, -1, options);
+        // with a compute queue (testComputeQueue) where the device has one; without, elsewhere
+        let app = App.createHeadlessWithOptions(api, -1, <AppOptions>(options | AppOptions.ComputeQueue));
+        if (app.isNull()) {
+            app = App.createHeadlessWithOptions(api, -1, options);
+        }
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
