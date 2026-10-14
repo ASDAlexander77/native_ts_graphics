@@ -2,8 +2,27 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace DepthBoundsTest {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the cornflower clear color; the cube (the part
+    // of it within the depth bounds) covers about 5% of the frame, colored in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0xED9564);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(check.width / 2, check.height / 2) == 0xED9564) {
+            return "no cube in the middle";
+        }
+        return check.share(check.countOtherThan(0xED9564, 0, 0, check.width, check.height), check.width * check.height,
+            3.0, 8.0, "Cube");
+    }
+
     const WINDOW_TITLE = "D3D12 Depth Bounds Test Sample";
 
     // The sample's vertex: position, color.
@@ -168,7 +187,7 @@ namespace DepthBoundsTest {
         Donut_SetAppName("depth_bounds_test");
 
         // -benchmark: one animation step a frame, as the sample.
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's window, with UNORM back buffers, as the sample's R8G8B8A8_UNORM.
@@ -197,8 +216,12 @@ namespace DepthBoundsTest {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

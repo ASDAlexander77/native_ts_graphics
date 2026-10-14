@@ -2,8 +2,32 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ExtendedDynamicState2 {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the street skybox fills it (about 99% lit), with the green of
+    // the scene's cube in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if ((middle & 0xFF) > 40 || ((middle >> 8) & 0xFF) < 60 || ((middle >> 16) & 0xFF) > 40) {
+            return "the middle isn't the cube's green";
+        }
+        const total = check.width * check.height;
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            95.0, 100.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        return "";
+    }
+
     const WINDOW_TITLE = "Donut Example: Extended Dynamic State 2";
 
     const SCENE_PATH = "media/extended_dynamic_state2/primitives.gltf";
@@ -237,6 +261,7 @@ namespace ExtendedDynamicState2 {
         private tessDS: ShaderHandle;
         private tessPS: ShaderHandle;
         private inputLayout: InputLayoutHandle;
+        private positionInputLayout: InputLayoutHandle;
         private bindingLayout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private commonBuffer: BufferHandle;
@@ -416,6 +441,7 @@ namespace ExtendedDynamicState2 {
 
             // The background: counter-clockwise front faces.
             const background = this.pipelineDesc(this.backgroundVS, this.backgroundPS);
+            background.setInputLayout(this.positionInputLayout);
             background.setRasterState(CullMode.Back, FillMode.Solid, 1);
             this.backgroundPipeline = this.app.createGraphicsPipelineFromDesc(background, framebuffer);
 
@@ -435,6 +461,7 @@ namespace ExtendedDynamicState2 {
             // Triangle patches (3 control points), as a wireframe if the device draws one, front
             // faces culled (counter-clockwise ones, the background's state carried over).
             const tess = this.pipelineDesc(this.tessVS, this.tessPS);
+            tess.setInputLayout(this.positionInputLayout);
             tess.setTessellation(this.tessHS, this.tessDS, 3);
             tess.setRasterState(CullMode.Front, FillMode.Wireframe, 1);
             this.tessPipeline = this.app.createGraphicsPipelineFromDesc(tess, framebuffer);
@@ -655,6 +682,10 @@ namespace ExtendedDynamicState2 {
             layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
             layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.baselineVS);
+            // The background's and the tessellation's vertex shaders take positions only.
+            const positionLayoutDesc = InputLayoutDesc.create();
+            positionLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
+            this.positionInputLayout = this.app.createInputLayout(positionLayoutDesc, this.backgroundVS);
 
             const commandList = this.app.createCommandList();
             commandList.open();
@@ -775,7 +806,7 @@ namespace ExtendedDynamicState2 {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("extended_dynamic_state2");
 
-        const args = new ExtendedDynamicState2Args(argc, argv);
+        const args = new ExtendedDynamicState2Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -818,8 +849,12 @@ namespace ExtendedDynamicState2 {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

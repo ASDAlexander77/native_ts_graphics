@@ -2,8 +2,35 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace PatchControlPoints {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are black; the three tessellated terrains, red, blue
+    // and green wireframes, color about 17% of the frame, each 2.5% to 8%.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        const total = check.width * check.height;
+        const red = check.share(check.countInRange(151, 255, 0, 89, 0, 89, 0, 0, check.width, check.height), total,
+            2.5, 8.0, "Red");
+        if (red != "") {
+            return red;
+        }
+        const green = check.share(check.countInRange(0, 89, 121, 255, 0, 89, 0, 0, check.width, check.height), total,
+            2.5, 8.0, "Green");
+        if (green != "") {
+            return green;
+        }
+        return check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
+            2.5, 8.0, "Blue");
+    }
+
     const WINDOW_TITLE = "Donut Example: Patch Control Points";
 
     // The sample's model (Vulkan-Samples' asset, copied at build time: see
@@ -480,7 +507,7 @@ namespace PatchControlPoints {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("patch_control_points");
 
-        const args = new PatchControlPointsArgs(argc, argv);
+        const args = new PatchControlPointsArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -510,8 +537,12 @@ namespace PatchControlPoints {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
