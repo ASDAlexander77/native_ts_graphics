@@ -17,11 +17,12 @@ ComputeState's bindings a static_vector_IBindingSet_8). Its output is then made 
 - RefCountPtr<T> and nvrhi::Object returned by value are nvrhi.RefCountPtr<Opaque> and
   nvrhi.NativeObject;
 - the specializations of std::vector, nvrhi::static_vector and RefCountPtr are generic types
-  (vector<T>, static_vector8<T>, RefCountPtr<T>; see VECTOR);
-- the methods tsbindgen skips because they take a struct by value are written here, for those in
-  BY_VALUE, as each ABI passes it, with a function calling it.
+  (vector<T>, static_vector8<T>, RefCountPtr<T>; see VECTOR).
+A method taking a struct by value (TextureSubresourceSet, nvrhi::Object) or returning a small one
+in registers is tsbindgen's too, which tslang calls as each ABI passes the struct.
 It needs a tsbindgen that lays out std::string and static_vector fields (tslang newer than
-pre-alpha99): it stops if a struct in TUPLES isn't a tuple.
+pre-alpha99), and one that binds methods taking structs by value (newer than pre-alpha101): it
+stops if a struct in TUPLES isn't a tuple, or a method is skipped for a struct by value.
 """
 
 import argparse
@@ -50,268 +51,6 @@ TUPLES = ["BufferDesc", "TextureDesc", "TextureSubresourceSet", "Color", "Comman
           "AccelStructDesc", "GeometryDesc", "InstanceDesc", "PipelineDesc", "PipelineShaderDesc",
           "PipelineHitGroupDesc", "ShaderTableDesc", "State", "OpacityMicromapDesc", "OperationParams",
           "OperationDesc", "MatMulFormatCombo", "ConvertMatrixLayoutDesc", "basic_string_char"]
-
-# Methods taking a struct by value, or returning a small one of bools, which tsbindgen skips:
-# {(class, method): {os: (declaration, function)}}. The declaration's slot is the one tsbindgen
-# leaves free where it skips the method, `{slot}` in the text. The function calls it with the struct,
-# as its ABI passes it:
-# - MSVC passes a pointer to a copy, and returns a struct through a hidden pointer (which
-#   tsbindgen writes: declaration None, the function only);
-# - the Itanium ABI passes a struct of up to 16 bytes of integers in one or two 64-bit registers,
-#   and returns one so (a struct of bools: a byte each, from the lowest).
-BY_VALUE = {
-    ("ICommandList", "clearTextureFloat"): {
-        "win32": (
-            "@slot({slot}) clearTextureFloat(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: Ref<Color>): void;",
-            """\
-    // ICommandList::clearTextureFloat: the TextureSubresourceSet by value, which MSVC passes as a
-    // pointer to a copy
-    export function clearTextureFloat(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, color: Color): void {
-        let subresourcesValue = subresources;
-        let colorValue = color;
-        commandList.clearTextureFloat(texture, Ref(subresourcesValue), Ref(colorValue));
-    }"""),
-        "linux": (
-            "@slot({slot}) clearTextureFloat(t: ITexture, mips: u64, arraySlices: u64, clearColor: Ref<Color>): void;",
-            """\
-    // ICommandList::clearTextureFloat: the TextureSubresourceSet by value, its two halves in two
-    // registers (baseMipLevel and numMipLevels, baseArraySlice and numArraySlices)
-    export function clearTextureFloat(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, color: Color): void {
-        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
-        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
-        let colorValue = color;
-        commandList.clearTextureFloat(texture, mips, arraySlices, Ref(colorValue));
-    }"""),
-    },
-    ("ICommandList", "clearDepthStencilTexture"): {
-        "win32": (
-            "@slot({slot}) clearDepthStencilTexture(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;",
-            """\
-    // ICommandList::clearDepthStencilTexture: the TextureSubresourceSet by value, which MSVC passes
-    // as a pointer to a copy
-    export function clearDepthStencilTexture(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
-        let subresourcesValue = subresources;
-        commandList.clearDepthStencilTexture(texture, Ref(subresourcesValue), clearDepth, depth, clearStencil, stencil);
-    }"""),
-        "linux": (
-            "@slot({slot}) clearDepthStencilTexture(t: ITexture, mips: u64, arraySlices: u64, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;",
-            """\
-    // ICommandList::clearDepthStencilTexture: the TextureSubresourceSet by value, its two halves in
-    // two registers (as in clearTextureFloat)
-    export function clearDepthStencilTexture(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
-        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
-        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
-        commandList.clearDepthStencilTexture(texture, mips, arraySlices, clearDepth, depth, clearStencil, stencil);
-    }"""),
-    },
-    ("ICommandList", "clearTextureUInt"): {
-        "win32": (
-            "@slot({slot}) clearTextureUInt(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: u32): void;",
-            """\
-    // ICommandList::clearTextureUInt: the TextureSubresourceSet by value, which MSVC passes as a
-    // pointer to a copy
-    export function clearTextureUInt(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, value: u32): void {
-        let subresourcesValue = subresources;
-        commandList.clearTextureUInt(texture, Ref(subresourcesValue), value);
-    }"""),
-        "linux": (
-            "@slot({slot}) clearTextureUInt(t: ITexture, mips: u64, arraySlices: u64, clearColor: u32): void;",
-            """\
-    // ICommandList::clearTextureUInt: the TextureSubresourceSet by value, its two halves in two
-    // registers (as in clearTextureFloat)
-    export function clearTextureUInt(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, value: u32): void {
-        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
-        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
-        commandList.clearTextureUInt(texture, mips, arraySlices, value);
-    }"""),
-    },
-    ("ICommandList", "beginTrackingTextureState"): {
-        "win32": (
-            "@slot({slot}) beginTrackingTextureState(texture: ITexture, subresources: Ref<TextureSubresourceSet>, stateBits: u32): void;",
-            """\
-    // ICommandList::beginTrackingTextureState: the TextureSubresourceSet by value, which MSVC passes
-    // as a pointer to a copy
-    export function beginTrackingTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        stateBits: u32): void {
-        let subresourcesValue = subresources;
-        commandList.beginTrackingTextureState(texture, Ref(subresourcesValue), stateBits);
-    }"""),
-        "linux": (
-            "@slot({slot}) beginTrackingTextureState(texture: ITexture, mips: u64, arraySlices: u64, stateBits: u32): void;",
-            """\
-    // ICommandList::beginTrackingTextureState: the TextureSubresourceSet by value, its two halves in
-    // two registers (as in clearTextureFloat)
-    export function beginTrackingTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        stateBits: u32): void {
-        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
-        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
-        commandList.beginTrackingTextureState(texture, mips, arraySlices, stateBits);
-    }"""),
-    },
-    ("ICommandList", "setTextureState"): {
-        "win32": (
-            "@slot({slot}) setTextureState(texture: ITexture, subresources: Ref<TextureSubresourceSet>, stateBits: u32): void;",
-            """\
-    // ICommandList::setTextureState: the TextureSubresourceSet by value, which MSVC passes as a
-    // pointer to a copy
-    export function setTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        stateBits: u32): void {
-        let subresourcesValue = subresources;
-        commandList.setTextureState(texture, Ref(subresourcesValue), stateBits);
-    }"""),
-        "linux": (
-            "@slot({slot}) setTextureState(texture: ITexture, mips: u64, arraySlices: u64, stateBits: u32): void;",
-            """\
-    // ICommandList::setTextureState: the TextureSubresourceSet by value, its two halves in two
-    // registers (as in clearTextureFloat)
-    export function setTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        stateBits: u32): void {
-        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
-        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
-        commandList.setTextureState(texture, mips, arraySlices, stateBits);
-    }"""),
-    },
-    ("ITexture", "getNativeView"): {
-        "win32": (
-            "@slot({slot}) getNativeView(objectType: u32, format: u8, subresources: Ref<TextureSubresourceSet>, dimension: u8, "
-            "isReadOnlyDSV: boolean, overrideComponentMapping: Ref<u64>): NativeObject;",
-            """\
-    // ITexture::getNativeView: a view of the texture's subresources in a format and dimension
-    // (Format.UNKNOWN, TEXTURE_DIMENSION_UNKNOWN: the texture's), not AddRef'd; null if unavailable.
-    // MSVC passes the TextureSubresourceSet and the std::optional<ComponentMapping> (5 bytes; none
-    // here: the texture's own mapping) as pointers to copies.
-    export function getNativeView(texture: ITexture, objectType: u32, format: u8, subresources: TextureSubresourceSet,
-        dimension: u8): Opaque | null {
-        let subresourcesValue = subresources;
-        let noComponentMapping: u64 = 0;
-        return texture.getNativeView(objectType, format, Ref(subresourcesValue), dimension, false, Ref(noComponentMapping)).pointer;
-    }"""),
-        "linux": (
-            "@slot({slot}) getNativeView(objectType: u32, format: u8, mips: u64, arraySlices: u64, dimension: u8, "
-            "isReadOnlyDSV: boolean, overrideComponentMapping: u64): NativeObject;",
-            """\
-    // ITexture::getNativeView: a view of the texture's subresources in a format and dimension
-    // (Format.UNKNOWN, TEXTURE_DIMENSION_UNKNOWN: the texture's), not AddRef'd; null if unavailable.
-    // The TextureSubresourceSet's two halves in two registers (as in clearTextureFloat), the
-    // std::optional<ComponentMapping> (trivially copyable, 5 bytes) in one: 0, none (its engaged
-    // flag, byte 4, clear), the texture's own mapping.
-    export function getNativeView(texture: ITexture, objectType: u32, format: u8, subresources: TextureSubresourceSet,
-        dimension: u8): Opaque | null {
-        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
-        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
-        return texture.getNativeView(objectType, format, mips, arraySlices, dimension, false, 0).pointer;
-    }"""),
-    },
-    ("IDevice", "createHandleForNativeTexture"): {
-        # an nvrhi::Object (8 bytes, trivially copyable) goes in a register under both ABIs
-        "win32": (
-            "@cppnontrivial\n        @slot({slot}) createHandleForNativeTexture(objectType: u32, texture: Opaque | null, desc: Ref<TextureDesc>): RefCountPtr<Opaque>;",
-            """\
-    // IDevice::createHandleForNativeTexture: an ITexture over an API texture (ObjectTypes: a
-    // D3D12 resource, a VkImage) described by desc; null on failure. Release() it. The
-    // nvrhi::Object holding the API object (8 bytes) goes in a register.
-    export function createHandleForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque, desc: TextureDesc): ITexture | null {
-        let descValue = desc;
-        const handle = device.createHandleForNativeTexture(objectType, nativeTexture, Ref(descValue));
-        return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
-    }"""),
-        "linux": (
-            "@cppnontrivial\n        @slot({slot}) createHandleForNativeTexture(objectType: u32, texture: Opaque | null, desc: Ref<TextureDesc>): RefCountPtr<Opaque>;",
-            """\
-    // IDevice::createHandleForNativeTexture: an ITexture over an API texture (ObjectTypes: a
-    // VkImage) described by desc; null on failure. Release() it. The nvrhi::Object holding the API
-    // object (8 bytes, trivially copyable) goes in a register.
-    export function createHandleForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque, desc: TextureDesc): ITexture | null {
-        let descValue = desc;
-        const handle = device.createHandleForNativeTexture(objectType, nativeTexture, Ref(descValue));
-        return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
-    }"""),
-    },
-    ("IDevice", "createHandleForNativeBuffer"): {
-        "win32": (
-            "@cppnontrivial\n        @slot({slot}) createHandleForNativeBuffer(objectType: u32, buffer: Opaque | null, desc: Ref<BufferDesc>): RefCountPtr<Opaque>;",
-            """\
-    // IDevice::createHandleForNativeBuffer: an IBuffer over an API buffer (ObjectTypes: a D3D12
-    // resource, a VkBuffer) described by desc; null on failure. Release() it. The nvrhi::Object
-    // goes in a register, as in createHandleForNativeTexture.
-    export function createHandleForNativeBuffer(device: IDevice, objectType: u32, nativeBuffer: Opaque, desc: BufferDesc): IBuffer | null {
-        let descValue = desc;
-        const handle = device.createHandleForNativeBuffer(objectType, nativeBuffer, Ref(descValue));
-        return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
-    }"""),
-        "linux": (
-            "@cppnontrivial\n        @slot({slot}) createHandleForNativeBuffer(objectType: u32, buffer: Opaque | null, desc: Ref<BufferDesc>): RefCountPtr<Opaque>;",
-            """\
-    // IDevice::createHandleForNativeBuffer: an IBuffer over an API buffer (ObjectTypes: a VkBuffer)
-    // described by desc; null on failure. Release() it. The nvrhi::Object goes in a register, as
-    // in createHandleForNativeTexture.
-    export function createHandleForNativeBuffer(device: IDevice, objectType: u32, nativeBuffer: Opaque, desc: BufferDesc): IBuffer | null {
-        let descValue = desc;
-        const handle = device.createHandleForNativeBuffer(objectType, nativeBuffer, Ref(descValue));
-        return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
-    }"""),
-    },    ("IDevice", "createSamplerFeedbackForNativeTexture"): {
-        "win32": (
-            "@cppnontrivial\n        @slot({slot}) createSamplerFeedbackForNativeTexture(objectType: u32, texture: Opaque | null, pairedTexture: ITexture | null): RefCountPtr<Opaque>;",
-            """\
-    // IDevice::createSamplerFeedbackForNativeTexture: an ISamplerFeedbackTexture over an API
-    // sampler feedback texture (ObjectTypes: a D3D12 resource) for its paired texture; null on
-    // failure. Release() it. The nvrhi::Object goes in a register, as in
-    // createHandleForNativeTexture.
-    export function createSamplerFeedbackForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque,
-        pairedTexture: ITexture): ISamplerFeedbackTexture | null {
-        const handle = device.createSamplerFeedbackForNativeTexture(objectType, nativeTexture, pairedTexture);
-        return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
-    }"""),
-        "linux": (
-            "@cppnontrivial\n        @slot({slot}) createSamplerFeedbackForNativeTexture(objectType: u32, texture: Opaque | null, pairedTexture: ITexture | null): RefCountPtr<Opaque>;",
-            """\
-    // IDevice::createSamplerFeedbackForNativeTexture: an ISamplerFeedbackTexture over an API
-    // sampler feedback texture for its paired texture (D3D12 only: null here); null on failure.
-    // Release() it. The nvrhi::Object goes in a register, as in createHandleForNativeTexture.
-    export function createSamplerFeedbackForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque,
-        pairedTexture: ITexture): ISamplerFeedbackTexture | null {
-        const handle = device.createSamplerFeedbackForNativeTexture(objectType, nativeTexture, pairedTexture);
-        return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
-    }"""),
-    },    ("IDevice", "queryCoopVecMatMulFormatSupport"): {
-        "win32": (None, """\
-    // IDevice::queryCoopVecMatMulFormatSupport of a combination of formats
-    export function queryCoopVecMatMulFormatSupport(device: IDevice, combination: MatMulFormatCombo): MatMulFormatSupport {
-        let combinationValue = combination;
-        return device.queryCoopVecMatMulFormatSupport(Ref(combinationValue));
-    }"""),
-        "linux": (
-            "@slot({slot}) queryCoopVecMatMulFormatSupport(combination: Ref<MatMulFormatCombo>): u32;",
-            """\
-    // IDevice::queryCoopVecMatMulFormatSupport of a combination of formats: its
-    // coopvec::MatMulFormatSupport of three bools comes back in a register, a byte each
-    export function queryCoopVecMatMulFormatSupport(device: IDevice, combination: MatMulFormatCombo): MatMulFormatSupport {
-        let combinationValue = combination;
-        const bits = device.queryCoopVecMatMulFormatSupport(Ref(combinationValue));
-        return [(bits & 0xff) != 0, (bits & 0xff00) != 0, (bits & 0xff0000) != 0];
-    }"""),
-    },
-    ("IDevice", "queryCoopVecTrainingFormatSupport"): {
-        "win32": (None, """\
-    // IDevice::queryCoopVecTrainingFormatSupport of a component type (coopvec::DataType)
-    export function queryCoopVecTrainingFormatSupport(device: IDevice, componentType: s32): TrainingFormatSupport {
-        return device.queryCoopVecTrainingFormatSupport(componentType);
-    }"""),
-        "linux": (
-            "@slot({slot}) queryCoopVecTrainingFormatSupport(componentType: s32): u32;",
-            """\
-    // IDevice::queryCoopVecTrainingFormatSupport of a component type (coopvec::DataType): its
-    // coopvec::TrainingFormatSupport of four bools comes back in a register, a byte each
-    export function queryCoopVecTrainingFormatSupport(device: IDevice, componentType: s32): TrainingFormatSupport {
-        const bits = device.queryCoopVecTrainingFormatSupport(componentType);
-        return [(bits & 0xff) != 0, (bits & 0xff00) != 0, (bits & 0xff0000) != 0, (bits & 0xff000000) != 0];
-    }"""),
-    },
-}
-
 
 def find_tsbindgen(given):
     path = given or shutil.which("tsbindgen")
@@ -370,62 +109,34 @@ def same_layouts(a, b):
     return unsigned(a) == unsigned(b)
 
 
-def adapt(body, os_name):
-    """tsbindgen's classes made to fit core/nvrhi.ts (see the module's doc), and the functions of
-    BY_VALUE's methods."""
+def adapt(body):
+    """tsbindgen's classes made to fit core/nvrhi.ts (see the module's doc)."""
     out = []
-    functions = []
-    cls = None
-    used = set()
-    last_slot = None
     tuples = set()
+    byValue = []
     for line in body:
         m = re.match(r"\s*export type (\w+) = \[", line)
         if m:
             tuples.add(m.group(1))
 
-        m = re.match(r"\s*@cpp$|\s*export class (\w+)", line)
-        if m and m.group(1):
-            cls = m.group(1)
-            used = set()
-            last_slot = None
-
-        m = re.search(r"@slot\((\d+)\)", line)
+        # a method an older tsbindgen leaves out for a struct passed by value or returned in registers
+        m = re.match(r"\s*// skipped: (\w+) .*(struct passed by value|returned by value in registers)", line)
         if m:
-            used.add(int(m.group(1)))
-            last_slot = int(m.group(1))
+            byValue.append(m.group(1))
 
         line = line.replace("Reference<", "Ref<")
         line = re.sub(r"\[ptr_: Opaque \| null\]", "RefCountPtr<Opaque>", line)
         line = re.sub(r"\[integer: Opaque \| null\]", "NativeObject", line)
-
-        m = re.match(r"(\s*)// skipped: (\w+) ", line)
-        if m and (cls, m.group(2)) in BY_VALUE:
-            # the slot tsbindgen skipped: the one after the previous method's, which must be free
-            # and not follow an overload (MSVC orders those its own way)
-            declaration, function = BY_VALUE[(cls, m.group(2))][os_name]
-            slot = last_slot + 1
-            previous = out[-1].strip()
-            if slot in used or not re.match(r"@slot\(\d+\) \w+\(", previous) or re.search(r"_\d+\(", previous):
-                sys.exit(f"gen_nvrhi_classes: can't tell the slot of {cls}::{m.group(2)} ({os_name})")
-            line = m.group(1) + declaration.format(slot=slot)
-            used.add(slot)
-            last_slot = slot
-            functions.append(function)
-
         out.append(line)
 
-    # the functions of methods tsbindgen writes for this ABI
-    functions += [entry[os_name][1] for entry in BY_VALUE.values() if entry[os_name][0] is None]
-
-    missing = [f"{c}::{n}" for (c, n) in BY_VALUE if not any(f" {n}(" in line for line in out)]
-    if missing:
-        sys.exit(f"gen_nvrhi_classes: not in tsbindgen's output: {', '.join(missing)}")
+    if byValue:
+        sys.exit(f"gen_nvrhi_classes: tsbindgen left out {', '.join(byValue)} for a struct by value: it needs a "
+                 "tsbindgen that binds them (tslang newer than pre-alpha101)")
     untupled = [name for name in TUPLES if name not in tuples]
     if untupled:
         sys.exit(f"gen_nvrhi_classes: tsbindgen didn't lay out {', '.join(untupled)}: it needs a tsbindgen that "
                  "lays out std::string and static_vector fields (tslang newer than pre-alpha99)")
-    return out, functions
+    return out
 
 
 HEADER = """\
@@ -435,8 +146,7 @@ HEADER = """\
 // NVRHI's interfaces as @cpp classes under {abi}, and the structs they take as tuples with this
 // ABI's C++ layout, its C++ library's std::string included, for core/nvrhi.ts (its import of
 // "./nvrhi_abi" brings this file on {platform}). Each @slot is the C++ compiler's. A method taking
-// a struct by value is left out, except those tools/gen_nvrhi_classes.py writes, with a function
-// calling it.
+// a struct by value takes its tuple, which tslang passes as this ABI passes the struct.
 //
 // Not checked by TypeScript's editor tooling (@ts-nocheck): a @slot method has no body, which it
 // reports twice per method (TS2391, TS1249), whatever the class's form. tslang ignores the line.
@@ -570,13 +280,11 @@ def main():
         if any(not same_layouts(body, bodies[0]) for body in bodies[1:]):
             sys.exit(f"gen_nvrhi_classes: the bindings of {', '.join(TARGETS[os_name])} differ")
 
-        body, functions = adapt(bodies[0], os_name)
+        body = adapt(bodies[0])
         body = generic_templates(body, os_name)
         abi, platform = ABIS[os_name]
         text = HEADER.format(command=command, abi=abi, platform=platform)
         text += "\n".join(body) + "\n"
-        for function in functions:
-            text += "\n" + function + "\n"
         text += "}\n"
 
         path = OUTPUT.format(os=os_name)

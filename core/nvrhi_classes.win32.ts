@@ -4,8 +4,7 @@
 // NVRHI's interfaces as @cpp classes under MSVC x64's ABI, and the structs they take as tuples with this
 // ABI's C++ layout, its C++ library's std::string included, for core/nvrhi.ts (its import of
 // "./nvrhi_abi" brings this file on Windows). Each @slot is the C++ compiler's. A method taking
-// a struct by value is left out, except those tools/gen_nvrhi_classes.py writes, with a function
-// calling it.
+// a struct by value takes its tuple, which tslang passes as this ABI passes the struct.
 //
 // Not checked by TypeScript's editor tooling (@ts-nocheck): a @slot method has no body, which it
 // reports twice per method (TS2391, TS1249), whatever the class's form. tslang ignores the line.
@@ -17,6 +16,7 @@ export namespace nvrhi {
     export type vector<T> = [_Mypair: [_Myval2: [_Myfirst: Ref<T> | null, _Mylast: Ref<T> | null, _Myend: Ref<T> | null]]];
     export type static_vector8<T> = [_Elems: [_0: T, _1: T, _2: T, _3: T, _4: T, _5: T, _6: T, _7: T], current_size: index];
     export type static_vector16<T> = [_Elems: [_0: T, _1: T, _2: T, _3: T, _4: T, _5: T, _6: T, _7: T, _8: T, _9: T, _10: T, _11: T, _12: T, _13: T, _14: T, _15: T], current_size: index];
+    export type Object_ = [integer: u64];
     export type MemoryRequirements = [size: u64, alignment: u64];
     export type Color = [r: f32, g: f32, b: f32, a: f32];
     export type Viewport = [minX: f32, maxX: f32, minY: f32, maxY: f32, minZ: f32, maxZ: f32];
@@ -93,6 +93,7 @@ export namespace nvrhi {
     export type _String_val__Simple_types_char = [_Bx: [_0: u64, _1: u64], _Mysize: index, _Myres: index];
     export type _Compressed_pair_allocator_char__String_val__Simple_types_char = [_Myval2: _String_val__Simple_types_char];
     export type basic_string_char = [_Mypair: _Compressed_pair_allocator_char__String_val__Simple_types_char];
+    export type optional_ComponentMapping = [_union: [_0: u8, _1: u8, _2: u8, _3: u8], _Has_value: boolean];
     @cpp
     export class IResource { // nvrhi::IResource
         @slot(1) AddRef(): u32;
@@ -108,7 +109,7 @@ export namespace nvrhi {
     @cpp
     export class ITexture extends IResource { // nvrhi::ITexture
         @slot(6) getDesc(): Ref<TextureDesc>;
-        @slot(7) getNativeView(objectType: u32, format: u8, subresources: Ref<TextureSubresourceSet>, dimension: u8, isReadOnlyDSV: boolean, overrideComponentMapping: Ref<u64>): NativeObject;
+        @slot(7) getNativeView(objectType: u32, format: u8, subresources: TextureSubresourceSet, dimension: u8, isReadOnlyDSV: boolean, overrideComponentMapping: optional_ComponentMapping): NativeObject;
     }
     @cpp
     export class IStagingTexture extends IResource { // nvrhi::IStagingTexture
@@ -230,7 +231,7 @@ export namespace nvrhi {
         @slot(9) getTextureMemoryRequirements(texture: ITexture | null): [size: u64, alignment: u64];
         @slot(10) bindTextureMemory(texture: ITexture | null, heap: IHeap | null, offset: u64): boolean;
         @cppnontrivial
-        @slot(11) createHandleForNativeTexture(objectType: u32, texture: Opaque | null, desc: Ref<TextureDesc>): RefCountPtr<Opaque>;
+        @slot(11) createHandleForNativeTexture(objectType: u32, texture: Object_, desc: Ref<TextureDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(12) createStagingTexture(d: Ref<TextureDesc>, cpuAccess: u8): RefCountPtr<Opaque>;
         @slot(13) mapStagingTexture(tex: IStagingTexture | null, slice: Ref<TextureSlice>, cpuAccess: u8, outRowPitch: Ref<index> | null): Opaque;
@@ -240,7 +241,7 @@ export namespace nvrhi {
         @cppnontrivial
         @slot(17) createSamplerFeedbackTexture(pairedTexture: ITexture | null, desc: Ref<SamplerFeedbackTextureDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
-        @slot(18) createSamplerFeedbackForNativeTexture(objectType: u32, texture: Opaque | null, pairedTexture: ITexture | null): RefCountPtr<Opaque>;
+        @slot(18) createSamplerFeedbackForNativeTexture(objectType: u32, texture: Object_, pairedTexture: ITexture | null): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(19) createBuffer(d: Ref<BufferDesc>): RefCountPtr<Opaque>;
         @slot(20) mapBuffer(buffer: IBuffer | null, cpuAccess: u8): Opaque;
@@ -248,7 +249,7 @@ export namespace nvrhi {
         @slot(22) getBufferMemoryRequirements(buffer: IBuffer | null): [size: u64, alignment: u64];
         @slot(23) bindBufferMemory(buffer: IBuffer | null, heap: IHeap | null, offset: u64): boolean;
         @cppnontrivial
-        @slot(24) createHandleForNativeBuffer(objectType: u32, buffer: Opaque | null, desc: Ref<BufferDesc>): RefCountPtr<Opaque>;
+        @slot(24) createHandleForNativeBuffer(objectType: u32, buffer: Object_, desc: Ref<BufferDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(25) createShader(d: Ref<ShaderDesc>, binary: Opaque | null, binarySize: index): RefCountPtr<Opaque>;
         @cppnontrivial
@@ -332,9 +333,9 @@ export namespace nvrhi {
         @slot(6) open(): void;
         @slot(7) close(): void;
         @slot(8) clearState(): void;
-        @slot(9) clearTextureFloat(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: Ref<Color>): void;
-        @slot(10) clearDepthStencilTexture(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;
-        @slot(11) clearTextureUInt(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: u32): void;
+        @slot(9) clearTextureFloat(t: ITexture | null, subresources: TextureSubresourceSet, clearColor: Ref<Color>): void;
+        @slot(10) clearDepthStencilTexture(t: ITexture | null, subresources: TextureSubresourceSet, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;
+        @slot(11) clearTextureUInt(t: ITexture | null, subresources: TextureSubresourceSet, clearColor: u32): void;
         @slot(14) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(13) copyTexture(dest: IStagingTexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(12) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: IStagingTexture | null, srcSlice: Ref<TextureSlice>): void;
@@ -379,9 +380,9 @@ export namespace nvrhi {
         @linkname("?setResourceStatesForFramebuffer@ICommandList@nvrhi@@QEAAXPEAVIFramebuffer@2@@Z") setResourceStatesForFramebuffer(framebuffer: IFramebuffer | null): void;
         @slot(53) setEnableUavBarriersForTexture(texture: ITexture | null, enableBarriers: boolean): void;
         @slot(54) setEnableUavBarriersForBuffer(buffer: IBuffer | null, enableBarriers: boolean): void;
-        @slot(55) beginTrackingTextureState(texture: ITexture, subresources: Ref<TextureSubresourceSet>, stateBits: u32): void;
+        @slot(55) beginTrackingTextureState(texture: ITexture | null, subresources: TextureSubresourceSet, stateBits: u32): void;
         @slot(56) beginTrackingBufferState(buffer: IBuffer | null, stateBits: u32): void;
-        @slot(57) setTextureState(texture: ITexture, subresources: Ref<TextureSubresourceSet>, stateBits: u32): void;
+        @slot(57) setTextureState(texture: ITexture | null, subresources: TextureSubresourceSet, stateBits: u32): void;
         @slot(58) setBufferState(buffer: IBuffer | null, stateBits: u32): void;
         @slot(59) setAccelStructState(as: IAccelStruct | null, stateBits: u32): void;
         @slot(60) setPermanentTextureState(texture: ITexture | null, stateBits: u32): void;
@@ -391,94 +392,5 @@ export namespace nvrhi {
         @slot(64) getBufferState(buffer: IBuffer | null): u32;
         @slot(65) getDevice(): IDevice;
         @slot(66) getDesc(): Ref<CommandListParameters>;
-    }
-
-    // ITexture::getNativeView: a view of the texture's subresources in a format and dimension
-    // (Format.UNKNOWN, TEXTURE_DIMENSION_UNKNOWN: the texture's), not AddRef'd; null if unavailable.
-    // MSVC passes the TextureSubresourceSet and the std::optional<ComponentMapping> (5 bytes; none
-    // here: the texture's own mapping) as pointers to copies.
-    export function getNativeView(texture: ITexture, objectType: u32, format: u8, subresources: TextureSubresourceSet,
-        dimension: u8): Opaque | null {
-        let subresourcesValue = subresources;
-        let noComponentMapping: u64 = 0;
-        return texture.getNativeView(objectType, format, Ref(subresourcesValue), dimension, false, Ref(noComponentMapping)).pointer;
-    }
-
-    // IDevice::createHandleForNativeTexture: an ITexture over an API texture (ObjectTypes: a
-    // D3D12 resource, a VkImage) described by desc; null on failure. Release() it. The
-    // nvrhi::Object holding the API object (8 bytes) goes in a register.
-    export function createHandleForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque, desc: TextureDesc): ITexture | null {
-        let descValue = desc;
-        const handle = device.createHandleForNativeTexture(objectType, nativeTexture, Ref(descValue));
-        return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
-    }
-
-    // IDevice::createSamplerFeedbackForNativeTexture: an ISamplerFeedbackTexture over an API
-    // sampler feedback texture (ObjectTypes: a D3D12 resource) for its paired texture; null on
-    // failure. Release() it. The nvrhi::Object goes in a register, as in
-    // createHandleForNativeTexture.
-    export function createSamplerFeedbackForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque,
-        pairedTexture: ITexture): ISamplerFeedbackTexture | null {
-        const handle = device.createSamplerFeedbackForNativeTexture(objectType, nativeTexture, pairedTexture);
-        return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
-    }
-
-    // IDevice::createHandleForNativeBuffer: an IBuffer over an API buffer (ObjectTypes: a D3D12
-    // resource, a VkBuffer) described by desc; null on failure. Release() it. The nvrhi::Object
-    // goes in a register, as in createHandleForNativeTexture.
-    export function createHandleForNativeBuffer(device: IDevice, objectType: u32, nativeBuffer: Opaque, desc: BufferDesc): IBuffer | null {
-        let descValue = desc;
-        const handle = device.createHandleForNativeBuffer(objectType, nativeBuffer, Ref(descValue));
-        return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
-    }
-
-    // ICommandList::clearTextureFloat: the TextureSubresourceSet by value, which MSVC passes as a
-    // pointer to a copy
-    export function clearTextureFloat(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, color: Color): void {
-        let subresourcesValue = subresources;
-        let colorValue = color;
-        commandList.clearTextureFloat(texture, Ref(subresourcesValue), Ref(colorValue));
-    }
-
-    // ICommandList::clearDepthStencilTexture: the TextureSubresourceSet by value, which MSVC passes
-    // as a pointer to a copy
-    export function clearDepthStencilTexture(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
-        let subresourcesValue = subresources;
-        commandList.clearDepthStencilTexture(texture, Ref(subresourcesValue), clearDepth, depth, clearStencil, stencil);
-    }
-
-    // ICommandList::clearTextureUInt: the TextureSubresourceSet by value, which MSVC passes as a
-    // pointer to a copy
-    export function clearTextureUInt(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, value: u32): void {
-        let subresourcesValue = subresources;
-        commandList.clearTextureUInt(texture, Ref(subresourcesValue), value);
-    }
-
-    // ICommandList::beginTrackingTextureState: the TextureSubresourceSet by value, which MSVC passes
-    // as a pointer to a copy
-    export function beginTrackingTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        stateBits: u32): void {
-        let subresourcesValue = subresources;
-        commandList.beginTrackingTextureState(texture, Ref(subresourcesValue), stateBits);
-    }
-
-    // ICommandList::setTextureState: the TextureSubresourceSet by value, which MSVC passes as a
-    // pointer to a copy
-    export function setTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
-        stateBits: u32): void {
-        let subresourcesValue = subresources;
-        commandList.setTextureState(texture, Ref(subresourcesValue), stateBits);
-    }
-
-    // IDevice::queryCoopVecMatMulFormatSupport of a combination of formats
-    export function queryCoopVecMatMulFormatSupport(device: IDevice, combination: MatMulFormatCombo): MatMulFormatSupport {
-        let combinationValue = combination;
-        return device.queryCoopVecMatMulFormatSupport(Ref(combinationValue));
-    }
-
-    // IDevice::queryCoopVecTrainingFormatSupport of a component type (coopvec::DataType)
-    export function queryCoopVecTrainingFormatSupport(device: IDevice, componentType: s32): TrainingFormatSupport {
-        return device.queryCoopVecTrainingFormatSupport(componentType);
     }
 }
