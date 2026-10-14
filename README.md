@@ -306,8 +306,9 @@ if (commandList) {
   `ComputePipelineDesc`, `ComputeState`, ...). That layout depends on the C++ build (`std::string`'s
   on the CRT's debug or release build), so `nvrhi.layoutMatches()` compares the tuples' sizes with the C++ ones. A
   struct passed by value is the ABIs' difference: MSVC passes a pointer to a copy, the Itanium ABI
-  the fields in registers (the `TextureSubresourceSet` of `clearTextureFloat` and
-  `clearDepthStencilTexture`, see the script).
+  the fields in registers (the `TextureSubresourceSet` of `clearTextureFloat`,
+  `clearDepthStencilTexture`, `clearTextureUInt`, `beginTrackingTextureState` and
+  `setTextureState`, see the script).
 - **Callbacks.** `nvrhi.IMessageCallback` goes the other way: a `@cpp` class extending it
   whose `message()` has a body is an object NVRHI calls, through the vtable tslang makes for it.
   Pass it to `Donut_SetNvrhiMessageCallback` before creating the app, and keep it in a global
@@ -365,6 +366,29 @@ fourteenth has one read a structured buffer (`structStride`) into a raw buffer (
 A fifteenth fills each mip level of each array slice of a texture array with `writeTexture`, reads
 each back through a staging texture mapped a subresource at a time, and copies one mip level of one
 array slice into a region of another texture.
+
+Then one test for each of these, each with a command list of its own but the format query:
+- `clearTextureUInt`: an R32_UINT texture with UAVs cleared whole, then its second mip level alone,
+  and read back exactly;
+- a texture's states tracked by hand, with automatic barriers off: a texture with no initial state,
+  `beginTrackingTextureState`, `setTextureState` and `commitBarriers` around a clear,
+  `setPermanentTextureState`, and `getTextureSubresourceState` after each;
+- the same for a buffer: `beginTrackingBufferState`, `setBufferState` around a write and a copy,
+  `setPermanentBufferState`, `getBufferState`;
+- resources placed in heaps: a virtual buffer and texture (`isVirtual`), their memory requirements
+  (a `MemoryRequirements` returned by value), `createHeap` and `IHeap::getDesc`,
+  `bindBufferMemory` at an offset and `bindTextureMemory`;
+- indexed indirect draws (`drawIndexedIndirect`), as the indirect draws above, through an index
+  buffer;
+- `queryFormatSupport` of a color, a depth and an integer format;
+- two command lists in one `executeCommandLists`, run in order;
+- a command list lifetime tracker (`createCommandListLifetimeTracker`,
+  `CommandListParameters::lifetimeTracker`, `runGarbageCollection`);
+- shader specialization (`createShaderSpecialization`, Vulkan only, as `queryFeatureSupport`
+  says): a compute shader's constant set to another value;
+- a bindless descriptor table: `createBindlessLayout`, `createDescriptorTable`,
+  `resizeDescriptorTable`, `writeDescriptorTable`, and a compute pipeline of a binding layout and
+  the bindless layout reading the table's buffers by index.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

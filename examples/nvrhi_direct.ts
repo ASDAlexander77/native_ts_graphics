@@ -38,7 +38,13 @@ namespace NvrhiDirect {
     // the stencil test (testStencil); and another, instancing (testInstancing); and another, a
     // compute shader writing a texture (testTextureUav); and another, structured and raw buffers
     // (testStructuredAndRawBuffers); and another, a texture array's mip levels and a region copy
-    // (testTextureSubresources).
+    // (testTextureSubresources). Then more of a feature each, each its own command list but
+    // testFormatSupport: clearTextureUInt (testClearTextureUInt), a texture's and a buffer's states
+    // tracked by hand (testTextureStateTracking, testBufferStateTracking), resources placed in heaps
+    // (testPlacedResources), indexed indirect draws (testDrawIndexedIndirect), format support
+    // (testFormatSupport), two command lists in one submission (testExecuteCommandLists), a command
+    // list lifetime tracker (testLifetimeTracker), shader specialization (testShaderSpecialization)
+    // and a bindless descriptor table (testBindless).
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -1333,6 +1339,696 @@ namespace NvrhiDirect {
         textureArray.Release();
     }
 
+    // The u32 texels of a size x size R32_UINT staging texture's mip level (of array slice 0):
+    // IDevice::mapStagingTexture of its slice, unmapStagingTexture. None on failure, reported.
+    function readStagingUInts(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture, mipLevel: u32, size: int): u32[] {
+        let texels: u32[] = [];
+        let rowPitch: index = 0;
+        const mapped = nvrhi.mapStagingTexture(device, staging, nvrhi.subresourceSlice(mipLevel, 0), nvrhi.CPU_ACCESS_READ, Ref(rowPitch));
+        if (!mapped) {
+            check(false, `IDevice::mapStagingTexture of mip level ${mipLevel}`);
+            return texels;
+        }
+        if (rowPitch < size * 4) {
+            check(false, `IDevice::mapStagingTexture's row pitch (${rowPitch})`);
+        } else {
+            const rows = <Ref<u32>>mapped;
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    texels.push(Deref(rows[y * (rowPitch / 4) + x]));
+                }
+            }
+        }
+        device.unmapStagingTexture(staging);
+        return texels;
+    }
+
+    // The values testClearTextureUInt clears to: all subresources, then mip level 1
+    const UINT_CLEAR_ALL: u32 = 0x12345678;
+    const UINT_CLEAR_MIP: u32 = 0xc0ffee42;
+
+    // ICommandList::clearTextureUInt, with a command list of its own: an R32_UINT texture with UAVs
+    // and 2 mip levels, cleared whole to UINT_CLEAR_ALL, then its mip level 1 alone to
+    // UINT_CLEAR_MIP (a TextureSubresourceSet by value, as clearTextureFloat's). Each mip level read
+    // back through a staging texture: exactly its value.
+    function testClearTextureUInt(device: nvrhi.IDevice): void {
+        let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.R32_UINT, "UInt texture",
+            nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
+        desc.mipLevels = 2;
+        desc.isUAV = true;
+        const texture = nvrhi.createTexture(device, desc);
+        desc.debugName = nvrhi.stdString("UInt staging");
+        const staging = nvrhi.createStagingTexture(device, desc, nvrhi.CPU_ACCESS_READ);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!texture || !staging || !commandList) {
+            check(false, "the clearTextureUInt test's textures and command list");
+            return;
+        }
+
+        commandList.open();
+        nvrhi.clearTextureUInt(commandList, texture, nvrhi.allSubresources(), UINT_CLEAR_ALL);
+        nvrhi.clearTextureUInt(commandList, texture, [1, 1, 0, 1], UINT_CLEAR_MIP);
+        for (let mipLevel = 0; mipLevel < 2; mipLevel++) {
+            nvrhi.copyTextureToStaging(commandList, staging, nvrhi.subresourceSlice(mipLevel, 0),
+                texture, nvrhi.subresourceSlice(mipLevel, 0));
+        }
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the clearTextureUInt test");
+
+        const mip0 = readStagingUInts(device, staging, 0, TEXTURE_SIZE);
+        const mip1 = readStagingUInts(device, staging, 1, TEXTURE_SIZE / 2);
+        if (mip0.length != 0 && mip1.length != 0) {
+            let allMismatches = 0;
+            for (let i = 0; i < mip0.length; i++) {
+                if (mip0[i] != UINT_CLEAR_ALL) {
+                    allMismatches++;
+                }
+            }
+            let mipMismatches = 0;
+            for (let i = 0; i < mip1.length; i++) {
+                if (mip1[i] != UINT_CLEAR_MIP) {
+                    mipMismatches++;
+                }
+            }
+            console.log(`clearTextureUInt: mip level 0 ${mip0[0]}, mip level 1 ${mip1[0]}`);
+            check(allMismatches == 0, `ICommandList::clearTextureUInt of all subresources (${allMismatches} of ${mip0.length} texels differ)`);
+            check(mipMismatches == 0, `ICommandList::clearTextureUInt of mip level 1 (${mipMismatches} of ${mip1.length} texels differ)`);
+        }
+
+        commandList.Release();
+        staging.Release();
+        texture.Release();
+    }
+
+    // A texture's state tracked by hand, with a command list of its own and automatic barriers off:
+    // a render target with no initial state (keepInitialState false), which NVRHI doesn't track
+    // until ICommandList::beginTrackingTextureState (Common: as D3D12 creates it, Vulkan's undefined
+    // layout); setTextureState to the state its clear needs (D3D12's render target view clear,
+    // Vulkan's transfer) and commitBarriers; clearTextureFloat; setPermanentTextureState to
+    // CopySource, which NVRHI keeps from then on. getTextureSubresourceState after each. Read back
+    // through a staging texture (automatic barriers on again): the clear color.
+    function testTextureStateTracking(device: nvrhi.IDevice, isD3D12: boolean): void {
+        let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Tracked texture", nvrhi.RESOURCE_STATE_UNKNOWN);
+        desc.isRenderTarget = true;
+        const texture = nvrhi.createTexture(device, desc);
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!texture || !staging || !commandList) {
+            check(false, "the texture state test's textures and command list");
+            return;
+        }
+        check(!Deref(texture.getDesc()).keepInitialState, "ITexture::getDesc's keepInitialState");
+        const clearState = isD3D12 ? nvrhi.RESOURCE_STATE_RENDER_TARGET : nvrhi.RESOURCE_STATE_COPY_DEST;
+
+        commandList.open();
+        commandList.setEnableAutomaticBarriers(false);
+        nvrhi.beginTrackingTextureState(commandList, texture, nvrhi.allSubresources(), nvrhi.RESOURCE_STATE_COMMON);
+        const begun = commandList.getTextureSubresourceState(texture, 0, 0);
+        nvrhi.setTextureState(commandList, texture, nvrhi.allSubresources(), clearState);
+        commandList.commitBarriers();
+        const afterSet = commandList.getTextureSubresourceState(texture, 0, 0);
+        nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [0.0, 0.5, 1.0, 1.0]);
+        commandList.setPermanentTextureState(texture, nvrhi.RESOURCE_STATE_COPY_SOURCE);
+        commandList.commitBarriers();
+        const permanent = commandList.getTextureSubresourceState(texture, 0, 0);
+        commandList.setEnableAutomaticBarriers(true);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), texture, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the texture state test");
+
+        console.log(`Texture states: begun ${begun}, set ${afterSet}, permanent ${permanent}`);
+        check(begun == nvrhi.RESOURCE_STATE_COMMON, "ICommandList::beginTrackingTextureState");
+        check(afterSet == clearState, "ICommandList::setTextureState");
+        check(permanent == nvrhi.RESOURCE_STATE_COPY_SOURCE, "ICommandList::setPermanentTextureState");
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let mismatches = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+                if (!sameColor(pixels, i, 0, 128, 255)) {
+                    mismatches++;
+                }
+            }
+            check(mismatches == 0, `a clear between barriers made by hand (${mismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+        }
+
+        commandList.Release();
+        staging.Release();
+        texture.Release();
+    }
+
+    // A buffer's state tracked by hand, with a command list of its own and automatic barriers off:
+    // a buffer with no initial state, ICommandList::beginTrackingBufferState (Common); setBufferState
+    // to CopyDest for writeBuffer, then to CopySource for copyBuffer into a readback buffer;
+    // setPermanentBufferState to ShaderResource. getBufferState after each. The readback: what was
+    // written.
+    function testBufferStateTracking(device: nvrhi.IDevice): void {
+        const VALUES = 16;
+        const buffer = nvrhi.createBuffer(device, nvrhi.bufferDesc(VALUES * 4, "Tracked buffer", nvrhi.RESOURCE_STATE_UNKNOWN,
+            nvrhi.CPU_ACCESS_NONE));
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(VALUES * 4, "State readback", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!buffer || !readback || !commandList) {
+            check(false, "the buffer state test's buffers and command list");
+            return;
+        }
+        check(!Deref(buffer.getDesc()).keepInitialState, "IBuffer::getDesc's keepInitialState");
+
+        let values: u32[] = [];
+        for (let i = 0; i < VALUES; i++) {
+            values.push(3 * i + 1);
+        }
+        commandList.open();
+        commandList.setEnableAutomaticBarriers(false);
+        commandList.beginTrackingBufferState(buffer, nvrhi.RESOURCE_STATE_COMMON);
+        const begun = commandList.getBufferState(buffer);
+        commandList.setBufferState(buffer, nvrhi.RESOURCE_STATE_COPY_DEST);
+        commandList.commitBarriers();
+        const written = commandList.getBufferState(buffer);
+        commandList.writeBuffer(buffer, <Opaque>Ref(values[0]), VALUES * 4, 0);
+        commandList.setBufferState(buffer, nvrhi.RESOURCE_STATE_COPY_SOURCE);
+        commandList.commitBarriers();
+        const copied = commandList.getBufferState(buffer);
+        commandList.copyBuffer(readback, 0, buffer, 0, VALUES * 4);
+        commandList.setPermanentBufferState(buffer, nvrhi.RESOURCE_STATE_SHADER_RESOURCE);
+        commandList.commitBarriers();
+        const permanent = commandList.getBufferState(buffer);
+        commandList.setEnableAutomaticBarriers(true);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the buffer state test");
+
+        console.log(`Buffer states: begun ${begun}, written ${written}, copied ${copied}, permanent ${permanent}`);
+        check(begun == nvrhi.RESOURCE_STATE_COMMON, "ICommandList::beginTrackingBufferState");
+        check(written == nvrhi.RESOURCE_STATE_COPY_DEST && copied == nvrhi.RESOURCE_STATE_COPY_SOURCE,
+            "ICommandList::setBufferState and getBufferState");
+        check(permanent == nvrhi.RESOURCE_STATE_SHADER_RESOURCE, "ICommandList::setPermanentBufferState");
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let mismatches = 0;
+        for (let i = 0; i < VALUES; i++) {
+            if (Deref(mapped[i]) != 3 * i + 1) {
+                mismatches++;
+            }
+        }
+        device.unmapBuffer(readback);
+        check(mismatches == 0, `a buffer written and copied between barriers made by hand (${mismatches} of ${VALUES} differ)`);
+
+        commandList.Release();
+        readback.Release();
+        buffer.Release();
+    }
+
+    // n rounded up to a multiple of alignment (`%`: tslang's `/` divides as floats)
+    function alignUp(n: u64, alignment: u64): u64 {
+        return alignment == 0 || n % alignment == 0 ? n : n + alignment - n % alignment;
+    }
+
+    // Resources placed in heaps, with a command list of their own: a buffer and a render target
+    // created virtual (isVirtual: no memory of their own), their IDevice::getBufferMemoryRequirements
+    // and getTextureMemoryRequirements (a MemoryRequirements returned by value), a heap for each
+    // (createHeap, IHeap::getDesc), bindBufferMemory at an offset of one alignment into its heap,
+    // bindTextureMemory at 0. The buffer written and copied into a readback buffer, the texture
+    // cleared and read back through a staging texture.
+    function testPlacedResources(device: nvrhi.IDevice): void {
+        const VALUES = 16;
+        let bufferDesc = nvrhi.bufferDesc(VALUES * 4, "Placed buffer", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_NONE);
+        bufferDesc.isVirtual = true;
+        const buffer = nvrhi.createBuffer(device, bufferDesc);
+        let textureDesc = renderTargetDesc();
+        textureDesc.debugName = nvrhi.stdString("Placed texture");
+        textureDesc.isVirtual = true;
+        const texture = nvrhi.createTexture(device, textureDesc);
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(VALUES * 4, "Placed readback", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!buffer || !texture || !readback || !staging || !commandList) {
+            check(false, "the placed resource test's buffers, textures and command list");
+            return;
+        }
+        check(Deref(buffer.getDesc()).isVirtual && Deref(texture.getDesc()).isVirtual, "IBuffer and ITexture::getDesc's isVirtual");
+
+        const bufferRequirements = device.getBufferMemoryRequirements(buffer);
+        const textureRequirements = device.getTextureMemoryRequirements(texture);
+        console.log(`Memory requirements: buffer ${bufferRequirements.size} (alignment ${bufferRequirements.alignment}), `
+            + `texture ${textureRequirements.size} (alignment ${textureRequirements.alignment})`);
+        check(bufferRequirements.size >= VALUES * 4 && bufferRequirements.alignment != 0, "IDevice::getBufferMemoryRequirements");
+        check(textureRequirements.size >= TEXTURE_SIZE * TEXTURE_SIZE * 4 && textureRequirements.alignment != 0,
+            "IDevice::getTextureMemoryRequirements");
+        const bufferOffset = alignUp(bufferRequirements.size, bufferRequirements.alignment);
+        const bufferHeap = nvrhi.createHeap(device, 2 * bufferOffset, nvrhi.HEAP_TYPE_DEVICE_LOCAL, "Buffer heap");
+        const textureHeap = nvrhi.createHeap(device, textureRequirements.size, nvrhi.HEAP_TYPE_DEVICE_LOCAL, "Texture heap");
+        if (!bufferHeap || !textureHeap) {
+            check(false, "IDevice::createHeap");
+            return;
+        }
+        const heapDesc = Deref(bufferHeap.getDesc());
+        check(heapDesc.capacity == 2 * bufferOffset && heapDesc.type == nvrhi.HEAP_TYPE_DEVICE_LOCAL
+            && nvrhi.stdStringIs(heapDesc.debugName, "Buffer heap"), "IHeap::getDesc");
+        check(device.bindBufferMemory(buffer, bufferHeap, bufferOffset), "IDevice::bindBufferMemory");
+        check(device.bindTextureMemory(texture, textureHeap, 0), "IDevice::bindTextureMemory");
+
+        let values: u32[] = [];
+        for (let i = 0; i < VALUES; i++) {
+            values.push(1000 + 7 * i);
+        }
+        commandList.open();
+        commandList.writeBuffer(buffer, <Opaque>Ref(values[0]), VALUES * 4, 0);
+        commandList.copyBuffer(readback, 0, buffer, 0, VALUES * 4);
+        nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [1.0, 0.5, 0.0, 1.0]);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), texture, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the placed resource test");
+
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let bufferMismatches = 0;
+        for (let i = 0; i < VALUES; i++) {
+            if (Deref(mapped[i]) != 1000 + 7 * i) {
+                bufferMismatches++;
+            }
+        }
+        device.unmapBuffer(readback);
+        check(bufferMismatches == 0, `a buffer placed in a heap (${bufferMismatches} of ${VALUES} differ)`);
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let textureMismatches = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+                if (!sameColor(pixels, i, 255, 128, 0)) {
+                    textureMismatches++;
+                }
+            }
+            check(textureMismatches == 0, `a texture placed in a heap (${textureMismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+        }
+
+        commandList.Release();
+        staging.Release();
+        readback.Release();
+        texture.Release();
+        buffer.Release();
+        textureHeap.Release();
+        bufferHeap.Release();
+    }
+
+    // Indexed indirect draws, with a command list of their own, as testDrawIndirect's: an index
+    // buffer of three R32_UINT indices (0, 1, 2: nvrhi_direct.hlsl's vertices), a buffer of two
+    // DrawIndexedIndirectArguments (indexCount, instanceCount, startIndexLocation,
+    // baseVertexLocation, startInstanceLocation; 20 bytes). ICommandList::drawIndexedIndirect into
+    // the left half from offset 20 (one instance), into the right half from 0 (none): the left half
+    // green, the right half as cleared.
+    function testDrawIndexedIndirect(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        let indexDesc = nvrhi.bufferDesc(3 * 4, "Indices", nvrhi.RESOURCE_STATE_INDEX_BUFFER, nvrhi.CPU_ACCESS_NONE);
+        indexDesc.isIndexBuffer = true;
+        const indexBuffer = nvrhi.createBuffer(device, indexDesc);
+        let argumentsDesc = nvrhi.bufferDesc(40, "Indexed args", nvrhi.RESOURCE_STATE_INDIRECT_ARGUMENT, nvrhi.CPU_ACCESS_NONE);
+        argumentsDesc.isDrawIndirectArgs = true;
+        const argumentsBuffer = nvrhi.createBuffer(device, argumentsDesc);
+        if (!color || !staging || !vertexShader || !pixelShader || !commandList || !indexBuffer || !argumentsBuffer) {
+            check(false, "the indexed indirect draw test's textures, shaders, command list and buffers");
+            return;
+        }
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], null));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer for the indexed indirect draw test");
+            return;
+        }
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, null, renderState), framebuffer);
+        if (!pipeline) {
+            check(false, "IDevice::createGraphicsPipeline for the indexed indirect draw test");
+            return;
+        }
+
+        let indices: u32[] = [0, 1, 2];
+        let drawArguments: u32[] = [3, 0, 0, 0, 0, 3, 1, 0, 0, 0];
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
+        commandList.writeBuffer(argumentsBuffer, <Opaque>Ref(drawArguments[0]), 40, 0);
+        let left = nvrhi.graphicsState(pipeline, framebuffer, [0, TEXTURE_SIZE / 2, 0, TEXTURE_SIZE, 0, 1],
+            null, null, indexBuffer, Format.R32_UINT);
+        left.indirectParams = argumentsBuffer;
+        nvrhi.setGraphicsState(commandList, left);
+        commandList.drawIndexedIndirect(20, 1);
+        let right = nvrhi.graphicsState(pipeline, framebuffer, [TEXTURE_SIZE / 2, TEXTURE_SIZE, 0, TEXTURE_SIZE, 0, 1],
+            null, null, indexBuffer, Format.R32_UINT);
+        right.indirectParams = argumentsBuffer;
+        nvrhi.setGraphicsState(commandList, right);
+        commandList.drawIndexedIndirect(0, 1);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the indexed indirect draw test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let drawnMismatches = 0;
+            let skippedMismatches = 0;
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (x < TEXTURE_SIZE / 2) {
+                        if (!sameColor(pixels, i, 0, 255, 0)) {
+                            drawnMismatches++;
+                        }
+                    } else if (!sameColor(pixels, i, 0, 0, 0)) {
+                        skippedMismatches++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE - 1);
+            console.log(`Drawn indexed indirectly (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), `
+                + `no instance (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
+            check(drawnMismatches == 0, `ICommandList::drawIndexedIndirect from offset 20 (${drawnMismatches} of ${half} pixels differ)`);
+            check(skippedMismatches == 0, `ICommandList::drawIndexedIndirect of no instance (${skippedMismatches} of ${half} pixels differ)`);
+        }
+
+        commandList.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        argumentsBuffer.Release();
+        indexBuffer.Release();
+        vertexShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        color.Release();
+    }
+
+    // IDevice::queryFormatSupport (FormatSupport bits): RGBA8_UNORM a sampled, blendable render
+    // target and no depth format, D32 a depth format and no render target, R32_UINT a buffer format
+    // with UAV stores.
+    function testFormatSupport(device: nvrhi.IDevice): void {
+        const rgba8 = device.queryFormatSupport(<u8>Format.RGBA8_UNORM);
+        const d32 = device.queryFormatSupport(<u8>Format.D32);
+        const r32 = device.queryFormatSupport(<u8>Format.R32_UINT);
+        console.log(`IDevice::queryFormatSupport: RGBA8_UNORM ${rgba8}, D32 ${d32}, R32_UINT ${r32}`);
+        const colorTarget = nvrhi.FORMAT_SUPPORT_TEXTURE | nvrhi.FORMAT_SUPPORT_RENDER_TARGET | nvrhi.FORMAT_SUPPORT_BLENDABLE
+            | nvrhi.FORMAT_SUPPORT_SHADER_SAMPLE;
+        check((rgba8 & colorTarget) == colorTarget && (rgba8 & nvrhi.FORMAT_SUPPORT_DEPTH_STENCIL) == 0,
+            "IDevice::queryFormatSupport(RGBA8_UNORM)");
+        check((d32 & nvrhi.FORMAT_SUPPORT_DEPTH_STENCIL) != 0 && (d32 & nvrhi.FORMAT_SUPPORT_RENDER_TARGET) == 0,
+            "IDevice::queryFormatSupport(D32)");
+        const uavBuffer = nvrhi.FORMAT_SUPPORT_BUFFER | nvrhi.FORMAT_SUPPORT_SHADER_UAV_STORE;
+        check((r32 & uavBuffer) == uavBuffer, "IDevice::queryFormatSupport(R32_UINT)");
+    }
+
+    // Two command lists in one submission (IDevice::executeCommandLists of an array of them, run in
+    // order): the first clears a texture, the second copies it into a staging texture. The copy: the
+    // clear color.
+    function testExecuteCommandLists(device: nvrhi.IDevice): void {
+        const texture = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const first = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        const second = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!texture || !staging || !first || !second) {
+            check(false, "the command list submission test's textures and command lists");
+            return;
+        }
+
+        first.open();
+        nvrhi.clearTextureFloat(first, texture, nvrhi.allSubresources(), [1.0, 0.0, 1.0, 1.0]);
+        first.close();
+        second.open();
+        nvrhi.copyTextureToStaging(second, staging, nvrhi.entireTexture(), texture, nvrhi.entireTexture());
+        second.close();
+        const instance = nvrhi.executeCommandLists(device, [first, second]);
+        check(instance != 0, "IDevice::executeCommandLists' submission");
+        check(device.waitForIdle(), "IDevice::waitForIdle after the command list submission test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let mismatches = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+                if (!sameColor(pixels, i, 255, 0, 255)) {
+                    mismatches++;
+                }
+            }
+            console.log(`Two command lists: (${pixels[0]}, ${pixels[1]}, ${pixels[2]})`);
+            check(mismatches == 0, `IDevice::executeCommandLists of two command lists (${mismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+        }
+
+        second.Release();
+        first.Release();
+        staging.Release();
+        texture.Release();
+    }
+
+    // A command list lifetime tracker (IDevice::createCommandListLifetimeTracker for the graphics
+    // queue, CommandListParameters::lifetimeTracker), which holds the command list's work until the
+    // GPU is done with it, released by ICommandListLifetimeTracker::runGarbageCollection. The
+    // command list clears a texture and copies it into a staging texture: the clear color.
+    function testLifetimeTracker(device: nvrhi.IDevice): void {
+        const tracker = nvrhi.createCommandListLifetimeTracker(device, nvrhi.COMMAND_QUEUE_GRAPHICS);
+        if (!tracker) {
+            check(false, "IDevice::createCommandListLifetimeTracker");
+            return;
+        }
+        let params = nvrhi.commandListParameters();
+        params.lifetimeTracker = tracker;
+        const commandList = nvrhi.createCommandList(device, params);
+        const texture = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        if (!commandList || !texture || !staging) {
+            check(false, "the lifetime tracker test's command list and textures");
+            return;
+        }
+        const kept = Deref(commandList.getDesc()).lifetimeTracker;
+        check(kept != null && <index><Opaque>kept == <index><Opaque>tracker, "ICommandList::getDesc's lifetimeTracker");
+
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [0.0, 1.0, 1.0, 1.0]);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), texture, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the lifetime tracker test");
+        tracker.runGarbageCollection();
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            let mismatches = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+                if (!sameColor(pixels, i, 0, 255, 255)) {
+                    mismatches++;
+                }
+            }
+            check(mismatches == 0, `a command list with a lifetime tracker (${mismatches} of ${TEXTURE_SIZE * TEXTURE_SIZE} pixels differ)`);
+        }
+
+        staging.Release();
+        texture.Release();
+        commandList.Release();
+        tracker.Release();
+    }
+
+    // testShaderSpecialization's compute pipeline of a shader over the layout; null on failure,
+    // reported.
+    function specializationPipeline(device: nvrhi.IDevice, shader: nvrhi.IShader, layout: nvrhi.IBindingLayout): nvrhi.IComputePipeline | null {
+        const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, layout));
+        if (!pipeline) {
+            check(false, "IDevice::createComputePipeline for the shader specialization test");
+        }
+        return pipeline;
+    }
+
+    // Shader specialization, with a command list of its own: IDevice::queryFeatureSupport
+    // (ShaderSpecializations), which Vulkan has and D3D12 doesn't; on Vulkan,
+    // createShaderSpecialization of nvrhi_direct_specialization.hlsl with its constant 0 set to 42
+    // (a ShaderSpecialization: its ID, its value). The shader unspecialized (7) on both, and
+    // specialized on Vulkan, each into a buffer: c_Value * 10 plus the index.
+    function testShaderSpecialization(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const supported = device.queryFeatureSupport(nvrhi.FEATURE_SHADER_SPECIALIZATIONS, null, 0);
+        console.log(`IDevice::queryFeatureSupport(ShaderSpecializations): ${supported}`);
+        check(supported == !isD3D12, "IDevice::queryFeatureSupport(ShaderSpecializations): on Vulkan only");
+        const shader = loadShader(app, device, isD3D12, "nvrhi_direct_specialization", "main_cs", nvrhi.SHADER_TYPE_COMPUTE);
+        const layout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_COMPUTE,
+            [nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_RAW_BUFFER_UAV)]);
+        let outputDesc = nvrhi.bufferDesc(16, "Specialized", nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
+        outputDesc.canHaveUAVs = true;
+        outputDesc.canHaveRawViews = true;
+        const baseOutput = nvrhi.createBuffer(device, outputDesc);
+        const specializedOutput = nvrhi.createBuffer(device, outputDesc);
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(32, "Specialized back", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!shader || !layout || !baseOutput || !specializedOutput || !readback || !commandList) {
+            check(false, "the shader specialization test's shader, binding layout, buffers and command list");
+            return;
+        }
+        const baseSet = nvrhi.createBindingSet(device, layout, [nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_RAW_BUFFER_UAV, baseOutput)]);
+        const specializedSet = nvrhi.createBindingSet(device, layout,
+            [nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_RAW_BUFFER_UAV, specializedOutput)]);
+        const basePipeline = specializationPipeline(device, shader, layout);
+        if (!baseSet || !specializedSet || !basePipeline) {
+            check(false, "the shader specialization test's binding sets and pipeline");
+            return;
+        }
+        const specialized = supported ? nvrhi.createShaderSpecialization(device, shader, [[0, 42]]) : null;
+        if (supported && !specialized) {
+            check(false, "IDevice::createShaderSpecialization");
+        }
+        const specializedPipeline = specialized ? specializationPipeline(device, specialized, layout) : null;
+
+        commandList.open();
+        nvrhi.setComputeState(commandList, nvrhi.computeState(basePipeline, baseSet));
+        commandList.dispatch(1, 1, 1);
+        commandList.copyBuffer(readback, 0, baseOutput, 0, 16);
+        if (specializedPipeline) {
+            nvrhi.setComputeState(commandList, nvrhi.computeState(specializedPipeline, specializedSet));
+            commandList.dispatch(1, 1, 1);
+            commandList.copyBuffer(readback, 16, specializedOutput, 0, 16);
+        }
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the shader specialization test");
+
+        const specializedRan = specializedPipeline ? true : false;
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let baseMismatches = 0;
+        let specializedMismatches = 0;
+        for (let i = 0; i < 4; i++) {
+            if (Deref(mapped[i]) != 70 + i) {
+                baseMismatches++;
+            }
+            if (specializedRan && Deref(mapped[4 + i]) != 420 + i) {
+                specializedMismatches++;
+            }
+        }
+        console.log(`Shader specialization: unspecialized ${Deref(mapped[0])}`
+            + (specializedRan ? `, specialized ${Deref(mapped[4])}` : ""));
+        device.unmapBuffer(readback);
+        check(baseMismatches == 0, `the unspecialized shader (${baseMismatches} of 4 differ)`);
+        check(specializedMismatches == 0, `IDevice::createShaderSpecialization's shader (${specializedMismatches} of 4 differ)`);
+
+        if (specializedPipeline) {
+            specializedPipeline.Release();
+        }
+        if (specialized) {
+            specialized.Release();
+        }
+        commandList.Release();
+        basePipeline.Release();
+        specializedSet.Release();
+        baseSet.Release();
+        readback.Release();
+        specializedOutput.Release();
+        baseOutput.Release();
+        layout.Release();
+        shader.Release();
+    }
+
+    // A bindless descriptor table, with a command list of its own: IDevice::createBindlessLayout of
+    // raw buffers in register space 1 (at most 16), createDescriptorTable of it, resizeDescriptorTable
+    // to 4 (IDescriptorTable::getCapacity: 4 on D3D12, 16 on Vulkan), writeDescriptorTable of 4 raw buffers, each holding a
+    // value, at their indices. A compute pipeline of two binding layouts (a raw buffer UAV, then the
+    // bindless layout: nvrhi_direct_bindless.hlsl), its state of a binding set and the table; the
+    // buffers set to ShaderResource by hand after their writes (NVRHI doesn't track a table's
+    // resources). Thread i stores buffer 3 - i's value: the values reversed.
+    function testBindless(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const BUFFERS = 4;
+        const MAX_CAPACITY = 16;
+        const shader = loadShader(app, device, isD3D12, "nvrhi_direct_bindless", "main_cs", nvrhi.SHADER_TYPE_COMPUTE);
+        const layout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_COMPUTE,
+            [nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_RAW_BUFFER_UAV)]);
+        const bindlessLayout = nvrhi.createBindlessLayout(device, nvrhi.SHADER_TYPE_COMPUTE, MAX_CAPACITY,
+            nvrhi.bindingLayoutItem(1, nvrhi.RESOURCE_TYPE_RAW_BUFFER_SRV));
+        let outputDesc = nvrhi.bufferDesc(BUFFERS * 4, "Bindless output", nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
+        outputDesc.canHaveUAVs = true;
+        outputDesc.canHaveRawViews = true;
+        const output = nvrhi.createBuffer(device, outputDesc);
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(BUFFERS * 4, "Bindless back", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!shader || !layout || !bindlessLayout || !output || !readback || !commandList) {
+            check(false, "the bindless test's shader, binding layouts, buffers and command list");
+            return;
+        }
+        const table = nvrhi.createDescriptorTable(device, bindlessLayout);
+        if (!table) {
+            check(false, "IDevice::createDescriptorTable");
+            return;
+        }
+        // (Vulkan's table has the layout's capacity from the start, and resizing it does nothing)
+        device.resizeDescriptorTable(table, BUFFERS, true);
+        check(table.getCapacity() == (isD3D12 ? BUFFERS : MAX_CAPACITY),
+            `IDevice::resizeDescriptorTable, IDescriptorTable::getCapacity (${table.getCapacity()})`);
+        let buffers: nvrhi.IBuffer[] = [];
+        for (let i = 0; i < BUFFERS; i++) {
+            let desc = nvrhi.bufferDesc(16, `Bindless ${i}`, nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
+            desc.canHaveRawViews = true;
+            const buffer = nvrhi.createBuffer(device, desc);
+            if (!buffer) {
+                check(false, "the bindless test's buffers");
+                return;
+            }
+            buffers.push(buffer);
+            check(nvrhi.writeDescriptorTable(device, table, nvrhi.bufferBindingSetItem(i, nvrhi.RESOURCE_TYPE_RAW_BUFFER_SRV, buffer)),
+                `IDevice::writeDescriptorTable at ${i}`);
+        }
+        const bindingSet = nvrhi.createBindingSet(device, layout, [nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_RAW_BUFFER_UAV, output)]);
+        if (!bindingSet) {
+            check(false, "IDevice::createBindingSet for the bindless test");
+            return;
+        }
+        // (a ComputePipelineDesc and a ComputeState of two each, as computePipelineDesc() and
+        // computeState() make them of one; the table is a binding set)
+        const pipeline = nvrhi.createComputePipeline(device,
+            [[shader], [[[layout], [bindlessLayout], [null], [null], [null], [null], [null], [null]], 2]]);
+        if (!pipeline) {
+            check(false, "IDevice::createComputePipeline with a bindless layout");
+            return;
+        }
+
+        commandList.open();
+        for (let i = 0; i < BUFFERS; i++) {
+            let value: u32[] = [100 + 11 * i];
+            commandList.writeBuffer(buffers[i], <Opaque>Ref(value[0]), 4, 0);
+            commandList.setBufferState(buffers[i], nvrhi.RESOURCE_STATE_SHADER_RESOURCE);
+        }
+        commandList.commitBarriers();
+        nvrhi.setComputeState(commandList, [pipeline, [[bindingSet, <nvrhi.IBindingSet><Opaque>table, null, null, null, null, null, null], 2], null]);
+        commandList.dispatch(1, 1, 1);
+        commandList.copyBuffer(readback, 0, output, 0, BUFFERS * 4);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the bindless test");
+
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let mismatches = 0;
+        for (let i = 0; i < BUFFERS; i++) {
+            if (Deref(mapped[i]) != 100 + 11 * (BUFFERS - 1 - i)) {
+                mismatches++;
+            }
+        }
+        console.log(`Bindless: [${Deref(mapped[0])}, ${Deref(mapped[1])}, ${Deref(mapped[2])}, ${Deref(mapped[3])}]`);
+        device.unmapBuffer(readback);
+        check(mismatches == 0, `buffers read through a descriptor table (${mismatches} of ${BUFFERS} differ)`);
+
+        commandList.Release();
+        pipeline.Release();
+        bindingSet.Release();
+        for (let i = 0; i < BUFFERS; i++) {
+            buffers[i].Release();
+        }
+        table.Release();
+        readback.Release();
+        output.Release();
+        bindlessLayout.Release();
+        layout.Release();
+        shader.Release();
+    }
+
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
@@ -1715,6 +2411,16 @@ namespace NvrhiDirect {
         testTextureUav(app, device, isD3D12);
         testStructuredAndRawBuffers(app, device, isD3D12);
         testTextureSubresources(device);
+        testClearTextureUInt(device);
+        testTextureStateTracking(device, isD3D12);
+        testBufferStateTracking(device);
+        testPlacedResources(device);
+        testDrawIndexedIndirect(app, device, isD3D12);
+        testFormatSupport(device);
+        testExecuteCommandLists(device);
+        testLifetimeTracker(device);
+        testShaderSpecialization(app, device, isD3D12);
+        testBindless(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();

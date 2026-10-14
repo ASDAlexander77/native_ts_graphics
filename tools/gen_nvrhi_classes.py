@@ -45,7 +45,8 @@ TARGETS = {
 
 # the structs core/nvrhi.ts and core/nvrhi_abi.<os>.ts build, which tsbindgen has to lay out
 TUPLES = ["BufferDesc", "TextureDesc", "TextureSubresourceSet", "Color", "CommandListParameters",
-          "ComputePipelineDesc", "ComputeState", "basic_string_char"]
+          "ComputePipelineDesc", "ComputeState", "HeapDesc", "BindlessLayoutDesc", "ShaderSpecialization",
+          "basic_string_char"]
 
 # Methods taking a struct by value, which tsbindgen skips: {(class, method): {os: (declaration,
 # function)}}. The declaration's slot is the one tsbindgen leaves free where it skips the method,
@@ -97,6 +98,73 @@ BY_VALUE = {
         const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
         const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
         commandList.clearDepthStencilTexture(texture, mips, arraySlices, clearDepth, depth, clearStencil, stencil);
+    }"""),
+    },
+    ("ICommandList", "clearTextureUInt"): {
+        "win32": (
+            "@slot({slot}) clearTextureUInt(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: u32): void;",
+            """\
+    // ICommandList::clearTextureUInt: the TextureSubresourceSet by value, which MSVC passes as a
+    // pointer to a copy
+    export function clearTextureUInt(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, value: u32): void {
+        let subresourcesValue = subresources;
+        commandList.clearTextureUInt(texture, Ref(subresourcesValue), value);
+    }"""),
+        "linux": (
+            "@slot({slot}) clearTextureUInt(t: ITexture, mips: u64, arraySlices: u64, clearColor: u32): void;",
+            """\
+    // ICommandList::clearTextureUInt: the TextureSubresourceSet by value, its two halves in two
+    // registers (as in clearTextureFloat)
+    export function clearTextureUInt(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, value: u32): void {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        commandList.clearTextureUInt(texture, mips, arraySlices, value);
+    }"""),
+    },
+    ("ICommandList", "beginTrackingTextureState"): {
+        "win32": (
+            "@slot({slot}) beginTrackingTextureState(texture: ITexture, subresources: Ref<TextureSubresourceSet>, stateBits: u32): void;",
+            """\
+    // ICommandList::beginTrackingTextureState: the TextureSubresourceSet by value, which MSVC passes
+    // as a pointer to a copy
+    export function beginTrackingTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        let subresourcesValue = subresources;
+        commandList.beginTrackingTextureState(texture, Ref(subresourcesValue), stateBits);
+    }"""),
+        "linux": (
+            "@slot({slot}) beginTrackingTextureState(texture: ITexture, mips: u64, arraySlices: u64, stateBits: u32): void;",
+            """\
+    // ICommandList::beginTrackingTextureState: the TextureSubresourceSet by value, its two halves in
+    // two registers (as in clearTextureFloat)
+    export function beginTrackingTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        commandList.beginTrackingTextureState(texture, mips, arraySlices, stateBits);
+    }"""),
+    },
+    ("ICommandList", "setTextureState"): {
+        "win32": (
+            "@slot({slot}) setTextureState(texture: ITexture, subresources: Ref<TextureSubresourceSet>, stateBits: u32): void;",
+            """\
+    // ICommandList::setTextureState: the TextureSubresourceSet by value, which MSVC passes as a
+    // pointer to a copy
+    export function setTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        let subresourcesValue = subresources;
+        commandList.setTextureState(texture, Ref(subresourcesValue), stateBits);
+    }"""),
+        "linux": (
+            "@slot({slot}) setTextureState(texture: ITexture, mips: u64, arraySlices: u64, stateBits: u32): void;",
+            """\
+    // ICommandList::setTextureState: the TextureSubresourceSet by value, its two halves in two
+    // registers (as in clearTextureFloat)
+    export function setTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        commandList.setTextureState(texture, mips, arraySlices, stateBits);
     }"""),
     },
 }

@@ -60,7 +60,11 @@ export namespace nvrhi {
             && sizeof<DrawArguments>() == Donut_GetNvrhiStructSize("DrawArguments")
             && sizeof<SamplerDesc>() == Donut_GetNvrhiStructSize("SamplerDesc")
             && sizeof<VertexAttributeDesc>() == Donut_GetNvrhiStructSize("VertexAttributeDesc")
-            && sizeof<TextureSlice>() == Donut_GetNvrhiStructSize("TextureSlice");
+            && sizeof<TextureSlice>() == Donut_GetNvrhiStructSize("TextureSlice")
+            && sizeof<HeapDesc>() == Donut_GetNvrhiStructSize("HeapDesc")
+            && sizeof<MemoryRequirements>() == Donut_GetNvrhiStructSize("MemoryRequirements")
+            && sizeof<BindlessLayoutDesc>() == Donut_GetNvrhiStructSize("BindlessLayoutDesc")
+            && sizeof<ShaderSpecialization>() == Donut_GetNvrhiStructSize("ShaderSpecialization");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -402,6 +406,51 @@ export namespace nvrhi {
         commandList.drawIndexed(Ref(args));
     }
 
+    // IDevice::createHeap of capacity bytes of a type of memory (HEAP_TYPE_*), with a debug name
+    // (see stdString); null on failure. Release() it.
+    export function createHeap(device: IDevice, capacity: u64, type: u8, debugName: string): IHeap | null {
+        let desc: HeapDesc = [capacity, type, stdString(debugName)];
+        const handle = device.createHeap(Ref(desc));
+        return handle.ptr_ ? <IHeap><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createShaderSpecialization: the base shader with its specialization constants set
+    // (Vulkan only: FEATURE_SHADER_SPECIALIZATIONS); null on failure. Release() it.
+    export function createShaderSpecialization(device: IDevice, baseShader: IShader, constants: ShaderSpecialization[]): IShader | null {
+        const handle = device.createShaderSpecialization(baseShader, Ref(constants[0]), constants.length);
+        return handle.ptr_ ? <IShader><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createBindlessLayout of one register space (an unbounded array of a resource type
+    // in the space, its Vulkan binding the item's place in registerSpaces: 0), at most maxCapacity
+    // descriptors, visible to the stages in visibility; null on failure. Release() it.
+    export function createBindlessLayout(device: IDevice, visibility: u16, maxCapacity: u32, space: BindingLayoutItem): IBindingLayout | null {
+        const none: BindingLayoutItem = [0, [0]];
+        let desc: BindlessLayoutDesc = [visibility, 0, maxCapacity,
+            [[space, none, none, none, none, none, none, none, none, none, none, none, none, none, none, none], 1],
+            BINDLESS_LAYOUT_IMMUTABLE];
+        const handle = device.createBindlessLayout(Ref(desc));
+        return handle.ptr_ ? <IBindingLayout><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createDescriptorTable of a bindless layout; null on failure. Release() it.
+    export function createDescriptorTable(device: IDevice, layout: IBindingLayout): IDescriptorTable | null {
+        const handle = device.createDescriptorTable(layout);
+        return handle.ptr_ ? <IDescriptorTable><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::writeDescriptorTable: the item into the table, at its slot
+    export function writeDescriptorTable(device: IDevice, table: IDescriptorTable, item: BindingSetItem): boolean {
+        let itemValue = item;
+        return device.writeDescriptorTable(table, Ref(itemValue));
+    }
+
+    // IDevice::createCommandListLifetimeTracker for a queue; null on failure. Release() it.
+    export function createCommandListLifetimeTracker(device: IDevice, queue: u8): ICommandListLifetimeTracker | null {
+        const handle = device.createCommandListLifetimeTracker(queue);
+        return handle.ptr_ ? <ICommandListLifetimeTracker><Opaque>handle.ptr_ : null;
+    }
+
     // IDevice::createEventQuery; null on failure. Release() it.
     export function createEventQuery(device: IDevice): IEventQuery | null {
         const handle = device.createEventQuery();
@@ -439,6 +488,12 @@ export namespace nvrhi {
     export function executeCommandList(device: IDevice, commandList: ICommandList): u64 {
         let lists: ICommandList[] = [commandList];
         return device.executeCommandLists(Ref(lists[0]), 1, COMMAND_QUEUE_GRAPHICS);
+    }
+
+    // IDevice::executeCommandLists: the command lists in one submission to the graphics queue, run
+    // in order; returns its fence value.
+    export function executeCommandLists(device: IDevice, commandLists: ICommandList[]): u64 {
+        return device.executeCommandLists(Ref(commandLists[0]), commandLists.length, COMMAND_QUEUE_GRAPHICS);
     }
 
     // IDevice::getNativeQueue: a queue's API object (ObjectTypes), not AddRef'd; null if the device

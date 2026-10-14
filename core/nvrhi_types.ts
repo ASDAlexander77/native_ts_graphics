@@ -41,6 +41,24 @@ export namespace nvrhi {
 
     // nvrhi::Feature (some)
     export const FEATURE_COMPUTE_QUEUE: u8 = 0;
+    export const FEATURE_SHADER_SPECIALIZATIONS: u8 = 18;
+
+    // nvrhi::FormatSupport (a bit mask, some)
+    export const FORMAT_SUPPORT_BUFFER: u32 = 0x1;
+    export const FORMAT_SUPPORT_TEXTURE: u32 = 0x8;
+    export const FORMAT_SUPPORT_DEPTH_STENCIL: u32 = 0x10;
+    export const FORMAT_SUPPORT_RENDER_TARGET: u32 = 0x20;
+    export const FORMAT_SUPPORT_BLENDABLE: u32 = 0x40;
+    export const FORMAT_SUPPORT_SHADER_SAMPLE: u32 = 0x100;
+    export const FORMAT_SUPPORT_SHADER_UAV_STORE: u32 = 0x400;
+
+    // nvrhi::HeapType
+    export const HEAP_TYPE_DEVICE_LOCAL: u8 = 0;
+    export const HEAP_TYPE_UPLOAD: u8 = 1;
+    export const HEAP_TYPE_READBACK: u8 = 2;
+
+    // nvrhi::BindlessLayoutDesc::LayoutType (some)
+    export const BINDLESS_LAYOUT_IMMUTABLE: s32 = 0;
 
     // nvrhi::ResourceStates (some)
     export const RESOURCE_STATE_UNKNOWN: u32 = 0;
