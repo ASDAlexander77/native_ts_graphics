@@ -2,8 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ShaderQuadControl {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the screen-space gradient (red across, green down, blue 188),
+    // its corners at its ends: no red or green at the top left, red at the top right, green at the
+    // bottom left, both at the bottom right.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const tl = check.rgb(0, 0);
+        const tr = check.rgb(check.width - 1, 0);
+        const bl = check.rgb(0, check.height - 1);
+        const br = check.rgb(check.width - 1, check.height - 1);
+        if ((tl & 0xFF) > 10 || ((tl >> 8) & 0xFF) > 10 || (tr & 0xFF) < 245 || ((bl >> 8) & 0xFF) < 245
+            || (br & 0xFF) < 245 || ((br >> 8) & 0xFF) < 245) {
+            return "the corners aren't the gradient's ends";
+        }
+        return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            45.0, 70.0, "Colored");
+    }
+
     const WINDOW_TITLE = "Donut Example: Shader Quad Control";
 
     // Port of Vulkan-Samples' shader_quad_control: a triangle over the screen showing its texture
@@ -115,7 +140,7 @@ namespace ShaderQuadControl {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_quad_control");
 
-        const args = new ShaderQuadControlArgs(argc, argv);
+        const args = new ShaderQuadControlArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -150,8 +175,12 @@ namespace ShaderQuadControl {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

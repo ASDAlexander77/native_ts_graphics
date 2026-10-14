@@ -2,8 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ComputeShaderDerivatives {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are black; the radial pattern, colored by the
+    // compute shader's derivatives, lights about 84% of the frame, about 35% blue.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            75.0, 92.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        return check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
+            25.0, 45.0, "Blue");
+    }
+
     const WINDOW_TITLE = "Donut Example: Compute Shader Derivatives";
 
     // The image the compute shader writes, in 8 x 8 tiles.
@@ -211,7 +236,7 @@ namespace ComputeShaderDerivatives {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("compute_shader_derivatives");
 
-        const args = new ComputeShaderDerivativesArgs(argc, argv);
+        const args = new ComputeShaderDerivativesArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -240,8 +265,12 @@ namespace ComputeShaderDerivatives {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

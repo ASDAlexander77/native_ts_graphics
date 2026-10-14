@@ -43,11 +43,12 @@ struct PushConsts
 
 DECLARE_PUSH_CONSTANTS(PushConsts, g_PushConsts, 1, 0);
 
+// The vertices' texture coordinates aren't read (an attribute a shader doesn't read is a Vulkan
+// validation warning; D3D12 wants the input layout to have every one it declares).
 struct VSInput
 {
     float3 pos : POSITION;
     float3 normal : NORMAL;
-    float2 uv : TEXCOORD;
 };
 
 struct VSOutput

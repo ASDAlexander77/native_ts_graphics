@@ -2,8 +2,31 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ConditionalRendering {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are black; the model's parts, each drawn under its
+    // own condition (all on), cover about a third of the frame, green in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(check.width / 2, check.height / 2) != 0x00FF00) {
+            return "the middle isn't the model's green";
+        }
+        return check.share(check.countOtherThan(0x000000, 0, 0, check.width, check.height), total,
+            25.0, 42.0, "Model");
+    }
+
     const WINDOW_TITLE = "Donut Example: Conditional Rendering";
 
     // The sample's model (Vulkan-Samples' asset, copied at build time: see VULKAN_SAMPLES_ASSETS_DIR
@@ -530,7 +553,7 @@ namespace ConditionalRendering {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("conditional_rendering");
 
-        const args = new ConditionalRenderingArgs(argc, argv);
+        const args = new ConditionalRenderingArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -561,8 +584,12 @@ namespace ConditionalRendering {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

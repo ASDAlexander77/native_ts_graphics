@@ -732,6 +732,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_specializations/spirv
 )
 add_tslang_example(shader_specializations)
+add_tslang_example_test(shader_specializations)
 
 # Port of Donut-Samples' headless: compute only, no window.
 donut_compile_shaders_all_platforms(
@@ -1391,6 +1392,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/conditional_rendering
 )
 add_tslang_example(conditional_rendering MEDIA conditional_rendering)
+add_tslang_example_test(conditional_rendering)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/Buggy/glTF-Embedded/Buggy.gltf")
     set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/conditional_rendering/Buggy.gltf")
@@ -1417,6 +1419,7 @@ donut_compile_shaders_all_platforms(
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_fragment_shader_interlock"
 )
 add_tslang_example(rasterization_order_attachment_access MEDIA rasterization_order_attachment_access)
+add_tslang_example_test(rasterization_order_attachment_access)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(roaa_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/rasterization_order_attachment_access")
@@ -1516,6 +1519,7 @@ donut_compile_shaders(
     SHADER_MODEL 6_6
 )
 add_tslang_example(compute_shader_derivatives)
+add_tslang_example_test(compute_shader_derivatives)
 
 # Port of Vulkan-Samples' logic_op_dynamic_state: a cube combined with the background by a logic
 # operation picked in the UI (an NVRHI patch adds them, see DONUT_NVRHI_PATCHES above). Its model
@@ -1564,6 +1568,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_depth_peeling
 )
 add_tslang_example(oit_depth_peeling MEDIA oit_depth_peeling)
+add_tslang_example_test(oit_depth_peeling)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(depth_peeling_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/oit_depth_peeling")
@@ -1893,6 +1898,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_quad_control/spirv
 )
 add_tslang_example(shader_quad_control)
+add_tslang_example_test(shader_quad_control)
 
 # Port of Vulkan-Samples' dynamic_line_rasterization: a cube's edges drawn as lines whose
 # rasterization mode (rectangular, Bresenham, smooth), width and stipple are set in the UI (the
@@ -2295,6 +2301,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/graphics_pipeline_library
 )
 add_tslang_example(graphics_pipeline_library MEDIA hdr)
+add_tslang_example_test(graphics_pipeline_library)
 if (TARGET hdr_media)
     add_dependencies(graphics_pipeline_library hdr_media)
 endif()
@@ -2509,6 +2516,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_object
 )
 add_tslang_example(shader_object MEDIA hdr instancing/rock.gltf terrain_tessellation texture_mipmap_generation/checkerboard_rgba.dds)
+add_tslang_example_test(shader_object)
 foreach(media hdr_media instancing_media terrain_tessellation_media texture_mipmap_generation_media)
     if (TARGET ${media})
         add_dependencies(shader_object ${media})
@@ -2779,6 +2787,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_bezier
 )
 add_tslang_example(simple_bezier MEDIA fonts)
+add_tslang_example_test(simple_bezier)
 
 # Port of the Xbox ATG MouseCursor UWP sample (UWPSamples/System/MouseCursor): a menu picked with the
 # absolute mouse cursor, a first-person room turned by the captured mouse's relative motion, and a
@@ -3274,6 +3283,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/wave_intrinsics/spirv
 )
 add_tslang_example(wave_intrinsics MEDIA fonts)
+add_tslang_example_test(wave_intrinsics)
 
 # Port of DirectX-Graphics-Samples' D3D12DepthBoundsTest: a triangle at depths 0.1 to 0.9 drawn into
 # the depth buffer, then again with depth testing off and the depth bounds test on (an NVRHI patch

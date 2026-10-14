@@ -2,8 +2,28 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace WaveIntrinsics {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are black; the triangle colored by the wave
+    // intrinsics, and the help text, about 8% of the frame.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        return check.share(check.countOtherThan(0x000000, 0, 0, check.width, check.height), total,
+            6.0, 11.0, "Triangle and text");
+    }
+
     const WINDOW_TITLE = "D3D12 Shader Model 6 WaveIntrinsics Sample";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
     // The sample's UI text: Arial at height / 40 (18 px in its 720-pixel window), lines its height
@@ -364,7 +384,7 @@ namespace WaveIntrinsics {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("wave_intrinsics");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's window. UNORM back buffers, as the sample's R8G8B8A8_UNORM.
@@ -393,8 +413,12 @@ namespace WaveIntrinsics {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

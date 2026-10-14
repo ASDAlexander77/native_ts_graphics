@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ShaderObjectSample {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the snow terrain and sky about 42% white, the objects, each with
+    // its own shaders, about 8% colored.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const white = check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            35.0, 50.0, "White");
+        if (white != "") {
+            return white;
+        }
+        return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            4.0, 12.0, "Colored");
+    }
+
     const WINDOW_TITLE = "Donut Example: Shader Object";
 
     // The sample's models and textures (Vulkan-Samples' assets, other ports' copies: the KTX
@@ -277,6 +298,8 @@ namespace ShaderObjectSample {
         private postPS: ShaderHandle[];
 
         private inputLayout: InputLayoutHandle;
+        // Positions and normals only, for the basic shaders that don't read texture coordinates.
+        private noUVInputLayout: InputLayoutHandle;
         private sceneLayout: BindingLayoutHandle;
         private sceneBindingSet: BindingSet;
         private postLayout: BindingLayoutHandle;
@@ -627,7 +650,9 @@ namespace ShaderObjectSample {
             if (gs >= 0 && gs != GEOMETRY_NONE) {
                 desc.setGeometryShader(this.materialGS[gs]);
             }
-            desc.setInputLayout(this.inputLayout);
+            // The basic shaders but basic_uv_vs don't read texture coordinates.
+            const noUV = combo >= COMBO_BASIC && combo < COMBO_MATERIAL && BASIC_VS[combo - COMBO_BASIC] != "basic_uv_vs";
+            desc.setInputLayout(noUV ? this.noUVInputLayout : this.inputLayout);
             desc.addBindingLayout(this.sceneLayout);
             desc.setDepthState(1, depthWrite, ComparisonFunc.Greater);
             desc.setRasterState(cullMode, wireframe != 0 ? FillMode.Wireframe : FillMode.Solid, 1);
@@ -909,6 +934,10 @@ namespace ShaderObjectSample {
             layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, NORMAL_OFFSET, 0, VERTEX_SIZE);
             layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, UV_OFFSET, 0, VERTEX_SIZE);
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.skyboxVS);
+            const noUVLayoutDesc = InputLayoutDesc.create();
+            noUVLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            noUVLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, NORMAL_OFFSET, 0, VERTEX_SIZE);
+            this.noUVInputLayout = this.app.createInputLayout(noUVLayoutDesc, this.basicVS[0]);
 
             // The sample's samplers: the framework's load_texture's (trilinear, repeating, the
             // device's widest anisotropic filtering), a mirroring one for the heightmap, a repeating
@@ -1117,7 +1146,7 @@ namespace ShaderObjectSample {
 
         // -noui: without the options and the frame time graph.
         // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -1146,8 +1175,12 @@ namespace ShaderObjectSample {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

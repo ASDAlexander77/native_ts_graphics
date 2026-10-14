@@ -2,8 +2,44 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ShaderSpecializations {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are black; the four triangles, each from its own
+    // specialization of one shader, red, green, blue and magenta, cover a quarter of the frame
+    // (1/16 each).
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        const red = check.share(check.countInRange(151, 255, 0, 89, 0, 89, 0, 0, check.width, check.height), total,
+            5.0, 7.5, "Red");
+        if (red != "") {
+            return red;
+        }
+        const green = check.share(check.countInRange(0, 89, 121, 255, 0, 89, 0, 0, check.width, check.height), total,
+            5.0, 7.5, "Green");
+        if (green != "") {
+            return green;
+        }
+        const blue = check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
+            5.0, 7.5, "Blue");
+        if (blue != "") {
+            return blue;
+        }
+        return check.share(check.countOtherThan(0x000000, 0, 0, check.width, check.height), total,
+            23.0, 27.0, "Triangles");
+    }
+
     const WINDOW_TITLE = "Donut Example: Vulkan Shader Specializations";
 
     // --- Passes -----------------------------------------------------------------------------
@@ -81,7 +117,7 @@ namespace ShaderSpecializations {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_specializations");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(GraphicsAPI.VULKAN, WINDOW_TITLE, 1280, 720, args.options);
@@ -108,8 +144,12 @@ namespace ShaderSpecializations {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
