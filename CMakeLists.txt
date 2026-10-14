@@ -236,6 +236,9 @@ set(DONUT_NVRHI_PATCHES
     # The validation layer's createSamplerFeedbackForNativeTexture called itself, not the device's,
     # until the stack overflowed (nvrhi_direct, -debug).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-validation-sampler-feedback-native.patch"
+    # D3D12 buffers of acceleration structures have their resource flag also when virtual: placed
+    # by bindAccelStructMemory without it, a TLAS traced through removed the device (nvrhi_direct).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-d3d12-virtual-accel-struct-flag.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -783,6 +786,7 @@ donut_compile_shaders(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_buffers.hlsl
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_specialization.hlsl
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_bindless.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_rt.hlsl
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/spirv
 )

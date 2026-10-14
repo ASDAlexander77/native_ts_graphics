@@ -43,6 +43,8 @@ export namespace nvrhi {
     // nvrhi::Feature (some)
     export const FEATURE_COMPUTE_QUEUE: u8 = 0;
     export const FEATURE_MESHLETS: u8 = 9;
+    export const FEATURE_RAY_TRACING_ACCEL_STRUCT: u8 = 11;
+    export const FEATURE_RAY_TRACING_PIPELINE: u8 = 14;
     export const FEATURE_SAMPLER_FEEDBACK: u8 = 16;
     export const FEATURE_SHADER_SPECIALIZATIONS: u8 = 18;
 
@@ -79,12 +81,24 @@ export namespace nvrhi {
     export const RESOURCE_STATE_COPY_SOURCE: u32 = 0x2000;
     export const RESOURCE_STATE_RESOLVE_DEST: u32 = 0x4000;
     export const RESOURCE_STATE_RESOLVE_SOURCE: u32 = 0x8000;
+    export const RESOURCE_STATE_ACCEL_STRUCT_READ: u32 = 0x20000;
 
     // nvrhi::ShaderType (a bit mask)
     export const SHADER_TYPE_VERTEX: u16 = 0x01;
     export const SHADER_TYPE_PIXEL: u16 = 0x10;
     export const SHADER_TYPE_COMPUTE: u16 = 0x20;
     export const SHADER_TYPE_MESH: u16 = 0x80;
+    export const SHADER_TYPE_RAY_GENERATION: u16 = 0x100;
+    export const SHADER_TYPE_CLOSEST_HIT: u16 = 0x400;
+    export const SHADER_TYPE_MISS: u16 = 0x800;
+    export const SHADER_TYPE_CALLABLE: u16 = 0x2000;
+    export const SHADER_TYPE_ALL_RAY_TRACING: u16 = 0x3f00;
+
+    // nvrhi::rt::GeometryType, GeometryFlags, AccelStructBuildFlags (some)
+    export const GEOMETRY_TYPE_TRIANGLES: u8 = 0;
+    export const GEOMETRY_FLAGS_OPAQUE: u8 = 1;
+    export const ACCEL_STRUCT_BUILD_ALLOW_COMPACTION: u8 = 2;
+    export const ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE: u8 = 4;
 
     // nvrhi::SamplerAddressMode (some)
     export const SAMPLER_ADDRESS_CLAMP: u8 = 0;
@@ -132,6 +146,7 @@ export namespace nvrhi {
     export const RESOURCE_TYPE_CONSTANT_BUFFER: u8 = 9;
     export const RESOURCE_TYPE_VOLATILE_CONSTANT_BUFFER: u8 = 10;
     export const RESOURCE_TYPE_SAMPLER: u8 = 11;
+    export const RESOURCE_TYPE_RAY_TRACING_ACCEL_STRUCT: u8 = 12;
     export const RESOURCE_TYPE_PUSH_CONSTANTS: u8 = 13;
     export const RESOURCE_TYPE_SAMPLER_FEEDBACK_TEXTURE_UAV: u8 = 14;
 
