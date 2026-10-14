@@ -331,7 +331,7 @@ export namespace nvrhi {
         @slot(8) clearState(): void;
         @slot(9) clearTextureFloat(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: Ref<Color>): void;
         @slot(10) clearDepthStencilTexture(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;
-        // skipped: clearTextureUInt — parameter 'subresources': struct passed by value
+        @slot(11) clearTextureUInt(t: ITexture, subresources: Ref<TextureSubresourceSet>, clearColor: u32): void;
         @slot(14) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(13) copyTexture(dest: IStagingTexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(12) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: IStagingTexture | null, srcSlice: Ref<TextureSlice>): void;
@@ -376,9 +376,9 @@ export namespace nvrhi {
         @linkname("?setResourceStatesForFramebuffer@ICommandList@nvrhi@@QEAAXPEAVIFramebuffer@2@@Z") setResourceStatesForFramebuffer(framebuffer: IFramebuffer | null): void;
         @slot(53) setEnableUavBarriersForTexture(texture: ITexture | null, enableBarriers: boolean): void;
         @slot(54) setEnableUavBarriersForBuffer(buffer: IBuffer | null, enableBarriers: boolean): void;
-        // skipped: beginTrackingTextureState — parameter 'subresources': struct passed by value
+        @slot(55) beginTrackingTextureState(texture: ITexture, subresources: Ref<TextureSubresourceSet>, stateBits: u32): void;
         @slot(56) beginTrackingBufferState(buffer: IBuffer | null, stateBits: u32): void;
-        // skipped: setTextureState — parameter 'subresources': struct passed by value
+        @slot(57) setTextureState(texture: ITexture, subresources: Ref<TextureSubresourceSet>, stateBits: u32): void;
         @slot(58) setBufferState(buffer: IBuffer | null, stateBits: u32): void;
         @slot(59) setAccelStructState(as: IAccelStruct | null, stateBits: u32): void;
         @slot(60) setPermanentTextureState(texture: ITexture | null, stateBits: u32): void;
@@ -404,5 +404,28 @@ export namespace nvrhi {
         clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
         let subresourcesValue = subresources;
         commandList.clearDepthStencilTexture(texture, Ref(subresourcesValue), clearDepth, depth, clearStencil, stencil);
+    }
+
+    // ICommandList::clearTextureUInt: the TextureSubresourceSet by value, which MSVC passes as a
+    // pointer to a copy
+    export function clearTextureUInt(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, value: u32): void {
+        let subresourcesValue = subresources;
+        commandList.clearTextureUInt(texture, Ref(subresourcesValue), value);
+    }
+
+    // ICommandList::beginTrackingTextureState: the TextureSubresourceSet by value, which MSVC passes
+    // as a pointer to a copy
+    export function beginTrackingTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        let subresourcesValue = subresources;
+        commandList.beginTrackingTextureState(texture, Ref(subresourcesValue), stateBits);
+    }
+
+    // ICommandList::setTextureState: the TextureSubresourceSet by value, which MSVC passes as a
+    // pointer to a copy
+    export function setTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        let subresourcesValue = subresources;
+        commandList.setTextureState(texture, Ref(subresourcesValue), stateBits);
     }
 }

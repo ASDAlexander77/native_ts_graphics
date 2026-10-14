@@ -3330,6 +3330,14 @@ extern "C"
             return int(sizeof(nvrhi::VertexAttributeDesc));
         if (n == "TextureSlice")
             return int(sizeof(nvrhi::TextureSlice));
+        if (n == "HeapDesc")
+            return int(sizeof(nvrhi::HeapDesc));
+        if (n == "MemoryRequirements")
+            return int(sizeof(nvrhi::MemoryRequirements));
+        if (n == "BindlessLayoutDesc")
+            return int(sizeof(nvrhi::BindlessLayoutDesc));
+        if (n == "ShaderSpecialization")
+            return int(sizeof(nvrhi::ShaderSpecialization));
         return -1;
     }
 

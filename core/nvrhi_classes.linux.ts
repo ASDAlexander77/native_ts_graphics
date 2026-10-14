@@ -329,7 +329,7 @@ export namespace nvrhi {
         @slot(9) clearState(): void;
         @slot(10) clearTextureFloat(t: ITexture, mips: u64, arraySlices: u64, clearColor: Ref<Color>): void;
         @slot(11) clearDepthStencilTexture(t: ITexture, mips: u64, arraySlices: u64, clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void;
-        // skipped: clearTextureUInt — parameter 'subresources': struct passed by value
+        @slot(12) clearTextureUInt(t: ITexture, mips: u64, arraySlices: u64, clearColor: u32): void;
         @slot(13) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(14) copyTexture(dest: IStagingTexture | null, destSlice: Ref<TextureSlice>, src: ITexture | null, srcSlice: Ref<TextureSlice>): void;
         @slot(15) copyTexture(dest: ITexture | null, destSlice: Ref<TextureSlice>, src: IStagingTexture | null, srcSlice: Ref<TextureSlice>): void;
@@ -374,9 +374,9 @@ export namespace nvrhi {
         @linkname("_ZN5nvrhi12ICommandList31setResourceStatesForFramebufferEPNS_12IFramebufferE") setResourceStatesForFramebuffer(framebuffer: IFramebuffer | null): void;
         @slot(54) setEnableUavBarriersForTexture(texture: ITexture | null, enableBarriers: boolean): void;
         @slot(55) setEnableUavBarriersForBuffer(buffer: IBuffer | null, enableBarriers: boolean): void;
-        // skipped: beginTrackingTextureState — parameter 'subresources': struct passed by value
+        @slot(56) beginTrackingTextureState(texture: ITexture, mips: u64, arraySlices: u64, stateBits: u32): void;
         @slot(57) beginTrackingBufferState(buffer: IBuffer | null, stateBits: u32): void;
-        // skipped: setTextureState — parameter 'subresources': struct passed by value
+        @slot(58) setTextureState(texture: ITexture, mips: u64, arraySlices: u64, stateBits: u32): void;
         @slot(59) setBufferState(buffer: IBuffer | null, stateBits: u32): void;
         @slot(60) setAccelStructState(as: IAccelStruct | null, stateBits: u32): void;
         @slot(61) setPermanentTextureState(texture: ITexture | null, stateBits: u32): void;
@@ -404,5 +404,31 @@ export namespace nvrhi {
         const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
         const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
         commandList.clearDepthStencilTexture(texture, mips, arraySlices, clearDepth, depth, clearStencil, stencil);
+    }
+
+    // ICommandList::clearTextureUInt: the TextureSubresourceSet by value, its two halves in two
+    // registers (as in clearTextureFloat)
+    export function clearTextureUInt(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, value: u32): void {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        commandList.clearTextureUInt(texture, mips, arraySlices, value);
+    }
+
+    // ICommandList::beginTrackingTextureState: the TextureSubresourceSet by value, its two halves in
+    // two registers (as in clearTextureFloat)
+    export function beginTrackingTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        commandList.beginTrackingTextureState(texture, mips, arraySlices, stateBits);
+    }
+
+    // ICommandList::setTextureState: the TextureSubresourceSet by value, its two halves in two
+    // registers (as in clearTextureFloat)
+    export function setTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        commandList.setTextureState(texture, mips, arraySlices, stateBits);
     }
 }

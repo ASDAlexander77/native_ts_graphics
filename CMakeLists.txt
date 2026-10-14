@@ -761,8 +761,9 @@ endif()
 
 # Not a port: a headless test of core/nvrhi.ts, NVRHI's interfaces called directly through their
 # vtables (tslang @cpp classes), under MSVC's ABI or Android's (tools/gen_nvrhi_classes.py
-# generates both). On Android it runs through adb shell, as headless does.
-donut_compile_shaders_all_platforms(
+# generates both). On Android it runs through adb shell, as headless does. It runs on D3D12 and
+# Vulkan, so no DXBC (its bindless test's unbounded array needs shader model 5.1 at least).
+donut_compile_shaders(
     TARGET nvrhi_direct_shaders
     PROJECT_NAME "NVRHI Direct"
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct.cfg
@@ -772,7 +773,10 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_mrt.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_msaa.hlsl
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_instanced.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_texture_uav.hlsl
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_buffers.hlsl
-    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_specialization.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_bindless.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/spirv
 )
 if (NVRHI_DIRECT_BUILDS)
     add_tslang_example(nvrhi_direct ${NVRHI_TS_SOURCES})
