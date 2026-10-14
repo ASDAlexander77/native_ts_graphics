@@ -2,8 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace FragmentShadingRate {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the textured cubes over the blue sky fill it, the texture's
+    // cyan glow in the middle, the sky about 7% blue.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if (!(((middle >> 16) & 0xFF) > 200 && ((middle >> 8) & 0xFF) > 180)) {
+            return "the middle isn't the texture's glow";
+        }
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            95.0, 100.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        return check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
+            4.0, 10.0, "Blue");
+    }
+
     const WINDOW_TITLE = "Donut Example: Fragment Shading Rate";
 
     // The sample's models and textures (Vulkan-Samples' assets), the KTX textures converted to DDS
@@ -538,7 +563,7 @@ namespace FragmentShadingRate {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shading_rate");
 
-        const args = new FragmentShadingRateArgs(argc, argv);
+        const args = new FragmentShadingRateArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -575,8 +600,12 @@ namespace FragmentShadingRate {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

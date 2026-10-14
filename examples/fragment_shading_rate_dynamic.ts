@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace FragmentShadingRateDynamic {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the cubes with the Vulkan logo over the sky, about 13% of it
+    // red and 31% white.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const red = check.share(check.countInRange(151, 255, 0, 89, 0, 89, 0, 0, check.width, check.height), total,
+            8.0, 18.0, "Red");
+        if (red != "") {
+            return red;
+        }
+        return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            20.0, 40.0, "White");
+    }
+
     const WINDOW_TITLE = "Donut Example: Dynamic Fragment Shading Rate";
 
     // The sample's models and textures (Vulkan-Samples' assets), the KTX textures converted to DDS
@@ -708,7 +729,7 @@ namespace FragmentShadingRateDynamic {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shading_rate_dynamic");
 
-        const args = new FragmentShadingRateDynamicArgs(argc, argv);
+        const args = new FragmentShadingRateDynamicArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -746,8 +767,12 @@ namespace FragmentShadingRateDynamic {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
