@@ -708,6 +708,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/basic_triangle
 )
 add_tslang_example(basic_triangle)
+add_tslang_example_test(basic_triangle)
 
 # Port of Donut-Samples' meshlets. D3D11 has no mesh shaders, so no DXBC.
 donut_compile_shaders(
@@ -847,6 +848,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/vertex_buffer
 )
 add_tslang_example(vertex_buffer MEDIA nvidia-logo.png)
+add_tslang_example_test(vertex_buffer)
 
 # The whole media folder goes next to the executables, at build time so files added to it later are
 # picked up without reconfiguring. copy_directory_if_different needs CMake 3.26.
@@ -1007,6 +1009,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/instancing
 )
 add_tslang_example(instancing MEDIA instancing)
+add_tslang_example_test(instancing)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(instancing_media)
@@ -1514,6 +1517,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/logic_op_dynamic_state
 )
 add_tslang_example(logic_op_dynamic_state MEDIA logic_op_dynamic_state)
+add_tslang_example_test(logic_op_dynamic_state)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(logic_op_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/logic_op_dynamic_state")
@@ -1634,6 +1638,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/msaa
 )
 add_tslang_example(msaa MEDIA msaa)
+add_tslang_example_test(msaa)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(space_module_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/space_module")
@@ -2160,6 +2165,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/descriptor_indexing/spirv
 )
 add_tslang_example(descriptor_indexing)
+add_tslang_example_test(descriptor_indexing)
 
 # Port of Vulkan-Samples' timeline_semaphore: Conway's Game of Life stepped on the compute queue,
 # drawn by the graphics queue once the compute work is done (the sample orders its two queues'
@@ -2184,6 +2190,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/color_write_enable
 )
 add_tslang_example(color_write_enable)
+add_tslang_example_test(color_write_enable)
 
 # Port of Vulkan-Samples' dynamic_multisample_rasterization: the Space Module scene with its normal
 # and metallic-roughness maps, drawn with the sample count picked in the UI (the sample's dynamic
@@ -2289,6 +2296,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_uniform_buffers
 )
 add_tslang_example(dynamic_uniform_buffers)
+add_tslang_example_test(dynamic_uniform_buffers)
 
 # Port of Vulkan-Samples' texture_loading: a lit quad with a texture loaded with its mip levels,
 # sampled with a level of detail bias set in the UI. It reads fragment_shading_rate's copy of the
@@ -2301,6 +2309,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_loading
 )
 add_tslang_example(texture_loading MEDIA fragment_shading_rate)
+add_tslang_example_test(texture_loading)
 if (TARGET fragment_shading_rate_media)
     add_dependencies(texture_loading fragment_shading_rate_media)
 endif()
@@ -3315,6 +3324,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bindless_rendering/spirv
 )
 add_tslang_example(bindless_rendering MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example_test(bindless_rendering)
 
 # Donut's forward shading of Sponza (see DONUT_SAMPLES_MEDIA_DIR above) under an environment map
 # (Donut's EnvironmentMapPass), its sun's shadows from a PlanarShadowMap fitted to the whole scene.

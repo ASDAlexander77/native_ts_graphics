@@ -2,8 +2,28 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace TextureLoading {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the dark clear color; the textured quad covers
+    // about 28% of the frame, with the texture's glowing cyan center in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x070707);
+        if (corners != "") {
+            return corners;
+        }
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if (((middle >> 16) & 0xFF) < 200 || ((middle >> 8) & 0xFF) < 200) {
+            return "the middle of the texture isn't its cyan glow";
+        }
+        return check.share(check.countOtherThan(0x070707, 0, 0, check.width, check.height), check.width * check.height,
+            20.0, 35.0, "Quad");
+    }
+
     const WINDOW_TITLE = "Donut Example: Texture Loading";
 
     // The sample's texture (Vulkan-Samples' asset, fragment_shading_rate's copy: the KTX file and
@@ -393,7 +413,7 @@ namespace TextureLoading {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_loading");
 
-        const args = new TextureLoadingArgs(argc, argv);
+        const args = new TextureLoadingArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -422,8 +442,12 @@ namespace TextureLoading {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
