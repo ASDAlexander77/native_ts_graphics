@@ -2,8 +2,31 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace DxrRefit {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the green sky at the top corners, the white floor (about 41%
+    // of the frame), and a ray traced triangle (refitted every frame) in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        if (check.rgb(0, 0) != 0x7CCBAA || check.rgb(check.width - 1, 0) != 0x7CCBAA) {
+            return "the top corners aren't the sky";
+        }
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if (middle == 0x7CCBAA || middle == 0xF3F3F3) {
+            return "no triangle in the middle";
+        }
+        return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            32.0, 50.0, "Floor");
+    }
+
     const WINDOW_TITLE = "Donut Example: DXR Refit";
 
     // struct RayPayload { float3 color; } (the shadow rays' uint payload is smaller).
@@ -334,7 +357,7 @@ namespace DxrRefit {
         Donut_SetAppName("dxr_refit");
 
         // -benchmark: 0.005 radians a frame, as the tutorial.
-        const args = new DxrRefitArgs(argc, argv);
+        const args = new DxrRefitArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The tutorial's 1920 x 1200 aspect ratio, in a smaller window.
@@ -363,8 +386,12 @@ namespace DxrRefit {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

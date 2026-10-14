@@ -317,6 +317,19 @@ namespace
     };
 
     // A test mode app's back buffers, in place of a swap chain's.
+    // Held by the async compute loops' worker threads (AsyncComputeLoop) while they submit to the
+    // compute queue, and by WaitForIdleSynchronized: Vulkan's vkDeviceWaitIdle (NVRHI's
+    // waitForIdle) needs every queue of the device externally synchronized, and the validation
+    // layer reported a worker's vkQueueSubmit at the same time as the render thread's wait.
+    std::mutex g_QueueSubmitMutex;
+
+    // device->waitForIdle(), not while a worker thread submits (g_QueueSubmitMutex).
+    void WaitForIdleSynchronized(nvrhi::IDevice* device)
+    {
+        std::lock_guard lock(g_QueueSubmitMutex);
+        device->waitForIdle();
+    }
+
     struct OffscreenBackBuffers
     {
         std::vector<nvrhi::TextureHandle> textures;
@@ -497,7 +510,7 @@ namespace
             m_ThreadPool.reset();
 
             // Everything created on the device goes before the device itself.
-            device()->waitForIdle();
+            WaitForIdleSynchronized(device());
             m_PendingCommandLists.clear();
 
             for (auto& pass : otherPasses)
@@ -1077,9 +1090,12 @@ namespace
 
                 commandList->close();
 
-                if (textureLastUse > 0)
-                    device->queueWaitForCommandList(nvrhi::CommandQueue::Compute, nvrhi::CommandQueue::Graphics, textureLastUse);
-                textureLastUse = device->executeCommandList(commandList, nvrhi::CommandQueue::Compute);
+                {
+                    std::lock_guard lock(g_QueueSubmitMutex);
+                    if (textureLastUse > 0)
+                        device->queueWaitForCommandList(nvrhi::CommandQueue::Compute, nvrhi::CommandQueue::Graphics, textureLastUse);
+                    textureLastUse = device->executeCommandList(commandList, nvrhi::CommandQueue::Compute);
+                }
 
                 computeToRender.Push(std::move(texture), textureLastUse);
 
@@ -1436,7 +1452,7 @@ namespace
             if (image != VK_NULL_HANDLE || memory != VK_NULL_HANDLE)
             {
                 nvrhi::IDevice* device = app->device();
-                device->waitForIdle();
+                WaitForIdleSynchronized(device);
                 VkDevice vkDevice = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
                 if (image != VK_NULL_HANDLE)
                     VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyImage(vkDevice, image, nullptr);
@@ -1497,7 +1513,7 @@ namespace
             if (setLayouts.empty() && pipelineLayout == VK_NULL_HANDLE && pipeline == VK_NULL_HANDLE)
                 return;
             nvrhi::IDevice* device = app->device();
-            device->waitForIdle();
+            WaitForIdleSynchronized(device);
             VkDevice vkDevice = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
             if (pipeline != VK_NULL_HANDLE)
                 VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyPipeline(vkDevice, pipeline, nullptr);
@@ -1575,7 +1591,7 @@ namespace
             if (buffer == VK_NULL_HANDLE && memory == VK_NULL_HANDLE)
                 return;
             nvrhi::IDevice* device = app->device();
-            device->waitForIdle();
+            WaitForIdleSynchronized(device);
             VkDevice vkDevice = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
             if (buffer != VK_NULL_HANDLE)
                 VULKAN_HPP_DEFAULT_DISPATCHER.vkDestroyBuffer(vkDevice, buffer, nullptr);
@@ -3273,7 +3289,7 @@ extern "C"
             app->device()->runGarbageCollection();
             DeviceManagerAccess::FrameIndex(deviceManager)++;
         }
-        app->device()->waitForIdle();
+        WaitForIdleSynchronized(app->device());
         app->device()->runGarbageCollection();
     }
 
@@ -4351,7 +4367,7 @@ extern "C"
         commandList->copyTexture(staging, slice, source, slice);
         commandList->close();
         device->executeCommandList(commandList);
-        device->waitForIdle();
+        WaitForIdleSynchronized(device);
 
         size_t rowPitch = 0;
         const auto* data = static_cast<const uint8_t*>(device->mapStagingTexture(staging, slice,
@@ -6420,11 +6436,11 @@ extern "C"
 
         const bool vulkan = device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
         if (vulkan)
-            device->waitForIdle();
+            WaitForIdleSynchronized(device);
         device->updateTextureTileMappings(texture, tilesMappings.data(),
             static_cast<uint32_t>(tilesMappings.size()));
         if (vulkan)
-            device->waitForIdle();
+            WaitForIdleSynchronized(device);
     }
 
     // The first level of a DDS file (path relative to the executable's directory) in a staging
@@ -6974,7 +6990,7 @@ extern "C"
     void Donut_WaitForIdle(App* app)
     {
         App* a = app;
-        a->device()->waitForIdle();
+        WaitForIdleSynchronized(a->device());
         a->RetireCommandLists();
     }
 
@@ -7988,7 +8004,7 @@ extern "C"
         s->Refresh(commandList, a->deviceManager->GetFrameIndex());
         commandList->close();
         a->device()->executeCommandList(commandList);
-        a->device()->waitForIdle();
+        WaitForIdleSynchronized(a->device());
     }
 
     // The dynamic mesh's diffuse texture (a Donut_LoadBindlessTexture one); the scene's material
@@ -8356,6 +8372,12 @@ extern "C"
         target->framebuffer = std::make_unique<donut::engine::FramebufferFactory>(a->device());
         target->framebuffer->RenderTargets.push_back(target->colorBuffer);
         target->framebuffer->DepthTarget = target->depthBuffer;
+        // The faces' framebuffers, made here: FramebufferFactory caches them in a map it doesn't
+        // lock, and Donut_RenderCubemapFaceAsync's tasks render the faces at once, which then only
+        // read it. Racing to add them, a task's framebuffer could leak, and with it the textures
+        // (the validation layer reported them alive when the device was destroyed, at random).
+        for (int face = 0; face < 6; face++)
+            target->framebuffer->GetFramebuffer(*target->view.GetChildView(donut::engine::ViewType::PLANAR, face));
 
         return a->OwnObject(target);
     }
@@ -10232,7 +10254,7 @@ extern "C"
         loader->allTexturesFinalized = false;
 
         a->textureCache()->Reset();
-        a->device()->waitForIdle();
+        WaitForIdleSynchronized(a->device());
         loader->scene.reset();
         loader->loadedScene.reset();
         a->device()->runGarbageCollection();
@@ -11087,7 +11109,7 @@ extern "C"
 
         if (OffscreenBackBuffers* offscreen = app->offscreen.get())
         {
-            app->device()->waitForIdle();
+            WaitForIdleSynchronized(app->device());
             for (donut::app::IRenderPass* pass : DeviceManagerAccess::RenderPasses(deviceManager))
                 pass->BackBufferResizing();
             for (size_t i = 0; i < offscreen->textures.size(); i++)
@@ -11115,7 +11137,7 @@ extern "C"
                 supported |= surfaceFormat.format == vkFormat;
             if (!supported)
                 return 0;
-            app->device()->waitForIdle();
+            WaitForIdleSynchronized(app->device());
             params.swapChainFormat = newFormat;
             DeviceManagerAccess::Resize(deviceManager);
             return 1;
@@ -11132,7 +11154,7 @@ extern "C"
                     return deviceManager->*(&Access::m_SwapChainDesc);
                 }
             };
-            app->device()->waitForIdle();
+            WaitForIdleSynchronized(app->device());
             params.swapChainFormat = newFormat;
             DXGI_FORMAT dxgiFormat = nvrhi::d3d12::convertFormat(newFormat);
             if (newFormat == nvrhi::Format::SRGBA8_UNORM)
