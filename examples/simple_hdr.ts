@@ -2,8 +2,36 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace SimpleHdr {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame (R10G10B10A2 back buffers, SDR). The corners are black; the
+    // paper white block in the middle is white, about 5% of the frame, the text and it about 7%.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(check.width / 2, check.height / 2) != 0xFFFFFF) {
+            return "the paper white block isn't white";
+        }
+        const white = check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            3.5, 7.0, "White");
+        if (white != "") {
+            return white;
+        }
+        return check.share(check.countOtherThan(0x000000, 0, 0, check.width, check.height), total,
+            5.0, 10.0, "Text and block");
+    }
+
     const WINDOW_TITLE = "Donut Example: Simple HDR";
     const FONT_PATH = "media/fonts/DroidSans/DroidSans-Mono.ttf";
 
@@ -700,7 +728,7 @@ namespace SimpleHdr {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_hdr");
 
-        const args = new SimpleHdrArgs(argc, argv);
+        const args = new SimpleHdrArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's 1920 x 1080, in a smaller window.
@@ -739,8 +767,12 @@ namespace SimpleHdr {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

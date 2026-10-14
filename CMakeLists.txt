@@ -1054,6 +1054,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/hdr
 )
 add_tslang_example(hdr MEDIA hdr)
+add_tslang_example_test(hdr)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/uffizi_rgba16f_cube.ktx")
@@ -1337,6 +1338,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/sparse_image/spirv
 )
 add_tslang_example(sparse_image MEDIA sparse_image)
+add_tslang_example_test(sparse_image)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/textures/vulkan_logo_full.ktx")
@@ -1708,6 +1710,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_mipmap_generation
 )
 add_tslang_example(texture_mipmap_generation MEDIA texture_mipmap_generation)
+add_tslang_example_test(texture_mipmap_generation)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(mipmap_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/texture_mipmap_generation")
@@ -1841,6 +1844,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_compression_comparison
 )
 add_tslang_example(texture_compression_comparison core/transcoded_texture.ts core/basis_transcoder.cpp MEDIA texture_compression_comparison)
+add_tslang_example_test(texture_compression_comparison)
 target_link_libraries(texture_compression_comparison PRIVATE basisu_transcoder)
 if (TARGET texture_compression_comparison_app)
     target_link_libraries(texture_compression_comparison_app PRIVATE basisu_transcoder)
@@ -2449,6 +2453,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/separate_image_sampler
 )
 add_tslang_example(separate_image_sampler MEDIA fragment_shading_rate)
+add_tslang_example_test(separate_image_sampler)
 if (TARGET fragment_shading_rate_media)
     add_dependencies(separate_image_sampler fragment_shading_rate_media)
 endif()
@@ -2523,6 +2528,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_compression_basisu
 )
 add_tslang_example(texture_compression_basisu core/transcoded_texture.ts core/basis_transcoder.cpp MEDIA texture_compression_basisu)
+add_tslang_example_test(texture_compression_basisu)
 target_link_libraries(texture_compression_basisu PRIVATE basisu_transcoder)
 if (TARGET texture_compression_basisu_app)
     target_link_libraries(texture_compression_basisu_app PRIVATE basisu_transcoder)
@@ -2598,6 +2604,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_hdr
 )
 add_tslang_example(simple_hdr MEDIA fonts)
+add_tslang_example_test(simple_hdr)
 
 # Port of the Xbox ATG VideoTexturePC12 sample (PCSamples/Graphics/VideoTexturePC12): a video played
 # by Media Foundation's Media Engine (core/video_player.cpp) into a texture shared with the app's
@@ -2729,6 +2736,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_pbr
 )
 add_tslang_example(simple_pbr core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts simple_pbr)
+add_tslang_example_test(simple_pbr)
 add_atg_media(simple_pbr simple_pbr
     Media/PBR/ToyRobot/Floor/Floor.sdkmesh
     Media/PBR/ToyRobot/Floor/Floor_BaseColor.dds
@@ -3307,6 +3315,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/small_resources/spirv
 )
 add_tslang_example(small_resources)
+add_tslang_example_test(small_resources)
 
 # Port of DirectX-Graphics-Samples' D3D12ReservedResources: a quad sampling one level of a reserved
 # (tiled) 256 x 256 texture; the arrow keys pick the level, whose tiles get mapped to its own heap
@@ -3360,6 +3369,7 @@ add_tslang_example_test(bindless_rendering)
 # tools/dds_to_ktx2.py makes of it here (the same blocks, through Donut's KTX 2 loader). No shaders
 # of its own; all APIs.
 add_tslang_example(environment_map MEDIA glTF-Sample-Assets/Models/Sponza rt_particles)
+add_tslang_example_test(environment_map)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(source "${CMAKE_CURRENT_SOURCE_DIR}/media/rt_particles/environment-map.dds")
 set(output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/environment_map/environment-map.ktx2")

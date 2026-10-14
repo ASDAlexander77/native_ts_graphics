@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace Hdr {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the street skybox, tone mapped from HDR with bloom, about 97%
+    // lit, the sky and the sphere's highlights about 3.6% white.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            92.0, 100.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            2.0, 6.0, "White");
+    }
+
     const WINDOW_TITLE = "Donut Example: High Dynamic Range Rendering";
 
     // The sample's models and HDR cube map (Vulkan-Samples' assets), the KTX cube map converted to
@@ -573,7 +594,7 @@ namespace Hdr {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("hdr");
 
-        const args = new HdrArgs(argc, argv);
+        const args = new HdrArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -605,8 +626,12 @@ namespace Hdr {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

@@ -2,8 +2,30 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace TextureMipmapGeneration {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the checkered tunnel, about 45% white; in the distance, around
+    // the middle, the generated mip levels blur the checks to mid gray (about a fifth of a 300x200
+    // rectangle there; without mipmaps it's black and white).
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const white = check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            38.0, 52.0, "White");
+        if (white != "") {
+            return white;
+        }
+        return check.share(check.countInRange(60, 200, 60, 200, 60, 200, check.width / 2 - 150, check.height / 2 - 100,
+            300, 200), 300 * 200, 12.0, 40.0, "Mid gray in the distance");
+    }
+
     const WINDOW_TITLE = "Donut Example: Texture MipMap Generation";
 
     // The sample's model and texture (Vulkan-Samples' assets): a tunnel, and a checkerboard whose
@@ -513,7 +535,7 @@ namespace TextureMipmapGeneration {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_mipmap_generation");
 
-        const args = new TextureMipmapGenerationArgs(argc, argv);
+        const args = new TextureMipmapGenerationArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -544,8 +566,12 @@ namespace TextureMipmapGeneration {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

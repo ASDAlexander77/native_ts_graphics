@@ -2,8 +2,32 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace SeparateImageSampler {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The top corners are the dark clear color; the textured quad
+    // (its image and sampler bound apart) colors about a fifth of the frame, the texture's cyan
+    // glow in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        if (check.rgb(0, 0) != 0x070707 || check.rgb(check.width - 1, 0) != 0x070707) {
+            return "the top corners aren't the clear color";
+        }
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if (((middle >> 16) & 0xFF) < 200 || ((middle >> 8) & 0xFF) < 180) {
+            return "the middle isn't the texture's glow";
+        }
+        return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            15.0, 30.0, "Colored");
+    }
+
     const WINDOW_TITLE = "Donut Example: Separate Image Sampler";
 
     // The sample's texture (Vulkan-Samples' asset, fragment_shading_rate's copy: the KTX file and
@@ -304,7 +328,6 @@ namespace SeparateImageSampler {
             const layoutDesc = InputLayoutDesc.create();
             layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
             layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 20, 0, VERTEX_SIZE);
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
 
             let vertices: f32[] = [];
@@ -407,7 +430,7 @@ namespace SeparateImageSampler {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("separate_image_sampler");
 
-        const args = new SeparateImageSamplerArgs(argc, argv);
+        const args = new SeparateImageSamplerArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -436,8 +459,12 @@ namespace SeparateImageSampler {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

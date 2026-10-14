@@ -4398,8 +4398,8 @@ extern "C"
 
     // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int
     // each with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst
-    // (pixelCount ints, at least width * height). 0 on failure or for back buffers that aren't 8-bit
-    // RGBA or BGRA.
+    // (pixelCount ints, at least width * height); R10G10B10A2 back buffers (AppOption_HdrBackBuffer)
+    // as their channels' top 8 bits. 0 on failure or for back buffers of other formats.
     int Donut_ReadBackBufferRGBA8(App* app, int* dst, int pixelCount)
     {
         nvrhi::ITexture* backBuffer = app->offscreen ? app->offscreen->textures[app->offscreen->current].Get()
@@ -4407,11 +4407,22 @@ extern "C"
         const nvrhi::TextureDesc& desc = backBuffer->getDesc();
         const bool bgra = desc.format == nvrhi::Format::BGRA8_UNORM || desc.format == nvrhi::Format::SBGRA8_UNORM;
         const bool rgba = desc.format == nvrhi::Format::RGBA8_UNORM || desc.format == nvrhi::Format::SRGBA8_UNORM;
+        const bool rgb10 = desc.format == nvrhi::Format::R10G10B10A2_UNORM;
         const int count = int(desc.width * desc.height);
-        if ((!bgra && !rgba) || pixelCount < count)
+        if ((!bgra && !rgba && !rgb10) || pixelCount < count)
             return 0;
         if (!Donut_ReadTextureLevel(app, backBuffer, 0, dst, count * 4))
             return 0;
+        if (rgb10)
+        {
+            auto* words = reinterpret_cast<uint32_t*>(dst);
+            for (int i = 0; i < count; i++)
+            {
+                const uint32_t v = words[i];
+                words[i] = ((v >> 2) & 0xFFu) | (((v >> 12) & 0xFFu) << 8) | (((v >> 22) & 0xFFu) << 16)
+                    | ((v >> 30) * 85u << 24);
+            }
+        }
         if (bgra)
         {
             auto* bytes = reinterpret_cast<uint8_t*>(dst);

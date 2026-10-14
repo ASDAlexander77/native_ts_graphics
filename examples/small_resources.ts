@@ -2,8 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace SmallResources {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the blue clear color; the grid of small
+    // textures (placed in small resource heaps) covers about 76% of the frame, 58% colored.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x663300);
+        if (corners != "") {
+            return corners;
+        }
+        const colored = check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            45.0, 70.0, "Colored");
+        if (colored != "") {
+            return colored;
+        }
+        return check.share(check.countOtherThan(0x663300, 0, 0, check.width, check.height), total,
+            65.0, 85.0, "Textures");
+    }
+
     const WINDOW_TITLE = "D3D12 Small Resources Sample";
 
     const KEY_SPACE = 32;
@@ -299,7 +324,7 @@ namespace SmallResources {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("small_resources");
 
-        const args = new SmallResourcesArgs(argc, argv);
+        const args = new SmallResourcesArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's window, with UNORM back buffers, as the sample's R8G8B8A8_UNORM. Placed
@@ -322,8 +347,12 @@ namespace SmallResources {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

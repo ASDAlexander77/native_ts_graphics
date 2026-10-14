@@ -2,9 +2,30 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 
 namespace SimplePbr {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame (R10G10B10A2 back buffers, SDR): the PBR models over the blurred
+    // garden, about 41% of the frame colored, 4% white.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const colored = check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            30.0, 50.0, "Colored");
+        if (colored != "") {
+            return colored;
+        }
+        return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            2.5, 7.0, "White");
+    }
+
     const WINDOW_TITLE = "Donut Example: Simple PBR";
     const MEDIA_DIR = "media/simple_pbr/";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
@@ -1126,7 +1147,7 @@ namespace SimplePbr {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_pbr");
 
-        const args = new SimplePbrArgs(argc, argv);
+        const args = new SimplePbrArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's R10G10B10A2_UNORM back buffers (HDR10 when the display is in HDR mode), at
@@ -1159,8 +1180,12 @@ namespace SimplePbr {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

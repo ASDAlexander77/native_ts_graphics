@@ -38,11 +38,12 @@ Texture2D t_Texture : register(t0);
 // no spaces), its slot apart from the first layout's.
 SamplerState s_Sampler : register(s0 VK_DESCRIPTOR_SET(1));
 
+// The vertices' normals aren't read (an attribute a shader doesn't read is a Vulkan validation
+// warning; D3D12 wants the input layout to have every one it declares).
 struct VSInput
 {
     float3 pos : POSITION;
     float2 uv : TEXCOORD;
-    float3 normal : NORMAL;
 };
 
 struct VSOutput
