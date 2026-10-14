@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace AsyncComputeBloom {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the red dragon (about 3% of the frame), and the bloom's near
+    // white glow around the lights (about 5.5%).
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const red = check.share(check.countInRange(151, 255, 0, 99, 0, 99, 0, 0, check.width, check.height), total,
+            1.5, 6.0, "Red");
+        if (red != "") {
+            return red;
+        }
+        return check.share(check.countInRange(231, 255, 231, 255, 231, 255, 0, 0, check.width, check.height), total,
+            2.5, 11.0, "Near white");
+    }
+
     const WINDOW_TITLE = "Donut Example: Async Compute Bloom";
 
     // The sample's scene (Vulkan-Samples' assets): a glTF file whose base color textures, KTX 2
@@ -961,7 +982,7 @@ namespace AsyncComputeBloom {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("async_compute_bloom");
 
-        const args = new AsyncComputeBloomArgs(argc, argv);
+        const args = new AsyncComputeBloomArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.ComputeQueue | args.options);
@@ -998,8 +1019,12 @@ namespace AsyncComputeBloom {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

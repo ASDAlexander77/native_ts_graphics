@@ -592,7 +592,11 @@ time step into offscreen back buffers, reads the last one back and checks it (th
 nothing is drawn, where the geometry lands, what it is shaded with), printing `Test PASSED` or
 `Test FAILED: <why>`; `-testOutput <file.png>` also saves that frame. A test fails on a non-zero
 exit code or an error line from Donut, NVRHI or the API's validation layer. `headless` (and
-`headless.donut`, its Donut path) and `nvrhi_direct` are tests too.
+`headless.donut`, its Donut path) and `nvrhi_direct` are tests too. The checks share
+`core/test_check.ts` (`TestCheck`: the frame and GPU buffers read back, corners, color counts); some
+read the example's own results too, as `compute_nbody_collisions.head_on` does: two heavy centers
+meeting head on, whose bounce keeps the momentum only if the compute passes are separated by UAV
+barriers (`patches/nvrhi-uav-barriers-same-binding-set.patch`).
 
 The other examples are covered by a smoke test, and the gallery has its own script:
 

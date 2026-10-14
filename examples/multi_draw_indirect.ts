@@ -2,8 +2,35 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace MultiDrawIndirect {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame and the culling. The top corners are the dark clear color, the
+    // scene covers about half the frame; the GPU culling kept some of the instances, not all.
+    function checkFrame(app: App, mdi: MultiDrawIndirectPass): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        if (check.rgb(0, 0) != 0x070707 || check.rgb(check.width - 1, 0) != 0x070707) {
+            return "the top corners aren't the clear color";
+        }
+        const total = check.width * check.height;
+        const scene = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            35.0, 80.0, "Scene");
+        if (scene != "") {
+            return scene;
+        }
+        console.log(`Instances: ${mdi.instanceCount} of ${mdi.modelCount}`);
+        if (mdi.instanceCount <= 0 || mdi.instanceCount >= mdi.modelCount) {
+            return `${mdi.instanceCount} of ${mdi.modelCount} instances visible: the culling kept none or all`;
+        }
+        return "";
+    }
+
     const WINDOW_TITLE = "Donut Example: Multi-Draw Indirect";
 
     // The sample's scene (Vulkan-Samples' assets): a glTF file whose meshes each have a texture
@@ -710,7 +737,7 @@ namespace MultiDrawIndirect {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("multi_draw_indirect");
 
-        const args = new MultiDrawIndirectArgs(argc, argv);
+        const args = new MultiDrawIndirectArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The scene's 225 textures are one array: more than D3D11's 128 texture slots.
@@ -747,8 +774,12 @@ namespace MultiDrawIndirect {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app, mdi));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

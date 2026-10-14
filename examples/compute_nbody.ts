@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck, isFinite32 } from "../core/test_check";
 
 namespace ComputeNBody {
     const WINDOW_TITLE = "Donut Example: Compute N-Body";
@@ -12,6 +13,8 @@ namespace ComputeNBody {
 
     const NUM_ATTRACTORS = 6;
     const PARTICLES_PER_ATTRACTOR = 4 * 1024;
+    // Test mode: the frames rendered (5 seconds).
+    const TEST_FRAMES = 300;
     // calculate_cs / integrate_cs in compute_nbody.hlsl run 256 threads per group.
     const WORKGROUP_SIZE = 256;
     // struct Particle: float4 pos, float4 vel.
@@ -267,6 +270,30 @@ namespace ComputeNBody {
             this.app.releaseResource(commandList.handle);
         }
 
+        // -test: checks the particles after the last frame, every position and velocity finite,
+        // then the frame: black corners, and particles drawn.
+        checkTest(): string {
+            const check = new TestCheck(this.app);
+            const particles = check.readFloats(this.particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
+            if (particles.length == 0) {
+                return "cannot read the particles back";
+            }
+            for (let i = 0; i < this.numParticles; i++) {
+                for (let k = 0; k < 7; k++) {
+                    // Position xyz, then velocity xyz (not w, the mass).
+                    const value = particles[i * PARTICLE_FLOATS + k];
+                    if (k != 3 && !isFinite32(value)) {
+                        return `particle ${i}: ${k < 3 ? "position" : "velocity"} ${value} is not finite`;
+                    }
+                }
+            }
+            const corners = check.corners(0x000000);
+            if (corners != "") {
+                return corners;
+            }
+            return check.drawn(0x000000, 1000, "Particles");
+        }
+
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             this.vertexShader = this.app.createShader("compute_nbody.hlsl", "main_vs", ShaderType.Vertex);
@@ -300,10 +327,12 @@ namespace ComputeNBody {
             for (let i = 0; i < this.viewConstantsSize / 4; i++) {
                 this.viewConstants.push(0.0);
             }
-            this.viewConstantBuffer = this.app.createVolatileConstantBuffer(this.viewConstantsSize, "ViewConstants");
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+            // -test's unthrottled frames on Vulkan.
+            this.viewConstantBuffer = this.app.createConstantBuffer(this.viewConstantsSize, "ViewConstants");
 
             const drawLayoutDesc = BindingLayoutDesc.create();
-            drawLayoutDesc.layoutVolatileConstantBuffer(1);
+            drawLayoutDesc.layoutConstantBuffer(1);
             drawLayoutDesc.layoutStructuredBufferSRV(0);
             this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
 
@@ -337,7 +366,9 @@ namespace ComputeNBody {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("compute_nbody");
 
-        const args = new Args(argc, argv);
+        // -test [-testOutput <file>]: render TEST_FRAMES frames without a window and check the
+        // particles and the last frame (see checkTest).
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -357,8 +388,12 @@ namespace ComputeNBody {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(nbody.checkTest());
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

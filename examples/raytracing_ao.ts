@@ -2,9 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 
 namespace RaytracingAo {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The bottom corners are the blue background; the gray dragon
+    // fills about half of each side, SSAO's on the left and ray traced AO's on the right.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        if (check.rgb(0, check.height - 1) != 0x663300 || check.rgb(check.width - 1, check.height - 1) != 0x663300) {
+            return "the bottom corners aren't the blue background";
+        }
+        const half = check.width / 2;
+        const left = check.share(check.countSpread(12, true, 61, 0, 0, half, check.height), half * check.height,
+            30.0, 75.0, "Dragon, SSAO");
+        if (left != "") {
+            return left;
+        }
+        return check.share(check.countSpread(12, true, 61, half, 0, half, check.height), half * check.height,
+            30.0, 75.0, "Dragon, ray traced AO");
+    }
+
     const WINDOW_TITLE = "Donut Example: Raytracing AO";
     const MEDIA_DIR = "media/raytracing_ao/";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
@@ -1547,7 +1571,7 @@ namespace RaytracingAo {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("raytracing_ao");
 
-        const args = new RaytracingAoArgs(argc, argv);
+        const args = new RaytracingAoArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's B8G8R8A8_UNORM back buffers (UNORM: its outputs copied as they are), at its
@@ -1589,8 +1613,12 @@ namespace RaytracingAo {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

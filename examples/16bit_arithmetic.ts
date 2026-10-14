@@ -2,8 +2,26 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace Khr16BitArithmetic {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the black clear color; the blobs, merged by
+    // then, make the middle of the frame white.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        const x = check.width / 2 - 50;
+        const y = check.height / 2 - 50;
+        return check.share(check.countInRange(201, 255, 201, 255, 201, 255, x, y, 100, 100), 100 * 100, 90.0, 100.0,
+            "White in the middle");
+    }
+
     const WINDOW_TITLE = "Donut Example: 16-bit Arithmetic";
 
     // The image the compute shader renders, and its workgroup size (8 x 8).
@@ -393,7 +411,7 @@ namespace Khr16BitArithmetic {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("16bit_arithmetic");
 
-        const args = new Khr16BitArithmeticArgs(argc, argv);
+        const args = new Khr16BitArithmeticArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -422,8 +440,12 @@ namespace Khr16BitArithmetic {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
