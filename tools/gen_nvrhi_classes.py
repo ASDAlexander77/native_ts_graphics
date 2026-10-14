@@ -167,6 +167,86 @@ BY_VALUE = {
         commandList.setTextureState(texture, mips, arraySlices, stateBits);
     }"""),
     },
+    ("ITexture", "getNativeView"): {
+        "win32": (
+            "@slot({slot}) getNativeView(objectType: u32, format: u8, subresources: Ref<TextureSubresourceSet>, dimension: u8, "
+            "isReadOnlyDSV: boolean, overrideComponentMapping: Ref<u64>): NativeObject;",
+            """\
+    // ITexture::getNativeView: a view of the texture's subresources in a format and dimension
+    // (Format.UNKNOWN, TEXTURE_DIMENSION_UNKNOWN: the texture's), not AddRef'd; null if unavailable.
+    // MSVC passes the TextureSubresourceSet and the std::optional<ComponentMapping> (5 bytes; none
+    // here: the texture's own mapping) as pointers to copies.
+    export function getNativeView(texture: ITexture, objectType: u32, format: u8, subresources: TextureSubresourceSet,
+        dimension: u8): Opaque | null {
+        let subresourcesValue = subresources;
+        let noComponentMapping: u64 = 0;
+        return texture.getNativeView(objectType, format, Ref(subresourcesValue), dimension, false, Ref(noComponentMapping)).pointer;
+    }"""),
+        "linux": (
+            "@slot({slot}) getNativeView(objectType: u32, format: u8, mips: u64, arraySlices: u64, dimension: u8, "
+            "isReadOnlyDSV: boolean, overrideComponentMapping: u64): NativeObject;",
+            """\
+    // ITexture::getNativeView: a view of the texture's subresources in a format and dimension
+    // (Format.UNKNOWN, TEXTURE_DIMENSION_UNKNOWN: the texture's), not AddRef'd; null if unavailable.
+    // The TextureSubresourceSet's two halves in two registers (as in clearTextureFloat), the
+    // std::optional<ComponentMapping> (trivially copyable, 5 bytes) in one: 0, none (its engaged
+    // flag, byte 4, clear), the texture's own mapping.
+    export function getNativeView(texture: ITexture, objectType: u32, format: u8, subresources: TextureSubresourceSet,
+        dimension: u8): Opaque | null {
+        const mips: u64 = <u64>subresources.baseMipLevel + <u64>subresources.numMipLevels * 0x100000000;
+        const arraySlices: u64 = <u64>subresources.baseArraySlice + <u64>subresources.numArraySlices * 0x100000000;
+        return texture.getNativeView(objectType, format, mips, arraySlices, dimension, false, 0).pointer;
+    }"""),
+    },
+    ("IDevice", "createHandleForNativeTexture"): {
+        # an nvrhi::Object (8 bytes, trivially copyable) goes in a register under both ABIs
+        "win32": (
+            "@cppnontrivial\n        @slot({slot}) createHandleForNativeTexture(objectType: u32, texture: Opaque | null, desc: Ref<TextureDesc>): RefCountPtr<Opaque>;",
+            """\
+    // IDevice::createHandleForNativeTexture: an ITexture over an API texture (ObjectTypes: a
+    // D3D12 resource, a VkImage) described by desc; null on failure. Release() it. The
+    // nvrhi::Object holding the API object (8 bytes) goes in a register.
+    export function createHandleForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque, desc: TextureDesc): ITexture | null {
+        let descValue = desc;
+        const handle = device.createHandleForNativeTexture(objectType, nativeTexture, Ref(descValue));
+        return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
+    }"""),
+        "linux": (
+            "@cppnontrivial\n        @slot({slot}) createHandleForNativeTexture(objectType: u32, texture: Opaque | null, desc: Ref<TextureDesc>): RefCountPtr<Opaque>;",
+            """\
+    // IDevice::createHandleForNativeTexture: an ITexture over an API texture (ObjectTypes: a
+    // VkImage) described by desc; null on failure. Release() it. The nvrhi::Object holding the API
+    // object (8 bytes, trivially copyable) goes in a register.
+    export function createHandleForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque, desc: TextureDesc): ITexture | null {
+        let descValue = desc;
+        const handle = device.createHandleForNativeTexture(objectType, nativeTexture, Ref(descValue));
+        return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
+    }"""),
+    },
+    ("IDevice", "createHandleForNativeBuffer"): {
+        "win32": (
+            "@cppnontrivial\n        @slot({slot}) createHandleForNativeBuffer(objectType: u32, buffer: Opaque | null, desc: Ref<BufferDesc>): RefCountPtr<Opaque>;",
+            """\
+    // IDevice::createHandleForNativeBuffer: an IBuffer over an API buffer (ObjectTypes: a D3D12
+    // resource, a VkBuffer) described by desc; null on failure. Release() it. The nvrhi::Object
+    // goes in a register, as in createHandleForNativeTexture.
+    export function createHandleForNativeBuffer(device: IDevice, objectType: u32, nativeBuffer: Opaque, desc: BufferDesc): IBuffer | null {
+        let descValue = desc;
+        const handle = device.createHandleForNativeBuffer(objectType, nativeBuffer, Ref(descValue));
+        return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
+    }"""),
+        "linux": (
+            "@cppnontrivial\n        @slot({slot}) createHandleForNativeBuffer(objectType: u32, buffer: Opaque | null, desc: Ref<BufferDesc>): RefCountPtr<Opaque>;",
+            """\
+    // IDevice::createHandleForNativeBuffer: an IBuffer over an API buffer (ObjectTypes: a VkBuffer)
+    // described by desc; null on failure. Release() it. The nvrhi::Object goes in a register, as
+    // in createHandleForNativeTexture.
+    export function createHandleForNativeBuffer(device: IDevice, objectType: u32, nativeBuffer: Opaque, desc: BufferDesc): IBuffer | null {
+        let descValue = desc;
+        const handle = device.createHandleForNativeBuffer(objectType, nativeBuffer, Ref(descValue));
+        return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
+    }"""),
+    },
 }
 
 

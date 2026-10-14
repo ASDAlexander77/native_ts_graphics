@@ -490,6 +490,14 @@ export namespace nvrhi {
         return device.executeCommandLists(Ref(lists[0]), 1, COMMAND_QUEUE_GRAPHICS);
     }
 
+    // IDevice::executeCommandLists of one command list on a queue (COMMAND_QUEUE_*: the one it was
+    // made for, CommandListParameters::queueType); returns its submission fence value, which
+    // queueWaitForCommandList takes.
+    export function executeCommandListOn(device: IDevice, commandList: ICommandList, queue: u8): u64 {
+        let lists: ICommandList[] = [commandList];
+        return device.executeCommandLists(Ref(lists[0]), 1, queue);
+    }
+
     // IDevice::executeCommandLists: the command lists in one submission to the graphics queue, run
     // in order; returns its fence value.
     export function executeCommandLists(device: IDevice, commandLists: ICommandList[]): u64 {

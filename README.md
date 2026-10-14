@@ -307,8 +307,9 @@ if (commandList) {
   on the CRT's debug or release build), so `nvrhi.layoutMatches()` compares the tuples' sizes with the C++ ones. A
   struct passed by value is the ABIs' difference: MSVC passes a pointer to a copy, the Itanium ABI
   the fields in registers (the `TextureSubresourceSet` of `clearTextureFloat`,
-  `clearDepthStencilTexture`, `clearTextureUInt`, `beginTrackingTextureState` and
-  `setTextureState`, see the script).
+  `clearDepthStencilTexture`, `clearTextureUInt`, `beginTrackingTextureState`, `setTextureState`
+  and `getNativeView`, and the `nvrhi::Object` of `createHandleForNativeTexture` and
+  `createHandleForNativeBuffer`, see the script).
 - **Callbacks.** `nvrhi.IMessageCallback` goes the other way: a `@cpp` class extending it
   whose `message()` has a body is an object NVRHI calls, through the vtable tslang makes for it.
   Pass it to `Donut_SetNvrhiMessageCallback` before creating the app, and keep it in a global
@@ -387,8 +388,22 @@ Then one test for each of these, each with a command list of its own but the for
 - shader specialization (`createShaderSpecialization`, Vulkan only, as `queryFeatureSupport`
   says): a compute shader's constant set to another value;
 - a bindless descriptor table: `createBindlessLayout`, `createDescriptorTable`,
-  `resizeDescriptorTable`, `writeDescriptorTable`, and a compute pipeline of a binding layout and
-  the bindless layout reading the table's buffers by index.
+  `resizeDescriptorTable`, `writeDescriptorTable`, `getBindlessDesc`,
+  `getFirstDescriptorIndexInHeap`, and a compute pipeline of a binding layout and the bindless
+  layout reading the table's buffers by index;
+- native views (`getNativeView`: a view per subresource set, kept);
+- handles of API objects (`createHandleForNativeTexture`, `createHandleForNativeBuffer`), written
+  through and read back through the original handles;
+- `queryMemoryRequirements` of a buffer (NVRHI reports buffers', not textures');
+- queries reset (`resetEventQuery`, `resetTimerQuery`) and used again;
+- the compute queue (it asks Donut for one, and does without where the device has none): a
+  dispatch there, the graphics queue waiting for it (`queueWaitForCommandList`);
+- UAV barriers turned off (`setEnableUavBarriersForBuffer`, `setEnableUavBarriersForTexture`);
+- a binding set's resources put in their states at once (`setResourceStatesForBindingSet`);
+- indexed indirect draws with a count from a buffer (`drawIndexedIndirectCount`; D3D12, as
+  Donut's Vulkan device doesn't enable `drawIndirectCount`).
+
+`isAftermathEnabled` and `getAftermathCrashDumpHelper` are checked with the device.
 
 It checks what it reads. On the way it also checks:
 - the graphics API, the native objects and queues;

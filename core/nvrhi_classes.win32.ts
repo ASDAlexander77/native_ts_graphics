@@ -108,7 +108,7 @@ export namespace nvrhi {
     @cpp
     export class ITexture extends IResource { // nvrhi::ITexture
         @slot(6) getDesc(): Ref<TextureDesc>;
-        // skipped: getNativeView — parameter 'subresources': struct passed by value
+        @slot(7) getNativeView(objectType: u32, format: u8, subresources: Ref<TextureSubresourceSet>, dimension: u8, isReadOnlyDSV: boolean, overrideComponentMapping: Ref<u64>): NativeObject;
     }
     @cpp
     export class IStagingTexture extends IResource { // nvrhi::IStagingTexture
@@ -229,7 +229,8 @@ export namespace nvrhi {
         @slot(8) createTexture(d: Ref<TextureDesc>): RefCountPtr<Opaque>;
         @slot(9) getTextureMemoryRequirements(texture: ITexture | null): [size: u64, alignment: u64];
         @slot(10) bindTextureMemory(texture: ITexture | null, heap: IHeap | null, offset: u64): boolean;
-        // skipped: createHandleForNativeTexture — parameter 'texture': struct passed by value
+        @cppnontrivial
+        @slot(11) createHandleForNativeTexture(objectType: u32, texture: Opaque | null, desc: Ref<TextureDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(12) createStagingTexture(d: Ref<TextureDesc>, cpuAccess: u8): RefCountPtr<Opaque>;
         @slot(13) mapStagingTexture(tex: IStagingTexture | null, slice: Ref<TextureSlice>, cpuAccess: u8, outRowPitch: Ref<index> | null): Opaque;
@@ -245,7 +246,8 @@ export namespace nvrhi {
         @slot(21) unmapBuffer(buffer: IBuffer | null): void;
         @slot(22) getBufferMemoryRequirements(buffer: IBuffer | null): [size: u64, alignment: u64];
         @slot(23) bindBufferMemory(buffer: IBuffer | null, heap: IHeap | null, offset: u64): boolean;
-        // skipped: createHandleForNativeBuffer — parameter 'buffer': struct passed by value
+        @cppnontrivial
+        @slot(24) createHandleForNativeBuffer(objectType: u32, buffer: Opaque | null, desc: Ref<BufferDesc>): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(25) createShader(d: Ref<ShaderDesc>, binary: Opaque | null, binarySize: index): RefCountPtr<Opaque>;
         @cppnontrivial
@@ -388,6 +390,35 @@ export namespace nvrhi {
         @slot(64) getBufferState(buffer: IBuffer | null): u32;
         @slot(65) getDevice(): IDevice;
         @slot(66) getDesc(): Ref<CommandListParameters>;
+    }
+
+    // ITexture::getNativeView: a view of the texture's subresources in a format and dimension
+    // (Format.UNKNOWN, TEXTURE_DIMENSION_UNKNOWN: the texture's), not AddRef'd; null if unavailable.
+    // MSVC passes the TextureSubresourceSet and the std::optional<ComponentMapping> (5 bytes; none
+    // here: the texture's own mapping) as pointers to copies.
+    export function getNativeView(texture: ITexture, objectType: u32, format: u8, subresources: TextureSubresourceSet,
+        dimension: u8): Opaque | null {
+        let subresourcesValue = subresources;
+        let noComponentMapping: u64 = 0;
+        return texture.getNativeView(objectType, format, Ref(subresourcesValue), dimension, false, Ref(noComponentMapping)).pointer;
+    }
+
+    // IDevice::createHandleForNativeTexture: an ITexture over an API texture (ObjectTypes: a
+    // D3D12 resource, a VkImage) described by desc; null on failure. Release() it. The
+    // nvrhi::Object holding the API object (8 bytes) goes in a register.
+    export function createHandleForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque, desc: TextureDesc): ITexture | null {
+        let descValue = desc;
+        const handle = device.createHandleForNativeTexture(objectType, nativeTexture, Ref(descValue));
+        return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createHandleForNativeBuffer: an IBuffer over an API buffer (ObjectTypes: a D3D12
+    // resource, a VkBuffer) described by desc; null on failure. Release() it. The nvrhi::Object
+    // goes in a register, as in createHandleForNativeTexture.
+    export function createHandleForNativeBuffer(device: IDevice, objectType: u32, nativeBuffer: Opaque, desc: BufferDesc): IBuffer | null {
+        let descValue = desc;
+        const handle = device.createHandleForNativeBuffer(objectType, nativeBuffer, Ref(descValue));
+        return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
     }
 
     // ICommandList::clearTextureFloat: the TextureSubresourceSet by value, which MSVC passes as a

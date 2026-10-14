@@ -35,6 +35,7 @@ export namespace nvrhi {
     export const COMMAND_QUEUE_COPY: u8 = 2;
 
     // nvrhi::TextureDimension (some)
+    export const TEXTURE_DIMENSION_UNKNOWN: u8 = 0;
     export const TEXTURE_DIMENSION_2D: u8 = 3;
     export const TEXTURE_DIMENSION_2D_ARRAY: u8 = 4;
     export const TEXTURE_DIMENSION_2D_MS: u8 = 7;
@@ -67,6 +68,7 @@ export namespace nvrhi {
     export const RESOURCE_STATE_VERTEX_BUFFER: u32 = 0x4;
     export const RESOURCE_STATE_INDEX_BUFFER: u32 = 0x8;
     export const RESOURCE_STATE_INDIRECT_ARGUMENT: u32 = 0x10;
+    export const RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE: u32 = 0x40;
     export const RESOURCE_STATE_SHADER_RESOURCE: u32 = 0x60;
     export const RESOURCE_STATE_UNORDERED_ACCESS: u32 = 0x80;
     export const RESOURCE_STATE_RENDER_TARGET: u32 = 0x100;
@@ -132,7 +134,10 @@ export namespace nvrhi {
     export const OBJECT_TYPE_D3D12_DEVICE: u32 = 0x00020001;
     export const OBJECT_TYPE_D3D12_COMMAND_QUEUE: u32 = 0x00020002;
     export const OBJECT_TYPE_D3D12_RESOURCE: u32 = 0x00020004;
+    export const OBJECT_TYPE_D3D12_SRV_GPU_DESCRIPTOR: u32 = 0x00020007;
     export const OBJECT_TYPE_VK_DEVICE: u32 = 0x00030001;
     export const OBJECT_TYPE_VK_QUEUE: u32 = 0x00030004;
+    export const OBJECT_TYPE_VK_BUFFER: u32 = 0x00030007;
     export const OBJECT_TYPE_VK_IMAGE: u32 = 0x00030008;
+    export const OBJECT_TYPE_VK_IMAGE_VIEW: u32 = 0x00030009;
 }
