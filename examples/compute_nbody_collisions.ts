@@ -38,6 +38,9 @@ namespace ComputeNBodyCollisions {
     // Longest simulation step, in seconds: a stall (window dragged, breakpoint) would otherwise move
     // the particles through each other in one step.
     const MAX_DELTA_T = 1.0 / 30.0;
+    // Positions drawn for a light particle before it is kept overlapping (none needs more than a
+    // few with the default cloud: it is a sixth full at its center).
+    const MAX_PLACEMENT_ATTEMPTS = 100;
     // The quad each particle is drawn as (main_vs).
     const VERTICES_PER_PARTICLE = 6;
 
@@ -227,6 +230,32 @@ namespace ComputeNBodyCollisions {
             frame.drawVertices(this.numParticles * VERTICES_PER_PARTICLE);
         }
 
+        // Whether a light particle at (x, y, z) would overlap one of the first `count` particles or
+        // any attractor's heavy center (those of later groups aren't placed yet).
+        overlaps(particles: f32[], count: int, attractors: number[], x: number, y: number, z: number,
+            radius: number): boolean {
+            for (let i = 0; i < count; i++) {
+                const q = i * PARTICLE_FLOATS;
+                const dx = x - particles[q + 0];
+                const dy = y - particles[q + 1];
+                const dz = z - particles[q + 2];
+                const reach = radius + particles[q + 8];
+                if (dx * dx + dy * dy + dz * dz < reach * reach) {
+                    return true;
+                }
+            }
+            for (let i = 0; i < this.numAttractors; i++) {
+                const dx = x - attractors[i * 3 + 0] * 1.5;
+                const dy = y - attractors[i * 3 + 1] * 1.5;
+                const dz = z - attractors[i * 3 + 2] * 1.5;
+                const reach = radius + HEAVY_RADIUS;
+                if (dx * dx + dy * dy + dz * dz < reach * reach) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // compute_nbody's particles around their attractors, uploaded once, with collision radii.
         createParticles(): void {
             const attractors: number[] = [
@@ -260,11 +289,27 @@ namespace ComputeNBodyCollisions {
                         particles[p + 3] = 90000.0;
                         particles[p + 8] = HEAVY_RADIUS;
                     } else {
+                        // Positive masses, unlike compute_nbody's (normal around 37.5, some
+                        // negative): a collision's impulse is shared in proportion to them.
+                        const mass = 20.0 + 60.0 * randomFloat();
+                        const radius = LIGHT_RADIUS_BASE + LIGHT_RADIUS_PER_MASS * mass;
+
                         // Position. The sample then scales y by 2 - length(normalize(position -
-                        // attractor))^2, which is 1.
-                        const px = ax + randomNormal() * 0.75;
-                        const py = ay + randomNormal() * 0.75;
-                        const pz = az + randomNormal() * 0.75;
+                        // attractor))^2, which is 1. Drawn again while it overlaps a particle
+                        // placed before or a heavy center: compute_nbody's cloud has a third of
+                        // the particles overlapping, which collide_cs would push apart and bounce
+                        // off each other all at once in the first frames.
+                        let px = 0.0;
+                        let py = 0.0;
+                        let pz = 0.0;
+                        for (let attempt = 0; attempt < MAX_PLACEMENT_ATTEMPTS; attempt++) {
+                            px = ax + randomNormal() * 0.75;
+                            py = ay + randomNormal() * 0.75;
+                            pz = az + randomNormal() * 0.75;
+                            if (!this.overlaps(particles, p / PARTICLE_FLOATS, attractors, px, py, pz, radius)) {
+                                break;
+                            }
+                        }
 
                         // Velocity: cross(position - attractor, angular) plus some randomness.
                         const sign = i % 2 == 0 ? 1.0 : -1.0;
@@ -278,9 +323,6 @@ namespace ComputeNBodyCollisions {
                         const vy = ez * angularX - ex * angularZ + randomNormal();
                         const vz = ex * angularY - ey * angularX + randomNormal() * 0.025;
 
-                        // Positive masses, unlike compute_nbody's (normal around 37.5, some
-                        // negative): a collision's impulse is shared in proportion to them.
-                        const mass = 20.0 + 60.0 * randomFloat();
                         particles[p + 0] = px;
                         particles[p + 1] = py;
                         particles[p + 2] = pz;
@@ -288,7 +330,7 @@ namespace ComputeNBodyCollisions {
                         particles[p + 4] = vx;
                         particles[p + 5] = vy;
                         particles[p + 6] = vz;
-                        particles[p + 8] = LIGHT_RADIUS_BASE + LIGHT_RADIUS_PER_MASS * mass;
+                        particles[p + 8] = radius;
                     }
 
                     // Color gradient offset
