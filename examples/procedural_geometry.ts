@@ -2,12 +2,42 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 import {
     cross3, matrixIdentity, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH,
     matrixRotationY, matrixScaling, matrixTranslation, normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
 
 namespace ProceduralGeometry {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The top corners are the sky; the procedural objects color about
+    // 9% of the frame (the green pyramid and menger sponge about 2%), the reflective floor's
+    // highlights about 6% white.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        if (check.rgb(0, 0) != 0xFFE5CC || check.rgb(check.width - 1, 0) != 0xFFE5CC) {
+            return "the top corners aren't the sky";
+        }
+        const colored = check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            5.0, 14.0, "Colored");
+        if (colored != "") {
+            return colored;
+        }
+        const green = check.share(check.countInRange(0, 89, 121, 255, 0, 89, 0, 0, check.width, check.height), total,
+            0.8, 3.5, "Green");
+        if (green != "") {
+            return green;
+        }
+        return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            3.0, 10.0, "White");
+    }
+
     const WINDOW_TITLE = "D3D12 Raytracing - Procedural Geometry";
 
     const KEY_C = 67;
@@ -588,7 +618,7 @@ namespace ProceduralGeometry {
             const layoutDesc = BindingLayoutDesc.create();
             layoutDesc.layoutAccelStruct(0);
             layoutDesc.layoutTextureUAV(0);
-            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutConstantBuffer(0);
             for (let slot = 1; slot <= 5; slot++) {
                 layoutDesc.layoutStructuredBufferSRV(slot);
             }
@@ -610,7 +640,11 @@ namespace ProceduralGeometry {
 
             this.buildAabbs();
 
-            this.sceneConstantBuffer = this.app.createVolatileConstantBuffer(SCENE_CB_SIZE, "SceneConstants");
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+
+            // -test's unthrottled frames on Vulkan.
+
+            this.sceneConstantBuffer = this.app.createConstantBuffer(SCENE_CB_SIZE, "SceneConstants");
             this.aabbAttributeBuffer = this.app.createStructuredBuffer(AABB_ATTRIBUTE_FLOATS * 4, PRIMITIVE_COUNT, "AABBPrimitiveAttributes");
             this.materialBuffer = this.app.createStructuredBuffer(MATERIAL_FLOATS * 4, PRIMITIVE_COUNT + 1, "Materials");
             this.aabbConstantBuffer = this.app.createStructuredBuffer(8, PRIMITIVE_COUNT, "AABBConstants");
@@ -658,7 +692,7 @@ namespace ProceduralGeometry {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("procedural_geometry");
 
-        const args = new ProceduralGeometryArgs(argc, argv);
+        const args = new ProceduralGeometryArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's window.
@@ -688,8 +722,12 @@ namespace ProceduralGeometry {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

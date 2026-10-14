@@ -2,8 +2,31 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace RayTracingExtended {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: Sponza (about 67% lit) and the white hot fire in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        if (check.rgb(check.width / 2, check.height / 2) != 0xFFFFFF) {
+            return "the middle isn't the fire's white";
+        }
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            55.0, 80.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            0.8, 4.0, "White");
+    }
+
     const WINDOW_TITLE = "Donut Example: Ray Tracing with Extended Features";
 
     // The sample's scene and flame texture (Vulkan-Samples' assets), the KTX textures converted to
@@ -800,7 +823,7 @@ namespace RayTracingExtended {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_extended");
 
-        const args = new RayTracingExtendedArgs(argc, argv);
+        const args = new RayTracingExtendedArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const options = AppOptions.RayTracing | args.options;
@@ -828,8 +851,12 @@ namespace RayTracingExtended {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

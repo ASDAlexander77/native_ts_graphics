@@ -2,8 +2,24 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace RtBindless {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: Sponza and the character in it, lit through bindless
+    // resources, about 63% lit.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        return check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            50.0, 78.0, "Lit");
+    }
+
     // GLFW values, as passed to the keyboard callback.
     const KEY_SPACE = 32;
     const ACTION_PRESS = 1;
@@ -336,7 +352,7 @@ namespace RtBindless {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_bindless");
 
-        const args = new RtBindlessArgs(argc, argv);
+        const args = new RtBindlessArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // --scene <path>: relative to the executable's directory, or absolute.
@@ -375,8 +391,12 @@ namespace RtBindless {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

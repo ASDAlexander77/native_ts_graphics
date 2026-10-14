@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace RtTriangle {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The top corners are the gray clear color; the ray traced
+    // triangle covers half the frame, colored in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        if (check.rgb(0, 0) != 0x7C7C7C || check.rgb(check.width - 1, 0) != 0x7C7C7C) {
+            return "the top corners aren't the clear color";
+        }
+        if (check.rgb(check.width / 2, check.height / 2) == 0x7C7C7C) {
+            return "no triangle in the middle";
+        }
+        return check.share(check.countOtherThan(0x7C7C7C, 0, 0, check.width, check.height), total, 40.0, 60.0, "Triangle");
+    }
+
     const WINDOW_TITLE = "Donut Example: Ray Traced Triangle";
 
     // sizeof(float4) of the HitInfo payload in rt_triangle.hlsl.
@@ -135,7 +156,7 @@ namespace RtTriangle {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_triangle");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const options = AppOptions.RayTracing | args.options;
@@ -164,8 +185,12 @@ namespace RtTriangle {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

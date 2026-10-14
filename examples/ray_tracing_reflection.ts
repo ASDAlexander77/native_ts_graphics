@@ -2,8 +2,32 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace RayTracingReflection {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The top corners are the gray background; the cubes and their
+    // reflections color about a quarter of the frame, blue about 1.5%.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        if (check.rgb(0, 0) != 0x4C4C4C || check.rgb(check.width - 1, 0) != 0x4C4C4C) {
+            return "the top corners aren't the gray background";
+        }
+        const colored = check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            15.0, 35.0, "Colored");
+        if (colored != "") {
+            return colored;
+        }
+        return check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
+            0.8, 3.0, "Blue");
+    }
+
     const WINDOW_TITLE = "Donut Example: Ray Tracing Reflection";
 
     // The sample's camera: look-at type, not turned, at (0, 0, -2.5) (vkb::Camera's position, the
@@ -547,7 +571,7 @@ namespace RayTracingReflection {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_reflection");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, AppOptions.RayTracing | args.options);
@@ -573,8 +597,12 @@ namespace RayTracingReflection {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
