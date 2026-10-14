@@ -2,8 +2,28 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace Collision {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the gray clear color; the grid, the frustum and
+    // the bounding volumes' lines cover about 4.4% of the frame.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x414141);
+        if (corners != "") {
+            return corners;
+        }
+        return check.share(check.countOtherThan(0x414141, 0, 0, check.width, check.height), total,
+            3.0, 7.0, "Lines");
+    }
+
     const WINDOW_TITLE = "Donut Example: Collision";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
     // The sample's SegoeUI_18 sprite font (its lines 32 pixels apart) as the OpenSans size giving
@@ -1172,7 +1192,7 @@ namespace Collision {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("collision");
 
-        const args = new CollisionArgs(argc, argv);
+        const args = new CollisionArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's B8G8R8A8_UNORM back buffers, in a 1280 x 720 window.
@@ -1203,8 +1223,12 @@ namespace Collision {
         }
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

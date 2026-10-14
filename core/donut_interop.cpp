@@ -3517,6 +3517,13 @@ extern "C"
         glfwSetWindowShouldClose(app->deviceManager->GetWindow(), GLFW_TRUE);
     }
 
+    // Blocks the calling thread for `milliseconds` (-test waiting on work that runs in real time,
+    // as a video's decoding).
+    void Donut_SleepMilliseconds(int milliseconds)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(std::max(milliseconds, 0)));
+    }
+
     // The mouse cursor's mode (CursorMode): shown, hidden over the window, or hidden and captured
     // (GLFW_CURSOR_DISABLED: the mouse callback then gets unbounded virtual positions, from raw
     // mouse motion where the system has it).

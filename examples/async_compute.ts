@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace AsyncCompute {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the simplex noise the compute queue animates (at 100Hz of real
+    // time, so not the same frame every run) covers it, dark (about 28%) and bright (about 20%).
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const dark = check.share(check.countInRange(0, 19, 0, 19, 0, 19, 0, 0, check.width, check.height), total,
+            15.0, 45.0, "Dark");
+        if (dark != "") {
+            return dark;
+        }
+        return check.share(check.countInRange(201, 255, 201, 255, 201, 255, 0, 0, check.width, check.height), total,
+            10.0, 35.0, "Bright");
+    }
+
     const WINDOW_TITLE = "Donut Example: Async Compute";
 
     // Textures the compute queue writes and the render thread shows, in turns.
@@ -133,7 +154,7 @@ namespace AsyncCompute {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("async_compute");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const options = AppOptions.ComputeQueue | args.options;
@@ -156,8 +177,12 @@ namespace AsyncCompute {
 
         app.run();
         asyncCompute.stop();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

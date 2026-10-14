@@ -2,8 +2,36 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace PredicationQueries {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the blue clear color; the white quad in the
+    // middle (about 11%) and the red one its occlusion query left drawn (about 9%).
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x663300);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(check.width / 2, check.height / 2) != 0xFFFFFF) {
+            return "the middle isn't the white quad";
+        }
+        const white = check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            8.0, 14.0, "White");
+        if (white != "") {
+            return white;
+        }
+        return check.share(check.countInRange(151, 255, 0, 89, 0, 89, 0, 0, check.width, check.height), total,
+            6.0, 13.0, "Red");
+    }
+
     const WINDOW_TITLE = "D3D12 Predication and Queries sample";
 
     // The sample's vertex: position, color.
@@ -235,7 +263,7 @@ namespace PredicationQueries {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("predication_queries");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // UNORM back buffers, as the sample's R8G8B8A8_UNORM.
@@ -260,8 +288,12 @@ namespace PredicationQueries {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
