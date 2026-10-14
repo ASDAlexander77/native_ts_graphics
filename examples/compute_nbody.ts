@@ -170,6 +170,10 @@ namespace ComputeNBody {
             const groups: int = Math.floor(this.numParticles / WORKGROUP_SIZE);
             commandList.dispatchWithPushConstants(this.calculatePipeline, this.computeBindingSet,
                 Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+            // integrate_cs reads the velocities calculate_cs wrote. Both passes share one binding
+            // set, and NVRHI places barriers only when a binding set is bound anew.
+            commandList.setBufferState(this.particleBuffer, ResourceState.UnorderedAccess);
+            commandList.commitBarriers();
             commandList.dispatchWithPushConstants(this.integratePipeline, this.computeBindingSet,
                 Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
 

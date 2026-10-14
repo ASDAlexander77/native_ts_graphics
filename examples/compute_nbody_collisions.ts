@@ -190,12 +190,15 @@ namespace ComputeNBodyCollisions {
             // Gravity, collisions, integration. Paused, nothing moves: the collision pass would
             // still push overlapping particles apart.
             if (!this.paused) {
-                const groups: int = Math.floor(this.numParticles / WORKGROUP_SIZE);
+                // Rounded up: the shaders skip the threads past particleCount.
+                const groups: int = Math.floor((this.numParticles + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
                 commandList.dispatchWithPushConstants(this.calculatePipeline, this.computeBindingSet,
                     Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                this.uavBarriers(commandList);
                 if (this.collisions) {
                     commandList.dispatchWithPushConstants(this.collidePipeline, this.computeBindingSet,
                         Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                    this.uavBarriers(commandList);
                 }
                 commandList.dispatchWithPushConstants(this.integratePipeline, this.computeBindingSet,
                     Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
@@ -217,6 +220,16 @@ namespace ComputeNBodyCollisions {
             frame.beginDraw(graphicsPipeline);
             frame.drawAddBindingSet(this.drawBindingSet);
             frame.drawVertices(this.numParticles * VERTICES_PER_PARTICLE);
+        }
+
+        // Between two of the compute passes, the next reading what the previous one wrote. They
+        // share one binding set, and NVRHI places barriers only when a binding set is bound anew:
+        // without these the dispatches overlap (integrate_cs reading the previous frame's
+        // contacts, calculate_cs's velocity writes landing over integrate_cs's).
+        uavBarriers(commandList: CommandList): void {
+            commandList.setBufferState(this.particleBuffer, ResourceState.UnorderedAccess);
+            commandList.setBufferState(this.contactBuffer, ResourceState.UnorderedAccess);
+            commandList.commitBarriers();
         }
 
         // compute_nbody's particles around their attractors, uploaded once, with collision radii.
