@@ -36,6 +36,9 @@ Microsoft.
 - [Memory model](#memory-model)
 - [Android](#android)
 - [Tests](#tests)
+  - [Software rendering](#software-rendering)
+  - [Media without the sample checkouts](#media-without-the-sample-checkouts)
+  - [Smoke tests and screenshots](#smoke-tests-and-screenshots)
 - [Credits](#credits)
 
 ## Quick start
@@ -167,6 +170,9 @@ build time:
 ```
 cmake --preset default -DVULKAN_SAMPLES_ASSETS_DIR=E:/Vulkan-Samples/assets
 ```
+
+Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
+[Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
 ## Repository layout
 
@@ -604,9 +610,40 @@ exit code or an error line from Donut, NVRHI or the API's validation layer. `hea
 `core/test_check.ts` (`TestCheck`: the frame and GPU buffers read back, corners, color counts); some
 read the example's own results too, as `compute_nbody_collisions.head_on` does: two heavy centers
 meeting head on, whose bounce keeps the momentum only if the compute passes are separated by UAV
-barriers (`patches/nvrhi-uav-barriers-same-binding-set.patch`).
+barriers (`patches/nvrhi-uav-barriers-same-binding-set.patch`). An example that needs a feature
+the device lacks (ray tracing, mesh shaders, sparse resources...) prints `Test SKIPPED: <why>` and
+exits with 77, which CTest reports as skipped (`unsupported` in `core/test_check.ts`).
 
-The other examples are covered by a smoke test, and the gallery has its own script:
+### Software rendering
+
+The tests also run without a GPU, much more slowly, and software renderers are stricter than GPU
+drivers about what the spec leaves undefined (lavapipe found bokeh's viewport index past the
+pipeline's viewport count, `patches/nvrhi-vulkan-viewport-count.patch`):
+
+- D3D11 and D3D12: set `DONUT_SOFTWARE_ADAPTER=1` and the device is created on DXGI's software
+  adapter, WARP (Microsoft Basic Render Driver), DXR included.
+- Vulkan: point the loader at Mesa's lavapipe (for instance from
+  [mesa-dist-win](https://github.com/pal1000/mesa-dist-win)) with
+  `VK_DRIVER_FILES=<mesa>\x64\lvp_icd.x86_64.json`.
+
+```
+$env:DONUT_SOFTWARE_ADAPTER = "1"; ctest --test-dir build -L dx12
+```
+
+What a software renderer can't do is reported as skipped; where it rounds or divides otherwise than
+GPUs, a few checks allow for it (`simple_compute`).
+
+### Media without the sample checkouts
+
+`tools/fetch_media.py <folder>` fetches just the files the build reads from the external sample
+repositories ([External assets](#external-assets)) as sparse clones at the commits in
+`tools/media.json`, Git LFS objects included, and prints the `-D` options pointing CMake at them;
+`tools/media_manifest.py [build folder]` regenerates `media.json` from a configured build after
+what the build copies changes. Donut-Samples' media (`DONUT_SAMPLES_MEDIA_DIR`) isn't in it.
+
+### Smoke tests and screenshots
+
+Two scripts open real windows instead:
 
 ```
 pwsh -File tools/smoke_examples.ps1 [-Examples basic_triangle,compute_nbody] [-Apis dx12,vk]

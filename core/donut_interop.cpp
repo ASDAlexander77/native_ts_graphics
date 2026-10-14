@@ -323,6 +323,33 @@ namespace
     // layer reported a worker's vkQueueSubmit at the same time as the render thread's wait.
     std::mutex g_QueueSubmitMutex;
 
+    // With DONUT_SOFTWARE_ADAPTER set (CI runners without a GPU, or to run as they do): on D3D11 and
+    // D3D12 the index of the DXGI adapter that renders in software (WARP, Microsoft Basic Render
+    // Driver); -1 otherwise, Donut's choice. On Vulkan the loader's VK_DRIVER_FILES picks the driver
+    // (lavapipe) instead.
+    int SoftwareAdapterIndex(nvrhi::GraphicsAPI api)
+    {
+#if DONUT_WITH_DX11 || DONUT_WITH_DX12
+        const char* software = getenv("DONUT_SOFTWARE_ADAPTER");
+        if (!software || !*software || api == nvrhi::GraphicsAPI::VULKAN)
+            return -1;
+        Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+            return -1;
+        Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+        for (UINT i = 0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; i++)
+        {
+            DXGI_ADAPTER_DESC1 desc;
+            if (SUCCEEDED(adapter->GetDesc1(&desc)) && (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0)
+                return int(i);
+        }
+        printf("DONUT_SOFTWARE_ADAPTER: no software DXGI adapter\n");
+#else
+        (void)api;
+#endif
+        return -1;
+    }
+
     // device->waitForIdle(), not while a worker thread submits (g_QueueSubmitMutex).
     void WaitForIdleSynchronized(nvrhi::IDevice* device)
     {
@@ -2527,6 +2554,7 @@ extern "C"
 
         donut::app::DeviceCreationParameters params;
         params.messageCallback = g_NvrhiMessageCallback;
+        params.adapterIndex = SoftwareAdapterIndex(api);
         params.backBufferWidth = static_cast<uint32_t>(width);
         params.backBufferHeight = static_cast<uint32_t>(height);
         params.vsyncEnabled = (options & AppOption_NoVsync) == 0;
