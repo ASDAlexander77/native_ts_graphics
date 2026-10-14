@@ -243,6 +243,11 @@ set(DONUT_NVRHI_PATCHES
     # micromapCaptureReplay (the validation layer's VUID-vkCreateMicromapEXT-deviceAddress-07431;
     # nvrhi_direct, opacity_micromaps). After nvrhi-vulkan-opacity-micromaps.patch.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-micromap-no-capture-address.patch"
+    # Draws and dispatches that reuse the binding sets already bound get their barriers too: UAV
+    # barriers after the previous one, and on D3D12 the states their resources lost to copies and
+    # clears since. Only bindings that changed got any, so passes writing and reading one binding
+    # set overlapped (compute_nbody_collisions).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-uav-barriers-same-binding-set.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
