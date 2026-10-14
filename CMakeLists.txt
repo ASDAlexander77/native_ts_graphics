@@ -2013,6 +2013,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/memory_budget
 )
 add_tslang_example(memory_budget MEDIA memory_budget)
+add_tslang_example_test(memory_budget)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(memory_budget_media)
