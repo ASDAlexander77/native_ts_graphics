@@ -3,8 +3,34 @@
 // would compile that code into this object too, defining its symbols twice.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace FeatureDemoExample {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: Donut's renderer draws Sponza and its character all over it,
+    // about 11% colored, the blue banners about 4%.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            95.0, 100.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        const colored = check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            6.0, 18.0, "Colored");
+        if (colored != "") {
+            return colored;
+        }
+        return check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
+            2.0, 6.0, "Blue");
+    }
+
     // GLFW values, as passed to the input callbacks.
     const KEY_SPACE = 32;
     const KEY_T = 84;
@@ -1499,6 +1525,9 @@ namespace FeatureDemoExample {
                 } else if (arg == "-screenshot") {
                     i++;
                     this.screenshotPath = this[i];
+                } else if (arg == "-testOutput") {
+                    // Args' (-test's frame file), not the scene.
+                    i++;
                 } else if (!arg.startsWith("-")) {
                     this.sceneName = arg;
                 }
@@ -1510,7 +1539,7 @@ namespace FeatureDemoExample {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("feature_demo");
 
-        const args = new FeatureDemoExampleArgs(argc, argv);
+        const args = new FeatureDemoExampleArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         g_PrintSceneGraph = args.printSceneGraph;
@@ -1558,8 +1587,12 @@ namespace FeatureDemoExample {
         }
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

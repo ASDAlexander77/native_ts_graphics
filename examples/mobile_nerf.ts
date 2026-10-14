@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace MobileNerf {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the NeRF scenes' meshes (their features decoded by the MLP in
+    // the shader) light about 43% of it, about 3.5% colored.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            30.0, 55.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            1.5, 7.0, "Colored");
+    }
+
     const WINDOW_TITLE = "Donut Example: Mobile NeRF";
 
     // The sample's default scene, lego_combo: four of Morpheus team's Lego NeRFs (Vulkan-Samples'
@@ -687,7 +708,7 @@ namespace MobileNerf {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mobile_nerf");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -707,8 +728,12 @@ namespace MobileNerf {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

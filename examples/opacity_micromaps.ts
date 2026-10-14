@@ -2,12 +2,32 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY,
     normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
 
 namespace OpacityMicromaps {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the blue sky; the ray traced tree, its leaves'
+    // alpha resolved through opacity micromaps, and the text cover about 22% of the frame.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x663300);
+        if (corners != "") {
+            return corners;
+        }
+        return check.share(check.countOtherThan(0x663300, 0, 0, check.width, check.height), total,
+            15.0, 30.0, "Tree and text");
+    }
+
     const WINDOW_TITLE = "D3D12 Raytracing - Opacity Micromaps";
     const MEDIA_DIR = "media/opacity_micromaps/";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
@@ -729,7 +749,7 @@ namespace OpacityMicromaps {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("opacity_micromaps");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // R10G10B10A2_UNORM back buffers (in sRGB), as the sample's.
@@ -765,8 +785,12 @@ namespace OpacityMicromaps {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

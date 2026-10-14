@@ -1642,6 +1642,7 @@ if (NVRHI_WITH_DX12)
 else()
     add_tslang_example(ray_tracing_invocation_reorder MEDIA ray_tracing_extended)
 endif()
+add_tslang_example_test(ray_tracing_invocation_reorder)
 if (TARGET ray_tracing_extended_media)
     add_dependencies(ray_tracing_invocation_reorder ray_tracing_extended_media)
 endif()
@@ -2012,6 +2013,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/memory_budget
 )
 add_tslang_example(memory_budget MEDIA memory_budget)
+add_tslang_example_test(memory_budget)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(memory_budget_media)
@@ -2051,6 +2053,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mobile_nerf
 )
 add_tslang_example(mobile_nerf MEDIA mobile_nerf)
+add_tslang_example_test(mobile_nerf)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(mobile_nerf_media)
     foreach(model lego_ball_phone lego_boba_fett_phone lego_monster_truck_phone lego_tractor_phone)
@@ -2111,6 +2114,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mobile_nerf_rayquery/spirv
 )
 add_tslang_example(mobile_nerf_rayquery MEDIA mobile_nerf)
+add_tslang_example_test(mobile_nerf_rayquery)
 if (TARGET mobile_nerf_media)
     add_dependencies(mobile_nerf_rayquery mobile_nerf_media)
 endif()
@@ -2867,6 +2871,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dxr_refit/spirv
 )
 add_tslang_example(dxr_refit)
+add_tslang_example_test(dxr_refit)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingProceduralGeometry: procedural geometry in AABBs
 # (analytic, volumetric metaballs, signed distance fields and a fractal) intersected by
@@ -2935,6 +2940,7 @@ if (NVRHI_WITH_DX12)
 else()
     add_tslang_example(opacity_micromaps core/directx_math.ts MEDIA fonts opacity_micromaps)
 endif()
+add_tslang_example_test(opacity_micromaps)
 set(omm_media)
 set(omm_dir "Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingOpacityMicromaps")
 foreach(file treeModel.bin jacaranda_tree_leaves_alpha_4k.dds jacaranda_tree_trunk_diff_4k.dds
@@ -3463,4 +3469,5 @@ endif()
 # over a loaded scene, with an ImGui settings window and material editor; DLSS with
 # DONUT_WITH_DLSS=ON. No shaders of its own; needs the scenes and fonts of DONUT_SAMPLES_MEDIA_DIR above.
 add_tslang_example(feature_demo MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
+add_tslang_example_test(feature_demo)
 copy_dlss_library(feature_demo)
