@@ -48,13 +48,17 @@ TUPLES = ["BufferDesc", "TextureDesc", "TextureSubresourceSet", "Color", "Comman
           "ComputePipelineDesc", "ComputeState", "HeapDesc", "BindlessLayoutDesc", "ShaderSpecialization",
           "MeshletPipelineDesc", "MeshletState", "SamplerFeedbackTextureDesc", "TextureTilesMapping",
           "AccelStructDesc", "GeometryDesc", "InstanceDesc", "PipelineDesc", "PipelineShaderDesc",
-          "PipelineHitGroupDesc", "ShaderTableDesc", "State", "basic_string_char"]
+          "PipelineHitGroupDesc", "ShaderTableDesc", "State", "OpacityMicromapDesc", "OperationParams",
+          "OperationDesc", "MatMulFormatCombo", "ConvertMatrixLayoutDesc", "basic_string_char"]
 
-# Methods taking a struct by value, which tsbindgen skips: {(class, method): {os: (declaration,
-# function)}}. The declaration's slot is the one tsbindgen leaves free where it skips the method,
-# `{slot}` in the text. The function calls it with the struct, as its ABI passes it:
-# - MSVC passes a pointer to a copy;
-# - the Itanium ABI passes a struct of up to 16 bytes of integers in one or two 64-bit registers.
+# Methods taking a struct by value, or returning a small one of bools, which tsbindgen skips:
+# {(class, method): {os: (declaration, function)}}. The declaration's slot is the one tsbindgen
+# leaves free where it skips the method, `{slot}` in the text. The function calls it with the struct,
+# as its ABI passes it:
+# - MSVC passes a pointer to a copy, and returns a struct through a hidden pointer (which
+#   tsbindgen writes: declaration None, the function only);
+# - the Itanium ABI passes a struct of up to 16 bytes of integers in one or two 64-bit registers,
+#   and returns one so (a struct of bools: a byte each, from the lowest).
 BY_VALUE = {
     ("ICommandList", "clearTextureFloat"): {
         "win32": (
@@ -272,6 +276,39 @@ BY_VALUE = {
         const handle = device.createSamplerFeedbackForNativeTexture(objectType, nativeTexture, pairedTexture);
         return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
     }"""),
+    },    ("IDevice", "queryCoopVecMatMulFormatSupport"): {
+        "win32": (None, """\
+    // IDevice::queryCoopVecMatMulFormatSupport of a combination of formats
+    export function queryCoopVecMatMulFormatSupport(device: IDevice, combination: MatMulFormatCombo): MatMulFormatSupport {
+        let combinationValue = combination;
+        return device.queryCoopVecMatMulFormatSupport(Ref(combinationValue));
+    }"""),
+        "linux": (
+            "@slot({slot}) queryCoopVecMatMulFormatSupport(combination: Ref<MatMulFormatCombo>): u32;",
+            """\
+    // IDevice::queryCoopVecMatMulFormatSupport of a combination of formats: its
+    // coopvec::MatMulFormatSupport of three bools comes back in a register, a byte each
+    export function queryCoopVecMatMulFormatSupport(device: IDevice, combination: MatMulFormatCombo): MatMulFormatSupport {
+        let combinationValue = combination;
+        const bits = device.queryCoopVecMatMulFormatSupport(Ref(combinationValue));
+        return [(bits & 0xff) != 0, (bits & 0xff00) != 0, (bits & 0xff0000) != 0];
+    }"""),
+    },
+    ("IDevice", "queryCoopVecTrainingFormatSupport"): {
+        "win32": (None, """\
+    // IDevice::queryCoopVecTrainingFormatSupport of a component type (coopvec::DataType)
+    export function queryCoopVecTrainingFormatSupport(device: IDevice, componentType: s32): TrainingFormatSupport {
+        return device.queryCoopVecTrainingFormatSupport(componentType);
+    }"""),
+        "linux": (
+            "@slot({slot}) queryCoopVecTrainingFormatSupport(componentType: s32): u32;",
+            """\
+    // IDevice::queryCoopVecTrainingFormatSupport of a component type (coopvec::DataType): its
+    // coopvec::TrainingFormatSupport of four bools comes back in a register, a byte each
+    export function queryCoopVecTrainingFormatSupport(device: IDevice, componentType: s32): TrainingFormatSupport {
+        const bits = device.queryCoopVecTrainingFormatSupport(componentType);
+        return [(bits & 0xff) != 0, (bits & 0xff00) != 0, (bits & 0xff0000) != 0, (bits & 0xff000000) != 0];
+    }"""),
     },
 }
 
@@ -377,6 +414,9 @@ def adapt(body, os_name):
             functions.append(function)
 
         out.append(line)
+
+    # the functions of methods tsbindgen writes for this ABI
+    functions += [entry[os_name][1] for entry in BY_VALUE.values() if entry[os_name][0] is None]
 
     missing = [f"{c}::{n}" for (c, n) in BY_VALUE if not any(f" {n}(" in line for line in out)]
     if missing:

@@ -82,7 +82,13 @@ export namespace nvrhi {
             && sizeof<PipelineHitGroupDesc>() == Donut_GetNvrhiStructSize("PipelineHitGroupDesc")
             && sizeof<ShaderTableDesc>() == Donut_GetNvrhiStructSize("ShaderTableDesc")
             && sizeof<State>() == Donut_GetNvrhiStructSize("rt::State")
-            && sizeof<DispatchRaysArguments>() == Donut_GetNvrhiStructSize("DispatchRaysArguments");
+            && sizeof<DispatchRaysArguments>() == Donut_GetNvrhiStructSize("DispatchRaysArguments")
+            && sizeof<OpacityMicromapDesc>() == Donut_GetNvrhiStructSize("OpacityMicromapDesc")
+            && sizeof<OpacityMicromapUsageCount>() == Donut_GetNvrhiStructSize("OpacityMicromapUsageCount")
+            && sizeof<OperationParams>() == Donut_GetNvrhiStructSize("cluster::OperationParams")
+            && sizeof<OperationDesc>() == Donut_GetNvrhiStructSize("cluster::OperationDesc")
+            && sizeof<MatMulFormatCombo>() == Donut_GetNvrhiStructSize("coopvec::MatMulFormatCombo")
+            && sizeof<ConvertMatrixLayoutDesc>() == Donut_GetNvrhiStructSize("coopvec::ConvertMatrixLayoutDesc");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -595,12 +601,13 @@ export namespace nvrhi {
 
     // IDevice::createRayTracingPipeline of the shaders (ray generation, miss, callable) and hit
     // groups, with one global binding layout, payloads of up to maxPayloadSize bytes, triangle
-    // attributes (8 bytes) and no recursion; the descs' arrays for the call only (see stdVector).
-    // Null on failure. Release() it.
+    // attributes (8 bytes) and no recursion, tracing through opacity micromaps if allowed; the
+    // descs' arrays for the call only (see stdVector). Null on failure. Release() it.
     export function createRayTracingPipeline(device: IDevice, shaders: PipelineShaderDesc[], hitGroups: PipelineHitGroupDesc[],
-        bindingLayout: IBindingLayout, maxPayloadSize: u32): IPipeline | null {
+        bindingLayout: IBindingLayout, maxPayloadSize: u32, allowOpacityMicromaps: boolean): IPipeline | null {
         let desc: PipelineDesc = [stdVector(shaders), stdVector(hitGroups),
-            [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], 1], maxPayloadSize, 8, 1, -1, false];
+            [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], 1], maxPayloadSize, 8, 1, -1,
+            allowOpacityMicromaps];
         const handle = device.createRayTracingPipeline(Ref(desc));
         return handle.ptr_ ? <IPipeline><Opaque>handle.ptr_ : null;
     }
@@ -623,6 +630,22 @@ export namespace nvrhi {
     export function dispatchRays(commandList: ICommandList, width: u32, height: u32): void {
         let args: DispatchRaysArguments = [width, height, 1];
         commandList.dispatchRays(Ref(args));
+    }
+
+    // An rt::OpacityMicromapDesc of an array of OMMs: their data (inputBuffer) and descs
+    // (perOmmDescs, as D3D12_RAYTRACING_OPACITY_MICROMAP_DESC and VkMicromapTriangleEXT have them),
+    // from the start of each, with how many OMMs there are of each subdivision level and format
+    // (counts: for the call only, see stdVector), built for fast tracing, with a debug name
+    export function opacityMicromapDesc(inputBuffer: IBuffer, perOmmDescs: IBuffer, counts: OpacityMicromapUsageCount[],
+        debugName: string): OpacityMicromapDesc {
+        return [stdString(debugName), false, OPACITY_MICROMAP_BUILD_FAST_TRACE, stdVector(counts), inputBuffer, 0, perOmmDescs, 0];
+    }
+
+    // IDevice::createOpacityMicromap; null on failure. Release() it.
+    export function createOpacityMicromap(device: IDevice, desc: OpacityMicromapDesc): IOpacityMicromap | null {
+        let descValue = desc;
+        const handle = device.createOpacityMicromap(Ref(descValue));
+        return handle.ptr_ ? <IOpacityMicromap><Opaque>handle.ptr_ : null;
     }
 
     // IDevice::createEventQuery; null on failure. Release() it.

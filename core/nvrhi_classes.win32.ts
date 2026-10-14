@@ -470,4 +470,15 @@ export namespace nvrhi {
         let subresourcesValue = subresources;
         commandList.setTextureState(texture, Ref(subresourcesValue), stateBits);
     }
+
+    // IDevice::queryCoopVecMatMulFormatSupport of a combination of formats
+    export function queryCoopVecMatMulFormatSupport(device: IDevice, combination: MatMulFormatCombo): MatMulFormatSupport {
+        let combinationValue = combination;
+        return device.queryCoopVecMatMulFormatSupport(Ref(combinationValue));
+    }
+
+    // IDevice::queryCoopVecTrainingFormatSupport of a component type (coopvec::DataType)
+    export function queryCoopVecTrainingFormatSupport(device: IDevice, componentType: s32): TrainingFormatSupport {
+        return device.queryCoopVecTrainingFormatSupport(componentType);
+    }
 }

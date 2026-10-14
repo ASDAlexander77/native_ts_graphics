@@ -1,0 +1,18 @@
+diff --git a/src/vulkan/vulkan-raytracing.cpp b/src/vulkan/vulkan-raytracing.cpp
+index 42c266f..13974ad 100644
+--- a/src/vulkan/vulkan-raytracing.cpp
++++ b/src/vulkan/vulkan-raytracing.cpp
+@@ -311,11 +311,11 @@ namespace nvrhi::vulkan
+ 
+         Buffer* buffer = checked_cast<Buffer*>(om->dataBuffer.Get());
+ 
++        // No deviceAddress: it is for capture replay, which needs micromapCaptureReplay
+         auto create = vk::MicromapCreateInfoEXT()
+             .setType(vk::MicromapTypeEXT::eOpacityMicromap)
+             .setBuffer(buffer->buffer)
+-            .setSize(buildSize.micromapSize)
+-            .setDeviceAddress(getMutableBufferAddress(buffer, 0).deviceAddress);
++            .setSize(buildSize.micromapSize);
+ 
+         om->opacityMicromap = m_Context.device.createMicromapEXTUnique(create, m_Context.allocationCallbacks);
+         return rt::OpacityMicromapHandle::Create(om);

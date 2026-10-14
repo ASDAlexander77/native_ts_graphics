@@ -13,6 +13,12 @@ export namespace nvrhi {
     // nvrhi::Object by value (getNativeObject, getNativeQueue): the API object's pointer.
     export type NativeObject = [pointer: Opaque | null];
 
+    // nvrhi::coopvec::MatMulFormatSupport and TrainingFormatSupport, by value
+    // (queryCoopVecMatMulFormatSupport, queryCoopVecTrainingFormatSupport)
+    export type MatMulFormatSupport = [supported: boolean, transposeSupported: boolean, emulatedInputs: boolean];
+    export type TrainingFormatSupport = [bufferTrainingSupported: boolean, threadOuterProductSupported: boolean,
+        bufferAccumulateStoreSupported: boolean, groupSharedAccumulateStoreSupported: boolean];
+
     // nvrhi::MessageSeverity
     export const MESSAGE_SEVERITY_INFO: u8 = 0;
     export const MESSAGE_SEVERITY_WARNING: u8 = 1;
@@ -44,8 +50,12 @@ export namespace nvrhi {
     export const FEATURE_COMPUTE_QUEUE: u8 = 0;
     export const FEATURE_MESHLETS: u8 = 9;
     export const FEATURE_RAY_TRACING_ACCEL_STRUCT: u8 = 11;
+    export const FEATURE_RAY_TRACING_CLUSTERS: u8 = 12;
+    export const FEATURE_RAY_TRACING_OPACITY_MICROMAP: u8 = 13;
     export const FEATURE_RAY_TRACING_PIPELINE: u8 = 14;
     export const FEATURE_SAMPLER_FEEDBACK: u8 = 16;
+    export const FEATURE_COOPERATIVE_VECTOR_INFERENCING: u8 = 24;
+    export const FEATURE_COOPERATIVE_VECTOR_TRAINING: u8 = 25;
     export const FEATURE_SHADER_SPECIALIZATIONS: u8 = 18;
 
     // nvrhi::FormatSupport (a bit mask, some)
@@ -82,6 +92,8 @@ export namespace nvrhi {
     export const RESOURCE_STATE_RESOLVE_DEST: u32 = 0x4000;
     export const RESOURCE_STATE_RESOLVE_SOURCE: u32 = 0x8000;
     export const RESOURCE_STATE_ACCEL_STRUCT_READ: u32 = 0x20000;
+    export const RESOURCE_STATE_CONVERT_COOP_VEC_MATRIX_INPUT: u32 = 0x01000000;
+    export const RESOURCE_STATE_CONVERT_COOP_VEC_MATRIX_OUTPUT: u32 = 0x02000000;
 
     // nvrhi::ShaderType (a bit mask)
     export const SHADER_TYPE_VERTEX: u16 = 0x01;
@@ -96,7 +108,22 @@ export namespace nvrhi {
 
     // nvrhi::rt::GeometryType, GeometryFlags, AccelStructBuildFlags (some)
     export const GEOMETRY_TYPE_TRIANGLES: u8 = 0;
+    export const GEOMETRY_FLAGS_NONE: u8 = 0;
     export const GEOMETRY_FLAGS_OPAQUE: u8 = 1;
+
+    // nvrhi::rt::OpacityMicromapFormat, OpacityMicromapBuildFlags (some)
+    export const OPACITY_MICROMAP_FORMAT_OC1_2_STATE: s32 = 1;
+    export const OPACITY_MICROMAP_BUILD_FAST_TRACE: u8 = 1;
+
+    // nvrhi::rt::cluster::OperationType, OperationMode (some), OperationIndexFormat
+    export const CLUSTER_OPERATION_CLAS_BUILD: u8 = 1;
+    export const CLUSTER_OPERATION_MODE_GET_SIZES: u8 = 2;
+    export const CLUSTER_INDEX_FORMAT_32BIT: u32 = 4;
+
+    // nvrhi::coopvec::DataType, MatrixLayout (some)
+    export const COOPVEC_DATA_TYPE_FLOAT16: s32 = 12;
+    export const COOPVEC_LAYOUT_ROW_MAJOR: s32 = 0;
+    export const COOPVEC_LAYOUT_INFERENCING_OPTIMAL: s32 = 2;
     export const ACCEL_STRUCT_BUILD_ALLOW_COMPACTION: u8 = 2;
     export const ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE: u8 = 4;
 

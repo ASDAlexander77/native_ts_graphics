@@ -239,6 +239,10 @@ set(DONUT_NVRHI_PATCHES
     # D3D12 buffers of acceleration structures have their resource flag also when virtual: placed
     # by bindAccelStructMemory without it, a TLAS traced through removed the device (nvrhi_direct).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-d3d12-virtual-accel-struct-flag.patch"
+    # Vulkan micromaps are created with no device address: one is for capture replay, which needs
+    # micromapCaptureReplay (the validation layer's VUID-vkCreateMicromapEXT-deviceAddress-07431;
+    # nvrhi_direct, opacity_micromaps). After nvrhi-vulkan-opacity-micromaps.patch.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-micromap-no-capture-address.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.

@@ -312,8 +312,8 @@ export namespace nvrhi {
         @slot(66) queryFormatSupport(format: u8): u32;
         @cppnontrivial
         @slot(67) queryCoopVecFeatures(): [matMulFormats: vector<MatMulFormatCombo>, trainingFloat16: boolean, trainingFloat32: boolean];
-        // skipped: queryCoopVecMatMulFormatSupport — result: trivial record returned by value in registers by its fields
-        // skipped: queryCoopVecTrainingFormatSupport — result: trivial record returned by value in registers by its fields
+        @slot(68) queryCoopVecMatMulFormatSupport(combination: Ref<MatMulFormatCombo>): u32;
+        @slot(69) queryCoopVecTrainingFormatSupport(componentType: s32): u32;
         @slot(70) getCoopVecMatrixSize(type: s32, layout: s32, rows: s32, columns: s32): index;
         @slot(71) getNativeQueue(objectType: u32, queue: u8): NativeObject;
         @slot(72) getMessageCallback(): IMessageCallback;
@@ -428,6 +428,21 @@ export namespace nvrhi {
         let descValue = desc;
         const handle = device.createHandleForNativeBuffer(objectType, nativeBuffer, Ref(descValue));
         return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::queryCoopVecMatMulFormatSupport of a combination of formats: its
+    // coopvec::MatMulFormatSupport of three bools comes back in a register, a byte each
+    export function queryCoopVecMatMulFormatSupport(device: IDevice, combination: MatMulFormatCombo): MatMulFormatSupport {
+        let combinationValue = combination;
+        const bits = device.queryCoopVecMatMulFormatSupport(Ref(combinationValue));
+        return [(bits & 0xff) != 0, (bits & 0xff00) != 0, (bits & 0xff0000) != 0];
+    }
+
+    // IDevice::queryCoopVecTrainingFormatSupport of a component type (coopvec::DataType): its
+    // coopvec::TrainingFormatSupport of four bools comes back in a register, a byte each
+    export function queryCoopVecTrainingFormatSupport(device: IDevice, componentType: s32): TrainingFormatSupport {
+        const bits = device.queryCoopVecTrainingFormatSupport(componentType);
+        return [(bits & 0xff) != 0, (bits & 0xff00) != 0, (bits & 0xff0000) != 0, (bits & 0xff000000) != 0];
     }
 
     // ICommandList::clearTextureFloat: the TextureSubresourceSet by value, its two halves in two
