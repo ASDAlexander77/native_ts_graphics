@@ -2,8 +2,32 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace GshaderToMshader {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the dark clear color; the cyan teapot covers
+    // about 7% of the frame, its middle included.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x070707);
+        if (corners != "") {
+            return corners;
+        }
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if (!((middle & 0xFF) < 60 && ((middle >> 8) & 0xFF) > 120 && ((middle >> 16) & 0xFF) > 120)) {
+            return "the middle isn't the teapot's cyan";
+        }
+        return check.share(check.countOtherThan(0x070707, 0, 0, check.width, check.height), total,
+            4.0, 12.0, "Teapot");
+    }
+
     const WINDOW_TITLE = "Donut Example: Geometry Shader to Mesh Shader";
 
     // The sample's model (Vulkan-Samples' asset, copied at build time: see VULKAN_SAMPLES_ASSETS_DIR
@@ -681,7 +705,7 @@ namespace GshaderToMshader {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("gshader_to_mshader");
 
-        const args = new GshaderToMshaderArgs(argc, argv);
+        const args = new GshaderToMshaderArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -711,8 +735,12 @@ namespace GshaderToMshader {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

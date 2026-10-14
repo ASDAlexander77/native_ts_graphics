@@ -2,8 +2,32 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace MeshShading {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the dark clear color; the mesh shader's red
+    // triangle covers an eighth of the frame, its middle included.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x070707);
+        if (corners != "") {
+            return corners;
+        }
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if (!(middle == 0x0000FF)) {
+            return "the middle isn't the triangle's red";
+        }
+        return check.share(check.countInRange(151, 255, 0, 89, 0, 89, 0, 0, check.width, check.height), total,
+            10.0, 15.0, "Triangle");
+    }
+
     const WINDOW_TITLE = "Donut Example: Mesh Shading";
 
     // ApiVulkanSample's default_clear_color.
@@ -67,7 +91,7 @@ namespace MeshShading {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mesh_shading");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -87,8 +111,12 @@ namespace MeshShading {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

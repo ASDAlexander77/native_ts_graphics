@@ -721,6 +721,7 @@ donut_compile_shaders(
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
 add_tslang_example(meshlets)
+add_tslang_example_test(meshlets)
 
 # Port of Donut-Samples' shader_specializations. Specialization constants are Vulkan-only.
 donut_compile_shaders(
@@ -912,6 +913,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/variable_shading/spirv
 )
 add_tslang_example(variable_shading MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example_test(variable_shading)
 
 # Port of Donut-Samples' async_compute: a compute-queue worker thread animates textures that the
 # render thread shows.
@@ -982,6 +984,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/terrain_tessellation
 )
 add_tslang_example(terrain_tessellation MEDIA terrain_tessellation)
+add_tslang_example_test(terrain_tessellation)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(terrain_textures)
@@ -1307,6 +1310,7 @@ donut_compile_shaders(
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
 add_tslang_example(gshader_to_mshader MEDIA gshader_to_mshader)
+add_tslang_example_test(gshader_to_mshader)
 add_dependencies(gshader_to_mshader gshader_to_mshader_mesh_shaders)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/teapot.gltf")
@@ -1359,6 +1363,7 @@ donut_compile_shaders(
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
 add_tslang_example(mesh_shader_culling)
+add_tslang_example_test(mesh_shader_culling)
 
 # Port of Vulkan-Samples' conservative_rasterization: a triangle drawn at low resolution with and
 # without conservative rasterization, stretched over the screen, its real outline over it.
@@ -1370,6 +1375,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/conservative_rasterization
 )
 add_tslang_example(conservative_rasterization)
+add_tslang_example_test(conservative_rasterization)
 
 # Port of Vulkan-Samples' conditional_rendering: each node of a glTF model drawn or skipped by a
 # value in a buffer the GPU reads as it executes the draws (D3D12 predication, Vulkan
@@ -1445,6 +1451,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shader_barycentric/spirv
 )
 add_tslang_example(fragment_shader_barycentric MEDIA fragment_shader_barycentric)
+add_tslang_example_test(fragment_shader_barycentric)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(barycentric_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/fragment_shader_barycentric")
@@ -1768,6 +1775,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate_dynamic/spirv
 )
 add_tslang_example(fragment_shading_rate_dynamic MEDIA fragment_shading_rate_dynamic)
+add_tslang_example_test(fragment_shading_rate_dynamic)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(shading_rate_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/fragment_shading_rate_dynamic")
@@ -1949,6 +1957,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate/spirv
 )
 add_tslang_example(fragment_shading_rate MEDIA fragment_shading_rate)
+add_tslang_example_test(fragment_shading_rate)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(fragment_shading_rate_output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/fragment_shading_rate")
@@ -2298,6 +2307,7 @@ donut_compile_shaders(
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
 add_tslang_example(mesh_shading)
+add_tslang_example_test(mesh_shading)
 
 # Port of Vulkan-Samples' dynamic_uniform_buffers: 125 spinning cubes, one draw each, their model
 # matrices in slices of one uniform buffer (the sample's dynamic offsets are a binding set per slice

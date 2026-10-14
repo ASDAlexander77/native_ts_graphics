@@ -2,8 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ConservativeRasterization {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the gray clear color; the triangle,
+    // rasterized conservatively at low resolution and then at full, colors about a fifth of the
+    // frame (more on Vulkan, with its extra overestimation), its middle included.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x404040);
+        if (corners != "") {
+            return corners;
+        }
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if (!(middle != 0x404040)) {
+            return "no triangle in the middle";
+        }
+        return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            15.0, 32.0, "Triangle");
+    }
+
     const WINDOW_TITLE = "Donut Example: Conservative Rasterization";
 
     // The low resolution target is the screen's size divided by this.
@@ -443,7 +468,7 @@ namespace ConservativeRasterization {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("conservative_rasterization");
 
-        const args = new ConservativeRasterizationArgs(argc, argv);
+        const args = new ConservativeRasterizationArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -472,8 +497,12 @@ namespace ConservativeRasterization {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

@@ -2,8 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace MeshShaderCulling {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the dark clear color; the meshlets the task
+    // shader kept (those within the cull radius) cover about 70% of the frame, about 55% colored.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x070707);
+        if (corners != "") {
+            return corners;
+        }
+        const colored = check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            40.0, 70.0, "Colored");
+        if (colored != "") {
+            return colored;
+        }
+        return check.share(check.countOtherThan(0x070707, 0, 0, check.width, check.height), total,
+            55.0, 80.0, "Meshlets");
+    }
+
     const WINDOW_TITLE = "Donut Example: Mesh Shader Culling";
 
     // struct CullConstants { float cullCenterX, cullCenterY, cullRadius, meshletDensity; uint2
@@ -265,7 +290,7 @@ namespace MeshShaderCulling {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mesh_shader_culling");
 
-        const args = new MeshShaderCullingArgs(argc, argv);
+        const args = new MeshShaderCullingArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -295,8 +320,12 @@ namespace MeshShaderCulling {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
