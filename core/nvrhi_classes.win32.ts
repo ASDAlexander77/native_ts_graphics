@@ -239,7 +239,8 @@ export namespace nvrhi {
         @slot(16) updateTextureTileMappings(texture: ITexture | null, tileMappings: Ref<TextureTilesMapping> | null, numTileMappings: u32, executionQueue: u8): void;
         @cppnontrivial
         @slot(17) createSamplerFeedbackTexture(pairedTexture: ITexture | null, desc: Ref<SamplerFeedbackTextureDesc>): RefCountPtr<Opaque>;
-        // skipped: createSamplerFeedbackForNativeTexture — parameter 'texture': struct passed by value
+        @cppnontrivial
+        @slot(18) createSamplerFeedbackForNativeTexture(objectType: u32, texture: Opaque | null, pairedTexture: ITexture | null): RefCountPtr<Opaque>;
         @cppnontrivial
         @slot(19) createBuffer(d: Ref<BufferDesc>): RefCountPtr<Opaque>;
         @slot(20) mapBuffer(buffer: IBuffer | null, cpuAccess: u8): Opaque;
@@ -410,6 +411,16 @@ export namespace nvrhi {
         let descValue = desc;
         const handle = device.createHandleForNativeTexture(objectType, nativeTexture, Ref(descValue));
         return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createSamplerFeedbackForNativeTexture: an ISamplerFeedbackTexture over an API
+    // sampler feedback texture (ObjectTypes: a D3D12 resource) for its paired texture; null on
+    // failure. Release() it. The nvrhi::Object goes in a register, as in
+    // createHandleForNativeTexture.
+    export function createSamplerFeedbackForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque,
+        pairedTexture: ITexture): ISamplerFeedbackTexture | null {
+        const handle = device.createSamplerFeedbackForNativeTexture(objectType, nativeTexture, pairedTexture);
+        return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
     }
 
     // IDevice::createHandleForNativeBuffer: an IBuffer over an API buffer (ObjectTypes: a D3D12

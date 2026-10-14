@@ -233,6 +233,9 @@ set(DONUT_NVRHI_PATCHES
     # it had a compute queue (queryFeatureSupport) and crashing in a command list's open() for it
     # (nvrhi_direct).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-null-queues.patch"
+    # The validation layer's createSamplerFeedbackForNativeTexture called itself, not the device's,
+    # until the stack overflowed (nvrhi_direct, -debug).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-validation-sampler-feedback-native.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -783,8 +786,28 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/spirv
 )
+# Its mesh shader on its own: SPIR-V's mesh shader extension named (ShaderMake's --spirvExt lists
+# the only extensions DXC may use, which the other shaders need others of).
+donut_compile_shaders(
+    TARGET nvrhi_direct_mesh_shaders
+    PROJECT_NAME "NVRHI Direct Mesh"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_mesh.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_mesh.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/spirv
+    SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
+)
+# And its sampler feedback shader: D3D12 only (FeedbackTexture2D), so DXIL only.
+donut_compile_shaders(
+    TARGET nvrhi_direct_feedback_shaders
+    PROJECT_NAME "NVRHI Direct Feedback"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_feedback.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nvrhi_direct_feedback.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nvrhi_direct/dxil
+)
 if (NVRHI_DIRECT_BUILDS)
     add_tslang_example(nvrhi_direct ${NVRHI_TS_SOURCES})
+    add_dependencies(nvrhi_direct nvrhi_direct_mesh_shaders nvrhi_direct_feedback_shaders)
 endif()
 if (NOT ANDROID)
     add_tslang_example_test(nvrhi_direct)

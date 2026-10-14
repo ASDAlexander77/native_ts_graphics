@@ -1,0 +1,13 @@
+diff --git a/src/validation/validation-device.cpp b/src/validation/validation-device.cpp
+index 885c3c5..6435d66 100644
+--- a/src/validation/validation-device.cpp
++++ b/src/validation/validation-device.cpp
+@@ -306,7 +306,7 @@ namespace nvrhi::validation
+             return nullptr;
+         }
+ 
+-        return createSamplerFeedbackForNativeTexture(objectType, texture, pairedTexture);
++        return m_Device->createSamplerFeedbackForNativeTexture(objectType, texture, pairedTexture);
+     }
+ 
+     MemoryRequirements DeviceWrapper::getTextureMemoryRequirements(ITexture* texture)

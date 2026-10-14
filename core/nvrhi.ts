@@ -64,7 +64,15 @@ export namespace nvrhi {
             && sizeof<HeapDesc>() == Donut_GetNvrhiStructSize("HeapDesc")
             && sizeof<MemoryRequirements>() == Donut_GetNvrhiStructSize("MemoryRequirements")
             && sizeof<BindlessLayoutDesc>() == Donut_GetNvrhiStructSize("BindlessLayoutDesc")
-            && sizeof<ShaderSpecialization>() == Donut_GetNvrhiStructSize("ShaderSpecialization");
+            && sizeof<ShaderSpecialization>() == Donut_GetNvrhiStructSize("ShaderSpecialization")
+            && sizeof<MeshletPipelineDesc>() == Donut_GetNvrhiStructSize("MeshletPipelineDesc")
+            && sizeof<MeshletState>() == Donut_GetNvrhiStructSize("MeshletState")
+            && sizeof<SamplerFeedbackTextureDesc>() == Donut_GetNvrhiStructSize("SamplerFeedbackTextureDesc")
+            && sizeof<TextureTilesMapping>() == Donut_GetNvrhiStructSize("TextureTilesMapping")
+            && sizeof<TiledTextureCoordinate>() == Donut_GetNvrhiStructSize("TiledTextureCoordinate")
+            && sizeof<TiledTextureRegion>() == Donut_GetNvrhiStructSize("TiledTextureRegion")
+            && sizeof<PackedMipDesc>() == Donut_GetNvrhiStructSize("PackedMipDesc")
+            && sizeof<SubresourceTiling>() == Donut_GetNvrhiStructSize("SubresourceTiling");
     }
 
     // A BufferDesc as nvrhi::BufferDesc's defaults make it, with byteSize, a debug name (see
@@ -355,25 +363,30 @@ export namespace nvrhi {
         return handle.ptr_ ? <IGraphicsPipeline><Opaque>handle.ptr_ : null;
     }
 
-    // A GraphicsState drawing into the framebuffer with the pipeline, through one viewport and its
-    // scissor rectangle (ViewportState::addViewportAndScissorRect: without one, D3D12 draws nothing
-    // and Vulkan's is unset), with up to one binding set, a vertex buffer (slot 0) and an index
-    // buffer of indexFormat (R16_UINT, R32_UINT) - null for none.
-    export function graphicsState(pipeline: IGraphicsPipeline, framebuffer: IFramebuffer, viewport: Viewport,
-        bindingSet: IBindingSet | null, vertexBuffer: IBuffer | null, indexBuffer: IBuffer | null, indexFormat: Format): GraphicsState {
+    // A ViewportState of one viewport and its scissor rectangle
+    // (ViewportState::addViewportAndScissorRect: without one, D3D12 draws nothing and Vulkan's is
+    // unset)
+    function viewportState(viewport: Viewport): ViewportState {
         const noViewport: Viewport = [0, 0, 0, 0, 0, 0];
         const noRect: Rect = [0, 0, 0, 0];
         // nvrhi::Rect(viewport): the pixels it covers
         const scissor: Rect = [<s32>Math.floor(viewport.minX), <s32>Math.ceil(viewport.maxX),
             <s32>Math.floor(viewport.minY), <s32>Math.ceil(viewport.maxY)];
+        return [[[viewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport,
+            noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport], 1],
+            [[scissor, noRect, noRect, noRect, noRect, noRect, noRect, noRect,
+                noRect, noRect, noRect, noRect, noRect, noRect, noRect, noRect], 1]];
+    }
+
+    // A GraphicsState drawing into the framebuffer with the pipeline, through one viewport and its
+    // scissor rectangle (viewportState), with up to one binding set, a vertex buffer (slot 0) and an
+    // index buffer of indexFormat (R16_UINT, R32_UINT) - null for none.
+    export function graphicsState(pipeline: IGraphicsPipeline, framebuffer: IFramebuffer, viewport: Viewport,
+        bindingSet: IBindingSet | null, vertexBuffer: IBuffer | null, indexBuffer: IBuffer | null, indexFormat: Format): GraphicsState {
         const noBuffer: VertexBufferBinding = [null, 0, 0];
         const vertexBinding: VertexBufferBinding = [vertexBuffer, 0, 0];
 
-        return [pipeline, framebuffer,
-            [[[viewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport,
-                noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport, noViewport], 1],
-                [[scissor, noRect, noRect, noRect, noRect, noRect, noRect, noRect,
-                    noRect, noRect, noRect, noRect, noRect, noRect, noRect, noRect], 1]],
+        return [pipeline, framebuffer, viewportState(viewport),
             [false, 0, 0, 0], [0, 0, 0, 0], 0, 0, 1,
             [[bindingSet, null, null, null, null, null, null, null], bindingSet ? 1 : 0],
             [[vertexBinding, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer, noBuffer,
@@ -449,6 +462,62 @@ export namespace nvrhi {
     export function createCommandListLifetimeTracker(device: IDevice, queue: u8): ICommandListLifetimeTracker | null {
         const handle = device.createCommandListLifetimeTracker(queue);
         return handle.ptr_ ? <ICommandListLifetimeTracker><Opaque>handle.ptr_ : null;
+    }
+
+    // A MeshletPipelineDesc of a triangle list, a mesh and a pixel shader (no amplification shader)
+    // and up to one binding layout, with the given render state. Its RefCountPtrs hold no
+    // reference, as in computePipelineDesc.
+    export function meshletPipelineDesc(meshShader: IShader, pixelShader: IShader, bindingLayout: IBindingLayout | null,
+        state: RenderState): MeshletPipelineDesc {
+        return [3, [null], [meshShader], [pixelShader], state,
+            [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], bindingLayout ? 1 : 0]];
+    }
+
+    // IDevice::createMeshletPipeline for the framebuffer's formats; null on failure. Release() it.
+    export function createMeshletPipeline(device: IDevice, desc: MeshletPipelineDesc, framebuffer: IFramebuffer): IMeshletPipeline | null {
+        let descValue = desc;
+        // (passed as the overload's `IFramebuffer | null`: TSLANG_ISSUES.md #19)
+        const framebufferArg: IFramebuffer | null = framebuffer;
+        const handle = device.createMeshletPipeline(Ref(descValue), framebufferArg);
+        return handle.ptr_ ? <IMeshletPipeline><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createMeshletPipeline for a FramebufferInfo (the overload taking one: the formats
+    // and sample count); null on failure. Release() it.
+    export function createMeshletPipelineForInfo(device: IDevice, desc: MeshletPipelineDesc, info: FramebufferInfo): IMeshletPipeline | null {
+        let descValue = desc;
+        let infoValue = info;
+        const handle = device.createMeshletPipeline(Ref(descValue), Ref(infoValue));
+        return handle.ptr_ ? <IMeshletPipeline><Opaque>handle.ptr_ : null;
+    }
+
+    // A MeshletState drawing into the framebuffer with the pipeline, through one viewport and its
+    // scissor rectangle (viewportState), with up to one binding set
+    export function meshletState(pipeline: IMeshletPipeline, framebuffer: IFramebuffer, viewport: Viewport,
+        bindingSet: IBindingSet | null): MeshletState {
+        return [pipeline, framebuffer, viewportState(viewport), [0, 0, 0, 0], 0,
+            [[bindingSet, null, null, null, null, null, null, null], bindingSet ? 1 : 0], null, null];
+    }
+
+    // ICommandList::setMeshletState
+    export function setMeshletState(commandList: ICommandList, state: MeshletState): void {
+        let stateValue = state;
+        commandList.setMeshletState(Ref(stateValue));
+    }
+
+    // IDevice::createSamplerFeedbackTexture: the feedback (SAMPLER_FEEDBACK_FORMAT_*) of a paired
+    // texture's sampling, in regions of regionSize x regionSize texels (D3D12 only); null on
+    // failure. Release() it.
+    export function createSamplerFeedbackTexture(device: IDevice, pairedTexture: ITexture, format: u8, regionSize: u32,
+        initialState: u32): ISamplerFeedbackTexture | null {
+        let desc: SamplerFeedbackTextureDesc = [format, regionSize, regionSize, 1, initialState, initialState != RESOURCE_STATE_UNKNOWN];
+        const handle = device.createSamplerFeedbackTexture(pairedTexture, Ref(desc));
+        return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
+    }
+
+    // nvrhi::BindingSetItem::SamplerFeedbackTexture_UAV(slot, texture): all its subresources
+    export function samplerFeedbackBindingSetItem(slot: u32, texture: ISamplerFeedbackTexture): BindingSetItem {
+        return [texture, slot, 0, [<u32>RESOURCE_TYPE_SAMPLER_FEEDBACK_TEXTURE_UAV], 0, 0, [0xffffffff00000000, 0xffffffff00000000]];
     }
 
     // IDevice::createEventQuery; null on failure. Release() it.

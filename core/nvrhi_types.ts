@@ -42,6 +42,8 @@ export namespace nvrhi {
 
     // nvrhi::Feature (some)
     export const FEATURE_COMPUTE_QUEUE: u8 = 0;
+    export const FEATURE_MESHLETS: u8 = 9;
+    export const FEATURE_SAMPLER_FEEDBACK: u8 = 16;
     export const FEATURE_SHADER_SPECIALIZATIONS: u8 = 18;
 
     // nvrhi::FormatSupport (a bit mask, some)
@@ -75,11 +77,14 @@ export namespace nvrhi {
     export const RESOURCE_STATE_DEPTH_WRITE: u32 = 0x200;
     export const RESOURCE_STATE_COPY_DEST: u32 = 0x1000;
     export const RESOURCE_STATE_COPY_SOURCE: u32 = 0x2000;
+    export const RESOURCE_STATE_RESOLVE_DEST: u32 = 0x4000;
+    export const RESOURCE_STATE_RESOLVE_SOURCE: u32 = 0x8000;
 
     // nvrhi::ShaderType (a bit mask)
     export const SHADER_TYPE_VERTEX: u16 = 0x01;
     export const SHADER_TYPE_PIXEL: u16 = 0x10;
     export const SHADER_TYPE_COMPUTE: u16 = 0x20;
+    export const SHADER_TYPE_MESH: u16 = 0x80;
 
     // nvrhi::SamplerAddressMode (some)
     export const SAMPLER_ADDRESS_CLAMP: u8 = 0;
@@ -128,6 +133,11 @@ export namespace nvrhi {
     export const RESOURCE_TYPE_VOLATILE_CONSTANT_BUFFER: u8 = 10;
     export const RESOURCE_TYPE_SAMPLER: u8 = 11;
     export const RESOURCE_TYPE_PUSH_CONSTANTS: u8 = 13;
+    export const RESOURCE_TYPE_SAMPLER_FEEDBACK_TEXTURE_UAV: u8 = 14;
+
+    // nvrhi::SamplerFeedbackFormat
+    export const SAMPLER_FEEDBACK_FORMAT_MIN_MIP: u8 = 0;
+    export const SAMPLER_FEEDBACK_FORMAT_MIP_REGION_USED: u8 = 1;
 
     // nvrhi::ObjectTypes (some)
     export const OBJECT_TYPE_D3D11_DEVICE: u32 = 0x00010001;

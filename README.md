@@ -308,8 +308,8 @@ if (commandList) {
   struct passed by value is the ABIs' difference: MSVC passes a pointer to a copy, the Itanium ABI
   the fields in registers (the `TextureSubresourceSet` of `clearTextureFloat`,
   `clearDepthStencilTexture`, `clearTextureUInt`, `beginTrackingTextureState`, `setTextureState`
-  and `getNativeView`, and the `nvrhi::Object` of `createHandleForNativeTexture` and
-  `createHandleForNativeBuffer`, see the script).
+  and `getNativeView`, and the `nvrhi::Object` of `createHandleForNativeTexture`,
+  `createHandleForNativeBuffer` and `createSamplerFeedbackForNativeTexture`, see the script).
 - **Callbacks.** `nvrhi.IMessageCallback` goes the other way: a `@cpp` class extending it
   whose `message()` has a body is an object NVRHI calls, through the vtable tslang makes for it.
   Pass it to `Donut_SetNvrhiMessageCallback` before creating the app, and keep it in a global
@@ -400,8 +400,21 @@ Then one test for each of these, each with a command list of its own but the for
   dispatch there, the graphics queue waiting for it (`queueWaitForCommandList`);
 - UAV barriers turned off (`setEnableUavBarriersForBuffer`, `setEnableUavBarriersForTexture`);
 - a binding set's resources put in their states at once (`setResourceStatesForBindingSet`);
-- indexed indirect draws with a count from a buffer (`drawIndexedIndirectCount`; D3D12, as
-  Donut's Vulkan device doesn't enable `drawIndirectCount`).
+- indexed indirect draws with a count from a buffer (`drawIndexedIndirectCount`, where the device
+  counts them: D3D12, Vulkan's `drawIndirectCount`);
+- mesh shaders, where the device has them: both of `createMeshletPipeline`'s overloads,
+  `setMeshletState`, `dispatchMesh`, `dispatchMeshIndirect` and `dispatchMeshIndirectCount`, a
+  quarter each;
+- a tiled texture, where the device has them: `getTextureTiling`, one tile mapped by
+  `updateTextureTileMappings`, cleared and read back;
+- sampler feedback, where the device has it (D3D12): `createSamplerFeedbackTexture` and
+  `createSamplerFeedbackForNativeTexture`, `clearSamplerFeedbackTexture`,
+  `setSamplerFeedbackTextureState`, a pixel shader writing feedback of two mip levels, and
+  `decodeSamplerFeedbackTexture` into a buffer read back.
+
+The tests of what a device may not have say "not tested" when it doesn't. Headless devices are
+made with the core features windowed ones are (Vulkan's `drawIndirectCount` and sparse residency
+among them).
 
 `isAftermathEnabled` and `getAftermathCrashDumpHelper` are checked with the device.
 
