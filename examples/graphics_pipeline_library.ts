@@ -2,8 +2,34 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace GraphicsPipelineLibrary {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame (seeded with 0). The corners are the dark blue clear color; the
+    // teapot of the one pipeline there is at first covers about 3% of the frame, in its top left
+    // cell.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x330000);
+        if (corners != "") {
+            return corners;
+        }
+        const cell = check.share(check.countOtherThan(0x330000, 0, 0, check.width / 2, check.height / 2),
+            (check.width / 2) * (check.height / 2), 8.0, 20.0, "Teapot, top left quarter");
+        if (cell != "") {
+            return cell;
+        }
+        return check.share(check.countOtherThan(0x330000, 0, 0, check.width, check.height), total,
+            2.0, 5.0, "Teapot");
+    }
+
     const WINDOW_TITLE = "Donut Example: Graphics Pipeline Library";
 
     // The sample's model (Vulkan-Samples' asset, hdr's copy: see VULKAN_SAMPLES_ASSETS_DIR in
@@ -353,7 +379,6 @@ namespace GraphicsPipelineLibrary {
             const layoutDesc = InputLayoutDesc.create();
             layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
             layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
 
             const commandList = this.app.createCommandList();
@@ -447,7 +472,7 @@ namespace GraphicsPipelineLibrary {
         Donut_SetAppName("graphics_pipeline_library");
 
         // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).
-        const args = new GraphicsPipelineLibraryArgs(argc, argv);
+        const args = new GraphicsPipelineLibraryArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -460,7 +485,8 @@ namespace GraphicsPipelineLibrary {
 
         const sample = new GraphicsPipelineLibraryPass(app);
         sample.benchmark = args.benchmark;
-        if (!sample.init(args.seed)) {
+        // -test without -seed: seeded with 0, for the same colors and lighting models every run.
+        if (!sample.init(args.test && args.seed < 0 ? 0 : args.seed)) {
             app.destroy();
             return 1;
         }
@@ -477,8 +503,12 @@ namespace GraphicsPipelineLibrary {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

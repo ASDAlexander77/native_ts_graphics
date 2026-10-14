@@ -188,26 +188,35 @@ struct BasicVSOutput
     float3 color : COLOR;
 };
 
-float4 basicPosition(VSInput input)
+// The input of the basic shaders that don't read the texture coordinates, with an input layout
+// of its own (an attribute a shader doesn't read is a Vulkan validation warning; D3D12 wants the
+// input layout to have every one it declares).
+struct VSInputNoUV
 {
-    return mul(mul(float4(input.pos, 1.0), g_Push.model), g_ProjView);
+    float3 pos : POSITION;
+    float3 normal : NORMAL;
+};
+
+float4 basicPosition(float3 pos)
+{
+    return mul(mul(float4(pos, 1.0), g_Push.model), g_ProjView);
 }
 
 // basic_normals.vert
-BasicVSOutput basic_normals_vs(VSInput input)
+BasicVSOutput basic_normals_vs(VSInputNoUV input)
 {
     BasicVSOutput output;
     output.color = input.normal;
-    output.position = basicPosition(input);
+    output.position = basicPosition(input.pos);
     return output;
 }
 
 // basic_pos.vert
-BasicVSOutput basic_pos_vs(VSInput input)
+BasicVSOutput basic_pos_vs(VSInputNoUV input)
 {
     BasicVSOutput output;
     output.color = input.pos;
-    output.position = basicPosition(input);
+    output.position = basicPosition(input.pos);
     return output;
 }
 
@@ -216,16 +225,16 @@ BasicVSOutput basic_uv_vs(VSInput input)
 {
     BasicVSOutput output;
     output.color = float3(input.uv, 0);
-    output.position = basicPosition(input);
+    output.position = basicPosition(input.pos);
     return output;
 }
 
 // basic_n_dot_l.vert (its output is the normal)
-BasicVSOutput basic_n_dot_l_vs(VSInput input)
+BasicVSOutput basic_n_dot_l_vs(VSInputNoUV input)
 {
     BasicVSOutput output;
     output.color = transformNormal(input.normal, g_Push.model);
-    output.position = basicPosition(input);
+    output.position = basicPosition(input.pos);
     return output;
 }
 

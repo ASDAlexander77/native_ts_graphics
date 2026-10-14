@@ -2,8 +2,32 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace SimpleBezier {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the gray clear color; the tessellated red
+    // Bezier patches cover about 30% of the frame, red in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x414141);
+        if (corners != "") {
+            return corners;
+        }
+        const middle = check.rgb(check.width / 2, check.height / 2);
+        if ((middle & 0xFF) < 150 || ((middle >> 8) & 0xFF) > 60) {
+            return "the middle isn't the patches' red";
+        }
+        return check.share(check.countInRange(151, 255, 0, 89, 0, 89, 0, 0, check.width, check.height), total,
+            25.0, 36.0, "Patches");
+    }
+
     const WINDOW_TITLE = "Donut Example: Simple Bezier";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
     // The sample's SegoeUI_18 sprite font (its lines 32 pixels apart) as the OpenSans size giving
@@ -595,7 +619,7 @@ namespace SimpleBezier {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_bezier");
 
-        const args = new SimpleBezierArgs(argc, argv);
+        const args = new SimpleBezierArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's sRGB back buffers (gamma-correct rendering), in a 1280 x 720 window.
@@ -632,8 +656,12 @@ namespace SimpleBezier {
         }
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
