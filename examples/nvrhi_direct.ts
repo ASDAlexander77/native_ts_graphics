@@ -50,8 +50,9 @@ namespace NvrhiDirect {
     // barriers turned off (testUavBarrierControl), a binding set's states set at once
     // (testBindingSetStates), indexed indirect draws with a count (testDrawIndexedIndirectCount),
     // mesh shaders (testMeshShaders), a tiled texture (testTiledTexture), sampler feedback
-    // (testSamplerFeedback) and ray tracing (testRayTracing); the last four where the device has
-    // them.
+    // (testSamplerFeedback), ray tracing and opacity micromaps (testRayTracing), cooperative vectors
+    // (testCooperativeVectors) and ray tracing clusters (testClusters); the last six where the device
+    // has them.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -2892,9 +2893,9 @@ namespace NvrhiDirect {
         return texture;
     }
 
-    // Checks what testRayTracing's rays traced into a staging texture: the left half hit (red), the
-    // right half missed (blue), half green from the callable shader
-    function rayTracedMismatches(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture, what: string): void {
+    // Checks what testRayTracing's rays traced into a staging texture: the left half hit (red) and
+    // the right half missed (blue), or the other way around, half green from the callable shader
+    function rayTraced(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture, what: string, leftHit: boolean): void {
         const pixels = readStaging(device, staging);
         if (pixels.length == 0) {
             return;
@@ -2904,7 +2905,7 @@ namespace NvrhiDirect {
         for (let y = 0; y < TEXTURE_SIZE; y++) {
             for (let x = 0; x < TEXTURE_SIZE; x++) {
                 const i = 4 * (y * TEXTURE_SIZE + x);
-                if (x < TEXTURE_SIZE / 2) {
+                if ((x < TEXTURE_SIZE / 2) == leftHit) {
                     if (!sameColor(pixels, i, 255, 128, 0)) {
                         hitMismatches++;
                     }
@@ -2914,7 +2915,7 @@ namespace NvrhiDirect {
             }
         }
         const last = 4 * (TEXTURE_SIZE - 1);
-        console.log(`Rays through ${what}: hit (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), missed (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+        console.log(`Rays through ${what}: left (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), right (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
         const half = TEXTURE_SIZE * TEXTURE_SIZE / 2;
         check(hitMismatches == 0, `rays hitting the triangle through ${what} (${hitMismatches} of ${half} pixels differ)`);
         check(missMismatches == 0, `rays missing the triangle through ${what} (${missMismatches} of ${half} pixels differ)`);
@@ -2938,7 +2939,8 @@ namespace NvrhiDirect {
     //   addHitGroup, addCallableShader, getNumEntries, getPipeline, getDesc); another table, its
     //   entries cleared (clearMissShaders, clearHitShaders, clearCallableShaders);
     // - setRayTracingState and dispatchRays through each top level structure into a texture of its
-    //   own, read back: the triangle's half hit, the other missed.
+    //   own, read back: the triangle's half hit, the other missed;
+    // - where the device has them, opacity micromaps (traceOpacityMicromaps).
     function testRayTracing(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
         const supported = device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_ACCEL_STRUCT, null, 0)
             && device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_PIPELINE, null, 0);
@@ -2947,6 +2949,8 @@ namespace NvrhiDirect {
             console.log("Ray tracing: none, not tested");
             return;
         }
+        const opacityMicromaps = device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_OPACITY_MICROMAP, null, 0);
+        console.log(`IDevice::queryFeatureSupport(RayTracingOpacityMicromap): ${opacityMicromaps}`);
 
         // the geometry and instance buffers (isAccelStructBuildInput)
         let inputDesc = nvrhi.bufferDesc(3 * 4, "RT indices", nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
@@ -3033,7 +3037,7 @@ namespace NvrhiDirect {
         check(Deref(rayGen.getDesc()).shaderType == nvrhi.SHADER_TYPE_RAY_GENERATION, "IShaderLibrary::getShader's shader");
         const pipeline = nvrhi.createRayTracingPipeline(device,
             [nvrhi.pipelineShaderDesc(rayGen), nvrhi.pipelineShaderDesc(miss), nvrhi.pipelineShaderDesc(callable)],
-            [nvrhi.pipelineHitGroupDesc("HitGroup", closestHit)], layout, 16);
+            [nvrhi.pipelineHitGroupDesc("HitGroup", closestHit)], layout, 16, opacityMicromaps);
         if (!pipeline) {
             check(false, "IDevice::createRayTracingPipeline");
             return;
@@ -3135,9 +3139,15 @@ namespace NvrhiDirect {
         nvrhi.executeCommandList(device, traceList);
         check(device.waitForIdle(), "IDevice::waitForIdle after the rays");
 
-        rayTracedMismatches(device, stagings[0], "a TLAS of an InstanceDesc");
-        rayTracedMismatches(device, stagings[1], "its copy");
-        rayTracedMismatches(device, stagings[2], "a placed TLAS built from a buffer");
+        rayTraced(device, stagings[0], "a TLAS of an InstanceDesc", true);
+        rayTraced(device, stagings[1], "its copy", true);
+        rayTraced(device, stagings[2], "a placed TLAS built from a buffer", true);
+
+        if (opacityMicromaps) {
+            traceOpacityMicromaps(device, shaderTable, layout);
+        } else {
+            console.log("Opacity micromaps: none, not tested");
+        }
 
         for (let i = 0; i < 3; i++) {
             bindingSets[i].Release();
@@ -3164,6 +3174,294 @@ namespace NvrhiDirect {
         traceList.Release();
         buildList.Release();
         instanceBuffer.Release();
+        vertexBuffer.Release();
+        indexBuffer.Release();
+    }
+
+    // traceOpacityMicromaps' two triangles, the x, y, z of their vertices: the ray tracing test's,
+    // covering x < 0, and its mirror image, covering x > 0
+    const OMM_VERTICES: f32[] = [-4, -4, 1, 0, -4, 1, 0, 4, 1, 4, -4, 1, 0, -4, 1, 0, 4, 1];
+
+    // An acceleration structure input buffer of byteSize bytes; null on failure.
+    function buildInputBuffer(device: nvrhi.IDevice, byteSize: int, name: string): nvrhi.IBuffer | null {
+        let desc = nvrhi.bufferDesc(byteSize, name, nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
+        desc.isAccelStructBuildInput = true;
+        return nvrhi.createBuffer(device, desc);
+    }
+
+    // Opacity micromaps, with command lists of their own, through testRayTracing's shader table
+    // and binding layout (its pipeline allowing them): an array of two OMMs of one micro-triangle
+    // (subdivision level 0) of two states, the first transparent, the second opaque
+    // (IDevice::createOpacityMicromap of an rt::OpacityMicromapDesc, ICommandList::
+    // buildOpacityMicromap; IOpacityMicromap::getDesc, isCompacted, getDeviceAddress); a bottom level
+    // structure of two triangles (not opaque: an OMM decides), the left one's OMM index 0, the right
+    // one's 1, and a top level one of it. The rays: the left half missed, the right half hit.
+    function traceOpacityMicromaps(device: nvrhi.IDevice, shaderTable: nvrhi.IShaderTable, layout: nvrhi.IBindingLayout): void {
+        const indexBuffer = buildInputBuffer(device, 6 * 4, "OMM indices");
+        const vertexBuffer = buildInputBuffer(device, 18 * 4, "OMM vertices");
+        const ommData = buildInputBuffer(device, 8, "OMM data");
+        const ommDescs = buildInputBuffer(device, 16, "OMM descs");
+        const ommIndices = buildInputBuffer(device, 2 * 4, "OMM index buf");
+        const output = rayTracingOutput(device, "Traced OMMs");
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!indexBuffer || !vertexBuffer || !ommData || !ommDescs || !ommIndices || !output || !staging || !commandList) {
+            check(false, "the opacity micromap test's buffers, textures and command list");
+            return;
+        }
+
+        // two OMMs of level 0 and two states: their one micro-triangle's state bit (0
+        // transparent, 1 opaque), 4 bytes apart; their descs (data offset, then level and format)
+        let usage: nvrhi.OpacityMicromapUsageCount[] = [[2, 0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE]];
+        const ommDesc = nvrhi.opacityMicromapDesc(ommData, ommDescs, usage, "OMM array");
+        const omm = nvrhi.createOpacityMicromap(device, ommDesc);
+        if (!omm) {
+            check(false, "IDevice::createOpacityMicromap");
+            return;
+        }
+        const keptOmmDesc = Deref(omm.getDesc());
+        check(nvrhi.stdStringIs(keptOmmDesc.debugName, "OMM array") && nvrhi.stdVectorSize(keptOmmDesc.counts) == 1
+            && keptOmmDesc.flags == nvrhi.OPACITY_MICROMAP_BUILD_FAST_TRACE, "IOpacityMicromap::getDesc");
+        check(!omm.isCompacted(), "IOpacityMicromap::isCompacted");
+
+        let geometries: nvrhi.GeometryDesc[] = [nvrhi.triangleGeometryDesc(indexBuffer, 6, vertexBuffer, 6)];
+        geometries[0].flags = nvrhi.GEOMETRY_FLAGS_NONE;
+        geometries[0].geometryData.opacityMicromap = omm;
+        geometries[0].geometryData.ommIndexBuffer = ommIndices;
+        geometries[0].geometryData.ommIndexFormat = <u8>Format.R32_UINT;
+        geometries[0].geometryData.pOmmUsageCounts = Ref(usage[0]);
+        geometries[0].geometryData.numOmmUsageCounts = 1;
+        const blas = nvrhi.createAccelStruct(device,
+            nvrhi.accelStructDesc(geometries, 0, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE, "OMM BLAS", false));
+        let noGeometries: nvrhi.GeometryDesc[] = [];
+        const tlas = nvrhi.createAccelStruct(device,
+            nvrhi.accelStructDesc(noGeometries, 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE, "OMM TLAS", false));
+        if (!blas || !tlas) {
+            check(false, "IDevice::createAccelStruct of the opacity micromap test");
+            return;
+        }
+        const bindingSet = nvrhi.createBindingSet(device, layout, [
+            nvrhi.accelStructBindingSetItem(0, tlas), nvrhi.textureUavBindingSetItem(0, output)]);
+        if (!bindingSet) {
+            check(false, "IDevice::createBindingSet of the opacity micromap test");
+            return;
+        }
+
+        let indices: u32[] = [0, 1, 2, 3, 4, 5];
+        let vertices = OMM_VERTICES;
+        let states: u8[] = [0, 0, 0, 0, 1, 0, 0, 0];
+        let descs: u32[] = [0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000, 4, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000];
+        let triangleOmms: u32[] = [0, 1];
+        let instances: nvrhi.InstanceDesc[] = [nvrhi.instanceDesc(blas)];
+        let ommDescValue = ommDesc;
+        commandList.open();
+        commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 6 * 4, 0);
+        commandList.writeBuffer(vertexBuffer, <Opaque>Ref(vertices[0]), 18 * 4, 0);
+        commandList.writeBuffer(ommData, <Opaque>Ref(states[0]), 8, 0);
+        commandList.writeBuffer(ommDescs, <Opaque>Ref(descs[0]), 16, 0);
+        commandList.writeBuffer(ommIndices, <Opaque>Ref(triangleOmms[0]), 2 * 4, 0);
+        commandList.buildOpacityMicromap(omm, Ref(ommDescValue));
+        commandList.buildBottomLevelAccelStruct(blas, Ref(geometries[0]), 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE);
+        commandList.buildTopLevelAccelStruct(tlas, Ref(instances[0]), 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the opacity micromap builds");
+        check(omm.getDeviceAddress() != 0, "IOpacityMicromap::getDeviceAddress");
+
+        commandList.open();
+        nvrhi.setRayTracingState(commandList, shaderTable, bindingSet);
+        nvrhi.dispatchRays(commandList, TEXTURE_SIZE, TEXTURE_SIZE);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), output, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the rays through opacity micromaps");
+        rayTraced(device, staging, "opacity micromaps", false);
+
+        commandList.Release();
+        bindingSet.Release();
+        tlas.Release();
+        blas.Release();
+        omm.Release();
+        staging.Release();
+        output.Release();
+        ommIndices.Release();
+        ommDescs.Release();
+        ommData.Release();
+        vertexBuffer.Release();
+        indexBuffer.Release();
+    }
+
+    // The coopvec::MatMulFormatCombo of float16 throughout (input, its interpretation, the
+    // matrix's, the bias', the output), not transposed
+    function float16Combo(): nvrhi.MatMulFormatCombo {
+        const f16 = nvrhi.COOPVEC_DATA_TYPE_FLOAT16;
+        return [f16, f16, f16, f16, f16, false];
+    }
+
+    // A ConvertMatrixLayoutDesc of a 4 x 4 float16 matrix from src's layout to dst's (each of size
+    // bytes, its own layout's stride)
+    function convertDesc(src: nvrhi.IBuffer, srcLayout: s32, srcSize: index, dst: nvrhi.IBuffer, dstLayout: s32,
+        dstSize: index): nvrhi.ConvertMatrixLayoutDesc {
+        const f16 = nvrhi.COOPVEC_DATA_TYPE_FLOAT16;
+        return [[src, 0, f16, srcLayout, srcSize, 0], [dst, 0, f16, dstLayout, dstSize, 0], 4, 4];
+    }
+
+    // Cooperative vectors, with a command list of their own where the device has them
+    // (queryFeatureSupport CooperativeVectorInferencing; Donut turns on Vulkan's
+    // VK_NV_cooperative_vector): IDevice::queryCoopVecFeatures (a coopvec::DeviceFeatures returned by
+    // value: its std::vector isn't freed, C++ never seeing it end), queryCoopVecMatMulFormatSupport
+    // of float16 (supported where cooperative vectors are), queryCoopVecTrainingFormatSupport (as
+    // DeviceFeatures says), getCoopVecMatrixSize of a 4 x 4 float16 matrix (32 bytes row-major); then
+    // ICommandList::convertCoopVecMatrices of it from row-major to the inferencing-optimal layout
+    // and back, read back: the matrix again.
+    function testCooperativeVectors(device: nvrhi.IDevice): void {
+        const inferencing = device.queryFeatureSupport(nvrhi.FEATURE_COOPERATIVE_VECTOR_INFERENCING, null, 0);
+        const training = device.queryFeatureSupport(nvrhi.FEATURE_COOPERATIVE_VECTOR_TRAINING, null, 0);
+        const features = device.queryCoopVecFeatures();
+        const formats = nvrhi.stdVectorSize(features.matMulFormats);
+        const support = nvrhi.queryCoopVecMatMulFormatSupport(device, float16Combo());
+        const trainingSupport = nvrhi.queryCoopVecTrainingFormatSupport(device, nvrhi.COOPVEC_DATA_TYPE_FLOAT16);
+        console.log(`Cooperative vectors: inferencing ${inferencing}, training ${training}; ${formats} matrix formats, `
+            + `float16 ${support.supported}, float16 training ${trainingSupport.bufferTrainingSupported}`);
+        check(support.supported == inferencing, "IDevice::queryCoopVecMatMulFormatSupport of float16: where cooperative vectors are");
+        check(trainingSupport.bufferTrainingSupported == features.trainingFloat16,
+            "IDevice::queryCoopVecTrainingFormatSupport and queryCoopVecFeatures agree");
+        check(inferencing || formats == 0, "IDevice::queryCoopVecFeatures: no formats without cooperative vectors");
+        if (!inferencing) {
+            console.log("Cooperative vectors: none, not tested");
+            return;
+        }
+
+        const rowMajorSize = device.getCoopVecMatrixSize(nvrhi.COOPVEC_DATA_TYPE_FLOAT16, nvrhi.COOPVEC_LAYOUT_ROW_MAJOR, 4, 4);
+        const optimalSize = device.getCoopVecMatrixSize(nvrhi.COOPVEC_DATA_TYPE_FLOAT16, nvrhi.COOPVEC_LAYOUT_INFERENCING_OPTIMAL, 4, 4);
+        console.log(`IDevice::getCoopVecMatrixSize: row-major ${rowMajorSize}, inferencing-optimal ${optimalSize}`);
+        check(rowMajorSize == 32 && optimalSize >= 32, "IDevice::getCoopVecMatrixSize");
+        let matrixDesc = nvrhi.bufferDesc(<int>optimalSize, "Matrix", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_NONE);
+        matrixDesc.canHaveUAVs = true;
+        const rowMajor = nvrhi.createBuffer(device, matrixDesc);
+        matrixDesc.debugName = nvrhi.stdString("Optimal matrix");
+        const optimal = nvrhi.createBuffer(device, matrixDesc);
+        matrixDesc.debugName = nvrhi.stdString("Matrix again");
+        const again = nvrhi.createBuffer(device, matrixDesc);
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(32, "Matrix back", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_READ));
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!rowMajor || !optimal || !again || !readback || !commandList) {
+            check(false, "the cooperative vector test's buffers and command list");
+            return;
+        }
+
+        // the matrix: 16 float16 values from 1 up (0x3c00 is 1.0)
+        let values: u16[] = [];
+        for (let i = 0; i < 16; i++) {
+            values.push(0x3c00 + i);
+        }
+        let toOptimal: nvrhi.ConvertMatrixLayoutDesc[] = [convertDesc(rowMajor, nvrhi.COOPVEC_LAYOUT_ROW_MAJOR, rowMajorSize,
+            optimal, nvrhi.COOPVEC_LAYOUT_INFERENCING_OPTIMAL, optimalSize)];
+        let back: nvrhi.ConvertMatrixLayoutDesc[] = [convertDesc(optimal, nvrhi.COOPVEC_LAYOUT_INFERENCING_OPTIMAL, optimalSize,
+            again, nvrhi.COOPVEC_LAYOUT_ROW_MAJOR, rowMajorSize)];
+        commandList.open();
+        commandList.writeBuffer(rowMajor, <Opaque>Ref(values[0]), 32, 0);
+        commandList.convertCoopVecMatrices(Ref(toOptimal[0]), 1);
+        commandList.convertCoopVecMatrices(Ref(back[0]), 1);
+        commandList.copyBuffer(readback, 0, again, 0, 32);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the cooperative vector test");
+
+        const mapped = <Ref<u16>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let mismatches = 0;
+        for (let i = 0; i < 16; i++) {
+            if (Deref(mapped[i]) != 0x3c00 + i) {
+                mismatches++;
+            }
+        }
+        console.log(`Matrix converted there and back: ${Deref(mapped[0])}, ..., ${Deref(mapped[15])}`);
+        device.unmapBuffer(readback);
+        check(mismatches == 0, `ICommandList::convertCoopVecMatrices there and back (${mismatches} of 16 values differ)`);
+
+        commandList.Release();
+        readback.Release();
+        again.Release();
+        optimal.Release();
+        rowMajor.Release();
+    }
+
+    // Ray tracing clusters, with a command list of their own where the device has them
+    // (queryFeatureSupport RayTracingClusters: Vulkan's VK_NV_cluster_acceleration_structure;
+    // D3D12's need NVAPI, which this build hasn't): a cluster acceleration structure (CLAS) build of
+    // the ray tracing test's triangle in the mode that gets sizes only (rt::cluster::OperationParams,
+    // IDevice::getClusterOperationSizeInfo), its indirect arguments (nvrhi::rt::cluster::
+    // IndirectTriangleClasArgs: 64 bytes, the buffers' addresses in them) and count from buffers
+    // (ICommandList::executeMultiIndirectClusterOperation). The size it writes: more than 0.
+    function testClusters(device: nvrhi.IDevice): void {
+        const supported = device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_CLUSTERS, null, 0);
+        console.log(`IDevice::queryFeatureSupport(RayTracingClusters): ${supported}`);
+        if (!supported) {
+            console.log("Ray tracing clusters: none, not tested");
+            return;
+        }
+
+        // one CLAS of one triangle, three RGB32_FLOAT vertices
+        let params: nvrhi.OperationParams = [1, nvrhi.CLUSTER_OPERATION_CLAS_BUILD, nvrhi.CLUSTER_OPERATION_MODE_GET_SIZES, 0,
+            [0, 0], [<u8>Format.RGB32_FLOAT, 0, 1, 1, 3, 1, 3, 0], [0, 0]];
+        const sizeInfo = device.getClusterOperationSizeInfo(Ref(params));
+        console.log(`IDevice::getClusterOperationSizeInfo: result ${sizeInfo.resultMaxSizeInBytes}, scratch ${sizeInfo.scratchSizeInBytes}`);
+        check(sizeInfo.scratchSizeInBytes > 0, "IDevice::getClusterOperationSizeInfo");
+
+        const indexBuffer = buildInputBuffer(device, 3 * 4, "Cluster indices");
+        const vertexBuffer = buildInputBuffer(device, 9 * 4, "Cluster vertices");
+        let argsDesc = nvrhi.bufferDesc(64, "Cluster args", nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
+        argsDesc.isAccelStructBuildInput = true;
+        argsDesc.structStride = 64;
+        const argsBuffer = nvrhi.createBuffer(device, argsDesc);
+        const countBuffer = buildInputBuffer(device, 4, "Cluster count");
+        let sizesDesc = nvrhi.bufferDesc(4, "Cluster sizes", nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
+        sizesDesc.canHaveUAVs = true;
+        sizesDesc.structStride = 4;
+        const sizesBuffer = nvrhi.createBuffer(device, sizesDesc);
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(4, "Sizes back", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_READ));
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!indexBuffer || !vertexBuffer || !argsBuffer || !countBuffer || !sizesBuffer || !readback || !commandList) {
+            check(false, "the cluster test's buffers and command list");
+            return;
+        }
+
+        // IndirectTriangleClasArgs: cluster ID, cluster flags; the triangle count (9 bits), vertex
+        // count (9), position truncation (6), index format (4: 32-bit) and OMM index format (4); base
+        // geometry index and flags; the index, vertex, geometry index and OMM index strides (16 bits
+        // each); then the index, vertex, geometry index, OMM array and OMM index buffers' addresses
+        let header: u32[] = [0, 0, 1 + 3 * 0x200 + nvrhi.CLUSTER_INDEX_FORMAT_32BIT * 0x1000000, 0, 4 + 12 * 0x10000, 0];
+        let addresses: u64[] = [indexBuffer.getGpuVirtualAddress(), vertexBuffer.getGpuVirtualAddress(), 0, 0, 0];
+        let indices: u32[] = [0, 1, 2];
+        let vertices = RT_VERTICES;
+        let count: u32[] = [1];
+        let noSize: u32[] = [0];
+        let desc: nvrhi.OperationDesc = [params, sizeInfo.scratchSizeInBytes, countBuffer, 0, argsBuffer, 0, null, 0,
+            sizesBuffer, 0, null, 0];
+        commandList.open();
+        commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
+        commandList.writeBuffer(vertexBuffer, <Opaque>Ref(vertices[0]), 9 * 4, 0);
+        commandList.writeBuffer(argsBuffer, <Opaque>Ref(header[0]), 24, 0);
+        commandList.writeBuffer(argsBuffer, <Opaque>Ref(addresses[0]), 40, 24);
+        commandList.writeBuffer(countBuffer, <Opaque>Ref(count[0]), 4, 0);
+        commandList.writeBuffer(sizesBuffer, <Opaque>Ref(noSize[0]), 4, 0);
+        commandList.executeMultiIndirectClusterOperation(Ref(desc));
+        commandList.copyBuffer(readback, 0, sizesBuffer, 0, 4);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the cluster test");
+
+        const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        const size = Deref(mapped[0]);
+        device.unmapBuffer(readback);
+        console.log(`ICommandList::executeMultiIndirectClusterOperation: a CLAS of ${size} bytes`);
+        check(size > 0, "ICommandList::executeMultiIndirectClusterOperation's CLAS size");
+
+        commandList.Release();
+        readback.Release();
+        sizesBuffer.Release();
+        countBuffer.Release();
+        argsBuffer.Release();
         vertexBuffer.Release();
         indexBuffer.Release();
     }
@@ -3577,6 +3875,8 @@ namespace NvrhiDirect {
         testTiledTexture(app, device);
         testSamplerFeedback(app, device, isD3D12);
         testRayTracing(app, device, isD3D12);
+        testCooperativeVectors(device);
+        testClusters(device);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();

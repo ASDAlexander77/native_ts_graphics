@@ -420,11 +420,20 @@ Then one test for each of these, each with a command list of its own but the for
   (`buildTopLevelAccelStructFromBuffer`); a shader library (`createShaderLibrary`, `getShader`), a
   ray tracing pipeline and shader tables with a ray generation, miss, hit group and callable
   entry (and their `clear*` methods); `setRayTracingState` and `dispatchRays` through each top
-  level structure.
+  level structure;
+- opacity micromaps, where the device has them: an array of two (`createOpacityMicromap`,
+  `buildOpacityMicromap`), one transparent and one opaque, in a bottom level structure of two
+  triangles traced through: the transparent one's rays miss;
+- cooperative vectors: the queries (`queryCoopVecFeatures`, `queryCoopVecMatMulFormatSupport`,
+  `queryCoopVecTrainingFormatSupport`, `getCoopVecMatrixSize`), and where the device has them a
+  matrix converted to the inferencing-optimal layout and back (`convertCoopVecMatrices`);
+- ray tracing clusters, where the device has them (Vulkan's `VK_NV_cluster_acceleration_structure`;
+  D3D12's need NVAPI): `getClusterOperationSizeInfo` and `executeMultiIndirectClusterOperation`
+  getting a cluster acceleration structure's size from indirect arguments.
 
 The tests of what a device may not have say "not tested" when it doesn't. Headless devices are
 made with the core features windowed ones are (Vulkan's `drawIndirectCount` and sparse residency
-among them).
+among them), and with Vulkan's cooperative vectors, and opacity micromaps with ray tracing.
 
 `isAftermathEnabled` and `getAftermathCrashDumpHelper` are checked with the device.
 
