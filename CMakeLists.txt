@@ -885,10 +885,12 @@ if (DONUT_SAMPLES_MEDIA_DIR)
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media")
 endif()
 add_tslang_example(threaded_rendering MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example_test(threaded_rendering)
 
 # Port of Donut-Samples' deferred_shading: no shaders of its own (Donut's G-buffer fill and
 # deferred lighting passes); uses media/nvidia-logo.png, copied with the media folder above.
 add_tslang_example(deferred_shading MEDIA nvidia-logo.png)
+add_tslang_example_test(deferred_shading)
 
 # Port of Donut-Samples' rt_shadows: ray traced sun shadows on Sponza (see DONUT_SAMPLES_MEDIA_DIR
 # above). Ray tracing needs D3D12 or Vulkan, so no DXBC.
@@ -926,6 +928,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/async_compute
 )
 add_tslang_example(async_compute)
+add_tslang_example_test(async_compute)
 
 # Port of Vulkan-Samples' compute_nbody: an N-body simulation in two compute passes, drawn as
 # additively blended sprites.
@@ -1603,6 +1606,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/render_octomap
 )
 add_tslang_example(render_octomap MEDIA render_octomap)
+add_tslang_example_test(render_octomap)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(octomap_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/octmap_and_splats")
     file(GLOB octomap_files RELATIVE "${octomap_source}" "${octomap_source}/*.bin" "${octomap_source}/*.gltf")
@@ -2153,6 +2157,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/timestamp_queries
 )
 add_tslang_example(timestamp_queries MEDIA hdr)
+add_tslang_example_test(timestamp_queries)
 if (TARGET hdr_media)
     add_dependencies(timestamp_queries hdr_media)
 endif()
@@ -2628,6 +2633,7 @@ if (WIN32)
         OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/video_texture
     )
     add_tslang_example(video_texture core/video_player.ts core/video_player.cpp MEDIA fonts video_texture)
+    add_tslang_example_test(video_texture)
     target_link_libraries(video_texture PRIVATE delayimp)
     target_link_options(video_texture PRIVATE /DELAYLOAD:mfplat.dll)
     if (XBOX_ATG_SAMPLES_DIR)
@@ -2689,6 +2695,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bokeh
 )
 add_tslang_example(bokeh core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts bokeh)
+add_tslang_example_test(bokeh)
 add_atg_media(bokeh bokeh
     Media/Meshes/MicroscopeCity/scanner.sdkmesh
     Media/Meshes/MicroscopeCity/occcity.sdkmesh
@@ -2802,6 +2809,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mouse_cursor
 )
 add_tslang_example(mouse_cursor core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts mouse_cursor)
+add_tslang_example_test(mouse_cursor)
 add_atg_media(mouse_cursor mouse_cursor
     Media/Meshes/FPSRoom/FPSRoom.sdkmesh
     Media/Meshes/FPSRoom/ABox001LightingMap.dds
@@ -2845,6 +2853,7 @@ if (ANDROID)
         INCLUDE_DIRECTORIES "${directxmath_SOURCE_DIR}/Inc;${CMAKE_CURRENT_SOURCE_DIR}/core/sal")
 endif()
 add_tslang_example(collision core/directx_collision.cpp MEDIA fonts)
+add_tslang_example_test(collision)
 
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
 # triangles and a plane, two rotating, ray traced with per-instance colors and shadow rays; the
@@ -3312,6 +3321,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/predication_queries/spirv
 )
 add_tslang_example(predication_queries)
+add_tslang_example_test(predication_queries)
 
 # Port of DirectX-Graphics-Samples' D3D12SmallResources: 77 small (32 x 32) textures, either placed
 # in one heap at D3D12's 4 KB small resource alignment or created as committed resources (64 KB each);

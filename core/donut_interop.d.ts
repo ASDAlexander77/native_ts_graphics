@@ -977,6 +977,9 @@ declare function Donut_SetVsyncEnabled(app: AppHandle, enabled: int): void;
 // Lags Donut_SetVsyncEnabled by up to a frame.
 declare function Donut_IsVsyncEnabled(app: AppHandle): int;
 declare function Donut_CloseWindow(app: AppHandle): void;
+// Blocks the calling thread for `milliseconds` (-test waiting on work that runs in real time, as a
+// video's decoding).
+declare function Donut_SleepMilliseconds(milliseconds: int): void;
 
 // GLFW's cursor modes.
 enum CursorMode {

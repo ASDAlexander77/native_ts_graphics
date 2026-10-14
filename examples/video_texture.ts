@@ -2,9 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 import { VideoPlayer } from "../core/video_player";
 
 namespace VideoTexture {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the gray clear color; the cube in the middle
+    // shows the video (the first frame waited for it), its light making bright pixels there.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x414141);
+        if (corners != "") {
+            return corners;
+        }
+        const bright = check.countInRange(151, 255, 151, 255, 151, 255, 480, 190, 310, 350);
+        console.log(`Bright pixels on the cube: ${bright}`);
+        if (bright < 50) {
+            return `${bright} bright pixels on the cube: no video on it`;
+        }
+        return "";
+    }
+
     const WINDOW_TITLE = "Donut Example: Video Texture";
     const VIDEO_PATH = "media/video_texture/SampleVideo.mp4";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
@@ -146,6 +170,9 @@ namespace VideoTexture {
         private cubePipeline: GraphicsPipelineHandle | null;
         private spritePipeline: GraphicsPipelineHandle | null;
         private time: number;
+        // -test: the first frame waits for the video's first (it plays in real time, the test's
+        // frames much faster), so that the video is on the cube.
+        waitForVideo: boolean = false;
 
         show3D: boolean;
         frameWidth: int;
@@ -252,19 +279,35 @@ namespace VideoTexture {
             }
         }
 
+        // The video's next frame, if there is one, into its texture; 1 if there was one.
+        transferVideoFrame(commandList: CommandList): int {
+            const shared = this.sharedTexture;
+            if (shared) {
+                return this.player.transferFrame(shared.getHandle());
+            }
+            if (this.player.transferFrameToMemory() != 0) {
+                commandList.writeTextureLevel(this.videoTexture, 0, this.player.getFrameData(),
+                    this.player.getFrameRowPitch());
+                return 1;
+            }
+            return 0;
+        }
+
         onRender(frameHandle: FrameHandle): void {
             const frame = new Frame(frameHandle);
             this.frameWidth = frame.getWidth();
             this.frameHeight = frame.getHeight();
             const commandList = frame.getCommandList();
 
-            // The sample's Render starts with the video's next frame.
-            const shared = this.sharedTexture;
-            if (shared) {
-                this.player.transferFrame(shared.getHandle());
-            } else if (this.player.transferFrameToMemory() != 0) {
-                commandList.writeTextureLevel(this.videoTexture, 0, this.player.getFrameData(),
-                    this.player.getFrameRowPitch());
+            // The sample's Render starts with the video's next frame (under -test the first one
+            // waits up to 5 seconds for it).
+            let transferred = this.transferVideoFrame(commandList);
+            if (this.waitForVideo) {
+                for (let i = 0; i < 500 && transferred == 0; i++) {
+                    Donut_SleepMilliseconds(10);
+                    transferred = this.transferVideoFrame(commandList);
+                }
+                this.waitForVideo = false;
             }
 
             let colorTarget = this.colorTarget;
@@ -494,7 +537,7 @@ namespace VideoTexture {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("video_texture");
 
-        const args = new VideoTextureArgs(argc, argv);
+        const args = new VideoTextureArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The back buffers are UNORM, as the sample's (B8G8R8A8_UNORM).
@@ -508,6 +551,7 @@ namespace VideoTexture {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const sample = new VideoTexturePass(app);
+        sample.waitForVideo = args.test;
         if (!sample.init(args.muted)) {
             app.destroy();
             return 1;
@@ -524,8 +568,12 @@ namespace VideoTexture {
         app.run();
         app.waitForIdle();
         sample.destroy();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

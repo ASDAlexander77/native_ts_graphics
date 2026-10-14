@@ -2,9 +2,30 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 
 namespace MouseCursor {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the menu over the gray background, its two green buttons about
+    // 7% of the frame.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            95.0, 100.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        return check.share(check.countInRange(0, 89, 121, 255, 0, 89, 0, 0, check.width, check.height), total,
+            5.0, 10.0, "Buttons");
+    }
+
     const WINDOW_TITLE = "Donut Example: Mouse Cursor";
     const MEDIA_DIR = "media/mouse_cursor/";
     const FONT_PATH = "media/fonts/OpenSans/OpenSans-Regular.ttf";
@@ -1162,7 +1183,7 @@ namespace MouseCursor {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mouse_cursor");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // The sample's B8G8R8A8_UNORM back buffers, in a 1280 x 720 window.
@@ -1190,8 +1211,12 @@ namespace MouseCursor {
         }
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

@@ -2,8 +2,28 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ThreadedRendering {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are black; the scene, drawn by several threads into
+    // its viewports, covers about half the frame.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        return check.share(check.countOtherThan(0x000000, 0, 0, check.width, check.height), total,
+            40.0, 58.0, "Scene");
+    }
+
     // GLFW values, as passed to the keyboard callback.
     const KEY_SPACE = 32;
     const ACTION_PRESS = 1;
@@ -143,7 +163,7 @@ namespace ThreadedRendering {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("threaded_rendering");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         if (args.api == GraphicsAPI.D3D11) {
@@ -175,8 +195,12 @@ namespace ThreadedRendering {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
