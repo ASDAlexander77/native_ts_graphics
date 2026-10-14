@@ -2,8 +2,29 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace LogicOpDynamicState {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the street around (about 88% lit), and the dark teal cube in
+    // the middle, drawn with the logic operation (copy by default).
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            75.0, 95.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        return check.share(check.countInRange(5, 40, 10, 45, 10, 45, check.width / 2 - 10, check.height / 2 - 10, 20, 20),
+            20 * 20, 90.0, 100.0, "Cube in the middle");
+    }
+
     const WINDOW_TITLE = "Donut Example: Logic Operations Dynamic State";
 
     // The sample's background model and HDR cube map (Vulkan-Samples' assets), the KTX cube map
@@ -559,7 +580,7 @@ namespace LogicOpDynamicState {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("logic_op_dynamic_state");
 
-        const args = new LogicOpDynamicStateArgs(argc, argv);
+        const args = new LogicOpDynamicStateArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -589,8 +610,12 @@ namespace LogicOpDynamicState {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

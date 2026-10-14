@@ -2,8 +2,28 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace ColorWriteEnable {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the gray background color; the triangle (all
+    // three channels written) and the settings window cover about 22% of the frame, the middle of
+    // the triangle (the frame's) colored.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0xBCBCBC);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(check.width / 2, check.height / 2) == 0xBCBCBC) {
+            return "the middle of the triangle is the background";
+        }
+        return check.share(check.countOtherThan(0xBCBCBC, 0, 0, check.width, check.height), check.width * check.height,
+            15.0, 30.0, "Triangle and window");
+    }
+
     const WINDOW_TITLE = "Donut Example: Color Write Enable";
 
     // --- Pass -------------------------------------------------------------------------------
@@ -250,7 +270,7 @@ namespace ColorWriteEnable {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("color_write_enable");
 
-        const args = new ColorWriteEnableArgs(argc, argv);
+        const args = new ColorWriteEnableArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -284,8 +304,12 @@ namespace ColorWriteEnable {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

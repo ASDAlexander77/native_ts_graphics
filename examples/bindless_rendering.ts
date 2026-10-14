@@ -2,8 +2,34 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace BindlessRendering {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: Sponza fills it (almost all lit), a quarter of it in color, its
+    // blue banners about 3%.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const lit = check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            95.0, 100.0, "Lit");
+        if (lit != "") {
+            return lit;
+        }
+        const colored = check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
+            15.0, 35.0, "Colored");
+        if (colored != "") {
+            return colored;
+        }
+        return check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
+            1.5, 5.0, "Blue banners");
+    }
+
     const WINDOW_TITLE = "Donut Example: Bindless Rendering";
     const DEFAULT_SCENE = "media/glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf";
 
@@ -253,7 +279,7 @@ namespace BindlessRendering {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("bindless_rendering");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // --scene <path>: relative to the executable's directory, or absolute.
@@ -283,8 +309,12 @@ namespace BindlessRendering {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

@@ -2,8 +2,27 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace BasicTriangle {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the black clear color; the triangle covers an
+    // eighth of the frame, its middle (the frame's) colored.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(check.width / 2, check.height / 2) == 0) {
+            return "the middle of the triangle is black";
+        }
+        return check.share(check.countOtherThan(0x000000, 0, 0, check.width, check.height), check.width * check.height,
+            10.0, 15.0, "Triangle");
+    }
+
     const WINDOW_TITLE = "Donut Example: Basic Triangle";
 
     // --- Passes -----------------------------------------------------------------------------
@@ -66,7 +85,7 @@ namespace BasicTriangle {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("basic_triangle");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -87,8 +106,12 @@ namespace BasicTriangle {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

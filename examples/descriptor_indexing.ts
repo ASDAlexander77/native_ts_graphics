@@ -2,8 +2,33 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace DescriptorIndexing {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the blue clear color; the rows of quads, each
+    // with its texture picked by index, cover about 21% of every quarter of the frame.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x664C33);
+        if (corners != "") {
+            return corners;
+        }
+        const w = check.width / 2;
+        const h = check.height / 2;
+        for (let q = 0; q < 4; q++) {
+            const x = (q % 2) * w;
+            const y = q < 2 ? 0 : h;
+            const quads = check.share(check.countOtherThan(0x664C33, x, y, w, h), w * h, 15.0, 30.0, `Quads, quarter ${q + 1}`);
+            if (quads != "") {
+                return quads;
+            }
+        }
+        return "";
+    }
+
     const WINDOW_TITLE = "Donut Example: Descriptor Indexing";
 
     // The streamed table's slots (the sample's NumDescriptorsStreaming), and the textures, one per
@@ -272,7 +297,7 @@ namespace DescriptorIndexing {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("descriptor_indexing");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         if (args.api == GraphicsAPI.D3D11) {
@@ -298,8 +323,12 @@ namespace DescriptorIndexing {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

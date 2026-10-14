@@ -2,8 +2,28 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace Instancing {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are black space; the planet in the middle and the
+    // rock instances around it light about 29% of the frame.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        if (check.rgb(check.width / 2, check.height / 2) == 0) {
+            return "no planet in the middle";
+        }
+        const total = check.width * check.height;
+        return check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
+            20.0, 40.0, "Planet and rocks");
+    }
+
     const WINDOW_TITLE = "Donut Example: Instanced Mesh Rendering";
 
     // The sample's models and textures (Vulkan-Samples' assets), the KTX textures converted to DDS at
@@ -470,7 +490,7 @@ namespace Instancing {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("instancing");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -498,8 +518,12 @@ namespace Instancing {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

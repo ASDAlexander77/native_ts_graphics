@@ -2,8 +2,34 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace VertexBuffer {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the black clear color; the four textured cubes,
+    // one in each quarter of the frame, cover about 17% of each, mostly white.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        const corners = check.corners(0x000000);
+        if (corners != "") {
+            return corners;
+        }
+        const w = check.width / 2;
+        const h = check.height / 2;
+        for (let q = 0; q < 4; q++) {
+            const x = (q % 2) * w;
+            const y = q < 2 ? 0 : h;
+            const cube = check.share(check.countOtherThan(0x000000, x, y, w, h), w * h, 10.0, 25.0, `Cube ${q + 1}`);
+            if (cube != "") {
+                return cube;
+            }
+        }
+        return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height),
+            check.width * check.height, 8.0, 20.0, "White");
+    }
+
     const WINDOW_TITLE = "Donut Example: Vertex Buffer";
 
     // --- Model --------------------------------------------------------------------------------
@@ -325,7 +351,7 @@ namespace VertexBuffer {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("vertex_buffer");
 
-        const args = new Args(argc, argv);
+        const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -345,8 +371,12 @@ namespace VertexBuffer {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

@@ -2008,6 +2008,8 @@ namespace
         features.shaderResourceResidency = available.shaderResourceResidency;
         features.pipelineStatisticsQuery = available.pipelineStatisticsQuery;
         features.logicOp = available.logicOp;
+        // Render targets blended or written each their own way (color_write_enable's write masks).
+        features.independentBlend = available.independentBlend;
         features.depthBounds = available.depthBounds;
         features.wideLines = available.wideLines;
         // SV_ClipDistance and SV_CullDistance.
