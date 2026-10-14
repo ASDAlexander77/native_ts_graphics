@@ -2,9 +2,34 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 import { TranscodedTexture } from "../core/transcoded_texture";
 
 namespace TextureCompressionBasisu {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame. The corners are the gray clear color; the transcoded parrots
+    // cover about 84% of the frame, about 6% the red parrot's red.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        const corners = check.corners(0x3F3F3F);
+        if (corners != "") {
+            return corners;
+        }
+        const drawn = check.share(check.countOtherThan(0x3F3F3F, 0, 0, check.width, check.height), total,
+            75.0, 90.0, "Image");
+        if (drawn != "") {
+            return drawn;
+        }
+        return check.share(check.countInRange(151, 255, 0, 89, 0, 89, 0, 0, check.width, check.height), total,
+            4.0, 9.0, "Red");
+    }
+
     const WINDOW_TITLE = "Donut Example: Basis Universal texture loading";
 
     // The sample's KTX 2 files (Vulkan-Samples' assets, copied at build time: see
@@ -522,7 +547,7 @@ namespace TextureCompressionBasisu {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_compression_basisu");
 
-        const args = new TextureCompressionBasisuArgs(argc, argv);
+        const args = new TextureCompressionBasisuArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -552,8 +577,12 @@ namespace TextureCompressionBasisu {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 

@@ -2,8 +2,32 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { TestCheck } from "../core/test_check";
 
 namespace SparseImage {
+    // Test mode: the frames rendered.
+    const TEST_FRAMES = 120;
+
+    // -test: checks the last frame: the sparse texture's red and white Vulkan logo art, about 32%
+    // red and 19% white, white in the middle.
+    function checkFrame(app: App): string {
+        const check = new TestCheck(app);
+        if (check.frameRead() != "") {
+            return check.frameRead();
+        }
+        const total = check.width * check.height;
+        if (check.rgb(check.width / 2, check.height / 2) != 0xFFFFFF) {
+            return "the middle isn't white";
+        }
+        const red = check.share(check.countInRange(151, 255, 0, 89, 0, 89, 0, 0, check.width, check.height), total,
+            25.0, 40.0, "Red");
+        if (red != "") {
+            return red;
+        }
+        return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
+            15.0, 25.0, "White");
+    }
+
     const WINDOW_TITLE = "Donut Example: Sparse Image";
 
     // The sample's texture (Vulkan-Samples' asset, converted to DDS at build time: see
@@ -1548,7 +1572,7 @@ namespace SparseImage {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("sparse_image");
 
-        const args = new SparseImageArgs(argc, argv);
+        const args = new SparseImageArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         const app = App.createWithOptions(args.api, WINDOW_TITLE, 1280, 720, args.options);
@@ -1577,8 +1601,12 @@ namespace SparseImage {
         const input = new InputPass(app.handle);
 
         app.run();
+        let result = 0;
+        if (args.test) {
+            result = app.finishTest(checkFrame(app));
+        }
         app.destroy();
-        return 0;
+        return result;
     }
 }
 
