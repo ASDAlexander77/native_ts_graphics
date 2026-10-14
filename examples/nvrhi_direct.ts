@@ -48,7 +48,9 @@ namespace NvrhiDirect {
     // objects (testNativeHandles), a resource's memory requirements (testResourceMemoryRequirements),
     // queries reset and used again (testQueryResets), the compute queue (testComputeQueue), UAV
     // barriers turned off (testUavBarrierControl), a binding set's states set at once
-    // (testBindingSetStates) and indexed indirect draws with a count (testDrawIndexedIndirectCount).
+    // (testBindingSetStates), indexed indirect draws with a count (testDrawIndexedIndirectCount),
+    // mesh shaders (testMeshShaders), a tiled texture (testTiledTexture) and sampler feedback
+    // (testSamplerFeedback); the last three where the device has them.
     // It checks what it reads, and on the way the device's graphics API, its native objects,
     // reference counting, debug names, the desc NVRHI keeps and the layouts of the structs it passes.
 
@@ -2410,15 +2412,15 @@ namespace NvrhiDirect {
         output.Release();
     }
 
-    // Indexed indirect draws with a count from a buffer, D3D12 only (Donut's Vulkan device doesn't
-    // enable drawIndirectCount), with a command list of their own, as testDrawIndexedIndirect's: a
+    // Indexed indirect draws with a count from a buffer, where the device counts them
+    // (countsIndirectDraws), with a command list of their own, as testDrawIndexedIndirect's: a
     // buffer of DrawIndexedIndirectArguments (three indices, one instance) and a buffer of draw
     // counts (1, 0), the graphics state's indirectCountBuffer. ICommandList::drawIndexedIndirectCount
     // of at most one draw into the left half with the count at offset 0, into the right half with
     // the count at offset 4: the left half green, the right half as cleared.
     function testDrawIndexedIndirectCount(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
-        if (!isD3D12) {
-            console.log("drawIndexedIndirectCount: not on Vulkan (drawIndirectCount isn't enabled), not tested");
+        if (!countsIndirectDraws(app)) {
+            console.log("drawIndexedIndirectCount: no counted indirect draws, not tested");
             return;
         }
         const color = nvrhi.createTexture(device, renderTargetDesc());
@@ -2514,6 +2516,364 @@ namespace NvrhiDirect {
         pixelShader.Release();
         staging.Release();
         color.Release();
+    }
+
+    // Whether the device counts indirect draws from a buffer (Donut_GetIndirectDrawSupport: D3D12;
+    // Vulkan's drawIndirectCount, which Donut turns on where the GPU has it)
+    function countsIndirectDraws(app: App): boolean {
+        return (app.getIndirectDrawSupport() & IndirectDrawSupport.Count) != 0;
+    }
+
+    // Mesh shaders, with a command list of their own, where the device has them
+    // (queryFeatureSupport(Meshlets)): a meshlet pipeline of nvrhi_direct_mesh.hlsl's mesh and pixel
+    // shaders for the framebuffer (IDevice::createMeshletPipeline), another for a FramebufferInfo of
+    // its formats (the other overload); IMeshletPipeline::getDesc, getFramebufferInfo. Into a quarter each:
+    // ICommandList::setMeshletState and dispatchMesh of one group (top left); dispatchMeshIndirect
+    // from offset 12 of an argument buffer (one group; top right); where the device counts indirect
+    // draws, dispatchMeshIndirectCount of those arguments with a count of 0 (bottom left, as cleared)
+    // and of 1 (bottom right). The triangle covers its quarter, orange.
+    function testMeshShaders(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const supported = device.queryFeatureSupport(nvrhi.FEATURE_MESHLETS, null, 0);
+        console.log(`IDevice::queryFeatureSupport(Meshlets): ${supported}`);
+        if (!supported) {
+            console.log("Mesh shaders: none, not tested");
+            return;
+        }
+        const counted = countsIndirectDraws(app);
+        const color = nvrhi.createTexture(device, renderTargetDesc());
+        const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
+        const meshShader = loadShader(app, device, isD3D12, "nvrhi_direct_mesh", "main_ms", nvrhi.SHADER_TYPE_MESH);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct_mesh", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        let argumentsDesc = nvrhi.bufferDesc(24, "Mesh arguments", nvrhi.RESOURCE_STATE_INDIRECT_ARGUMENT, nvrhi.CPU_ACCESS_NONE);
+        argumentsDesc.isDrawIndirectArgs = true;
+        const argumentsBuffer = nvrhi.createBuffer(device, argumentsDesc);
+        argumentsDesc.byteSize = 8;
+        argumentsDesc.debugName = nvrhi.stdString("Mesh counts");
+        const countBuffer = nvrhi.createBuffer(device, argumentsDesc);
+        if (!color || !staging || !meshShader || !pixelShader || !commandList || !argumentsBuffer || !countBuffer) {
+            check(false, "the mesh shader test's textures, shaders, command list and buffers");
+            return;
+        }
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([color], null));
+        if (!framebuffer) {
+            check(false, "IDevice::createFramebuffer for the mesh shader test");
+            return;
+        }
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const desc = nvrhi.meshletPipelineDesc(meshShader, pixelShader, null, renderState);
+        const pipeline = nvrhi.createMeshletPipeline(device, desc, framebuffer);
+        // (a FramebufferInfo of the framebuffer's: one RGBA8_UNORM target, one sample)
+        const infoPipeline = nvrhi.createMeshletPipelineForInfo(device, desc,
+            [[[<u8>Format.RGBA8_UNORM, 0, 0, 0, 0, 0, 0, 0], 1], <u8>Format.UNKNOWN, 1, 0]);
+        if (!pipeline || !infoPipeline) {
+            check(false, "IDevice::createMeshletPipeline");
+            return;
+        }
+        const keptDesc = Deref(pipeline.getDesc());
+        check(keptDesc.MS.ptr_ != null && <index><Opaque>keptDesc.MS.ptr_ == <index><Opaque>meshShader && keptDesc.AS.ptr_ == null,
+            "IMeshletPipeline::getDesc");
+        const keptInfo = Deref(pipeline.getFramebufferInfo());
+        // (its color formats' elements are named after each C++ library's static_vector: not read)
+        check(keptInfo.colorFormats.current_size == 1 && keptInfo.depthFormat == <u8>Format.UNKNOWN
+            && keptInfo.sampleCount == 1, "IMeshletPipeline::getFramebufferInfo");
+
+        // DispatchIndirectArguments (groupsX, groupsY, groupsZ): no group, then one; counts 0, 1
+        let meshArguments: u32[] = [0, 1, 1, 1, 1, 1];
+        let counts: u32[] = [0, 1];
+        const half = TEXTURE_SIZE / 2;
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
+        commandList.writeBuffer(argumentsBuffer, <Opaque>Ref(meshArguments[0]), 24, 0);
+        commandList.writeBuffer(countBuffer, <Opaque>Ref(counts[0]), 8, 0);
+        nvrhi.setMeshletState(commandList, nvrhi.meshletState(pipeline, framebuffer, [0, half, 0, half, 0, 1], null));
+        commandList.dispatchMesh(1, 1, 1);
+        let topRight = nvrhi.meshletState(infoPipeline, framebuffer, [half, TEXTURE_SIZE, 0, half, 0, 1], null);
+        topRight.indirectParams = argumentsBuffer;
+        nvrhi.setMeshletState(commandList, topRight);
+        commandList.dispatchMeshIndirect(12, 1);
+        if (counted) {
+            let bottomLeft = nvrhi.meshletState(pipeline, framebuffer, [0, half, half, TEXTURE_SIZE, 0, 1], null);
+            bottomLeft.indirectParams = argumentsBuffer;
+            bottomLeft.indirectCountBuffer = countBuffer;
+            nvrhi.setMeshletState(commandList, bottomLeft);
+            commandList.dispatchMeshIndirectCount(12, 0, 1);
+            let bottomRight = nvrhi.meshletState(pipeline, framebuffer, [half, TEXTURE_SIZE, half, TEXTURE_SIZE, 0, 1], null);
+            bottomRight.indirectParams = argumentsBuffer;
+            bottomRight.indirectCountBuffer = countBuffer;
+            nvrhi.setMeshletState(commandList, bottomRight);
+            commandList.dispatchMeshIndirectCount(12, 4, 1);
+        } else {
+            console.log("dispatchMeshIndirectCount: no counted indirect draws, not tested");
+        }
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(), color, nvrhi.entireTexture());
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the mesh shader test");
+
+        const pixels = readStaging(device, staging);
+        if (pixels.length != 0) {
+            // the quarters' mismatches: top left, top right, bottom left, bottom right
+            let mismatches: int[] = [0, 0, 0, 0];
+            for (let y = 0; y < TEXTURE_SIZE; y++) {
+                for (let x = 0; x < TEXTURE_SIZE; x++) {
+                    const quarter = (y < half ? 0 : 2) + (x < half ? 0 : 1);
+                    const drawn = quarter == 0 || quarter == 1 || (quarter == 3 && counted);
+                    const i = 4 * (y * TEXTURE_SIZE + x);
+                    if (drawn ? !sameColor(pixels, i, 255, 128, 0) : !sameColor(pixels, i, 0, 0, 0)) {
+                        mismatches[quarter]++;
+                    }
+                }
+            }
+            const last = 4 * (TEXTURE_SIZE * TEXTURE_SIZE - 1);
+            console.log(`Mesh shaders (${pixels[0]}, ${pixels[1]}, ${pixels[2]}), ..., (${pixels[last]}, ${pixels[last + 1]}, ${pixels[last + 2]})`);
+            const quarterPixels = TEXTURE_SIZE * TEXTURE_SIZE / 4;
+            check(mismatches[0] == 0, `ICommandList::dispatchMesh (${mismatches[0]} of ${quarterPixels} pixels differ)`);
+            check(mismatches[1] == 0, `ICommandList::dispatchMeshIndirect from offset 12 (${mismatches[1]} of ${quarterPixels} pixels differ)`);
+            check(mismatches[2] == 0, `ICommandList::dispatchMeshIndirectCount of count 0 (${mismatches[2]} of ${quarterPixels} pixels differ)`);
+            check(mismatches[3] == 0, `ICommandList::dispatchMeshIndirectCount of count 1 (${mismatches[3]} of ${quarterPixels} pixels differ)`);
+        }
+
+        commandList.Release();
+        infoPipeline.Release();
+        pipeline.Release();
+        framebuffer.Release();
+        countBuffer.Release();
+        argumentsBuffer.Release();
+        meshShader.Release();
+        pixelShader.Release();
+        staging.Release();
+        color.Release();
+    }
+
+    // The tiled texture's size, its tiles' (RGBA8: 64 KiB tiles of 128 x 128 texels on both APIs)
+    const TILED_SIZE = 256;
+    const TILE_TEXELS = 128;
+    const TILE_BYTES = 65536;
+
+    // A tiled texture, with a command list of its own, where the device has them
+    // (Donut_HasSparseResidency: D3D12's tiled resources tier 2, Vulkan's sparse residency): a 256 x
+    // 256 RGBA8 render target with no memory of its own (TextureDesc::isTiled); IDevice::
+    // getTextureTiling (4 tiles of 128 x 128, one standard mip level, none packed, 2 x 2 tiles in it);
+    // updateTextureTileMappings of its top right tile to a heap of one tile. Cleared, and the top
+    // right tile copied into a staging texture: the clear color.
+    function testTiledTexture(app: App, device: nvrhi.IDevice): void {
+        if (app.hasSparseResidency() == 0) {
+            console.log("Tiled textures: none, not tested");
+            return;
+        }
+        let desc = nvrhi.textureDesc(TILED_SIZE, TILED_SIZE, Format.RGBA8_UNORM, "Tiled texture", nvrhi.RESOURCE_STATE_RENDER_TARGET);
+        desc.isRenderTarget = true;
+        desc.isTiled = true;
+        const texture = nvrhi.createTexture(device, desc);
+        const staging = nvrhi.createStagingTexture(device, nvrhi.textureDesc(TILE_TEXELS, TILE_TEXELS, Format.RGBA8_UNORM,
+            "Tile staging", nvrhi.RESOURCE_STATE_COPY_DEST), nvrhi.CPU_ACCESS_READ);
+        const heap = nvrhi.createHeap(device, TILE_BYTES, nvrhi.HEAP_TYPE_DEVICE_LOCAL, "Tile heap");
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!texture || !staging || !heap || !commandList) {
+            check(false, "the tiled texture test's textures, heap and command list");
+            return;
+        }
+        check(Deref(texture.getDesc()).isTiled, "ITexture::getDesc's isTiled");
+
+        let numTiles: u32 = 0;
+        let packedMips: nvrhi.PackedMipDesc = [0, 0, 0, 0];
+        let tileShape: nvrhi.TileShape = [0, 0, 0];
+        let subresourceTilingsNum: u32 = 1;
+        let subresourceTilings: nvrhi.SubresourceTiling[] = [[0, 0, 0, 0]];
+        device.getTextureTiling(texture, Ref(numTiles), Ref(packedMips), Ref(tileShape), Ref(subresourceTilingsNum),
+            Ref(subresourceTilings[0]));
+        const tiling = subresourceTilings[0];
+        console.log(`IDevice::getTextureTiling: ${numTiles} tiles of ${tileShape.widthInTexels} x ${tileShape.heightInTexels}, `
+            + `${packedMips.numStandardMips} standard and ${packedMips.numPackedMips} packed levels, `
+            + `level 0 ${tiling.widthInTiles} x ${tiling.heightInTiles} tiles`);
+        check(numTiles == 4 && tileShape.widthInTexels == TILE_TEXELS && tileShape.heightInTexels == TILE_TEXELS
+            && packedMips.numStandardMips == 1 && packedMips.numPackedMips == 0
+            && tiling.widthInTiles == 2 && tiling.heightInTiles == 2, "IDevice::getTextureTiling");
+
+        // the top right tile (column 1, row 0 of level 0) at the heap's start: a region of one tile
+        // (D3D12 reads its size in texels rounded up to tiles, Vulkan in tiles)
+        let coordinates: nvrhi.TiledTextureCoordinate[] = [[0, 0, 1, 0, 0]];
+        let regions: nvrhi.TiledTextureRegion[] = [[0, 1, 1, 1]];
+        let byteOffsets: u64[] = [0];
+        let mapping: nvrhi.TextureTilesMapping = [Ref(coordinates[0]), Ref(regions[0]), Ref(byteOffsets[0]), 1, heap];
+        device.updateTextureTileMappings(texture, Ref(mapping), 1, nvrhi.COMMAND_QUEUE_GRAPHICS);
+
+        commandList.open();
+        nvrhi.clearTextureFloat(commandList, texture, nvrhi.allSubresources(), [0.25, 0.5, 1.0, 1.0]);
+        nvrhi.copyTextureToStaging(commandList, staging, nvrhi.entireTexture(),
+            texture, nvrhi.textureRegion(TILE_TEXELS, 0, TILE_TEXELS, TILE_TEXELS, 0, 0));
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the tiled texture test");
+
+        let rowPitch: index = 0;
+        const mapped = nvrhi.mapStagingTexture(device, staging, nvrhi.entireTexture(), nvrhi.CPU_ACCESS_READ, Ref(rowPitch));
+        if (!mapped) {
+            check(false, "IDevice::mapStagingTexture of the tile");
+        } else {
+            const rows = <Ref<u8>>mapped;
+            let mismatches = 0;
+            for (let y = 0; y < TILE_TEXELS; y++) {
+                for (let x = 0; x < TILE_TEXELS; x++) {
+                    const i = y * rowPitch + 4 * x;
+                    if (!near(Deref(rows[i]), 64) || !near(Deref(rows[i + 1]), 128) || !near(Deref(rows[i + 2]), 255)) {
+                        mismatches++;
+                    }
+                }
+            }
+            console.log(`Mapped tile (${Deref(rows[0])}, ${Deref(rows[1])}, ${Deref(rows[2])})`);
+            device.unmapStagingTexture(staging);
+            check(mismatches == 0, `a cleared tile mapped by updateTextureTileMappings (${mismatches} of ${TILE_TEXELS * TILE_TEXELS} texels differ)`);
+        }
+
+        commandList.Release();
+        staging.Release();
+        texture.Release();
+        heap.Release();
+    }
+
+    // The sampler feedback test's texture and target (64 x 64), its feedback's regions (8 x 8
+    // texels: 8 x 8 regions) and the buffer it is decoded into
+    const FEEDBACK_SIZE = 64;
+    const FEEDBACK_REGION = 8;
+    const DECODED_BYTES = 4096;
+
+    // Sampler feedback, with a command list of its own, where the device has it
+    // (queryFeatureSupport(SamplerFeedback): D3D12): IDevice::createSamplerFeedbackTexture of a
+    // texture's minimum mip level per 8 x 8 region; ISamplerFeedbackTexture::getDesc,
+    // getPairedTexture; createSamplerFeedbackForNativeTexture of its API object. A draw over a 64 x 64
+    // target (nvrhi_direct_feedback.hlsl) asking for mip level 0 in the left half and 1 in the right,
+    // between ICommandList::clearSamplerFeedbackTexture and setSamplerFeedbackTextureState; then
+    // decodeSamplerFeedbackTexture into a buffer (R8_UINT, a byte per region, row after row) read
+    // back: 0 in the left half's regions, 1 in the right's.
+    function testSamplerFeedback(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+        const supported = device.queryFeatureSupport(nvrhi.FEATURE_SAMPLER_FEEDBACK, null, 0);
+        console.log(`IDevice::queryFeatureSupport(SamplerFeedback): ${supported}`);
+        if (!supported) {
+            console.log("Sampler feedback: none, not tested");
+            return;
+        }
+        let pairedDesc = nvrhi.textureDesc(FEEDBACK_SIZE, FEEDBACK_SIZE, Format.RGBA8_UNORM, "Paired texture",
+            nvrhi.RESOURCE_STATE_SHADER_RESOURCE);
+        pairedDesc.mipLevels = 2;
+        const paired = nvrhi.createTexture(device, pairedDesc);
+        let targetDesc = nvrhi.textureDesc(FEEDBACK_SIZE, FEEDBACK_SIZE, Format.RGBA8_UNORM, "Feedback target",
+            nvrhi.RESOURCE_STATE_RENDER_TARGET);
+        targetDesc.isRenderTarget = true;
+        const target = nvrhi.createTexture(device, targetDesc);
+        const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
+        const pixelShader = loadShader(app, device, isD3D12, "nvrhi_direct_feedback", "main_ps", nvrhi.SHADER_TYPE_PIXEL);
+        const sampler = nvrhi.createSampler(device, nvrhi.samplerDesc());
+        const decoded = nvrhi.createBuffer(device, nvrhi.bufferDesc(DECODED_BYTES, "Decoded feedback", nvrhi.RESOURCE_STATE_RESOLVE_DEST,
+            nvrhi.CPU_ACCESS_NONE));
+        const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(DECODED_BYTES, "Feedback back", nvrhi.RESOURCE_STATE_COPY_DEST,
+            nvrhi.CPU_ACCESS_READ));
+        const commandList = nvrhi.createCommandList(device, nvrhi.commandListParameters());
+        if (!paired || !target || !vertexShader || !pixelShader || !sampler || !decoded || !readback || !commandList) {
+            check(false, "the sampler feedback test's textures, shaders, sampler, buffers and command list");
+            return;
+        }
+        const feedback = nvrhi.createSamplerFeedbackTexture(device, paired, nvrhi.SAMPLER_FEEDBACK_FORMAT_MIN_MIP, FEEDBACK_REGION,
+            nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
+        if (!feedback) {
+            check(false, "IDevice::createSamplerFeedbackTexture");
+            return;
+        }
+        const feedbackDesc = Deref(feedback.getDesc());
+        check(feedbackDesc.samplerFeedbackFormat == nvrhi.SAMPLER_FEEDBACK_FORMAT_MIN_MIP
+            && feedbackDesc.samplerFeedbackMipRegionX == FEEDBACK_REGION && feedbackDesc.samplerFeedbackMipRegionY == FEEDBACK_REGION,
+            "ISamplerFeedbackTexture::getDesc");
+        const pairedHandle = feedback.getPairedTexture();
+        check(pairedHandle.ptr_ != null && <index><Opaque>pairedHandle.ptr_ == <index><Opaque>paired, "ISamplerFeedbackTexture::getPairedTexture");
+        if (pairedHandle.ptr_) {
+            (<nvrhi.IResource><Opaque>pairedHandle.ptr_).Release();
+        }
+        const nativeFeedback = nvrhi.getNativeObject(feedback, nvrhi.OBJECT_TYPE_D3D12_RESOURCE);
+        const wrapped = nativeFeedback
+            ? nvrhi.createSamplerFeedbackForNativeTexture(device, nvrhi.OBJECT_TYPE_D3D12_RESOURCE, nativeFeedback, paired) : null;
+        if (!wrapped) {
+            check(false, "IDevice::createSamplerFeedbackForNativeTexture");
+        } else {
+            const wrappedDesc = Deref(wrapped.getDesc());
+            check(wrappedDesc.samplerFeedbackFormat == nvrhi.SAMPLER_FEEDBACK_FORMAT_MIN_MIP
+                && wrappedDesc.samplerFeedbackMipRegionX == FEEDBACK_REGION,
+                "IDevice::createSamplerFeedbackForNativeTexture's texture: the API object's format and regions");
+            wrapped.Release();
+        }
+
+        const layout = nvrhi.createBindingLayout(device, nvrhi.SHADER_TYPE_PIXEL, [
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_TEXTURE_SRV),
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_SAMPLER),
+            nvrhi.bindingLayoutItem(0, nvrhi.RESOURCE_TYPE_SAMPLER_FEEDBACK_TEXTURE_UAV)]);
+        const framebuffer = nvrhi.createFramebuffer(device, nvrhi.framebufferDesc([target], null));
+        if (!layout || !framebuffer) {
+            check(false, "the sampler feedback test's binding layout and framebuffer");
+            return;
+        }
+        const bindingSet = nvrhi.createBindingSet(device, layout, [
+            nvrhi.textureBindingSetItem(0, paired),
+            nvrhi.samplerBindingSetItem(0, sampler),
+            nvrhi.samplerFeedbackBindingSetItem(0, feedback)]);
+        let renderState = nvrhi.renderState();
+        renderState.depthStencilState.depthTestEnable = false;
+        renderState.depthStencilState.depthWriteEnable = false;
+        renderState.rasterState.cullMode = nvrhi.CULL_NONE;
+        const pipeline = nvrhi.createGraphicsPipeline(device,
+            nvrhi.graphicsPipelineDesc(null, vertexShader, pixelShader, layout, renderState), framebuffer);
+        if (!bindingSet || !pipeline) {
+            check(false, "the sampler feedback test's binding set and pipeline");
+            return;
+        }
+
+        commandList.open();
+        commandList.clearSamplerFeedbackTexture(feedback);
+        commandList.setSamplerFeedbackTextureState(feedback, nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
+        nvrhi.setGraphicsState(commandList, nvrhi.graphicsState(pipeline, framebuffer, [0, FEEDBACK_SIZE, 0, FEEDBACK_SIZE, 0, 1],
+            bindingSet, null, null, Format.UNKNOWN));
+        nvrhi.draw(commandList, 3);
+        commandList.setSamplerFeedbackTextureState(feedback, nvrhi.RESOURCE_STATE_RESOLVE_SOURCE);
+        commandList.decodeSamplerFeedbackTexture(decoded, feedback, <u8>Format.R8_UINT);
+        commandList.copyBuffer(readback, 0, decoded, 0, DECODED_BYTES);
+        commandList.close();
+        nvrhi.executeCommandList(device, commandList);
+        check(device.waitForIdle(), "IDevice::waitForIdle after the sampler feedback test");
+
+        const regionsPerRow = FEEDBACK_SIZE / FEEDBACK_REGION;
+        const mapped = <Ref<u8>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
+        let mismatches = 0;
+        let firstRow = "";
+        for (let y = 0; y < regionsPerRow; y++) {
+            for (let x = 0; x < regionsPerRow; x++) {
+                const value: int = Deref(mapped[y * regionsPerRow + x]);
+                if (y == 0) {
+                    firstRow += ` ${value}`;
+                }
+                if (value != (x < regionsPerRow / 2 ? 0 : 1)) {
+                    mismatches++;
+                }
+            }
+        }
+        console.log(`Decoded sampler feedback, first row:${firstRow}`);
+        device.unmapBuffer(readback);
+        check(mismatches == 0, `ICommandList::decodeSamplerFeedbackTexture (${mismatches} of ${regionsPerRow * regionsPerRow} regions differ)`);
+
+        commandList.Release();
+        pipeline.Release();
+        bindingSet.Release();
+        framebuffer.Release();
+        layout.Release();
+        feedback.Release();
+        readback.Release();
+        decoded.Release();
+        sampler.Release();
+        pixelShader.Release();
+        vertexShader.Release();
+        target.Release();
+        paired.Release();
     }
 
     function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
@@ -2921,6 +3281,9 @@ namespace NvrhiDirect {
         testUavBarrierControl(device, pipeline, bindingLayout, input, data);
         testBindingSetStates(device, pipeline, bindingLayout, input, data);
         testDrawIndexedIndirectCount(app, device, isD3D12);
+        testMeshShaders(app, device, isD3D12);
+        testTiledTexture(app, device);
+        testSamplerFeedback(app, device, isD3D12);
 
         // IResource::Release on what the create functions returned with a reference
         commandList.Release();

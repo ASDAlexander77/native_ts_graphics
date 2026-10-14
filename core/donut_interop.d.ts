@@ -730,8 +730,8 @@ enum IndirectDrawSupport {
     // Indirect draws can take their count from a buffer (D3D12; Vulkan's drawIndirectCount).
     Count = 8
 }
-// What the device of a windowed app does with indirect draws (0 for headless apps). Vulkan devices
-// are created with multiDrawIndirect, drawIndirectFirstInstance and
+// What the app's device does with indirect draws (a headless app's too). Vulkan devices are
+// created with multiDrawIndirect, drawIndirectFirstInstance, drawIndirectCount and
 // shaderSampledImageArrayDynamicIndexing when the GPU has them.
 declare function Donut_GetIndirectDrawSupport(app: AppHandle): IndirectDrawSupport;
 // Donut_GetShaderExecutionReordering's values.

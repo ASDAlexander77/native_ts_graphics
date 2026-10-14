@@ -46,6 +46,7 @@ TARGETS = {
 # the structs core/nvrhi.ts and core/nvrhi_abi.<os>.ts build, which tsbindgen has to lay out
 TUPLES = ["BufferDesc", "TextureDesc", "TextureSubresourceSet", "Color", "CommandListParameters",
           "ComputePipelineDesc", "ComputeState", "HeapDesc", "BindlessLayoutDesc", "ShaderSpecialization",
+          "MeshletPipelineDesc", "MeshletState", "SamplerFeedbackTextureDesc", "TextureTilesMapping",
           "basic_string_char"]
 
 # Methods taking a struct by value, which tsbindgen skips: {(class, method): {os: (declaration,
@@ -245,6 +246,30 @@ BY_VALUE = {
         let descValue = desc;
         const handle = device.createHandleForNativeBuffer(objectType, nativeBuffer, Ref(descValue));
         return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
+    }"""),
+    },    ("IDevice", "createSamplerFeedbackForNativeTexture"): {
+        "win32": (
+            "@cppnontrivial\n        @slot({slot}) createSamplerFeedbackForNativeTexture(objectType: u32, texture: Opaque | null, pairedTexture: ITexture | null): RefCountPtr<Opaque>;",
+            """\
+    // IDevice::createSamplerFeedbackForNativeTexture: an ISamplerFeedbackTexture over an API
+    // sampler feedback texture (ObjectTypes: a D3D12 resource) for its paired texture; null on
+    // failure. Release() it. The nvrhi::Object goes in a register, as in
+    // createHandleForNativeTexture.
+    export function createSamplerFeedbackForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque,
+        pairedTexture: ITexture): ISamplerFeedbackTexture | null {
+        const handle = device.createSamplerFeedbackForNativeTexture(objectType, nativeTexture, pairedTexture);
+        return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
+    }"""),
+        "linux": (
+            "@cppnontrivial\n        @slot({slot}) createSamplerFeedbackForNativeTexture(objectType: u32, texture: Opaque | null, pairedTexture: ITexture | null): RefCountPtr<Opaque>;",
+            """\
+    // IDevice::createSamplerFeedbackForNativeTexture: an ISamplerFeedbackTexture over an API
+    // sampler feedback texture for its paired texture (D3D12 only: null here); null on failure.
+    // Release() it. The nvrhi::Object goes in a register, as in createHandleForNativeTexture.
+    export function createSamplerFeedbackForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque,
+        pairedTexture: ITexture): ISamplerFeedbackTexture | null {
+        const handle = device.createSamplerFeedbackForNativeTexture(objectType, nativeTexture, pairedTexture);
+        return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
     }"""),
     },
 }

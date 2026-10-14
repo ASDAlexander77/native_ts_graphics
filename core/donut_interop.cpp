@@ -2277,6 +2277,48 @@ namespace
             }
         }
     }
+    // Has the Vulkan device made with the core features EnableCoreFeatures turns on where the GPU
+    // has them (indirect draws' counts, sparse residency, ...), into what it returns: shared with the
+    // device manager's copy of the parameters, filled in when the device is made.
+    static std::shared_ptr<VulkanCoreFeatures> HookCoreFeatures(DeviceManager* deviceManager, nvrhi::GraphicsAPI api,
+        donut::app::DeviceCreationParameters& params)
+    {
+        auto vulkanFeatures = std::make_shared<VulkanCoreFeatures>();
+        if (api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(deviceManager);
+            params.deviceCreateInfoCallback = [vulkanDeviceManager, vulkanFeatures](VkDeviceCreateInfo& info)
+            {
+                EnableCoreFeatures(vulkanDeviceManager, info, *vulkanFeatures);
+            };
+        }
+        return vulkanFeatures;
+    }
+
+    // Donut_HasSparseResidency on Vulkan: the features, and sparse binding on the graphics queue,
+    // which NVRHI binds on.
+    static bool VulkanSparseResidency(DeviceManager* deviceManager, const VulkanCoreFeatures& vulkanFeatures)
+    {
+        auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(deviceManager);
+        const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(vulkanDeviceManager);
+        const int graphicsFamily = DeviceManagerVKAccess::GraphicsQueueFamily(vulkanDeviceManager);
+        const auto families = physicalDevice.getQueueFamilyProperties();
+        const VkPhysicalDeviceFeatures& features = vulkanFeatures.features;
+        return features.sparseBinding && features.sparseResidencyImage2D && features.shaderResourceResidency
+            && graphicsFamily >= 0 && size_t(graphicsFamily) < families.size()
+            && (families[graphicsFamily].queueFlags & vk::QueueFlagBits::eSparseBinding);
+    }
+#endif
+
+#if DONUT_WITH_DX12
+    // Donut_HasSparseResidency on D3D12: residency in shaders, from tiled resources tier 2 on.
+    static bool D3D12SparseResidency(DeviceManager* deviceManager)
+    {
+        D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
+        ID3D12Device* d3dDevice = deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+        return SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)))
+            && options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2;
+    }
 #endif
 }
 
@@ -2535,16 +2577,7 @@ extern "C"
         int indirectDrawSupport = api == nvrhi::GraphicsAPI::D3D12 ? IndirectDraw_MultiDraw | IndirectDraw_FirstInstance | IndirectDraw_Count
             : api == nvrhi::GraphicsAPI::D3D11 ? IndirectDraw_FirstInstance : 0;
 #if DONUT_WITH_VULKAN
-        // Shared with the device manager's copy of the parameters.
-        auto vulkanFeatures = std::make_shared<VulkanCoreFeatures>();
-        if (api == nvrhi::GraphicsAPI::VULKAN)
-        {
-            auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(deviceManager.get());
-            params.deviceCreateInfoCallback = [vulkanDeviceManager, vulkanFeatures](VkDeviceCreateInfo& info)
-            {
-                EnableCoreFeatures(vulkanDeviceManager, info, *vulkanFeatures);
-            };
-        }
+        auto vulkanFeatures = HookCoreFeatures(deviceManager.get(), api, params);
 #endif
 
         const bool testMode = g_TestFrameCount > 0;
@@ -2555,33 +2588,18 @@ extern "C"
         }
         // D3D11 and D3D12 have UAVs in pixel shaders at every feature level Donut runs on.
         bool fragmentStoresAndAtomics = api != nvrhi::GraphicsAPI::VULKAN;
-        // NVRHI has no tiled resources on D3D11. D3D12 reports residency in shaders from tiled
-        // resources tier 2 on; Vulkan needs the features and sparse binding on the graphics queue,
-        // which NVRHI binds on.
+        // NVRHI has no tiled resources on D3D11.
         bool sparseResidency = false;
 #if DONUT_WITH_DX12
         if (api == nvrhi::GraphicsAPI::D3D12)
-        {
-            D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
-            ID3D12Device* d3dDevice = deviceManager->GetDevice()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
-            sparseResidency = SUCCEEDED(d3dDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)))
-                && options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_2;
-        }
+            sparseResidency = D3D12SparseResidency(deviceManager.get());
 #endif
 #if DONUT_WITH_VULKAN
         if (api == nvrhi::GraphicsAPI::VULKAN)
         {
             indirectDrawSupport = vulkanFeatures->support;
             fragmentStoresAndAtomics = vulkanFeatures->features.fragmentStoresAndAtomics == VK_TRUE;
-
-            auto* vulkanDeviceManager = static_cast<DeviceManager_VK*>(deviceManager.get());
-            const vk::PhysicalDevice physicalDevice = DeviceManagerVKAccess::PhysicalDevice(vulkanDeviceManager);
-            const int graphicsFamily = DeviceManagerVKAccess::GraphicsQueueFamily(vulkanDeviceManager);
-            const auto families = physicalDevice.getQueueFamilyProperties();
-            const VkPhysicalDeviceFeatures& features = vulkanFeatures->features;
-            sparseResidency = features.sparseBinding && features.sparseResidencyImage2D && features.shaderResourceResidency
-                && graphicsFamily >= 0 && size_t(graphicsFamily) < families.size()
-                && (families[graphicsFamily].queueFlags & vk::QueueFlagBits::eSparseBinding);
+            sparseResidency = VulkanSparseResidency(deviceManager.get(), *vulkanFeatures);
         }
 #endif
 
@@ -2774,7 +2792,7 @@ extern "C"
         return app->printfLines[index].c_str();
     }
 
-    // IndirectDrawSupport bits: what the app's device does with indirect draws (0 for headless apps).
+    // IndirectDrawSupport bits: what the app's device does with indirect draws.
     int Donut_GetIndirectDrawSupport(App* app)
     {
         return app->indirectDrawSupport;
@@ -3025,7 +3043,7 @@ extern "C"
     // Non-zero if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether
     // what they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan
     // with sparse residency of 2D images, shaderResourceResidency and sparse binding on the graphics
-    // queue; never D3D11 or headless apps.
+    // queue; never D3D11.
     int Donut_HasSparseResidency(App* app)
     {
         return app->sparseResidency ? 1 : 0;
@@ -3065,11 +3083,34 @@ extern "C"
         params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
         params.enableDebugRuntime = (options & AppOption_DebugRuntime) != 0;
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
+#if DONUT_WITH_VULKAN
+        // the core features a window's device has (Donut_CreateAppWithOptions)
+        auto vulkanFeatures = HookCoreFeatures(deviceManager.get(), api, params);
+#endif
 
         if (!deviceManager->CreateHeadlessDevice(params))
             return nullptr;
 
-        return MakeApp(std::move(deviceManager), api);
+        // what Donut_GetIndirectDrawSupport and Donut_HasSparseResidency say, as for a window's device
+        int indirectDrawSupport = api == nvrhi::GraphicsAPI::D3D12 ? IndirectDraw_MultiDraw | IndirectDraw_FirstInstance | IndirectDraw_Count
+            : api == nvrhi::GraphicsAPI::D3D11 ? IndirectDraw_FirstInstance : 0;
+        bool sparseResidency = false;
+#if DONUT_WITH_DX12
+        if (api == nvrhi::GraphicsAPI::D3D12)
+            sparseResidency = D3D12SparseResidency(deviceManager.get());
+#endif
+#if DONUT_WITH_VULKAN
+        if (api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            indirectDrawSupport = vulkanFeatures->support;
+            sparseResidency = VulkanSparseResidency(deviceManager.get(), *vulkanFeatures);
+        }
+#endif
+
+        App* app = MakeApp(std::move(deviceManager), api);
+        app->indirectDrawSupport = indirectDrawSupport;
+        app->sparseResidency = sparseResidency;
+        return app;
     }
 
     // Same, with no options.
@@ -3338,6 +3379,22 @@ extern "C"
             return int(sizeof(nvrhi::BindlessLayoutDesc));
         if (n == "ShaderSpecialization")
             return int(sizeof(nvrhi::ShaderSpecialization));
+        if (n == "MeshletPipelineDesc")
+            return int(sizeof(nvrhi::MeshletPipelineDesc));
+        if (n == "MeshletState")
+            return int(sizeof(nvrhi::MeshletState));
+        if (n == "SamplerFeedbackTextureDesc")
+            return int(sizeof(nvrhi::SamplerFeedbackTextureDesc));
+        if (n == "TextureTilesMapping")
+            return int(sizeof(nvrhi::TextureTilesMapping));
+        if (n == "TiledTextureCoordinate")
+            return int(sizeof(nvrhi::TiledTextureCoordinate));
+        if (n == "TiledTextureRegion")
+            return int(sizeof(nvrhi::TiledTextureRegion));
+        if (n == "PackedMipDesc")
+            return int(sizeof(nvrhi::PackedMipDesc));
+        if (n == "SubresourceTiling")
+            return int(sizeof(nvrhi::SubresourceTiling));
         return -1;
     }
 
