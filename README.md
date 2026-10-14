@@ -297,19 +297,21 @@ if (commandList) {
   tuples, so a literal nests too (`nvrhi.computeState()`). A `std::vector` field
   (`BindingLayoutDesc`'s and `BindingSetDesc`'s items) points at a tslang array's elements, for
   the call only: `nvrhi.stdVector()` makes it, as `nvrhi.createBindingLayout()` and
-  `createBindingSet()` do. The script writes the methods
-  taking a struct by value that tsbindgen leaves out, for each ABI (`BY_VALUE`).
+  `createBindingSet()` do. It needs tsbindgen pre-alpha102 or newer, which binds the methods
+  taking a struct by value too.
 - **Signatures.** An object returned by value is a tuple with its layout: `RefCountPtr<T>`
   (`@cppnontrivial`, as it has a destructor) and `nvrhi::Object`. tslang passes the hidden pointer
   each ABI returns it through; `nvrhi.createBuffer()` and the other functions unwrap it. A struct
   passed by reference is a `Ref` to a tuple with the C++ layout (`BufferDesc`, `TextureDesc`,
   `ComputePipelineDesc`, `ComputeState`, ...). That layout depends on the C++ build (`std::string`'s
   on the CRT's debug or release build), so `nvrhi.layoutMatches()` compares the tuples' sizes with the C++ ones. A
-  struct passed by value is the ABIs' difference: MSVC passes a pointer to a copy, the Itanium ABI
-  the fields in registers (the `TextureSubresourceSet` of `clearTextureFloat`,
+  struct passed by value is its tuple, which tslang passes as each ABI does: MSVC a struct of 8
+  bytes in a register and a bigger one by a pointer to a copy, the Itanium ABI one of up to 16
+  bytes in registers (the `TextureSubresourceSet` of `clearTextureFloat`,
   `clearDepthStencilTexture`, `clearTextureUInt`, `beginTrackingTextureState`, `setTextureState`
-  and `getNativeView`, and the `nvrhi::Object` of `createHandleForNativeTexture`,
-  `createHandleForNativeBuffer` and `createSamplerFeedbackForNativeTexture`, see the script).
+  and `getNativeView`, the `nvrhi::Object` of `createHandleForNativeTexture`,
+  `createHandleForNativeBuffer` and `createSamplerFeedbackForNativeTexture`); and so is a small
+  struct returned in registers (`queryCoopVecMatMulFormatSupport`'s three `bool`s).
 - **Callbacks.** `nvrhi.IMessageCallback` goes the other way: a `@cpp` class extending it
   whose `message()` has a body is an object NVRHI calls, through the vtable tslang makes for it.
   Pass it to `Donut_SetNvrhiMessageCallback` before creating the app, and keep it in a global

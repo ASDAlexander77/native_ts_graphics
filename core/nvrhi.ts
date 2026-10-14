@@ -648,6 +648,81 @@ export namespace nvrhi {
         return handle.ptr_ ? <IOpacityMicromap><Opaque>handle.ptr_ : null;
     }
 
+    // ICommandList::clearTextureFloat of the texture's subresources to a color (the
+    // TextureSubresourceSet by value, as each ABI passes it: tslang's call does)
+    export function clearTextureFloat(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, color: Color): void {
+        let colorValue = color;
+        commandList.clearTextureFloat(texture, subresources, Ref(colorValue));
+    }
+
+    // ICommandList::clearDepthStencilTexture of the texture's subresources: the depth, the stencil
+    // or both
+    export function clearDepthStencilTexture(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        clearDepth: boolean, depth: f32, clearStencil: boolean, stencil: u8): void {
+        commandList.clearDepthStencilTexture(texture, subresources, clearDepth, depth, clearStencil, stencil);
+    }
+
+    // ICommandList::clearTextureUInt of the texture's subresources to a value
+    export function clearTextureUInt(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet, value: u32): void {
+        commandList.clearTextureUInt(texture, subresources, value);
+    }
+
+    // ICommandList::beginTrackingTextureState: the texture's subresources are in stateBits
+    export function beginTrackingTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        commandList.beginTrackingTextureState(texture, subresources, stateBits);
+    }
+
+    // ICommandList::setTextureState: the texture's subresources to stateBits
+    export function setTextureState(commandList: ICommandList, texture: ITexture, subresources: TextureSubresourceSet,
+        stateBits: u32): void {
+        commandList.setTextureState(texture, subresources, stateBits);
+    }
+
+    // ITexture::getNativeView: a view of the texture's subresources in a format and dimension
+    // (Format.UNKNOWN, TEXTURE_DIMENSION_UNKNOWN: the texture's), not AddRef'd; null if unavailable.
+    // No std::optional<ComponentMapping> (its value, then whether it has one): the texture's own.
+    export function getNativeView(texture: ITexture, objectType: u32, format: u8, subresources: TextureSubresourceSet,
+        dimension: u8): Opaque | null {
+        return texture.getNativeView(objectType, format, subresources, dimension, false, [[0, 0, 0, 0], false]).pointer;
+    }
+
+    // IDevice::createHandleForNativeTexture: an ITexture over an API texture (ObjectTypes: a D3D12
+    // resource, a VkImage) described by desc; null on failure. Release() it.
+    export function createHandleForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque, desc: TextureDesc): ITexture | null {
+        let descValue = desc;
+        const handle = device.createHandleForNativeTexture(objectType, [<u64><index>nativeTexture], Ref(descValue));
+        return handle.ptr_ ? <ITexture><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createHandleForNativeBuffer: an IBuffer over an API buffer (ObjectTypes: a D3D12
+    // resource, a VkBuffer) described by desc; null on failure. Release() it.
+    export function createHandleForNativeBuffer(device: IDevice, objectType: u32, nativeBuffer: Opaque, desc: BufferDesc): IBuffer | null {
+        let descValue = desc;
+        const handle = device.createHandleForNativeBuffer(objectType, [<u64><index>nativeBuffer], Ref(descValue));
+        return handle.ptr_ ? <IBuffer><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::createSamplerFeedbackForNativeTexture: an ISamplerFeedbackTexture over an API
+    // sampler feedback texture (ObjectTypes: a D3D12 resource) for its paired texture; null on
+    // failure. Release() it.
+    export function createSamplerFeedbackForNativeTexture(device: IDevice, objectType: u32, nativeTexture: Opaque,
+        pairedTexture: ITexture): ISamplerFeedbackTexture | null {
+        const handle = device.createSamplerFeedbackForNativeTexture(objectType, [<u64><index>nativeTexture], pairedTexture);
+        return handle.ptr_ ? <ISamplerFeedbackTexture><Opaque>handle.ptr_ : null;
+    }
+
+    // IDevice::queryCoopVecMatMulFormatSupport of a combination of formats
+    export function queryCoopVecMatMulFormatSupport(device: IDevice, combination: MatMulFormatCombo): MatMulFormatSupport {
+        let combinationValue = combination;
+        return device.queryCoopVecMatMulFormatSupport(Ref(combinationValue));
+    }
+
+    // IDevice::queryCoopVecTrainingFormatSupport of a component type (coopvec::DataType)
+    export function queryCoopVecTrainingFormatSupport(device: IDevice, componentType: s32): TrainingFormatSupport {
+        return device.queryCoopVecTrainingFormatSupport(componentType);
+    }
+
     // IDevice::createEventQuery; null on failure. Release() it.
     export function createEventQuery(device: IDevice): IEventQuery | null {
         const handle = device.createEventQuery();
