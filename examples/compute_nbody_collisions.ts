@@ -36,10 +36,10 @@ namespace ComputeNBodyCollisions {
     const MAX_TEST_SPEED = 500.0;
     // The compute passes in compute_nbody_collisions.hlsl run 256 threads per group.
     const WORKGROUP_SIZE = 256;
-    // struct Particle: float4 pos, float4 vel, float4 info.
-    const PARTICLE_FLOATS = 12;
-    // struct Contact: float4 velocity, float4 shift.
-    const CONTACT_FLOATS = 8;
+    // struct Particle: float4 pos, float4 vel, float4 info, float4 spin, float4 marker.
+    const PARTICLE_FLOATS = 20;
+    // struct Contact: float4 velocity, float4 shift, float4 spin.
+    const CONTACT_FLOATS = 12;
     // struct SimulationConstants: float deltaT, int particleCount, int collisions, int heating, then
     // the UI's floats (the indices below), padded to 48 bytes.
     const SIMULATION_CONSTANTS_SIZE = 48;
@@ -49,6 +49,7 @@ namespace ComputeNBodyCollisions {
     const CONSTANT_RESTITUTION = 6;
     const CONSTANT_HEAT_FACTOR = 7;
     const CONSTANT_COOL_SECONDS = 8;
+    const CONSTANT_FRICTION = 9;
     // The simulation's defaults (compute_nbody's, then the collisions'), and what the UI's sliders
     // can set them to.
     const DEFAULT_TIME_FACTOR = 0.05;
@@ -56,6 +57,7 @@ namespace ComputeNBodyCollisions {
     const DEFAULT_RESTITUTION = 0.8;
     const DEFAULT_HEAT_FACTOR = 0.004;
     const DEFAULT_COOL_SECONDS = 3.0;
+    const DEFAULT_FRICTION = 0.3;
     // The sigma of a group's cloud around its attractor, and the random seed (the Park-Miller
     // generator wants one from 1 up), at startup and as the UI's restart sets them.
     const DEFAULT_SPREAD = 0.75;
@@ -143,6 +145,9 @@ namespace ComputeNBodyCollisions {
     // particle reads one that another thread has already moved), then positions. Space pauses, C
     // turns the collisions off and on. The kinetic energy the bounces lose becomes heat (info.y: it
     // makes the particle glow, and cools off over a few seconds), H turns the heating off and on, P the coordinate planes (XY, XZ and YZ grids through the origin).
+    // The particles are solid spheres with spin: friction at a contact (Coulomb, the Friction slider)
+    // slows their sliding and, by its torque, sets them spinning (ApplyFriction in the shader); the
+    // spin shows as a mark at the poles of a direction fixed in the particle, which it turns.
     // The UI (a window in the top right corner, off with -noUI) sets the gravity, time scale,
     // bounciness and heat live, and the number of attractors and particles, the spread of the clouds
     // and the random seed on Restart, which starts the simulation again from the initial state.
@@ -590,6 +595,16 @@ namespace ComputeNBodyCollisions {
 
                     // Color gradient offset
                     particles[p + 7] = i / this.numAttractors;
+
+                    // No spin; the marker's direction from the particle's index, spread evenly over
+                    // the sphere (a Fibonacci spiral: not from randomFloat, which would move
+                    // the particles placed after it).
+                    const index = i * this.particlesPerAttractor + j;
+                    const markerZ = 1.0 - 2.0 * ((index % 997) + 0.5) / 997.0;
+                    const markerRing = Math.sqrt(1.0 - markerZ * markerZ);
+                    particles[p + 16] = markerRing * Math.cos(index * 2.399963);
+                    particles[p + 17] = markerRing * Math.sin(index * 2.399963);
+                    particles[p + 18] = markerZ;
                 }
             }
 
@@ -629,6 +644,7 @@ namespace ComputeNBodyCollisions {
             this.simulationConstants[CONSTANT_RESTITUTION] = DEFAULT_RESTITUTION;
             this.simulationConstants[CONSTANT_HEAT_FACTOR] = DEFAULT_HEAT_FACTOR;
             this.simulationConstants[CONSTANT_COOL_SECONDS] = DEFAULT_COOL_SECONDS;
+            this.simulationConstants[CONSTANT_FRICTION] = DEFAULT_FRICTION;
         }
 
         // Starts again with the UI's attractors, particles, spread and seed: new particles, in
@@ -693,6 +709,24 @@ namespace ComputeNBodyCollisions {
                 return "no particle has any heat: the collisions lost no energy into it";
             }
 
+            // Spin (friction's torque): finite, and the marker stays a unit vector.
+            let maxSpin = 0.0;
+            for (let i = 0; i < this.numParticles; i++) {
+                const q = i * PARTICLE_FLOATS;
+                const spin = Math.sqrt(particles[q + 12] * particles[q + 12] + particles[q + 13] * particles[q + 13]
+                    + particles[q + 14] * particles[q + 14]);
+                const marker = Math.sqrt(particles[q + 16] * particles[q + 16] + particles[q + 17] * particles[q + 17]
+                    + particles[q + 18] * particles[q + 18]);
+                if (!isFinite32(spin) || !isFinite32(marker) || absolute(marker - 1.0) > 0.001) {
+                    return `particle ${i}: spin ${spin} or marker length ${marker} is not finite or 1`;
+                }
+                maxSpin = Math.max(maxSpin, spin);
+            }
+            console.log(`Spin: max ${maxSpin}`);
+            if (this.numParticles > 2 && this.simulationConstants[CONSTANT_FRICTION] > 0.0 && maxSpin <= 0.0) {
+                return "no particle spins: the friction gave none a torque";
+            }
+
             if (this.numAttractors == 2 && this.particlesPerAttractor == 1) {
                 const x0 = particles[0];
                 const x1 = particles[PARTICLE_FLOATS];
@@ -742,6 +776,8 @@ namespace ComputeNBodyCollisions {
                     this.simulationConstants[CONSTANT_GRAVITY], 0.0, 0.01);
                 this.simulationConstants[CONSTANT_RESTITUTION] = Donut_ImGuiSliderFloat("Bounciness",
                     this.simulationConstants[CONSTANT_RESTITUTION], 0.0, 1.0);
+                this.simulationConstants[CONSTANT_FRICTION] = Donut_ImGuiSliderFloat("Friction",
+                    this.simulationConstants[CONSTANT_FRICTION], 0.0, 1.0);
                 this.simulationConstants[CONSTANT_HEAT_FACTOR] = Donut_ImGuiSliderFloat("Heat per bounce",
                     this.simulationConstants[CONSTANT_HEAT_FACTOR], 0.0, 0.02);
                 this.simulationConstants[CONSTANT_COOL_SECONDS] = Donut_ImGuiSliderFloat("Cooling seconds",

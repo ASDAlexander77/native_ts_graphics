@@ -31,6 +31,9 @@ struct Particle
     float4 vel;  // xyz = velocity, w = gradient texture position
     float4 info; // x = collision radius, y = heat (collisions add it, it cools off over time),
                  // z = contacts this frame (count_cs)
+    float4 spin;   // xyz = angular velocity (radians per simulated second)
+    float4 marker; // xyz = a direction fixed in the particle, turned by the spin: the render draws
+                   // a mark at its two poles, so the spin shows
 };
 
 // What collide_cs found for a particle, applied by integrate_cs.
@@ -38,6 +41,7 @@ struct Contact
 {
     float4 velocity; // xyz = velocity change, w = heat gained
     float4 shift;    // xyz = position correction
+    float4 spin;     // xyz = angular velocity change (friction)
 };
 
 // --- Simulation ------------------------------------------------------------------------------
@@ -63,7 +67,9 @@ struct SimulationConstants
     float heatFactor;
     // Seconds for the heat to fall to 1/e: the energy radiates away, it never turns back into speed.
     float coolSeconds;
-    float pad0;
+    // Coulomb friction between touching particles: the tangential impulse is at most this times the
+    // normal one. 0: smooth spheres, which never spin.
+    float friction;
     float pad1;
     float pad2;
 };
@@ -92,6 +98,8 @@ groupshared float4 s_SharedData[WORKGROUP_SIZE];
 // count_cs and collide_cs: the other particles' velocity (xyz) and radius (w), next to their
 // position and mass in s_SharedData.
 groupshared float4 s_SharedVelocity[WORKGROUP_SIZE];
+// collide_cs: the other particles' spin.
+groupshared float4 s_SharedSpin[WORKGROUP_SIZE];
 // collide_cs: the other particles' contact counts.
 groupshared float s_SharedContacts[WORKGROUP_SIZE];
 
@@ -175,6 +183,7 @@ void LoadShared(uint i, uint localId, uint particleCount)
         const uint other = i + localId;
         s_SharedData[localId] = u_Particles[other].pos;
         s_SharedVelocity[localId] = float4(u_Particles[other].vel.xyz, u_Particles[other].info.x);
+        s_SharedSpin[localId] = u_Particles[other].spin;
     }
 }
 
@@ -216,6 +225,30 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
     }
 }
 
+// Coulomb friction at a contact of two solid spheres (inertia 2/5 m r^2), for the particle that
+// looks at the pair: `normal` points from the other to it, and the surfaces slip at the contact by
+// the velocity difference plus the spins' part, normal x (r w + r' w'). The friction impulse opposes
+// the slip, up to friction times the normal impulse, and no more than what stops the slip (an
+// impulse over that would reverse it: 3.5 over the reduced mass for spheres). It changes the
+// particle's velocity and, by the torque at the surface, its spin, and what it dissipates is heat.
+// impulseShare is as in the normal impulse (the particle's share of the pair, over the contacts).
+void ApplyFriction(float3 normal, float3 relativeVelocity, float approach, float impulseShare, float radius,
+    float3 spin, float otherRadius, float3 otherSpin, inout float3 velocityChange, inout float3 spinChange,
+    inout float heat)
+{
+    const float3 slip = relativeVelocity + cross(normal, radius * spin + otherRadius * otherSpin);
+    const float3 tangential = slip - dot(slip, normal) * normal;
+    const float slipSpeed = length(tangential);
+    if (slipSpeed < 1e-6)
+        return;
+
+    const float strength = min(g_Simulation.friction * (1.0 + g_Simulation.restitution) * -approach, slipSpeed / 3.5);
+    const float3 direction = tangential / slipSpeed;
+    velocityChange -= impulseShare * strength * direction;
+    spinChange += 2.5 * impulseShare * strength * cross(normal, direction) / radius;
+    heat += g_Simulation.heatFactor * 0.5 * impulseShare * strength * slipSpeed;
+}
+
 // Third pass: collisions, against every other particle (unlike gravity, none can be skipped).
 // Each particle reads the others' positions and velocities as calculate_cs left them and writes
 // only its own Contact, so the order the groups run in doesn't matter; integrate_cs applies them.
@@ -238,6 +271,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
     const float4 position = active ? u_Particles[index].pos : float4(0, 0, 0, 0);
     const float3 velocity = active ? u_Particles[index].vel.xyz : float3(0, 0, 0);
+    const float3 spin = active ? u_Particles[index].spin.xyz : float3(0, 0, 0);
     const float radius = active ? u_Particles[index].info.x : 0.0;
     const float contacts = active ? u_Particles[index].info.z : 0.0;
 
@@ -245,6 +279,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
 
     float3 velocityChange = float3(0, 0, 0);
+    float3 spinChange = float3(0, 0, 0);
     float3 shift = float3(0, 0, 0);
     // Position corrections of the swept contacts, exact, so not limited as the overlaps' are.
     float3 sweepShift = float3(0, 0, 0);
@@ -292,6 +327,8 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
+                ApplyFriction(normal, relativeVelocity, approach, impulseShare, radius, spin, otherVelocity.w,
+                    s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
                 // integrate_cs moves the particle the whole step with the new velocity, but it
                 // had the old one until the touch: take back that part of the step.
                 sweepShift -= t * step * bounce * normal;
@@ -309,6 +346,8 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
+                ApplyFriction(normal, relativeVelocity, approach, impulseShare, radius, spin, otherVelocity.w,
+                    s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
             }
 
             shift += SEPARATION * share * (reach - dist) * normal;
@@ -330,6 +369,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     Contact contact;
     contact.velocity = float4(velocityChange, g_Simulation.heating != 0 ? heat : 0.0);
     contact.shift = float4(shift + sweepShift, 0.0);
+    contact.spin = float4(spinChange, 0.0);
     u_Contacts[index] = contact;
 }
 
@@ -349,9 +389,21 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
         particle.vel.xyz += contact.velocity.xyz;
         particle.pos.xyz += contact.shift.xyz;
         particle.info.y += contact.velocity.w;
+        particle.spin.xyz += contact.spin.xyz;
     }
 
     particle.pos.xyz += g_Simulation.deltaT * g_Simulation.timeFactor * particle.vel.xyz;
+
+    // The marker turns about the spin axis (Rodrigues' formula, exact for any step).
+    const float spinSpeed = length(particle.spin.xyz);
+    if (spinSpeed > 1e-6)
+    {
+        const float angle = spinSpeed * g_Simulation.deltaT * g_Simulation.timeFactor;
+        const float3 axis = particle.spin.xyz / spinSpeed;
+        const float3 marker = particle.marker.xyz;
+        particle.marker.xyz = normalize(marker * cos(angle) + cross(axis, marker) * sin(angle)
+            + axis * dot(axis, marker) * (1.0 - cos(angle)));
+    }
     particle.info.y *= exp(-g_Simulation.deltaT / g_Simulation.coolSeconds);
 
     u_Particles[index] = particle;
@@ -382,7 +434,8 @@ void main_vs(
     out float4 o_position : SV_Position,
     out float2 o_spriteCoord : TEXCOORD0,
     out float o_gradientPos : TEXCOORD1,
-    out float o_heat : TEXCOORD2)
+    out float o_heat : TEXCOORD2,
+    out float3 o_marker : TEXCOORD3)
 {
     const Particle particle = t_Particles[i_vertex / 6];
     const float2 corner = c_QuadCorners[i_vertex % 6];
@@ -399,6 +452,7 @@ void main_vs(
     o_spriteCoord = corner;
     o_gradientPos = particle.vel.w;
     o_heat = particle.info.y;
+    o_marker = mul(float4(particle.marker.xyz, 0.0), g_View.matWorldToView).xyz;
 }
 
 // compute_nbody's textures (particle_gradient_rgba.ktx at every 16th texel, and particle_rgba.ktx
@@ -437,7 +491,8 @@ float4 main_ps(
     float4 i_position : SV_Position,
     float2 i_spriteCoord : TEXCOORD0,
     float i_gradientPos : TEXCOORD1,
-    float i_heat : TEXCOORD2) : SV_Target0
+    float i_heat : TEXCOORD2,
+    float3 i_marker : TEXCOORD3) : SV_Target0
 {
     // Heat saturates here, not where it is added up: a few hard hits still read as hotter than one.
     // The color goes from its own through red-orange and yellow to white, and the ball brightens.
@@ -450,10 +505,24 @@ float4 main_ps(
     const float r = length(i_spriteCoord);
     // Inside the collision radius: a ball, brighter towards its center. Outside: a faint glow.
     const float ballR = r * SPRITE_EXTENT;
-    const float brightness = ballR < 1.0
-        ? 0.35 + 0.65 * sqrt(1.0 - ballR * ballR)
-        : 0.5 * SampleGlow(r);
-    return float4(brightness * (1.0 + 0.3 * glow) * color, 1);
+
+    // A lit ball: its surface normal in view space (z away from the camera), a light from the upper
+    // left in front, and a highlight (white, brighter on the cool ones: a hot ball glows over it).
+    // Outside the ball, the faint glow.
+    float brightness = 0.5 * SampleGlow(r);
+    float highlight = 0.0;
+    float mark = 0.0;
+    if (ballR < 1.0)
+    {
+        const float3 normal = float3(i_spriteCoord * SPRITE_EXTENT, -sqrt(1.0 - ballR * ballR));
+        const float3 toLight = normalize(float3(-0.45, 0.55, -0.7));
+        brightness = 0.2 + 0.9 * saturate(dot(normal, toLight));
+        // Half way between the light and the viewer (at -z).
+        highlight = 0.5 * pow(saturate(dot(normal, normalize(toLight + float3(0, 0, -1)))), 24.0) * (1.0 - saturate(glow * 3.0));
+        // A dark mark at the two poles of the particle's marker direction, so a spinning ball shows it.
+        mark = smoothstep(0.8, 0.9, abs(dot(normal, i_marker)));
+    }
+    return float4(brightness * (1.0 - 0.6 * mark) * (1.0 + 0.3 * glow) * color + highlight, 1);
 }
 
 // --- Axis gizmo ------------------------------------------------------------------------------
