@@ -963,6 +963,8 @@ add_tslang_example_test(compute_nbody_collisions)
 # Two heavy centers head on: their bounce keeps the momentum only if the compute passes, which
 # share one binding set, are separated by UAV barriers (patches/nvrhi-uav-barriers-same-binding-set.patch).
 add_tslang_example_test(compute_nbody_collisions SUFFIX head_on ARGS -attractors 2 -particles 1)
+# Particles touching slower than 2 merge: the survivors absorb the others, keeping the total mass and volume.
+add_tslang_example_test(compute_nbody_collisions SUFFIX merge ARGS -merge 2)
 
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
