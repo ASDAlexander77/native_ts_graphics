@@ -99,6 +99,18 @@ namespace ComputeNBodyCollisions {
     // world length of a unit of velocity, and the head's opacity). The length is in seconds of the
     // particle's own motion; the sliders' range and default.
     const TRAIL_CONSTANTS_SIZE = 16;
+    // The bloom (compute_nbody_collisions_post.hlsl): the scene is drawn into an RGBA16F target, a
+    // threshold pass keeps what is brighter than BLOOM_THRESHOLD (times the strength) at half size,
+    // BLUR_LEVELS levels blur it down and back up, and the composite adds level BLOOM_INDEX to the
+    // scene. struct BlurConstants: uint2 resolution, float2 1 / resolution, float2 1 / input
+    // resolution, float threshold, float strength.
+    const BLUR_FLOATS = 8;
+    const BLUR_SIZE = BLUR_FLOATS * 4;
+    const BLUR_LEVELS = 6;
+    const BLOOM_INDEX = 1;
+    const BLUR_GROUP_SIZE = 8;
+    const DEFAULT_BLOOM_THRESHOLD = 1.0;
+    const DEFAULT_BLOOM_STRENGTH = 0.3;
     const TRAIL_SECONDS_MAX = 3.0;
     const DEFAULT_TRAIL_SECONDS = 0.35;
     const TRAIL_OPACITY = 0.25;
@@ -111,6 +123,11 @@ namespace ComputeNBodyCollisions {
     }
     function particleChoice(index: int): int {
         return index == 0 ? 1 : (index == 1 ? 1024 : 2048);
+    }
+
+    // The size of a level of the blur chain: level 0 is the target's.
+    function levelSize(size: int, level: int): int {
+        return Math.max(1, size >> level);
     }
 
     // --- Math ---------------------------------------------------------------------------------
@@ -174,6 +191,29 @@ namespace ComputeNBodyCollisions {
         private heating: boolean;
         private showPlanes: boolean;
         private showTrails: boolean;
+        private bloomThreshold: number;
+        private bloomStrength: number;
+        // The bloom's targets, made for the size of the frame (bloomWidth x bloomHeight, 0 before the
+        // first frame) and again when it changes.
+        private bloomWidth: int;
+        private bloomHeight: int;
+        private hdrTarget: TextureHandle;
+        private hdrFramebuffer: FramebufferHandle;
+        private blurChain: TextureHandle[];
+        private blurConstants: f32[];
+        private linearClamp: SamplerHandle;
+        private blurBindingLayout: BindingLayoutHandle;
+        private thresholdPipeline: ComputePipelineHandle;
+        private blurDownPipeline: ComputePipelineHandle;
+        private blurUpPipeline: ComputePipelineHandle;
+        private thresholdBindingSet: BindingSet;
+        private blurDownBindingSets: BindingSet[];
+        private blurUpBindingSets: BindingSet[];
+        private compositeVertexShader: ShaderHandle;
+        private compositePixelShader: ShaderHandle;
+        private compositeBindingLayout: BindingLayoutHandle;
+        private compositeBindingSet: BindingSet;
+        private compositePipeline: GraphicsPipelineHandle | null;
         private trailSeconds: number;
         // The UI's settings applied on Restart (the pass's own are those of the running simulation),
         // and whether Restart was pressed: it is done at the start of the next frame.
@@ -249,6 +289,18 @@ namespace ComputeNBodyCollisions {
             this.heating = true;
             this.showPlanes = true;
             this.showTrails = true;
+            this.bloomThreshold = DEFAULT_BLOOM_THRESHOLD;
+            this.bloomStrength = DEFAULT_BLOOM_STRENGTH;
+            this.bloomWidth = 0;
+            this.bloomHeight = 0;
+            this.blurChain = [];
+            this.blurDownBindingSets = [];
+            this.blurUpBindingSets = [];
+            this.compositePipeline = null;
+            this.blurConstants = [];
+            for (let i = 0; i < BLUR_FLOATS; i++) {
+                this.blurConstants.push(0.0);
+            }
             this.trailSeconds = DEFAULT_TRAIL_SECONDS;
             this.trailConstants = [0.0, TRAIL_OPACITY, 0.0, 0.0];
             this.initialMass = 0.0;
@@ -382,6 +434,11 @@ namespace ComputeNBodyCollisions {
                 this.app.releaseResource(trailPipeline);
                 this.trailPipeline = null;
             }
+            const compositePipeline = this.compositePipeline;
+            if (compositePipeline) {
+                this.app.releaseResource(compositePipeline);
+                this.compositePipeline = null;
+            }
             const gizmoPipeline = this.gizmoPipeline;
             if (gizmoPipeline) {
                 this.app.releaseResource(gizmoPipeline);
@@ -396,11 +453,18 @@ namespace ComputeNBodyCollisions {
             this.frameWidth = width;
             const commandList = frame.getCommandList();
 
+            this.ensureBloomTargets(width, height);
+
             let graphicsPipeline = this.graphicsPipeline;
             if (!graphicsPipeline) {
-                graphicsPipeline = this.app.createGraphicsPipelineWithBlend(frame, this.vertexShader, this.pixelShader,
-                    null, this.drawBindingLayout, PrimitiveType.TriangleList, BlendMode.Additive);
+                graphicsPipeline = this.createHdrPipeline(this.vertexShader, this.pixelShader, this.drawBindingLayout, BlendMode.Additive);
                 this.graphicsPipeline = graphicsPipeline;
+            }
+            let compositePipeline = this.compositePipeline;
+            if (!compositePipeline) {
+                compositePipeline = this.app.createGraphicsPipelineWithTopology(frame, this.compositeVertexShader,
+                    this.compositePixelShader, null, this.compositeBindingLayout, PrimitiveType.TriangleList);
+                this.compositePipeline = compositePipeline;
             }
 
             // Gravity, collisions, integration. Paused, nothing moves: the collision pass would
@@ -438,7 +502,7 @@ namespace ComputeNBodyCollisions {
             this.view.fillPlanarViewConstants(Ref(this.viewConstants[0]));
             commandList.writeBuffer(this.viewConstantBuffer, Ref(this.viewConstants[0]), this.viewConstantsSize);
 
-            frame.clearColor(0.0, 0.0, 0.0, 1.0);
+            commandList.clearTextureFloat(this.hdrTarget, 0.0, 0.0, 0.0, 1.0);
 
             // The trails: as long as the time scale makes them, under the balls (they add up to a haze in the pile).
             if (this.showTrails && this.trailSeconds > 0.0) {
@@ -446,18 +510,24 @@ namespace ComputeNBodyCollisions {
                 commandList.writeBuffer(this.trailBuffer, Ref(this.trailConstants[0]), TRAIL_CONSTANTS_SIZE);
                 let trailPipeline = this.trailPipeline;
                 if (!trailPipeline) {
-                    trailPipeline = this.app.createGraphicsPipelineWithBlend(frame, this.trailVertexShader, this.axisPixelShader,
-                        null, this.trailBindingLayout, PrimitiveType.TriangleList, BlendMode.AlphaBlend);
+                    trailPipeline = this.createHdrPipeline(this.trailVertexShader, this.axisPixelShader,
+                        this.trailBindingLayout, BlendMode.AlphaBlend);
                     this.trailPipeline = trailPipeline;
                 }
-                frame.beginDraw(trailPipeline);
+                frame.beginDrawToFramebuffer(trailPipeline, this.hdrFramebuffer);
                 frame.drawAddBindingSet(this.trailBindingSet);
                 frame.drawVertices(this.numParticles * VERTICES_PER_PARTICLE);
             }
 
-            frame.beginDraw(graphicsPipeline);
+            frame.beginDrawToFramebuffer(graphicsPipeline, this.hdrFramebuffer);
             frame.drawAddBindingSet(this.drawBindingSet);
             frame.drawVertices(this.numParticles * VERTICES_PER_PARTICLE);
+
+            // The bloom, then the scene and it into the back buffer.
+            this.renderBloom(commandList);
+            frame.beginDraw(compositePipeline);
+            frame.drawAddBindingSet(this.compositeBindingSet);
+            frame.drawVertices(3);
 
             // The coordinate planes, under the gizmo.
             if (this.showPlanes) {
@@ -484,6 +554,120 @@ namespace ComputeNBodyCollisions {
             frame.beginDraw(gizmoPipeline);
             frame.drawAddBindingSet(this.gizmoBindingSet);
             frame.drawVertices(this.gizmoSegments * VERTICES_PER_PARTICLE);
+        }
+
+        // A pipeline drawing into the HDR target: no depth, blended as the pass wants.
+        createHdrPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, bindingLayout: BindingLayoutHandle,
+            blendMode: BlendMode): GraphicsPipelineHandle {
+            const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
+            desc.addBindingLayout(bindingLayout);
+            desc.setDepthState(0, 0, ComparisonFunc.Always);
+            desc.setBlendMode(blendMode);
+            return this.app.createGraphicsPipelineFromDesc(desc, this.hdrFramebuffer);
+        }
+
+        // The HDR target, the blur chain and the binding sets over them, for a frame of width x
+        // height: made on the first frame and again when the size changes (the old ones released once
+        // the GPU is done with them).
+        ensureBloomTargets(width: int, height: int): void {
+            if (width == this.bloomWidth && height == this.bloomHeight) {
+                return;
+            }
+            if (this.bloomWidth > 0) {
+                this.app.waitForIdle();
+                this.app.releaseResource(this.hdrFramebuffer);
+                this.app.releaseResource(this.hdrTarget);
+                for (let i = 0; i < this.blurChain.length; i++) {
+                    this.app.releaseResource(this.blurChain[i]);
+                }
+                this.app.releaseResource(this.thresholdBindingSet.handle);
+                for (let i = 0; i < this.blurDownBindingSets.length; i++) {
+                    this.app.releaseResource(this.blurDownBindingSets[i].handle);
+                }
+                for (let i = 0; i < this.blurUpBindingSets.length; i++) {
+                    this.app.releaseResource(this.blurUpBindingSets[i].handle);
+                }
+                this.app.releaseResource(this.compositeBindingSet.handle);
+                // The pipelines were made for the old framebuffer.
+                const graphicsPipeline = this.graphicsPipeline;
+                if (graphicsPipeline) {
+                    this.app.releaseResource(graphicsPipeline);
+                    this.graphicsPipeline = null;
+                }
+                const trailPipeline = this.trailPipeline;
+                if (trailPipeline) {
+                    this.app.releaseResource(trailPipeline);
+                    this.trailPipeline = null;
+                }
+                this.blurChain = [];
+                this.blurDownBindingSets = [];
+                this.blurUpBindingSets = [];
+            }
+            this.bloomWidth = width;
+            this.bloomHeight = height;
+
+            this.hdrTarget = this.app.createComputeReadableRenderTarget(width, height, Format.RGBA16_FLOAT, "HDR Color");
+            this.hdrFramebuffer = this.app.createFramebuffer(this.hdrTarget, null);
+            for (let level = 1; level <= BLUR_LEVELS; level++) {
+                this.blurChain.push(this.app.createComputeTexture(levelSize(width, level), levelSize(height, level),
+                    Format.RGBA16_FLOAT, `Blur Chain ${level}`));
+            }
+            this.thresholdBindingSet = this.createBlurBindingSet(this.hdrTarget, this.blurChain[0]);
+            for (let index = 1; index < BLUR_LEVELS; index++) {
+                this.blurDownBindingSets.push(this.createBlurBindingSet(this.blurChain[index - 1], this.blurChain[index]));
+            }
+            for (let index = BLUR_LEVELS - 2; index >= 1; index--) {
+                this.blurUpBindingSets.push(this.createBlurBindingSet(this.blurChain[index + 1], this.blurChain[index]));
+            }
+
+            const compositeSetDesc = BindingSetDesc.create();
+            compositeSetDesc.bindTextureSRV(4, this.hdrTarget);
+            compositeSetDesc.bindTextureSRV(5, this.blurChain[BLOOM_INDEX]);
+            compositeSetDesc.bindSampler(0, this.linearClamp);
+            this.compositeBindingSet = this.app.createBindingSetForLayout(compositeSetDesc, this.compositeBindingLayout);
+        }
+
+        createBlurBindingSet(input: TextureHandle, output: TextureHandle): BindingSet {
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindTextureSRV(0, input);
+            setDesc.bindSampler(0, this.linearClamp);
+            setDesc.bindTextureUAV(0, output);
+            setDesc.bindPushConstants(0, BLUR_SIZE);
+            return this.app.createBindingSetForLayout(setDesc, this.blurBindingLayout);
+        }
+
+        // One bloom pass: a thread per texel of the destination.
+        dispatchBlurPass(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet,
+            width: int, height: int, inputWidth: int, inputHeight: int): void {
+            const b = this.blurConstants;
+            Donut_StoreInt32(Ref(b[0]), width);
+            Donut_StoreInt32(Ref(b[1]), height);
+            b[2] = 1.0 / width;
+            b[3] = 1.0 / height;
+            b[4] = 1.0 / inputWidth;
+            b[5] = 1.0 / inputHeight;
+            b[6] = this.bloomThreshold;
+            b[7] = this.bloomStrength;
+            commandList.dispatchWithPushConstants(pipeline, bindingSet, Ref(b[0]), BLUR_SIZE,
+                Math.floor((width + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), Math.floor((height + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), 1);
+        }
+
+        // A threshold pass into the first blur level, then blurring down the levels and back up to
+        // the second (async_compute's "very basic and dumb HDR Bloom pipeline"). With no strength, the
+        // chain stays black: the passes still run, as the composite reads it.
+        renderBloom(commandList: CommandList): void {
+            const w = this.bloomWidth;
+            const h = this.bloomHeight;
+            this.dispatchBlurPass(commandList, this.thresholdPipeline, this.thresholdBindingSet,
+                levelSize(w, 1), levelSize(h, 1), w, h);
+            for (let index = 1; index < BLUR_LEVELS; index++) {
+                this.dispatchBlurPass(commandList, this.blurDownPipeline, this.blurDownBindingSets[index - 1],
+                    levelSize(w, index + 1), levelSize(h, index + 1), levelSize(w, index), levelSize(h, index));
+            }
+            for (let index = BLUR_LEVELS - 2; index >= 1; index--) {
+                this.dispatchBlurPass(commandList, this.blurUpPipeline, this.blurUpBindingSets[BLUR_LEVELS - 2 - index],
+                    levelSize(w, index + 1), levelSize(h, index + 1), levelSize(w, index + 2), levelSize(h, index + 2));
+            }
         }
 
         // Adds a segment from (x0, y0) to (x1, y1), in pixels from the top left, to the gizmo.
@@ -877,6 +1061,8 @@ namespace ComputeNBodyCollisions {
                 this.showPlanes = Donut_ImGuiCheckbox("Planes (P)", this.showPlanes ? 1 : 0) != 0;
                 this.showTrails = Donut_ImGuiCheckbox("Trails (T)", this.showTrails ? 1 : 0) != 0;
                 this.trailSeconds = Donut_ImGuiSliderFloat("Trail length", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
+                this.bloomStrength = Donut_ImGuiSliderFloat("Bloom", this.bloomStrength, 0.0, 2.0);
+                this.bloomThreshold = Donut_ImGuiSliderFloat("Bloom threshold", this.bloomThreshold, 0.0, 2.0);
 
                 this.simulationConstants[CONSTANT_TIME_FACTOR] = Donut_ImGuiSliderFloat("Time scale",
                     this.simulationConstants[CONSTANT_TIME_FACTOR], 0.0, 0.2);
@@ -925,6 +1111,12 @@ namespace ComputeNBodyCollisions {
             const collideShader = this.app.createShaderWithDefine(shaderFile, "collide_cs", ShaderType.Compute, "SIMULATION", "1");
             const absorbShader = this.app.createShaderWithDefine(shaderFile, "absorb_cs", ShaderType.Compute, "SIMULATION", "1");
             const killShader = this.app.createShaderWithDefine(shaderFile, "kill_cs", ShaderType.Compute, "SIMULATION", "1");
+            this.compositeVertexShader = this.app.createShader(shaderFile, "composite_vs", ShaderType.Vertex);
+            this.compositePixelShader = this.app.createShader(shaderFile, "composite_ps", ShaderType.Pixel);
+            const postFile = "compute_nbody_collisions_post.hlsl";
+            const thresholdShader = this.app.createShader(postFile, "threshold_cs", ShaderType.Compute);
+            const blurDownShader = this.app.createShader(postFile, "blur_down_cs", ShaderType.Compute);
+            const blurUpShader = this.app.createShader(postFile, "blur_up_cs", ShaderType.Compute);
             const integrateShader = this.app.createShaderWithDefine(shaderFile, "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
             this.axisVertexShader = this.app.createShader(shaderFile, "axis_vs", ShaderType.Vertex);
             this.axisPixelShader = this.app.createShader(shaderFile, "axis_ps", ShaderType.Pixel);
@@ -932,11 +1124,33 @@ namespace ComputeNBodyCollisions {
             this.trailVertexShader = this.app.createShader(shaderFile, "trail_vs", ShaderType.Vertex);
             // The gizmo's pixel shader: a plain color.
             this.planePixelShader = this.axisPixelShader;
-            if (!this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !integrateShader) {
+            if (!this.compositeVertexShader || !this.compositePixelShader || !thresholdShader || !blurDownShader || !blurUpShader
+                || !this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !integrateShader) {
                 return false;
             }
 
+            // Donut's common passes, which hold the samplers, upload their textures on a command list of
+            // their own: before ours is open.
+            this.linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
+
             this.createParticles();
+
+            // The bloom's passes: each reads a texture through the sampler, writes another, and has
+            // its resolutions as push constants; the composite reads the scene and the bloom.
+            const blurLayoutDesc = BindingLayoutDesc.create();
+            blurLayoutDesc.layoutTextureSRV(0);
+            blurLayoutDesc.layoutSampler(0);
+            blurLayoutDesc.layoutTextureUAV(0);
+            blurLayoutDesc.layoutPushConstants(0, BLUR_SIZE);
+            this.blurBindingLayout = this.app.createBindingLayout(blurLayoutDesc, ShaderType.Compute);
+            this.thresholdPipeline = this.app.createComputePipelineWithLayout(thresholdShader, this.blurBindingLayout);
+            this.blurDownPipeline = this.app.createComputePipelineWithLayout(blurDownShader, this.blurBindingLayout);
+            this.blurUpPipeline = this.app.createComputePipelineWithLayout(blurUpShader, this.blurBindingLayout);
+            const compositeLayoutDesc = BindingLayoutDesc.create();
+            compositeLayoutDesc.layoutTextureSRV(4);
+            compositeLayoutDesc.layoutTextureSRV(5);
+            compositeLayoutDesc.layoutSampler(0);
+            this.compositeBindingLayout = this.app.createBindingLayout(compositeLayoutDesc, ShaderType.Pixel);
 
             // Compute: the particles, their contacts and the SimulationConstants push constants.
             const computeLayoutDesc = BindingLayoutDesc.create();

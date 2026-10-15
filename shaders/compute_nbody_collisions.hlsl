@@ -824,3 +824,35 @@ void trail_vs(
     // Corners 0 and 1 are the head, 2 and 3 the tail.
     o_color = float4(SampleGradient(particle.vel.w), corner < 2 ? g_Trail.y : 0.0);
 }
+
+// --- Composite: the HDR frame and its bloom into the back buffer ------------------------------
+
+Texture2D t_Hdr : register(t4);
+Texture2D t_Bloom : register(t5);
+SamplerState s_Linear : register(s0);
+
+// A triangle over the screen, its vertices winding clockwise on the screen (Donut's front faces).
+void composite_vs(uint vertexId : SV_VertexID, out float4 position : SV_Position, out float2 uv : TEXCOORD0)
+{
+    float2 pos;
+    if (vertexId == 0)
+        pos = float2(-1.0, -1.0);
+    else if (vertexId == 1)
+        pos = float2(3.0, -1.0);
+    else
+        pos = float2(-1.0, 3.0);
+
+    uv = pos * 0.5 + 0.5;
+    position = float4(pos.x, -pos.y, 0.0, 1.0);
+}
+
+// The particles add up above 1 (a pile of them, a hot one with its glow): a soft shoulder from
+// KNEE on, per channel, so the colors below it are as they were and the rest saturates smoothly.
+#define KNEE 0.8
+
+float4 composite_ps(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target
+{
+    const float3 color = t_Hdr.SampleLevel(s_Linear, uv, 0.0).rgb + t_Bloom.SampleLevel(s_Linear, uv, 0.0).rgb;
+    const float3 over = max(color - KNEE, 0.0);
+    return float4(min(color, KNEE) + (1.0 - KNEE) * (1.0 - exp(-over / (1.0 - KNEE))), 1.0);
+}
