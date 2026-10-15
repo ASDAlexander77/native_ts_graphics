@@ -54,6 +54,18 @@ struct SimulationConstants
     int collisions;
     // 0: collisions add no heat (the particles still cool off).
     int heating;
+    // Set from the application's UI, which can change them while the simulation runs.
+    float timeFactor;
+    float gravity;
+    // Bounciness: 1 keeps the approach speed along the contact normal, 0 removes it.
+    float restitution;
+    // Share of the kinetic energy a bounce loses that becomes heat (see collide_cs).
+    float heatFactor;
+    // Seconds for the heat to fall to 1/e: the energy radiates away, it never turns back into speed.
+    float coolSeconds;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 DECLARE_PUSH_CONSTANTS(SimulationConstants, g_Simulation, 0, 0);
 RWStructuredBuffer<Particle> u_Particles : register(u0);
@@ -63,24 +75,17 @@ RWStructuredBuffer<Contact> u_Contacts : register(u1);
 // The gravity pass's stride over the particles, as in compute_nbody.hlsl: a body feels a quarter
 // of the light ones (and all the heavy centers, which sit at multiples of 1024).
 #define SHARED_DATA_SIZE 1024
-#define GRAVITY 0.002
 #define POWER 0.75
 #define SOFTEN 0.05
-#define TIME_FACTOR 0.05
 
-// Bounciness: 1 keeps the approach speed along the contact normal, 0 removes it.
-#define RESTITUTION 0.8
 // Share of an overlap pushed out per frame: gravity keeps pressing the particles that rest on a
 // heavy center into it, and velocity changes alone would let them sink.
 #define SEPARATION 0.5
-// The kinetic energy a bounce loses, 1/2 mu (1 - RESTITUTION^2) approach^2 for the pair's reduced
+// The kinetic energy a bounce loses, 1/2 mu (1 - restitution^2) approach^2 for the pair's reduced
 // mass mu, becomes heat. A particle's temperature rises by that over its own mass (heat capacity
-// grows with mass): 1/2 share (1 - RESTITUTION^2) approach^2, so a light particle hit hard glows
+// grows with mass): 1/2 share (1 - restitution^2) approach^2, so a light particle hit hard glows
 // and a heavy center, whose share is tiny, stays cold. Resting contacts (gravity's pull, undone
 // each frame) approach slowly and add next to nothing.
-#define HEAT_FACTOR 0.004
-// Seconds for the heat to fall to 1/e: the energy radiates away, it never turns back into speed.
-#define COOL_SECONDS 3.0
 
 // Share data between compute shader invocations to speed up calculations.
 groupshared float4 s_SharedData[WORKGROUP_SIZE];
@@ -118,7 +123,7 @@ void calculate_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_Group
         {
             const float4 other = s_SharedData[j];
             const float3 len = other.xyz - position.xyz;
-            acceleration.xyz += GRAVITY * len * other.w / pow(dot(len, len) + SOFTEN, POWER);
+            acceleration.xyz += g_Simulation.gravity * len * other.w / pow(dot(len, len) + SOFTEN, POWER);
         }
         GroupMemoryBarrierWithGroupSync();
     }
@@ -126,10 +131,10 @@ void calculate_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_Group
     if (!active)
         return;
 
-    u_Particles[index].vel.xyz += g_Simulation.deltaT * TIME_FACTOR * acceleration.xyz;
+    u_Particles[index].vel.xyz += g_Simulation.deltaT * g_Simulation.timeFactor * acceleration.xyz;
 
     // Gradient texture position
-    u_Particles[index].vel.w += 0.1 * TIME_FACTOR * g_Simulation.deltaT;
+    u_Particles[index].vel.w += 0.1 * g_Simulation.timeFactor * g_Simulation.deltaT;
     if (u_Particles[index].vel.w > 1.0)
     {
         u_Particles[index].vel.w -= 1.0;
@@ -184,7 +189,7 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
     const float3 position = active ? u_Particles[index].pos.xyz : float3(0, 0, 0);
     const float3 velocity = active ? u_Particles[index].vel.xyz : float3(0, 0, 0);
     const float radius = active ? u_Particles[index].info.x : 0.0;
-    const float step = g_Simulation.deltaT * TIME_FACTOR;
+    const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
 
     uint contacts = 0;
     for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
@@ -237,7 +242,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     const float contacts = active ? u_Particles[index].info.z : 0.0;
 
     // integrate_cs's step: how far a velocity moves a particle this frame.
-    const float step = g_Simulation.deltaT * TIME_FACTOR;
+    const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
 
     float3 velocityChange = float3(0, 0, 0);
     float3 shift = float3(0, 0, 0);
@@ -284,9 +289,9 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float approach = dot(relativeVelocity, normal);
                 if (approach >= 0.0)
                     continue;
-                const float bounce = -(1.0 + RESTITUTION) * impulseShare * approach;
+                const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
-                heat += HEAT_FACTOR * 0.5 * impulseShare * (1.0 - RESTITUTION * RESTITUTION) * approach * approach;
+                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
                 // integrate_cs moves the particle the whole step with the new velocity, but it
                 // had the old one until the touch: take back that part of the step.
                 sweepShift -= t * step * bounce * normal;
@@ -301,9 +306,9 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             const float approach = dot(relativeVelocity, normal);
             if (approach < 0.0)
             {
-                const float bounce = -(1.0 + RESTITUTION) * impulseShare * approach;
+                const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
-                heat += HEAT_FACTOR * 0.5 * impulseShare * (1.0 - RESTITUTION * RESTITUTION) * approach * approach;
+                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
             }
 
             shift += SEPARATION * share * (reach - dist) * normal;
@@ -346,8 +351,8 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
         particle.info.y += contact.velocity.w;
     }
 
-    particle.pos.xyz += g_Simulation.deltaT * TIME_FACTOR * particle.vel.xyz;
-    particle.info.y *= exp(-g_Simulation.deltaT / COOL_SECONDS);
+    particle.pos.xyz += g_Simulation.deltaT * g_Simulation.timeFactor * particle.vel.xyz;
+    particle.info.y *= exp(-g_Simulation.deltaT / g_Simulation.coolSeconds);
 
     u_Particles[index] = particle;
 }
@@ -501,4 +506,77 @@ float4 axis_ps(
     float4 i_color : TEXCOORD0) : SV_Target0
 {
     return i_color;
+}
+
+// --- Coordinate planes -----------------------------------------------------------------------
+
+// The XY, XZ and YZ planes through the origin, each a square grid of world-space lines, tinted by
+// its normal (Z blue, Y green, X red, as the gizmo's axes). Lines are quads of 6 vertices, built
+// from the vertex ID alone, and drawn with the view constants (b1) the particles use.
+#define PLANE_HALF_LINES 6
+#define PLANE_LINES_PER_DIRECTION (2 * PLANE_HALF_LINES + 1)
+#define PLANE_LINES_PER_PLANE (2 * PLANE_LINES_PER_DIRECTION)
+#define PLANE_LINE_COUNT (3 * PLANE_LINES_PER_PLANE)
+// World distance between lines, and half the width of a line in pixels.
+#define PLANE_SPACING 2.0
+#define PLANE_HALF_WIDTH 0.75
+#define PLANE_NEAR 0.1
+
+void plane_vs(
+    uint i_vertex : SV_VertexID,
+    out float4 o_position : SV_Position,
+    out float4 o_color : TEXCOORD0)
+{
+    const uint line_ = i_vertex / 6;
+    const uint plane = line_ / PLANE_LINES_PER_PLANE;
+    const uint inPlane = line_ % PLANE_LINES_PER_PLANE;
+    const uint direction = inPlane / PLANE_LINES_PER_DIRECTION;
+    const int index = int(inPlane % PLANE_LINES_PER_DIRECTION) - PLANE_HALF_LINES;
+
+    // The line at offset u along one in-plane axis, spanning the grid along the other.
+    const float u = index * PLANE_SPACING;
+    const float extent = PLANE_HALF_LINES * PLANE_SPACING;
+    const float2 a = direction == 0 ? float2(u, -extent) : float2(-extent, u);
+    const float2 b = direction == 0 ? float2(u, extent) : float2(extent, u);
+
+    // Plane 0 is XY, 1 is XZ, 2 is YZ.
+    float3 p0 = plane == 0 ? float3(a.x, a.y, 0) : (plane == 1 ? float3(a.x, 0, a.y) : float3(0, a.x, a.y));
+    float3 p1 = plane == 0 ? float3(b.x, b.y, 0) : (plane == 1 ? float3(b.x, 0, b.y) : float3(0, b.x, b.y));
+
+    // To view space, where the depth is w: cut the line at the near plane (a grid reaching behind
+    // the camera would otherwise flip across the screen).
+    float4 e0 = mul(float4(p0, 1.0), g_View.matWorldToView);
+    float4 e1 = mul(float4(p1, 1.0), g_View.matWorldToView);
+    if (e0.z < PLANE_NEAR && e1.z < PLANE_NEAR)
+    {
+        o_position = float4(2, 2, 0, 1);
+        o_color = 0;
+        return;
+    }
+    if (e0.z < PLANE_NEAR)
+        e0 = lerp(e0, e1, (PLANE_NEAR - e0.z) / (e1.z - e0.z));
+    if (e1.z < PLANE_NEAR)
+        e1 = lerp(e1, e0, (PLANE_NEAR - e1.z) / (e0.z - e1.z));
+
+    const float4 c0 = mul(e0, g_View.matViewToClip);
+    const float4 c1 = mul(e1, g_View.matViewToClip);
+
+    // In pixels from the center of the viewport, y up, then as the gizmo's segments.
+    const float2 halfViewport = 0.5 / g_View.viewportSizeInv;
+    const float2 s0 = c0.xy / c0.w * halfViewport;
+    const float2 s1 = c1.xy / c1.w * halfViewport;
+    float2 along = s1 - s0;
+    const float length_ = length(along);
+    along = length_ > 1e-4 ? along / length_ : float2(1, 0);
+    const float2 across = float2(-along.y, along.x) * PLANE_HALF_WIDTH;
+    along *= PLANE_HALF_WIDTH;
+
+    const float2 corners[4] = { s0 - along - across, s0 - along + across, s1 + along + across, s1 + along - across };
+    const float2 position = corners[c_GizmoQuadIndex[i_vertex % 6]];
+    o_position = float4(position * g_View.viewportSizeInv * 2.0, 0.0, 1.0);
+
+    // The outermost lines and the ones through the origin (the axes) stand out.
+    const bool emphasized = abs(index) == PLANE_HALF_LINES || index == 0;
+    float3 tint = plane == 0 ? float3(0.3, 0.3, 1.0) : (plane == 1 ? float3(0.3, 1.0, 0.3) : float3(1.0, 0.3, 0.3));
+    o_color = float4(tint, emphasized ? 0.45 : 0.15);
 }
