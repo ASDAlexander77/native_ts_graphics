@@ -298,8 +298,8 @@ namespace ComputeNBody {
         init(): boolean {
             this.vertexShader = this.app.createShader("compute_nbody.hlsl", "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("compute_nbody.hlsl", "main_ps", ShaderType.Pixel);
-            const calculateShader = this.app.createShader("compute_nbody.hlsl", "calculate_cs", ShaderType.Compute);
-            const integrateShader = this.app.createShader("compute_nbody.hlsl", "integrate_cs", ShaderType.Compute);
+            const calculateShader = this.app.createShaderWithDefine("compute_nbody.hlsl", "calculate_cs", ShaderType.Compute, "SIMULATION", "1");
+            const integrateShader = this.app.createShaderWithDefine("compute_nbody.hlsl", "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
             if (!this.vertexShader || !this.pixelShader || !calculateShader || !integrateShader) {
                 return false;
             }

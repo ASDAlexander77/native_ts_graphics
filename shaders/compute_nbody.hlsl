@@ -33,6 +33,10 @@ struct Particle
 
 // --- Simulation ------------------------------------------------------------------------------
 
+// Only in the compute entries (-D SIMULATION=1 in the .cfg): fxc warns about groupshared in
+// the vertex and pixel shaders.
+#ifdef SIMULATION
+
 struct SimulationConstants
 {
     float deltaT;
@@ -112,6 +116,8 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
 
     u_Particles[index].pos += g_Simulation.deltaT * TIME_FACTOR * u_Particles[index].vel;
 }
+
+#endif // SIMULATION
 
 // --- Rendering -------------------------------------------------------------------------------
 
