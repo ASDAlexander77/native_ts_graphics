@@ -505,19 +505,24 @@ float4 main_ps(
     const float r = length(i_spriteCoord);
     // Inside the collision radius: a ball, brighter towards its center. Outside: a faint glow.
     const float ballR = r * SPRITE_EXTENT;
-    const float brightness = ballR < 1.0
-        ? 0.35 + 0.65 * sqrt(1.0 - ballR * ballR)
-        : 0.5 * SampleGlow(r);
 
-    // The ball's surface normal in view space (z away from the camera): a dark mark at the two
-    // poles of the particle's marker direction, so a spinning ball shows it.
+    // A lit ball: its surface normal in view space (z away from the camera), a light from the upper
+    // left in front, and a highlight (white, brighter on the cool ones: a hot ball glows over it).
+    // Outside the ball, the faint glow.
+    float brightness = 0.5 * SampleGlow(r);
+    float highlight = 0.0;
     float mark = 0.0;
     if (ballR < 1.0)
     {
         const float3 normal = float3(i_spriteCoord * SPRITE_EXTENT, -sqrt(1.0 - ballR * ballR));
+        const float3 toLight = normalize(float3(-0.45, 0.55, -0.7));
+        brightness = 0.2 + 0.9 * saturate(dot(normal, toLight));
+        // Half way between the light and the viewer (at -z).
+        highlight = 0.5 * pow(saturate(dot(normal, normalize(toLight + float3(0, 0, -1)))), 24.0) * (1.0 - saturate(glow * 3.0));
+        // A dark mark at the two poles of the particle's marker direction, so a spinning ball shows it.
         mark = smoothstep(0.8, 0.9, abs(dot(normal, i_marker)));
     }
-    return float4(brightness * (1.0 - 0.6 * mark) * (1.0 + 0.3 * glow) * color, 1);
+    return float4(brightness * (1.0 - 0.6 * mark) * (1.0 + 0.3 * glow) * color + highlight, 1);
 }
 
 // --- Axis gizmo ------------------------------------------------------------------------------
