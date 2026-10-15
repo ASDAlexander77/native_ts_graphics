@@ -52,6 +52,7 @@ namespace ComputeNBodyCollisions {
     const CONSTANT_COOL_SECONDS = 8;
     const CONSTANT_FRICTION = 9;
     const CONSTANT_MERGE_SPEED = 10;
+    const CONSTANT_FULL_GRAVITY = 11;
     // The simulation's defaults (compute_nbody's, then the collisions'), and what the UI's sliders
     // can set them to.
     const DEFAULT_TIME_FACTOR = 0.05;
@@ -64,6 +65,12 @@ namespace ComputeNBodyCollisions {
     // MERGE_SPEED_MAX.
     const DEFAULT_MERGE_SPEED = 0.0;
     const MERGE_SPEED_MAX = 8.0;
+    // With gravity between all pairs (-fullgravity) and the heavy centers alone (-particles 1), the
+    // test checks the momentum and the angular momentum drifted by less than this much of the sums
+    // of their sizes. Merging the six centers (-merge 20) drifts the angular momentum by 3e-6 of
+    // it with the merged spins' exact balance, and 2e-4 with their average.
+    const MOMENTUM_DRIFT_LIMIT = 1.0e-3;
+    const ANGULAR_DRIFT_LIMIT = 1.0e-4;
     // With merging on, the particles left (radius not negative) are counted back from the GPU every
     // this many frames, for the window title and the UI.
     const ALIVE_COUNT_FRAMES = 30;
@@ -248,6 +255,10 @@ namespace ComputeNBodyCollisions {
         private initialVolume: number;
         // The angular momentum about the origin (x, y, z) the particles started with.
         private initialAngular: number[];
+        // The linear momentum (x, y, z, and the sum of m |v|, its scale), and the angular
+        // momentum's scale, the same way.
+        private initialMomentum: number[];
+        private fullGravity: boolean;
         private integratePipeline: ComputePipelineHandle;
         private computeBindingLayout: BindingLayoutHandle;
         private computeBindingSet: BindingSet;
@@ -312,7 +323,9 @@ namespace ComputeNBodyCollisions {
             this.trailConstants = [0.0, TRAIL_OPACITY, 0.0, 0.0];
             this.initialMass = 0.0;
             this.initialVolume = 0.0;
-            this.initialAngular = [0.0, 0.0, 0.0];
+            this.initialAngular = [0.0, 0.0, 0.0, 0.0];
+            this.initialMomentum = [0.0, 0.0, 0.0, 0.0];
+            this.fullGravity = false;
             this.aliveCount = 0;
             this.framesSinceCount = 0;
             this.uiAttractors = numAttractors;
@@ -880,6 +893,7 @@ namespace ComputeNBodyCollisions {
                 this.initialVolume += radius * radius * radius;
             }
             this.initialAngular = this.angularMomentum(particles);
+            this.initialMomentum = this.linearMomentum(particles);
 
             this.particleBuffer = this.app.createRWStructuredBuffer(PARTICLE_FLOATS * 4, this.numParticles, "Particles");
 
@@ -917,10 +931,30 @@ namespace ComputeNBodyCollisions {
             this.trailBindingSet = this.app.createBindingSetForLayout(trailSetDesc, this.trailBindingLayout);
         }
 
-        // The total angular momentum about the origin of the particles in `particles` (the
-        // PARTICLE_FLOATS layout): the orbits m (p x v), and the spins 2/5 m r^2 w of the solid spheres.
+        // The total linear momentum m v of the particles in `particles` (the PARTICLE_FLOATS layout)
+        // that are left, and the sum of m |v|, what its drift is measured against.
+        linearMomentum(particles: f32[]): number[] {
+            let total = [0.0, 0.0, 0.0, 0.0];
+            for (let i = 0; i < this.numParticles; i++) {
+                const q = i * PARTICLE_FLOATS;
+                if (particles[q + 8] < 0.0) {
+                    continue;
+                }
+                const mass = particles[q + 3];
+                total[0] += mass * particles[q + 4];
+                total[1] += mass * particles[q + 5];
+                total[2] += mass * particles[q + 6];
+                total[3] += mass * Math.sqrt(particles[q + 4] * particles[q + 4] + particles[q + 5] * particles[q + 5]
+                    + particles[q + 6] * particles[q + 6]);
+            }
+            return total;
+        }
+
+        // The total angular momentum about the origin of the particles in `particles`: the orbits
+        // m (p x v), and the spins 2/5 m r^2 w of the solid spheres; and, as the fourth number, the
+        // sum of their sizes, what its drift is measured against.
         angularMomentum(particles: f32[]): number[] {
-            let total = [0.0, 0.0, 0.0];
+            let total = [0.0, 0.0, 0.0, 0.0];
             for (let i = 0; i < this.numParticles; i++) {
                 const q = i * PARTICLE_FLOATS;
                 const radius = particles[q + 8];
@@ -932,6 +966,11 @@ namespace ComputeNBodyCollisions {
                 total[0] += mass * (particles[q + 1] * particles[q + 6] - particles[q + 2] * particles[q + 5]) + inertia * particles[q + 12];
                 total[1] += mass * (particles[q + 2] * particles[q + 4] - particles[q + 0] * particles[q + 6]) + inertia * particles[q + 13];
                 total[2] += mass * (particles[q + 0] * particles[q + 5] - particles[q + 1] * particles[q + 4]) + inertia * particles[q + 14];
+                total[3] += mass * Math.sqrt(particles[q + 0] * particles[q + 0] + particles[q + 1] * particles[q + 1]
+                    + particles[q + 2] * particles[q + 2]) * Math.sqrt(particles[q + 4] * particles[q + 4]
+                    + particles[q + 5] * particles[q + 5] + particles[q + 6] * particles[q + 6])
+                    + inertia * Math.sqrt(particles[q + 12] * particles[q + 12] + particles[q + 13] * particles[q + 13]
+                    + particles[q + 14] * particles[q + 14]);
             }
             return total;
         }
@@ -950,6 +989,11 @@ namespace ComputeNBodyCollisions {
                 }
             }
             this.aliveCount = alive;
+        }
+
+        setFullGravity(full: boolean): void {
+            this.fullGravity = full;
+            Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_FULL_GRAVITY]), full ? 1 : 0);
         }
 
         setMergeSpeed(speed: number): void {
@@ -1056,6 +1100,28 @@ namespace ComputeNBodyCollisions {
                 }
             }
 
+            // Every pair pulling both ways: the collisions, the friction and the merges keep the linear
+            // and the angular momentum, measured against the larger of the sums of their sizes at
+            // the start and now (the heavy centers start at rest). The push-outs of overlapping
+            // particles move them without a velocity change and drift the angular momentum, a lot
+            // for the light ones resting on a heavy center: use this for the heavy centers alone.
+            if (this.fullGravity && this.particlesPerAttractor == 1) {
+                const momentum = this.linearMomentum(particles);
+                const angular = this.angularMomentum(particles);
+                let momentumDrift = 0.0;
+                let angularDrift = 0.0;
+                for (let k = 0; k < 3; k++) {
+                    momentumDrift = Math.max(momentumDrift, absolute(momentum[k] - this.initialMomentum[k]));
+                    angularDrift = Math.max(angularDrift, absolute(angular[k] - this.initialAngular[k]));
+                }
+                const momentumLimit = Math.max(this.initialMomentum[3], momentum[3]) * MOMENTUM_DRIFT_LIMIT;
+                const angularLimit = Math.max(this.initialAngular[3], angular[3]) * ANGULAR_DRIFT_LIMIT;
+                console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift} (limit ${angularLimit})`);
+                if (momentumDrift > momentumLimit || angularDrift > angularLimit) {
+                    return `momentum drifts by ${momentumDrift} (over ${momentumLimit}) or angular momentum by ${angularDrift} (over ${angularLimit})`;
+                }
+            }
+
             // Spin (friction's torque): finite, and the marker stays a unit vector.
             let maxSpin = 0.0;
             for (let i = 0; i < this.numParticles; i++) {
@@ -1116,6 +1182,10 @@ namespace ComputeNBodyCollisions {
                     Donut_StoreInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
                 }
                 this.showPlanes = Donut_ImGuiCheckbox("Planes (P)", this.showPlanes ? 1 : 0) != 0;
+                const fullGravity = Donut_ImGuiCheckbox("Gravity between all pairs", this.fullGravity ? 1 : 0) != 0;
+                if (fullGravity != this.fullGravity) {
+                    this.setFullGravity(fullGravity);
+                }
                 this.showTrails = Donut_ImGuiCheckbox("Trails (T)", this.showTrails ? 1 : 0) != 0;
                 this.trailSeconds = Donut_ImGuiSliderFloat("Trail length", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
                 this.bloomStrength = Donut_ImGuiSliderFloat("Bloom", this.bloomStrength, 0.0, 2.0);
@@ -1295,6 +1365,8 @@ namespace ComputeNBodyCollisions {
         particlesPerAttractor: int = PARTICLES_PER_ATTRACTOR;
         // -merge <speed>: particles touching slower than this merge (0, off, by default).
         mergeSpeed: number = DEFAULT_MERGE_SPEED;
+        // -fullgravity: every pair pulls both ways (see SimulationConstants.fullGravity).
+        fullGravity: boolean = false;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
@@ -1305,6 +1377,8 @@ namespace ComputeNBodyCollisions {
                 } else if (arg == "-particles" && i + 1 < this.argc) {
                     this.particlesPerAttractor = parseInt(this[i + 1]);
                     i++;
+                } else if (arg == "-fullgravity") {
+                    this.fullGravity = true;
                 } else if (arg == "-merge" && i + 1 < this.argc) {
                     this.mergeSpeed = parseFloat(this[i + 1]);
                     i++;
@@ -1345,6 +1419,7 @@ namespace ComputeNBodyCollisions {
             return 1;
         }
         nbody.setMergeSpeed(args.mergeSpeed);
+        nbody.setFullGravity(args.fullGravity);
 
         const input = new InputPass(app.handle);
 

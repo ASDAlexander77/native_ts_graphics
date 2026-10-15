@@ -75,7 +75,10 @@ struct SimulationConstants
     // more mass (the lower index of two equal ones) absorbs the other, keeping the mass and the
     // momentum. 0: they never merge.
     float mergeSpeed;
-    float pad2;
+    // 0: the gravity pass samples the particles as compute_nbody does (a body feels a quarter of the
+    // light ones), which is not symmetric: the total momentum is not kept. 1: every pair, with the
+    // same pull both ways, so the momentum and the angular momentum are kept.
+    int fullGravity;
 };
 DECLARE_PUSH_CONSTANTS(SimulationConstants, g_Simulation, 0, 0);
 RWStructuredBuffer<Particle> u_Particles : register(u0);
@@ -83,7 +86,8 @@ RWStructuredBuffer<Contact> u_Contacts : register(u1);
 
 #define WORKGROUP_SIZE 256
 // The gravity pass's stride over the particles, as in compute_nbody.hlsl: a body feels a quarter
-// of the light ones (and all the heavy centers, which sit at multiples of 1024).
+// of the light ones (and all the heavy centers, which sit at multiples of 1024). Every pair
+// (fullGravity) steps by a workgroup instead.
 #define SHARED_DATA_SIZE 1024
 #define POWER 0.75
 #define SOFTEN 0.05
@@ -119,7 +123,8 @@ void calculate_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_Group
     const float4 position = active ? u_Particles[index].pos : float4(0, 0, 0, 0);
     float4 acceleration = float4(0, 0, 0, 0);
 
-    for (uint i = 0; i < particleCount; i += SHARED_DATA_SIZE)
+    const uint stride = g_Simulation.fullGravity != 0 ? WORKGROUP_SIZE : SHARED_DATA_SIZE;
+    for (uint i = 0; i < particleCount; i += stride)
     {
         if (i + localId.x < particleCount)
         {
@@ -406,6 +411,9 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 // chain is merged a step at a time. The survivor takes the sum of the masses and the volumes, the
 // mass-weighted position, velocity and heat, a spin that keeps the angular momentum about the new
 // center (the orbits and the spins), and the translational kinetic energy the merge loses is heat.
+// The survivor and the absorbed take their own collision impulses (Contact, from the particles that
+// bounce off them) before they merge, and the survivor's are then spent: an absorbed particle's
+// would be lost with it, and the particle it bounced off would keep its half of the impulse.
 // Only the survivors write, and only the particles they read (the absorbed) are not survivors.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void absorb_cs(uint3 globalId : SV_DispatchThreadID)
@@ -421,10 +429,10 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
         return;
 
     float mass = particle.pos.w;
-    float3 position = particle.pos.xyz;
-    float3 velocity = particle.vel.xyz;
-    float3 spin = particle.spin.xyz;
-    float heat = particle.info.y;
+    float3 position = particle.pos.xyz + own.shift.xyz;
+    float3 velocity = particle.vel.xyz + own.velocity.xyz;
+    float3 spin = particle.spin.xyz + own.spin.xyz;
+    float heat = particle.info.y + own.velocity.w;
     float volume = particle.info.x * particle.info.x * particle.info.x;
     bool absorbed = false;
 
@@ -437,13 +445,19 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
         if (victim.info.x < 0.0)
             continue;
 
-        const float total = mass + victim.pos.w;
-        const float3 lost = velocity - victim.vel.xyz;
-        heat = (mass * heat + victim.pos.w * victim.info.y) / total;
+        const float victimMass = victim.pos.w;
+        const float3 victimPosition = victim.pos.xyz + other.shift.xyz;
+        const float3 victimVelocity = victim.vel.xyz + other.velocity.xyz;
+        const float3 victimSpin = victim.spin.xyz + other.spin.xyz;
+        const float victimHeat = victim.info.y + other.velocity.w;
+
+        const float total = mass + victimMass;
+        const float3 lost = velocity - victimVelocity;
+        heat = (mass * heat + victimMass * victimHeat) / total;
         if (g_Simulation.heating != 0)
-            heat += g_Simulation.heatFactor * 0.5 * (victim.pos.w / total) * dot(lost, lost);
-        const float3 newPosition = (mass * position + victim.pos.w * victim.pos.xyz) / total;
-        const float3 newVelocity = (mass * velocity + victim.pos.w * victim.vel.xyz) / total;
+            heat += g_Simulation.heatFactor * 0.5 * (victimMass / total) * dot(lost, lost);
+        const float3 newPosition = (mass * position + victimMass * victimPosition) / total;
+        const float3 newVelocity = (mass * velocity + victimMass * victimVelocity) / total;
         const float victimVolume = victim.info.x * victim.info.x * victim.info.x;
         const float newRadius = pow(volume + victimVolume, 1.0 / 3.0);
 
@@ -451,9 +465,9 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
         // spins (solid spheres, 2/5 m r^2), all go into the merged sphere's spin.
         const float3 angularMomentum =
             mass * cross(position - newPosition, velocity - newVelocity)
-            + victim.pos.w * cross(victim.pos.xyz - newPosition, victim.vel.xyz - newVelocity)
+            + victimMass * cross(victimPosition - newPosition, victimVelocity - newVelocity)
             + 0.4 * mass * pow(volume, 2.0 / 3.0) * spin
-            + 0.4 * victim.pos.w * victim.info.x * victim.info.x * victim.spin.xyz;
+            + 0.4 * victimMass * victim.info.x * victim.info.x * victimSpin;
         spin = angularMomentum / (0.4 * total * newRadius * newRadius);
 
         position = newPosition;
@@ -471,6 +485,13 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
     particle.info.x = pow(volume, 1.0 / 3.0);
     particle.info.y = heat;
     u_Particles[index] = particle;
+
+    // Spent (integrate_cs adds them): keep the flag and the target, which kill_cs reads.
+    Contact spent = own;
+    spent.velocity = float4(0, 0, 0, 0);
+    spent.shift.xyz = float3(0, 0, 0);
+    spent.spin.xyz = float3(0, 0, 0);
+    u_Contacts[index] = spent;
 }
 
 // After absorb_cs: the particles that were absorbed are gone (a negative radius, no mass, nothing
