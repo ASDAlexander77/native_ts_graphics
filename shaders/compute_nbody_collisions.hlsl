@@ -40,7 +40,7 @@ struct Particle
 struct Contact
 {
     float4 velocity; // xyz = velocity change, w = heat gained
-    float4 shift;    // xyz = position correction, w = 1 if the particle is merging with another
+    float4 shift;    // xyz = position correction (swept contacts), w = 1 if the particle is merging with another
     float4 spin;     // xyz = angular velocity change (friction), w = the particle it merges into (its own
                      // index if none dominates it: it absorbs the merging ones that name it)
     float4 fragment; // w = 1 if the particle breaks in two (fragment_cs); xyz = the direction the halves
@@ -108,11 +108,24 @@ RWStructuredBuffer<uint> u_Free : register(u2);
 #define FRAGMENT_MIN_RADIUS 0.035
 #define FRAGMENT_MAX_RADIUS 0.3
 
-// Share of an overlap pushed out per frame: gravity keeps pressing the particles that rest on a
-// heavy center into it, and velocity changes alone would let them sink. Moving the particles
-// without a velocity change doesn't keep the angular momentum (separating them by impulses would,
-// but holding them apart against this gravity that way takes more than one pass over the contacts).
-#define SEPARATION 0.5
+// Overlapping particles push each other apart as with a spring between their centers: equal and
+// opposite along the line between them, so the momentum and the angular momentum are kept (moving
+// them apart, as before, kept neither the angular momentum nor the energy straight). Its
+// stiffness is set by the step: w0 step = sqrt(CONTACT_STIFFNESS) for the spring's angular frequency
+// w0 over the pair's reduced mass, so a pair's velocity changes by CONTACT_STIFFNESS overlap / step
+// per step, whatever the masses and the time scale. Low enough for the explicit steps to stay stable
+// with many contacts at once (w0 step under 2 / sqrt(contacts): 16 at 0.5), high enough that the
+// pile's weight presses the particles into each other by a few percent of their reach. The overlap
+// it pushes on is at most CONTACT_OVERLAP_MAX of the reach: a particle merged and grown into its
+// neighbors is pushed out over several steps, not flung.
+#define CONTACT_STIFFNESS 0.25
+#define CONTACT_OVERLAP_MAX 0.5
+// The spring's damping ratio, while the two part: critical, so a particle pushed out of another
+// doesn't fly off, and resting contacts settle. Each pair's damping is divided among the contacts as
+// the bounces are, so that over many contacts it stays under the particle's speed (added up, it
+// overshot and blew up). What it takes is heat, as a bounce's loss is. Fast impacts bounce before
+// they overlap (FindContact), at the bounciness; an overlapping pair that parts loses its speed.
+#define CONTACT_DAMPING 1.0
 // The kinetic energy a bounce loses, 1/2 mu (1 - restitution^2) approach^2 for the pair's reduced
 // mass mu, becomes heat. A particle's temperature rises by that over its own mass (heat capacity
 // grows with mass): 1/2 share (1 - restitution^2) approach^2, so a light particle hit hard glows
@@ -349,8 +362,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
     float3 velocityChange = float3(0, 0, 0);
     float3 spinChange = float3(0, 0, 0);
-    float3 shift = float3(0, 0, 0);
-    // Position corrections of the swept contacts, exact, so not limited as the overlaps' are.
+    // Position corrections of the swept contacts (overlaps push apart by the contact springs).
     float3 sweepShift = float3(0, 0, 0);
     float heat = 0.0;
     // Merging: the most massive of the touching particles that dominate this one (or itself).
@@ -442,7 +454,17 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                     otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
             }
 
-            shift += SEPARATION * share * (reach - dist) * normal;
+            if (step > 0.0)
+            {
+                const float overlap = min(reach - dist, CONTACT_OVERLAP_MAX * reach);
+                // Damped while they part (approach > 0), divided among the contacts (impulseShare).
+                const float damping = approach > 0.0 ? 2.0 * CONTACT_DAMPING * sqrt(CONTACT_STIFFNESS) * approach : 0.0;
+                velocityChange += (share * CONTACT_STIFFNESS * overlap / step - impulseShare * damping) * normal;
+                // The parting speed it takes, approach to approach - d, loses 1/2 mu (approach^2 -
+                // (approach - d)^2) of the pair's energy: this particle's heat, as for a bounce.
+                const float parting = approach - (impulseShare / share) * damping;
+                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (approach * approach - parting * parting);
+            }
         }
         GroupMemoryBarrierWithGroupSync();
     }
@@ -450,17 +472,9 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     if (!active)
         return;
 
-    // In a dense pile the corrections of many neighbors add up: at most a radius per frame, or a
-    // particle can land deep inside others and pump energy into the pile.
-    const float shiftLength = length(shift);
-    if (shiftLength > radius)
-    {
-        shift *= radius / shiftLength;
-    }
-
     Contact contact;
     contact.velocity = float4(velocityChange, g_Simulation.heating != 0 ? heat : 0.0);
-    contact.shift = float4(shift + sweepShift, merging ? 1.0 : 0.0);
+    contact.shift = float4(sweepShift, merging ? 1.0 : 0.0);
     contact.spin = float4(spinChange, float(mergeTarget));
     // A particle merging this step doesn't also break.
     contact.fragment = float4(fragmentVelocity, fragmenting && !merging ? 1.0 : 0.0);
