@@ -56,6 +56,16 @@ namespace ComputeNBodyCollisions {
     const MAX_PLACEMENT_ATTEMPTS = 100;
     // The quad each particle is drawn as (main_vs).
     const VERTICES_PER_PARTICLE = 6;
+    // The axis gizmo (axis_vs): up to GIZMO_MAX_SEGMENTS segments of 6 vertices, in a constant buffer
+    // of a float4 (1 / viewport size), then every segment's endpoints and color. Sizes are for a
+    // 720 pixel high window and scale with it.
+    const GIZMO_MAX_SEGMENTS = 16;
+    const GIZMO_FLOATS = 4 + GIZMO_MAX_SEGMENTS * 8;
+    const GIZMO_ORIGIN = 70.0;
+    const GIZMO_LENGTH = 45.0;
+    const GIZMO_LABEL_DISTANCE = 15.0;
+    const GIZMO_LABEL_HALF_WIDTH = 5.0;
+    const GIZMO_LABEL_HALF_HEIGHT = 7.0;
 
     // --- Math ---------------------------------------------------------------------------------
 
@@ -129,6 +139,14 @@ namespace ComputeNBodyCollisions {
         private drawBindingLayout: BindingLayoutHandle;
         private drawBindingSet: BindingSet;
         private viewConstantBuffer: BufferHandle;
+        private axisVertexShader: ShaderHandle;
+        private axisPixelShader: ShaderHandle;
+        private gizmoBindingLayout: BindingLayoutHandle;
+        private gizmoBindingSet: BindingSet;
+        private gizmoBuffer: BufferHandle;
+        private gizmoPipeline: GraphicsPipelineHandle | null;
+        private gizmoConstants: f32[];
+        private gizmoSegments: int;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private graphicsPipeline: GraphicsPipelineHandle | null;
 
@@ -151,6 +169,12 @@ namespace ComputeNBodyCollisions {
             this.heating = true;
             this.numParticles = 0;
             this.graphicsPipeline = null;
+            this.gizmoPipeline = null;
+            this.gizmoSegments = 0;
+            this.gizmoConstants = [];
+            for (let i = 0; i < GIZMO_FLOATS; i++) {
+                this.gizmoConstants.push(0.0);
+            }
             this.viewConstantsSize = 0;
 
             this.simulationConstants = [0.0, 0.0, 0.0, 0.0];
@@ -236,6 +260,11 @@ namespace ComputeNBodyCollisions {
                 this.app.releaseResource(graphicsPipeline);
                 this.graphicsPipeline = null;
             }
+            const gizmoPipeline = this.gizmoPipeline;
+            if (gizmoPipeline) {
+                this.app.releaseResource(gizmoPipeline);
+                this.gizmoPipeline = null;
+            }
         }
 
         onRender(frameHandle: FrameHandle): void {
@@ -284,6 +313,83 @@ namespace ComputeNBodyCollisions {
             frame.beginDraw(graphicsPipeline);
             frame.drawAddBindingSet(this.drawBindingSet);
             frame.drawVertices(this.numParticles * VERTICES_PER_PARTICLE);
+
+            // The axes, over the particles, in the top left corner.
+            this.buildGizmo(width, height);
+            commandList.writeBuffer(this.gizmoBuffer, Ref(this.gizmoConstants[0]), GIZMO_FLOATS * 4);
+            let gizmoPipeline = this.gizmoPipeline;
+            if (!gizmoPipeline) {
+                gizmoPipeline = this.app.createGraphicsPipelineWithBlend(frame, this.axisVertexShader, this.axisPixelShader,
+                    null, this.gizmoBindingLayout, PrimitiveType.TriangleList, BlendMode.AlphaBlend);
+                this.gizmoPipeline = gizmoPipeline;
+            }
+            frame.beginDraw(gizmoPipeline);
+            frame.drawAddBindingSet(this.gizmoBindingSet);
+            frame.drawVertices(this.gizmoSegments * VERTICES_PER_PARTICLE);
+        }
+
+        // Adds a segment from (x0, y0) to (x1, y1), in pixels from the top left, to the gizmo.
+        addGizmoSegment(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number, a: number): void {
+            if (this.gizmoSegments >= GIZMO_MAX_SEGMENTS) {
+                return;
+            }
+            const points = 4 + this.gizmoSegments * 4;
+            const colors = 4 + (GIZMO_MAX_SEGMENTS + this.gizmoSegments) * 4;
+            this.gizmoConstants[points + 0] = x0;
+            this.gizmoConstants[points + 1] = y0;
+            this.gizmoConstants[points + 2] = x1;
+            this.gizmoConstants[points + 3] = y1;
+            this.gizmoConstants[colors + 0] = r;
+            this.gizmoConstants[colors + 1] = g;
+            this.gizmoConstants[colors + 2] = b;
+            this.gizmoConstants[colors + 3] = a;
+            this.gizmoSegments++;
+        }
+
+        // The world X, Y and Z axes as the camera sees them: each axis direction in view space is a
+        // row of the view matrix (row-vector convention), x to the right, y up and z away from the
+        // camera. Axes pointing away are fainter, and each has its letter beyond the tip.
+        buildGizmo(width: number, height: number): void {
+            const scale = height / 720.0;
+            const originX = GIZMO_ORIGIN * scale;
+            const originY = GIZMO_ORIGIN * scale;
+            this.gizmoConstants[0] = 1.0 / width;
+            this.gizmoConstants[1] = 1.0 / height;
+            this.gizmoSegments = 0;
+
+            for (let axis = 0; axis < 3; axis++) {
+                const viewX = this.viewMatrix[axis * 4 + 0];
+                const viewY = this.viewMatrix[axis * 4 + 1];
+                const viewZ = this.viewMatrix[axis * 4 + 2];
+                const dx = viewX * GIZMO_LENGTH * scale;
+                const dy = -viewY * GIZMO_LENGTH * scale;
+                const tipX = originX + dx;
+                const tipY = originY + dy;
+                const r = axis == 0 ? 1.0 : 0.3;
+                const g = axis == 1 ? 1.0 : (axis == 0 ? 0.3 : 0.55);
+                const b = axis == 2 ? 1.0 : 0.3;
+                const a = 0.35 + 0.65 * (0.5 - 0.5 * viewZ);
+                this.addGizmoSegment(originX, originY, tipX, tipY, r, g, b, a);
+
+                // The letter, outward from the origin (above the tip when the axis points at the camera).
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const cx = length > 1.0 ? tipX + dx / length * GIZMO_LABEL_DISTANCE * scale : tipX;
+                const cy = length > 1.0 ? tipY + dy / length * GIZMO_LABEL_DISTANCE * scale : tipY - GIZMO_LABEL_DISTANCE * scale;
+                const w = GIZMO_LABEL_HALF_WIDTH * scale;
+                const h = GIZMO_LABEL_HALF_HEIGHT * scale;
+                if (axis == 0) {
+                    this.addGizmoSegment(cx - w, cy - h, cx + w, cy + h, r, g, b, a);
+                    this.addGizmoSegment(cx - w, cy + h, cx + w, cy - h, r, g, b, a);
+                } else if (axis == 1) {
+                    this.addGizmoSegment(cx - w, cy - h, cx, cy, r, g, b, a);
+                    this.addGizmoSegment(cx + w, cy - h, cx, cy, r, g, b, a);
+                    this.addGizmoSegment(cx, cy, cx, cy + h, r, g, b, a);
+                } else {
+                    this.addGizmoSegment(cx - w, cy - h, cx + w, cy - h, r, g, b, a);
+                    this.addGizmoSegment(cx + w, cy - h, cx - w, cy + h, r, g, b, a);
+                    this.addGizmoSegment(cx - w, cy + h, cx + w, cy + h, r, g, b, a);
+                }
+            }
         }
 
         // Whether a light particle at (x, y, z) would overlap one of the first `count` particles or
@@ -487,7 +593,9 @@ namespace ComputeNBodyCollisions {
             const countShader = this.app.createShaderWithDefine(shaderFile, "count_cs", ShaderType.Compute, "SIMULATION", "1");
             const collideShader = this.app.createShaderWithDefine(shaderFile, "collide_cs", ShaderType.Compute, "SIMULATION", "1");
             const integrateShader = this.app.createShaderWithDefine(shaderFile, "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
-            if (!this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
+            this.axisVertexShader = this.app.createShader(shaderFile, "axis_vs", ShaderType.Vertex);
+            this.axisPixelShader = this.app.createShader(shaderFile, "axis_ps", ShaderType.Pixel);
+            if (!this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
                 return false;
             }
 
@@ -533,6 +641,15 @@ namespace ComputeNBodyCollisions {
             drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
             drawSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
             this.drawBindingSet = this.app.createBindingSetForLayout(drawSetDesc, this.drawBindingLayout);
+
+            // The axis gizmo's segments, written in the command list every frame.
+            this.gizmoBuffer = this.app.createConstantBuffer(GIZMO_FLOATS * 4, "Gizmo");
+            const gizmoLayoutDesc = BindingLayoutDesc.create();
+            gizmoLayoutDesc.layoutConstantBuffer(2);
+            this.gizmoBindingLayout = this.app.createBindingLayout(gizmoLayoutDesc, ShaderType.Vertex);
+            const gizmoSetDesc = BindingSetDesc.create();
+            gizmoSetDesc.bindEntireConstantBuffer(2, this.gizmoBuffer);
+            this.gizmoBindingSet = this.app.createBindingSetForLayout(gizmoSetDesc, this.gizmoBindingLayout);
 
             // compute_nbody's look-at camera: 14 units from the origin, rotated (-26, 75) degrees.
             this.camera = this.app.createThirdPersonCamera();

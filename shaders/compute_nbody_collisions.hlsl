@@ -450,3 +450,55 @@ float4 main_ps(
         : 0.5 * SampleGlow(r);
     return float4(brightness * (1.0 + 0.3 * glow) * color, 1);
 }
+
+// --- Axis gizmo ------------------------------------------------------------------------------
+
+// The orientation axes in a corner of the screen: segments (2D endpoints in pixels from the top
+// left, and a color), each drawn as a quad of 6 vertices, computed by the application every frame
+// from the camera's rotation.
+#define GIZMO_MAX_SEGMENTS 16
+// Half the width of a segment, in pixels.
+#define GIZMO_HALF_WIDTH 1.5
+
+cbuffer c_Gizmo : register(b2)
+{
+    float4 g_GizmoHeader; // xy = 1 / viewport size
+    float4 g_GizmoPoints[GIZMO_MAX_SEGMENTS]; // x0, y0, x1, y1
+    float4 g_GizmoColors[GIZMO_MAX_SEGMENTS];
+};
+
+static const uint c_GizmoQuadIndex[6] = { 0, 1, 2, 0, 2, 3 };
+
+void axis_vs(
+    uint i_vertex : SV_VertexID,
+    out float4 o_position : SV_Position,
+    out float4 o_color : TEXCOORD0)
+{
+    const uint segment = i_vertex / 6;
+    const float2 halfViewport = 0.5 / g_GizmoHeader.xy;
+
+    // In pixels from the center of the viewport, y up.
+    const float4 points = g_GizmoPoints[segment];
+    const float2 p0 = float2(points.x - halfViewport.x, halfViewport.y - points.y);
+    const float2 p1 = float2(points.z - halfViewport.x, halfViewport.y - points.w);
+
+    float2 along = p1 - p0;
+    const float length_ = length(along);
+    along = length_ > 1e-4 ? along / length_ : float2(1, 0);
+    // The quad is clockwise on screen (the front faces), and goes past the ends by the half width.
+    const float2 across = float2(-along.y, along.x) * GIZMO_HALF_WIDTH;
+    along *= GIZMO_HALF_WIDTH;
+
+    const float2 corners[4] = { p0 - along - across, p0 - along + across, p1 + along + across, p1 + along - across };
+    const float2 position = corners[c_GizmoQuadIndex[i_vertex % 6]];
+
+    o_position = float4(position * g_GizmoHeader.xy * 2.0, 0.0, 1.0);
+    o_color = g_GizmoColors[segment];
+}
+
+float4 axis_ps(
+    float4 i_position : SV_Position,
+    float4 i_color : TEXCOORD0) : SV_Target0
+{
+    return i_color;
+}
