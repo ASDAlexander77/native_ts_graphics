@@ -64,6 +64,9 @@ namespace ComputeNBodyCollisions {
     // MERGE_SPEED_MAX.
     const DEFAULT_MERGE_SPEED = 0.0;
     const MERGE_SPEED_MAX = 8.0;
+    // With merging on, the particles left (radius not negative) are counted back from the GPU every
+    // this many frames, for the window title and the UI.
+    const ALIVE_COUNT_FRAMES = 30;
     // The sigma of a group's cloud around its attractor, and the random seed (the Park-Miller
     // generator wants one from 1 up), at startup and as the UI's restart sets them.
     const DEFAULT_SPREAD = 0.75;
@@ -240,6 +243,8 @@ namespace ComputeNBodyCollisions {
         private killPipeline: ComputePipelineHandle;
         // The mass and the volume (sum of cubed radii) the particles started with: merging keeps both.
         private initialMass: number;
+        private aliveCount: int;
+        private framesSinceCount: int;
         private initialVolume: number;
         private integratePipeline: ComputePipelineHandle;
         private computeBindingLayout: BindingLayoutHandle;
@@ -305,6 +310,8 @@ namespace ComputeNBodyCollisions {
             this.trailConstants = [0.0, TRAIL_OPACITY, 0.0, 0.0];
             this.initialMass = 0.0;
             this.initialVolume = 0.0;
+            this.aliveCount = 0;
+            this.framesSinceCount = 0;
             this.uiAttractors = numAttractors;
             this.uiParticles = particlesPerAttractor;
             this.uiSpread = DEFAULT_SPREAD;
@@ -411,11 +418,19 @@ namespace ComputeNBodyCollisions {
 
             this.simulationConstants[0] = elapsedSeconds < MAX_DELTA_T ? elapsedSeconds : MAX_DELTA_T;
 
+            // Merged-away particles don't show: count the ones left now and then (the GPU is idle
+            // here, as for a restart).
+            this.framesSinceCount++;
+            if (this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0 && !this.paused && this.framesSinceCount >= ALIVE_COUNT_FRAMES) {
+                this.framesSinceCount = 0;
+                this.countAlive();
+            }
+
             const collisionsInfo = (this.collisions ? "collisions on" : "collisions off")
                 + (this.heating ? ", heating on" : ", heating off");
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, this.paused
-                ? `${this.numParticles} particles, ${collisionsInfo} (paused)`
-                : `${this.numParticles} particles, ${collisionsInfo}`);
+                ? `${this.aliveCount} particles, ${collisionsInfo} (paused)`
+                : `${this.aliveCount} particles, ${collisionsInfo}`);
         }
 
         onBackBufferResizing(): void {
@@ -875,6 +890,7 @@ namespace ComputeNBodyCollisions {
             // Written by collide_cs before integrate_cs reads it, every frame.
             this.contactBuffer = this.app.createRWStructuredBuffer(CONTACT_FLOATS * 4, this.numParticles, "Contacts");
             Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
+            this.aliveCount = this.numParticles;
         }
 
         // The binding sets over the particle and contact buffers (compute, and the vertex shader's).
@@ -895,6 +911,22 @@ namespace ComputeNBodyCollisions {
             trailSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
             trailSetDesc.bindEntireConstantBuffer(3, this.trailBuffer);
             this.trailBindingSet = this.app.createBindingSetForLayout(trailSetDesc, this.trailBindingLayout);
+        }
+
+        // How many particles are left (the others merged into them), read back from the GPU. Only
+        // ever fewer than at the start: a failed read keeps the last count.
+        countAlive(): void {
+            const particles = new TestCheck(this.app).readFloats(this.particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
+            if (particles.length == 0) {
+                return;
+            }
+            let alive = 0;
+            for (let i = 0; i < this.numParticles; i++) {
+                if (particles[i * PARTICLE_FLOATS + 8] >= 0.0) {
+                    alive++;
+                }
+            }
+            this.aliveCount = alive;
         }
 
         setMergeSpeed(speed: number): void {
@@ -1094,7 +1126,9 @@ namespace ComputeNBodyCollisions {
                 if (Donut_ImGuiButton("Restart") != 0) {
                     this.restartRequested = true;
                 }
-                Donut_ImGuiText(this.numParticles + " particles running");
+                Donut_ImGuiText(this.aliveCount == this.numParticles
+                    ? this.numParticles + " particles running"
+                    : this.aliveCount + " of " + this.numParticles + " particles left");
             }
 
             Donut_ImGuiPopItemWidth();
