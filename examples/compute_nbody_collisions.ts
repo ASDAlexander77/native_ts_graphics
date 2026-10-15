@@ -10,7 +10,15 @@ namespace ComputeNBodyCollisions {
     // GLFW values, as passed to the keyboard callback.
     const KEY_SPACE = 32;
     const KEY_C = 67;
+    const KEY_H = 72;
     const ACTION_PRESS = 1;
+    const ACTION_RELEASE = 0;
+
+    // Seconds without input before the camera starts to orbit the center by itself, the seconds it
+    // takes to reach full speed, and that speed in radians per second (a turn in about 70 s).
+    const IDLE_SECONDS = 5.0;
+    const IDLE_RAMP_SECONDS = 2.0;
+    const IDLE_ROTATION_SPEED = 0.09;
 
     // The defaults of -attractors and -particles.
     const NUM_ATTRACTORS = 6;
@@ -31,13 +39,15 @@ namespace ComputeNBodyCollisions {
     const PARTICLE_FLOATS = 12;
     // struct Contact: float4 velocity, float4 shift.
     const CONTACT_FLOATS = 8;
-    // struct SimulationConstants: float deltaT, int particleCount, int collisions, int padding.
+    // struct SimulationConstants: float deltaT, int particleCount, int collisions, int heating.
     const SIMULATION_CONSTANTS_SIZE = 16;
     // Collision radii: the heavy centers are balls the light particles bounce off, the light ones
-    // grow with their mass (20 to 80).
+    // differ in size: radii from LIGHT_RADIUS_MIN to LIGHT_RADIUS_MAX (mostly small ones), and a
+    // mass of LIGHT_MASS_MIN at the smallest, growing with the volume (20 to 312).
     const HEAVY_RADIUS = 0.5;
-    const LIGHT_RADIUS_BASE = 0.04;
-    const LIGHT_RADIUS_PER_MASS = 0.0005;
+    const LIGHT_RADIUS_MIN = 0.04;
+    const LIGHT_RADIUS_MAX = 0.1;
+    const LIGHT_MASS_MIN = 20.0;
     // Longest simulation step, in seconds: a stall (window dragged, breakpoint) would otherwise move
     // the particles through each other in one step.
     const MAX_DELTA_T = 1.0 / 30.0;
@@ -46,6 +56,16 @@ namespace ComputeNBodyCollisions {
     const MAX_PLACEMENT_ATTEMPTS = 100;
     // The quad each particle is drawn as (main_vs).
     const VERTICES_PER_PARTICLE = 6;
+    // The axis gizmo (axis_vs): up to GIZMO_MAX_SEGMENTS segments of 6 vertices, in a constant buffer
+    // of a float4 (1 / viewport size), then every segment's endpoints and color. Sizes are for a
+    // 720 pixel high window and scale with it.
+    const GIZMO_MAX_SEGMENTS = 16;
+    const GIZMO_FLOATS = 4 + GIZMO_MAX_SEGMENTS * 8;
+    const GIZMO_ORIGIN = 70.0;
+    const GIZMO_LENGTH = 45.0;
+    const GIZMO_LABEL_DISTANCE = 15.0;
+    const GIZMO_LABEL_HALF_WIDTH = 5.0;
+    const GIZMO_LABEL_HALF_HEIGHT = 7.0;
 
     // --- Math ---------------------------------------------------------------------------------
 
@@ -90,13 +110,21 @@ namespace ComputeNBodyCollisions {
     // particle's contacts counted, then the collisions (every particle against every other, each
     // writing only its own velocity change and position correction into a second buffer, so no
     // particle reads one that another thread has already moved), then positions. Space pauses, C
-    // turns the collisions off and on.
+    // turns the collisions off and on. The kinetic energy the bounces lose becomes heat (info.y: it
+    // makes the particle glow, and cools off over a few seconds), H turns the heating off and on.
+    // Left alone for IDLE_SECONDS, the camera starts to orbit the target slowly; any input stops it.
     class NBodyCollisionsPass {
         private app: App;
         private camera: Camera;
         private view: View;
         private paused: boolean;
         private collisions: boolean;
+        private heating: boolean;
+        // Seconds since the last input, and the mouse buttons held: dragging pauses the rotation.
+        private idleSeconds: number;
+        private buttonsDown: int;
+        // -test renders the same frames every run: no rotation.
+        private autoRotate: boolean;
         private numParticles: int;
 
         private particleBuffer: BufferHandle;
@@ -111,6 +139,14 @@ namespace ComputeNBodyCollisions {
         private drawBindingLayout: BindingLayoutHandle;
         private drawBindingSet: BindingSet;
         private viewConstantBuffer: BufferHandle;
+        private axisVertexShader: ShaderHandle;
+        private axisPixelShader: ShaderHandle;
+        private gizmoBindingLayout: BindingLayoutHandle;
+        private gizmoBindingSet: BindingSet;
+        private gizmoBuffer: BufferHandle;
+        private gizmoPipeline: GraphicsPipelineHandle | null;
+        private gizmoConstants: f32[];
+        private gizmoSegments: int;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
         private graphicsPipeline: GraphicsPipelineHandle | null;
 
@@ -123,12 +159,22 @@ namespace ComputeNBodyCollisions {
         private viewMatrix: f32[];
         private projMatrix: f32[];
 
-        constructor(app: App, private numAttractors: int, private particlesPerAttractor: int) {
+        constructor(app: App, private numAttractors: int, private particlesPerAttractor: int, autoRotate: boolean) {
             this.app = app;
+            this.autoRotate = autoRotate;
+            this.idleSeconds = 0.0;
+            this.buttonsDown = 0;
             this.paused = false;
             this.collisions = true;
+            this.heating = true;
             this.numParticles = 0;
             this.graphicsPipeline = null;
+            this.gizmoPipeline = null;
+            this.gizmoSegments = 0;
+            this.gizmoConstants = [];
+            for (let i = 0; i < GIZMO_FLOATS; i++) {
+                this.gizmoConstants.push(0.0);
+            }
             this.viewConstantsSize = 0;
 
             this.simulationConstants = [0.0, 0.0, 0.0, 0.0];
@@ -142,6 +188,7 @@ namespace ComputeNBodyCollisions {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int): int {
+            this.idleSeconds = 0.0;
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
@@ -151,31 +198,57 @@ namespace ComputeNBodyCollisions {
                 this.collisions = !this.collisions;
                 Donut_StoreInt32(Ref(this.simulationConstants[2]), this.collisions ? 1 : 0);
             }
+            if (key == KEY_H && action == ACTION_PRESS) {
+                this.heating = !this.heating;
+                Donut_StoreInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
+            }
 
             return 1;
         }
 
         onMousePos(x: number, y: number): int {
+            // The mouse moving over the window isn't input for the camera, dragging is.
+            if (this.buttonsDown > 0) {
+                this.idleSeconds = 0.0;
+            }
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
         onMouseButton(button: int, action: int, mods: int): int {
+            this.idleSeconds = 0.0;
+            if (action == ACTION_PRESS) {
+                this.buttonsDown++;
+            } else if (action == ACTION_RELEASE && this.buttonsDown > 0) {
+                this.buttonsDown--;
+            }
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
         onMouseScroll(xOffset: number, yOffset: number): int {
+            this.idleSeconds = 0.0;
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
         onAnimate(elapsedSeconds: number): void {
+            // Left alone for a while, the camera drifts around the target, keeping its pitch and
+            // distance, from wherever the user left it: speeding up so it doesn't start with a jerk.
+            this.idleSeconds += elapsedSeconds;
+            if (this.autoRotate && this.idleSeconds > IDLE_SECONDS) {
+                const ramp = Math.min((this.idleSeconds - IDLE_SECONDS) / IDLE_RAMP_SECONDS, 1.0);
+                this.camera.thirdPersonSetRotation(
+                    this.camera.thirdPersonGetYaw() + IDLE_ROTATION_SPEED * ramp * elapsedSeconds,
+                    this.camera.thirdPersonGetPitch());
+            }
+
             this.camera.animate(elapsedSeconds);
 
             this.simulationConstants[0] = elapsedSeconds < MAX_DELTA_T ? elapsedSeconds : MAX_DELTA_T;
 
-            const collisionsInfo = this.collisions ? "collisions on" : "collisions off";
+            const collisionsInfo = (this.collisions ? "collisions on" : "collisions off")
+                + (this.heating ? ", heating on" : ", heating off");
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, this.paused
                 ? `${this.numParticles} particles, ${collisionsInfo} (paused)`
                 : `${this.numParticles} particles, ${collisionsInfo}`);
@@ -186,6 +259,11 @@ namespace ComputeNBodyCollisions {
             if (graphicsPipeline) {
                 this.app.releaseResource(graphicsPipeline);
                 this.graphicsPipeline = null;
+            }
+            const gizmoPipeline = this.gizmoPipeline;
+            if (gizmoPipeline) {
+                this.app.releaseResource(gizmoPipeline);
+                this.gizmoPipeline = null;
             }
         }
 
@@ -235,6 +313,83 @@ namespace ComputeNBodyCollisions {
             frame.beginDraw(graphicsPipeline);
             frame.drawAddBindingSet(this.drawBindingSet);
             frame.drawVertices(this.numParticles * VERTICES_PER_PARTICLE);
+
+            // The axes, over the particles, in the top left corner.
+            this.buildGizmo(width, height);
+            commandList.writeBuffer(this.gizmoBuffer, Ref(this.gizmoConstants[0]), GIZMO_FLOATS * 4);
+            let gizmoPipeline = this.gizmoPipeline;
+            if (!gizmoPipeline) {
+                gizmoPipeline = this.app.createGraphicsPipelineWithBlend(frame, this.axisVertexShader, this.axisPixelShader,
+                    null, this.gizmoBindingLayout, PrimitiveType.TriangleList, BlendMode.AlphaBlend);
+                this.gizmoPipeline = gizmoPipeline;
+            }
+            frame.beginDraw(gizmoPipeline);
+            frame.drawAddBindingSet(this.gizmoBindingSet);
+            frame.drawVertices(this.gizmoSegments * VERTICES_PER_PARTICLE);
+        }
+
+        // Adds a segment from (x0, y0) to (x1, y1), in pixels from the top left, to the gizmo.
+        addGizmoSegment(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number, a: number): void {
+            if (this.gizmoSegments >= GIZMO_MAX_SEGMENTS) {
+                return;
+            }
+            const points = 4 + this.gizmoSegments * 4;
+            const colors = 4 + (GIZMO_MAX_SEGMENTS + this.gizmoSegments) * 4;
+            this.gizmoConstants[points + 0] = x0;
+            this.gizmoConstants[points + 1] = y0;
+            this.gizmoConstants[points + 2] = x1;
+            this.gizmoConstants[points + 3] = y1;
+            this.gizmoConstants[colors + 0] = r;
+            this.gizmoConstants[colors + 1] = g;
+            this.gizmoConstants[colors + 2] = b;
+            this.gizmoConstants[colors + 3] = a;
+            this.gizmoSegments++;
+        }
+
+        // The world X, Y and Z axes as the camera sees them: each axis direction in view space is a
+        // row of the view matrix (row-vector convention), x to the right, y up and z away from the
+        // camera. Axes pointing away are fainter, and each has its letter beyond the tip.
+        buildGizmo(width: number, height: number): void {
+            const scale = height / 720.0;
+            const originX = GIZMO_ORIGIN * scale;
+            const originY = GIZMO_ORIGIN * scale;
+            this.gizmoConstants[0] = 1.0 / width;
+            this.gizmoConstants[1] = 1.0 / height;
+            this.gizmoSegments = 0;
+
+            for (let axis = 0; axis < 3; axis++) {
+                const viewX = this.viewMatrix[axis * 4 + 0];
+                const viewY = this.viewMatrix[axis * 4 + 1];
+                const viewZ = this.viewMatrix[axis * 4 + 2];
+                const dx = viewX * GIZMO_LENGTH * scale;
+                const dy = -viewY * GIZMO_LENGTH * scale;
+                const tipX = originX + dx;
+                const tipY = originY + dy;
+                const r = axis == 0 ? 1.0 : 0.3;
+                const g = axis == 1 ? 1.0 : (axis == 0 ? 0.3 : 0.55);
+                const b = axis == 2 ? 1.0 : 0.3;
+                const a = 0.35 + 0.65 * (0.5 - 0.5 * viewZ);
+                this.addGizmoSegment(originX, originY, tipX, tipY, r, g, b, a);
+
+                // The letter, outward from the origin (above the tip when the axis points at the camera).
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const cx = length > 1.0 ? tipX + dx / length * GIZMO_LABEL_DISTANCE * scale : tipX;
+                const cy = length > 1.0 ? tipY + dy / length * GIZMO_LABEL_DISTANCE * scale : tipY - GIZMO_LABEL_DISTANCE * scale;
+                const w = GIZMO_LABEL_HALF_WIDTH * scale;
+                const h = GIZMO_LABEL_HALF_HEIGHT * scale;
+                if (axis == 0) {
+                    this.addGizmoSegment(cx - w, cy - h, cx + w, cy + h, r, g, b, a);
+                    this.addGizmoSegment(cx - w, cy + h, cx + w, cy - h, r, g, b, a);
+                } else if (axis == 1) {
+                    this.addGizmoSegment(cx - w, cy - h, cx, cy, r, g, b, a);
+                    this.addGizmoSegment(cx + w, cy - h, cx, cy, r, g, b, a);
+                    this.addGizmoSegment(cx, cy, cx, cy + h, r, g, b, a);
+                } else {
+                    this.addGizmoSegment(cx - w, cy - h, cx + w, cy - h, r, g, b, a);
+                    this.addGizmoSegment(cx + w, cy - h, cx - w, cy + h, r, g, b, a);
+                    this.addGizmoSegment(cx - w, cy + h, cx + w, cy + h, r, g, b, a);
+                }
+            }
         }
 
         // Whether a light particle at (x, y, z) would overlap one of the first `count` particles or
@@ -298,8 +453,10 @@ namespace ComputeNBodyCollisions {
                     } else {
                         // Positive masses, unlike compute_nbody's (normal around 37.5, some
                         // negative): a collision's impulse is shared in proportion to them.
-                        const mass = 20.0 + 60.0 * randomFloat();
-                        const radius = LIGHT_RADIUS_BASE + LIGHT_RADIUS_PER_MASS * mass;
+                        const sizeRandom = randomFloat();
+                        const radius = LIGHT_RADIUS_MIN + (LIGHT_RADIUS_MAX - LIGHT_RADIUS_MIN) * sizeRandom * sizeRandom;
+                        const sizeRatio = radius / LIGHT_RADIUS_MIN;
+                        const mass = LIGHT_MASS_MIN * sizeRatio * sizeRatio * sizeRatio;
 
                         // Position. The sample then scales y by 2 - length(normalize(position -
                         // attractor))^2, which is 1. Drawn again while it overlaps a particle
@@ -388,6 +545,22 @@ namespace ComputeNBodyCollisions {
                 }
             }
 
+            // Heat (info.y): never negative, and some particle is hot or was (collisions add it).
+            let maxHeat = 0.0;
+            let sumHeat = 0.0;
+            for (let i = 0; i < this.numParticles; i++) {
+                const heat = particles[i * PARTICLE_FLOATS + 9];
+                if (!isFinite32(heat) || heat < 0.0) {
+                    return `particle ${i}: heat ${heat} is not finite or is negative`;
+                }
+                maxHeat = Math.max(maxHeat, heat);
+                sumHeat += heat;
+            }
+            console.log(`Heat: max ${maxHeat}, mean ${sumHeat / this.numParticles}`);
+            if (maxHeat <= 0.0) {
+                return "no particle has any heat: the collisions lost no energy into it";
+            }
+
             if (this.numAttractors == 2 && this.particlesPerAttractor == 1) {
                 const x0 = particles[0];
                 const x1 = particles[PARTICLE_FLOATS];
@@ -420,7 +593,9 @@ namespace ComputeNBodyCollisions {
             const countShader = this.app.createShaderWithDefine(shaderFile, "count_cs", ShaderType.Compute, "SIMULATION", "1");
             const collideShader = this.app.createShaderWithDefine(shaderFile, "collide_cs", ShaderType.Compute, "SIMULATION", "1");
             const integrateShader = this.app.createShaderWithDefine(shaderFile, "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
-            if (!this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
+            this.axisVertexShader = this.app.createShader(shaderFile, "axis_vs", ShaderType.Vertex);
+            this.axisPixelShader = this.app.createShader(shaderFile, "axis_ps", ShaderType.Pixel);
+            if (!this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
                 return false;
             }
 
@@ -446,6 +621,7 @@ namespace ComputeNBodyCollisions {
 
             Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
             Donut_StoreInt32(Ref(this.simulationConstants[2]), 1);
+            Donut_StoreInt32(Ref(this.simulationConstants[3]), 1);
 
             // Drawing: the view constants and the particles, read by the vertex shader.
             this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
@@ -465,6 +641,15 @@ namespace ComputeNBodyCollisions {
             drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
             drawSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
             this.drawBindingSet = this.app.createBindingSetForLayout(drawSetDesc, this.drawBindingLayout);
+
+            // The axis gizmo's segments, written in the command list every frame.
+            this.gizmoBuffer = this.app.createConstantBuffer(GIZMO_FLOATS * 4, "Gizmo");
+            const gizmoLayoutDesc = BindingLayoutDesc.create();
+            gizmoLayoutDesc.layoutConstantBuffer(2);
+            this.gizmoBindingLayout = this.app.createBindingLayout(gizmoLayoutDesc, ShaderType.Vertex);
+            const gizmoSetDesc = BindingSetDesc.create();
+            gizmoSetDesc.bindEntireConstantBuffer(2, this.gizmoBuffer);
+            this.gizmoBindingSet = this.app.createBindingSetForLayout(gizmoSetDesc, this.gizmoBindingLayout);
 
             // compute_nbody's look-at camera: 14 units from the origin, rotated (-26, 75) degrees.
             this.camera = this.app.createThirdPersonCamera();
@@ -533,7 +718,7 @@ namespace ComputeNBodyCollisions {
 
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        const nbody = new NBodyCollisionsPass(app, args.numAttractors, args.particlesPerAttractor);
+        const nbody = new NBodyCollisionsPass(app, args.numAttractors, args.particlesPerAttractor, !args.test);
         if (!nbody.init()) {
             app.destroy();
             return 1;

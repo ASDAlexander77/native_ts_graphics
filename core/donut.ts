@@ -3425,6 +3425,15 @@ export class Camera {
         Donut_ThirdPersonCameraSetRotation(this.handle, yaw, pitch);
     }
 
+    // Radians: the orbit angles as the user's dragging left them.
+    thirdPersonGetYaw(): number {
+        return Donut_ThirdPersonCameraGetYaw(this.handle);
+    }
+
+    thirdPersonGetPitch(): number {
+        return Donut_ThirdPersonCameraGetPitch(this.handle);
+    }
+
     // Orbits the target from the position.
     thirdPersonLookAt(posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void {
         Donut_ThirdPersonCameraLookAt(this.handle, posX, posY, posZ, targetX, targetY, targetZ);
