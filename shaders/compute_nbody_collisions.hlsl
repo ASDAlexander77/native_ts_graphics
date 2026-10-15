@@ -93,7 +93,9 @@ RWStructuredBuffer<Contact> u_Contacts : register(u1);
 #define SOFTEN 0.05
 
 // Share of an overlap pushed out per frame: gravity keeps pressing the particles that rest on a
-// heavy center into it, and velocity changes alone would let them sink.
+// heavy center into it, and velocity changes alone would let them sink. Moving the particles
+// without a velocity change doesn't keep the angular momentum (separating them by impulses would,
+// but holding them apart against this gravity that way takes more than one pass over the contacts).
 #define SEPARATION 0.5
 // The kinetic energy a bounce loses, 1/2 mu (1 - restitution^2) approach^2 for the pair's reduced
 // mass mu, becomes heat. A particle's temperature rises by that over its own mass (heat capacity
@@ -145,7 +147,9 @@ void calculate_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_Group
         GroupMemoryBarrierWithGroupSync();
     }
 
-    if (!active)
+    // A particle merged away (negative radius) stays where it was absorbed, which integrate_cs no
+    // longer moves: its velocity would only pile up the gravity there, frame after frame.
+    if (!active || u_Particles[index].info.x < 0.0)
         return;
 
     u_Particles[index].vel.xyz += g_Simulation.deltaT * g_Simulation.timeFactor * acceleration.xyz;
@@ -236,17 +240,23 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
 }
 
 // Coulomb friction at a contact of two solid spheres (inertia 2/5 m r^2), for the particle that
-// looks at the pair: `normal` points from the other to it, and the surfaces slip at the contact by
-// the velocity difference plus the spins' part, normal x (r w + r' w'). The friction impulse opposes
+// looks at the pair: `normal` points from the other to it, `offset` is from the other's center to
+// its own. The contact point is on the line between the centers, split by the radii (each lever is
+// its radius over the reach of the offset): so the spins' torques undo the pair's orbital torque,
+// offset x impulse, exactly, and the angular momentum is kept even while the two overlap. The
+// surfaces slip at the contact by the velocity difference plus the spins' parts. The impulse opposes
 // the slip, up to friction times the normal impulse, and no more than what stops the slip (an
 // impulse over that would reverse it: 3.5 over the reduced mass for spheres). It changes the
 // particle's velocity and, by the torque at the surface, its spin, and what it dissipates is heat.
 // impulseShare is as in the normal impulse (the particle's share of the pair, over the contacts).
-void ApplyFriction(float3 normal, float3 relativeVelocity, float approach, float impulseShare, float radius,
-    float3 spin, float otherRadius, float3 otherSpin, inout float3 velocityChange, inout float3 spinChange,
-    inout float heat)
+void ApplyFriction(float3 normal, float3 offset, float reach, float3 relativeVelocity, float approach,
+    float impulseShare, float radius, float3 spin, float otherRadius, float3 otherSpin,
+    inout float3 velocityChange, inout float3 spinChange, inout float heat)
 {
-    const float3 slip = relativeVelocity + cross(normal, radius * spin + otherRadius * otherSpin);
+    // From each center to the contact point.
+    const float3 lever = -offset * (radius / reach);
+    const float3 otherLever = offset * (otherRadius / reach);
+    const float3 slip = relativeVelocity + cross(spin, lever) - cross(otherSpin, otherLever);
     const float3 tangential = slip - dot(slip, normal) * normal;
     const float slipSpeed = length(tangential);
     if (slipSpeed < 1e-6)
@@ -255,7 +265,8 @@ void ApplyFriction(float3 normal, float3 relativeVelocity, float approach, float
     const float strength = min(g_Simulation.friction * (1.0 + g_Simulation.restitution) * -approach, slipSpeed / 3.5);
     const float3 direction = tangential / slipSpeed;
     velocityChange -= impulseShare * strength * direction;
-    spinChange += 2.5 * impulseShare * strength * cross(normal, direction) / radius;
+    // The torque lever x impulse over the inertia, per unit of the particle's mass.
+    spinChange -= 2.5 * impulseShare * strength * cross(lever, direction) / (radius * radius);
     heat += g_Simulation.heatFactor * 0.5 * impulseShare * strength * slipSpeed;
 }
 
@@ -347,8 +358,8 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
-                ApplyFriction(normal, relativeVelocity, approach, impulseShare, radius, spin, otherVelocity.w,
-                    s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
+                ApplyFriction(normal, offset, reach, relativeVelocity, approach, impulseShare, radius, spin,
+                    otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
                 // integrate_cs moves the particle the whole step with the new velocity, but it
                 // had the old one until the touch: take back that part of the step.
                 sweepShift -= t * step * bounce * normal;
@@ -379,8 +390,8 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
-                ApplyFriction(normal, relativeVelocity, approach, impulseShare, radius, spin, otherVelocity.w,
-                    s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
+                ApplyFriction(normal, offset, reach, relativeVelocity, approach, impulseShare, radius, spin,
+                    otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
             }
 
             shift += SEPARATION * share * (reach - dist) * normal;

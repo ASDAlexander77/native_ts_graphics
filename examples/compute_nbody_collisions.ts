@@ -1053,7 +1053,8 @@ namespace ComputeNBodyCollisions {
                 const vy = particles[i * PARTICLE_FLOATS + 5];
                 const vz = particles[i * PARTICLE_FLOATS + 6];
                 const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
-                if (speed > MAX_TEST_SPEED) {
+                // Merged away (a negative radius): not moving, its velocity means nothing.
+                if (particles[i * PARTICLE_FLOATS + 8] >= 0.0 && speed > MAX_TEST_SPEED) {
                     return `particle ${i}: speed ${speed} above ${MAX_TEST_SPEED}, the collisions gained energy`;
                 }
             }
