@@ -975,6 +975,10 @@ add_tslang_example_test(compute_nbody_collisions SUFFIX fragment ARGS -fullgravi
 # The energy, with the heat kept: what the bounces, the friction, the springs' damping and the breaks
 # lose is heat, so kinetic, potential and heat energy add up to what they started at.
 add_tslang_example_test(compute_nbody_collisions SUFFIX energy ARGS -fullgravity -nocool -fragment 10 -room 50)
+# And with merging: what a merge loses (motion, spins, the gravity's potential energy, the springs) is
+# heat too. (Not with breaking as well: its free slots are taken in whatever order the GPU's atomics
+# give, so the runs differ, and now and then one drifts past the limit.)
+add_tslang_example_test(compute_nbody_collisions SUFFIX energy_merge ARGS -fullgravity -nocool -merge 2)
 
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
