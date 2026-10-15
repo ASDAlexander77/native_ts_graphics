@@ -43,6 +43,8 @@ struct Contact
     float4 shift;    // xyz = position correction, w = 1 if the particle is merging with another
     float4 spin;     // xyz = angular velocity change (friction), w = the particle it merges into (its own
                      // index if none dominates it: it absorbs the merging ones that name it)
+    float4 fragment; // w = 1 if the particle breaks in two (fragment_cs); xyz = the direction the halves
+                     // fly apart in, times the speed they do
 };
 
 // --- Simulation ------------------------------------------------------------------------------
@@ -79,10 +81,20 @@ struct SimulationConstants
     // light ones), which is not symmetric: the total momentum is not kept. 1: every pair, with the
     // same pull both ways, so the momentum and the angular momentum are kept.
     int fullGravity;
+    // A particle hit harder than this (approach speed along the contact normal) breaks in two, if
+    // there is a free slot for the second half (one merged away, or left free at the start).
+    // 0: they never break.
+    float fragmentSpeed;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 DECLARE_PUSH_CONSTANTS(SimulationConstants, g_Simulation, 0, 0);
 RWStructuredBuffer<Particle> u_Particles : register(u0);
 RWStructuredBuffer<Contact> u_Contacts : register(u1);
+// The free slots for the fragments: [0] = how many (collect_free_cs), [1] = how many are taken
+// (fragment_cs), then their indices. The application zeroes the counts every step.
+RWStructuredBuffer<uint> u_Free : register(u2);
 
 #define WORKGROUP_SIZE 256
 // The gravity pass's stride over the particles, as in compute_nbody.hlsl: a body feels a quarter
@@ -91,6 +103,10 @@ RWStructuredBuffer<Contact> u_Contacts : register(u1);
 #define SHARED_DATA_SIZE 1024
 #define POWER 0.75
 #define SOFTEN 0.05
+// Only particles from FRAGMENT_MIN_RADIUS (the smallest light ones once split are under it, so they
+// don't split again) to FRAGMENT_MAX_RADIUS (not the heavy centers) break.
+#define FRAGMENT_MIN_RADIUS 0.035
+#define FRAGMENT_MAX_RADIUS 0.3
 
 // Share of an overlap pushed out per frame: gravity keeps pressing the particles that rest on a
 // heavy center into it, and velocity changes alone would let them sink. Moving the particles
@@ -277,6 +293,24 @@ void ApplyFriction(float3 normal, float3 offset, float reach, float3 relativeVel
     heat += g_Simulation.heatFactor * 0.5 * impulseShare * strength * slipSpeed;
 }
 
+// Keeps the hardest impact over g_Simulation.fragmentSpeed of a particle that can break: the
+// halves part along the contact normal (approach is the negative approach speed along it), at a
+// speed w whose kinetic energy, 1/8 m w^2, is half of the least the bounce loses, 1/2 mu (1 - e^2)
+// approach^2 / k for the pair's reduced mass mu = m share and the bounce divided by k
+// (impulseShare = share / k): so breaking never adds energy (at bounciness 1, nothing is lost and
+// the halves don't part).
+void RecordImpact(float3 normal, float approach, float impulseShare, float radius, inout float hardestImpact,
+    inout float3 fragmentVelocity, inout bool fragmenting)
+{
+    if (g_Simulation.fragmentSpeed <= 0.0 || radius < FRAGMENT_MIN_RADIUS || radius > FRAGMENT_MAX_RADIUS
+        || -approach <= hardestImpact)
+        return;
+    const float restitution = g_Simulation.restitution;
+    hardestImpact = -approach;
+    fragmentVelocity = normal * (-approach * sqrt(2.0 * (1.0 - restitution * restitution) * impulseShare));
+    fragmenting = true;
+}
+
 // Whether particle a (mass and index) takes the other in a merge: more mass, or the lower index.
 bool Dominates(float massA, uint indexA, float massB, uint indexB)
 {
@@ -323,6 +357,10 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     bool merging = false;
     uint mergeTarget = index;
     float mergeTargetMass = position.w;
+    // Fragmenting: the hardest impact over fragmentSpeed, its normal and the speed the halves part at.
+    float hardestImpact = g_Simulation.fragmentSpeed;
+    float3 fragmentVelocity = float3(0, 0, 0);
+    bool fragmenting = false;
 
     for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
     {
@@ -363,6 +401,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float approach = dot(relativeVelocity, normal);
                 if (approach >= 0.0)
                     continue;
+                RecordImpact(normal, approach, impulseShare, radius, hardestImpact, fragmentVelocity, fragmenting);
                 const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
@@ -395,6 +434,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             const float approach = dot(relativeVelocity, normal);
             if (approach < 0.0)
             {
+                RecordImpact(normal, approach, impulseShare, radius, hardestImpact, fragmentVelocity, fragmenting);
                 const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
@@ -422,6 +462,8 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     contact.velocity = float4(velocityChange, g_Simulation.heating != 0 ? heat : 0.0);
     contact.shift = float4(shift + sweepShift, merging ? 1.0 : 0.0);
     contact.spin = float4(spinChange, float(mergeTarget));
+    // A particle merging this step doesn't also break.
+    contact.fragment = float4(fragmentVelocity, fragmenting && !merging ? 1.0 : 0.0);
     u_Contacts[index] = contact;
 }
 
@@ -574,6 +616,61 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
     particle.info.y *= exp(-g_Simulation.deltaT / g_Simulation.coolSeconds);
 
     u_Particles[index] = particle;
+}
+
+// Before fragment_cs: the slots of the particles merged away (or left free), listed in u_Free.
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+void collect_free_cs(uint3 globalId : SV_DispatchThreadID)
+{
+    const uint index = globalId.x;
+    if (index >= uint(g_Simulation.particleCount) || u_Particles[index].info.x >= 0.0)
+        return;
+    uint slot;
+    InterlockedAdd(u_Free[0], 1, slot);
+    u_Free[2 + slot] = index;
+}
+
+// After integrate_cs: a particle hit hard enough (collide_cs) breaks into two halves of half its
+// mass and volume, touching at its center along the impact normal, parting at the speed collide_cs
+// chose: one stays in its slot, the other takes a free one (none left: it doesn't break). The
+// center of mass, the momentum and the angular momentum of their orbits are the particle's (the
+// offsets and the parting velocities are along the same line); the spin keeps its angular momentum
+// in the halves' smaller inertia, so it is 2^(2/3) times faster (its kinetic energy grows by as much,
+// which is small next to the parting's). Heat, color and marker are the particle's.
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+void fragment_cs(uint3 globalId : SV_DispatchThreadID)
+{
+    const uint index = globalId.x;
+    if (index >= uint(g_Simulation.particleCount))
+        return;
+    const Contact contact = u_Contacts[index];
+    Particle particle = u_Particles[index];
+    if (contact.fragment.w == 0.0 || particle.info.x < 0.0)
+        return;
+
+    uint taken;
+    InterlockedAdd(u_Free[1], 1, taken);
+    if (taken >= u_Free[0])
+        return;
+    const uint slot = u_Free[2 + taken];
+
+    // 2^(-1/3): half the volume.
+    const float radius = particle.info.x * 0.7937005;
+    const float speed = length(contact.fragment.xyz);
+    const float3 normal = speed > 1e-6 ? contact.fragment.xyz / speed : float3(1, 0, 0);
+    const float3 center = particle.pos.xyz;
+    const float3 velocity = particle.vel.xyz;
+
+    particle.pos = float4(center + normal * radius, 0.5 * particle.pos.w);
+    particle.vel.xyz = velocity + 0.5 * contact.fragment.xyz;
+    particle.spin.xyz *= 1.5874011;
+    particle.info.x = radius;
+    particle.info.z = 0.0;
+    u_Particles[index] = particle;
+
+    particle.pos.xyz = center - normal * radius;
+    particle.vel.xyz = velocity - 0.5 * contact.fragment.xyz;
+    u_Particles[slot] = particle;
 }
 
 #endif // SIMULATION
