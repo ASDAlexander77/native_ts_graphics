@@ -68,7 +68,7 @@ namespace ComputeNBodyCollisions {
     const MERGE_SPEED_MAX = 8.0;
     // Off: particles hit harder than this (approach speed) break in two, into free slots: those of
     // merged-away particles, and the room left at the start, a share of the particles placed
-    // (-room <percent>, the UI's Room for fragments, on restart). The UI's slider goes to
+    // (-room <percent>, the UI's Fragment room, on restart). The UI's slider goes to
     // FRAGMENT_SPEED_MAX.
     const DEFAULT_FRAGMENT_SPEED = 0.0;
     const FRAGMENT_SPEED_MAX = 50.0;
@@ -1265,29 +1265,47 @@ namespace ComputeNBodyCollisions {
                     this.setFullGravity(fullGravity);
                 }
                 this.showTrails = Donut_ImGuiCheckbox("Trails (T)", this.showTrails ? 1 : 0) != 0;
-                this.trailSeconds = Donut_ImGuiSliderFloat("Trail length", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
+                this.trailSeconds = Donut_ImGuiSliderFloat("Trail length (s)", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
                 this.bloomStrength = Donut_ImGuiSliderFloat("Bloom", this.bloomStrength, 0.0, 2.0);
                 this.bloomThreshold = Donut_ImGuiSliderFloat("Bloom threshold", this.bloomThreshold, 0.0, 2.0);
 
-                this.simulationConstants[CONSTANT_TIME_FACTOR] = Donut_ImGuiSliderFloat("Time scale",
+                this.simulationConstants[CONSTANT_TIME_FACTOR] = Donut_ImGuiSliderFloat("Time scale (sim s / s)",
                     this.simulationConstants[CONSTANT_TIME_FACTOR], 0.0, 0.2);
-                this.simulationConstants[CONSTANT_GRAVITY] = Donut_ImGuiSliderFloat("Gravity",
+                this.simulationConstants[CONSTANT_GRAVITY] = Donut_ImGuiSliderFloat("Gravity G",
                     this.simulationConstants[CONSTANT_GRAVITY], 0.0, 0.01);
-                this.simulationConstants[CONSTANT_RESTITUTION] = Donut_ImGuiSliderFloat("Bounciness",
+                this.simulationConstants[CONSTANT_RESTITUTION] = Donut_ImGuiSliderFloat("Bounciness e",
                     this.simulationConstants[CONSTANT_RESTITUTION], 0.0, 1.0);
-                this.simulationConstants[CONSTANT_FRICTION] = Donut_ImGuiSliderFloat("Friction",
+                this.simulationConstants[CONSTANT_FRICTION] = Donut_ImGuiSliderFloat("Friction mu",
                     this.simulationConstants[CONSTANT_FRICTION], 0.0, 1.0);
-                this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = Donut_ImGuiSliderFloat("Break above speed",
+                this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = Donut_ImGuiSliderFloat("Break above (u/s)",
                     this.simulationConstants[CONSTANT_FRAGMENT_SPEED], 0.0, FRAGMENT_SPEED_MAX);
-                this.simulationConstants[CONSTANT_MERGE_SPEED] = Donut_ImGuiSliderFloat("Merge below speed",
+                this.simulationConstants[CONSTANT_MERGE_SPEED] = Donut_ImGuiSliderFloat("Merge below (u/s)",
                     this.simulationConstants[CONSTANT_MERGE_SPEED], 0.0, MERGE_SPEED_MAX);
-                this.simulationConstants[CONSTANT_HEAT_FACTOR] = Donut_ImGuiSliderFloat("Heat per bounce",
+                this.simulationConstants[CONSTANT_HEAT_FACTOR] = Donut_ImGuiSliderFloat("Heat per energy",
                     this.simulationConstants[CONSTANT_HEAT_FACTOR], 0.0, 0.02);
-                this.simulationConstants[CONSTANT_COOL_SECONDS] = Donut_ImGuiSliderFloat("Cooling seconds",
+                this.simulationConstants[CONSTANT_COOL_SECONDS] = Donut_ImGuiSliderFloat("Cooling time (s)",
                     this.simulationConstants[CONSTANT_COOL_SECONDS], 0.5, 10.0);
                 if (Donut_ImGuiButton("Defaults") != 0) {
                     this.resetSimulationConstants();
                 }
+            }
+
+            // What the sliders' units are: the simulation's own (its scene units, simulated seconds,
+            // the masses it places), and compute_nbody's softened gravity.
+            if (Donut_ImGuiCollapsingHeader("Units") != 0) {
+                Donut_ImGuiText("u: scene unit; the planes' grid lines are 2 u apart");
+                Donut_ImGuiText("s: second. Speeds are in u per simulated second;");
+                Donut_ImGuiText("  the time scale is simulated seconds per real one;");
+                Donut_ImGuiText("  trail length and cooling time are real seconds");
+                Donut_ImGuiText("Masses: light particles 20 to 312, heavy centers 90000");
+                Donut_ImGuiText("Gravity: a = G m r / (r^2 + 0.05)^0.75 (not 1 / r^2)");
+                Donut_ImGuiText("e: speed apart after a bounce over speed together before");
+                Donut_ImGuiText("mu: friction impulse over the normal one, at most");
+                Donut_ImGuiText("Heat rises by heat per energy times the kinetic");
+                Donut_ImGuiText("  energy lost per unit of the particle's mass (u^2/s^2)");
+                Donut_ImGuiText("Cooling time: the heat falls to 1/e in it");
+                Donut_ImGuiText("Fragment room: free slots at the start, a share of");
+                Donut_ImGuiText("  the particles placed");
             }
 
             if (Donut_ImGuiCollapsingHeaderDefaultOpen("New simulation") != 0) {
@@ -1296,8 +1314,8 @@ namespace ComputeNBodyCollisions {
                 if (choice >= 0 && choice != particleChoiceIndex(this.uiParticles)) {
                     this.uiParticles = particleChoice(choice);
                 }
-                this.uiSpread = Donut_ImGuiSliderFloat("Cloud spread", this.uiSpread, 0.2, 3.0);
-                this.uiFragmentRoom = Donut_ImGuiSliderFloat("Room for fragments", this.uiFragmentRoom, 0.0, 1.0);
+                this.uiSpread = Donut_ImGuiSliderFloat("Cloud spread (u)", this.uiSpread, 0.2, 3.0);
+                this.uiFragmentRoom = 0.01 * Donut_ImGuiSliderFloat("Fragment room (%)", 100.0 * this.uiFragmentRoom, 0.0, 100.0);
                 this.uiSeed = Donut_ImGuiSliderInt("Random seed", this.uiSeed, 1, 99999);
                 if (Donut_ImGuiButton("Restart") != 0) {
                     this.restartRequested = true;
