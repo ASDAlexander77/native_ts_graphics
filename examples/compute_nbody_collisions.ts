@@ -86,6 +86,14 @@ namespace ComputeNBodyCollisions {
     const MOMENTUM_DRIFT_LIMIT = 1.0e-3;
     const ANGULAR_DRIFT_LIMIT_HEAVY = 1.0e-4;
     const ANGULAR_DRIFT_LIMIT = 1.0e-2;
+    // With gravity between all pairs and no cooling (-fullgravity -nocool), the test checks the total
+    // energy (kinetic, spin, potential and heat) drifted by less than this much of it: gravity alone
+    // keeps it to 2e-3; the collisions, whose losses are all heat, to 2.5e-2 in 15 seconds.
+    const ENERGY_DRIFT_LIMIT = 0.05;
+    // -nocool's cooling time: the heat stays.
+    const NO_COOLING_SECONDS = 1.0e9;
+    // The gravity pass's softening (SOFTEN in the shader), in its potential energy.
+    const GRAVITY_SOFTENING = 0.05;
     // With merging on, the particles left (radius not negative) are counted back from the GPU every
     // this many frames, for the window title and the UI.
     const ALIVE_COUNT_FRAMES = 30;
@@ -296,6 +304,7 @@ namespace ComputeNBodyCollisions {
         // The linear momentum (x, y, z, and the sum of m |v|, its scale), and the angular
         // momentum's scale, the same way.
         private initialMomentum: number[];
+        private initialEnergy: number;
         private fullGravity: boolean;
         private integratePipeline: ComputePipelineHandle;
         private computeBindingLayout: BindingLayoutHandle;
@@ -363,6 +372,7 @@ namespace ComputeNBodyCollisions {
             this.initialVolume = 0.0;
             this.initialAngular = [0.0, 0.0, 0.0, 0.0];
             this.initialMomentum = [0.0, 0.0, 0.0, 0.0];
+            this.initialEnergy = 0.0;
             this.fullGravity = false;
             this.aliveCount = 0;
             this.framesSinceCount = 0;
@@ -977,6 +987,7 @@ namespace ComputeNBodyCollisions {
             }
             this.initialAngular = this.angularMomentum(particles);
             this.initialMomentum = this.linearMomentum(particles);
+            this.initialEnergy = this.totalEnergy(particles);
 
             this.particleBuffer = this.app.createRWStructuredBuffer(PARTICLE_FLOATS * 4, this.numParticles, "Particles");
 
@@ -1061,6 +1072,42 @@ namespace ComputeNBodyCollisions {
             return total;
         }
 
+        // The total energy of the particles in `particles`: kinetic (motion and spin), potential and
+        // heat. The gravity pass pulls by G m m' r / (r^2 + SOFTEN)^(3/4), which is the slope of
+        // 2 G m m' (r^2 + SOFTEN)^(1/4) per pair; heat is energy over mass times heatFactor. Gravity
+        // between all pairs only: the sampled one has no potential energy.
+        totalEnergy(particles: f32[]): number {
+            const gravity = this.simulationConstants[CONSTANT_GRAVITY];
+            const heatFactor = this.simulationConstants[CONSTANT_HEAT_FACTOR];
+            let energy = 0.0;
+            for (let i = 0; i < this.numParticles; i++) {
+                const q = i * PARTICLE_FLOATS;
+                const radius = particles[q + 8];
+                if (radius < 0.0) {
+                    continue;
+                }
+                const mass = particles[q + 3];
+                energy += 0.5 * mass * (particles[q + 4] * particles[q + 4] + particles[q + 5] * particles[q + 5]
+                    + particles[q + 6] * particles[q + 6]);
+                energy += 0.2 * mass * radius * radius * (particles[q + 12] * particles[q + 12]
+                    + particles[q + 13] * particles[q + 13] + particles[q + 14] * particles[q + 14]);
+                if (heatFactor > 0.0) {
+                    energy += particles[q + 9] * mass / heatFactor;
+                }
+                for (let j = i + 1; j < this.numParticles; j++) {
+                    const o = j * PARTICLE_FLOATS;
+                    if (particles[o + 8] < 0.0) {
+                        continue;
+                    }
+                    const dx = particles[q] - particles[o];
+                    const dy = particles[q + 1] - particles[o + 1];
+                    const dz = particles[q + 2] - particles[o + 2];
+                    energy += 2.0 * gravity * mass * particles[o + 3] * Math.sqrt(Math.sqrt(dx * dx + dy * dy + dz * dz + GRAVITY_SOFTENING));
+                }
+            }
+            return energy;
+        }
+
         // How many particles are left (the others merged into them), read back from the GPU. Only
         // ever fewer than at the start: a failed read keeps the last count.
         countAlive(): void {
@@ -1087,6 +1134,10 @@ namespace ComputeNBodyCollisions {
         setFragmentRoom(room: number): void {
             this.fragmentRoom = room;
             this.uiFragmentRoom = room;
+        }
+
+        setCooling(seconds: number): void {
+            this.simulationConstants[CONSTANT_COOL_SECONDS] = seconds;
         }
 
         // -fragment and -merge: a speed above 0 turns the feature on, at that speed.
@@ -1252,6 +1303,19 @@ namespace ComputeNBodyCollisions {
                 console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift} (limit ${angularLimit})`);
                 if (momentumDrift > momentumLimit || angularDrift > angularLimit) {
                     return `momentum drifts by ${momentumDrift} (over ${momentumLimit}) or angular momentum by ${angularDrift} (over ${angularLimit})`;
+                }
+            }
+
+            // Energy, with all-pairs gravity and the heat kept (-nocool): what the collisions lose is
+            // heat, so the total stays. (Merging grows a particle into its neighbors, and the
+            // contact springs then push them out: energy from nowhere, so not with -merge.)
+            if (this.fullGravity && this.simulationConstants[CONSTANT_COOL_SECONDS] >= NO_COOLING_SECONDS
+                && this.simulationConstants[CONSTANT_MERGE_SPEED] <= 0.0) {
+                const energy = this.totalEnergy(particles);
+                const drift = absolute(energy - this.initialEnergy) / this.initialEnergy;
+                console.log(`Energy: ${energy} of ${this.initialEnergy}, drift ${drift} (limit ${ENERGY_DRIFT_LIMIT})`);
+                if (drift > ENERGY_DRIFT_LIMIT) {
+                    return `the total energy drifted by ${drift} of it (${energy} of ${this.initialEnergy})`;
                 }
             }
 
@@ -1546,6 +1610,8 @@ namespace ComputeNBodyCollisions {
         particlesPerAttractor: int = PARTICLES_PER_ATTRACTOR;
         // -merge <speed>: particles touching slower than this merge (0, off, by default).
         mergeSpeed: number = DEFAULT_MERGE_SPEED;
+        // -nocool: the heat never cools off (for the energy check).
+        noCool: boolean = false;
         // -fullgravity: every pair pulls both ways (see SimulationConstants.fullGravity).
         fullGravity: boolean = false;
         // -fragment <speed>: particles hit harder than this break in two (0, off, by default).
@@ -1568,6 +1634,8 @@ namespace ComputeNBodyCollisions {
                 } else if (arg == "-room" && i + 1 < this.argc) {
                     this.fragmentRoom = parseFloat(this[i + 1]) / 100.0;
                     i++;
+                } else if (arg == "-nocool") {
+                    this.noCool = true;
                 } else if (arg == "-fullgravity") {
                     this.fullGravity = true;
                 } else if (arg == "-merge" && i + 1 < this.argc) {
@@ -1613,6 +1681,9 @@ namespace ComputeNBodyCollisions {
         nbody.setMergeSpeed(args.mergeSpeed);
         nbody.setFragmentSpeed(args.fragmentSpeed);
         nbody.setFullGravity(args.fullGravity);
+        if (args.noCool) {
+            nbody.setCooling(NO_COOLING_SECONDS);
+        }
 
         const input = new InputPass(app.handle);
 

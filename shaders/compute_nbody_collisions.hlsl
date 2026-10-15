@@ -131,11 +131,12 @@ RWStructuredBuffer<uint> u_Free : register(u2);
 #define CONTACT_DAMPING 1.0
 // With the contact springs off: the share of an overlap pushed out per step, by moving the particles.
 #define SEPARATION 0.5
-// The kinetic energy a bounce loses, 1/2 mu (1 - restitution^2) approach^2 for the pair's reduced
-// mass mu, becomes heat. A particle's temperature rises by that over its own mass (heat capacity
-// grows with mass): 1/2 share (1 - restitution^2) approach^2, so a light particle hit hard glows
-// and a heavy center, whose share is tiny, stays cold. Resting contacts (gravity's pull, undone
-// each frame) approach slowly and add next to nothing.
+// The kinetic energy a contact loses becomes heat, all of it: a bounce, friction's slip and the
+// springs' damping (PairHeat), a merge, less what a break turns back into motion. Of a pair's loss,
+// each particle takes its share of the pair's change (the other's mass over the total: the two
+// shares add up to 1), and its temperature (info.y) rises by that energy over its mass, times
+// heatFactor. So a light particle hit by a heavy one takes nearly all the heat and glows, and a
+// heavy center stays cold. Resting contacts (gravity's pull, undone each frame) add next to nothing.
 
 // Share data between compute shader invocations to speed up calculations.
 groupshared float4 s_SharedData[WORKGROUP_SIZE];
@@ -186,6 +187,9 @@ void calculate_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_Group
     if (!active || u_Particles[index].info.x < 0.0)
         return;
 
+    // Kept for collide_cs (which then writes the whole Contact): with the contact springs off, the
+    // work its push-outs do against the gravity.
+    u_Contacts[index].velocity = float4(acceleration.xyz, 0.0);
     u_Particles[index].vel.xyz += g_Simulation.deltaT * g_Simulation.timeFactor * acceleration.xyz;
 
     // Gradient texture position
@@ -280,6 +284,22 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
     }
 }
 
+// The heat a pair's loss gives this particle: the pair's relative speed along one direction goes
+// from `before` to `after`, which loses 1/2 m_eff (before^2 - after^2) for the pair's effective mass
+// along it (`massFactor` times the reduced mass mu = m share). This particle takes share of that
+// energy, so its temperature rises by heatFactor share^2 massFactor / 2 (before^2 - after^2).
+float PairHeat(float share, float massFactor, float before, float after)
+{
+    return g_Simulation.heatFactor * 0.5 * share * share * massFactor * max(before * before - after * after, 0.0);
+}
+
+// The pair's relative speed along the normal after this particle's part of a bounce: the bounce
+// changes it by (1 + e) |approach| divided among the contacts (impulseShare / share of it).
+float AfterBounce(float approach, float restitution, float share, float impulseShare)
+{
+    return approach - (1.0 + restitution) * approach * (impulseShare / share);
+}
+
 // Coulomb friction at a contact of two solid spheres (inertia 2/5 m r^2), for the particle that
 // looks at the pair: `normal` points from the other to it, `offset` is from the other's center to
 // its own. The contact point is on the line between the centers, split by the radii (each lever is
@@ -288,11 +308,12 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
 // surfaces slip at the contact by the velocity difference plus the spins' parts. The impulse opposes
 // the slip, up to friction times the normal impulse, and no more than what stops the slip (an
 // impulse over that would reverse it: 3.5 over the reduced mass for spheres). It changes the
-// particle's velocity and, by the torque at the surface, its spin, and what it dissipates is heat.
+// particle's velocity and, by the torque at the surface, its spin, and what it dissipates is heat:
+// the slip goes from its speed down by 3.5 times the impulse over mu, an effective mass of mu / 3.5.
 // impulseShare is as in the normal impulse (the particle's share of the pair, over the contacts).
 void ApplyFriction(float3 normal, float3 offset, float reach, float3 relativeVelocity, float approach,
-    float impulseShare, float radius, float3 spin, float otherRadius, float3 otherSpin,
-    inout float3 velocityChange, inout float3 spinChange, inout float heat)
+    float restitution, float share, float impulseShare, float radius, float3 spin, float otherRadius,
+    float3 otherSpin, inout float3 velocityChange, inout float3 spinChange, inout float heat)
 {
     // From each center to the contact point.
     const float3 lever = -offset * (radius / reach);
@@ -303,29 +324,28 @@ void ApplyFriction(float3 normal, float3 offset, float reach, float3 relativeVel
     if (slipSpeed < 1e-6)
         return;
 
-    const float strength = min(g_Simulation.friction * (1.0 + g_Simulation.restitution) * -approach, slipSpeed / 3.5);
+    const float strength = min(g_Simulation.friction * (1.0 + restitution) * -approach, slipSpeed / 3.5);
     const float3 direction = tangential / slipSpeed;
     velocityChange -= impulseShare * strength * direction;
     // The torque lever x impulse over the inertia, per unit of the particle's mass.
     spinChange -= 2.5 * impulseShare * strength * cross(lever, direction) / (radius * radius);
-    heat += g_Simulation.heatFactor * 0.5 * impulseShare * strength * slipSpeed;
+    heat += PairHeat(share, 1.0 / 3.5, slipSpeed, slipSpeed - 3.5 * strength * (impulseShare / share));
 }
 
 // Keeps the hardest impact over g_Simulation.fragmentSpeed of a particle that can break: the
 // halves part along the contact normal (approach is the negative approach speed along it), at a
-// speed w whose kinetic energy, 1/8 m w^2, is half of the least the bounce loses, 1/2 mu (1 - e^2)
-// approach^2 / k for the pair's reduced mass mu = m share and the bounce divided by k
-// (impulseShare = share / k): so breaking never adds energy (at bounciness 1, nothing is lost and
-// the halves don't part).
-void RecordImpact(float3 normal, float approach, float impulseShare, float radius, inout float hardestImpact,
-    inout float3 fragmentVelocity, inout bool fragmenting)
+// speed w whose kinetic energy, 1/8 m w^2, is half the heat the impact gives the particle (1/2 m
+// share^2 (before^2 - after^2), PairHeat): fragment_cs takes it back out of the heat, so breaking
+// keeps the energy (at bounciness 1, nothing is lost and the halves don't part).
+void RecordImpact(float3 normal, float approach, float restitution, float share, float impulseShare, float radius,
+    inout float hardestImpact, inout float3 fragmentVelocity, inout bool fragmenting)
 {
     if (g_Simulation.fragmentSpeed <= 0.0 || radius < FRAGMENT_MIN_RADIUS || radius > FRAGMENT_MAX_RADIUS
         || -approach <= hardestImpact)
         return;
-    const float restitution = g_Simulation.restitution;
+    const float after = AfterBounce(approach, restitution, share, impulseShare);
     hardestImpact = -approach;
-    fragmentVelocity = normal * (-approach * sqrt(2.0 * (1.0 - restitution * restitution) * impulseShare));
+    fragmentVelocity = normal * (share * sqrt(2.0 * max(approach * approach - after * after, 0.0)));
     fragmenting = true;
 }
 
@@ -361,6 +381,8 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     const float3 spin = active ? u_Particles[index].spin.xyz : float3(0, 0, 0);
     const float radius = active ? u_Particles[index].info.x : 0.0;
     const float contacts = active ? u_Particles[index].info.z : 0.0;
+    // The gravity's pull on it this step (calculate_cs).
+    const float3 gravity = active ? u_Contacts[index].velocity.xyz : float3(0, 0, 0);
 
     // integrate_cs's step: how far a velocity moves a particle this frame.
     const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
@@ -420,12 +442,14 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float approach = dot(relativeVelocity, normal);
                 if (approach >= 0.0)
                     continue;
-                RecordImpact(normal, approach, impulseShare, radius, hardestImpact, fragmentVelocity, fragmenting);
-                const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
+                const float restitution = g_Simulation.restitution;
+                RecordImpact(normal, approach, restitution, share, impulseShare, radius, hardestImpact,
+                    fragmentVelocity, fragmenting);
+                const float bounce = -(1.0 + restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
-                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
-                ApplyFriction(normal, offset, reach, relativeVelocity, approach, impulseShare, radius, spin,
-                    otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
+                heat += PairHeat(share, 1.0, approach, AfterBounce(approach, restitution, share, impulseShare));
+                ApplyFriction(normal, offset, reach, relativeVelocity, approach, restitution, share, impulseShare,
+                    radius, spin, otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
                 // integrate_cs moves the particle the whole step with the new velocity, but it
                 // had the old one until the touch: take back that part of the step.
                 sweepShift -= t * step * bounce * normal;
@@ -453,12 +477,18 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             const float approach = dot(relativeVelocity, normal);
             if (approach < 0.0)
             {
-                RecordImpact(normal, approach, impulseShare, radius, hardestImpact, fragmentVelocity, fragmenting);
-                const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
+                // With the push-outs (contact springs off), an overlapping pair still closing in stops
+                // along the normal instead of bouncing: the push-out lifts it back out without a
+                // velocity change, and bouncing off as well gave back the speed gravity's pull put
+                // in, every step, which added energy to a resting pile.
+                const float restitution = g_Simulation.contactSprings != 0 ? g_Simulation.restitution : 0.0;
+                RecordImpact(normal, approach, restitution, share, impulseShare, radius, hardestImpact,
+                    fragmentVelocity, fragmenting);
+                const float bounce = -(1.0 + restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
-                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
-                ApplyFriction(normal, offset, reach, relativeVelocity, approach, impulseShare, radius, spin,
-                    otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
+                heat += PairHeat(share, 1.0, approach, AfterBounce(approach, restitution, share, impulseShare));
+                ApplyFriction(normal, offset, reach, relativeVelocity, approach, restitution, share, impulseShare,
+                    radius, spin, otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
             }
 
             if (g_Simulation.contactSprings == 0)
@@ -471,10 +501,11 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 // Damped while they part (approach > 0), divided among the contacts (impulseShare).
                 const float damping = approach > 0.0 ? 2.0 * CONTACT_DAMPING * sqrt(CONTACT_STIFFNESS) * approach : 0.0;
                 velocityChange += (share * CONTACT_STIFFNESS * overlap / step - impulseShare * damping) * normal;
-                // The parting speed it takes, approach to approach - d, loses 1/2 mu (approach^2 -
-                // (approach - d)^2) of the pair's energy: this particle's heat, as for a bounce.
-                const float parting = approach - (impulseShare / share) * damping;
-                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (approach * approach - parting * parting);
+                // The parting speed it takes, approach down by d (divided among the contacts), is heat.
+                // Only while they part: with no damping, approach^2 - approach^2 can come out a
+                // rounding below 0 (fused multiply-add), which made heat negative.
+                if (damping > 0.0)
+                    heat += PairHeat(share, 1.0, approach, approach - (impulseShare / share) * damping);
             }
         }
         GroupMemoryBarrierWithGroupSync();
@@ -484,11 +515,16 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
         return;
 
     Contact contact;
-    contact.velocity = float4(velocityChange, g_Simulation.heating != 0 ? heat : 0.0);
     // In a dense pile the push-outs of many neighbors add up: at most a radius per step.
     const float shiftLength = length(shift);
     if (shiftLength > radius)
         shift *= radius / shiftLength;
+    // A push-out moves the particle without a velocity change: lifting it against the gravity raises
+    // the potential energy by m gravity . -shift, for nothing. Its heat pays for that (and gets what
+    // a push-out down the pull frees), so the push-outs don't pump energy into a pile; integrate_cs
+    // keeps the heat from going below 0, where the push-out still adds what the heat can't pay.
+    heat += g_Simulation.heatFactor * dot(gravity, shift);
+    contact.velocity = float4(velocityChange, g_Simulation.heating != 0 ? heat : 0.0);
     contact.shift = float4(shift + sweepShift, merging ? 1.0 : 0.0);
     contact.spin = float4(spinChange, float(mergeTarget));
     // A particle merging this step doesn't also break.
@@ -500,7 +536,10 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 // (nothing touching it dominates it). A particle whose target has a target of its own waits: its
 // chain is merged a step at a time. The survivor takes the sum of the masses and the volumes, the
 // mass-weighted position, velocity and heat, a spin that keeps the angular momentum about the new
-// center (the orbits and the spins), and the translational kinetic energy the merge loses is heat.
+// center (the orbits and the spins), and the kinetic energy the merge loses (motion and spins) is
+// heat, spread over the merged mass. Keeping the angular momentum can leave the merged sphere
+// spinning with more energy than the two had (its inertia is small for their orbits): then the
+// heat gets nothing, and the merge adds that much energy.
 // The survivor and the absorbed take their own collision impulses (Contact, from the particles that
 // bounce off them) before they merge, and the survivor's are then spent: an absorbed particle's
 // would be lost with it, and the particle it bounced off would keep its half of the impulse.
@@ -542,10 +581,7 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
         const float victimHeat = victim.info.y + other.velocity.w;
 
         const float total = mass + victimMass;
-        const float3 lost = velocity - victimVelocity;
         heat = (mass * heat + victimMass * victimHeat) / total;
-        if (g_Simulation.heating != 0)
-            heat += g_Simulation.heatFactor * 0.5 * (victimMass / total) * dot(lost, lost);
         const float3 newPosition = (mass * position + victimMass * victimPosition) / total;
         const float3 newVelocity = (mass * velocity + victimMass * victimVelocity) / total;
         const float victimVolume = victim.info.x * victim.info.x * victim.info.x;
@@ -558,7 +594,17 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
             + victimMass * cross(victimPosition - newPosition, victimVelocity - newVelocity)
             + 0.4 * mass * pow(volume, 2.0 / 3.0) * spin
             + 0.4 * victimMass * victim.info.x * victim.info.x * victimSpin;
-        spin = angularMomentum / (0.4 * total * newRadius * newRadius);
+        const float3 newSpin = angularMomentum / (0.4 * total * newRadius * newRadius);
+        if (g_Simulation.heating != 0)
+        {
+            const float before = mass * dot(velocity, velocity) + victimMass * dot(victimVelocity, victimVelocity)
+                + 0.4 * mass * pow(volume, 2.0 / 3.0) * dot(spin, spin)
+                + 0.4 * victimMass * victim.info.x * victim.info.x * dot(victimSpin, victimSpin);
+            const float after = total * dot(newVelocity, newVelocity)
+                + 0.4 * total * newRadius * newRadius * dot(newSpin, newSpin);
+            heat += g_Simulation.heatFactor * 0.5 * max(before - after, 0.0) / total;
+        }
+        spin = newSpin;
 
         position = newPosition;
         velocity = newVelocity;
@@ -626,7 +672,7 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
         const Contact contact = u_Contacts[index];
         particle.vel.xyz += contact.velocity.xyz;
         particle.pos.xyz += contact.shift.xyz;
-        particle.info.y += contact.velocity.w;
+        particle.info.y = max(particle.info.y + contact.velocity.w, 0.0);
         particle.spin.xyz += contact.spin.xyz;
     }
 
@@ -664,8 +710,10 @@ void collect_free_cs(uint3 globalId : SV_DispatchThreadID)
 // chose: one stays in its slot, the other takes a free one (none left: it doesn't break). The
 // center of mass, the momentum and the angular momentum of their orbits are the particle's (the
 // offsets and the parting velocities are along the same line); the spin keeps its angular momentum
-// in the halves' smaller inertia, so it is 2^(2/3) times faster (its kinetic energy grows by as much,
-// which is small next to the parting's). Heat, color and marker are the particle's.
+// in the halves' smaller inertia, so it is 2^(2/3) times faster. Both the parting's kinetic energy
+// (1/8 m w^2) and the spin's gain (2^(2/3) - 1 of its kinetic energy) come out of the particle's heat,
+// which its impact has just raised (with heating off, or the heat short, they are added energy).
+// Color and marker are the particle's.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void fragment_cs(uint3 globalId : SV_DispatchThreadID)
 {
@@ -689,6 +737,10 @@ void fragment_cs(uint3 globalId : SV_DispatchThreadID)
     const float3 normal = speed > 1e-6 ? contact.fragment.xyz / speed : float3(1, 0, 0);
     const float3 center = particle.pos.xyz;
     const float3 velocity = particle.vel.xyz;
+    const float spinEnergy = 0.5 * 0.4 * particle.pos.w * particle.info.x * particle.info.x
+        * dot(particle.spin.xyz, particle.spin.xyz);
+    const float gained = 0.125 * particle.pos.w * speed * speed + 0.5874011 * spinEnergy;
+    particle.info.y = max(particle.info.y - g_Simulation.heatFactor * gained / particle.pos.w, 0.0);
 
     particle.pos = float4(center + normal * radius, 0.5 * particle.pos.w);
     particle.vel.xyz = velocity + 0.5 * contact.fragment.xyz;

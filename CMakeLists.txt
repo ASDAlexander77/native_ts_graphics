@@ -972,6 +972,9 @@ add_tslang_example_test(compute_nbody_collisions SUFFIX merge_heavy ARGS -fullgr
 # Particles hit faster than 10 break in two, into room left for half as many again: the test checks
 # some did, and the mass, the volume and (gravity between all pairs) the momentum were kept.
 add_tslang_example_test(compute_nbody_collisions SUFFIX fragment ARGS -fullgravity -fragment 10 -room 50)
+# The energy, with the heat kept: what the bounces, the friction, the springs' damping and the breaks
+# lose is heat, so kinetic, potential and heat energy add up to what they started at.
+add_tslang_example_test(compute_nbody_collisions SUFFIX energy ARGS -fullgravity -nocool -fragment 10 -room 50)
 
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
