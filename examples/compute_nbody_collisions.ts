@@ -12,6 +12,7 @@ namespace ComputeNBodyCollisions {
     const KEY_C = 67;
     const KEY_H = 72;
     const KEY_P = 80;
+    const KEY_T = 84;
     const ACTION_PRESS = 1;
     const ACTION_RELEASE = 0;
 
@@ -89,6 +90,13 @@ namespace ComputeNBodyCollisions {
     const GIZMO_LABEL_HALF_HEIGHT = 7.0;
     // The coordinate planes (plane_vs): 3 planes of 2 * 13 grid lines, 6 vertices each.
     const PLANE_LINE_COUNT = 3 * 2 * 13;
+    // The trails (trail_vs): a quad of 6 vertices per particle, with a float4 constant buffer (the
+    // world length of a unit of velocity, and the head's opacity). The length is in seconds of the
+    // particle's own motion; the sliders' range and default.
+    const TRAIL_CONSTANTS_SIZE = 16;
+    const TRAIL_SECONDS_MAX = 3.0;
+    const DEFAULT_TRAIL_SECONDS = 0.35;
+    const TRAIL_OPACITY = 0.25;
 
     // The UI's choices of particles per attractor: the gravity pass expects the heavy centers at
     // multiples of 1024 (but any count works up to 256 particles in all, as in -particles 1).
@@ -160,6 +168,8 @@ namespace ComputeNBodyCollisions {
         private collisions: boolean;
         private heating: boolean;
         private showPlanes: boolean;
+        private showTrails: boolean;
+        private trailSeconds: number;
         // The UI's settings applied on Restart (the pass's own are those of the running simulation),
         // and whether Restart was pressed: it is done at the start of the next frame.
         private uiAttractors: int;
@@ -198,6 +208,12 @@ namespace ComputeNBodyCollisions {
         private planeVertexShader: ShaderHandle;
         private planePixelShader: ShaderHandle;
         private planePipeline: GraphicsPipelineHandle | null;
+        private trailVertexShader: ShaderHandle;
+        private trailPipeline: GraphicsPipelineHandle | null;
+        private trailBindingLayout: BindingLayoutHandle;
+        private trailBindingSet: BindingSet;
+        private trailBuffer: BufferHandle;
+        private trailConstants: f32[];
         private gizmoConstants: f32[];
         private gizmoSegments: int;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
@@ -222,6 +238,9 @@ namespace ComputeNBodyCollisions {
             this.collisions = true;
             this.heating = true;
             this.showPlanes = true;
+            this.showTrails = true;
+            this.trailSeconds = DEFAULT_TRAIL_SECONDS;
+            this.trailConstants = [0.0, TRAIL_OPACITY, 0.0, 0.0];
             this.uiAttractors = numAttractors;
             this.uiParticles = particlesPerAttractor;
             this.uiSpread = DEFAULT_SPREAD;
@@ -233,6 +252,7 @@ namespace ComputeNBodyCollisions {
             this.graphicsPipeline = null;
             this.gizmoPipeline = null;
             this.planePipeline = null;
+            this.trailPipeline = null;
             this.gizmoSegments = 0;
             this.gizmoConstants = [];
             for (let i = 0; i < GIZMO_FLOATS; i++) {
@@ -272,6 +292,9 @@ namespace ComputeNBodyCollisions {
 
             if (key == KEY_P && action == ACTION_PRESS) {
                 this.showPlanes = !this.showPlanes;
+            }
+            if (key == KEY_T && action == ACTION_PRESS) {
+                this.showTrails = !this.showTrails;
             }
 
             return 1;
@@ -342,6 +365,11 @@ namespace ComputeNBodyCollisions {
                 this.app.releaseResource(planePipeline);
                 this.planePipeline = null;
             }
+            const trailPipeline = this.trailPipeline;
+            if (trailPipeline) {
+                this.app.releaseResource(trailPipeline);
+                this.trailPipeline = null;
+            }
             const gizmoPipeline = this.gizmoPipeline;
             if (gizmoPipeline) {
                 this.app.releaseResource(gizmoPipeline);
@@ -392,6 +420,21 @@ namespace ComputeNBodyCollisions {
             commandList.writeBuffer(this.viewConstantBuffer, Ref(this.viewConstants[0]), this.viewConstantsSize);
 
             frame.clearColor(0.0, 0.0, 0.0, 1.0);
+
+            // The trails: as long as the time scale makes them, under the balls (they add up to a haze in the pile).
+            if (this.showTrails && this.trailSeconds > 0.0) {
+                this.trailConstants[0] = this.simulationConstants[CONSTANT_TIME_FACTOR] * this.trailSeconds;
+                commandList.writeBuffer(this.trailBuffer, Ref(this.trailConstants[0]), TRAIL_CONSTANTS_SIZE);
+                let trailPipeline = this.trailPipeline;
+                if (!trailPipeline) {
+                    trailPipeline = this.app.createGraphicsPipelineWithBlend(frame, this.trailVertexShader, this.axisPixelShader,
+                        null, this.trailBindingLayout, PrimitiveType.TriangleList, BlendMode.AlphaBlend);
+                    this.trailPipeline = trailPipeline;
+                }
+                frame.beginDraw(trailPipeline);
+                frame.drawAddBindingSet(this.trailBindingSet);
+                frame.drawVertices(this.numParticles * VERTICES_PER_PARTICLE);
+            }
 
             frame.beginDraw(graphicsPipeline);
             frame.drawAddBindingSet(this.drawBindingSet);
@@ -635,6 +678,12 @@ namespace ComputeNBodyCollisions {
             drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
             drawSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
             this.drawBindingSet = this.app.createBindingSetForLayout(drawSetDesc, this.drawBindingLayout);
+
+            const trailSetDesc = BindingSetDesc.create();
+            trailSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
+            trailSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
+            trailSetDesc.bindEntireConstantBuffer(3, this.trailBuffer);
+            this.trailBindingSet = this.app.createBindingSetForLayout(trailSetDesc, this.trailBindingLayout);
         }
 
         // The simulation's live settings back to their defaults (the UI's Defaults button).
@@ -653,6 +702,7 @@ namespace ComputeNBodyCollisions {
             this.app.waitForIdle();
             this.app.releaseResource(this.computeBindingSet.handle);
             this.app.releaseResource(this.drawBindingSet.handle);
+            this.app.releaseResource(this.trailBindingSet.handle);
             this.app.releaseResource(this.particleBuffer);
             this.app.releaseResource(this.contactBuffer);
 
@@ -769,6 +819,8 @@ namespace ComputeNBodyCollisions {
                     Donut_StoreInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
                 }
                 this.showPlanes = Donut_ImGuiCheckbox("Planes (P)", this.showPlanes ? 1 : 0) != 0;
+                this.showTrails = Donut_ImGuiCheckbox("Trails (T)", this.showTrails ? 1 : 0) != 0;
+                this.trailSeconds = Donut_ImGuiSliderFloat("Trail length", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
 
                 this.simulationConstants[CONSTANT_TIME_FACTOR] = Donut_ImGuiSliderFloat("Time scale",
                     this.simulationConstants[CONSTANT_TIME_FACTOR], 0.0, 0.2);
@@ -817,9 +869,10 @@ namespace ComputeNBodyCollisions {
             this.axisVertexShader = this.app.createShader(shaderFile, "axis_vs", ShaderType.Vertex);
             this.axisPixelShader = this.app.createShader(shaderFile, "axis_ps", ShaderType.Pixel);
             this.planeVertexShader = this.app.createShader(shaderFile, "plane_vs", ShaderType.Vertex);
+            this.trailVertexShader = this.app.createShader(shaderFile, "trail_vs", ShaderType.Vertex);
             // The gizmo's pixel shader: a plain color.
             this.planePixelShader = this.axisPixelShader;
-            if (!this.planeVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
+            if (!this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
                 return false;
             }
 
@@ -854,6 +907,14 @@ namespace ComputeNBodyCollisions {
             drawLayoutDesc.layoutConstantBuffer(1);
             drawLayoutDesc.layoutStructuredBufferSRV(0);
             this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
+
+            // The trails' length and opacity, written in the command list every frame.
+            this.trailBuffer = this.app.createConstantBuffer(TRAIL_CONSTANTS_SIZE, "Trail");
+            const trailLayoutDesc = BindingLayoutDesc.create();
+            trailLayoutDesc.layoutConstantBuffer(1);
+            trailLayoutDesc.layoutStructuredBufferSRV(0);
+            trailLayoutDesc.layoutConstantBuffer(3);
+            this.trailBindingLayout = this.app.createBindingLayout(trailLayoutDesc, ShaderType.Vertex);
 
             this.createParticleBindings();
 

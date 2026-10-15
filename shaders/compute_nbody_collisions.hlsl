@@ -649,3 +649,55 @@ void plane_vs(
     float3 tint = plane == 0 ? float3(0.3, 0.3, 1.0) : (plane == 1 ? float3(0.3, 1.0, 0.3) : float3(1.0, 0.3, 0.3));
     o_color = float4(tint, emphasized ? 0.45 : 0.15);
 }
+
+// --- Trails ----------------------------------------------------------------------------------
+
+// A streak behind each particle, along its velocity: a quad of 6 vertices from the head (the
+// particle, as wide as its ball on screen) to the tail, narrowing and fading out, in the color of
+// the particle's gradient position. The same particle buffer and view constants as the balls (b1,
+// t0), and the application's length.
+cbuffer c_Trail : register(b3)
+{
+    // x = the world distance a unit of velocity stretches to (the time scale, times the seconds the
+    // trail covers), y = the head's opacity.
+    float4 g_Trail;
+};
+
+void trail_vs(
+    uint i_vertex : SV_VertexID,
+    out float4 o_position : SV_Position,
+    out float4 o_color : TEXCOORD0)
+{
+    const Particle particle = t_Particles[i_vertex / 6];
+    o_position = float4(2, 2, 0, 1);
+    o_color = 0;
+
+    const float4 e0 = mul(float4(particle.pos.xyz, 1.0), g_View.matWorldToView);
+    const float4 e1 = mul(float4(particle.pos.xyz - particle.vel.xyz * g_Trail.x, 1.0), g_View.matWorldToView);
+    // Not drawn when either end is behind the camera.
+    if (e0.z < PLANE_NEAR || e1.z < PLANE_NEAR)
+        return;
+
+    const float4 c0 = mul(e0, g_View.matViewToClip);
+    const float4 c1 = mul(e1, g_View.matViewToClip);
+    const float2 halfViewport = 0.5 / g_View.viewportSizeInv;
+    const float2 s0 = c0.xy / c0.w * halfViewport;
+    const float2 s1 = c1.xy / c1.w * halfViewport;
+
+    float2 along = s1 - s0;
+    const float length_ = length(along);
+    // Shorter than a pixel: nothing to see.
+    if (length_ < 1.0)
+        return;
+    along /= length_;
+
+    // The head as wide as the ball (its radius over the depth, in pixels), at least a pixel.
+    const float radiusPixels = particle.info.x * g_View.matViewToClip[1][1] / e0.z * halfViewport.y;
+    const float2 across = float2(-along.y, along.x) * clamp(0.8 * radiusPixels, 0.75, 8.0);
+
+    const float2 corners[4] = { s0 - across, s0 + across, s1 + across * 0.1, s1 - across * 0.1 };
+    const uint corner = c_GizmoQuadIndex[i_vertex % 6];
+    o_position = float4(corners[corner] * g_View.viewportSizeInv * 2.0, 0.0, 1.0);
+    // Corners 0 and 1 are the head, 2 and 3 the tail.
+    o_color = float4(SampleGradient(particle.vel.w), corner < 2 ? g_Trail.y : 0.0);
+}
