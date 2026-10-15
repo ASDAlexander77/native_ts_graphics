@@ -39,11 +39,11 @@ namespace ComputeNBodyCollisions {
     const WORKGROUP_SIZE = 256;
     // struct Particle: float4 pos, float4 vel, float4 info, float4 spin, float4 marker.
     const PARTICLE_FLOATS = 20;
-    // struct Contact: float4 velocity, float4 shift, float4 spin.
-    const CONTACT_FLOATS = 12;
+    // struct Contact: float4 velocity, float4 shift, float4 spin, float4 fragment.
+    const CONTACT_FLOATS = 16;
     // struct SimulationConstants: float deltaT, int particleCount, int collisions, int heating, then
-    // the UI's floats (the indices below), padded to 48 bytes.
-    const SIMULATION_CONSTANTS_SIZE = 48;
+    // the UI's values (the indices below), padded to 64 bytes.
+    const SIMULATION_CONSTANTS_SIZE = 64;
     const SIMULATION_FLOATS = SIMULATION_CONSTANTS_SIZE / 4;
     const CONSTANT_TIME_FACTOR = 4;
     const CONSTANT_GRAVITY = 5;
@@ -53,6 +53,7 @@ namespace ComputeNBodyCollisions {
     const CONSTANT_FRICTION = 9;
     const CONSTANT_MERGE_SPEED = 10;
     const CONSTANT_FULL_GRAVITY = 11;
+    const CONSTANT_FRAGMENT_SPEED = 12;
     // The simulation's defaults (compute_nbody's, then the collisions'), and what the UI's sliders
     // can set them to.
     const DEFAULT_TIME_FACTOR = 0.05;
@@ -65,6 +66,15 @@ namespace ComputeNBodyCollisions {
     // MERGE_SPEED_MAX.
     const DEFAULT_MERGE_SPEED = 0.0;
     const MERGE_SPEED_MAX = 8.0;
+    // Off: particles hit harder than this (approach speed) break in two, into free slots: those of
+    // merged-away particles, and the room left at the start, a share of the particles placed
+    // (-room <percent>, the UI's Room for fragments, on restart). The UI's slider goes to
+    // FRAGMENT_SPEED_MAX.
+    const DEFAULT_FRAGMENT_SPEED = 0.0;
+    const FRAGMENT_SPEED_MAX = 50.0;
+    const DEFAULT_FRAGMENT_ROOM = 0.0;
+    // A fragment is smaller than any particle placed at the start (half the volume of the smallest).
+    const FRAGMENT_RADIUS = LIGHT_RADIUS_MIN * 0.7937005;
     // With gravity between all pairs (-fullgravity) and the heavy centers alone (-particles 1), the
     // test checks the momentum and the angular momentum drifted by less than this much of the sums
     // of their sizes. Merging the six centers (-merge 20) drifts the angular momentum by 3e-6 of
@@ -243,6 +253,16 @@ namespace ComputeNBodyCollisions {
 
         private particleBuffer: BufferHandle;
         private contactBuffer: BufferHandle;
+        // The free slots (u_Free): 2 counts, then up to numParticles indices.
+        private freeBuffer: BufferHandle;
+        private freeCounts: f32[];
+        private collectFreePipeline: ComputePipelineHandle;
+        private fragmentPipeline: ComputePipelineHandle;
+        // The share of the particles placed left as free slots at the start (the one running, and the
+        // UI's for the next restart), and how many were placed.
+        private fragmentRoom: number;
+        private uiFragmentRoom: number;
+        private placedCount: int;
         private calculatePipeline: ComputePipelineHandle;
         private countPipeline: ComputePipelineHandle;
         private collidePipeline: ComputePipelineHandle;
@@ -328,6 +348,10 @@ namespace ComputeNBodyCollisions {
             this.fullGravity = false;
             this.aliveCount = 0;
             this.framesSinceCount = 0;
+            this.freeCounts = [0.0, 0.0];
+            this.fragmentRoom = DEFAULT_FRAGMENT_ROOM;
+            this.uiFragmentRoom = DEFAULT_FRAGMENT_ROOM;
+            this.placedCount = 0;
             this.uiAttractors = numAttractors;
             this.uiParticles = particlesPerAttractor;
             this.uiSpread = DEFAULT_SPREAD;
@@ -437,7 +461,8 @@ namespace ComputeNBodyCollisions {
             // Merged-away particles don't show: count the ones left now and then (the GPU is idle
             // here, as for a restart).
             this.framesSinceCount++;
-            if (this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0 && !this.paused && this.framesSinceCount >= ALIVE_COUNT_FRAMES) {
+            if ((this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0 || this.simulationConstants[CONSTANT_FRAGMENT_SPEED] > 0.0)
+                && !this.paused && this.framesSinceCount >= ALIVE_COUNT_FRAMES) {
                 this.framesSinceCount = 0;
                 this.countAlive();
             }
@@ -505,6 +530,10 @@ namespace ComputeNBodyCollisions {
                 const groups: int = Math.floor((this.numParticles + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
                 commandList.dispatchWithPushConstants(this.calculatePipeline, this.computeBindingSet,
                     Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                const fragmenting = this.collisions && this.simulationConstants[CONSTANT_FRAGMENT_SPEED] > 0.0;
+                if (fragmenting) {
+                    commandList.writeBuffer(this.freeBuffer, Ref(this.freeCounts[0]), 8);
+                }
                 if (this.collisions) {
                     commandList.dispatchWithPushConstants(this.countPipeline, this.computeBindingSet,
                         Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
@@ -518,8 +547,17 @@ namespace ComputeNBodyCollisions {
                             Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
                     }
                 }
+                if (fragmenting) {
+                    // The free slots (after the merges have freed theirs).
+                    commandList.dispatchWithPushConstants(this.collectFreePipeline, this.computeBindingSet,
+                        Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                }
                 commandList.dispatchWithPushConstants(this.integratePipeline, this.computeBindingSet,
                     Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                if (fragmenting) {
+                    commandList.dispatchWithPushConstants(this.fragmentPipeline, this.computeBindingSet,
+                        Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                }
             }
 
             // The camera: 60 degrees vertically, as in the sample.
@@ -801,7 +839,9 @@ namespace ComputeNBodyCollisions {
                 0.0, 4.0, 0.0,
                 0.0, -8.0, 0.0,
             ];
-            this.numParticles = this.numAttractors * this.particlesPerAttractor;
+            // The particles placed, then the free slots left for fragments (a negative radius: gone).
+            this.placedCount = this.numAttractors * this.particlesPerAttractor;
+            this.numParticles = this.placedCount + Math.floor(this.placedCount * this.fragmentRoom);
 
             let particles: f32[] = [];
             for (let i = 0; i < this.numParticles * PARTICLE_FLOATS; i++) {
@@ -885,12 +925,19 @@ namespace ComputeNBodyCollisions {
                 }
             }
 
+            for (let i = this.placedCount; i < this.numParticles; i++) {
+                particles[i * PARTICLE_FLOATS + 8] = -1.0;
+                particles[i * PARTICLE_FLOATS + 16] = 1.0;
+            }
+
             this.initialMass = 0.0;
             this.initialVolume = 0.0;
             for (let i = 0; i < this.numParticles; i++) {
                 const radius = particles[i * PARTICLE_FLOATS + 8];
                 this.initialMass += particles[i * PARTICLE_FLOATS + 3];
-                this.initialVolume += radius * radius * radius;
+                if (radius > 0.0) {
+                    this.initialVolume += radius * radius * radius;
+                }
             }
             this.initialAngular = this.angularMomentum(particles);
             this.initialMomentum = this.linearMomentum(particles);
@@ -907,8 +954,9 @@ namespace ComputeNBodyCollisions {
 
             // Written by collide_cs before integrate_cs reads it, every frame.
             this.contactBuffer = this.app.createRWStructuredBuffer(CONTACT_FLOATS * 4, this.numParticles, "Contacts");
+            this.freeBuffer = this.app.createRWStructuredBuffer(4, this.numParticles + 2, "Free slots");
             Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
-            this.aliveCount = this.numParticles;
+            this.aliveCount = this.placedCount;
         }
 
         // The binding sets over the particle and contact buffers (compute, and the vertex shader's).
@@ -917,6 +965,7 @@ namespace ComputeNBodyCollisions {
             computeSetDesc.bindPushConstants(0, SIMULATION_CONSTANTS_SIZE);
             computeSetDesc.bindStructuredBufferUAV(0, this.particleBuffer);
             computeSetDesc.bindStructuredBufferUAV(1, this.contactBuffer);
+            computeSetDesc.bindStructuredBufferUAV(2, this.freeBuffer);
             this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, this.computeBindingLayout);
 
             const drawSetDesc = BindingSetDesc.create();
@@ -996,6 +1045,17 @@ namespace ComputeNBodyCollisions {
             Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_FULL_GRAVITY]), full ? 1 : 0);
         }
 
+        // The free slots left for fragments at the start, as a share of the particles placed: for the
+        // first simulation (before init) and the next restart.
+        setFragmentRoom(room: number): void {
+            this.fragmentRoom = room;
+            this.uiFragmentRoom = room;
+        }
+
+        setFragmentSpeed(speed: number): void {
+            this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = speed;
+        }
+
         setMergeSpeed(speed: number): void {
             this.simulationConstants[CONSTANT_MERGE_SPEED] = speed;
         }
@@ -1009,6 +1069,7 @@ namespace ComputeNBodyCollisions {
             this.simulationConstants[CONSTANT_COOL_SECONDS] = DEFAULT_COOL_SECONDS;
             this.simulationConstants[CONSTANT_FRICTION] = DEFAULT_FRICTION;
             this.simulationConstants[CONSTANT_MERGE_SPEED] = DEFAULT_MERGE_SPEED;
+            this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = DEFAULT_FRAGMENT_SPEED;
         }
 
         // Starts again with the UI's attractors, particles, spread and seed: new particles, in
@@ -1020,10 +1081,12 @@ namespace ComputeNBodyCollisions {
             this.app.releaseResource(this.trailBindingSet.handle);
             this.app.releaseResource(this.particleBuffer);
             this.app.releaseResource(this.contactBuffer);
+            this.app.releaseResource(this.freeBuffer);
 
             this.numAttractors = this.uiAttractors;
             this.particlesPerAttractor = this.uiParticles;
             this.spread = this.uiSpread;
+            this.fragmentRoom = this.uiFragmentRoom;
             g_RandomSeed = this.uiSeed * 1.0;
             this.createParticles();
             this.createParticleBindings();
@@ -1075,11 +1138,15 @@ namespace ComputeNBodyCollisions {
                 return "no particle has any heat: the collisions lost no energy into it";
             }
 
-            // Merging: the mass and the volume are kept, and some particles are gone (negative radius).
-            if (this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0) {
+            // Merging and breaking: the mass and the volume are kept; merging, some particles are gone
+            // (negative radius); breaking, some are fragments (smaller than any placed at the start).
+            const merging = this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0;
+            const breaking = this.simulationConstants[CONSTANT_FRAGMENT_SPEED] > 0.0;
+            if (merging || breaking) {
                 let mass = 0.0;
                 let volume = 0.0;
                 let gone = 0;
+                let fragments = 0;
                 for (let i = 0; i < this.numParticles; i++) {
                     const radius = particles[i * PARTICLE_FLOATS + 8];
                     mass += particles[i * PARTICLE_FLOATS + 3];
@@ -1087,26 +1154,35 @@ namespace ComputeNBodyCollisions {
                         gone++;
                     } else {
                         volume += radius * radius * radius;
+                        if (radius < FRAGMENT_RADIUS * 1.001) {
+                            fragments++;
+                        }
                     }
+                }
+                console.log(`Fragments: ${fragments}, particles running ${this.numParticles - gone} (placed ${this.placedCount})`);
+                if (breaking && fragments == 0) {
+                    return "no particle broke";
                 }
                 const angular = this.angularMomentum(particles);
                 console.log(`Angular momentum: ${angular[0]}, ${angular[1]}, ${angular[2]} of ${this.initialAngular[0]}, ${this.initialAngular[1]}, ${this.initialAngular[2]}`);
-                console.log(`Merged: ${gone} of ${this.numParticles} particles gone, mass ${mass} of ${this.initialMass}, volume ${volume} of ${this.initialVolume}`);
-                if (gone == 0) {
+                console.log(`Gone (merged away or free): ${gone} of ${this.numParticles} slots, mass ${mass} of ${this.initialMass}, volume ${volume} of ${this.initialVolume}`);
+                if (merging && !breaking && gone == 0) {
                     return "no particles merged";
                 }
                 if (absolute(mass - this.initialMass) > this.initialMass * 1.0e-4
                     || absolute(volume - this.initialVolume) > this.initialVolume * 1.0e-3) {
-                    return `the merges did not keep the mass (${mass} of ${this.initialMass}) or the volume (${volume} of ${this.initialVolume})`;
+                    return `the merges or breaks did not keep the mass (${mass} of ${this.initialMass}) or the volume (${volume} of ${this.initialVolume})`;
                 }
             }
 
-            // Every pair pulling both ways: the collisions, the friction and the merges keep the linear
-            // and the angular momentum, measured against the larger of the sums of their sizes at
-            // the start and now (the heavy centers start at rest). The push-outs of overlapping
-            // particles move them without a velocity change and drift the angular momentum, a lot
-            // for the light ones resting on a heavy center: use this for the heavy centers alone.
-            if (this.fullGravity && this.particlesPerAttractor == 1) {
+            // Every pair pulling both ways: the collisions, the friction, the merges and the breaks keep
+            // the linear and the angular momentum, measured against the larger of the sums of their
+            // sizes at the start and now (the heavy centers start at rest). The push-outs of
+            // overlapping particles move them without a velocity change and drift the angular
+            // momentum, a lot for the light ones resting on a heavy center: it is only checked for
+            // the heavy centers alone, the momentum always.
+            if (this.fullGravity) {
+                const heavyOnly = this.particlesPerAttractor == 1;
                 const momentum = this.linearMomentum(particles);
                 const angular = this.angularMomentum(particles);
                 let momentumDrift = 0.0;
@@ -1116,8 +1192,9 @@ namespace ComputeNBodyCollisions {
                     angularDrift = Math.max(angularDrift, absolute(angular[k] - this.initialAngular[k]));
                 }
                 const momentumLimit = Math.max(this.initialMomentum[3], momentum[3]) * MOMENTUM_DRIFT_LIMIT;
-                const angularLimit = Math.max(this.initialAngular[3], angular[3]) * ANGULAR_DRIFT_LIMIT;
-                console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift} (limit ${angularLimit})`);
+                const angularLimit = heavyOnly ? Math.max(this.initialAngular[3], angular[3]) * ANGULAR_DRIFT_LIMIT : 1.0e30;
+                console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift}`
+                    + (heavyOnly ? ` (limit ${angularLimit})` : " (not checked)"));
                 if (momentumDrift > momentumLimit || angularDrift > angularLimit) {
                     return `momentum drifts by ${momentumDrift} (over ${momentumLimit}) or angular momentum by ${angularDrift} (over ${angularLimit})`;
                 }
@@ -1200,6 +1277,8 @@ namespace ComputeNBodyCollisions {
                     this.simulationConstants[CONSTANT_RESTITUTION], 0.0, 1.0);
                 this.simulationConstants[CONSTANT_FRICTION] = Donut_ImGuiSliderFloat("Friction",
                     this.simulationConstants[CONSTANT_FRICTION], 0.0, 1.0);
+                this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = Donut_ImGuiSliderFloat("Break above speed",
+                    this.simulationConstants[CONSTANT_FRAGMENT_SPEED], 0.0, FRAGMENT_SPEED_MAX);
                 this.simulationConstants[CONSTANT_MERGE_SPEED] = Donut_ImGuiSliderFloat("Merge below speed",
                     this.simulationConstants[CONSTANT_MERGE_SPEED], 0.0, MERGE_SPEED_MAX);
                 this.simulationConstants[CONSTANT_HEAT_FACTOR] = Donut_ImGuiSliderFloat("Heat per bounce",
@@ -1218,13 +1297,14 @@ namespace ComputeNBodyCollisions {
                     this.uiParticles = particleChoice(choice);
                 }
                 this.uiSpread = Donut_ImGuiSliderFloat("Cloud spread", this.uiSpread, 0.2, 3.0);
+                this.uiFragmentRoom = Donut_ImGuiSliderFloat("Room for fragments", this.uiFragmentRoom, 0.0, 1.0);
                 this.uiSeed = Donut_ImGuiSliderInt("Random seed", this.uiSeed, 1, 99999);
                 if (Donut_ImGuiButton("Restart") != 0) {
                     this.restartRequested = true;
                 }
                 Donut_ImGuiText(this.aliveCount == this.numParticles
                     ? this.numParticles + " particles running"
-                    : this.aliveCount + " of " + this.numParticles + " particles left");
+                    : this.aliveCount + " particles running, in " + this.numParticles + " slots");
             }
 
             Donut_ImGuiPopItemWidth();
@@ -1241,6 +1321,8 @@ namespace ComputeNBodyCollisions {
             const collideShader = this.app.createShaderWithDefine(shaderFile, "collide_cs", ShaderType.Compute, "SIMULATION", "1");
             const absorbShader = this.app.createShaderWithDefine(shaderFile, "absorb_cs", ShaderType.Compute, "SIMULATION", "1");
             const killShader = this.app.createShaderWithDefine(shaderFile, "kill_cs", ShaderType.Compute, "SIMULATION", "1");
+            const collectFreeShader = this.app.createShaderWithDefine(shaderFile, "collect_free_cs", ShaderType.Compute, "SIMULATION", "1");
+            const fragmentShader = this.app.createShaderWithDefine(shaderFile, "fragment_cs", ShaderType.Compute, "SIMULATION", "1");
             this.compositeVertexShader = this.app.createShader(shaderFile, "composite_vs", ShaderType.Vertex);
             this.compositePixelShader = this.app.createShader(shaderFile, "composite_ps", ShaderType.Pixel);
             const postFile = "compute_nbody_collisions_post.hlsl";
@@ -1255,7 +1337,7 @@ namespace ComputeNBodyCollisions {
             // The gizmo's pixel shader: a plain color.
             this.planePixelShader = this.axisPixelShader;
             if (!this.compositeVertexShader || !this.compositePixelShader || !thresholdShader || !blurDownShader || !blurUpShader
-                || !this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !integrateShader) {
+                || !this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !collectFreeShader || !fragmentShader || !integrateShader) {
                 return false;
             }
 
@@ -1287,6 +1369,7 @@ namespace ComputeNBodyCollisions {
             computeLayoutDesc.layoutPushConstants(0, SIMULATION_CONSTANTS_SIZE);
             computeLayoutDesc.layoutStructuredBufferUAV(0);
             computeLayoutDesc.layoutStructuredBufferUAV(1);
+            computeLayoutDesc.layoutStructuredBufferUAV(2);
             const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
             this.computeBindingLayout = computeBindingLayout;
 
@@ -1295,6 +1378,8 @@ namespace ComputeNBodyCollisions {
             this.collidePipeline = this.app.createComputePipelineWithLayout(collideShader, computeBindingLayout);
             this.absorbPipeline = this.app.createComputePipelineWithLayout(absorbShader, computeBindingLayout);
             this.killPipeline = this.app.createComputePipelineWithLayout(killShader, computeBindingLayout);
+            this.collectFreePipeline = this.app.createComputePipelineWithLayout(collectFreeShader, computeBindingLayout);
+            this.fragmentPipeline = this.app.createComputePipelineWithLayout(fragmentShader, computeBindingLayout);
             this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
 
             Donut_StoreInt32(Ref(this.simulationConstants[2]), 1);
@@ -1368,6 +1453,10 @@ namespace ComputeNBodyCollisions {
         mergeSpeed: number = DEFAULT_MERGE_SPEED;
         // -fullgravity: every pair pulls both ways (see SimulationConstants.fullGravity).
         fullGravity: boolean = false;
+        // -fragment <speed>: particles hit harder than this break in two (0, off, by default).
+        fragmentSpeed: number = DEFAULT_FRAGMENT_SPEED;
+        // -room <percent>: free slots left for fragments at the start, a share of the particles placed.
+        fragmentRoom: number = DEFAULT_FRAGMENT_ROOM;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
@@ -1377,6 +1466,12 @@ namespace ComputeNBodyCollisions {
                     i++;
                 } else if (arg == "-particles" && i + 1 < this.argc) {
                     this.particlesPerAttractor = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-fragment" && i + 1 < this.argc) {
+                    this.fragmentSpeed = parseFloat(this[i + 1]);
+                    i++;
+                } else if (arg == "-room" && i + 1 < this.argc) {
+                    this.fragmentRoom = parseFloat(this[i + 1]) / 100.0;
                     i++;
                 } else if (arg == "-fullgravity") {
                     this.fullGravity = true;
@@ -1415,11 +1510,13 @@ namespace ComputeNBodyCollisions {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const nbody = new NBodyCollisionsPass(app, args.numAttractors, args.particlesPerAttractor, !args.test, !args.noUI);
+        nbody.setFragmentRoom(args.fragmentRoom);
         if (!nbody.init()) {
             app.destroy();
             return 1;
         }
         nbody.setMergeSpeed(args.mergeSpeed);
+        nbody.setFragmentSpeed(args.fragmentSpeed);
         nbody.setFullGravity(args.fullGravity);
 
         const input = new InputPass(app.handle);
