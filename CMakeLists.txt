@@ -955,7 +955,7 @@ donut_compile_shaders_all_platforms(
     TARGET compute_nbody_collisions_shaders
     PROJECT_NAME "Compute N-Body Collisions"
     CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody_collisions.cfg
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody_collisions.hlsl
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody_collisions.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody_collisions_post.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_nbody_collisions
 )
 add_tslang_example(compute_nbody_collisions)
