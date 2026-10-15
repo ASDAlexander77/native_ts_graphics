@@ -12,6 +12,13 @@ namespace ComputeNBodyCollisions {
     const KEY_C = 67;
     const KEY_H = 72;
     const ACTION_PRESS = 1;
+    const ACTION_RELEASE = 0;
+
+    // Seconds without input before the camera starts to orbit the center by itself, the seconds it
+    // takes to reach full speed, and that speed in radians per second (a turn in about 70 s).
+    const IDLE_SECONDS = 5.0;
+    const IDLE_RAMP_SECONDS = 2.0;
+    const IDLE_ROTATION_SPEED = 0.09;
 
     // The defaults of -attractors and -particles.
     const NUM_ATTRACTORS = 6;
@@ -95,6 +102,7 @@ namespace ComputeNBodyCollisions {
     // particle reads one that another thread has already moved), then positions. Space pauses, C
     // turns the collisions off and on. The kinetic energy the bounces lose becomes heat (info.y: it
     // makes the particle glow, and cools off over a few seconds), H turns the heating off and on.
+    // Left alone for IDLE_SECONDS, the camera starts to orbit the target slowly; any input stops it.
     class NBodyCollisionsPass {
         private app: App;
         private camera: Camera;
@@ -102,6 +110,11 @@ namespace ComputeNBodyCollisions {
         private paused: boolean;
         private collisions: boolean;
         private heating: boolean;
+        // Seconds since the last input, and the mouse buttons held: dragging pauses the rotation.
+        private idleSeconds: number;
+        private buttonsDown: int;
+        // -test renders the same frames every run: no rotation.
+        private autoRotate: boolean;
         private numParticles: int;
 
         private particleBuffer: BufferHandle;
@@ -128,8 +141,11 @@ namespace ComputeNBodyCollisions {
         private viewMatrix: f32[];
         private projMatrix: f32[];
 
-        constructor(app: App, private numAttractors: int, private particlesPerAttractor: int) {
+        constructor(app: App, private numAttractors: int, private particlesPerAttractor: int, autoRotate: boolean) {
             this.app = app;
+            this.autoRotate = autoRotate;
+            this.idleSeconds = 0.0;
+            this.buttonsDown = 0;
             this.paused = false;
             this.collisions = true;
             this.heating = true;
@@ -148,6 +164,7 @@ namespace ComputeNBodyCollisions {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int): int {
+            this.idleSeconds = 0.0;
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
@@ -166,21 +183,42 @@ namespace ComputeNBodyCollisions {
         }
 
         onMousePos(x: number, y: number): int {
+            // The mouse moving over the window isn't input for the camera, dragging is.
+            if (this.buttonsDown > 0) {
+                this.idleSeconds = 0.0;
+            }
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
         onMouseButton(button: int, action: int, mods: int): int {
+            this.idleSeconds = 0.0;
+            if (action == ACTION_PRESS) {
+                this.buttonsDown++;
+            } else if (action == ACTION_RELEASE && this.buttonsDown > 0) {
+                this.buttonsDown--;
+            }
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
         onMouseScroll(xOffset: number, yOffset: number): int {
+            this.idleSeconds = 0.0;
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
         onAnimate(elapsedSeconds: number): void {
+            // Left alone for a while, the camera drifts around the target, keeping its pitch and
+            // distance, from wherever the user left it: speeding up so it doesn't start with a jerk.
+            this.idleSeconds += elapsedSeconds;
+            if (this.autoRotate && this.idleSeconds > IDLE_SECONDS) {
+                const ramp = Math.min((this.idleSeconds - IDLE_SECONDS) / IDLE_RAMP_SECONDS, 1.0);
+                this.camera.thirdPersonSetRotation(
+                    this.camera.thirdPersonGetYaw() + IDLE_ROTATION_SPEED * ramp * elapsedSeconds,
+                    this.camera.thirdPersonGetPitch());
+            }
+
             this.camera.animate(elapsedSeconds);
 
             this.simulationConstants[0] = elapsedSeconds < MAX_DELTA_T ? elapsedSeconds : MAX_DELTA_T;
@@ -563,7 +601,7 @@ namespace ComputeNBodyCollisions {
 
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        const nbody = new NBodyCollisionsPass(app, args.numAttractors, args.particlesPerAttractor);
+        const nbody = new NBodyCollisionsPass(app, args.numAttractors, args.particlesPerAttractor, !args.test);
         if (!nbody.init()) {
             app.destroy();
             return 1;

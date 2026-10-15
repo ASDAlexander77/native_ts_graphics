@@ -8608,6 +8608,17 @@ extern "C"
         AsThirdPersonCamera(camera)->SetRotation(float(yaw), float(pitch));
     }
 
+    // In radians.
+    double Donut_ThirdPersonCameraGetYaw(donut::app::BaseCamera* camera)
+    {
+        return AsThirdPersonCamera(camera)->GetRotationYaw();
+    }
+
+    double Donut_ThirdPersonCameraGetPitch(donut::app::BaseCamera* camera)
+    {
+        return AsThirdPersonCamera(camera)->GetRotationPitch();
+    }
+
     // Orbits cameraTarget from cameraPos. Through LookTo: ThirdPersonCamera::LookAt gets the pitch's
     // sign wrong (it takes the angles of the direction to the target, LookTo of the opposite one).
     void Donut_ThirdPersonCameraLookAt(donut::app::BaseCamera* camera, double posX, double posY, double posZ, double targetX, double targetY, double targetZ)

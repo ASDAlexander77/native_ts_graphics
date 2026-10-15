@@ -1979,6 +1979,9 @@ declare function Donut_ThirdPersonCameraSetTarget(camera: CameraHandle, x: numbe
 declare function Donut_ThirdPersonCameraSetDistance(camera: CameraHandle, distance: number): void;
 // Radians.
 declare function Donut_ThirdPersonCameraSetRotation(camera: CameraHandle, yaw: number, pitch: number): void;
+// Radians: the orbit angles as the user's dragging left them.
+declare function Donut_ThirdPersonCameraGetYaw(camera: CameraHandle): number;
+declare function Donut_ThirdPersonCameraGetPitch(camera: CameraHandle): number;
 // Orbits the target from the position.
 declare function Donut_ThirdPersonCameraLookAt(camera: CameraHandle, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number): void;
 // Every frame, after Donut_SetPlanarView of the view it renders.
