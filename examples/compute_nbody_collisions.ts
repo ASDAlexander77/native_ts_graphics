@@ -54,6 +54,7 @@ namespace ComputeNBodyCollisions {
     const CONSTANT_MERGE_SPEED = 10;
     const CONSTANT_FULL_GRAVITY = 11;
     const CONSTANT_FRAGMENT_SPEED = 12;
+    const CONSTANT_CONTACT_SPRINGS = 13;
     // The simulation's defaults (compute_nbody's, then the collisions'), and what the UI's sliders
     // can set them to.
     const DEFAULT_TIME_FACTOR = 0.05;
@@ -62,25 +63,29 @@ namespace ComputeNBodyCollisions {
     const DEFAULT_HEAT_FACTOR = 0.004;
     const DEFAULT_COOL_SECONDS = 3.0;
     const DEFAULT_FRICTION = 0.3;
-    // Off: particles touching slower than this (relative speed) merge, and the UI's slider goes to
-    // MERGE_SPEED_MAX.
+    // Off (-merge unset): particles touching slower than this (relative speed) merge; the UI's
+    // switch for it is off, its slider at DEFAULT_MERGE_SLIDER, up to MERGE_SPEED_MAX.
     const DEFAULT_MERGE_SPEED = 0.0;
+    const DEFAULT_MERGE_SLIDER = 2.0;
     const MERGE_SPEED_MAX = 8.0;
     // Off: particles hit harder than this (approach speed) break in two, into free slots: those of
     // merged-away particles, and the room left at the start, a share of the particles placed
     // (-room <percent>, the UI's Fragment room, on restart). The UI's slider goes to
-    // FRAGMENT_SPEED_MAX.
+    // FRAGMENT_SPEED_MAX (its switch off, the slider at DEFAULT_FRAGMENT_SLIDER).
     const DEFAULT_FRAGMENT_SPEED = 0.0;
+    const DEFAULT_FRAGMENT_SLIDER = 10.0;
     const FRAGMENT_SPEED_MAX = 50.0;
     const DEFAULT_FRAGMENT_ROOM = 0.0;
     // A fragment is smaller than any particle placed at the start (half the volume of the smallest).
     const FRAGMENT_RADIUS = LIGHT_RADIUS_MIN * 0.7937005;
-    // With gravity between all pairs (-fullgravity) and the heavy centers alone (-particles 1), the
-    // test checks the momentum and the angular momentum drifted by less than this much of the sums
-    // of their sizes. Merging the six centers (-merge 20) drifts the angular momentum by 3e-6 of
-    // it with the merged spins' exact balance, and 2e-4 with their average.
+    // With gravity between all pairs (-fullgravity), the test checks the momentum and the angular
+    // momentum drifted by less than this much of the sums of their sizes. The heavy centers alone
+    // (-particles 1): merging the six (-merge 20) drifts the angular momentum by 3e-6 of it with the
+    // merged spins' exact balance, and 2e-4 with their average. With light particles, piled up and
+    // overlapping: 2e-3 with the contact springs, 0.8 with the push-outs they replaced.
     const MOMENTUM_DRIFT_LIMIT = 1.0e-3;
-    const ANGULAR_DRIFT_LIMIT = 1.0e-4;
+    const ANGULAR_DRIFT_LIMIT_HEAVY = 1.0e-4;
+    const ANGULAR_DRIFT_LIMIT = 1.0e-2;
     // With merging on, the particles left (radius not negative) are counted back from the GPU every
     // this many frames, for the window title and the UI.
     const ALIVE_COUNT_FRAMES = 30;
@@ -210,6 +215,19 @@ namespace ComputeNBodyCollisions {
         private collisions: boolean;
         private heating: boolean;
         private showPlanes: boolean;
+        // The UI's switches: each feature on or off, and the sliders' values, which the simulation
+        // uses only while their switch is on (applySwitches).
+        private frictionOn: boolean;
+        private frictionValue: number;
+        private mergeOn: boolean;
+        private mergeValue: number;
+        private breakOn: boolean;
+        private breakValue: number;
+        private contactSprings: boolean;
+        private bloomOn: boolean;
+        private litSpheres: boolean;
+        private spinMarks: boolean;
+        private showGizmo: boolean;
         private showTrails: boolean;
         private bloomThreshold: number;
         private bloomStrength: number;
@@ -371,6 +389,17 @@ namespace ComputeNBodyCollisions {
             }
             this.viewConstantsSize = 0;
 
+            this.frictionOn = true;
+            this.mergeOn = false;
+            this.breakOn = false;
+            this.contactSprings = true;
+            this.bloomOn = true;
+            this.litSpheres = true;
+            this.spinMarks = true;
+            this.showGizmo = true;
+            this.frictionValue = DEFAULT_FRICTION;
+            this.mergeValue = DEFAULT_MERGE_SLIDER;
+            this.breakValue = DEFAULT_FRAGMENT_SLIDER;
             this.simulationConstants = [];
             for (let i = 0; i < SIMULATION_FLOATS; i++) {
                 this.simulationConstants.push(0.0);
@@ -573,10 +602,14 @@ namespace ComputeNBodyCollisions {
 
             commandList.clearTextureFloat(this.hdrTarget, 0.0, 0.0, 0.0, 1.0);
 
+            // The trails' constants and the balls' switches, read by both.
+            this.trailConstants[0] = this.simulationConstants[CONSTANT_TIME_FACTOR] * this.trailSeconds;
+            this.trailConstants[2] = this.litSpheres ? 1.0 : 0.0;
+            this.trailConstants[3] = this.spinMarks ? 1.0 : 0.0;
+            commandList.writeBuffer(this.trailBuffer, Ref(this.trailConstants[0]), TRAIL_CONSTANTS_SIZE);
+
             // The trails: as long as the time scale makes them, under the balls (they add up to a haze in the pile).
             if (this.showTrails && this.trailSeconds > 0.0) {
-                this.trailConstants[0] = this.simulationConstants[CONSTANT_TIME_FACTOR] * this.trailSeconds;
-                commandList.writeBuffer(this.trailBuffer, Ref(this.trailConstants[0]), TRAIL_CONSTANTS_SIZE);
                 let trailPipeline = this.trailPipeline;
                 if (!trailPipeline) {
                     trailPipeline = this.createHdrPipeline(this.trailVertexShader, this.axisPixelShader,
@@ -612,6 +645,9 @@ namespace ComputeNBodyCollisions {
             }
 
             // The axes, over the particles, in the top left corner.
+            if (!this.showGizmo) {
+                return;
+            }
             this.buildGizmo(width, height);
             commandList.writeBuffer(this.gizmoBuffer, Ref(this.gizmoConstants[0]), GIZMO_FLOATS * 4);
             let gizmoPipeline = this.gizmoPipeline;
@@ -716,7 +752,7 @@ namespace ComputeNBodyCollisions {
             b[4] = 1.0 / inputWidth;
             b[5] = 1.0 / inputHeight;
             b[6] = this.bloomThreshold;
-            b[7] = this.bloomStrength;
+            b[7] = this.bloomOn ? this.bloomStrength : 0.0;
             commandList.dispatchWithPushConstants(pipeline, bindingSet, Ref(b[0]), BLUR_SIZE,
                 Math.floor((width + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), Math.floor((height + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), 1);
         }
@@ -971,6 +1007,7 @@ namespace ComputeNBodyCollisions {
             const drawSetDesc = BindingSetDesc.create();
             drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
             drawSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
+            drawSetDesc.bindEntireConstantBuffer(3, this.trailBuffer);
             this.drawBindingSet = this.app.createBindingSetForLayout(drawSetDesc, this.drawBindingLayout);
 
             const trailSetDesc = BindingSetDesc.create();
@@ -1052,24 +1089,44 @@ namespace ComputeNBodyCollisions {
             this.uiFragmentRoom = room;
         }
 
+        // -fragment and -merge: a speed above 0 turns the feature on, at that speed.
         setFragmentSpeed(speed: number): void {
-            this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = speed;
+            if (speed > 0.0) {
+                this.breakOn = true;
+                this.breakValue = speed;
+            }
+            this.applySwitches();
         }
 
         setMergeSpeed(speed: number): void {
-            this.simulationConstants[CONSTANT_MERGE_SPEED] = speed;
+            if (speed > 0.0) {
+                this.mergeOn = true;
+                this.mergeValue = speed;
+            }
+            this.applySwitches();
         }
 
-        // The simulation's live settings back to their defaults (the UI's Defaults button).
+        // The switches into the simulation's constants: a feature switched off gets 0 (friction,
+        // merging and breaking all stop at 0), on gets its slider's value.
+        applySwitches(): void {
+            this.simulationConstants[CONSTANT_FRICTION] = this.frictionOn ? this.frictionValue : 0.0;
+            this.simulationConstants[CONSTANT_MERGE_SPEED] = this.mergeOn ? this.mergeValue : 0.0;
+            this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = this.breakOn ? this.breakValue : 0.0;
+            Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_CONTACT_SPRINGS]), this.contactSprings ? 1 : 0);
+        }
+
+        // The simulation's live settings back to their defaults (the UI's Defaults button); the
+        // switches stay as they are.
         resetSimulationConstants(): void {
             this.simulationConstants[CONSTANT_TIME_FACTOR] = DEFAULT_TIME_FACTOR;
             this.simulationConstants[CONSTANT_GRAVITY] = DEFAULT_GRAVITY;
             this.simulationConstants[CONSTANT_RESTITUTION] = DEFAULT_RESTITUTION;
             this.simulationConstants[CONSTANT_HEAT_FACTOR] = DEFAULT_HEAT_FACTOR;
             this.simulationConstants[CONSTANT_COOL_SECONDS] = DEFAULT_COOL_SECONDS;
-            this.simulationConstants[CONSTANT_FRICTION] = DEFAULT_FRICTION;
-            this.simulationConstants[CONSTANT_MERGE_SPEED] = DEFAULT_MERGE_SPEED;
-            this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = DEFAULT_FRAGMENT_SPEED;
+            this.frictionValue = DEFAULT_FRICTION;
+            this.mergeValue = DEFAULT_MERGE_SLIDER;
+            this.breakValue = DEFAULT_FRAGMENT_SLIDER;
+            this.applySwitches();
         }
 
         // Starts again with the UI's attractors, particles, spread and seed: new particles, in
@@ -1177,10 +1234,8 @@ namespace ComputeNBodyCollisions {
 
             // Every pair pulling both ways: the collisions, the friction, the merges and the breaks keep
             // the linear and the angular momentum, measured against the larger of the sums of their
-            // sizes at the start and now (the heavy centers start at rest). The push-outs of
-            // overlapping particles move them without a velocity change and drift the angular
-            // momentum, a lot for the light ones resting on a heavy center: it is only checked for
-            // the heavy centers alone, the momentum always.
+            // sizes at the start and now (the heavy centers start at rest). Some still drifts: the
+            // swept contacts' position corrections, for one, move particles without a velocity change.
             if (this.fullGravity) {
                 const heavyOnly = this.particlesPerAttractor == 1;
                 const momentum = this.linearMomentum(particles);
@@ -1192,9 +1247,9 @@ namespace ComputeNBodyCollisions {
                     angularDrift = Math.max(angularDrift, absolute(angular[k] - this.initialAngular[k]));
                 }
                 const momentumLimit = Math.max(this.initialMomentum[3], momentum[3]) * MOMENTUM_DRIFT_LIMIT;
-                const angularLimit = heavyOnly ? Math.max(this.initialAngular[3], angular[3]) * ANGULAR_DRIFT_LIMIT : 1.0e30;
-                console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift}`
-                    + (heavyOnly ? ` (limit ${angularLimit})` : " (not checked)"));
+                const angularLimit = Math.max(this.initialAngular[3], angular[3])
+                    * (heavyOnly ? ANGULAR_DRIFT_LIMIT_HEAVY : ANGULAR_DRIFT_LIMIT);
+                console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift} (limit ${angularLimit})`);
                 if (momentumDrift > momentumLimit || angularDrift > angularLimit) {
                     return `momentum drifts by ${momentumDrift} (over ${momentumLimit}) or angular momentum by ${angularDrift} (over ${angularLimit})`;
                 }
@@ -1247,6 +1302,7 @@ namespace ComputeNBodyCollisions {
             Donut_ImGuiBegin("N-Body Collisions", 1);
             Donut_ImGuiPushItemWidth(180.0);
 
+            // Every feature has a switch; a slider beneath one sets how much, while it is on.
             if (Donut_ImGuiCollapsingHeaderDefaultOpen("Simulation") != 0) {
                 this.paused = Donut_ImGuiCheckbox("Paused (Space)", this.paused ? 1 : 0) != 0;
                 const collisions = Donut_ImGuiCheckbox("Collisions (C)", this.collisions ? 1 : 0) != 0;
@@ -1259,15 +1315,24 @@ namespace ComputeNBodyCollisions {
                     this.heating = heating;
                     Donut_StoreInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
                 }
-                this.showPlanes = Donut_ImGuiCheckbox("Planes (P)", this.showPlanes ? 1 : 0) != 0;
                 const fullGravity = Donut_ImGuiCheckbox("Gravity between all pairs", this.fullGravity ? 1 : 0) != 0;
                 if (fullGravity != this.fullGravity) {
                     this.setFullGravity(fullGravity);
                 }
-                this.showTrails = Donut_ImGuiCheckbox("Trails (T)", this.showTrails ? 1 : 0) != 0;
-                this.trailSeconds = Donut_ImGuiSliderFloat("Trail length (s)", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
-                this.bloomStrength = Donut_ImGuiSliderFloat("Bloom", this.bloomStrength, 0.0, 2.0);
-                this.bloomThreshold = Donut_ImGuiSliderFloat("Bloom threshold", this.bloomThreshold, 0.0, 2.0);
+                this.contactSprings = Donut_ImGuiCheckbox("Contact springs (off: push-outs)", this.contactSprings ? 1 : 0) != 0;
+                this.frictionOn = Donut_ImGuiCheckbox("Friction", this.frictionOn ? 1 : 0) != 0;
+                if (this.frictionOn) {
+                    this.frictionValue = Donut_ImGuiSliderFloat("Friction mu", this.frictionValue, 0.0, 1.0);
+                }
+                this.mergeOn = Donut_ImGuiCheckbox("Merging", this.mergeOn ? 1 : 0) != 0;
+                if (this.mergeOn) {
+                    this.mergeValue = Donut_ImGuiSliderFloat("Merge below (u/s)", this.mergeValue, 0.0, MERGE_SPEED_MAX);
+                }
+                this.breakOn = Donut_ImGuiCheckbox("Breaking", this.breakOn ? 1 : 0) != 0;
+                if (this.breakOn) {
+                    this.breakValue = Donut_ImGuiSliderFloat("Break above (u/s)", this.breakValue, 0.0, FRAGMENT_SPEED_MAX);
+                }
+                this.applySwitches();
 
                 this.simulationConstants[CONSTANT_TIME_FACTOR] = Donut_ImGuiSliderFloat("Time scale (sim s / s)",
                     this.simulationConstants[CONSTANT_TIME_FACTOR], 0.0, 0.2);
@@ -1275,18 +1340,29 @@ namespace ComputeNBodyCollisions {
                     this.simulationConstants[CONSTANT_GRAVITY], 0.0, 0.01);
                 this.simulationConstants[CONSTANT_RESTITUTION] = Donut_ImGuiSliderFloat("Bounciness e",
                     this.simulationConstants[CONSTANT_RESTITUTION], 0.0, 1.0);
-                this.simulationConstants[CONSTANT_FRICTION] = Donut_ImGuiSliderFloat("Friction mu",
-                    this.simulationConstants[CONSTANT_FRICTION], 0.0, 1.0);
-                this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = Donut_ImGuiSliderFloat("Break above (u/s)",
-                    this.simulationConstants[CONSTANT_FRAGMENT_SPEED], 0.0, FRAGMENT_SPEED_MAX);
-                this.simulationConstants[CONSTANT_MERGE_SPEED] = Donut_ImGuiSliderFloat("Merge below (u/s)",
-                    this.simulationConstants[CONSTANT_MERGE_SPEED], 0.0, MERGE_SPEED_MAX);
                 this.simulationConstants[CONSTANT_HEAT_FACTOR] = Donut_ImGuiSliderFloat("Heat per energy",
                     this.simulationConstants[CONSTANT_HEAT_FACTOR], 0.0, 0.02);
                 this.simulationConstants[CONSTANT_COOL_SECONDS] = Donut_ImGuiSliderFloat("Cooling time (s)",
                     this.simulationConstants[CONSTANT_COOL_SECONDS], 0.5, 10.0);
                 if (Donut_ImGuiButton("Defaults") != 0) {
                     this.resetSimulationConstants();
+                }
+            }
+
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Display") != 0) {
+                this.showPlanes = Donut_ImGuiCheckbox("Planes (P)", this.showPlanes ? 1 : 0) != 0;
+                this.showGizmo = Donut_ImGuiCheckbox("Axis gizmo", this.showGizmo ? 1 : 0) != 0;
+                this.autoRotate = Donut_ImGuiCheckbox("Orbit when idle", this.autoRotate ? 1 : 0) != 0;
+                this.litSpheres = Donut_ImGuiCheckbox("Lit spheres", this.litSpheres ? 1 : 0) != 0;
+                this.spinMarks = Donut_ImGuiCheckbox("Spin marks", this.spinMarks ? 1 : 0) != 0;
+                this.showTrails = Donut_ImGuiCheckbox("Trails (T)", this.showTrails ? 1 : 0) != 0;
+                if (this.showTrails) {
+                    this.trailSeconds = Donut_ImGuiSliderFloat("Trail length (s)", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
+                }
+                this.bloomOn = Donut_ImGuiCheckbox("Bloom", this.bloomOn ? 1 : 0) != 0;
+                if (this.bloomOn) {
+                    this.bloomStrength = Donut_ImGuiSliderFloat("Bloom strength", this.bloomStrength, 0.0, 2.0);
+                    this.bloomThreshold = Donut_ImGuiSliderFloat("Bloom threshold", this.bloomThreshold, 0.0, 2.0);
                 }
             }
 
@@ -1415,6 +1491,7 @@ namespace ComputeNBodyCollisions {
             const drawLayoutDesc = BindingLayoutDesc.create();
             drawLayoutDesc.layoutConstantBuffer(1);
             drawLayoutDesc.layoutStructuredBufferSRV(0);
+            drawLayoutDesc.layoutConstantBuffer(3);
             this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
 
             // The trails' length and opacity, written in the command list every frame.

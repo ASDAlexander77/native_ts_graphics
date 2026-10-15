@@ -40,7 +40,8 @@ struct Particle
 struct Contact
 {
     float4 velocity; // xyz = velocity change, w = heat gained
-    float4 shift;    // xyz = position correction, w = 1 if the particle is merging with another
+    float4 shift;    // xyz = position correction (swept contacts; overlaps with the contact springs
+                     // off), w = 1 if the particle is merging with another
     float4 spin;     // xyz = angular velocity change (friction), w = the particle it merges into (its own
                      // index if none dominates it: it absorbs the merging ones that name it)
     float4 fragment; // w = 1 if the particle breaks in two (fragment_cs); xyz = the direction the halves
@@ -85,7 +86,9 @@ struct SimulationConstants
     // there is a free slot for the second half (one merged away, or left free at the start).
     // 0: they never break.
     float fragmentSpeed;
-    float pad0;
+    // 1: overlapping particles push apart by the contact springs; 0: they are moved apart
+    // (SEPARATION of the overlap a step), which doesn't keep the angular momentum.
+    int contactSprings;
     float pad1;
     float pad2;
 };
@@ -108,10 +111,25 @@ RWStructuredBuffer<uint> u_Free : register(u2);
 #define FRAGMENT_MIN_RADIUS 0.035
 #define FRAGMENT_MAX_RADIUS 0.3
 
-// Share of an overlap pushed out per frame: gravity keeps pressing the particles that rest on a
-// heavy center into it, and velocity changes alone would let them sink. Moving the particles
-// without a velocity change doesn't keep the angular momentum (separating them by impulses would,
-// but holding them apart against this gravity that way takes more than one pass over the contacts).
+// Overlapping particles push each other apart as with a spring between their centers: equal and
+// opposite along the line between them, so the momentum and the angular momentum are kept (moving
+// them apart, as before, kept neither the angular momentum nor the energy straight). Its
+// stiffness is set by the step: w0 step = sqrt(CONTACT_STIFFNESS) for the spring's angular frequency
+// w0 over the pair's reduced mass, so a pair's velocity changes by CONTACT_STIFFNESS overlap / step
+// per step, whatever the masses and the time scale. Low enough for the explicit steps to stay stable
+// with many contacts at once (w0 step under 2 / sqrt(contacts): 16 at 0.5), high enough that the
+// pile's weight presses the particles into each other by a few percent of their reach. The overlap
+// it pushes on is at most CONTACT_OVERLAP_MAX of the reach: a particle merged and grown into its
+// neighbors is pushed out over several steps, not flung.
+#define CONTACT_STIFFNESS 0.25
+#define CONTACT_OVERLAP_MAX 0.5
+// The spring's damping ratio, while the two part: critical, so a particle pushed out of another
+// doesn't fly off, and resting contacts settle. Each pair's damping is divided among the contacts as
+// the bounces are, so that over many contacts it stays under the particle's speed (added up, it
+// overshot and blew up). What it takes is heat, as a bounce's loss is. Fast impacts bounce before
+// they overlap (FindContact), at the bounciness; an overlapping pair that parts loses its speed.
+#define CONTACT_DAMPING 1.0
+// With the contact springs off: the share of an overlap pushed out per step, by moving the particles.
 #define SEPARATION 0.5
 // The kinetic energy a bounce loses, 1/2 mu (1 - restitution^2) approach^2 for the pair's reduced
 // mass mu, becomes heat. A particle's temperature rises by that over its own mass (heat capacity
@@ -349,9 +367,10 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
     float3 velocityChange = float3(0, 0, 0);
     float3 spinChange = float3(0, 0, 0);
-    float3 shift = float3(0, 0, 0);
-    // Position corrections of the swept contacts, exact, so not limited as the overlaps' are.
+    // Position corrections of the swept contacts.
     float3 sweepShift = float3(0, 0, 0);
+    // With the contact springs off: the overlaps' push-out.
+    float3 shift = float3(0, 0, 0);
     float heat = 0.0;
     // Merging: the most massive of the touching particles that dominate this one (or itself).
     bool merging = false;
@@ -442,7 +461,21 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                     otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
             }
 
-            shift += SEPARATION * share * (reach - dist) * normal;
+            if (g_Simulation.contactSprings == 0)
+            {
+                shift += SEPARATION * share * (reach - dist) * normal;
+            }
+            else if (step > 0.0)
+            {
+                const float overlap = min(reach - dist, CONTACT_OVERLAP_MAX * reach);
+                // Damped while they part (approach > 0), divided among the contacts (impulseShare).
+                const float damping = approach > 0.0 ? 2.0 * CONTACT_DAMPING * sqrt(CONTACT_STIFFNESS) * approach : 0.0;
+                velocityChange += (share * CONTACT_STIFFNESS * overlap / step - impulseShare * damping) * normal;
+                // The parting speed it takes, approach to approach - d, loses 1/2 mu (approach^2 -
+                // (approach - d)^2) of the pair's energy: this particle's heat, as for a bounce.
+                const float parting = approach - (impulseShare / share) * damping;
+                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (approach * approach - parting * parting);
+            }
         }
         GroupMemoryBarrierWithGroupSync();
     }
@@ -450,16 +483,12 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     if (!active)
         return;
 
-    // In a dense pile the corrections of many neighbors add up: at most a radius per frame, or a
-    // particle can land deep inside others and pump energy into the pile.
-    const float shiftLength = length(shift);
-    if (shiftLength > radius)
-    {
-        shift *= radius / shiftLength;
-    }
-
     Contact contact;
     contact.velocity = float4(velocityChange, g_Simulation.heating != 0 ? heat : 0.0);
+    // In a dense pile the push-outs of many neighbors add up: at most a radius per step.
+    const float shiftLength = length(shift);
+    if (shiftLength > radius)
+        shift *= radius / shiftLength;
     contact.shift = float4(shift + sweepShift, merging ? 1.0 : 0.0);
     contact.spin = float4(spinChange, float(mergeTarget));
     // A particle merging this step doesn't also break.
@@ -682,6 +711,14 @@ cbuffer c_View : register(b1)
     PlanarViewConstants g_View;
 };
 StructuredBuffer<Particle> t_Particles : register(t0);
+// The application's switches and the trails' constants, for the balls (main_vs) and the trails.
+cbuffer c_Trail : register(b3)
+{
+    // x = the world distance a unit of velocity stretches to (the time scale, times the seconds the
+    // trail covers), y = the trails' opacity at the head, z = 1: the balls are lit spheres (0: a
+    // flat falloff to the edge), w = 1: the balls show their spin marks.
+    float4 g_Trail;
+};
 
 // The sprite's half size, in collision radii: the solid ball fills the inner half, its glow the rest.
 #define SPRITE_EXTENT 2.0
@@ -699,10 +736,12 @@ void main_vs(
     out float2 o_spriteCoord : TEXCOORD0,
     out float o_gradientPos : TEXCOORD1,
     out float o_heat : TEXCOORD2,
-    out float3 o_marker : TEXCOORD3)
+    out float3 o_marker : TEXCOORD3,
+    out float o_lit : TEXCOORD4)
 {
     const Particle particle = t_Particles[i_vertex / 6];
     const float2 corner = c_QuadCorners[i_vertex % 6];
+    o_lit = g_Trail.z;
     if (particle.info.x < 0.0)
     {
         // Merged into another particle: a degenerate quad, off screen.
@@ -726,7 +765,8 @@ void main_vs(
     o_spriteCoord = corner;
     o_gradientPos = particle.vel.w;
     o_heat = particle.info.y;
-    o_marker = mul(float4(particle.marker.xyz, 0.0), g_View.matWorldToView).xyz;
+    // No marks: a zero marker is at no pole.
+    o_marker = g_Trail.w > 0.5 ? mul(float4(particle.marker.xyz, 0.0), g_View.matWorldToView).xyz : float3(0, 0, 0);
 }
 
 // compute_nbody's textures (particle_gradient_rgba.ktx at every 16th texel, and particle_rgba.ktx
@@ -766,7 +806,8 @@ float4 main_ps(
     float2 i_spriteCoord : TEXCOORD0,
     float i_gradientPos : TEXCOORD1,
     float i_heat : TEXCOORD2,
-    float3 i_marker : TEXCOORD3) : SV_Target0
+    float3 i_marker : TEXCOORD3,
+    float i_lit : TEXCOORD4) : SV_Target0
 {
     // Heat saturates here, not where it is added up: a few hard hits still read as hotter than one.
     // The color goes from its own through red-orange and yellow to white, and the ball brightens.
@@ -789,10 +830,18 @@ float4 main_ps(
     if (ballR < 1.0)
     {
         const float3 normal = float3(i_spriteCoord * SPRITE_EXTENT, -sqrt(1.0 - ballR * ballR));
-        const float3 toLight = normalize(float3(-0.45, 0.55, -0.7));
-        brightness = 0.2 + 0.9 * saturate(dot(normal, toLight));
-        // Half way between the light and the viewer (at -z).
-        highlight = 0.5 * pow(saturate(dot(normal, normalize(toLight + float3(0, 0, -1)))), 24.0) * (1.0 - saturate(glow * 3.0));
+        if (i_lit > 0.5)
+        {
+            const float3 toLight = normalize(float3(-0.45, 0.55, -0.7));
+            brightness = 0.2 + 0.9 * saturate(dot(normal, toLight));
+            // Half way between the light and the viewer (at -z).
+            highlight = 0.5 * pow(saturate(dot(normal, normalize(toLight + float3(0, 0, -1)))), 24.0) * (1.0 - saturate(glow * 3.0));
+        }
+        else
+        {
+            // Unlit: brighter towards the center, as the balls were first drawn.
+            brightness = 0.35 + 0.65 * sqrt(1.0 - ballR * ballR);
+        }
         // A dark mark at the two poles of the particle's marker direction, so a spinning ball shows it.
         mark = smoothstep(0.8, 0.9, abs(dot(normal, i_marker)));
     }
@@ -930,13 +979,6 @@ void plane_vs(
 // particle, as wide as its ball on screen) to the tail, narrowing and fading out, in the color of
 // the particle's gradient position. The same particle buffer and view constants as the balls (b1,
 // t0), and the application's length.
-cbuffer c_Trail : register(b3)
-{
-    // x = the world distance a unit of velocity stretches to (the time scale, times the seconds the
-    // trail covers), y = the head's opacity.
-    float4 g_Trail;
-};
-
 void trail_vs(
     uint i_vertex : SV_VertexID,
     out float4 o_position : SV_Position,
