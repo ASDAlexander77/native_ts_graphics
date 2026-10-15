@@ -416,10 +416,10 @@ namespace ComputeNBodyCollisions {
             const shaderFile = "compute_nbody_collisions.hlsl";
             this.vertexShader = this.app.createShader(shaderFile, "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader(shaderFile, "main_ps", ShaderType.Pixel);
-            const calculateShader = this.app.createShader(shaderFile, "calculate_cs", ShaderType.Compute);
-            const countShader = this.app.createShader(shaderFile, "count_cs", ShaderType.Compute);
-            const collideShader = this.app.createShader(shaderFile, "collide_cs", ShaderType.Compute);
-            const integrateShader = this.app.createShader(shaderFile, "integrate_cs", ShaderType.Compute);
+            const calculateShader = this.app.createShaderWithDefine(shaderFile, "calculate_cs", ShaderType.Compute, "SIMULATION", "1");
+            const countShader = this.app.createShaderWithDefine(shaderFile, "count_cs", ShaderType.Compute, "SIMULATION", "1");
+            const collideShader = this.app.createShaderWithDefine(shaderFile, "collide_cs", ShaderType.Compute, "SIMULATION", "1");
+            const integrateShader = this.app.createShaderWithDefine(shaderFile, "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
             if (!this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
                 return false;
             }
