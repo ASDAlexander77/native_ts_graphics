@@ -54,6 +54,18 @@ struct SimulationConstants
     int collisions;
     // 0: collisions add no heat (the particles still cool off).
     int heating;
+    // Set from the application's UI, which can change them while the simulation runs.
+    float timeFactor;
+    float gravity;
+    // Bounciness: 1 keeps the approach speed along the contact normal, 0 removes it.
+    float restitution;
+    // Share of the kinetic energy a bounce loses that becomes heat (see collide_cs).
+    float heatFactor;
+    // Seconds for the heat to fall to 1/e: the energy radiates away, it never turns back into speed.
+    float coolSeconds;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 DECLARE_PUSH_CONSTANTS(SimulationConstants, g_Simulation, 0, 0);
 RWStructuredBuffer<Particle> u_Particles : register(u0);
@@ -63,24 +75,17 @@ RWStructuredBuffer<Contact> u_Contacts : register(u1);
 // The gravity pass's stride over the particles, as in compute_nbody.hlsl: a body feels a quarter
 // of the light ones (and all the heavy centers, which sit at multiples of 1024).
 #define SHARED_DATA_SIZE 1024
-#define GRAVITY 0.002
 #define POWER 0.75
 #define SOFTEN 0.05
-#define TIME_FACTOR 0.05
 
-// Bounciness: 1 keeps the approach speed along the contact normal, 0 removes it.
-#define RESTITUTION 0.8
 // Share of an overlap pushed out per frame: gravity keeps pressing the particles that rest on a
 // heavy center into it, and velocity changes alone would let them sink.
 #define SEPARATION 0.5
-// The kinetic energy a bounce loses, 1/2 mu (1 - RESTITUTION^2) approach^2 for the pair's reduced
+// The kinetic energy a bounce loses, 1/2 mu (1 - restitution^2) approach^2 for the pair's reduced
 // mass mu, becomes heat. A particle's temperature rises by that over its own mass (heat capacity
-// grows with mass): 1/2 share (1 - RESTITUTION^2) approach^2, so a light particle hit hard glows
+// grows with mass): 1/2 share (1 - restitution^2) approach^2, so a light particle hit hard glows
 // and a heavy center, whose share is tiny, stays cold. Resting contacts (gravity's pull, undone
 // each frame) approach slowly and add next to nothing.
-#define HEAT_FACTOR 0.004
-// Seconds for the heat to fall to 1/e: the energy radiates away, it never turns back into speed.
-#define COOL_SECONDS 3.0
 
 // Share data between compute shader invocations to speed up calculations.
 groupshared float4 s_SharedData[WORKGROUP_SIZE];
@@ -118,7 +123,7 @@ void calculate_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_Group
         {
             const float4 other = s_SharedData[j];
             const float3 len = other.xyz - position.xyz;
-            acceleration.xyz += GRAVITY * len * other.w / pow(dot(len, len) + SOFTEN, POWER);
+            acceleration.xyz += g_Simulation.gravity * len * other.w / pow(dot(len, len) + SOFTEN, POWER);
         }
         GroupMemoryBarrierWithGroupSync();
     }
@@ -126,10 +131,10 @@ void calculate_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_Group
     if (!active)
         return;
 
-    u_Particles[index].vel.xyz += g_Simulation.deltaT * TIME_FACTOR * acceleration.xyz;
+    u_Particles[index].vel.xyz += g_Simulation.deltaT * g_Simulation.timeFactor * acceleration.xyz;
 
     // Gradient texture position
-    u_Particles[index].vel.w += 0.1 * TIME_FACTOR * g_Simulation.deltaT;
+    u_Particles[index].vel.w += 0.1 * g_Simulation.timeFactor * g_Simulation.deltaT;
     if (u_Particles[index].vel.w > 1.0)
     {
         u_Particles[index].vel.w -= 1.0;
@@ -184,7 +189,7 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
     const float3 position = active ? u_Particles[index].pos.xyz : float3(0, 0, 0);
     const float3 velocity = active ? u_Particles[index].vel.xyz : float3(0, 0, 0);
     const float radius = active ? u_Particles[index].info.x : 0.0;
-    const float step = g_Simulation.deltaT * TIME_FACTOR;
+    const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
 
     uint contacts = 0;
     for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
@@ -237,7 +242,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     const float contacts = active ? u_Particles[index].info.z : 0.0;
 
     // integrate_cs's step: how far a velocity moves a particle this frame.
-    const float step = g_Simulation.deltaT * TIME_FACTOR;
+    const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
 
     float3 velocityChange = float3(0, 0, 0);
     float3 shift = float3(0, 0, 0);
@@ -284,9 +289,9 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float approach = dot(relativeVelocity, normal);
                 if (approach >= 0.0)
                     continue;
-                const float bounce = -(1.0 + RESTITUTION) * impulseShare * approach;
+                const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
-                heat += HEAT_FACTOR * 0.5 * impulseShare * (1.0 - RESTITUTION * RESTITUTION) * approach * approach;
+                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
                 // integrate_cs moves the particle the whole step with the new velocity, but it
                 // had the old one until the touch: take back that part of the step.
                 sweepShift -= t * step * bounce * normal;
@@ -301,9 +306,9 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             const float approach = dot(relativeVelocity, normal);
             if (approach < 0.0)
             {
-                const float bounce = -(1.0 + RESTITUTION) * impulseShare * approach;
+                const float bounce = -(1.0 + g_Simulation.restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
-                heat += HEAT_FACTOR * 0.5 * impulseShare * (1.0 - RESTITUTION * RESTITUTION) * approach * approach;
+                heat += g_Simulation.heatFactor * 0.5 * impulseShare * (1.0 - g_Simulation.restitution * g_Simulation.restitution) * approach * approach;
             }
 
             shift += SEPARATION * share * (reach - dist) * normal;
@@ -346,8 +351,8 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
         particle.info.y += contact.velocity.w;
     }
 
-    particle.pos.xyz += g_Simulation.deltaT * TIME_FACTOR * particle.vel.xyz;
-    particle.info.y *= exp(-g_Simulation.deltaT / COOL_SECONDS);
+    particle.pos.xyz += g_Simulation.deltaT * g_Simulation.timeFactor * particle.vel.xyz;
+    particle.info.y *= exp(-g_Simulation.deltaT / g_Simulation.coolSeconds);
 
     u_Particles[index] = particle;
 }

@@ -40,8 +40,26 @@ namespace ComputeNBodyCollisions {
     const PARTICLE_FLOATS = 12;
     // struct Contact: float4 velocity, float4 shift.
     const CONTACT_FLOATS = 8;
-    // struct SimulationConstants: float deltaT, int particleCount, int collisions, int heating.
-    const SIMULATION_CONSTANTS_SIZE = 16;
+    // struct SimulationConstants: float deltaT, int particleCount, int collisions, int heating, then
+    // the UI's floats (the indices below), padded to 48 bytes.
+    const SIMULATION_CONSTANTS_SIZE = 48;
+    const SIMULATION_FLOATS = SIMULATION_CONSTANTS_SIZE / 4;
+    const CONSTANT_TIME_FACTOR = 4;
+    const CONSTANT_GRAVITY = 5;
+    const CONSTANT_RESTITUTION = 6;
+    const CONSTANT_HEAT_FACTOR = 7;
+    const CONSTANT_COOL_SECONDS = 8;
+    // The simulation's defaults (compute_nbody's, then the collisions'), and what the UI's sliders
+    // can set them to.
+    const DEFAULT_TIME_FACTOR = 0.05;
+    const DEFAULT_GRAVITY = 0.002;
+    const DEFAULT_RESTITUTION = 0.8;
+    const DEFAULT_HEAT_FACTOR = 0.004;
+    const DEFAULT_COOL_SECONDS = 3.0;
+    // The sigma of a group's cloud around its attractor, and the random seed (the Park-Miller
+    // generator wants one from 1 up), at startup and as the UI's restart sets them.
+    const DEFAULT_SPREAD = 0.75;
+    const DEFAULT_SEED = 12345;
     // Collision radii: the heavy centers are balls the light particles bounce off, the light ones
     // differ in size: radii from LIGHT_RADIUS_MIN to LIGHT_RADIUS_MAX (mostly small ones), and a
     // mass of LIGHT_MASS_MIN at the smallest, growing with the volume (20 to 312).
@@ -70,6 +88,16 @@ namespace ComputeNBodyCollisions {
     // The coordinate planes (plane_vs): 3 planes of 2 * 13 grid lines, 6 vertices each.
     const PLANE_LINE_COUNT = 3 * 2 * 13;
 
+    // The UI's choices of particles per attractor: the gravity pass expects the heavy centers at
+    // multiples of 1024 (but any count works up to 256 particles in all, as in -particles 1).
+    const PARTICLE_CHOICES = "1|1024|2048";
+    function particleChoiceIndex(particles: int): int {
+        return particles == 1 ? 0 : (particles == 1024 ? 1 : (particles == 2048 ? 2 : -1));
+    }
+    function particleChoice(index: int): int {
+        return index == 0 ? 1 : (index == 1 ? 1024 : 2048);
+    }
+
     // --- Math ---------------------------------------------------------------------------------
 
     function radians(degrees: number): number {
@@ -77,7 +105,7 @@ namespace ComputeNBodyCollisions {
     }
 
     // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
-    let g_RandomSeed = 12345.0;
+    let g_RandomSeed = DEFAULT_SEED * 1.0;
     function randomFloat(): number {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
         return g_RandomSeed / 2147483647.0;
@@ -115,6 +143,9 @@ namespace ComputeNBodyCollisions {
     // particle reads one that another thread has already moved), then positions. Space pauses, C
     // turns the collisions off and on. The kinetic energy the bounces lose becomes heat (info.y: it
     // makes the particle glow, and cools off over a few seconds), H turns the heating off and on, P the coordinate planes (XY, XZ and YZ grids through the origin).
+    // The UI (a window in the top right corner, off with -noUI) sets the gravity, time scale,
+    // bounciness and heat live, and the number of attractors and particles, the spread of the clouds
+    // and the random seed on Restart, which starts the simulation again from the initial state.
     // Left alone for IDLE_SECONDS, the camera starts to orbit the target slowly; any input stops it.
     class NBodyCollisionsPass {
         private app: App;
@@ -124,6 +155,15 @@ namespace ComputeNBodyCollisions {
         private collisions: boolean;
         private heating: boolean;
         private showPlanes: boolean;
+        // The UI's settings applied on Restart (the pass's own are those of the running simulation),
+        // and whether Restart was pressed: it is done at the start of the next frame.
+        private uiAttractors: int;
+        private uiParticles: int;
+        private uiSpread: number;
+        private uiSeed: int;
+        private spread: number;
+        private restartRequested: boolean;
+        private frameWidth: int;
         // Seconds since the last input, and the mouse buttons held: dragging pauses the rotation.
         private idleSeconds: number;
         private buttonsDown: int;
@@ -137,6 +177,7 @@ namespace ComputeNBodyCollisions {
         private countPipeline: ComputePipelineHandle;
         private collidePipeline: ComputePipelineHandle;
         private integratePipeline: ComputePipelineHandle;
+        private computeBindingLayout: BindingLayoutHandle;
         private computeBindingSet: BindingSet;
         private vertexShader: ShaderHandle;
         private pixelShader: ShaderHandle;
@@ -166,7 +207,8 @@ namespace ComputeNBodyCollisions {
         private viewMatrix: f32[];
         private projMatrix: f32[];
 
-        constructor(app: App, private numAttractors: int, private particlesPerAttractor: int, autoRotate: boolean) {
+        constructor(app: App, private numAttractors: int, private particlesPerAttractor: int, autoRotate: boolean,
+            private showUI: boolean) {
             this.app = app;
             this.autoRotate = autoRotate;
             this.idleSeconds = 0.0;
@@ -175,6 +217,13 @@ namespace ComputeNBodyCollisions {
             this.collisions = true;
             this.heating = true;
             this.showPlanes = true;
+            this.uiAttractors = numAttractors;
+            this.uiParticles = particlesPerAttractor;
+            this.uiSpread = DEFAULT_SPREAD;
+            this.uiSeed = DEFAULT_SEED;
+            this.spread = DEFAULT_SPREAD;
+            this.restartRequested = false;
+            this.frameWidth = 1280;
             this.numParticles = 0;
             this.graphicsPipeline = null;
             this.gizmoPipeline = null;
@@ -186,7 +235,11 @@ namespace ComputeNBodyCollisions {
             }
             this.viewConstantsSize = 0;
 
-            this.simulationConstants = [0.0, 0.0, 0.0, 0.0];
+            this.simulationConstants = [];
+            for (let i = 0; i < SIMULATION_FLOATS; i++) {
+                this.simulationConstants.push(0.0);
+            }
+            this.resetSimulationConstants();
             this.viewConstants = [];
             this.viewMatrix = [];
             this.projMatrix = [];
@@ -246,6 +299,12 @@ namespace ComputeNBodyCollisions {
         }
 
         onAnimate(elapsedSeconds: number): void {
+            // Before this frame's commands exist: the GPU is idle, so the buffers can be replaced.
+            if (this.restartRequested) {
+                this.restartRequested = false;
+                this.restart();
+            }
+
             // Left alone for a while, the camera drifts around the target, keeping its pitch and
             // distance, from wherever the user left it: speeding up so it doesn't start with a jerk.
             this.idleSeconds += elapsedSeconds;
@@ -289,6 +348,7 @@ namespace ComputeNBodyCollisions {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
+            this.frameWidth = width;
             const commandList = frame.getCommandList();
 
             let graphicsPipeline = this.graphicsPipeline;
@@ -498,9 +558,9 @@ namespace ComputeNBodyCollisions {
                         let py = 0.0;
                         let pz = 0.0;
                         for (let attempt = 0; attempt < MAX_PLACEMENT_ATTEMPTS; attempt++) {
-                            px = ax + randomNormal() * 0.75;
-                            py = ay + randomNormal() * 0.75;
-                            pz = az + randomNormal() * 0.75;
+                            px = ax + randomNormal() * this.spread;
+                            py = ay + randomNormal() * this.spread;
+                            pz = az + randomNormal() * this.spread;
                             if (!this.overlaps(particles, p / PARTICLE_FLOATS, attractors, px, py, pz, radius)) {
                                 break;
                             }
@@ -545,6 +605,47 @@ namespace ComputeNBodyCollisions {
 
             // Written by collide_cs before integrate_cs reads it, every frame.
             this.contactBuffer = this.app.createRWStructuredBuffer(CONTACT_FLOATS * 4, this.numParticles, "Contacts");
+            Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
+        }
+
+        // The binding sets over the particle and contact buffers (compute, and the vertex shader's).
+        createParticleBindings(): void {
+            const computeSetDesc = BindingSetDesc.create();
+            computeSetDesc.bindPushConstants(0, SIMULATION_CONSTANTS_SIZE);
+            computeSetDesc.bindStructuredBufferUAV(0, this.particleBuffer);
+            computeSetDesc.bindStructuredBufferUAV(1, this.contactBuffer);
+            this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, this.computeBindingLayout);
+
+            const drawSetDesc = BindingSetDesc.create();
+            drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
+            drawSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
+            this.drawBindingSet = this.app.createBindingSetForLayout(drawSetDesc, this.drawBindingLayout);
+        }
+
+        // The simulation's live settings back to their defaults (the UI's Defaults button).
+        resetSimulationConstants(): void {
+            this.simulationConstants[CONSTANT_TIME_FACTOR] = DEFAULT_TIME_FACTOR;
+            this.simulationConstants[CONSTANT_GRAVITY] = DEFAULT_GRAVITY;
+            this.simulationConstants[CONSTANT_RESTITUTION] = DEFAULT_RESTITUTION;
+            this.simulationConstants[CONSTANT_HEAT_FACTOR] = DEFAULT_HEAT_FACTOR;
+            this.simulationConstants[CONSTANT_COOL_SECONDS] = DEFAULT_COOL_SECONDS;
+        }
+
+        // Starts again with the UI's attractors, particles, spread and seed: new particles, in
+        // new buffers (the old ones are released once the GPU is done with them).
+        restart(): void {
+            this.app.waitForIdle();
+            this.app.releaseResource(this.computeBindingSet.handle);
+            this.app.releaseResource(this.drawBindingSet.handle);
+            this.app.releaseResource(this.particleBuffer);
+            this.app.releaseResource(this.contactBuffer);
+
+            this.numAttractors = this.uiAttractors;
+            this.particlesPerAttractor = this.uiParticles;
+            this.spread = this.uiSpread;
+            g_RandomSeed = this.uiSeed * 1.0;
+            this.createParticles();
+            this.createParticleBindings();
         }
 
         // -test: checks the particles after the last frame. Every position and velocity is finite
@@ -615,6 +716,59 @@ namespace ComputeNBodyCollisions {
             return check.drawn(0x000000, 100, "Particles");
         }
 
+        // Slider and checkbox values are written back to the simulation as they change.
+        buildUI(): void {
+            Donut_ImGuiSetNextWindowPosPivot(this.frameWidth - 10.0, 10.0, 1.0, 0.0);
+            Donut_ImGuiBegin("N-Body Collisions", 1);
+            Donut_ImGuiPushItemWidth(180.0);
+
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Simulation") != 0) {
+                this.paused = Donut_ImGuiCheckbox("Paused (Space)", this.paused ? 1 : 0) != 0;
+                const collisions = Donut_ImGuiCheckbox("Collisions (C)", this.collisions ? 1 : 0) != 0;
+                if (collisions != this.collisions) {
+                    this.collisions = collisions;
+                    Donut_StoreInt32(Ref(this.simulationConstants[2]), collisions ? 1 : 0);
+                }
+                const heating = Donut_ImGuiCheckbox("Heating (H)", this.heating ? 1 : 0) != 0;
+                if (heating != this.heating) {
+                    this.heating = heating;
+                    Donut_StoreInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
+                }
+                this.showPlanes = Donut_ImGuiCheckbox("Planes (P)", this.showPlanes ? 1 : 0) != 0;
+
+                this.simulationConstants[CONSTANT_TIME_FACTOR] = Donut_ImGuiSliderFloat("Time scale",
+                    this.simulationConstants[CONSTANT_TIME_FACTOR], 0.0, 0.2);
+                this.simulationConstants[CONSTANT_GRAVITY] = Donut_ImGuiSliderFloat("Gravity",
+                    this.simulationConstants[CONSTANT_GRAVITY], 0.0, 0.01);
+                this.simulationConstants[CONSTANT_RESTITUTION] = Donut_ImGuiSliderFloat("Bounciness",
+                    this.simulationConstants[CONSTANT_RESTITUTION], 0.0, 1.0);
+                this.simulationConstants[CONSTANT_HEAT_FACTOR] = Donut_ImGuiSliderFloat("Heat per bounce",
+                    this.simulationConstants[CONSTANT_HEAT_FACTOR], 0.0, 0.02);
+                this.simulationConstants[CONSTANT_COOL_SECONDS] = Donut_ImGuiSliderFloat("Cooling seconds",
+                    this.simulationConstants[CONSTANT_COOL_SECONDS], 0.5, 10.0);
+                if (Donut_ImGuiButton("Defaults") != 0) {
+                    this.resetSimulationConstants();
+                }
+            }
+
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Restart") != 0) {
+                this.uiAttractors = Donut_ImGuiSliderInt("Attractors", this.uiAttractors, 1, MAX_ATTRACTORS);
+                const choice = Donut_ImGuiCombo("Particles each", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
+                if (choice >= 0 && choice != particleChoiceIndex(this.uiParticles)) {
+                    this.uiParticles = particleChoice(choice);
+                }
+                this.uiSpread = Donut_ImGuiSliderFloat("Cloud spread", this.uiSpread, 0.2, 3.0);
+                this.uiSeed = Donut_ImGuiSliderInt("Random seed", this.uiSeed, 1, 99999);
+                if (Donut_ImGuiButton("Restart") != 0) {
+                    this.restartRequested = true;
+                }
+                Donut_ImGuiText(this.numParticles + " particles running");
+            }
+
+            Donut_ImGuiPopItemWidth();
+            Donut_ImGuiEnd();
+        }
+
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init(): boolean {
             const shaderFile = "compute_nbody_collisions.hlsl";
@@ -641,19 +795,13 @@ namespace ComputeNBodyCollisions {
             computeLayoutDesc.layoutStructuredBufferUAV(0);
             computeLayoutDesc.layoutStructuredBufferUAV(1);
             const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
+            this.computeBindingLayout = computeBindingLayout;
 
             this.calculatePipeline = this.app.createComputePipelineWithLayout(calculateShader, computeBindingLayout);
             this.countPipeline = this.app.createComputePipelineWithLayout(countShader, computeBindingLayout);
             this.collidePipeline = this.app.createComputePipelineWithLayout(collideShader, computeBindingLayout);
             this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
 
-            const computeSetDesc = BindingSetDesc.create();
-            computeSetDesc.bindPushConstants(0, SIMULATION_CONSTANTS_SIZE);
-            computeSetDesc.bindStructuredBufferUAV(0, this.particleBuffer);
-            computeSetDesc.bindStructuredBufferUAV(1, this.contactBuffer);
-            this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, computeBindingLayout);
-
-            Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
             Donut_StoreInt32(Ref(this.simulationConstants[2]), 1);
             Donut_StoreInt32(Ref(this.simulationConstants[3]), 1);
 
@@ -671,10 +819,7 @@ namespace ComputeNBodyCollisions {
             drawLayoutDesc.layoutStructuredBufferSRV(0);
             this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
 
-            const drawSetDesc = BindingSetDesc.create();
-            drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
-            drawSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
-            this.drawBindingSet = this.app.createBindingSetForLayout(drawSetDesc, this.drawBindingLayout);
+            this.createParticleBindings();
 
             // The axis gizmo's segments, written in the command list every frame.
             this.gizmoBuffer = this.app.createConstantBuffer(GIZMO_FLOATS * 4, "Gizmo");
@@ -702,6 +847,11 @@ namespace ComputeNBodyCollisions {
             pass.setAnimateCallback(this.onAnimate);
             pass.setBackBufferResizingCallback(this.onBackBufferResizing);
             pass.setRenderCallback(this.onRender);
+
+            // Drawn after (over) the scene, and sees the mouse first.
+            if (this.showUI && this.app.addImGuiPass(this.buildUI).isNull()) {
+                return false;
+            }
             return true;
         }
     }
@@ -752,7 +902,7 @@ namespace ComputeNBodyCollisions {
 
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        const nbody = new NBodyCollisionsPass(app, args.numAttractors, args.particlesPerAttractor, !args.test);
+        const nbody = new NBodyCollisionsPass(app, args.numAttractors, args.particlesPerAttractor, !args.test, !args.noUI);
         if (!nbody.init()) {
             app.destroy();
             return 1;
