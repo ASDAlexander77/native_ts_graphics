@@ -965,6 +965,10 @@ add_tslang_example_test(compute_nbody_collisions)
 add_tslang_example_test(compute_nbody_collisions SUFFIX head_on ARGS -attractors 2 -particles 1)
 # Particles touching slower than 2 merge: the survivors absorb the others, keeping the total mass and volume.
 add_tslang_example_test(compute_nbody_collisions SUFFIX merge ARGS -merge 2)
+# Gravity between all pairs keeps the momentum, and so do the merges of the six heavy centers (-merge 20):
+# the test checks the momentum and the angular momentum drifted by little (the merged spin keeps the
+# angular momentum: their average drifts it 70 times more).
+add_tslang_example_test(compute_nbody_collisions SUFFIX merge_heavy ARGS -fullgravity -attractors 6 -particles 1 -merge 20)
 
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
