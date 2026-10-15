@@ -30,10 +30,14 @@ struct Particle
     float4 pos;  // xyz = position, w = mass
     float4 vel;  // xyz = velocity, w = gradient texture position
     float4 info; // x = collision radius (negative: merged into another particle, gone), y = heat (collisions add it, it cools off over time),
-                 // z = contacts this frame, weighted by how much they move it (count_cs)
-    float4 spin;   // xyz = angular velocity (radians per simulated second)
+                 // z = contacts this frame, weighted by how much they move it (count_cs), w = the room
+                 // it has to grow into: the distance to the nearest other particle's surface (collide_cs)
+    float4 spin;   // xyz = angular velocity (radians per simulated second), w = moment of inertia over
+                   // the mass: 2/5 r^2 for a solid sphere; a merged particle's is its parts' about
+                   // their center of mass (absorb_cs), whatever radius it collides with
     float4 marker; // xyz = a direction fixed in the particle, turned by the spin: the render draws
-                   // a mark at its two poles, so the spin shows
+                   // a mark at its two poles, so the spin shows; w = its true radius, for its volume
+                   // (a merged particle grows to it from info.x, into free space only)
 };
 
 // What collide_cs found for a particle, applied by integrate_cs.
@@ -300,36 +304,39 @@ float AfterBounce(float approach, float restitution, float share, float impulseS
     return approach - (1.0 + restitution) * approach * (impulseShare / share);
 }
 
-// Coulomb friction at a contact of two solid spheres (inertia 2/5 m r^2), for the particle that
-// looks at the pair: `normal` points from the other to it, `offset` is from the other's center to
-// its own. The contact point is on the line between the centers, split by the radii (each lever is
-// its radius over the reach of the offset): so the spins' torques undo the pair's orbital torque,
-// offset x impulse, exactly, and the angular momentum is kept even while the two overlap. The
-// surfaces slip at the contact by the velocity difference plus the spins' parts. The impulse opposes
-// the slip, up to friction times the normal impulse, and no more than what stops the slip (an
-// impulse over that would reverse it: 3.5 over the reduced mass for spheres). It changes the
-// particle's velocity and, by the torque at the surface, its spin, and what it dissipates is heat:
-// the slip goes from its speed down by 3.5 times the impulse over mu, an effective mass of mu / 3.5.
+// Coulomb friction at a contact of two particles, for the particle that looks at the pair: `normal`
+// points from the other to it, `offset` is from the other's center to its own; spin.w is each one's
+// inertia over its mass (Particle). The contact point is on the line between the centers, split by
+// the radii (each lever is its radius over the reach of the offset): so the spins' torques undo the
+// pair's orbital torque, offset x impulse, exactly, and the angular momentum is kept even while the
+// two overlap. The surfaces slip at the contact by the velocity difference plus the spins' parts.
+// The impulse opposes the slip, up to friction times the normal impulse, and no more than what
+// stops the slip: an impulse J slows the slip by J / mu times 1 + share r^2 / inertia, for each
+// (3.5 for two solid spheres). It changes the particle's velocity and, by the torque at the surface,
+// its spin, and what it dissipates is heat, as for an effective mass of mu over that factor.
 // impulseShare is as in the normal impulse (the particle's share of the pair, over the contacts).
 void ApplyFriction(float3 normal, float3 offset, float reach, float3 relativeVelocity, float approach,
-    float restitution, float share, float impulseShare, float radius, float3 spin, float otherRadius,
-    float3 otherSpin, inout float3 velocityChange, inout float3 spinChange, inout float heat)
+    float restitution, float share, float impulseShare, float radius, float4 spin, float otherRadius,
+    float4 otherSpin, inout float3 velocityChange, inout float3 spinChange, inout float heat)
 {
     // From each center to the contact point.
     const float3 lever = -offset * (radius / reach);
     const float3 otherLever = offset * (otherRadius / reach);
-    const float3 slip = relativeVelocity + cross(spin, lever) - cross(otherSpin, otherLever);
+    const float3 slip = relativeVelocity + cross(spin.xyz, lever) - cross(otherSpin.xyz, otherLever);
     const float3 tangential = slip - dot(slip, normal) * normal;
     const float slipSpeed = length(tangential);
     if (slipSpeed < 1e-6)
         return;
 
-    const float strength = min(g_Simulation.friction * (1.0 + restitution) * -approach, slipSpeed / 3.5);
+    // The other's share of the pair is 1 - share.
+    const float factor = 1.0 + share * dot(lever, lever) / spin.w
+        + (1.0 - share) * dot(otherLever, otherLever) / otherSpin.w;
+    const float strength = min(g_Simulation.friction * (1.0 + restitution) * -approach, slipSpeed / factor);
     const float3 direction = tangential / slipSpeed;
     velocityChange -= impulseShare * strength * direction;
     // The torque lever x impulse over the inertia, per unit of the particle's mass.
-    spinChange -= 2.5 * impulseShare * strength * cross(lever, direction) / (radius * radius);
-    heat += PairHeat(share, 1.0 / 3.5, slipSpeed, slipSpeed - 3.5 * strength * (impulseShare / share));
+    spinChange -= impulseShare * strength * cross(lever, direction) / spin.w;
+    heat += PairHeat(share, 1.0 / factor, slipSpeed, slipSpeed - factor * strength * (impulseShare / share));
 }
 
 // Keeps the hardest impact over g_Simulation.fragmentSpeed of a particle that can break: the
@@ -378,9 +385,11 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
     const float4 position = active ? u_Particles[index].pos : float4(0, 0, 0, 0);
     const float3 velocity = active ? u_Particles[index].vel.xyz : float3(0, 0, 0);
-    const float3 spin = active ? u_Particles[index].spin.xyz : float3(0, 0, 0);
+    const float4 spin = active ? u_Particles[index].spin : float4(0, 0, 0, 1);
     const float radius = active ? u_Particles[index].info.x : 0.0;
     const float contacts = active ? u_Particles[index].info.z : 0.0;
+    // The room it has to grow into (info.w): the nearest other particle's surface.
+    float clearance = 1.0e30;
     // The gravity's pull on it this step (calculate_cs).
     const float3 gravity = active ? u_Contacts[index].velocity.xyz : float3(0, 0, 0);
 
@@ -394,6 +403,15 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     // With the contact springs off: the overlaps' push-out.
     float3 shift = float3(0, 0, 0);
     float heat = 0.0;
+    // Each pair's heat is the energy its impulse takes as if it were the particle's only one, but the
+    // impulses of a step add up: the particle's kinetic energy changes by m v . sum + 1/2 m sum^2, not
+    // by the pairs' 1/2 m impulse^2 each. The difference (a heavy particle hit from two sides at once,
+    // the lights bouncing off it at the speed it no longer has) is taken from the heat, or given to
+    // it, after the loop. So: the spring pushes (not impulses: a force, energy of their own), and
+    // the sums of the impulses' squares.
+    float3 springPushes = float3(0, 0, 0);
+    float impulseSquares = 0.0;
+    float spinSquares = 0.0;
     // Merging: the most massive of the touching particles that dominate this one (or itself).
     bool merging = false;
     uint mergeTarget = index;
@@ -416,6 +434,12 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
         {
             if (i + j == index || radius < 0.0 || s_SharedVelocity[j].w < 0.0)
                 continue;
+            // Closing in, a neighbor counts where it gets to this step (integrate_cs grows the
+            // particle, then moves both).
+            const float3 apart = position.xyz - s_SharedData[j].xyz;
+            const float gap = length(apart);
+            const float closing = gap > 0.0 ? min(dot(velocity - s_SharedVelocity[j].xyz, apart) / gap, 0.0) : 0.0;
+            clearance = min(clearance, gap + step * closing - s_SharedVelocity[j].w);
 
             const float4 otherPosition = s_SharedData[j];
             const float4 otherVelocity = s_SharedVelocity[j];
@@ -433,12 +457,15 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             const float share = otherPosition.w / (position.w + otherPosition.w);
             // And the pair's part of the busier particle's contacts (both counted this one).
             const float impulseShare = share / max(max(contacts, s_SharedContacts[j]), 1.0);
+            const float3 velocityBefore = velocityChange;
+            const float3 spinBefore = spinChange;
 
             if (!overlapping)
             {
-                // Apart now: bounce the pair at the first touch, with the contact normal and
-                // approach speed there.
-                const float3 normal = (offset + step * relativeVelocity * t) / reach;
+                // Apart now: bounce the pair at the first touch, with the contact normal, approach
+                // speed and offset there.
+                const float3 touchOffset = offset + step * relativeVelocity * t;
+                const float3 normal = touchOffset / reach;
                 const float approach = dot(relativeVelocity, normal);
                 if (approach >= 0.0)
                     continue;
@@ -448,11 +475,15 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float bounce = -(1.0 + restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 heat += PairHeat(share, 1.0, approach, AfterBounce(approach, restitution, share, impulseShare));
-                ApplyFriction(normal, offset, reach, relativeVelocity, approach, restitution, share, impulseShare,
-                    radius, spin, otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
+                ApplyFriction(normal, touchOffset, reach, relativeVelocity, approach, restitution, share, impulseShare,
+                    radius, spin, otherVelocity.w, s_SharedSpin[j], velocityChange, spinChange, heat);
                 // integrate_cs moves the particle the whole step with the new velocity, but it
-                // had the old one until the touch: take back that part of the step.
-                sweepShift -= t * step * bounce * normal;
+                // had the old one until the touch: take back that part of the step, for the bounce
+                // and the friction both. Then the impulses act where the two touched, which keeps
+                // the angular momentum.
+                sweepShift -= t * step * (velocityChange - velocityBefore);
+                impulseSquares += dot(velocityChange - velocityBefore, velocityChange - velocityBefore);
+                spinSquares += dot(spinChange - spinBefore, spinChange - spinBefore);
                 continue;
             }
 
@@ -488,7 +519,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 velocityChange += bounce * normal;
                 heat += PairHeat(share, 1.0, approach, AfterBounce(approach, restitution, share, impulseShare));
                 ApplyFriction(normal, offset, reach, relativeVelocity, approach, restitution, share, impulseShare,
-                    radius, spin, otherVelocity.w, s_SharedSpin[j].xyz, velocityChange, spinChange, heat);
+                    radius, spin, otherVelocity.w, s_SharedSpin[j], velocityChange, spinChange, heat);
             }
 
             if (g_Simulation.contactSprings == 0)
@@ -500,19 +531,30 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 const float overlap = min(reach - dist, CONTACT_OVERLAP_MAX * reach);
                 // Damped while they part (approach > 0), divided among the contacts (impulseShare).
                 const float damping = approach > 0.0 ? 2.0 * CONTACT_DAMPING * sqrt(CONTACT_STIFFNESS) * approach : 0.0;
-                velocityChange += (share * CONTACT_STIFFNESS * overlap / step - impulseShare * damping) * normal;
+                const float3 push = share * CONTACT_STIFFNESS * overlap / step * normal;
+                springPushes += push;
+                velocityChange += push - impulseShare * damping * normal;
                 // The parting speed it takes, approach down by d (divided among the contacts), is heat.
                 // Only while they part: with no damping, approach^2 - approach^2 can come out a
                 // rounding below 0 (fused multiply-add), which made heat negative.
                 if (damping > 0.0)
                     heat += PairHeat(share, 1.0, approach, approach - (impulseShare / share) * damping);
+                impulseSquares -= 2.0 * dot(velocityChange - velocityBefore, push) - dot(push, push);
             }
+            impulseSquares += dot(velocityChange - velocityBefore, velocityChange - velocityBefore);
+            spinSquares += dot(spinChange - spinBefore, spinChange - spinBefore);
         }
         GroupMemoryBarrierWithGroupSync();
     }
 
     if (!active)
         return;
+    if (radius >= 0.0)
+        u_Particles[index].info.w = clearance;
+    // The impulses' cross terms (see springPushes): their energy, per unit of mass, comes out of the heat.
+    const float3 impulses = velocityChange - springPushes;
+    heat -= g_Simulation.heatFactor * 0.5 * (dot(impulses, impulses) - impulseSquares
+        + spin.w * (dot(spinChange, spinChange) - spinSquares));
 
     Contact contact;
     // In a dense pile the push-outs of many neighbors add up: at most a radius per step.
@@ -532,14 +574,51 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     u_Contacts[index] = contact;
 }
 
+// The energy the contact springs hold between two particles overlapping by `overlap` (of their
+// reach), for their reduced mass mu: the spring pushes with mu CONTACT_STIFFNESS overlap / step^2,
+// up to CONTACT_OVERLAP_MAX of the reach, and no harder beyond.
+float SpringEnergy(float overlap, float reach, float mu, float step)
+{
+    if (overlap <= 0.0 || step <= 0.0)
+        return 0.0;
+    const float stiffness = mu * CONTACT_STIFFNESS / (step * step);
+    const float cap = CONTACT_OVERLAP_MAX * reach;
+    const float inner = min(overlap, cap);
+    return 0.5 * stiffness * inner * inner + stiffness * cap * max(overlap - cap, 0.0);
+}
+
+// The spring energy between a particle (position, radius, mass) and another.
+float SpringEnergyWith(float3 position, float radius, float mass, Particle other, float step)
+{
+    const float reach = radius + other.info.x;
+    const float overlap = reach - length(position - other.pos.xyz);
+    return SpringEnergy(overlap, reach, mass * other.pos.w / (mass + other.pos.w), step);
+}
+
+// The gravity's potential energy between two particles a distance apart, from their merged state:
+// 2 G m m' ((r^2 + SOFTEN)^(1/4) - SOFTEN^(1/4)), whose slope is the gravity pass's pull. A merge
+// releases it, a break creates it.
+float PairPotential(float distance, float mass, float otherMass)
+{
+    return 2.0 * g_Simulation.gravity * mass * otherMass
+        * (sqrt(sqrt(distance * distance + SOFTEN)) - sqrt(sqrt(SOFTEN)));
+}
+
 // A particle's merge: it absorbs the particles that name it as their target, when it is its own
 // (nothing touching it dominates it). A particle whose target has a target of its own waits: its
-// chain is merged a step at a time. The survivor takes the sum of the masses and the volumes, the
-// mass-weighted position, velocity and heat, a spin that keeps the angular momentum about the new
-// center (the orbits and the spins), and the kinetic energy the merge loses (motion and spins) is
-// heat, spread over the merged mass. Keeping the angular momentum can leave the merged sphere
-// spinning with more energy than the two had (its inertia is small for their orbits): then the
-// heat gets nothing, and the merge adds that much energy.
+// chain is merged a step at a time. The survivor takes the sum of the masses and of the true
+// volumes (marker.w), the mass-weighted position, velocity and heat, the parts' inertia about the
+// new center (spin.w), and a spin that keeps the angular momentum about it (the orbits and the
+// spins). The kinetic energy the merge loses (motion and spins) is heat, spread over the merged
+// mass, and so is the gravity's potential energy it releases: the pair's own (PairPotential), and
+// the change with every other particle as the two masses move to their center.
+//
+// The merged sphere doesn't take its true size at once, which would reach into particles none of
+// the merging ones touched, and the contact springs would push them out with energy from nowhere:
+// it keeps the larger of the merging radii, no more than the room at its center, and grows from
+// there into free space (integrate_cs). The springs the merging particles had with the others end:
+// their energy is heat.
+//
 // The survivor and the absorbed take their own collision impulses (Contact, from the particles that
 // bounce off them) before they merge, and the survivor's are then spent: an absorbed particle's
 // would be lost with it, and the particle it bounced off would keep its half of the impulse.
@@ -561,9 +640,19 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
     float3 position = particle.pos.xyz + own.shift.xyz;
     float3 velocity = particle.vel.xyz + own.velocity.xyz;
     float3 spin = particle.spin.xyz + own.spin.xyz;
+    float inertia = particle.spin.w;
     float heat = particle.info.y + own.velocity.w;
-    float volume = particle.info.x * particle.info.x * particle.info.x;
+    float radius = particle.info.x;
+    float trueVolume = particle.marker.w * particle.marker.w * particle.marker.w;
     bool absorbed = false;
+    // The survivor as it was, for the contact springs it had with the others.
+    const float3 survivorPosition = position;
+    const float survivorRadius = radius;
+    const float survivorMass = mass;
+    const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
+    const bool springs = g_Simulation.contactSprings != 0 && step > 0.0;
+    // The energy in the springs the merging particles had with the others, which the merge ends.
+    float springsBefore = 0.0;
 
     for (uint j = 0; j < particleCount; j++)
     {
@@ -578,48 +667,124 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
         const float3 victimPosition = victim.pos.xyz + other.shift.xyz;
         const float3 victimVelocity = victim.vel.xyz + other.velocity.xyz;
         const float3 victimSpin = victim.spin.xyz + other.spin.xyz;
+        const float victimInertia = victim.spin.w;
         const float victimHeat = victim.info.y + other.velocity.w;
+        const float victimRadius = victim.info.x;
 
         const float total = mass + victimMass;
         heat = (mass * heat + victimMass * victimHeat) / total;
         const float3 newPosition = (mass * position + victimMass * victimPosition) / total;
+        if (g_Simulation.heating != 0)
+        {
+            // The gravity's potential energy the merge releases: the pair's own, and what moving the
+            // two masses to their center changes with every other particle (the ones absorbed
+            // before this one are in `position`). Only with gravity between all pairs: the sampled
+            // one has no potential energy.
+            const bool potential = g_Simulation.fullGravity != 0;
+            float released = potential ? PairPotential(length(victimPosition - position), mass, victimMass) : 0.0;
+            for (uint k = 0; k < particleCount; k++)
+            {
+                if (k == index || k == j)
+                    continue;
+                const float4 neighbor = u_Particles[k].pos;
+                if (u_Particles[k].info.x < 0.0)
+                    continue;
+                const Contact neighborContact = u_Contacts[k];
+                const bool merging = neighborContact.shift.w != 0.0 && uint(neighborContact.spin.w) == index;
+                if (k < j && merging)
+                    continue;
+                if (potential)
+                    released += PairPotential(length(position - neighbor.xyz), mass, neighbor.w)
+                        + PairPotential(length(victimPosition - neighbor.xyz), victimMass, neighbor.w)
+                        - PairPotential(length(newPosition - neighbor.xyz), total, neighbor.w);
+                if (springs && !merging)
+                    springsBefore += SpringEnergyWith(victimPosition, victimRadius, victimMass, u_Particles[k], step);
+            }
+            heat += g_Simulation.heatFactor * released / total;
+        }
         const float3 newVelocity = (mass * velocity + victimMass * victimVelocity) / total;
-        const float victimVolume = victim.info.x * victim.info.x * victim.info.x;
-        const float newRadius = pow(volume + victimVolume, 1.0 / 3.0);
+        const float newRadius = max(radius, victimRadius);
 
         // The angular momentum about the new center: the two bodies' orbits about it, and their own
-        // spins (solid spheres, 2/5 m r^2), all go into the merged sphere's spin.
+        // spins, all go into the merged particle's spin. Its inertia is the two's about that center
+        // (each one's own, and its mass at its distance from it): so the spin never takes more
+        // energy than the orbits and the spins had, and what they lose is heat.
         const float3 angularMomentum =
             mass * cross(position - newPosition, velocity - newVelocity)
             + victimMass * cross(victimPosition - newPosition, victimVelocity - newVelocity)
-            + 0.4 * mass * pow(volume, 2.0 / 3.0) * spin
-            + 0.4 * victimMass * victim.info.x * victim.info.x * victimSpin;
-        const float3 newSpin = angularMomentum / (0.4 * total * newRadius * newRadius);
+            + mass * inertia * spin
+            + victimMass * victimInertia * victimSpin;
+        const float newInertia = (mass * (inertia + dot(position - newPosition, position - newPosition))
+            + victimMass * (victimInertia + dot(victimPosition - newPosition, victimPosition - newPosition))) / total;
+        const float3 newSpin = angularMomentum / (total * newInertia);
         if (g_Simulation.heating != 0)
         {
             const float before = mass * dot(velocity, velocity) + victimMass * dot(victimVelocity, victimVelocity)
-                + 0.4 * mass * pow(volume, 2.0 / 3.0) * dot(spin, spin)
-                + 0.4 * victimMass * victim.info.x * victim.info.x * dot(victimSpin, victimSpin);
-            const float after = total * dot(newVelocity, newVelocity)
-                + 0.4 * total * newRadius * newRadius * dot(newSpin, newSpin);
+                + mass * inertia * dot(spin, spin) + victimMass * victimInertia * dot(victimSpin, victimSpin);
+            const float after = total * dot(newVelocity, newVelocity) + total * newInertia * dot(newSpin, newSpin);
+            // Never below 0 but for rounding.
             heat += g_Simulation.heatFactor * 0.5 * max(before - after, 0.0) / total;
         }
-        spin = newSpin;
 
+        spin = newSpin;
+        inertia = newInertia;
         position = newPosition;
         velocity = newVelocity;
-        volume += victimVolume;
+        radius = newRadius;
+        trueVolume += victim.marker.w * victim.marker.w * victim.marker.w;
         mass = total;
         absorbed = true;
     }
 
     if (!absorbed)
         return;
+
+    // At the center of mass the merged sphere can reach into particles none of the merging ones
+    // touched, and the contact springs would push them out with energy from nowhere (an overlap's
+    // spring energy grows as 1/step^2). So it takes no more than the room there, up to the nearest
+    // other particle's surface, and grows from that (integrate_cs); its spin keeps the angular
+    // momentum, with the same inertia. What the springs held is heat.
+    float clearance = radius;
+    for (uint k = 0; k < particleCount; k++)
+    {
+        const Particle neighbor = u_Particles[k];
+        if (k == index || neighbor.info.x < 0.0)
+            continue;
+        const Contact neighborContact = u_Contacts[k];
+        if (neighborContact.shift.w != 0.0 && uint(neighborContact.spin.w) == index)
+            continue;
+        clearance = min(clearance, length(position - neighbor.pos.xyz) - neighbor.info.x);
+        if (springs && g_Simulation.heating != 0)
+            springsBefore += SpringEnergyWith(survivorPosition, survivorRadius, survivorMass, neighbor, step);
+    }
+    // Never vanishing: below a quarter of its size it still overlaps, and pays for that below.
+    const float fitted = max(clearance, 0.25 * radius);
+    float springsAfter = 0.0;
+    if (springs && g_Simulation.heating != 0 && fitted > clearance)
+    {
+        for (uint k = 0; k < particleCount; k++)
+        {
+            const Particle neighbor = u_Particles[k];
+            if (k == index || neighbor.info.x < 0.0)
+                continue;
+            const Contact neighborContact = u_Contacts[k];
+            if (neighborContact.shift.w != 0.0 && uint(neighborContact.spin.w) == index)
+                continue;
+            springsAfter += SpringEnergyWith(position, fitted, mass, neighbor, step);
+        }
+    }
+    if (g_Simulation.heating != 0)
+        heat += g_Simulation.heatFactor * (springsBefore - springsAfter) / mass;
+    radius = fitted;
+
     particle.pos = float4(position, mass);
     particle.vel.xyz = velocity;
-    particle.spin.xyz = spin;
-    particle.info.x = pow(volume, 1.0 / 3.0);
+    particle.spin = float4(spin, inertia);
+    particle.info.x = radius;
     particle.info.y = heat;
+    // collide_cs's room was for where it was: no growing this step.
+    particle.info.w = radius;
+    particle.marker.w = pow(trueVolume, 1.0 / 3.0);
     u_Particles[index] = particle;
 
     // Spent (integrate_cs adds them): keep the flag and the target, which kill_cs reads.
@@ -674,6 +839,12 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
         particle.pos.xyz += contact.shift.xyz;
         particle.info.y = max(particle.info.y + contact.velocity.w, 0.0);
         particle.spin.xyz += contact.spin.xyz;
+
+        // A merged particle grows towards its true radius (marker.w), but only into the room it has
+        // (info.w): it never pushes into another, so the contact springs get no energy from it.
+        // Its mass stays where it was, and so do its inertia and spin.
+        if (particle.marker.w > particle.info.x)
+            particle.info.x = min(particle.marker.w, max(particle.info.x, particle.info.w));
     }
 
     particle.pos.xyz += g_Simulation.deltaT * g_Simulation.timeFactor * particle.vel.xyz;
@@ -710,9 +881,11 @@ void collect_free_cs(uint3 globalId : SV_DispatchThreadID)
 // chose: one stays in its slot, the other takes a free one (none left: it doesn't break). The
 // center of mass, the momentum and the angular momentum of their orbits are the particle's (the
 // offsets and the parting velocities are along the same line); the spin keeps its angular momentum
-// in the halves' smaller inertia, so it is 2^(2/3) times faster. Both the parting's kinetic energy
-// (1/8 m w^2) and the spin's gain (2^(2/3) - 1 of its kinetic energy) come out of the particle's heat,
-// which its impact has just raised (with heating off, or the heat short, they are added energy).
+// in the halves' inertia, solid spheres' (2^(2/3) times faster for a sphere's halves). The parting's
+// kinetic energy (1/8 m w^2), the spin's change and the gravity's potential energy
+// between the halves (PairPotential) come out of the particle's heat, which its impact has just
+// raised, and so does the contact springs' energy the halves would add with the neighbors they
+// reach into: with too little heat (or heating off), it doesn't break.
 // Color and marker are the particle's.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void fragment_cs(uint3 globalId : SV_DispatchThreadID)
@@ -725,28 +898,56 @@ void fragment_cs(uint3 globalId : SV_DispatchThreadID)
     if (contact.fragment.w == 0.0 || particle.info.x < 0.0)
         return;
 
-    uint taken;
-    InterlockedAdd(u_Free[1], 1, taken);
-    if (taken >= u_Free[0])
-        return;
-    const uint slot = u_Free[2 + taken];
-
     // 2^(-1/3): half the volume.
     const float radius = particle.info.x * 0.7937005;
     const float speed = length(contact.fragment.xyz);
     const float3 normal = speed > 1e-6 ? contact.fragment.xyz / speed : float3(1, 0, 0);
     const float3 center = particle.pos.xyz;
     const float3 velocity = particle.vel.xyz;
-    const float spinEnergy = 0.5 * 0.4 * particle.pos.w * particle.info.x * particle.info.x
-        * dot(particle.spin.xyz, particle.spin.xyz);
-    const float gained = 0.125 * particle.pos.w * speed * speed + 0.5874011 * spinEnergy;
-    particle.info.y = max(particle.info.y - g_Simulation.heatFactor * gained / particle.pos.w, 0.0);
+    // The halves are solid spheres (inertia 2/5 r^2 over the mass), with the particle's angular
+    // momentum in their spins.
+    const float halfInertia = 0.4 * radius * radius;
+    const float3 halfSpin = particle.spin.xyz * particle.spin.w / halfInertia;
+    const float spinGain = 0.5 * particle.pos.w * (halfInertia * dot(halfSpin, halfSpin)
+        - particle.spin.w * dot(particle.spin.xyz, particle.spin.xyz));
+    // The parting, the spin's change, and the gravity's energy between the two halves (PairPotential;
+    // with gravity between all pairs only, as in absorb_cs).
+    float gained = 0.125 * particle.pos.w * speed * speed + spinGain
+        + (g_Simulation.fullGravity != 0 ? PairPotential(2.0 * radius, 0.5 * particle.pos.w, 0.5 * particle.pos.w) : 0.0);
+    // The halves reach past the particle along the normal, into neighbors it may not have touched:
+    // the contact springs' energy with them, after less before, is paid too.
+    const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
+    if (g_Simulation.contactSprings != 0 && step > 0.0)
+    {
+        const uint particleCount = uint(g_Simulation.particleCount);
+        for (uint j = 0; j < particleCount; j++)
+        {
+            const Particle other = u_Particles[j];
+            if (j == index || other.info.x < 0.0)
+                continue;
+            gained += SpringEnergyWith(center + normal * radius, radius, 0.5 * particle.pos.w, other, step)
+                + SpringEnergyWith(center - normal * radius, radius, 0.5 * particle.pos.w, other, step)
+                - SpringEnergyWith(center, particle.info.x, particle.pos.w, other, step);
+        }
+    }
+    // Paid from the heat; with too little (or heating off), the particle doesn't break.
+    const float heatEnergy = g_Simulation.heatFactor > 0.0 ? particle.info.y * particle.pos.w / g_Simulation.heatFactor : 0.0;
+    if (g_Simulation.heating == 0 || gained > heatEnergy)
+        return;
+    particle.info.y -= g_Simulation.heatFactor * gained / particle.pos.w;
+
+    uint taken;
+    InterlockedAdd(u_Free[1], 1, taken);
+    if (taken >= u_Free[0])
+        return;
+    const uint slot = u_Free[2 + taken];
 
     particle.pos = float4(center + normal * radius, 0.5 * particle.pos.w);
     particle.vel.xyz = velocity + 0.5 * contact.fragment.xyz;
-    particle.spin.xyz *= 1.5874011;
+    particle.spin = float4(halfSpin, halfInertia);
     particle.info.x = radius;
     particle.info.z = 0.0;
+    particle.marker.w *= 0.7937005;
     u_Particles[index] = particle;
 
     particle.pos.xyz = center - normal * radius;

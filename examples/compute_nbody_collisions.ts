@@ -92,8 +92,13 @@ namespace ComputeNBodyCollisions {
     const ENERGY_DRIFT_LIMIT = 0.05;
     // -nocool's cooling time: the heat stays.
     const NO_COOLING_SECONDS = 1.0e9;
-    // The gravity pass's softening (SOFTEN in the shader), in its potential energy.
+    // The gravity pass's softening (SOFTEN in the shader), in its potential energy; the contact
+    // springs' stiffness and the share of the reach they push on (CONTACT_STIFFNESS,
+    // CONTACT_OVERLAP_MAX), in theirs, for -test's step of 1/60 s.
     const GRAVITY_SOFTENING = 0.05;
+    const CONTACT_STIFFNESS = 0.25;
+    const CONTACT_OVERLAP_MAX = 0.5;
+    const TEST_DELTA_T = 1.0 / 60.0;
     // With merging on, the particles left (radius not negative) are counted back from the GPU every
     // this many frames, for the window title and the UI.
     const ALIVE_COUNT_FRAMES = 30;
@@ -968,6 +973,10 @@ namespace ComputeNBodyCollisions {
                     particles[p + 16] = markerRing * Math.cos(index * 2.399963);
                     particles[p + 17] = markerRing * Math.sin(index * 2.399963);
                     particles[p + 18] = markerZ;
+                    // A solid sphere's inertia over its mass (Particle.spin.w), and the true radius:
+                    // the particle's own, until it merges.
+                    particles[p + 15] = 0.4 * particles[p + 8] * particles[p + 8];
+                    particles[p + 19] = particles[p + 8];
                 }
             }
 
@@ -1059,7 +1068,8 @@ namespace ComputeNBodyCollisions {
                     continue;
                 }
                 const mass = particles[q + 3];
-                const inertia = 0.4 * mass * radius * radius;
+                // The spin's inertia over the mass is in spin.w (a merged particle's isn't a sphere's).
+                const inertia = mass * particles[q + 15];
                 total[0] += mass * (particles[q + 1] * particles[q + 6] - particles[q + 2] * particles[q + 5]) + inertia * particles[q + 12];
                 total[1] += mass * (particles[q + 2] * particles[q + 4] - particles[q + 0] * particles[q + 6]) + inertia * particles[q + 13];
                 total[2] += mass * (particles[q + 0] * particles[q + 5] - particles[q + 1] * particles[q + 4]) + inertia * particles[q + 14];
@@ -1073,12 +1083,16 @@ namespace ComputeNBodyCollisions {
         }
 
         // The total energy of the particles in `particles`: kinetic (motion and spin), potential and
-        // heat. The gravity pass pulls by G m m' r / (r^2 + SOFTEN)^(3/4), which is the slope of
-        // 2 G m m' (r^2 + SOFTEN)^(1/4) per pair; heat is energy over mass times heatFactor. Gravity
-        // between all pairs only: the sampled one has no potential energy.
+        // heat, and the contact springs' energy. The gravity pass pulls by G m m' r / (r^2 + SOFTEN)^(3/4), which is the slope of
+        // 2 G m m' ((r^2 + SOFTEN)^(1/4) - SOFTEN^(1/4)) per pair (0 for a pair merged into one, as
+        // in the shader's PairPotential); heat is energy over mass times heatFactor. Gravity between
+        // all pairs only: the sampled one has no potential energy.
         totalEnergy(particles: f32[]): number {
             const gravity = this.simulationConstants[CONSTANT_GRAVITY];
             const heatFactor = this.simulationConstants[CONSTANT_HEAT_FACTOR];
+            const softeningRoot = Math.sqrt(Math.sqrt(GRAVITY_SOFTENING));
+            // The step the springs' stiffness is set for: -test's.
+            const step = TEST_DELTA_T * this.simulationConstants[CONSTANT_TIME_FACTOR];
             let energy = 0.0;
             for (let i = 0; i < this.numParticles; i++) {
                 const q = i * PARTICLE_FLOATS;
@@ -1089,7 +1103,7 @@ namespace ComputeNBodyCollisions {
                 const mass = particles[q + 3];
                 energy += 0.5 * mass * (particles[q + 4] * particles[q + 4] + particles[q + 5] * particles[q + 5]
                     + particles[q + 6] * particles[q + 6]);
-                energy += 0.2 * mass * radius * radius * (particles[q + 12] * particles[q + 12]
+                energy += 0.5 * mass * particles[q + 15] * (particles[q + 12] * particles[q + 12]
                     + particles[q + 13] * particles[q + 13] + particles[q + 14] * particles[q + 14]);
                 if (heatFactor > 0.0) {
                     energy += particles[q + 9] * mass / heatFactor;
@@ -1102,7 +1116,23 @@ namespace ComputeNBodyCollisions {
                     const dx = particles[q] - particles[o];
                     const dy = particles[q + 1] - particles[o + 1];
                     const dz = particles[q + 2] - particles[o + 2];
-                    energy += 2.0 * gravity * mass * particles[o + 3] * Math.sqrt(Math.sqrt(dx * dx + dy * dy + dz * dz + GRAVITY_SOFTENING));
+                    const distance2 = dx * dx + dy * dy + dz * dz;
+                    energy += 2.0 * gravity * mass * particles[o + 3]
+                        * (Math.sqrt(Math.sqrt(distance2 + GRAVITY_SOFTENING)) - softeningRoot);
+                    // The contact springs' energy (the shader's SpringEnergy).
+                    const reach = radius + particles[o + 8];
+                    // Merging pairs (touching slowly) have no springs.
+                    const vx = particles[q + 4] - particles[o + 4];
+                    const vy = particles[q + 5] - particles[o + 5];
+                    const vz = particles[q + 6] - particles[o + 6];
+                    const mergeSpeed = this.simulationConstants[CONSTANT_MERGE_SPEED];
+                    const merging = mergeSpeed > 0.0 && vx * vx + vy * vy + vz * vz < mergeSpeed * mergeSpeed;
+                    if (this.contactSprings && !merging && step > 0.0 && distance2 < reach * reach) {
+                        const overlap = reach - Math.sqrt(distance2);
+                        const stiffness = mass * particles[o + 3] / (mass + particles[o + 3]) * CONTACT_STIFFNESS / (step * step);
+                        const inner = Math.min(overlap, CONTACT_OVERLAP_MAX * reach);
+                        energy += 0.5 * stiffness * inner * inner + stiffness * CONTACT_OVERLAP_MAX * reach * (overlap - inner);
+                    }
                 }
             }
             return energy;
@@ -1258,10 +1288,12 @@ namespace ComputeNBodyCollisions {
                 for (let i = 0; i < this.numParticles; i++) {
                     const radius = particles[i * PARTICLE_FLOATS + 8];
                     mass += particles[i * PARTICLE_FLOATS + 3];
+                    // The true radius (marker.w): a merged particle grows to it as room allows.
+                    const trueRadius = particles[i * PARTICLE_FLOATS + 19];
                     if (radius < 0.0) {
                         gone++;
                     } else {
-                        volume += radius * radius * radius;
+                        volume += trueRadius * trueRadius * trueRadius;
                         if (radius < FRAGMENT_RADIUS * 1.001) {
                             fragments++;
                         }
@@ -1306,11 +1338,9 @@ namespace ComputeNBodyCollisions {
                 }
             }
 
-            // Energy, with all-pairs gravity and the heat kept (-nocool): what the collisions lose is
-            // heat, so the total stays. (Merging grows a particle into its neighbors, and the
-            // contact springs then push them out: energy from nowhere, so not with -merge.)
-            if (this.fullGravity && this.simulationConstants[CONSTANT_COOL_SECONDS] >= NO_COOLING_SECONDS
-                && this.simulationConstants[CONSTANT_MERGE_SPEED] <= 0.0) {
+            // Energy, with all-pairs gravity and the heat kept (-nocool): what the collisions, the
+            // merges and the breaks lose is heat, so the total stays.
+            if (this.fullGravity && this.simulationConstants[CONSTANT_COOL_SECONDS] >= NO_COOLING_SECONDS) {
                 const energy = this.totalEnergy(particles);
                 const drift = absolute(energy - this.initialEnergy) / this.initialEnergy;
                 console.log(`Energy: ${energy} of ${this.initialEnergy}, drift ${drift} (limit ${ENERGY_DRIFT_LIMIT})`);
