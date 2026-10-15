@@ -751,7 +751,7 @@ namespace ComputeNBodyCollisions {
                 }
             }
 
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Restart") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("New simulation") != 0) {
                 this.uiAttractors = Donut_ImGuiSliderInt("Attractors", this.uiAttractors, 1, MAX_ATTRACTORS);
                 const choice = Donut_ImGuiCombo("Particles each", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
                 if (choice >= 0 && choice != particleChoiceIndex(this.uiParticles)) {
