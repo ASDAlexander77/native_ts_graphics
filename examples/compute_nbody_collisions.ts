@@ -35,10 +35,12 @@ namespace ComputeNBodyCollisions {
     // struct SimulationConstants: float deltaT, int particleCount, int collisions, int heating.
     const SIMULATION_CONSTANTS_SIZE = 16;
     // Collision radii: the heavy centers are balls the light particles bounce off, the light ones
-    // grow with their mass (20 to 80).
+    // differ in size: radii from LIGHT_RADIUS_MIN to LIGHT_RADIUS_MAX (mostly small ones), and a
+    // mass of LIGHT_MASS_MIN at the smallest, growing with the volume (20 to 312).
     const HEAVY_RADIUS = 0.5;
-    const LIGHT_RADIUS_BASE = 0.04;
-    const LIGHT_RADIUS_PER_MASS = 0.0005;
+    const LIGHT_RADIUS_MIN = 0.04;
+    const LIGHT_RADIUS_MAX = 0.1;
+    const LIGHT_MASS_MIN = 20.0;
     // Longest simulation step, in seconds: a stall (window dragged, breakpoint) would otherwise move
     // the particles through each other in one step.
     const MAX_DELTA_T = 1.0 / 30.0;
@@ -307,8 +309,10 @@ namespace ComputeNBodyCollisions {
                     } else {
                         // Positive masses, unlike compute_nbody's (normal around 37.5, some
                         // negative): a collision's impulse is shared in proportion to them.
-                        const mass = 20.0 + 60.0 * randomFloat();
-                        const radius = LIGHT_RADIUS_BASE + LIGHT_RADIUS_PER_MASS * mass;
+                        const sizeRandom = randomFloat();
+                        const radius = LIGHT_RADIUS_MIN + (LIGHT_RADIUS_MAX - LIGHT_RADIUS_MIN) * sizeRandom * sizeRandom;
+                        const sizeRatio = radius / LIGHT_RADIUS_MIN;
+                        const mass = LIGHT_MASS_MIN * sizeRatio * sizeRatio * sizeRatio;
 
                         // Position. The sample then scales y by 2 - length(normalize(position -
                         // attractor))^2, which is 1. Drawn again while it overlaps a particle
