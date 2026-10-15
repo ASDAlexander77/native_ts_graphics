@@ -22,6 +22,9 @@ namespace ComputeNBodyCollisions {
     // Test mode: the frames rendered (15 seconds). Head on (-attractors 2 -particles 1), the two
     // heavy centers have met once by then and are moving apart again.
     const TEST_FRAMES = 900;
+    // Test mode: the fastest a particle may be after them. Gravity alone keeps them under about
+    // 120; collisions that added up their impulses threw them out at thousands.
+    const MAX_TEST_SPEED = 500.0;
     // The compute passes in compute_nbody_collisions.hlsl run 256 threads per group.
     const WORKGROUP_SIZE = 256;
     // struct Particle: float4 pos, float4 vel, float4 info.
@@ -83,10 +86,11 @@ namespace ComputeNBodyCollisions {
     // --- Passes -------------------------------------------------------------------------------
 
     // compute_nbody with collisions: the particles are spheres that bounce off each other and off
-    // the heavy centers. Three compute passes: velocities from gravity (as compute_nbody), then the
-    // collisions (every particle against every other, each writing only its own velocity change
-    // and position correction into a second buffer, so no particle reads one that another thread
-    // has already moved), then positions. Space pauses, C turns the collisions off and on.
+    // the heavy centers. Four compute passes: velocities from gravity (as compute_nbody), then each
+    // particle's contacts counted, then the collisions (every particle against every other, each
+    // writing only its own velocity change and position correction into a second buffer, so no
+    // particle reads one that another thread has already moved), then positions. Space pauses, C
+    // turns the collisions off and on.
     class NBodyCollisionsPass {
         private app: App;
         private camera: Camera;
@@ -98,6 +102,7 @@ namespace ComputeNBodyCollisions {
         private particleBuffer: BufferHandle;
         private contactBuffer: BufferHandle;
         private calculatePipeline: ComputePipelineHandle;
+        private countPipeline: ComputePipelineHandle;
         private collidePipeline: ComputePipelineHandle;
         private integratePipeline: ComputePipelineHandle;
         private computeBindingSet: BindingSet;
@@ -205,6 +210,8 @@ namespace ComputeNBodyCollisions {
                 commandList.dispatchWithPushConstants(this.calculatePipeline, this.computeBindingSet,
                     Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
                 if (this.collisions) {
+                    commandList.dispatchWithPushConstants(this.countPipeline, this.computeBindingSet,
+                        Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
                     commandList.dispatchWithPushConstants(this.collidePipeline, this.computeBindingSet,
                         Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
                 }
@@ -353,7 +360,8 @@ namespace ComputeNBodyCollisions {
         }
 
         // -test: checks the particles after the last frame. Every position and velocity is finite
-        // (light particles slung out of the scene go far, legitimately). Head on (2 heavy centers
+        // (light particles slung out of the scene go far, legitimately), and none is faster than
+        // MAX_TEST_SPEED, though the clouds have fallen into each other by then. Head on (2 heavy centers
         // alone), the two have bounced off each other once, symmetrically: equal and opposite
         // positions and velocities (the momentum kept), as far apart and as fast as a CPU run of the
         // shaders has them at frame 900. Then the frame: black corners, and particles drawn.
@@ -370,6 +378,13 @@ namespace ComputeNBodyCollisions {
                     if (k != 3 && !isFinite32(value)) {
                         return `particle ${i}: ${k < 3 ? "position" : "velocity"} ${value} is not finite`;
                     }
+                }
+                const vx = particles[i * PARTICLE_FLOATS + 4];
+                const vy = particles[i * PARTICLE_FLOATS + 5];
+                const vz = particles[i * PARTICLE_FLOATS + 6];
+                const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
+                if (speed > MAX_TEST_SPEED) {
+                    return `particle ${i}: speed ${speed} above ${MAX_TEST_SPEED}, the collisions gained energy`;
                 }
             }
 
@@ -402,9 +417,10 @@ namespace ComputeNBodyCollisions {
             this.vertexShader = this.app.createShader(shaderFile, "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader(shaderFile, "main_ps", ShaderType.Pixel);
             const calculateShader = this.app.createShader(shaderFile, "calculate_cs", ShaderType.Compute);
+            const countShader = this.app.createShader(shaderFile, "count_cs", ShaderType.Compute);
             const collideShader = this.app.createShader(shaderFile, "collide_cs", ShaderType.Compute);
             const integrateShader = this.app.createShader(shaderFile, "integrate_cs", ShaderType.Compute);
-            if (!this.vertexShader || !this.pixelShader || !calculateShader || !collideShader || !integrateShader) {
+            if (!this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
                 return false;
             }
 
@@ -418,6 +434,7 @@ namespace ComputeNBodyCollisions {
             const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
 
             this.calculatePipeline = this.app.createComputePipelineWithLayout(calculateShader, computeBindingLayout);
+            this.countPipeline = this.app.createComputePipelineWithLayout(countShader, computeBindingLayout);
             this.collidePipeline = this.app.createComputePipelineWithLayout(collideShader, computeBindingLayout);
             this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
 

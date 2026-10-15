@@ -29,7 +29,8 @@ struct Particle
 {
     float4 pos;  // xyz = position, w = mass
     float4 vel;  // xyz = velocity, w = gradient texture position
-    float4 info; // x = collision radius, y = collision flash (1 on impact, fading to 0)
+    float4 info; // x = collision radius, y = collision flash (1 on impact, fading to 0),
+                 // z = contacts this frame (count_cs)
 };
 
 // What collide_cs found for a particle, applied by integrate_cs.
@@ -62,8 +63,7 @@ RWStructuredBuffer<Contact> u_Contacts : register(u1);
 #define SOFTEN 0.05
 #define TIME_FACTOR 0.05
 
-// Bounciness: 1 keeps the approach speed along the contact normal, 0 removes it. Below 1, as the
-// impulses of several simultaneous contacts add up and could otherwise gain energy.
+// Bounciness: 1 keeps the approach speed along the contact normal, 0 removes it.
 #define RESTITUTION 0.8
 // Share of an overlap pushed out per frame: gravity keeps pressing the particles that rest on a
 // heavy center into it, and velocity changes alone would let them sink.
@@ -76,9 +76,11 @@ RWStructuredBuffer<Contact> u_Contacts : register(u1);
 
 // Share data between compute shader invocations to speed up calculations.
 groupshared float4 s_SharedData[WORKGROUP_SIZE];
-// collide_cs: the other particles' velocity (xyz) and radius (w), next to their position and mass
-// in s_SharedData.
+// count_cs and collide_cs: the other particles' velocity (xyz) and radius (w), next to their
+// position and mass in s_SharedData.
 groupshared float4 s_SharedVelocity[WORKGROUP_SIZE];
+// collide_cs: the other particles' contact counts.
+groupshared float s_SharedContacts[WORKGROUP_SIZE];
 
 // First pass: the particles' velocities, from the gravity of the others.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
@@ -126,12 +128,94 @@ void calculate_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_Group
     }
 }
 
-// Second pass: collisions, against every other particle (unlike gravity, none can be skipped).
+// Whether a pair touches this step: overlapping now, or apart but closing in so fast that it would
+// cross within the step and never be seen overlapping. Then t is the first touch, |offset + motion
+// * t| = reach for t in [0, 1]. Both particles of a pair get the same answer (offset and motion
+// change sign), so they count the same contacts.
+bool FindContact(float3 offset, float3 relativeVelocity, float reach, float step, out bool overlapping, out float t)
+{
+    const float distanceSquared = dot(offset, offset);
+    overlapping = distanceSquared < reach * reach;
+    t = 0.0;
+    if (distanceSquared < 1e-12)
+        return false;
+    if (overlapping)
+        return true;
+
+    const float3 motion = step * relativeVelocity;
+    const float a = dot(motion, motion);
+    const float b = dot(offset, motion);
+    const float c = distanceSquared - reach * reach;
+    const float discriminant = b * b - a * c;
+    // Closing in (b < 0) and the line comes within reach (discriminant >= 0).
+    if (b >= 0.0 || discriminant < 0.0)
+        return false;
+    t = (-b - sqrt(discriminant)) / a;
+    return t <= 1.0;
+}
+
+// Loads WORKGROUP_SIZE particles' positions, velocities and radii into the shared arrays, from i on.
+void LoadShared(uint i, uint localId, uint particleCount)
+{
+    if (i + localId < particleCount)
+    {
+        const uint other = i + localId;
+        s_SharedData[localId] = u_Particles[other].pos;
+        s_SharedVelocity[localId] = float4(u_Particles[other].vel.xyz, u_Particles[other].info.x);
+    }
+}
+
+// Second pass: how many particles each one touches this step, into info.z for collide_cs.
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThreadID)
+{
+    const uint index = globalId.x;
+    const uint particleCount = uint(g_Simulation.particleCount);
+    const bool active = index < particleCount;
+
+    const float3 position = active ? u_Particles[index].pos.xyz : float3(0, 0, 0);
+    const float3 velocity = active ? u_Particles[index].vel.xyz : float3(0, 0, 0);
+    const float radius = active ? u_Particles[index].info.x : 0.0;
+    const float step = g_Simulation.deltaT * TIME_FACTOR;
+
+    uint contacts = 0;
+    for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
+    {
+        LoadShared(i, localId.x, particleCount);
+        GroupMemoryBarrierWithGroupSync();
+
+        for (uint j = 0; j < WORKGROUP_SIZE && i + j < particleCount; j++)
+        {
+            bool overlapping;
+            float t;
+            if (i + j != index && FindContact(position - s_SharedData[j].xyz, velocity - s_SharedVelocity[j].xyz,
+                radius + s_SharedVelocity[j].w, step, overlapping, t))
+            {
+                contacts++;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (active)
+    {
+        u_Particles[index].info.z = float(contacts);
+    }
+}
+
+// Third pass: collisions, against every other particle (unlike gravity, none can be skipped).
 // Each particle reads the others' positions and velocities as calculate_cs left them and writes
 // only its own Contact, so the order the groups run in doesn't matter; integrate_cs applies them.
 // For each touching pair still approaching, the particle takes its part of the impulse of an
 // elastic collision between spheres, so it bounces off along the contact normal: the lighter
 // the particle, the more its direction changes (off a heavy center, it is a reflection).
+//
+// All the contacts of a step are resolved at once, from the velocities before any of them: a
+// particle between two others closing in would take both full impulses, -2.6 times its speed, and
+// as the clouds fall into each other the next step multiplies that again (a fast particle sweeps
+// past several within one step). So each pair's impulse is divided by the larger contact count of
+// the two: a particle's velocity change is at most its largest single bounce, and both particles
+// of a pair still take equal and opposite momentum.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThreadID)
 {
@@ -142,6 +226,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     const float4 position = active ? u_Particles[index].pos : float4(0, 0, 0, 0);
     const float3 velocity = active ? u_Particles[index].vel.xyz : float3(0, 0, 0);
     const float radius = active ? u_Particles[index].info.x : 0.0;
+    const float contacts = active ? u_Particles[index].info.z : 0.0;
 
     // integrate_cs's step: how far a velocity moves a particle this frame.
     const float step = g_Simulation.deltaT * TIME_FACTOR;
@@ -154,11 +239,10 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
     for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
     {
+        LoadShared(i, localId.x, particleCount);
         if (i + localId.x < particleCount)
         {
-            const Particle other = u_Particles[i + localId.x];
-            s_SharedData[localId.x] = other.pos;
-            s_SharedVelocity[localId.x] = float4(other.vel.xyz, other.info.x);
+            s_SharedContacts[localId.x] = u_Particles[i + localId.x].info.z;
         }
         GroupMemoryBarrierWithGroupSync();
 
@@ -173,37 +257,26 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             // From the other particle to this one.
             const float3 offset = position.xyz - otherPosition.xyz;
             const float reach = radius + otherVelocity.w;
-            const float distanceSquared = dot(offset, offset);
-            if (distanceSquared < 1e-12)
+            const float3 relativeVelocity = velocity - otherVelocity.xyz;
+            bool overlapping;
+            float t;
+            if (!FindContact(offset, relativeVelocity, reach, step, overlapping, t))
                 continue;
 
             // This particle's share of the pair's change: the other's mass over the total.
             const float share = otherPosition.w / (position.w + otherPosition.w);
-            const float3 relativeVelocity = velocity - otherVelocity.xyz;
+            // And the pair's part of the busier particle's contacts (both counted this one).
+            const float impulseShare = share / max(max(contacts, s_SharedContacts[j]), 1.0);
 
-            if (distanceSquared >= reach * reach)
+            if (!overlapping)
             {
-                // Apart now, but fast pairs can cross each other within one step and never be
-                // seen overlapping: sweep the pair over the step, |offset + motion * t| = reach
-                // for t in [0, 1], and bounce them at the first touch.
-                const float3 motion = step * relativeVelocity;
-                const float a = dot(motion, motion);
-                const float b = dot(offset, motion);
-                const float c = distanceSquared - reach * reach;
-                const float discriminant = b * b - a * c;
-                // Closing in (b < 0) and the line comes within reach (discriminant >= 0).
-                if (b >= 0.0 || discriminant < 0.0)
-                    continue;
-                const float t = (-b - sqrt(discriminant)) / a;
-                if (t > 1.0)
-                    continue;
-
-                // The contact normal and approach speed at the touch, as for an overlap.
-                const float3 normal = (offset + motion * t) / reach;
+                // Apart now: bounce the pair at the first touch, with the contact normal and
+                // approach speed there.
+                const float3 normal = (offset + step * relativeVelocity * t) / reach;
                 const float approach = dot(relativeVelocity, normal);
                 if (approach >= 0.0)
                     continue;
-                const float bounce = -(1.0 + RESTITUTION) * share * approach;
+                const float bounce = -(1.0 + RESTITUTION) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 flash = max(flash, saturate(bounce / FLASH_SPEED));
                 // integrate_cs moves the particle the whole step with the new velocity, but it
@@ -212,7 +285,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 continue;
             }
 
-            const float dist = sqrt(distanceSquared);
+            const float dist = length(offset);
             const float3 normal = offset / dist;
 
             // Negative while the two close in. Pairs already separating keep their velocities,
@@ -220,7 +293,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             const float approach = dot(relativeVelocity, normal);
             if (approach < 0.0)
             {
-                const float bounce = -(1.0 + RESTITUTION) * share * approach;
+                const float bounce = -(1.0 + RESTITUTION) * impulseShare * approach;
                 velocityChange += bounce * normal;
                 flash = max(flash, saturate(bounce / FLASH_SPEED));
             }
