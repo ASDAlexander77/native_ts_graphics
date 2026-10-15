@@ -29,14 +29,14 @@ struct Particle
 {
     float4 pos;  // xyz = position, w = mass
     float4 vel;  // xyz = velocity, w = gradient texture position
-    float4 info; // x = collision radius, y = collision flash (1 on impact, fading to 0),
+    float4 info; // x = collision radius, y = heat (collisions add it, it cools off over time),
                  // z = contacts this frame (count_cs)
 };
 
 // What collide_cs found for a particle, applied by integrate_cs.
 struct Contact
 {
-    float4 velocity; // xyz = velocity change, w = flash
+    float4 velocity; // xyz = velocity change, w = heat gained
     float4 shift;    // xyz = position correction
 };
 
@@ -52,7 +52,8 @@ struct SimulationConstants
     int particleCount;
     // 0: the particles pass through each other (compute_nbody), integrate_cs ignores u_Contacts.
     int collisions;
-    int padding;
+    // 0: collisions add no heat (the particles still cool off).
+    int heating;
 };
 DECLARE_PUSH_CONSTANTS(SimulationConstants, g_Simulation, 0, 0);
 RWStructuredBuffer<Particle> u_Particles : register(u0);
@@ -72,11 +73,14 @@ RWStructuredBuffer<Contact> u_Contacts : register(u1);
 // Share of an overlap pushed out per frame: gravity keeps pressing the particles that rest on a
 // heavy center into it, and velocity changes alone would let them sink.
 #define SEPARATION 0.5
-// Velocity change that makes a full flash: resting contacts (gravity's pull, undone each frame)
-// stay dark, and so do the heavy centers, which a light particle hardly moves.
-#define FLASH_SPEED 20.0
-// Seconds a full flash takes to fade.
-#define FLASH_SECONDS 0.4
+// The kinetic energy a bounce loses, 1/2 mu (1 - RESTITUTION^2) approach^2 for the pair's reduced
+// mass mu, becomes heat. A particle's temperature rises by that over its own mass (heat capacity
+// grows with mass): 1/2 share (1 - RESTITUTION^2) approach^2, so a light particle hit hard glows
+// and a heavy center, whose share is tiny, stays cold. Resting contacts (gravity's pull, undone
+// each frame) approach slowly and add next to nothing.
+#define HEAT_FACTOR 0.004
+// Seconds for the heat to fall to 1/e: the energy radiates away, it never turns back into speed.
+#define COOL_SECONDS 3.0
 
 // Share data between compute shader invocations to speed up calculations.
 groupshared float4 s_SharedData[WORKGROUP_SIZE];
@@ -239,7 +243,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     float3 shift = float3(0, 0, 0);
     // Position corrections of the swept contacts, exact, so not limited as the overlaps' are.
     float3 sweepShift = float3(0, 0, 0);
-    float flash = 0.0;
+    float heat = 0.0;
 
     for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
     {
@@ -282,7 +286,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                     continue;
                 const float bounce = -(1.0 + RESTITUTION) * impulseShare * approach;
                 velocityChange += bounce * normal;
-                flash = max(flash, saturate(bounce / FLASH_SPEED));
+                heat += HEAT_FACTOR * 0.5 * impulseShare * (1.0 - RESTITUTION * RESTITUTION) * approach * approach;
                 // integrate_cs moves the particle the whole step with the new velocity, but it
                 // had the old one until the touch: take back that part of the step.
                 sweepShift -= t * step * bounce * normal;
@@ -299,7 +303,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             {
                 const float bounce = -(1.0 + RESTITUTION) * impulseShare * approach;
                 velocityChange += bounce * normal;
-                flash = max(flash, saturate(bounce / FLASH_SPEED));
+                heat += HEAT_FACTOR * 0.5 * impulseShare * (1.0 - RESTITUTION * RESTITUTION) * approach * approach;
             }
 
             shift += SEPARATION * share * (reach - dist) * normal;
@@ -319,7 +323,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     }
 
     Contact contact;
-    contact.velocity = float4(velocityChange, flash);
+    contact.velocity = float4(velocityChange, g_Simulation.heating != 0 ? heat : 0.0);
     contact.shift = float4(shift + sweepShift, 0.0);
     u_Contacts[index] = contact;
 }
@@ -339,11 +343,11 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
         const Contact contact = u_Contacts[index];
         particle.vel.xyz += contact.velocity.xyz;
         particle.pos.xyz += contact.shift.xyz;
-        particle.info.y = max(particle.info.y, contact.velocity.w);
+        particle.info.y += contact.velocity.w;
     }
 
     particle.pos.xyz += g_Simulation.deltaT * TIME_FACTOR * particle.vel.xyz;
-    particle.info.y = max(particle.info.y - g_Simulation.deltaT / FLASH_SECONDS, 0.0);
+    particle.info.y *= exp(-g_Simulation.deltaT / COOL_SECONDS);
 
     u_Particles[index] = particle;
 }
@@ -373,7 +377,7 @@ void main_vs(
     out float4 o_position : SV_Position,
     out float2 o_spriteCoord : TEXCOORD0,
     out float o_gradientPos : TEXCOORD1,
-    out float o_flash : TEXCOORD2)
+    out float o_heat : TEXCOORD2)
 {
     const Particle particle = t_Particles[i_vertex / 6];
     const float2 corner = c_QuadCorners[i_vertex % 6];
@@ -389,7 +393,7 @@ void main_vs(
 
     o_spriteCoord = corner;
     o_gradientPos = particle.vel.w;
-    o_flash = particle.info.y;
+    o_heat = particle.info.y;
 }
 
 // compute_nbody's textures (particle_gradient_rgba.ktx at every 16th texel, and particle_rgba.ktx
@@ -428,10 +432,15 @@ float4 main_ps(
     float4 i_position : SV_Position,
     float2 i_spriteCoord : TEXCOORD0,
     float i_gradientPos : TEXCOORD1,
-    float i_flash : TEXCOORD2) : SV_Target0
+    float i_heat : TEXCOORD2) : SV_Target0
 {
-    // Flashing white after an impact.
-    const float3 color = lerp(SampleGradient(i_gradientPos), float3(1, 1, 1), i_flash);
+    // Heat saturates here, not where it is added up: a few hard hits still read as hotter than one.
+    // The color goes from its own through red-orange and yellow to white, and the ball brightens.
+    const float glow = 1.0 - exp(-i_heat);
+    float3 color = SampleGradient(i_gradientPos);
+    color = lerp(color, float3(1.0, 0.25, 0.04), saturate(glow * 3.0));
+    color = lerp(color, float3(1.0, 0.85, 0.5), saturate(glow * 3.0 - 1.0));
+    color = lerp(color, float3(1.0, 1.0, 1.0), saturate(glow * 3.0 - 2.0));
 
     const float r = length(i_spriteCoord);
     // Inside the collision radius: a ball, brighter towards its center. Outside: a faint glow.
@@ -439,5 +448,5 @@ float4 main_ps(
     const float brightness = ballR < 1.0
         ? 0.35 + 0.65 * sqrt(1.0 - ballR * ballR)
         : 0.5 * SampleGlow(r);
-    return float4(brightness * color, 1);
+    return float4(brightness * (1.0 + 0.3 * glow) * color, 1);
 }

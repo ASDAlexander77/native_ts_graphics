@@ -10,6 +10,7 @@ namespace ComputeNBodyCollisions {
     // GLFW values, as passed to the keyboard callback.
     const KEY_SPACE = 32;
     const KEY_C = 67;
+    const KEY_H = 72;
     const ACTION_PRESS = 1;
 
     // The defaults of -attractors and -particles.
@@ -31,7 +32,7 @@ namespace ComputeNBodyCollisions {
     const PARTICLE_FLOATS = 12;
     // struct Contact: float4 velocity, float4 shift.
     const CONTACT_FLOATS = 8;
-    // struct SimulationConstants: float deltaT, int particleCount, int collisions, int padding.
+    // struct SimulationConstants: float deltaT, int particleCount, int collisions, int heating.
     const SIMULATION_CONSTANTS_SIZE = 16;
     // Collision radii: the heavy centers are balls the light particles bounce off, the light ones
     // grow with their mass (20 to 80).
@@ -90,13 +91,15 @@ namespace ComputeNBodyCollisions {
     // particle's contacts counted, then the collisions (every particle against every other, each
     // writing only its own velocity change and position correction into a second buffer, so no
     // particle reads one that another thread has already moved), then positions. Space pauses, C
-    // turns the collisions off and on.
+    // turns the collisions off and on. The kinetic energy the bounces lose becomes heat (info.y: it
+    // makes the particle glow, and cools off over a few seconds), H turns the heating off and on.
     class NBodyCollisionsPass {
         private app: App;
         private camera: Camera;
         private view: View;
         private paused: boolean;
         private collisions: boolean;
+        private heating: boolean;
         private numParticles: int;
 
         private particleBuffer: BufferHandle;
@@ -127,6 +130,7 @@ namespace ComputeNBodyCollisions {
             this.app = app;
             this.paused = false;
             this.collisions = true;
+            this.heating = true;
             this.numParticles = 0;
             this.graphicsPipeline = null;
             this.viewConstantsSize = 0;
@@ -150,6 +154,10 @@ namespace ComputeNBodyCollisions {
             if (key == KEY_C && action == ACTION_PRESS) {
                 this.collisions = !this.collisions;
                 Donut_StoreInt32(Ref(this.simulationConstants[2]), this.collisions ? 1 : 0);
+            }
+            if (key == KEY_H && action == ACTION_PRESS) {
+                this.heating = !this.heating;
+                Donut_StoreInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
             }
 
             return 1;
@@ -175,7 +183,8 @@ namespace ComputeNBodyCollisions {
 
             this.simulationConstants[0] = elapsedSeconds < MAX_DELTA_T ? elapsedSeconds : MAX_DELTA_T;
 
-            const collisionsInfo = this.collisions ? "collisions on" : "collisions off";
+            const collisionsInfo = (this.collisions ? "collisions on" : "collisions off")
+                + (this.heating ? ", heating on" : ", heating off");
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, this.paused
                 ? `${this.numParticles} particles, ${collisionsInfo} (paused)`
                 : `${this.numParticles} particles, ${collisionsInfo}`);
@@ -388,6 +397,22 @@ namespace ComputeNBodyCollisions {
                 }
             }
 
+            // Heat (info.y): never negative, and some particle is hot or was (collisions add it).
+            let maxHeat = 0.0;
+            let sumHeat = 0.0;
+            for (let i = 0; i < this.numParticles; i++) {
+                const heat = particles[i * PARTICLE_FLOATS + 9];
+                if (!isFinite32(heat) || heat < 0.0) {
+                    return `particle ${i}: heat ${heat} is not finite or is negative`;
+                }
+                maxHeat = Math.max(maxHeat, heat);
+                sumHeat += heat;
+            }
+            console.log(`Heat: max ${maxHeat}, mean ${sumHeat / this.numParticles}`);
+            if (maxHeat <= 0.0) {
+                return "no particle has any heat: the collisions lost no energy into it";
+            }
+
             if (this.numAttractors == 2 && this.particlesPerAttractor == 1) {
                 const x0 = particles[0];
                 const x1 = particles[PARTICLE_FLOATS];
@@ -446,6 +471,7 @@ namespace ComputeNBodyCollisions {
 
             Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
             Donut_StoreInt32(Ref(this.simulationConstants[2]), 1);
+            Donut_StoreInt32(Ref(this.simulationConstants[3]), 1);
 
             // Drawing: the view constants and the particles, read by the vertex shader.
             this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
