@@ -30,7 +30,7 @@ struct Particle
     float4 pos;  // xyz = position, w = mass
     float4 vel;  // xyz = velocity, w = gradient texture position
     float4 info; // x = collision radius (negative: merged into another particle, gone), y = heat (collisions add it, it cools off over time),
-                 // z = contacts this frame (count_cs)
+                 // z = contacts this frame, weighted by how much they move it (count_cs)
     float4 spin;   // xyz = angular velocity (radians per simulated second)
     float4 marker; // xyz = a direction fixed in the particle, turned by the spin: the render draws
                    // a mark at its two poles, so the spin shows
@@ -200,7 +200,12 @@ void LoadShared(uint i, uint localId, uint particleCount)
     }
 }
 
-// Second pass: how many particles each one touches this step, into info.z for collide_cs.
+// Second pass: how many particles each one touches this step, into info.z for collide_cs. Each
+// contact counts by how much it moves the particle: min(1, 2 share), its share of the pair's change
+// being the other's mass over the total. Two equal masses count 1 each; a light particle on a heavy
+// one counts 1, the heavy one next to nothing, so a light particle bouncing off a heavy center that
+// touches a hundred others doesn't get a hundredth of its bounce. As min(1, 2 share) >= share, a
+// particle's velocity change is still at most a full bounce (see collide_cs).
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThreadID)
 {
@@ -209,11 +214,12 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
     const bool active = index < particleCount;
 
     const float3 position = active ? u_Particles[index].pos.xyz : float3(0, 0, 0);
+    const float mass = active ? u_Particles[index].pos.w : 0.0;
     const float3 velocity = active ? u_Particles[index].vel.xyz : float3(0, 0, 0);
     const float radius = active ? u_Particles[index].info.x : 0.0;
     const float step = g_Simulation.deltaT * g_Simulation.timeFactor;
 
-    uint contacts = 0;
+    float contacts = 0.0;
     for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
     {
         LoadShared(i, localId.x, particleCount);
@@ -227,7 +233,8 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
                 && FindContact(position - s_SharedData[j].xyz, velocity - s_SharedVelocity[j].xyz,
                 radius + s_SharedVelocity[j].w, step, overlapping, t))
             {
-                contacts++;
+                const float share = s_SharedData[j].w / (mass + s_SharedData[j].w);
+                contacts += min(1.0, 2.0 * share);
             }
         }
         GroupMemoryBarrierWithGroupSync();
@@ -235,7 +242,7 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
 
     if (active)
     {
-        u_Particles[index].info.z = float(contacts);
+        u_Particles[index].info.z = contacts;
     }
 }
 
@@ -287,8 +294,9 @@ bool Dominates(float massA, uint indexA, float massB, uint indexB)
 // particle between two others closing in would take both full impulses, -2.6 times its speed, and
 // as the clouds fall into each other the next step multiplies that again (a fast particle sweeps
 // past several within one step). So each pair's impulse is divided by the larger contact count of
-// the two: a particle's velocity change is at most its largest single bounce, and both particles
-// of a pair still take equal and opposite momentum.
+// the two (counted by how much each contact moves the particle, count_cs): a particle's velocity
+// change is at most a full bounce, and both particles of a pair still take equal and opposite
+// momentum.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThreadID)
 {
