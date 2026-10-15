@@ -17,7 +17,7 @@
       "jsx": "preserve",
       "incremental": true,
       "lib": ["ESNext"],
-      "types": ["./types/tslang", "I:\\tslang/defaultlib/lib.d.ts"]
+      "types": ["./types/tslang", "./tools/tslang/defaultlib/lib.d.ts", "I:/tslang/defaultlib/lib.d.ts"]
     },
     "include": ["core/*.ts", "examples/*.ts"]
 }
