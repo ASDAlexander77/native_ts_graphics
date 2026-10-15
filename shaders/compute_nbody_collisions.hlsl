@@ -29,7 +29,7 @@ struct Particle
 {
     float4 pos;  // xyz = position, w = mass
     float4 vel;  // xyz = velocity, w = gradient texture position
-    float4 info; // x = collision radius, y = heat (collisions add it, it cools off over time),
+    float4 info; // x = collision radius (negative: merged into another particle, gone), y = heat (collisions add it, it cools off over time),
                  // z = contacts this frame (count_cs)
     float4 spin;   // xyz = angular velocity (radians per simulated second)
     float4 marker; // xyz = a direction fixed in the particle, turned by the spin: the render draws
@@ -40,8 +40,9 @@ struct Particle
 struct Contact
 {
     float4 velocity; // xyz = velocity change, w = heat gained
-    float4 shift;    // xyz = position correction
-    float4 spin;     // xyz = angular velocity change (friction)
+    float4 shift;    // xyz = position correction, w = 1 if the particle is merging with another
+    float4 spin;     // xyz = angular velocity change (friction), w = the particle it merges into (its own
+                     // index if none dominates it: it absorbs the merging ones that name it)
 };
 
 // --- Simulation ------------------------------------------------------------------------------
@@ -70,7 +71,10 @@ struct SimulationConstants
     // Coulomb friction between touching particles: the tangential impulse is at most this times the
     // normal one. 0: smooth spheres, which never spin.
     float friction;
-    float pad1;
+    // Particles touching slower than this (relative speed) merge instead of bouncing: the one with
+    // more mass (the lower index of two equal ones) absorbs the other, keeping the mass and the
+    // momentum. 0: they never merge.
+    float mergeSpeed;
     float pad2;
 };
 DECLARE_PUSH_CONSTANTS(SimulationConstants, g_Simulation, 0, 0);
@@ -210,7 +214,8 @@ void count_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThre
         {
             bool overlapping;
             float t;
-            if (i + j != index && FindContact(position - s_SharedData[j].xyz, velocity - s_SharedVelocity[j].xyz,
+            if (i + j != index && radius >= 0.0 && s_SharedVelocity[j].w >= 0.0
+                && FindContact(position - s_SharedData[j].xyz, velocity - s_SharedVelocity[j].xyz,
                 radius + s_SharedVelocity[j].w, step, overlapping, t))
             {
                 contacts++;
@@ -249,6 +254,12 @@ void ApplyFriction(float3 normal, float3 relativeVelocity, float approach, float
     heat += g_Simulation.heatFactor * 0.5 * impulseShare * strength * slipSpeed;
 }
 
+// Whether particle a (mass and index) takes the other in a merge: more mass, or the lower index.
+bool Dominates(float massA, uint indexA, float massB, uint indexB)
+{
+    return massA > massB || (massA == massB && indexA < indexB);
+}
+
 // Third pass: collisions, against every other particle (unlike gravity, none can be skipped).
 // Each particle reads the others' positions and velocities as calculate_cs left them and writes
 // only its own Contact, so the order the groups run in doesn't matter; integrate_cs applies them.
@@ -284,6 +295,10 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     // Position corrections of the swept contacts, exact, so not limited as the overlaps' are.
     float3 sweepShift = float3(0, 0, 0);
     float heat = 0.0;
+    // Merging: the most massive of the touching particles that dominate this one (or itself).
+    bool merging = false;
+    uint mergeTarget = index;
+    float mergeTargetMass = position.w;
 
     for (uint i = 0; i < particleCount; i += WORKGROUP_SIZE)
     {
@@ -296,7 +311,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
         for (uint j = 0; j < WORKGROUP_SIZE && i + j < particleCount; j++)
         {
-            if (i + j == index)
+            if (i + j == index || radius < 0.0 || s_SharedVelocity[j].w < 0.0)
                 continue;
 
             const float4 otherPosition = s_SharedData[j];
@@ -335,6 +350,19 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 continue;
             }
 
+            // Touching slowly enough, the two merge instead (absorb_cs, kill_cs): no bounce or push.
+            if (g_Simulation.mergeSpeed > 0.0 && length(relativeVelocity) < g_Simulation.mergeSpeed)
+            {
+                merging = true;
+                if (Dominates(otherPosition.w, i + j, position.w, index)
+                    && (mergeTarget == index || Dominates(otherPosition.w, i + j, mergeTargetMass, mergeTarget)))
+                {
+                    mergeTarget = i + j;
+                    mergeTargetMass = otherPosition.w;
+                }
+                continue;
+            }
+
             const float dist = length(offset);
             const float3 normal = offset / dist;
 
@@ -368,9 +396,92 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
     Contact contact;
     contact.velocity = float4(velocityChange, g_Simulation.heating != 0 ? heat : 0.0);
-    contact.shift = float4(shift + sweepShift, 0.0);
-    contact.spin = float4(spinChange, 0.0);
+    contact.shift = float4(shift + sweepShift, merging ? 1.0 : 0.0);
+    contact.spin = float4(spinChange, float(mergeTarget));
     u_Contacts[index] = contact;
+}
+
+// A particle's merge: it absorbs the particles that name it as their target, when it is its own
+// (nothing touching it dominates it). A particle whose target has a target of its own waits: its
+// chain is merged a step at a time. The survivor takes the sum of the masses and the volumes, the
+// mass-weighted position, velocity, spin and heat, and the kinetic energy the merge loses is heat.
+// Only the survivors write, and only the particles they read (the absorbed) are not survivors.
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+void absorb_cs(uint3 globalId : SV_DispatchThreadID)
+{
+    const uint index = globalId.x;
+    const uint particleCount = uint(g_Simulation.particleCount);
+    if (index >= particleCount)
+        return;
+
+    const Contact own = u_Contacts[index];
+    Particle particle = u_Particles[index];
+    if (own.shift.w == 0.0 || uint(own.spin.w) != index || particle.info.x < 0.0)
+        return;
+
+    float mass = particle.pos.w;
+    float3 position = particle.pos.xyz;
+    float3 velocity = particle.vel.xyz;
+    float3 spin = particle.spin.xyz;
+    float heat = particle.info.y;
+    float volume = particle.info.x * particle.info.x * particle.info.x;
+    bool absorbed = false;
+
+    for (uint j = 0; j < particleCount; j++)
+    {
+        const Contact other = u_Contacts[j];
+        if (j == index || other.shift.w == 0.0 || uint(other.spin.w) != index)
+            continue;
+        const Particle victim = u_Particles[j];
+        if (victim.info.x < 0.0)
+            continue;
+
+        const float total = mass + victim.pos.w;
+        const float3 lost = velocity - victim.vel.xyz;
+        heat = (mass * heat + victim.pos.w * victim.info.y) / total;
+        if (g_Simulation.heating != 0)
+            heat += g_Simulation.heatFactor * 0.5 * (victim.pos.w / total) * dot(lost, lost);
+        position = (mass * position + victim.pos.w * victim.pos.xyz) / total;
+        velocity = (mass * velocity + victim.pos.w * victim.vel.xyz) / total;
+        spin = (mass * spin + victim.pos.w * victim.spin.xyz) / total;
+        volume += victim.info.x * victim.info.x * victim.info.x;
+        mass = total;
+        absorbed = true;
+    }
+
+    if (!absorbed)
+        return;
+    particle.pos = float4(position, mass);
+    particle.vel.xyz = velocity;
+    particle.spin.xyz = spin;
+    particle.info.x = pow(volume, 1.0 / 3.0);
+    particle.info.y = heat;
+    u_Particles[index] = particle;
+}
+
+// After absorb_cs: the particles that were absorbed are gone (a negative radius, no mass, nothing
+// drawn or collided with).
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+void kill_cs(uint3 globalId : SV_DispatchThreadID)
+{
+    const uint index = globalId.x;
+    if (index >= uint(g_Simulation.particleCount))
+        return;
+
+    const Contact own = u_Contacts[index];
+    const uint target = uint(own.spin.w);
+    if (own.shift.w == 0.0 || target == index)
+        return;
+    // Its target is merging into another: this one waits for the next step.
+    if (uint(u_Contacts[target].spin.w) != target)
+        return;
+
+    Particle particle = u_Particles[index];
+    particle.pos.w = 0.0;
+    particle.vel.xyz = float3(0, 0, 0);
+    particle.spin.xyz = float3(0, 0, 0);
+    particle.info = float4(-1.0, 0.0, 0.0, 0.0);
+    u_Particles[index] = particle;
 }
 
 // Last pass: the collisions, then Euler integration of the positions.
@@ -382,6 +493,8 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
         return;
 
     Particle particle = u_Particles[index];
+    if (particle.info.x < 0.0)
+        return;
 
     if (g_Simulation.collisions != 0)
     {
@@ -439,6 +552,16 @@ void main_vs(
 {
     const Particle particle = t_Particles[i_vertex / 6];
     const float2 corner = c_QuadCorners[i_vertex % 6];
+    if (particle.info.x < 0.0)
+    {
+        // Merged into another particle: a degenerate quad, off screen.
+        o_position = float4(2, 2, 0, 1);
+        o_spriteCoord = 0;
+        o_gradientPos = 0;
+        o_heat = 0;
+        o_marker = 0;
+        return;
+    }
 
     // Sized in the world, unlike compute_nbody's mass-sized sprites, so that the balls touch on
     // screen when they collide. At least a pixel across, so distant ones don't flicker.
@@ -674,8 +797,8 @@ void trail_vs(
 
     const float4 e0 = mul(float4(particle.pos.xyz, 1.0), g_View.matWorldToView);
     const float4 e1 = mul(float4(particle.pos.xyz - particle.vel.xyz * g_Trail.x, 1.0), g_View.matWorldToView);
-    // Not drawn when either end is behind the camera.
-    if (e0.z < PLANE_NEAR || e1.z < PLANE_NEAR)
+    // Not drawn when either end is behind the camera, or the particle has merged away.
+    if (e0.z < PLANE_NEAR || e1.z < PLANE_NEAR || particle.info.x < 0.0)
         return;
 
     const float4 c0 = mul(e0, g_View.matViewToClip);

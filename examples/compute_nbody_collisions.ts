@@ -51,6 +51,7 @@ namespace ComputeNBodyCollisions {
     const CONSTANT_HEAT_FACTOR = 7;
     const CONSTANT_COOL_SECONDS = 8;
     const CONSTANT_FRICTION = 9;
+    const CONSTANT_MERGE_SPEED = 10;
     // The simulation's defaults (compute_nbody's, then the collisions'), and what the UI's sliders
     // can set them to.
     const DEFAULT_TIME_FACTOR = 0.05;
@@ -59,6 +60,10 @@ namespace ComputeNBodyCollisions {
     const DEFAULT_HEAT_FACTOR = 0.004;
     const DEFAULT_COOL_SECONDS = 3.0;
     const DEFAULT_FRICTION = 0.3;
+    // Off: particles touching slower than this (relative speed) merge, and the UI's slider goes to
+    // MERGE_SPEED_MAX.
+    const DEFAULT_MERGE_SPEED = 0.0;
+    const MERGE_SPEED_MAX = 8.0;
     // The sigma of a group's cloud around its attractor, and the random seed (the Park-Miller
     // generator wants one from 1 up), at startup and as the UI's restart sets them.
     const DEFAULT_SPREAD = 0.75;
@@ -156,7 +161,7 @@ namespace ComputeNBodyCollisions {
     // The particles are solid spheres with spin: friction at a contact (Coulomb, the Friction slider)
     // slows their sliding and, by its torque, sets them spinning (ApplyFriction in the shader); the
     // spin shows as a mark at the poles of a direction fixed in the particle, which it turns.
-    // The UI (a window in the top right corner, off with -noUI) sets the gravity, time scale,
+    // The UI (a window in the top right corner, off with -noui) sets the gravity, time scale,
     // bounciness and heat live, and the number of attractors and particles, the spread of the clouds
     // and the random seed on Restart, which starts the simulation again from the initial state.
     // Left alone for IDLE_SECONDS, the camera starts to orbit the target slowly; any input stops it.
@@ -191,6 +196,11 @@ namespace ComputeNBodyCollisions {
         private calculatePipeline: ComputePipelineHandle;
         private countPipeline: ComputePipelineHandle;
         private collidePipeline: ComputePipelineHandle;
+        private absorbPipeline: ComputePipelineHandle;
+        private killPipeline: ComputePipelineHandle;
+        // The mass and the volume (sum of cubed radii) the particles started with: merging keeps both.
+        private initialMass: number;
+        private initialVolume: number;
         private integratePipeline: ComputePipelineHandle;
         private computeBindingLayout: BindingLayoutHandle;
         private computeBindingSet: BindingSet;
@@ -241,6 +251,8 @@ namespace ComputeNBodyCollisions {
             this.showTrails = true;
             this.trailSeconds = DEFAULT_TRAIL_SECONDS;
             this.trailConstants = [0.0, TRAIL_OPACITY, 0.0, 0.0];
+            this.initialMass = 0.0;
+            this.initialVolume = 0.0;
             this.uiAttractors = numAttractors;
             this.uiParticles = particlesPerAttractor;
             this.uiSpread = DEFAULT_SPREAD;
@@ -403,6 +415,13 @@ namespace ComputeNBodyCollisions {
                         Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
                     commandList.dispatchWithPushConstants(this.collidePipeline, this.computeBindingSet,
                         Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                    if (this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0) {
+                        // The survivors absorb the merging particles, which are then removed.
+                        commandList.dispatchWithPushConstants(this.absorbPipeline, this.computeBindingSet,
+                            Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                        commandList.dispatchWithPushConstants(this.killPipeline, this.computeBindingSet,
+                            Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                    }
                 }
                 commandList.dispatchWithPushConstants(this.integratePipeline, this.computeBindingSet,
                     Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
@@ -651,6 +670,14 @@ namespace ComputeNBodyCollisions {
                 }
             }
 
+            this.initialMass = 0.0;
+            this.initialVolume = 0.0;
+            for (let i = 0; i < this.numParticles; i++) {
+                const radius = particles[i * PARTICLE_FLOATS + 8];
+                this.initialMass += particles[i * PARTICLE_FLOATS + 3];
+                this.initialVolume += radius * radius * radius;
+            }
+
             this.particleBuffer = this.app.createRWStructuredBuffer(PARTICLE_FLOATS * 4, this.numParticles, "Particles");
 
             const commandList = this.app.createCommandList();
@@ -686,6 +713,10 @@ namespace ComputeNBodyCollisions {
             this.trailBindingSet = this.app.createBindingSetForLayout(trailSetDesc, this.trailBindingLayout);
         }
 
+        setMergeSpeed(speed: number): void {
+            this.simulationConstants[CONSTANT_MERGE_SPEED] = speed;
+        }
+
         // The simulation's live settings back to their defaults (the UI's Defaults button).
         resetSimulationConstants(): void {
             this.simulationConstants[CONSTANT_TIME_FACTOR] = DEFAULT_TIME_FACTOR;
@@ -694,6 +725,7 @@ namespace ComputeNBodyCollisions {
             this.simulationConstants[CONSTANT_HEAT_FACTOR] = DEFAULT_HEAT_FACTOR;
             this.simulationConstants[CONSTANT_COOL_SECONDS] = DEFAULT_COOL_SECONDS;
             this.simulationConstants[CONSTANT_FRICTION] = DEFAULT_FRICTION;
+            this.simulationConstants[CONSTANT_MERGE_SPEED] = DEFAULT_MERGE_SPEED;
         }
 
         // Starts again with the UI's attractors, particles, spread and seed: new particles, in
@@ -757,6 +789,30 @@ namespace ComputeNBodyCollisions {
             console.log(`Heat: max ${maxHeat}, mean ${sumHeat / this.numParticles}`);
             if (maxHeat <= 0.0) {
                 return "no particle has any heat: the collisions lost no energy into it";
+            }
+
+            // Merging: the mass and the volume are kept, and some particles are gone (negative radius).
+            if (this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0) {
+                let mass = 0.0;
+                let volume = 0.0;
+                let gone = 0;
+                for (let i = 0; i < this.numParticles; i++) {
+                    const radius = particles[i * PARTICLE_FLOATS + 8];
+                    mass += particles[i * PARTICLE_FLOATS + 3];
+                    if (radius < 0.0) {
+                        gone++;
+                    } else {
+                        volume += radius * radius * radius;
+                    }
+                }
+                console.log(`Merged: ${gone} of ${this.numParticles} particles gone, mass ${mass} of ${this.initialMass}, volume ${volume} of ${this.initialVolume}`);
+                if (gone == 0) {
+                    return "no particles merged";
+                }
+                if (absolute(mass - this.initialMass) > this.initialMass * 1.0e-4
+                    || absolute(volume - this.initialVolume) > this.initialVolume * 1.0e-3) {
+                    return `the merges did not keep the mass (${mass} of ${this.initialMass}) or the volume (${volume} of ${this.initialVolume})`;
+                }
             }
 
             // Spin (friction's torque): finite, and the marker stays a unit vector.
@@ -830,6 +886,8 @@ namespace ComputeNBodyCollisions {
                     this.simulationConstants[CONSTANT_RESTITUTION], 0.0, 1.0);
                 this.simulationConstants[CONSTANT_FRICTION] = Donut_ImGuiSliderFloat("Friction",
                     this.simulationConstants[CONSTANT_FRICTION], 0.0, 1.0);
+                this.simulationConstants[CONSTANT_MERGE_SPEED] = Donut_ImGuiSliderFloat("Merge below speed",
+                    this.simulationConstants[CONSTANT_MERGE_SPEED], 0.0, MERGE_SPEED_MAX);
                 this.simulationConstants[CONSTANT_HEAT_FACTOR] = Donut_ImGuiSliderFloat("Heat per bounce",
                     this.simulationConstants[CONSTANT_HEAT_FACTOR], 0.0, 0.02);
                 this.simulationConstants[CONSTANT_COOL_SECONDS] = Donut_ImGuiSliderFloat("Cooling seconds",
@@ -865,6 +923,8 @@ namespace ComputeNBodyCollisions {
             const calculateShader = this.app.createShaderWithDefine(shaderFile, "calculate_cs", ShaderType.Compute, "SIMULATION", "1");
             const countShader = this.app.createShaderWithDefine(shaderFile, "count_cs", ShaderType.Compute, "SIMULATION", "1");
             const collideShader = this.app.createShaderWithDefine(shaderFile, "collide_cs", ShaderType.Compute, "SIMULATION", "1");
+            const absorbShader = this.app.createShaderWithDefine(shaderFile, "absorb_cs", ShaderType.Compute, "SIMULATION", "1");
+            const killShader = this.app.createShaderWithDefine(shaderFile, "kill_cs", ShaderType.Compute, "SIMULATION", "1");
             const integrateShader = this.app.createShaderWithDefine(shaderFile, "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
             this.axisVertexShader = this.app.createShader(shaderFile, "axis_vs", ShaderType.Vertex);
             this.axisPixelShader = this.app.createShader(shaderFile, "axis_ps", ShaderType.Pixel);
@@ -872,7 +932,7 @@ namespace ComputeNBodyCollisions {
             this.trailVertexShader = this.app.createShader(shaderFile, "trail_vs", ShaderType.Vertex);
             // The gizmo's pixel shader: a plain color.
             this.planePixelShader = this.axisPixelShader;
-            if (!this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
+            if (!this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !integrateShader) {
                 return false;
             }
 
@@ -889,6 +949,8 @@ namespace ComputeNBodyCollisions {
             this.calculatePipeline = this.app.createComputePipelineWithLayout(calculateShader, computeBindingLayout);
             this.countPipeline = this.app.createComputePipelineWithLayout(countShader, computeBindingLayout);
             this.collidePipeline = this.app.createComputePipelineWithLayout(collideShader, computeBindingLayout);
+            this.absorbPipeline = this.app.createComputePipelineWithLayout(absorbShader, computeBindingLayout);
+            this.killPipeline = this.app.createComputePipelineWithLayout(killShader, computeBindingLayout);
             this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
 
             Donut_StoreInt32(Ref(this.simulationConstants[2]), 1);
@@ -958,6 +1020,8 @@ namespace ComputeNBodyCollisions {
         numAttractors: int = NUM_ATTRACTORS;
         // -particles <n>: particles per attractor, the heavy center first (1024 by default).
         particlesPerAttractor: int = PARTICLES_PER_ATTRACTOR;
+        // -merge <speed>: particles touching slower than this merge (0, off, by default).
+        mergeSpeed: number = DEFAULT_MERGE_SPEED;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {
@@ -967,6 +1031,9 @@ namespace ComputeNBodyCollisions {
                     i++;
                 } else if (arg == "-particles" && i + 1 < this.argc) {
                     this.particlesPerAttractor = parseInt(this[i + 1]);
+                    i++;
+                } else if (arg == "-merge" && i + 1 < this.argc) {
+                    this.mergeSpeed = parseFloat(this[i + 1]);
                     i++;
                 }
             }
@@ -1004,6 +1071,7 @@ namespace ComputeNBodyCollisions {
             app.destroy();
             return 1;
         }
+        nbody.setMergeSpeed(args.mergeSpeed);
 
         const input = new InputPass(app.handle);
 
