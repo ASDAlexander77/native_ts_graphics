@@ -75,12 +75,14 @@ namespace ComputeNBodyCollisions {
     const DEFAULT_FRAGMENT_ROOM = 0.0;
     // A fragment is smaller than any particle placed at the start (half the volume of the smallest).
     const FRAGMENT_RADIUS = LIGHT_RADIUS_MIN * 0.7937005;
-    // With gravity between all pairs (-fullgravity) and the heavy centers alone (-particles 1), the
-    // test checks the momentum and the angular momentum drifted by less than this much of the sums
-    // of their sizes. Merging the six centers (-merge 20) drifts the angular momentum by 3e-6 of
-    // it with the merged spins' exact balance, and 2e-4 with their average.
+    // With gravity between all pairs (-fullgravity), the test checks the momentum and the angular
+    // momentum drifted by less than this much of the sums of their sizes. The heavy centers alone
+    // (-particles 1): merging the six (-merge 20) drifts the angular momentum by 3e-6 of it with the
+    // merged spins' exact balance, and 2e-4 with their average. With light particles, piled up and
+    // overlapping: 2e-3 with the contact springs, 0.8 with the push-outs they replaced.
     const MOMENTUM_DRIFT_LIMIT = 1.0e-3;
-    const ANGULAR_DRIFT_LIMIT = 1.0e-4;
+    const ANGULAR_DRIFT_LIMIT_HEAVY = 1.0e-4;
+    const ANGULAR_DRIFT_LIMIT = 1.0e-2;
     // With merging on, the particles left (radius not negative) are counted back from the GPU every
     // this many frames, for the window title and the UI.
     const ALIVE_COUNT_FRAMES = 30;
@@ -1177,10 +1179,8 @@ namespace ComputeNBodyCollisions {
 
             // Every pair pulling both ways: the collisions, the friction, the merges and the breaks keep
             // the linear and the angular momentum, measured against the larger of the sums of their
-            // sizes at the start and now (the heavy centers start at rest). The push-outs of
-            // overlapping particles move them without a velocity change and drift the angular
-            // momentum, a lot for the light ones resting on a heavy center: it is only checked for
-            // the heavy centers alone, the momentum always.
+            // sizes at the start and now (the heavy centers start at rest). Some still drifts: the
+            // swept contacts' position corrections, for one, move particles without a velocity change.
             if (this.fullGravity) {
                 const heavyOnly = this.particlesPerAttractor == 1;
                 const momentum = this.linearMomentum(particles);
@@ -1192,9 +1192,9 @@ namespace ComputeNBodyCollisions {
                     angularDrift = Math.max(angularDrift, absolute(angular[k] - this.initialAngular[k]));
                 }
                 const momentumLimit = Math.max(this.initialMomentum[3], momentum[3]) * MOMENTUM_DRIFT_LIMIT;
-                const angularLimit = heavyOnly ? Math.max(this.initialAngular[3], angular[3]) * ANGULAR_DRIFT_LIMIT : 1.0e30;
-                console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift}`
-                    + (heavyOnly ? ` (limit ${angularLimit})` : " (not checked)"));
+                const angularLimit = Math.max(this.initialAngular[3], angular[3])
+                    * (heavyOnly ? ANGULAR_DRIFT_LIMIT_HEAVY : ANGULAR_DRIFT_LIMIT);
+                console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift} (limit ${angularLimit})`);
                 if (momentumDrift > momentumLimit || angularDrift > angularLimit) {
                     return `momentum drifts by ${momentumDrift} (over ${momentumLimit}) or angular momentum by ${angularDrift} (over ${angularLimit})`;
                 }
