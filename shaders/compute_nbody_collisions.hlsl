@@ -404,7 +404,8 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 // A particle's merge: it absorbs the particles that name it as their target, when it is its own
 // (nothing touching it dominates it). A particle whose target has a target of its own waits: its
 // chain is merged a step at a time. The survivor takes the sum of the masses and the volumes, the
-// mass-weighted position, velocity, spin and heat, and the kinetic energy the merge loses is heat.
+// mass-weighted position, velocity and heat, a spin that keeps the angular momentum about the new
+// center (the orbits and the spins), and the translational kinetic energy the merge loses is heat.
 // Only the survivors write, and only the particles they read (the absorbed) are not survivors.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void absorb_cs(uint3 globalId : SV_DispatchThreadID)
@@ -441,10 +442,23 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
         heat = (mass * heat + victim.pos.w * victim.info.y) / total;
         if (g_Simulation.heating != 0)
             heat += g_Simulation.heatFactor * 0.5 * (victim.pos.w / total) * dot(lost, lost);
-        position = (mass * position + victim.pos.w * victim.pos.xyz) / total;
-        velocity = (mass * velocity + victim.pos.w * victim.vel.xyz) / total;
-        spin = (mass * spin + victim.pos.w * victim.spin.xyz) / total;
-        volume += victim.info.x * victim.info.x * victim.info.x;
+        const float3 newPosition = (mass * position + victim.pos.w * victim.pos.xyz) / total;
+        const float3 newVelocity = (mass * velocity + victim.pos.w * victim.vel.xyz) / total;
+        const float victimVolume = victim.info.x * victim.info.x * victim.info.x;
+        const float newRadius = pow(volume + victimVolume, 1.0 / 3.0);
+
+        // The angular momentum about the new center: the two bodies' orbits about it, and their own
+        // spins (solid spheres, 2/5 m r^2), all go into the merged sphere's spin.
+        const float3 angularMomentum =
+            mass * cross(position - newPosition, velocity - newVelocity)
+            + victim.pos.w * cross(victim.pos.xyz - newPosition, victim.vel.xyz - newVelocity)
+            + 0.4 * mass * pow(volume, 2.0 / 3.0) * spin
+            + 0.4 * victim.pos.w * victim.info.x * victim.info.x * victim.spin.xyz;
+        spin = angularMomentum / (0.4 * total * newRadius * newRadius);
+
+        position = newPosition;
+        velocity = newVelocity;
+        volume += victimVolume;
         mass = total;
         absorbed = true;
     }

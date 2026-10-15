@@ -246,6 +246,8 @@ namespace ComputeNBodyCollisions {
         private aliveCount: int;
         private framesSinceCount: int;
         private initialVolume: number;
+        // The angular momentum about the origin (x, y, z) the particles started with.
+        private initialAngular: number[];
         private integratePipeline: ComputePipelineHandle;
         private computeBindingLayout: BindingLayoutHandle;
         private computeBindingSet: BindingSet;
@@ -310,6 +312,7 @@ namespace ComputeNBodyCollisions {
             this.trailConstants = [0.0, TRAIL_OPACITY, 0.0, 0.0];
             this.initialMass = 0.0;
             this.initialVolume = 0.0;
+            this.initialAngular = [0.0, 0.0, 0.0];
             this.aliveCount = 0;
             this.framesSinceCount = 0;
             this.uiAttractors = numAttractors;
@@ -876,6 +879,7 @@ namespace ComputeNBodyCollisions {
                 this.initialMass += particles[i * PARTICLE_FLOATS + 3];
                 this.initialVolume += radius * radius * radius;
             }
+            this.initialAngular = this.angularMomentum(particles);
 
             this.particleBuffer = this.app.createRWStructuredBuffer(PARTICLE_FLOATS * 4, this.numParticles, "Particles");
 
@@ -911,6 +915,25 @@ namespace ComputeNBodyCollisions {
             trailSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
             trailSetDesc.bindEntireConstantBuffer(3, this.trailBuffer);
             this.trailBindingSet = this.app.createBindingSetForLayout(trailSetDesc, this.trailBindingLayout);
+        }
+
+        // The total angular momentum about the origin of the particles in `particles` (the
+        // PARTICLE_FLOATS layout): the orbits m (p x v), and the spins 2/5 m r^2 w of the solid spheres.
+        angularMomentum(particles: f32[]): number[] {
+            let total = [0.0, 0.0, 0.0];
+            for (let i = 0; i < this.numParticles; i++) {
+                const q = i * PARTICLE_FLOATS;
+                const radius = particles[q + 8];
+                if (radius < 0.0) {
+                    continue;
+                }
+                const mass = particles[q + 3];
+                const inertia = 0.4 * mass * radius * radius;
+                total[0] += mass * (particles[q + 1] * particles[q + 6] - particles[q + 2] * particles[q + 5]) + inertia * particles[q + 12];
+                total[1] += mass * (particles[q + 2] * particles[q + 4] - particles[q + 0] * particles[q + 6]) + inertia * particles[q + 13];
+                total[2] += mass * (particles[q + 0] * particles[q + 5] - particles[q + 1] * particles[q + 4]) + inertia * particles[q + 14];
+            }
+            return total;
         }
 
         // How many particles are left (the others merged into them), read back from the GPU. Only
@@ -1021,6 +1044,8 @@ namespace ComputeNBodyCollisions {
                         volume += radius * radius * radius;
                     }
                 }
+                const angular = this.angularMomentum(particles);
+                console.log(`Angular momentum: ${angular[0]}, ${angular[1]}, ${angular[2]} of ${this.initialAngular[0]}, ${this.initialAngular[1]}, ${this.initialAngular[2]}`);
                 console.log(`Merged: ${gone} of ${this.numParticles} particles gone, mass ${mass} of ${this.initialMass}, volume ${volume} of ${this.initialVolume}`);
                 if (gone == 0) {
                     return "no particles merged";
