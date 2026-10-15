@@ -502,3 +502,76 @@ float4 axis_ps(
 {
     return i_color;
 }
+
+// --- Coordinate planes -----------------------------------------------------------------------
+
+// The XY, XZ and YZ planes through the origin, each a square grid of world-space lines, tinted by
+// its normal (Z blue, Y green, X red, as the gizmo's axes). Lines are quads of 6 vertices, built
+// from the vertex ID alone, and drawn with the view constants (b1) the particles use.
+#define PLANE_HALF_LINES 6
+#define PLANE_LINES_PER_DIRECTION (2 * PLANE_HALF_LINES + 1)
+#define PLANE_LINES_PER_PLANE (2 * PLANE_LINES_PER_DIRECTION)
+#define PLANE_LINE_COUNT (3 * PLANE_LINES_PER_PLANE)
+// World distance between lines, and half the width of a line in pixels.
+#define PLANE_SPACING 2.0
+#define PLANE_HALF_WIDTH 0.75
+#define PLANE_NEAR 0.1
+
+void plane_vs(
+    uint i_vertex : SV_VertexID,
+    out float4 o_position : SV_Position,
+    out float4 o_color : TEXCOORD0)
+{
+    const uint line_ = i_vertex / 6;
+    const uint plane = line_ / PLANE_LINES_PER_PLANE;
+    const uint inPlane = line_ % PLANE_LINES_PER_PLANE;
+    const uint direction = inPlane / PLANE_LINES_PER_DIRECTION;
+    const int index = int(inPlane % PLANE_LINES_PER_DIRECTION) - PLANE_HALF_LINES;
+
+    // The line at offset u along one in-plane axis, spanning the grid along the other.
+    const float u = index * PLANE_SPACING;
+    const float extent = PLANE_HALF_LINES * PLANE_SPACING;
+    const float2 a = direction == 0 ? float2(u, -extent) : float2(-extent, u);
+    const float2 b = direction == 0 ? float2(u, extent) : float2(extent, u);
+
+    // Plane 0 is XY, 1 is XZ, 2 is YZ.
+    float3 p0 = plane == 0 ? float3(a.x, a.y, 0) : (plane == 1 ? float3(a.x, 0, a.y) : float3(0, a.x, a.y));
+    float3 p1 = plane == 0 ? float3(b.x, b.y, 0) : (plane == 1 ? float3(b.x, 0, b.y) : float3(0, b.x, b.y));
+
+    // To view space, where the depth is w: cut the line at the near plane (a grid reaching behind
+    // the camera would otherwise flip across the screen).
+    float4 e0 = mul(float4(p0, 1.0), g_View.matWorldToView);
+    float4 e1 = mul(float4(p1, 1.0), g_View.matWorldToView);
+    if (e0.z < PLANE_NEAR && e1.z < PLANE_NEAR)
+    {
+        o_position = float4(2, 2, 0, 1);
+        o_color = 0;
+        return;
+    }
+    if (e0.z < PLANE_NEAR)
+        e0 = lerp(e0, e1, (PLANE_NEAR - e0.z) / (e1.z - e0.z));
+    if (e1.z < PLANE_NEAR)
+        e1 = lerp(e1, e0, (PLANE_NEAR - e1.z) / (e0.z - e1.z));
+
+    const float4 c0 = mul(e0, g_View.matViewToClip);
+    const float4 c1 = mul(e1, g_View.matViewToClip);
+
+    // In pixels from the center of the viewport, y up, then as the gizmo's segments.
+    const float2 halfViewport = 0.5 / g_View.viewportSizeInv;
+    const float2 s0 = c0.xy / c0.w * halfViewport;
+    const float2 s1 = c1.xy / c1.w * halfViewport;
+    float2 along = s1 - s0;
+    const float length_ = length(along);
+    along = length_ > 1e-4 ? along / length_ : float2(1, 0);
+    const float2 across = float2(-along.y, along.x) * PLANE_HALF_WIDTH;
+    along *= PLANE_HALF_WIDTH;
+
+    const float2 corners[4] = { s0 - along - across, s0 - along + across, s1 + along + across, s1 + along - across };
+    const float2 position = corners[c_GizmoQuadIndex[i_vertex % 6]];
+    o_position = float4(position * g_View.viewportSizeInv * 2.0, 0.0, 1.0);
+
+    // The outermost lines and the ones through the origin (the axes) stand out.
+    const bool emphasized = abs(index) == PLANE_HALF_LINES || index == 0;
+    float3 tint = plane == 0 ? float3(0.3, 0.3, 1.0) : (plane == 1 ? float3(0.3, 1.0, 0.3) : float3(1.0, 0.3, 0.3));
+    o_color = float4(tint, emphasized ? 0.45 : 0.15);
+}

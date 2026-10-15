@@ -11,6 +11,7 @@ namespace ComputeNBodyCollisions {
     const KEY_SPACE = 32;
     const KEY_C = 67;
     const KEY_H = 72;
+    const KEY_P = 80;
     const ACTION_PRESS = 1;
     const ACTION_RELEASE = 0;
 
@@ -66,6 +67,8 @@ namespace ComputeNBodyCollisions {
     const GIZMO_LABEL_DISTANCE = 15.0;
     const GIZMO_LABEL_HALF_WIDTH = 5.0;
     const GIZMO_LABEL_HALF_HEIGHT = 7.0;
+    // The coordinate planes (plane_vs): 3 planes of 2 * 13 grid lines, 6 vertices each.
+    const PLANE_LINE_COUNT = 3 * 2 * 13;
 
     // --- Math ---------------------------------------------------------------------------------
 
@@ -111,7 +114,7 @@ namespace ComputeNBodyCollisions {
     // writing only its own velocity change and position correction into a second buffer, so no
     // particle reads one that another thread has already moved), then positions. Space pauses, C
     // turns the collisions off and on. The kinetic energy the bounces lose becomes heat (info.y: it
-    // makes the particle glow, and cools off over a few seconds), H turns the heating off and on.
+    // makes the particle glow, and cools off over a few seconds), H turns the heating off and on, P the coordinate planes (XY, XZ and YZ grids through the origin).
     // Left alone for IDLE_SECONDS, the camera starts to orbit the target slowly; any input stops it.
     class NBodyCollisionsPass {
         private app: App;
@@ -120,6 +123,7 @@ namespace ComputeNBodyCollisions {
         private paused: boolean;
         private collisions: boolean;
         private heating: boolean;
+        private showPlanes: boolean;
         // Seconds since the last input, and the mouse buttons held: dragging pauses the rotation.
         private idleSeconds: number;
         private buttonsDown: int;
@@ -145,6 +149,9 @@ namespace ComputeNBodyCollisions {
         private gizmoBindingSet: BindingSet;
         private gizmoBuffer: BufferHandle;
         private gizmoPipeline: GraphicsPipelineHandle | null;
+        private planeVertexShader: ShaderHandle;
+        private planePixelShader: ShaderHandle;
+        private planePipeline: GraphicsPipelineHandle | null;
         private gizmoConstants: f32[];
         private gizmoSegments: int;
         // Created on the first frame (it depends on the framebuffer layout), dropped on resize.
@@ -167,9 +174,11 @@ namespace ComputeNBodyCollisions {
             this.paused = false;
             this.collisions = true;
             this.heating = true;
+            this.showPlanes = true;
             this.numParticles = 0;
             this.graphicsPipeline = null;
             this.gizmoPipeline = null;
+            this.planePipeline = null;
             this.gizmoSegments = 0;
             this.gizmoConstants = [];
             for (let i = 0; i < GIZMO_FLOATS; i++) {
@@ -201,6 +210,10 @@ namespace ComputeNBodyCollisions {
             if (key == KEY_H && action == ACTION_PRESS) {
                 this.heating = !this.heating;
                 Donut_StoreInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
+            }
+
+            if (key == KEY_P && action == ACTION_PRESS) {
+                this.showPlanes = !this.showPlanes;
             }
 
             return 1;
@@ -260,6 +273,11 @@ namespace ComputeNBodyCollisions {
                 this.app.releaseResource(graphicsPipeline);
                 this.graphicsPipeline = null;
             }
+            const planePipeline = this.planePipeline;
+            if (planePipeline) {
+                this.app.releaseResource(planePipeline);
+                this.planePipeline = null;
+            }
             const gizmoPipeline = this.gizmoPipeline;
             if (gizmoPipeline) {
                 this.app.releaseResource(gizmoPipeline);
@@ -313,6 +331,19 @@ namespace ComputeNBodyCollisions {
             frame.beginDraw(graphicsPipeline);
             frame.drawAddBindingSet(this.drawBindingSet);
             frame.drawVertices(this.numParticles * VERTICES_PER_PARTICLE);
+
+            // The coordinate planes, under the gizmo.
+            if (this.showPlanes) {
+                let planePipeline = this.planePipeline;
+                if (!planePipeline) {
+                    planePipeline = this.app.createGraphicsPipelineWithBlend(frame, this.planeVertexShader, this.planePixelShader,
+                        null, this.drawBindingLayout, PrimitiveType.TriangleList, BlendMode.AlphaBlend);
+                    this.planePipeline = planePipeline;
+                }
+                frame.beginDraw(planePipeline);
+                frame.drawAddBindingSet(this.drawBindingSet);
+                frame.drawVertices(PLANE_LINE_COUNT * VERTICES_PER_PARTICLE);
+            }
 
             // The axes, over the particles, in the top left corner.
             this.buildGizmo(width, height);
@@ -595,7 +626,10 @@ namespace ComputeNBodyCollisions {
             const integrateShader = this.app.createShaderWithDefine(shaderFile, "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
             this.axisVertexShader = this.app.createShader(shaderFile, "axis_vs", ShaderType.Vertex);
             this.axisPixelShader = this.app.createShader(shaderFile, "axis_ps", ShaderType.Pixel);
-            if (!this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
+            this.planeVertexShader = this.app.createShader(shaderFile, "plane_vs", ShaderType.Vertex);
+            // The gizmo's pixel shader: a plain color.
+            this.planePixelShader = this.axisPixelShader;
+            if (!this.planeVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !integrateShader) {
                 return false;
             }
 
