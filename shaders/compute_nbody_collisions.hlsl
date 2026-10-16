@@ -111,7 +111,8 @@ RWStructuredBuffer<uint> u_Free : register(u2);
 #define POWER 0.75
 #define SOFTEN 0.05
 // Only particles from FRAGMENT_MIN_RADIUS (the smallest light ones once split are under it, so they
-// don't split again) to FRAGMENT_MAX_RADIUS (not the heavy centers) break.
+// don't split again) to FRAGMENT_MAX_RADIUS (not the heavy centers) break: their true radius
+// (marker.w), as a merged particle's collision radius can be far smaller (collide_cs).
 #define FRAGMENT_MIN_RADIUS 0.035
 #define FRAGMENT_MAX_RADIUS 0.3
 
@@ -358,8 +359,12 @@ void RecordImpact(float3 normal, float approach, float restitution, float share,
         || -approach <= hardestImpact)
         return;
     const float after = AfterBounce(approach, restitution, share, impulseShare);
+    const float parting = share * sqrt(2.0 * max(approach * approach - after * after, 0.0));
+    // Halves parting slower than the merge speed would merge again at once: no break.
+    if (g_Simulation.mergeSpeed > 0.0 && parting <= g_Simulation.mergeSpeed)
+        return;
     hardestImpact = -approach;
-    fragmentVelocity = normal * (share * sqrt(2.0 * max(approach * approach - after * after, 0.0)));
+    fragmentVelocity = normal * parting;
     fragmenting = true;
 }
 
@@ -516,7 +521,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 if (approach >= 0.0)
                     continue;
                 const float restitution = g_Simulation.restitution;
-                RecordImpact(normal, approach, restitution, share, impulseShare, radius, hardestImpact,
+                RecordImpact(normal, approach, restitution, share, impulseShare, trueRadius, hardestImpact,
                     fragmentVelocity, fragmenting);
                 const float bounce = -(1.0 + restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
@@ -559,7 +564,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 // velocity change, and bouncing off as well gave back the speed gravity's pull put
                 // in, every step, which added energy to a resting pile.
                 const float restitution = g_Simulation.contactSprings != 0 ? g_Simulation.restitution : 0.0;
-                RecordImpact(normal, approach, restitution, share, impulseShare, radius, hardestImpact,
+                RecordImpact(normal, approach, restitution, share, impulseShare, trueRadius, hardestImpact,
                     fragmentVelocity, fragmenting);
                 const float bounce = -(1.0 + restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
@@ -785,7 +790,45 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
     }
 
     if (!absorbed)
+    {
+        // Touching slowly, but nothing to absorb this step (its partners wait, or merge into
+        // another): collide_cs left its growth to here, and in a pile it is nearly always so. It
+        // grows where it is, as collide_cs grows a particle that doesn't merge.
+        const float trueRadius = particle.marker.w;
+        const float pushed = min(trueRadius, radius + GROWTH_PER_STEP * trueRadius);
+        if (pushed <= radius)
+            return;
+        float clearance = trueRadius;
+        float growthEnergy = 0.0;
+        for (uint k = 0; k < particleCount; k++)
+        {
+            const Particle neighbor = u_Particles[k];
+            if (k == index || neighbor.info.x < 0.0)
+                continue;
+            clearance = min(clearance, length(particle.pos.xyz - neighbor.pos.xyz) - neighbor.info.x);
+            // Not with a slow pair, as in collide_cs.
+            if (springs && (g_Simulation.mergeSpeed <= 0.0
+                || length(particle.vel.xyz - neighbor.vel.xyz) >= g_Simulation.mergeSpeed))
+                growthEnergy += SpringEnergyWith(particle.pos.xyz, pushed, mass, neighbor, step)
+                    - SpringEnergyWith(particle.pos.xyz, radius, mass, neighbor, step);
+        }
+        float grown = max(radius, min(trueRadius, clearance));
+        if (pushed > grown)
+        {
+            const float heatEnergy = g_Simulation.heatFactor > 0.0 ? max(heat, 0.0) * mass / g_Simulation.heatFactor : 0.0;
+            if (g_Simulation.heating == 0)
+            {
+                grown = pushed;
+            }
+            else if (growthEnergy <= heatEnergy)
+            {
+                grown = pushed;
+                u_Contacts[index].velocity.w -= g_Simulation.heatFactor * growthEnergy / mass;
+            }
+        }
+        u_Particles[index].info.w = grown;
         return;
+    }
 
     // At the center of mass the merged sphere can reach into particles none of the merging ones
     // touched, and the contact springs would push them out with energy from nowhere (an overlap's
@@ -1075,10 +1118,12 @@ void main_vs(
     }
 
     // Sized in the world, unlike compute_nbody's mass-sized sprites, so that the balls touch on
-    // screen when they collide. At least a pixel across, so distant ones don't flicker.
+    // screen when they collide. At least a pixel across, so distant ones don't flicker. By the true
+    // radius (marker.w): a merged particle in a pile collides smaller until it grows back
+    // (collide_cs, absorb_cs), but it shows its size.
     const float4 eyePos = mul(float4(particle.pos.xyz, 1.0), g_View.matWorldToView);
     o_position = mul(eyePos, g_View.matViewToClip);
-    const float halfSize = SPRITE_EXTENT * particle.info.x;
+    const float halfSize = SPRITE_EXTENT * particle.marker.w;
     const float2 ndcHalfSize = max(halfSize * float2(g_View.matViewToClip[0][0], g_View.matViewToClip[1][1]) / o_position.w,
         2.0 * g_View.viewportSizeInv);
     o_position.xy += corner * ndcHalfSize * o_position.w;
@@ -1139,7 +1184,7 @@ float4 main_ps(
     color = lerp(color, float3(1.0, 1.0, 1.0), saturate(glow * 3.0 - 2.0));
 
     const float r = length(i_spriteCoord);
-    // Inside the collision radius: a ball, brighter towards its center. Outside: a faint glow.
+    // Inside the radius: a ball, brighter towards its center. Outside: a faint glow.
     const float ballR = r * SPRITE_EXTENT;
 
     // A lit ball: its surface normal in view space (z away from the camera), a light from the upper
@@ -1328,8 +1373,8 @@ void trail_vs(
         return;
     along /= length_;
 
-    // The head as wide as the ball (its radius over the depth, in pixels), at least a pixel.
-    const float radiusPixels = particle.info.x * g_View.matViewToClip[1][1] / e0.z * halfViewport.y;
+    // The head as wide as the ball (its true radius over the depth, in pixels), at least a pixel.
+    const float radiusPixels = particle.marker.w * g_View.matViewToClip[1][1] / e0.z * halfViewport.y;
     const float2 across = float2(-along.y, along.x) * clamp(0.8 * radiusPixels, 0.75, 8.0);
 
     const float2 corners[4] = { s0 - across, s0 + across, s1 + across * 0.1, s1 - across * 0.1 };
