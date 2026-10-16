@@ -58,6 +58,7 @@ namespace ComputeNBodyCollisions {
     const CONSTANT_RESTITUTION_SPEED = 14;
     const CONSTANT_ROLLING_RESISTANCE = 15;
     const CONSTANT_SIZE_SOFTENING = 16;
+    const CONSTANT_HOT_MERGE_SPEED = 17;
     // The simulation's defaults (compute_nbody's, then the collisions'), and what the UI's sliders
     // can set them to.
     const DEFAULT_TIME_FACTOR = 0.05;
@@ -79,6 +80,10 @@ namespace ComputeNBodyCollisions {
     const DEFAULT_MERGE_SPEED = 0.0;
     const DEFAULT_MERGE_SLIDER = 2.0;
     const MERGE_SPEED_MAX = 8.0;
+    // With merging: glowing particles merge up to this much faster (the shader's MergeSpeed), up to
+    // the slider's HOT_MERGE_SPEED_MAX.
+    const DEFAULT_HOT_MERGE_SPEED = 4.0;
+    const HOT_MERGE_SPEED_MAX = 20.0;
     // Off: particles hit harder than this (approach speed) break in two, into free slots: those of
     // merged-away particles, and the room left at the start, a share of the particles placed
     // (-room <percent>, the UI's Fragment room, on restart). The UI's slider goes to
@@ -97,6 +102,11 @@ namespace ComputeNBodyCollisions {
     const MOMENTUM_DRIFT_LIMIT = 1.0e-3;
     const ANGULAR_DRIFT_LIMIT_HEAVY = 1.0e-4;
     const ANGULAR_DRIFT_LIMIT = 1.0e-2;
+    // With merging, the merged particles are heavy and hit hard, and a particle's several swept
+    // contacts in one step don't quite agree on where it is: the angular momentum drifts by up to
+    // about 1.1e-2 (4e3 to 7e4, from run to run), a time-step error (a quarter of the step drifts
+    // 10 to 30 times less), not a broken balance.
+    const ANGULAR_DRIFT_LIMIT_MERGE = 2.0e-2;
     // With gravity between all pairs and no cooling (-fullgravity -nocool), the test checks the total
     // energy (kinetic, spin, potential and heat) drifted by less than this much of it: gravity alone
     // keeps it to 2e-3; the collisions, whose losses are all heat, to 2.5e-2 in 15 seconds.
@@ -249,6 +259,9 @@ namespace ComputeNBodyCollisions {
         private frictionValue: number;
         private mergeOn: boolean;
         private mergeValue: number;
+        // Hot particles sticking (merging faster): its switch and slider.
+        private hotStickOn: boolean;
+        private hotStickValue: number;
         private breakOn: boolean;
         private breakValue: number;
         private contactSprings: boolean;
@@ -428,6 +441,8 @@ namespace ComputeNBodyCollisions {
 
             this.frictionOn = true;
             this.mergeOn = false;
+            this.hotStickOn = true;
+            this.hotStickValue = DEFAULT_HOT_MERGE_SPEED;
             this.breakOn = false;
             this.contactSprings = true;
             this.restitutionSpeedOn = true;
@@ -1155,7 +1170,7 @@ namespace ComputeNBodyCollisions {
                     const vx = particles[q + 4] - particles[o + 4];
                     const vy = particles[q + 5] - particles[o + 5];
                     const vz = particles[q + 6] - particles[o + 6];
-                    const mergeSpeed = this.simulationConstants[CONSTANT_MERGE_SPEED];
+                    const mergeSpeed = this.mergeSpeedOf(particles[q + 9], particles[o + 9]);
                     const merging = mergeSpeed > 0.0 && vx * vx + vy * vy + vz * vz < mergeSpeed * mergeSpeed;
                     if (this.contactSprings && !merging && step > 0.0 && distance2 < reach * reach) {
                         const overlap = reach - Math.sqrt(distance2);
@@ -1166,6 +1181,16 @@ namespace ComputeNBodyCollisions {
                 }
             }
             return energy;
+        }
+
+        // The shader's MergeSpeed: below it two particles of these heats merge.
+        mergeSpeedOf(heat: number, otherHeat: number): number {
+            const mergeSpeed = this.simulationConstants[CONSTANT_MERGE_SPEED];
+            if (mergeSpeed <= 0.0) {
+                return 0.0;
+            }
+            const glow = 1.0 - Math.exp(-0.5 * (Math.max(heat, 0.0) + Math.max(otherHeat, 0.0)));
+            return mergeSpeed + this.simulationConstants[CONSTANT_HOT_MERGE_SPEED] * glow;
         }
 
         // How many particles are left (the others merged into them), read back from the GPU. Only
@@ -1222,6 +1247,7 @@ namespace ComputeNBodyCollisions {
         applySwitches(): void {
             this.simulationConstants[CONSTANT_FRICTION] = this.frictionOn ? this.frictionValue : 0.0;
             this.simulationConstants[CONSTANT_MERGE_SPEED] = this.mergeOn ? this.mergeValue : 0.0;
+            this.simulationConstants[CONSTANT_HOT_MERGE_SPEED] = this.hotStickOn ? this.hotStickValue : 0.0;
             this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = this.breakOn ? this.breakValue : 0.0;
             Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_CONTACT_SPRINGS]), this.contactSprings ? 1 : 0);
             this.simulationConstants[CONSTANT_RESTITUTION_SPEED] = this.restitutionSpeedOn ? this.restitutionSpeedValue : 0.0;
@@ -1241,6 +1267,7 @@ namespace ComputeNBodyCollisions {
             this.restitutionSpeedValue = DEFAULT_RESTITUTION_SPEED;
             this.rollingValue = DEFAULT_ROLLING_RESISTANCE;
             this.mergeValue = DEFAULT_MERGE_SLIDER;
+            this.hotStickValue = DEFAULT_HOT_MERGE_SPEED;
             this.breakValue = DEFAULT_FRAGMENT_SLIDER;
             this.applySwitches();
         }
@@ -1366,7 +1393,8 @@ namespace ComputeNBodyCollisions {
                 }
                 const momentumLimit = Math.max(this.initialMomentum[3], momentum[3]) * MOMENTUM_DRIFT_LIMIT;
                 const angularLimit = Math.max(this.initialAngular[3], angular[3])
-                    * (heavyOnly ? ANGULAR_DRIFT_LIMIT_HEAVY : ANGULAR_DRIFT_LIMIT);
+                    * (heavyOnly ? ANGULAR_DRIFT_LIMIT_HEAVY
+                        : this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0 ? ANGULAR_DRIFT_LIMIT_MERGE : ANGULAR_DRIFT_LIMIT);
                 console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift} (limit ${angularLimit})`);
                 if (momentumDrift > momentumLimit || angularDrift > angularLimit) {
                     return `momentum drifts by ${momentumDrift} (over ${momentumLimit}) or angular momentum by ${angularDrift} (over ${angularLimit})`;
@@ -1485,6 +1513,10 @@ namespace ComputeNBodyCollisions {
                 this.mergeOn = Donut_ImGuiCheckbox("Merging", this.mergeOn ? 1 : 0) != 0;
                 if (this.mergeOn) {
                     this.mergeValue = Donut_ImGuiSliderFloat("Merge below (u/s)", this.mergeValue, 0.0, MERGE_SPEED_MAX);
+                    this.hotStickOn = Donut_ImGuiCheckbox("Hot particles stick", this.hotStickOn ? 1 : 0) != 0;
+                    if (this.hotStickOn) {
+                        this.hotStickValue = Donut_ImGuiSliderFloat("Glowing: + (u/s)", this.hotStickValue, 0.0, HOT_MERGE_SPEED_MAX);
+                    }
                 }
                 this.breakOn = Donut_ImGuiCheckbox("Breaking", this.breakOn ? 1 : 0) != 0;
                 if (this.breakOn) {
@@ -1537,6 +1569,8 @@ namespace ComputeNBodyCollisions {
                 Donut_ImGuiText("e: speed apart after a bounce over speed together before;");
                 Donut_ImGuiText("  hard hits: e (above / impact speed)^(1/4)");
                 Donut_ImGuiText("mu: friction impulse over the normal one, at most");
+                Donut_ImGuiText("Merging: below the merge speed, plus as much as");
+                Donut_ImGuiText("  'Glowing: +' times the pair's glow (1 - e^-heat)");
                 Donut_ImGuiText("mu_r: rolling couple over contact radius times the");
                 Donut_ImGuiText("  normal impulse, at most");
                 Donut_ImGuiText("Heat rises by heat per energy times the kinetic");

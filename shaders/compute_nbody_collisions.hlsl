@@ -80,7 +80,7 @@ struct SimulationConstants
     float friction;
     // Particles touching slower than this (relative speed) merge instead of bouncing: the one with
     // more mass (the lower index of two equal ones) absorbs the other, keeping the mass and the
-    // momentum. 0: they never merge.
+    // momentum; hot ones faster (hotMergeSpeed, MergeSpeed). 0: they never merge.
     float mergeSpeed;
     // 0: the gravity pass samples the particles as compute_nbody does (a body feels a quarter of the
     // light ones), which is not symmetric: the total momentum is not kept. 1: every pair, with the
@@ -101,7 +101,9 @@ struct SimulationConstants
     // 1: the gravity between two particles is softened by their size as well (Softening); 0: by
     // SOFTEN only, as point masses.
     int sizeSoftening;
-    float pad1;
+    // With merging: hot particles stick, merging up to this much faster at full glow (MergeSpeed).
+    // 0: the merge speed is the same at any heat.
+    float hotMergeSpeed;
     float pad2;
     float pad3;
 };
@@ -168,8 +170,22 @@ groupshared float4 s_SharedVelocity[WORKGROUP_SIZE];
 groupshared float4 s_SharedSpin[WORKGROUP_SIZE];
 // collide_cs: the other particles' contact counts.
 groupshared float s_SharedContacts[WORKGROUP_SIZE];
+// collide_cs: the other particles' heat, for the merge speeds.
+groupshared float s_SharedHeat[WORKGROUP_SIZE];
 // calculate_cs: the other particles' true radius (marker.w), for the softening.
 groupshared float s_SharedRadius[WORKGROUP_SIZE];
+
+// The relative speed below which two touching particles merge, from their heats (info.y): mergeSpeed,
+// and with hotMergeSpeed up to that much more as the pair glows (the render's glow, 1 - e^-heat, of
+// their mean heat), as molten rock sticks where cold rock bounces. Both particles of a pair get the
+// same answer. 0 with merging off.
+float MergeSpeed(float heat, float otherHeat)
+{
+    if (g_Simulation.mergeSpeed <= 0.0)
+        return 0.0;
+    const float glow = 1.0 - exp(-0.5 * (max(heat, 0.0) + max(otherHeat, 0.0)));
+    return g_Simulation.mergeSpeed + g_Simulation.hotMergeSpeed * glow;
+}
 
 // The gravity's softening between two particles of true radii a and b (marker.w): SOFTEN, and with
 // sizeSoftening at least the square of their mean radius, so that two big ones overlapping (a merged
@@ -417,15 +433,15 @@ void ApplyFriction(float3 normal, float3 offset, float reach, float3 relativeVel
 // share^2 (before^2 - after^2), PairHeat): fragment_cs takes it back out of the heat, so breaking
 // keeps the energy (at bounciness 1, nothing is lost and the halves don't part).
 void RecordImpact(float3 normal, float approach, float restitution, float share, float impulseShare, float radius,
-    inout float hardestImpact, inout float3 fragmentVelocity, inout bool fragmenting)
+    float halvesMergeSpeed, inout float hardestImpact, inout float3 fragmentVelocity, inout bool fragmenting)
 {
     if (g_Simulation.fragmentSpeed <= 0.0 || radius < FRAGMENT_MIN_RADIUS || radius > FRAGMENT_MAX_RADIUS
         || -approach <= hardestImpact)
         return;
     const float after = AfterBounce(approach, restitution, share, impulseShare);
     const float parting = share * sqrt(2.0 * max(approach * approach - after * after, 0.0));
-    // Halves parting slower than the merge speed would merge again at once: no break.
-    if (g_Simulation.mergeSpeed > 0.0 && parting <= g_Simulation.mergeSpeed)
+    // Halves parting slower than their merge speed (halvesMergeSpeed) would merge again at once: no break.
+    if (halvesMergeSpeed > 0.0 && parting <= halvesMergeSpeed)
         return;
     hardestImpact = -approach;
     fragmentVelocity = normal * parting;
@@ -485,6 +501,9 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     const float4 spin = active ? u_Particles[index].spin : float4(0, 0, 0, 1);
     const float radius = active ? u_Particles[index].info.x : 0.0;
     const float contacts = active ? u_Particles[index].info.z : 0.0;
+    // Its heat, for the merge speeds (MergeSpeed); its halves, if it breaks, merge as it would with itself.
+    const float ownHeat = active ? u_Particles[index].info.y : 0.0;
+    const float ownMergeSpeed = MergeSpeed(ownHeat, ownHeat);
     // The room it has to grow into: the nearest other particle's surface.
     float clearance = 1.0e30;
     // A merged particle short of its true size (marker.w) can also grow into its neighbors, by
@@ -529,6 +548,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
         if (i + localId.x < particleCount)
         {
             s_SharedContacts[localId.x] = u_Particles[i + localId.x].info.z;
+            s_SharedHeat[localId.x] = u_Particles[i + localId.x].info.y;
         }
         GroupMemoryBarrierWithGroupSync();
 
@@ -546,8 +566,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             {
                 // Not with a slow pair: it merges when they touch, and has no spring.
                 const float otherRadius = s_SharedVelocity[j].w;
-                const bool merges = g_Simulation.mergeSpeed > 0.0
-                    && length(velocity - s_SharedVelocity[j].xyz) < g_Simulation.mergeSpeed;
+                const bool merges = length(velocity - s_SharedVelocity[j].xyz) < MergeSpeed(ownHeat, s_SharedHeat[j]);
                 if (!merges)
                 {
                     const float mu = position.w * s_SharedData[j].w / (position.w + s_SharedData[j].w);
@@ -586,7 +605,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 if (approach >= 0.0)
                     continue;
                 const float restitution = RestitutionAt(approach);
-                RecordImpact(normal, approach, restitution, share, impulseShare, trueRadius, hardestImpact,
+                RecordImpact(normal, approach, restitution, share, impulseShare, trueRadius, ownMergeSpeed, hardestImpact,
                     fragmentVelocity, fragmenting);
                 const float bounce = -(1.0 + restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
@@ -607,7 +626,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             }
 
             // Touching slowly enough, the two merge instead (absorb_cs, kill_cs): no bounce or push.
-            if (g_Simulation.mergeSpeed > 0.0 && length(relativeVelocity) < g_Simulation.mergeSpeed)
+            if (length(relativeVelocity) < MergeSpeed(ownHeat, s_SharedHeat[j]))
             {
                 merging = true;
                 if (Dominates(otherPosition.w, i + j, position.w, index)
@@ -632,7 +651,7 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
                 // velocity change, and bouncing off as well gave back the speed gravity's pull put
                 // in, every step, which added energy to a resting pile.
                 const float restitution = g_Simulation.contactSprings != 0 ? RestitutionAt(approach) : 0.0;
-                RecordImpact(normal, approach, restitution, share, impulseShare, trueRadius, hardestImpact,
+                RecordImpact(normal, approach, restitution, share, impulseShare, trueRadius, ownMergeSpeed, hardestImpact,
                     fragmentVelocity, fragmenting);
                 const float bounce = -(1.0 + restitution) * impulseShare * approach;
                 velocityChange += bounce * normal;
@@ -886,8 +905,7 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
                 continue;
             clearance = min(clearance, length(particle.pos.xyz - neighbor.pos.xyz) - neighbor.info.x);
             // Not with a slow pair, as in collide_cs.
-            if (springs && (g_Simulation.mergeSpeed <= 0.0
-                || length(particle.vel.xyz - neighbor.vel.xyz) >= g_Simulation.mergeSpeed))
+            if (springs && length(particle.vel.xyz - neighbor.vel.xyz) >= MergeSpeed(particle.info.y, neighbor.info.y))
                 growthEnergy += SpringEnergyWith(particle.pos.xyz, pushed, mass, neighbor, step)
                     - SpringEnergyWith(particle.pos.xyz, radius, mass, neighbor, step);
         }
@@ -948,7 +966,7 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
             const float fittedEnergy = SpringEnergyWith(position, fitted, mass, neighbor, step);
             springsAfter += fittedEnergy;
             // Not with a slow pair, as in collide_cs.
-            if (g_Simulation.mergeSpeed <= 0.0 || length(velocity - neighbor.vel.xyz) >= g_Simulation.mergeSpeed)
+            if (length(velocity - neighbor.vel.xyz) >= MergeSpeed(heat, neighbor.info.y))
                 growthEnergy += SpringEnergyWith(position, pushed, mass, neighbor, step) - fittedEnergy;
         }
     }
