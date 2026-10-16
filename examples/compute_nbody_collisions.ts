@@ -90,6 +90,10 @@ namespace ComputeNBodyCollisions {
     // energy (kinetic, spin, potential and heat) drifted by less than this much of it: gravity alone
     // keeps it to 2e-3; the collisions, whose losses are all heat, to 2.5e-2 in 15 seconds.
     const ENERGY_DRIFT_LIMIT = 0.05;
+    // With merging (and no breaking), the merged particles' collision radius over their true radius,
+    // weighted by mass, is at least this at the end: they grow back to their size after a merge fits
+    // them into a pile (0.78 to 1 measured; it was 0.02 to 0.11 when they grew into free room only).
+    const MERGED_SIZE_MIN = 0.6;
     // -nocool's cooling time: the heat stays.
     const NO_COOLING_SECONDS = 1.0e9;
     // The gravity pass's softening (SOFTEN in the shader), in its potential energy; the contact
@@ -1335,6 +1339,25 @@ namespace ComputeNBodyCollisions {
                 console.log(`Momentum drift ${momentumDrift} (limit ${momentumLimit}), angular momentum drift ${angularDrift} (limit ${angularLimit})`);
                 if (momentumDrift > momentumLimit || angularDrift > angularLimit) {
                     return `momentum drifts by ${momentumDrift} (over ${momentumLimit}) or angular momentum by ${angularDrift} (over ${angularLimit})`;
+                }
+            }
+
+            // Merged particles' size: grown back towards their true radius (marker.w).
+            if (this.simulationConstants[CONSTANT_MERGE_SPEED] > 0.0 && this.simulationConstants[CONSTANT_FRAGMENT_SPEED] <= 0.0) {
+                let mergedMass = 0.0;
+                let sizedMass = 0.0;
+                for (let i = 0; i < this.numParticles; i++) {
+                    const q = i * PARTICLE_FLOATS;
+                    if (particles[q + 8] < 0.0 || particles[q + 19] <= particles[q + 8]) {
+                        continue;
+                    }
+                    mergedMass += particles[q + 3];
+                    sizedMass += particles[q + 3] * particles[q + 8] / particles[q + 19];
+                }
+                const size = mergedMass > 0.0 ? sizedMass / mergedMass : 1.0;
+                console.log(`Merged size: ${size} of the true radius (minimum ${MERGED_SIZE_MIN})`);
+                if (size < MERGED_SIZE_MIN) {
+                    return `the merged particles are ${size} of their true radius`;
                 }
             }
 
