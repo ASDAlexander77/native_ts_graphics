@@ -28,7 +28,7 @@ namespace ComputeNBodyCollisions {
     // the bounces visible. Still a multiple of 1024, where the gravity pass expects the heavy centers
     // (it reads the first 256 particles of every 1024: any count works up to 256 particles in all).
     const PARTICLES_PER_ATTRACTOR = 1024;
-    const MAX_ATTRACTORS = 6;
+    const MAX_ATTRACTORS = 24;
     // Test mode: the frames rendered (15 seconds). Head on (-attractors 2 -particles 1), the two
     // heavy centers have met once by then and are moving apart again.
     const TEST_FRAMES = 900;
@@ -138,6 +138,27 @@ namespace ComputeNBodyCollisions {
     const LIGHT_RADIUS_MIN = 0.04;
     const LIGHT_RADIUS_MAX = 0.1;
     const LIGHT_MASS_MIN = 20.0;
+    // Mass follows volume: LIGHT_MASS_MIN at LIGHT_RADIUS_MIN, HEAVY_MASS at HEAVY_RADIUS, whatever
+    // radii the UI sets. The sliders' ranges for the radii.
+    const HEAVY_MASS = 90000.0;
+    const HEAVY_RADIUS_MAX = 2.0;
+    const LIGHT_RADIUS_SLIDER_MIN = 0.01;
+    const LIGHT_RADIUS_SLIDER_MAX = 0.4;
+    // How the light particles are placed around their attractor (sigma / radius from the cloud
+    // spread), and how the attractors are laid out (the radius is the layout's, in scene units).
+    const PARTICLE_LAYOUTS = "Gaussian cloud|Uniform ball|Spherical shell|Flat disk";
+    const PARTICLE_LAYOUT_GAUSSIAN = 0;
+    const PARTICLE_LAYOUT_BALL = 1;
+    const PARTICLE_LAYOUT_SHELL = 2;
+    const PARTICLE_LAYOUT_DISK = 3;
+    const ATTRACTOR_LAYOUTS = "Preset (random beyond 6)|Random in a ball|Ring|Sphere|Line";
+    const ATTRACTOR_LAYOUT_PRESET = 0;
+    const ATTRACTOR_LAYOUT_RANDOM = 1;
+    const ATTRACTOR_LAYOUT_RING = 2;
+    const ATTRACTOR_LAYOUT_SPHERE = 3;
+    const ATTRACTOR_LAYOUT_LINE = 4;
+    const DEFAULT_LAYOUT_RADIUS = 8.0;
+    const LAYOUT_RADIUS_MAX = 30.0;
     // Longest simulation step, in seconds: a stall (window dragged, breakpoint) would otherwise move
     // the particles through each other in one step.
     const MAX_DELTA_T = 1.0 / 30.0;
@@ -180,7 +201,7 @@ namespace ComputeNBodyCollisions {
 
     // The UI's choices of particles per attractor: the gravity pass expects the heavy centers at
     // multiples of 1024 (but any count works up to 256 particles in all, as in -particles 1).
-    const PARTICLE_CHOICES = "1|1024|2048";
+    const PARTICLE_CHOICES = "1|1024|2048|4096|8192|16384|32768|65536";
     function particleChoiceIndex(particles: int): int {
         return particles == 1 ? 0 : (particles == 1024 ? 1 : (particles == 2048 ? 2 : -1));
     }
@@ -307,6 +328,14 @@ namespace ComputeNBodyCollisions {
         private uiParticles: int;
         private uiSpread: number;
         private uiSeed: int;
+        // More of the UI's settings for the next Restart, read by createParticles: the radii of the
+        // heavy centers and the range of the light ones, and how both are placed.
+        private uiHeavyRadius: number;
+        private uiLightRadiusMin: number;
+        private uiLightRadiusMax: number;
+        private uiParticleLayout: int;
+        private uiAttractorLayout: int;
+        private uiLayoutRadius: number;
         private spread: number;
         private restartRequested: boolean;
         private frameWidth: int;
@@ -422,6 +451,12 @@ namespace ComputeNBodyCollisions {
             this.placedCount = 0;
             this.uiAttractors = numAttractors;
             this.uiParticles = particlesPerAttractor;
+            this.uiHeavyRadius = HEAVY_RADIUS;
+            this.uiLightRadiusMin = LIGHT_RADIUS_MIN;
+            this.uiLightRadiusMax = LIGHT_RADIUS_MAX;
+            this.uiParticleLayout = PARTICLE_LAYOUT_GAUSSIAN;
+            this.uiAttractorLayout = ATTRACTOR_LAYOUT_PRESET;
+            this.uiLayoutRadius = DEFAULT_LAYOUT_RADIUS;
             this.uiSpread = DEFAULT_SPREAD;
             this.uiSeed = DEFAULT_SEED;
             this.spread = DEFAULT_SPREAD;
@@ -898,7 +933,7 @@ namespace ComputeNBodyCollisions {
 
         // Whether a light particle at (x, y, z) would overlap one of the first `count` particles or
         // any attractor's heavy center (those of later groups aren't placed yet).
-        overlaps(particles: f32[], count: int, attractors: number[], x: number, y: number, z: number,
+        overlaps(particles: f32[], count: int, heavies: number[], x: number, y: number, z: number,
             radius: number): boolean {
             for (let i = 0; i < count; i++) {
                 const q = i * PARTICLE_FLOATS;
@@ -911,10 +946,10 @@ namespace ComputeNBodyCollisions {
                 }
             }
             for (let i = 0; i < this.numAttractors; i++) {
-                const dx = x - attractors[i * 3 + 0] * 1.5;
-                const dy = y - attractors[i * 3 + 1] * 1.5;
-                const dz = z - attractors[i * 3 + 2] * 1.5;
-                const reach = radius + HEAVY_RADIUS;
+                const dx = x - heavies[i * 3 + 0];
+                const dy = y - heavies[i * 3 + 1];
+                const dz = z - heavies[i * 3 + 2];
+                const reach = radius + this.uiHeavyRadius;
                 if (dx * dx + dy * dy + dz * dz < reach * reach) {
                     return true;
                 }
@@ -922,9 +957,11 @@ namespace ComputeNBodyCollisions {
             return false;
         }
 
-        // compute_nbody's particles around their attractors, uploaded once, with collision radii.
-        createParticles(): void {
-            const attractors: number[] = [
+        // Where the attractors' heavy centers go, per the UI's layout: three numbers each. The
+        // preset's are compute_nbody's, whose clouds sit at 1/1.5 of them (the cloud centers, which
+        // the other layouts put at the heavy centers). The random positions keep apart.
+        layoutAttractors(clouds: number[], heavies: number[]): void {
+            const preset: number[] = [
                 5.0, 0.0, 0.0,
                 -5.0, 0.0, 0.0,
                 0.0, 0.0, 5.0,
@@ -932,6 +969,80 @@ namespace ComputeNBodyCollisions {
                 0.0, 4.0, 0.0,
                 0.0, -8.0, 0.0,
             ];
+            const layout = this.uiAttractorLayout;
+            const radius = this.uiLayoutRadius;
+            const n = this.numAttractors;
+            const minApart = 2.0 * this.uiHeavyRadius + 1.0;
+            for (let i = 0; i < n; i++) {
+                let x = 0.0;
+                let y = 0.0;
+                let z = 0.0;
+                if (layout == ATTRACTOR_LAYOUT_PRESET && i < 6) {
+                    x = preset[i * 3 + 0] * 1.5;
+                    y = preset[i * 3 + 1] * 1.5;
+                    z = preset[i * 3 + 2] * 1.5;
+                    clouds.push(preset[i * 3 + 0]);
+                    clouds.push(preset[i * 3 + 1]);
+                    clouds.push(preset[i * 3 + 2]);
+                } else {
+                    if (layout == ATTRACTOR_LAYOUT_RING) {
+                        const angle = 2.0 * Math.PI * i / n;
+                        x = radius * Math.cos(angle);
+                        z = radius * Math.sin(angle);
+                    } else if (layout == ATTRACTOR_LAYOUT_SPHERE) {
+                        // A Fibonacci spiral over the sphere (one at the pole for a single attractor).
+                        const sy = n > 1 ? 1.0 - 2.0 * (i + 0.5) / n : 0.0;
+                        const ring = Math.sqrt(1.0 - sy * sy);
+                        x = radius * ring * Math.cos(i * 2.399963);
+                        y = radius * sy;
+                        z = radius * ring * Math.sin(i * 2.399963);
+                    } else if (layout == ATTRACTOR_LAYOUT_LINE) {
+                        x = n > 1 ? radius * (2.0 * i / (n - 1) - 1.0) : 0.0;
+                    } else {
+                        // Random in a ball (also the preset's attractors beyond the sixth), drawn
+                        // again while too close to an earlier one.
+                        for (let attempt = 0; attempt < MAX_PLACEMENT_ATTEMPTS; attempt++) {
+                            const gx = randomNormal();
+                            const gy = randomNormal();
+                            const gz = randomNormal();
+                            const length = Math.max(Math.sqrt(gx * gx + gy * gy + gz * gz), 1.0e-6);
+                            const reach = radius * Math.pow(randomFloat(), 1.0 / 3.0) / length;
+                            x = gx * reach;
+                            y = gy * reach;
+                            z = gz * reach;
+                            let apart = true;
+                            for (let k = 0; k < i; k++) {
+                                const dx = x - heavies[k * 3 + 0];
+                                const dy = y - heavies[k * 3 + 1];
+                                const dz = z - heavies[k * 3 + 2];
+                                if (dx * dx + dy * dy + dz * dz < minApart * minApart) {
+                                    apart = false;
+                                }
+                            }
+                            if (apart) {
+                                break;
+                            }
+                        }
+                    }
+                    clouds.push(x);
+                    clouds.push(y);
+                    clouds.push(z);
+                }
+                heavies.push(x);
+                heavies.push(y);
+                heavies.push(z);
+            }
+        }
+
+        // compute_nbody's particles around their attractors, uploaded once, with collision radii.
+        createParticles(): void {
+            const clouds: number[] = [];
+            const heavies: number[] = [];
+            this.layoutAttractors(clouds, heavies);
+            const heavyRadius = this.uiHeavyRadius;
+            const lightMin = this.uiLightRadiusMin;
+            const lightMax = Math.max(this.uiLightRadiusMax, lightMin);
+            const layout = this.uiParticleLayout;
             // The particles placed, then the free slots left for fragments (a negative radius: gone).
             this.placedCount = this.numAttractors * this.particlesPerAttractor;
             this.numParticles = this.placedCount + Math.floor(this.placedCount * this.fragmentRoom);
@@ -942,25 +1053,26 @@ namespace ComputeNBodyCollisions {
             }
 
             for (let i = 0; i < this.numAttractors; i++) {
-                const ax = attractors[i * 3 + 0];
-                const ay = attractors[i * 3 + 1];
-                const az = attractors[i * 3 + 2];
+                const ax = clouds[i * 3 + 0];
+                const ay = clouds[i * 3 + 1];
+                const az = clouds[i * 3 + 2];
 
                 for (let j = 0; j < this.particlesPerAttractor; j++) {
                     const p = (i * this.particlesPerAttractor + j) * PARTICLE_FLOATS;
 
                     if (j == 0) {
                         // First particle in group as heavy center of gravity
-                        particles[p + 0] = ax * 1.5;
-                        particles[p + 1] = ay * 1.5;
-                        particles[p + 2] = az * 1.5;
-                        particles[p + 3] = 90000.0;
-                        particles[p + 8] = HEAVY_RADIUS;
+                        particles[p + 0] = heavies[i * 3 + 0];
+                        particles[p + 1] = heavies[i * 3 + 1];
+                        particles[p + 2] = heavies[i * 3 + 2];
+                        const heavyRatio = heavyRadius / HEAVY_RADIUS;
+                        particles[p + 3] = HEAVY_MASS * heavyRatio * heavyRatio * heavyRatio;
+                        particles[p + 8] = heavyRadius;
                     } else {
                         // Positive masses, unlike compute_nbody's (normal around 37.5, some
                         // negative): a collision's impulse is shared in proportion to them.
                         const sizeRandom = randomFloat();
-                        const radius = LIGHT_RADIUS_MIN + (LIGHT_RADIUS_MAX - LIGHT_RADIUS_MIN) * sizeRandom * sizeRandom;
+                        const radius = lightMin + (lightMax - lightMin) * sizeRandom * sizeRandom;
                         const sizeRatio = radius / LIGHT_RADIUS_MIN;
                         const mass = LIGHT_MASS_MIN * sizeRatio * sizeRatio * sizeRatio;
 
@@ -973,10 +1085,31 @@ namespace ComputeNBodyCollisions {
                         let py = 0.0;
                         let pz = 0.0;
                         for (let attempt = 0; attempt < MAX_PLACEMENT_ATTEMPTS; attempt++) {
-                            px = ax + randomNormal() * this.spread;
-                            py = ay + randomNormal() * this.spread;
-                            pz = az + randomNormal() * this.spread;
-                            if (!this.overlaps(particles, p / PARTICLE_FLOATS, attractors, px, py, pz, radius)) {
+                            if (layout == PARTICLE_LAYOUT_GAUSSIAN) {
+                                px = ax + randomNormal() * this.spread;
+                                py = ay + randomNormal() * this.spread;
+                                pz = az + randomNormal() * this.spread;
+                            } else if (layout == PARTICLE_LAYOUT_DISK) {
+                                // In the XZ plane (thin), out from the heavy center's surface.
+                                const angle = 2.0 * Math.PI * randomFloat();
+                                const reach = heavyRadius + 2.0 * this.spread * Math.sqrt(randomFloat());
+                                px = ax + reach * Math.cos(angle);
+                                py = ay + randomNormal() * 0.05 * this.spread;
+                                pz = az + reach * Math.sin(angle);
+                            } else {
+                                // A uniform ball, or a thin shell, of heavyRadius + 2 spread.
+                                const gx = randomNormal();
+                                const gy = randomNormal();
+                                const gz = randomNormal();
+                                const length = Math.max(Math.sqrt(gx * gx + gy * gy + gz * gz), 1.0e-6);
+                                const outer = heavyRadius + 2.0 * this.spread;
+                                const fill = layout == PARTICLE_LAYOUT_BALL ? Math.pow(randomFloat(), 1.0 / 3.0) : 1.0;
+                                const reach = outer * fill / length;
+                                px = ax + gx * reach;
+                                py = ay + gy * reach;
+                                pz = az + gz * reach;
+                            }
+                            if (!this.overlaps(particles, p / PARTICLE_FLOATS, heavies, px, py, pz, radius)) {
                                 break;
                             }
                         }
@@ -1563,7 +1696,8 @@ namespace ComputeNBodyCollisions {
                 Donut_ImGuiText("s: second. Speeds are in u per simulated second;");
                 Donut_ImGuiText("  the time scale is simulated seconds per real one;");
                 Donut_ImGuiText("  trail length and cooling time are real seconds");
-                Donut_ImGuiText("Masses: light particles 20 to 312, heavy centers 90000");
+                Donut_ImGuiText("Masses follow the volume: 20 at radius 0.04 (312 at 0.1),");
+                Donut_ImGuiText("  90000 at the attractors' radius 0.5");
                 Donut_ImGuiText("Gravity: a = G m r / (r^2 + s)^0.75 (not 1 / r^2), s = 0.05,");
                 Donut_ImGuiText("  softened by size: at least the two's mean radius^2");
                 Donut_ImGuiText("e: speed apart after a bounce over speed together before;");
@@ -1585,6 +1719,19 @@ namespace ComputeNBodyCollisions {
                 const choice = Donut_ImGuiCombo("Particles each", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
                 if (choice >= 0 && choice != particleChoiceIndex(this.uiParticles)) {
                     this.uiParticles = particleChoice(choice);
+                }
+                this.uiAttractorLayout = Donut_ImGuiCombo("Attractor layout", this.uiAttractorLayout, ATTRACTOR_LAYOUTS);
+                if (this.uiAttractorLayout != ATTRACTOR_LAYOUT_PRESET) {
+                    this.uiLayoutRadius = Donut_ImGuiSliderFloat("Layout radius (u)", this.uiLayoutRadius, 1.0, LAYOUT_RADIUS_MAX);
+                }
+                this.uiHeavyRadius = Donut_ImGuiSliderFloat("Attractor radius (u)", this.uiHeavyRadius, 0.1, HEAVY_RADIUS_MAX);
+                this.uiParticleLayout = Donut_ImGuiCombo("Particle layout", this.uiParticleLayout, PARTICLE_LAYOUTS);
+                this.uiLightRadiusMin = Donut_ImGuiSliderFloat("Particle radius min (u)", this.uiLightRadiusMin,
+                    LIGHT_RADIUS_SLIDER_MIN, LIGHT_RADIUS_SLIDER_MAX);
+                this.uiLightRadiusMax = Donut_ImGuiSliderFloat("Particle radius max (u)", this.uiLightRadiusMax,
+                    LIGHT_RADIUS_SLIDER_MIN, LIGHT_RADIUS_SLIDER_MAX);
+                if (this.uiLightRadiusMax < this.uiLightRadiusMin) {
+                    this.uiLightRadiusMax = this.uiLightRadiusMin;
                 }
                 this.uiSpread = Donut_ImGuiSliderFloat("Cloud spread (u)", this.uiSpread, 0.2, 3.0);
                 this.uiFragmentRoom = 0.01 * Donut_ImGuiSliderFloat("Fragment room (%)", 100.0 * this.uiFragmentRoom, 0.0, 100.0);
