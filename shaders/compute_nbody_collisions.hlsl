@@ -30,14 +30,14 @@ struct Particle
     float4 pos;  // xyz = position, w = mass
     float4 vel;  // xyz = velocity, w = gradient texture position
     float4 info; // x = collision radius (negative: merged into another particle, gone), y = heat (collisions add it, it cools off over time),
-                 // z = contacts this frame, weighted by how much they move it (count_cs), w = the room
-                 // it has to grow into: the distance to the nearest other particle's surface (collide_cs)
+                 // z = contacts this frame, weighted by how much they move it (count_cs), w = the radius
+                 // it grows to this step, towards marker.w (collide_cs, integrate_cs)
     float4 spin;   // xyz = angular velocity (radians per simulated second), w = moment of inertia over
                    // the mass: 2/5 r^2 for a solid sphere; a merged particle's is its parts' about
                    // their center of mass (absorb_cs), whatever radius it collides with
     float4 marker; // xyz = a direction fixed in the particle, turned by the spin: the render draws
                    // a mark at its two poles, so the spin shows; w = its true radius, for its volume
-                   // (a merged particle grows to it from info.x, into free space only)
+                   // (a merged particle grows to it from info.x, see collide_cs)
 };
 
 // What collide_cs found for a particle, applied by integrate_cs.
@@ -133,6 +133,13 @@ RWStructuredBuffer<uint> u_Free : register(u2);
 // overshot and blew up). What it takes is heat, as a bounce's loss is. Fast impacts bounce before
 // they overlap (FindContact), at the bounciness; an overlapping pair that parts loses its speed.
 #define CONTACT_DAMPING 1.0
+// A merged particle short of its true size grows into its neighbors by this much of its true radius
+// per step (collide_cs, absorb_cs), paid from its heat. Per step, as the springs' stiffness and
+// damping are: a contact driven every step loses about a third of what the growth pays to the
+// step's kick and drift (damping resets the approach each step), so the faster it grows, the more
+// energy leaks. At this rate the merges' energy stays within 3%, and merged particles reach their
+// true size within a few seconds.
+#define GROWTH_PER_STEP 0.004
 // With the contact springs off: the share of an overlap pushed out per step, by moving the particles.
 #define SEPARATION 0.5
 // The kinetic energy a contact loses becomes heat, all of it: a bounce, friction's slip and the
@@ -356,6 +363,27 @@ void RecordImpact(float3 normal, float approach, float restitution, float share,
     fragmenting = true;
 }
 
+// The energy the contact springs hold between two particles overlapping by `overlap` (of their
+// reach), for their reduced mass mu: the spring pushes with mu CONTACT_STIFFNESS overlap / step^2,
+// up to CONTACT_OVERLAP_MAX of the reach, and no harder beyond.
+float SpringEnergy(float overlap, float reach, float mu, float step)
+{
+    if (overlap <= 0.0 || step <= 0.0)
+        return 0.0;
+    const float stiffness = mu * CONTACT_STIFFNESS / (step * step);
+    const float cap = CONTACT_OVERLAP_MAX * reach;
+    const float inner = min(overlap, cap);
+    return 0.5 * stiffness * inner * inner + stiffness * cap * max(overlap - cap, 0.0);
+}
+
+// The spring energy between a particle (position, radius, mass) and another.
+float SpringEnergyWith(float3 position, float radius, float mass, Particle other, float step)
+{
+    const float reach = radius + other.info.x;
+    const float overlap = reach - length(position - other.pos.xyz);
+    return SpringEnergy(overlap, reach, mass * other.pos.w / (mass + other.pos.w), step);
+}
+
 // Whether particle a (mass and index) takes the other in a merge: more mass, or the lower index.
 bool Dominates(float massA, uint indexA, float massB, uint indexB)
 {
@@ -388,8 +416,13 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     const float4 spin = active ? u_Particles[index].spin : float4(0, 0, 0, 1);
     const float radius = active ? u_Particles[index].info.x : 0.0;
     const float contacts = active ? u_Particles[index].info.z : 0.0;
-    // The room it has to grow into (info.w): the nearest other particle's surface.
+    // The room it has to grow into: the nearest other particle's surface.
     float clearance = 1.0e30;
+    // A merged particle short of its true size (marker.w) can also grow into its neighbors, by
+    // GROWTH_PER_STEP: the energy the contact springs would gain with them then.
+    const float trueRadius = active ? u_Particles[index].marker.w : 0.0;
+    const float pushedRadius = min(trueRadius, radius + GROWTH_PER_STEP * trueRadius);
+    float growthEnergy = 0.0;
     // The gravity's pull on it this step (calculate_cs).
     const float3 gravity = active ? u_Contacts[index].velocity.xyz : float3(0, 0, 0);
 
@@ -440,6 +473,19 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
             const float gap = length(apart);
             const float closing = gap > 0.0 ? min(dot(velocity - s_SharedVelocity[j].xyz, apart) / gap, 0.0) : 0.0;
             clearance = min(clearance, gap + step * closing - s_SharedVelocity[j].w);
+            if (pushedRadius > radius && g_Simulation.contactSprings != 0 && step > 0.0)
+            {
+                // Not with a slow pair: it merges when they touch, and has no spring.
+                const float otherRadius = s_SharedVelocity[j].w;
+                const bool merges = g_Simulation.mergeSpeed > 0.0
+                    && length(velocity - s_SharedVelocity[j].xyz) < g_Simulation.mergeSpeed;
+                if (!merges)
+                {
+                    const float mu = position.w * s_SharedData[j].w / (position.w + s_SharedData[j].w);
+                    growthEnergy += SpringEnergy(pushedRadius + otherRadius - gap, pushedRadius + otherRadius, mu, step)
+                        - SpringEnergy(radius + otherRadius - gap, radius + otherRadius, mu, step);
+                }
+            }
 
             const float4 otherPosition = s_SharedData[j];
             const float4 otherVelocity = s_SharedVelocity[j];
@@ -549,12 +595,35 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
 
     if (!active)
         return;
-    if (radius >= 0.0)
-        u_Particles[index].info.w = clearance;
     // The impulses' cross terms (see springPushes): their energy, per unit of mass, comes out of the heat.
     const float3 impulses = velocityChange - springPushes;
     heat -= g_Simulation.heatFactor * 0.5 * (dot(impulses, impulses) - impulseSquares
         + spin.w * (dot(spinChange, spinChange) - spinSquares));
+
+    // The radius integrate_cs gives it (info.w). A merged particle short of its true size grows
+    // into the free room around it for nothing; in a pile, where there is none, by GROWTH_PER_STEP
+    // into its neighbors, paying the energy that gives their springs from its heat (a merge's heat
+    // is what it released). With too little heat it waits; with heating off it grows anyway. Not
+    // while it merges (absorb_cs moves it and fits its radius to its new place).
+    if (radius >= 0.0)
+    {
+        float grown = merging ? radius : max(radius, min(trueRadius, clearance));
+        if (!merging && pushedRadius > grown)
+        {
+            const float heatEnergy = g_Simulation.heatFactor > 0.0
+                ? (u_Particles[index].info.y + heat) * position.w / g_Simulation.heatFactor : 0.0;
+            if (g_Simulation.heating == 0)
+            {
+                grown = pushedRadius;
+            }
+            else if (growthEnergy <= heatEnergy)
+            {
+                grown = pushedRadius;
+                heat -= g_Simulation.heatFactor * growthEnergy / position.w;
+            }
+        }
+        u_Particles[index].info.w = grown;
+    }
 
     Contact contact;
     // In a dense pile the push-outs of many neighbors add up: at most a radius per step.
@@ -572,27 +641,6 @@ void collide_cs(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupTh
     // A particle merging this step doesn't also break.
     contact.fragment = float4(fragmentVelocity, fragmenting && !merging ? 1.0 : 0.0);
     u_Contacts[index] = contact;
-}
-
-// The energy the contact springs hold between two particles overlapping by `overlap` (of their
-// reach), for their reduced mass mu: the spring pushes with mu CONTACT_STIFFNESS overlap / step^2,
-// up to CONTACT_OVERLAP_MAX of the reach, and no harder beyond.
-float SpringEnergy(float overlap, float reach, float mu, float step)
-{
-    if (overlap <= 0.0 || step <= 0.0)
-        return 0.0;
-    const float stiffness = mu * CONTACT_STIFFNESS / (step * step);
-    const float cap = CONTACT_OVERLAP_MAX * reach;
-    const float inner = min(overlap, cap);
-    return 0.5 * stiffness * inner * inner + stiffness * cap * max(overlap - cap, 0.0);
-}
-
-// The spring energy between a particle (position, radius, mass) and another.
-float SpringEnergyWith(float3 position, float radius, float mass, Particle other, float step)
-{
-    const float reach = radius + other.info.x;
-    const float overlap = reach - length(position - other.pos.xyz);
-    return SpringEnergy(overlap, reach, mass * other.pos.w / (mass + other.pos.w), step);
 }
 
 // The gravity's potential energy between two particles a distance apart, from their merged state:
@@ -616,8 +664,8 @@ float PairPotential(float distance, float mass, float otherMass)
 // The merged sphere doesn't take its true size at once, which would reach into particles none of
 // the merging ones touched, and the contact springs would push them out with energy from nowhere:
 // it keeps the larger of the merging radii, no more than the room at its center, and grows from
-// there into free space (integrate_cs). The springs the merging particles had with the others end:
-// their energy is heat.
+// there (collide_cs: into free room, or slowly into its neighbors, paid from its heat). The springs
+// the merging particles had with the others end: their energy is heat.
 //
 // The survivor and the absorbed take their own collision impulses (Contact, from the particles that
 // bounce off them) before they merge, and the survivor's are then spent: an absorbed particle's
@@ -742,9 +790,12 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
     // At the center of mass the merged sphere can reach into particles none of the merging ones
     // touched, and the contact springs would push them out with energy from nowhere (an overlap's
     // spring energy grows as 1/step^2). So it takes no more than the room there, up to the nearest
-    // other particle's surface, and grows from that (integrate_cs); its spin keeps the angular
-    // momentum, with the same inertia. What the springs held is heat.
-    float clearance = radius;
+    // other particle's surface (and its true radius); its spin keeps the angular momentum, with the
+    // same inertia. What the springs held is heat. Then it takes this step's growth into its
+    // neighbors, as collide_cs gives a particle that doesn't merge (it would wait for a step
+    // without a merge, and a big one merges nearly every step).
+    const float trueRadius = pow(trueVolume, 1.0 / 3.0);
+    float clearance = trueRadius;
     for (uint k = 0; k < particleCount; k++)
     {
         const Particle neighbor = u_Particles[k];
@@ -759,8 +810,10 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
     }
     // Never vanishing: below a quarter of its size it still overlaps, and pays for that below.
     const float fitted = max(clearance, 0.25 * radius);
+    const float pushed = min(trueRadius, fitted + GROWTH_PER_STEP * trueRadius);
     float springsAfter = 0.0;
-    if (springs && g_Simulation.heating != 0 && fitted > clearance)
+    float growthEnergy = 0.0;
+    if (springs && ((g_Simulation.heating != 0 && fitted > clearance) || pushed > fitted))
     {
         for (uint k = 0; k < particleCount; k++)
         {
@@ -770,21 +823,37 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
             const Contact neighborContact = u_Contacts[k];
             if (neighborContact.shift.w != 0.0 && uint(neighborContact.spin.w) == index)
                 continue;
-            springsAfter += SpringEnergyWith(position, fitted, mass, neighbor, step);
+            const float fittedEnergy = SpringEnergyWith(position, fitted, mass, neighbor, step);
+            springsAfter += fittedEnergy;
+            // Not with a slow pair, as in collide_cs.
+            if (g_Simulation.mergeSpeed <= 0.0 || length(velocity - neighbor.vel.xyz) >= g_Simulation.mergeSpeed)
+                growthEnergy += SpringEnergyWith(position, pushed, mass, neighbor, step) - fittedEnergy;
         }
     }
-    if (g_Simulation.heating != 0)
-        heat += g_Simulation.heatFactor * (springsBefore - springsAfter) / mass;
     radius = fitted;
+    if (g_Simulation.heating != 0)
+    {
+        heat += g_Simulation.heatFactor * (springsBefore - springsAfter) / mass;
+        const float heatEnergy = g_Simulation.heatFactor > 0.0 ? max(heat, 0.0) * mass / g_Simulation.heatFactor : 0.0;
+        if (pushed > fitted && growthEnergy <= heatEnergy)
+        {
+            heat -= g_Simulation.heatFactor * growthEnergy / mass;
+            radius = pushed;
+        }
+    }
+    else
+    {
+        radius = pushed;
+    }
 
     particle.pos = float4(position, mass);
     particle.vel.xyz = velocity;
     particle.spin = float4(spin, inertia);
     particle.info.x = radius;
     particle.info.y = heat;
-    // collide_cs's room was for where it was: no growing this step.
+    // collide_cs's growth was for where it was: none more this step.
     particle.info.w = radius;
-    particle.marker.w = pow(trueVolume, 1.0 / 3.0);
+    particle.marker.w = trueRadius;
     u_Particles[index] = particle;
 
     // Spent (integrate_cs adds them): keep the flag and the target, which kill_cs reads.
@@ -840,8 +909,7 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
         particle.info.y = max(particle.info.y + contact.velocity.w, 0.0);
         particle.spin.xyz += contact.spin.xyz;
 
-        // A merged particle grows towards its true radius (marker.w), but only into the room it has
-        // (info.w): it never pushes into another, so the contact springs get no energy from it.
+        // A merged particle grows towards its true radius (marker.w), as collide_cs chose (info.w).
         // Its mass stays where it was, and so do its inertia and spin.
         if (particle.marker.w > particle.info.x)
             particle.info.x = min(particle.marker.w, max(particle.info.x, particle.info.w));
