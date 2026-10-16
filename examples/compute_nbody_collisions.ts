@@ -42,8 +42,8 @@ namespace ComputeNBodyCollisions {
     // struct Contact: float4 velocity, float4 shift, float4 spin, float4 fragment.
     const CONTACT_FLOATS = 16;
     // struct SimulationConstants: float deltaT, int particleCount, int collisions, int heating, then
-    // the UI's values (the indices below), padded to 64 bytes.
-    const SIMULATION_CONSTANTS_SIZE = 64;
+    // the UI's values (the indices below), padded to 80 bytes.
+    const SIMULATION_CONSTANTS_SIZE = 80;
     const SIMULATION_FLOATS = SIMULATION_CONSTANTS_SIZE / 4;
     const CONSTANT_TIME_FACTOR = 4;
     const CONSTANT_GRAVITY = 5;
@@ -55,6 +55,9 @@ namespace ComputeNBodyCollisions {
     const CONSTANT_FULL_GRAVITY = 11;
     const CONSTANT_FRAGMENT_SPEED = 12;
     const CONSTANT_CONTACT_SPRINGS = 13;
+    const CONSTANT_RESTITUTION_SPEED = 14;
+    const CONSTANT_ROLLING_RESISTANCE = 15;
+    const CONSTANT_SIZE_SOFTENING = 16;
     // The simulation's defaults (compute_nbody's, then the collisions'), and what the UI's sliders
     // can set them to.
     const DEFAULT_TIME_FACTOR = 0.05;
@@ -63,6 +66,14 @@ namespace ComputeNBodyCollisions {
     const DEFAULT_HEAT_FACTOR = 0.004;
     const DEFAULT_COOL_SECONDS = 3.0;
     const DEFAULT_FRICTION = 0.3;
+    // Bounciness falls as (this / impact speed)^(1/4) above this impact speed, up to the slider's
+    // RESTITUTION_SPEED_MAX.
+    const DEFAULT_RESTITUTION_SPEED = 5.0;
+    const RESTITUTION_SPEED_MAX = 50.0;
+    // Rolling resistance: the couple at a contact over the contact radius times the normal impulse,
+    // at most; the slider goes up to ROLLING_RESISTANCE_MAX.
+    const DEFAULT_ROLLING_RESISTANCE = 0.05;
+    const ROLLING_RESISTANCE_MAX = 0.5;
     // Off (-merge unset): particles touching slower than this (relative speed) merge; the UI's
     // switch for it is off, its slider at DEFAULT_MERGE_SLIDER, up to MERGE_SPEED_MAX.
     const DEFAULT_MERGE_SPEED = 0.0;
@@ -92,8 +103,8 @@ namespace ComputeNBodyCollisions {
     const ENERGY_DRIFT_LIMIT = 0.05;
     // With merging (and no breaking), the merged particles' collision radius over their true radius,
     // weighted by mass, is at least this at the end: they grow back to their size after a merge fits
-    // them into a pile (0.78 to 1 measured; it was 0.02 to 0.11 when they grew into free room only).
-    const MERGED_SIZE_MIN = 0.6;
+    // them into a pile (0.62 to 1 measured; it was 0.02 to 0.11 when they grew into free room only).
+    const MERGED_SIZE_MIN = 0.4;
     // -nocool's cooling time: the heat stays.
     const NO_COOLING_SECONDS = 1.0e9;
     // The gravity pass's softening (SOFTEN in the shader), in its potential energy; the contact
@@ -241,6 +252,13 @@ namespace ComputeNBodyCollisions {
         private breakOn: boolean;
         private breakValue: number;
         private contactSprings: boolean;
+        // Bounciness falling with the impact speed, rolling resistance, and gravity softened by the
+        // particles' size: their switches, and the first two's sliders.
+        private restitutionSpeedOn: boolean;
+        private restitutionSpeedValue: number;
+        private rollingOn: boolean;
+        private rollingValue: number;
+        private sizeSoftening: boolean;
         private bloomOn: boolean;
         private litSpheres: boolean;
         private spinMarks: boolean;
@@ -412,6 +430,11 @@ namespace ComputeNBodyCollisions {
             this.mergeOn = false;
             this.breakOn = false;
             this.contactSprings = true;
+            this.restitutionSpeedOn = true;
+            this.restitutionSpeedValue = DEFAULT_RESTITUTION_SPEED;
+            this.rollingOn = true;
+            this.rollingValue = DEFAULT_ROLLING_RESISTANCE;
+            this.sizeSoftening = true;
             this.bloomOn = true;
             this.litSpheres = true;
             this.spinMarks = true;
@@ -1087,14 +1110,14 @@ namespace ComputeNBodyCollisions {
         }
 
         // The total energy of the particles in `particles`: kinetic (motion and spin), potential and
-        // heat, and the contact springs' energy. The gravity pass pulls by G m m' r / (r^2 + SOFTEN)^(3/4), which is the slope of
-        // 2 G m m' ((r^2 + SOFTEN)^(1/4) - SOFTEN^(1/4)) per pair (0 for a pair merged into one, as
+        // heat, and the contact springs' energy. The gravity pass pulls by G m m' r / (r^2 + s)^(3/4), which is the slope of
+        // 2 G m m' ((r^2 + s)^(1/4) - s^(1/4)) per pair, s its softening (0 for a pair merged into one, as
         // in the shader's PairPotential); heat is energy over mass times heatFactor. Gravity between
         // all pairs only: the sampled one has no potential energy.
         totalEnergy(particles: f32[]): number {
             const gravity = this.simulationConstants[CONSTANT_GRAVITY];
             const heatFactor = this.simulationConstants[CONSTANT_HEAT_FACTOR];
-            const softeningRoot = Math.sqrt(Math.sqrt(GRAVITY_SOFTENING));
+            const sizeSoftening = this.sizeSoftening;
             // The step the springs' stiffness is set for: -test's.
             const step = TEST_DELTA_T * this.simulationConstants[CONSTANT_TIME_FACTOR];
             let energy = 0.0;
@@ -1121,8 +1144,11 @@ namespace ComputeNBodyCollisions {
                     const dy = particles[q + 1] - particles[o + 1];
                     const dz = particles[q + 2] - particles[o + 2];
                     const distance2 = dx * dx + dy * dy + dz * dz;
+                    // The shader's Softening: with sizeSoftening, at least the true radii's mean squared.
+                    const meanRadius = 0.5 * (particles[q + 19] + particles[o + 19]);
+                    const soften = sizeSoftening ? Math.max(GRAVITY_SOFTENING, meanRadius * meanRadius) : GRAVITY_SOFTENING;
                     energy += 2.0 * gravity * mass * particles[o + 3]
-                        * (Math.sqrt(Math.sqrt(distance2 + GRAVITY_SOFTENING)) - softeningRoot);
+                        * (Math.sqrt(Math.sqrt(distance2 + soften)) - Math.sqrt(Math.sqrt(soften)));
                     // The contact springs' energy (the shader's SpringEnergy).
                     const reach = radius + particles[o + 8];
                     // Merging pairs (touching slowly) have no springs.
@@ -1198,6 +1224,9 @@ namespace ComputeNBodyCollisions {
             this.simulationConstants[CONSTANT_MERGE_SPEED] = this.mergeOn ? this.mergeValue : 0.0;
             this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = this.breakOn ? this.breakValue : 0.0;
             Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_CONTACT_SPRINGS]), this.contactSprings ? 1 : 0);
+            this.simulationConstants[CONSTANT_RESTITUTION_SPEED] = this.restitutionSpeedOn ? this.restitutionSpeedValue : 0.0;
+            this.simulationConstants[CONSTANT_ROLLING_RESISTANCE] = this.rollingOn ? this.rollingValue : 0.0;
+            Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_SIZE_SOFTENING]), this.sizeSoftening ? 1 : 0);
         }
 
         // The simulation's live settings back to their defaults (the UI's Defaults button); the
@@ -1209,6 +1238,8 @@ namespace ComputeNBodyCollisions {
             this.simulationConstants[CONSTANT_HEAT_FACTOR] = DEFAULT_HEAT_FACTOR;
             this.simulationConstants[CONSTANT_COOL_SECONDS] = DEFAULT_COOL_SECONDS;
             this.frictionValue = DEFAULT_FRICTION;
+            this.restitutionSpeedValue = DEFAULT_RESTITUTION_SPEED;
+            this.rollingValue = DEFAULT_ROLLING_RESISTANCE;
             this.mergeValue = DEFAULT_MERGE_SLIDER;
             this.breakValue = DEFAULT_FRAGMENT_SLIDER;
             this.applySwitches();
@@ -1400,9 +1431,10 @@ namespace ComputeNBodyCollisions {
                 if (absolute(x0 + x1) > 0.01 || absolute(v0 + v1) > 0.01) {
                     return `positions ${x0}, ${x1} and velocities ${v0}, ${v1} are not symmetric: momentum not kept`;
                 }
-                // The CPU run: x 3.773, v 5.698.
-                if (absolute(x0 - 3.773) > 0.1 || absolute(v0 - 5.698) > 0.1) {
-                    return `position ${x0}, velocity ${v0}: not the CPU run's 3.773, 5.698 after one bounce`;
+                // The CPU run (the same steps: softened by their size, 0.5^2, and the hit's bounciness
+                // falling with its speed): x 0.568, v 5.622 (3.773, 5.698 without either).
+                if (absolute(x0 - 0.568) > 0.1 || absolute(v0 - 5.622) > 0.1) {
+                    return `position ${x0}, velocity ${v0}: not the CPU run's 0.568, 5.622 after one bounce`;
                 }
             }
 
@@ -1441,6 +1473,15 @@ namespace ComputeNBodyCollisions {
                 if (this.frictionOn) {
                     this.frictionValue = Donut_ImGuiSliderFloat("Friction mu", this.frictionValue, 0.0, 1.0);
                 }
+                this.rollingOn = Donut_ImGuiCheckbox("Rolling resistance", this.rollingOn ? 1 : 0) != 0;
+                if (this.rollingOn) {
+                    this.rollingValue = Donut_ImGuiSliderFloat("Rolling mu_r", this.rollingValue, 0.0, ROLLING_RESISTANCE_MAX);
+                }
+                this.restitutionSpeedOn = Donut_ImGuiCheckbox("Hard hits bounce less", this.restitutionSpeedOn ? 1 : 0) != 0;
+                if (this.restitutionSpeedOn) {
+                    this.restitutionSpeedValue = Donut_ImGuiSliderFloat("Above (u/s)", this.restitutionSpeedValue, 0.0, RESTITUTION_SPEED_MAX);
+                }
+                this.sizeSoftening = Donut_ImGuiCheckbox("Gravity softened by size", this.sizeSoftening ? 1 : 0) != 0;
                 this.mergeOn = Donut_ImGuiCheckbox("Merging", this.mergeOn ? 1 : 0) != 0;
                 if (this.mergeOn) {
                     this.mergeValue = Donut_ImGuiSliderFloat("Merge below (u/s)", this.mergeValue, 0.0, MERGE_SPEED_MAX);
@@ -1491,9 +1532,13 @@ namespace ComputeNBodyCollisions {
                 Donut_ImGuiText("  the time scale is simulated seconds per real one;");
                 Donut_ImGuiText("  trail length and cooling time are real seconds");
                 Donut_ImGuiText("Masses: light particles 20 to 312, heavy centers 90000");
-                Donut_ImGuiText("Gravity: a = G m r / (r^2 + 0.05)^0.75 (not 1 / r^2)");
-                Donut_ImGuiText("e: speed apart after a bounce over speed together before");
+                Donut_ImGuiText("Gravity: a = G m r / (r^2 + s)^0.75 (not 1 / r^2), s = 0.05,");
+                Donut_ImGuiText("  softened by size: at least the two's mean radius^2");
+                Donut_ImGuiText("e: speed apart after a bounce over speed together before;");
+                Donut_ImGuiText("  hard hits: e (above / impact speed)^(1/4)");
                 Donut_ImGuiText("mu: friction impulse over the normal one, at most");
+                Donut_ImGuiText("mu_r: rolling couple over contact radius times the");
+                Donut_ImGuiText("  normal impulse, at most");
                 Donut_ImGuiText("Heat rises by heat per energy times the kinetic");
                 Donut_ImGuiText("  energy lost per unit of the particle's mass (u^2/s^2)");
                 Donut_ImGuiText("Cooling time: the heat falls to 1/e in it");
