@@ -431,8 +431,8 @@ namespace DynamicRenderingLocalRead {
         }
 
         releaseTargets(): void {
-            for (let i = 0; i < this.resources.length; i++) {
-                this.app.releaseResource(this.resources[i]);
+            for (const resource of this.resources) {
+                this.app.releaseResource(resource);
             }
             this.resources = [];
             this.compositionFramebuffers = [];

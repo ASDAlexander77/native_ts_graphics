@@ -106,8 +106,8 @@ namespace TimelineSemaphore {
         }
 
         releaseTargets(): void {
-            for (let i = 0; i < this.framebuffers.length; i++) {
-                this.app.releaseResource(this.framebuffers[i]);
+            for (const framebuffer of this.framebuffers) {
+                this.app.releaseResource(framebuffer);
             }
             this.framebuffers = [];
             this.targetWidth = 0;

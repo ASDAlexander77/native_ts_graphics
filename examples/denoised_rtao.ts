@@ -1109,8 +1109,8 @@ namespace DenoisedRtao {
 
             // The BLASes, over the buffers' data (the grass's allow updates; the sample rebuilds
             // them every frame anyway).
-            for (let s = 0; s < this.sceneBlases.length; s++) {
-                this.sceneBlases[s].build(this.app, commandList, AccelStructBuildFlags.PreferFastTrace);
+            for (const sceneBlas of this.sceneBlases) {
+                sceneBlas.build(this.app, commandList, AccelStructBuildFlags.PreferFastTrace);
             }
             for (let lod = 0; lod < NUM_GRASS_LODS; lod++) {
                 this.grassBlases[lod].build(this.app, commandList, AccelStructBuildFlags.PreferFastTrace | AccelStructBuildFlags.AllowUpdate);

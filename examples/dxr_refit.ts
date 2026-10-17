@@ -319,8 +319,8 @@ namespace DxrRefit {
             this.app.executeCommandList(commandList);
             // Only needed for the builds: the command list references them, and the app holds it
             // until the GPU is done with it.
-            for (let i = 0; i < this.inputBuffers.length; i++) {
-                this.app.releaseResource(this.inputBuffers[i]);
+            for (const inputBuffer of this.inputBuffers) {
+                this.app.releaseResource(inputBuffer);
             }
             this.app.releaseResource(commandList.handle);
             if (!created) {

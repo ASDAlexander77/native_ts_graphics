@@ -340,8 +340,8 @@ namespace RayTracingPositionFetch {
                 scene.copyIndices(p, Ref(primitiveIndices[0]));
                 firstVertex.push(vertices.length / VERTEX_FLOATS);
                 firstIndex.push(indices.length);
-                for (let i = 0; i < primitiveVertices.length; i++) {
-                    vertices.push(primitiveVertices[i]);
+                for (const primitiveVertex of primitiveVertices) {
+                    vertices.push(primitiveVertex);
                 }
                 for (let i = 0; i < indexCount; i++) {
                     indices.push(primitiveIndices[i]);

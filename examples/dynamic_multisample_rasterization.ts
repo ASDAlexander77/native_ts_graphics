@@ -287,8 +287,8 @@ namespace DynamicMultisampleRasterization {
         }
 
         releaseTargets(): void {
-            for (let i = 0; i < this.resources.length; i++) {
-                this.app.releaseResource(this.resources[i]);
+            for (const resource of this.resources) {
+                this.app.releaseResource(resource);
             }
             this.resources = [];
             this.framebuffers = [];
@@ -663,8 +663,8 @@ namespace DynamicMultisampleRasterization {
             app.destroy();
             return 1;
         }
-        for (let i = 0; i < sample.supportedCounts.length; i++) {
-            if (sample.supportedCounts[i] == args.samples) {
+        for (const supportedCount of sample.supportedCounts) {
+            if (supportedCount == args.samples) {
                 sample.sampleCount = args.samples;
             }
         }

@@ -45,8 +45,8 @@ namespace GenericPrograms {
         }
 
         releasePrograms(): void {
-            for (let i = 0; i < this.programs.length; i++) {
-                this.app.releaseObject(this.programs[i]);
+            for (const program of this.programs) {
+                this.app.releaseObject(program);
             }
             this.programs = [];
             const pipeline = this.pipeline;

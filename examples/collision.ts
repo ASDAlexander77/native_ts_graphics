@@ -861,8 +861,8 @@ namespace Collision {
             for (let i = 0; i < 8; i++) {
                 verts.push(transformPoint([corners[i * 3], corners[i * 3 + 1], corners[i * 3 + 2]], world));
             }
-            for (let i = 0; i < indices.length; i++) {
-                this.vertex(verts[indices[i]], color);
+            for (const index of indices) {
+                this.vertex(verts[index], color);
             }
         }
 

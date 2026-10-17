@@ -670,8 +670,8 @@ namespace RaytracingAo {
                     } else if (key == KEY_RIGHT) {
                         this.delta = 1.0;
                     } else if (key == KEY_R) {
-                        for (let i = 0; i < this.options.length; i++) {
-                            this.options[i].reset();
+                        for (const option of this.options) {
+                            option.reset();
                         }
                         this.updateOptions = true;
                     }
@@ -882,12 +882,12 @@ namespace RaytracingAo {
         }
 
         releaseFrameResources(): void {
-            for (let i = 0; i < this.frameBindingSets.length; i++) {
-                this.app.releaseResource(this.frameBindingSets[i].handle);
+            for (const frameBindingSet of this.frameBindingSets) {
+                this.app.releaseResource(frameBindingSet.handle);
             }
             this.frameBindingSets = [];
-            for (let i = 0; i < this.resources.length; i++) {
-                this.app.releaseResource(this.resources[i]);
+            for (const resource of this.resources) {
+                this.app.releaseResource(resource);
             }
             this.resources = [];
             this.meshAoSets = [];
@@ -1151,8 +1151,8 @@ namespace RaytracingAo {
                 desc.setRasterState(CullMode.Back, FillMode.Solid, 0);
                 this.gbufferPipeline = this.app.createGraphicsPipelineFromDesc(desc, this.gbufferFramebuffer as FramebufferHandle);
             }
-            for (let m = 0; m < this.meshes.length; m++) {
-                this.meshes[m].buildTopLevelAS(frame);
+            for (const mesh of this.meshes) {
+                mesh.buildTopLevelAS(frame);
             }
 
             if (this.updateOptions) {
@@ -1465,8 +1465,8 @@ namespace RaytracingAo {
             this.addMenuLine(`     Normal Factor: ${this.optionValue(7)}`, true, 7);
 
             let wExtent = 0.0;
-            for (let i = 0; i < this.menuLines.length; i++) {
-                wExtent = Math.max(wExtent, Donut_ImGuiCalcTextWidth(this.menuLines[i]));
+            for (const menuLine of this.menuLines) {
+                wExtent = Math.max(wExtent, Donut_ImGuiCalcTextWidth(menuLine));
             }
             const height = this.menuLines.length * LINE_SPACING;
             let startX = 0.0;

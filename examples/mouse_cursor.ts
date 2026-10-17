@@ -810,8 +810,8 @@ namespace MouseCursor {
         }
 
         releaseTargets(): void {
-            for (let i = 0; i < this.framebuffers.length; i++) {
-                this.app.releaseResource(this.framebuffers[i]);
+            for (const framebuffer of this.framebuffers) {
+                this.app.releaseResource(framebuffer);
             }
             if (this.framebuffers.length > 0) {
                 this.app.releaseResource(this.depth);
@@ -1119,8 +1119,8 @@ namespace MouseCursor {
         // on (x, y), each line placed in its sprite font line.
         centered(x: number, y: number, lines: string[], fontSize: number, lineSpacing: number): void {
             let width = 0.0;
-            for (let i = 0; i < lines.length; i++) {
-                width = Math.max(width, Donut_ImGuiCalcTextWidth(lines[i]));
+            for (const line of lines) {
+                width = Math.max(width, Donut_ImGuiCalcTextWidth(line));
             }
             const left = x - width / 2.0;
             const top = y - lines.length * lineSpacing / 2.0 + (lineSpacing - fontSize) / 2.0;
