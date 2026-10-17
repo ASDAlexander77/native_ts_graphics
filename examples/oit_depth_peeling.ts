@@ -195,15 +195,8 @@ namespace OitDepthPeeling {
         }
 
         releaseTargets() {
-            const bindingSets = [this.combineBindingSet];
-            for (const gatherBindingSet of this.gatherBindingSets) {
-                bindingSets.push(gatherBindingSet);
-            }
-            for (const bindingSet of bindingSets) {
-                if (!bindingSet.isNull()) {
-                    this.app.releaseResource(bindingSet.handle);
-                }
-            }
+            this.app.releaseBindingSets([this.combineBindingSet]);
+            this.app.releaseBindingSets(this.gatherBindingSets);
             this.gatherBindingSets = [];
             this.combineBindingSet = new BindingSet(null);
 

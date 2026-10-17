@@ -760,12 +760,8 @@ namespace ComputeNBodyCollisions {
                     this.app.releaseResource(this.blurChain[i]);
                 }
                 this.app.releaseResource(this.thresholdBindingSet.handle);
-                for (const blurDownBindingSet of this.blurDownBindingSets) {
-                    this.app.releaseResource(blurDownBindingSet.handle);
-                }
-                for (const blurUpBindingSet of this.blurUpBindingSets) {
-                    this.app.releaseResource(blurUpBindingSet.handle);
-                }
+                this.app.releaseBindingSets(this.blurDownBindingSets);
+                this.app.releaseBindingSets(this.blurUpBindingSets);
                 this.app.releaseResource(this.compositeBindingSet.handle);
                 // The pipelines were made for the old framebuffer.
                 const graphicsPipeline = this.graphicsPipeline;
