@@ -522,14 +522,8 @@ namespace DynamicBlending {
             setDesc.bindEntireConstantBuffer(1, this.colorBuffer);
             this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
 
-            let vertices: f32[] = [];
-            for (let i = 0; i < VERTICES.length; i++) {
-                vertices.push(VERTICES[i]);
-            }
-            let indices: int[] = [];
-            for (let i = 0; i < INDICES.length; i++) {
-                indices.push(INDICES[i]);
-            }
+            let vertices: f32[] = VERTICES.map((v): f32 => v);
+            let indices: int[] = INDICES.map((v): int => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");

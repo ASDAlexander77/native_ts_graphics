@@ -344,10 +344,7 @@ namespace WaveIntrinsics {
 
             const commandList = this.app.createCommandList();
             commandList.open();
-            let vertices: f32[] = [];
-            for (let i = 0; i < TRIANGLE_VERTICES.length; i++) {
-                vertices.push(TRIANGLE_VERTICES[i]);
-            }
+            let vertices: f32[] = TRIANGLE_VERTICES.map((v): f32 => v);
             this.triangleBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Triangle");
             commandList.close();
             this.app.executeCommandList(commandList);

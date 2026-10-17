@@ -267,10 +267,7 @@ namespace ReservedResources {
                 0.25, -y, 0.0, 1.0, 1.0,    // Bottom right.
                 0.25, y, 0.0, 1.0, 0.0,     // Top right.
             ];
-            let floats: f32[] = [];
-            for (let i = 0; i < vertices.length; i++) {
-                floats.push(vertices[i]);
-            }
+            let floats: f32[] = vertices.map((v): f32 => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(floats[0]), floats.length * 4, "Quad");

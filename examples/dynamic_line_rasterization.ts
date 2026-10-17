@@ -501,18 +501,9 @@ namespace DynamicLineRasterization {
             setDesc.bindEntireConstantBuffer(1, this.colorBuffer);
             this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
 
-            let vertices: f32[] = [];
-            for (let i = 0; i < VERTICES.length; i++) {
-                vertices.push(VERTICES[i]);
-            }
-            let cubeIndices: int[] = [];
-            for (let i = 0; i < CUBE_INDICES.length; i++) {
-                cubeIndices.push(CUBE_INDICES[i]);
-            }
-            let edgeIndices: int[] = [];
-            for (let i = 0; i < EDGE_INDICES.length; i++) {
-                edgeIndices.push(EDGE_INDICES[i]);
-            }
+            let vertices: f32[] = VERTICES.map((v): f32 => v);
+            let cubeIndices: int[] = CUBE_INDICES.map((v): int => v);
+            let edgeIndices: int[] = EDGE_INDICES.map((v): int => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
