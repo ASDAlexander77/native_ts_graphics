@@ -309,7 +309,7 @@ namespace FragmentShaderBarycentric {
             const commandList = this.app.createCommandList();
             commandList.open();
             const skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
-            const object = this.app.loadGltfMesh(commandList, OBJECT_PATH);
+            const mesh = this.app.loadGltfMesh(commandList, OBJECT_PATH);
             const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
             // KTX 1 files have no color space: the framework takes color textures as sRGB.
             const cubeTexture = this.app.loadTexture(commandList, CUBE_TEXTURE_PATH, 1);
@@ -317,12 +317,12 @@ namespace FragmentShaderBarycentric {
             this.app.executeCommandList(commandList);
             this.app.waitForIdle();
             this.app.releaseResource(commandList.handle);
-            if (skybox.isNull() || object.isNull() || !envmap || !cubeTexture) {
+            if (skybox.isNull() || mesh.isNull() || !envmap || !cubeTexture) {
                 console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return false;
             }
             this.skybox = skybox;
-            this.object = object;
+            this.object = mesh;
 
             // The sample's descriptor sets (the UBO and a texture) and push constants (the effect).
             this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");

@@ -203,12 +203,12 @@ namespace VertexDynamicState {
         // The sample's create_pipeline: the skybox without depth, back faces culled
         // (counter-clockwise front faces); the object with depth tested (greater: reversed) and
         // written, front faces culled.
-        createPipeline(vs: ShaderHandle, ps: ShaderHandle, inputLayout: InputLayoutHandle, object: boolean) {
+        createPipeline(vs: ShaderHandle, ps: ShaderHandle, inputLayout: InputLayoutHandle, isObject: boolean) {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.setInputLayout(inputLayout);
             desc.addBindingLayout(this.bindingLayout);
-            desc.setDepthState(object ? 1 : 0, object ? 1 : 0, ComparisonFunc.Greater);
-            desc.setRasterState(object ? CullMode.Front : CullMode.Back, FillMode.Solid, 1);
+            desc.setDepthState(isObject ? 1 : 0, isObject ? 1 : 0, ComparisonFunc.Greater);
+            desc.setRasterState(isObject ? CullMode.Front : CullMode.Back, FillMode.Solid, 1);
             return this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
         }
 

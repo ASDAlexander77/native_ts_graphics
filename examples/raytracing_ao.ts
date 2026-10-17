@@ -846,9 +846,9 @@ namespace RaytracingAo {
         }
 
         frameSet(desc: BindingSetDesc, layout: BindingLayoutHandle) {
-            const set = this.app.createBindingSetForLayout(desc, layout);
-            this.frameBindingSets.push(set);
-            return set;
+            const bindingSet = this.app.createBindingSetForLayout(desc, layout);
+            this.frameBindingSets.push(bindingSet);
+            return bindingSet;
         }
 
         // AO::CreateRaytracingOutputResource and SSAO::CreateResources / BindResources for an output

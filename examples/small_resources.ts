@@ -130,11 +130,11 @@ namespace SmallResources {
                     break;
                 }
             }
-            let type = "Committed";
+            let resourceType = "Committed";
             if (this.usePlacedResources) {
-                type = "Placed";
+                resourceType = "Placed";
             }
-            Donut_SetWindowTitle(this.app.handle, `${WINDOW_TITLE}: [ResourceType: ${type}] - Memory Used: ${formatMemoryUsage(usage)}`);
+            Donut_SetWindowTitle(this.app.handle, `${WINDOW_TITLE}: [ResourceType: ${resourceType}] - Memory Used: ${formatMemoryUsage(usage)}`);
         }
 
         releaseTextures() {

@@ -469,9 +469,9 @@ namespace FeatureDemoExample {
             }
         }
 
-        releaseObject(object: ObjectHandle | null) {
-            if (object) {
-                this.app.releaseObject(object);
+        releaseObject(handle: ObjectHandle | null) {
+            if (handle) {
+                this.app.releaseObject(handle);
             }
         }
 

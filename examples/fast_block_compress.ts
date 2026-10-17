@@ -561,11 +561,11 @@ namespace FastBlockCompress {
                 rmsDesc.bindStructuredBufferUAV(0, this.reduceBufferA);
                 image.rmsSets.push(this.app.createBindingSetForLayout(rmsDesc, this.rmsLayout));
             }
-            for (let set = 0; set <= MAX_METHOD; set++) {
+            for (let method = 0; method <= MAX_METHOD; method++) {
                 const quadDesc = BindingSetDesc.create();
                 quadDesc.bindPushConstants(0, QUAD_CONSTANTS_FLOATS * 4);
                 quadDesc.bindSampler(0, this.pointSampler);
-                quadDesc.bindTextureSRV(0, set == 0 ? image.source : methodTextures[set - 1]);
+                quadDesc.bindTextureSRV(0, method == 0 ? image.source : methodTextures[method - 1]);
                 quadDesc.bindTextureSRV(1, image.source);
                 image.quadSets.push(this.app.createBindingSetForLayout(quadDesc, this.quadLayout));
             }
