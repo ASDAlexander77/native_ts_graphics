@@ -268,8 +268,7 @@ namespace LogicOpDynamicState {
                 this.baselinePipelines[i] = null;
             }
             const resources: (ResourceHandle | null)[] = [this.backgroundPipeline, this.framebuffer, this.uintFramebuffer, this.colorBuffer, this.depthBuffer];
-            for (let i = 0; i < resources.length; i++) {
-                const resource = resources[i];
+            for (const resource of resources) {
                 if (resource) {
                     this.app.releaseResource(resource);
                 }

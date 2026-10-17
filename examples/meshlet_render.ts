@@ -309,8 +309,7 @@ namespace MeshletRender {
             commandList.clearTextureFloat(this.colorBuffer, CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
             commandList.clearDepth(this.depthBuffer, 1.0);
 
-            for (let i = 0; i < this.meshes.length; i++) {
-                const mesh = this.meshes[i];
+            for (const mesh of this.meshes) {
                 frame.beginMeshDrawToFramebuffer(this.pipeline, this.framebuffer);
                 frame.drawAddBindingSet(mesh.bindingSet);
                 this.meshInfo[0] = mesh.indexSize;

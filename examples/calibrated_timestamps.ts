@@ -316,8 +316,7 @@ namespace CalibratedTimestampsSample {
 
         releaseTargets(): void {
             const bindingSets = [this.bloomFilterBindingSet, this.compositionBindingSet];
-            for (let i = 0; i < bindingSets.length; i++) {
-                const bindingSet = bindingSets[i];
+            for (const bindingSet of bindingSets) {
                 if (!bindingSet.isNull()) {
                     this.app.releaseResource(bindingSet.handle);
                 }
@@ -329,8 +328,7 @@ namespace CalibratedTimestampsSample {
                 this.compositionPipeline, this.bloomCompositePipeline, this.offscreenFramebuffer,
                 this.filterFramebuffer, this.offscreenColor0, this.offscreenColor1, this.offscreenDepth,
                 this.filterColor];
-            for (let i = 0; i < resources.length; i++) {
-                const resource = resources[i];
+            for (const resource of resources) {
                 if (resource) {
                     this.app.releaseResource(resource);
                 }

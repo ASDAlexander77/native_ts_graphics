@@ -514,8 +514,7 @@ namespace Msaa {
             // draw) and texture.
             let currentPipeline = -1;
             let currentTexture = -1;
-            for (let i = 0; i < this.order.length; i++) {
-                const d = this.order[i];
+            for (const d of this.order) {
                 const pipeline = this.drawBlend[d] ? 2 : this.drawFlipped[d] ? 1 : 0;
                 const texture = this.drawTexture[d];
                 if (pipeline != currentPipeline || texture != currentTexture) {
@@ -711,8 +710,7 @@ namespace Msaa {
 
             // As the framework loads ASTC textures on GPUs without ASTC: level 0 decoded (to DDS
             // here), the mip levels generated.
-            for (let t = 0; t < imageNames.length; t++) {
-                const name = imageNames[t];
+            for (const name of imageNames) {
                 const dot = name.lastIndexOf(".");
                 const path = SCENE_DIR + (dot >= 0 ? name.substring(0, dot) : name) + ".dds";
                 const texture = this.app.loadTexture(commandList, path, 1);
@@ -901,8 +899,7 @@ namespace Msaa {
             Donut_ImGuiBegin("Options", 1);
 
             if (Donut_ImGuiBeginCombo("##sample_count", sampleCountName(m.sampleCount)) != 0) {
-                for (let i = 0; i < SAMPLE_COUNTS.length; i++) {
-                    const count = SAMPLE_COUNTS[i];
+                for (const count of SAMPLE_COUNTS) {
                     if ((m.supportedSampleCounts & count) == 0) {
                         continue;
                     }
@@ -947,8 +944,7 @@ namespace Msaa {
                 Donut_ImGuiSameLine();
                 Donut_ImGuiPushItemWidth(120.0);
                 if (Donut_ImGuiBeginCombo("##resolve_mode", resolveModeName(m.depthResolveMode)) != 0) {
-                    for (let i = 0; i < DEPTH_RESOLVE_MODES.length; i++) {
-                        const mode = DEPTH_RESOLVE_MODES[i];
+                    for (const mode of DEPTH_RESOLVE_MODES) {
                         if ((m.depthResolveModes & (1 << mode)) == 0) {
                             continue;
                         }

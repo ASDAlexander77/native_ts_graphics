@@ -1050,8 +1050,7 @@ namespace SimplePbr {
             skyInput.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
             this.skyInputLayout = this.app.createInputLayout(skyInput, this.skyVS);
 
-            for (let m = 0; m < this.models.length; m++) {
-                const model = this.models[m];
+            for (const model of this.models) {
                 const desc = BindingSetDesc.create();
                 desc.bindTextureSRV(0, model.albedo);
                 desc.bindTextureSRV(1, model.normal);

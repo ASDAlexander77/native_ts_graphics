@@ -974,8 +974,7 @@ namespace RaytracingAo {
             const gbufferDepth = this.gbufferDepth as TextureHandle;
 
             // AO: per mesh (its geometry and material are global bindings here).
-            for (let m = 0; m < this.meshes.length; m++) {
-                const mesh = this.meshes[m];
+            for (const mesh of this.meshes) {
                 const desc = BindingSetDesc.create();
                 desc.bindTextureUAV(0, this.aoOutput as TextureHandle);
                 desc.bindAccelStruct(0, mesh.topLevelAS.getTopLevelAS());
@@ -1351,8 +1350,7 @@ namespace RaytracingAo {
             }
 
             // SSAO::SetMesh: each mesh's G-buffer pass bindings.
-            for (let m = 0; m < this.meshes.length; m++) {
-                const mesh = this.meshes[m];
+            for (const mesh of this.meshes) {
                 const desc = BindingSetDesc.create();
                 desc.bindEntireConstantBuffer(0, this.sceneBuffer);
                 desc.bindEntireConstantBuffer(2, mesh.materialBuffer);

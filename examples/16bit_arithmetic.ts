@@ -164,8 +164,7 @@ namespace Khr16BitArithmetic {
 
         releaseTargets(): void {
             const resources: (ResourceHandle | null)[] = [this.visualizePipeline, this.framebuffer, this.colorBuffer];
-            for (let i = 0; i < resources.length; i++) {
-                const resource = resources[i];
+            for (const resource of resources) {
                 if (resource) {
                     this.app.releaseResource(resource);
                 }

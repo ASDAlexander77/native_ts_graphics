@@ -374,8 +374,7 @@ namespace FastBlockCompress {
             commandList.endTimerQuery(this.timers[timerBase]);
 
             commandList.beginTimerQuery(this.timers[timerBase + 1]);
-            for (let i = 0; i < image.passes.length; i++) {
-                const pass = image.passes[i];
+            for (const pass of image.passes) {
                 commandList.dispatchWithPushConstants(pass.pipeline, pass.bindingSet, Ref(pass.constants[0]),
                     COMPRESS_CONSTANTS_SIZE, pass.groups, pass.groups, 1);
             }

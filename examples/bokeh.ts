@@ -698,8 +698,7 @@ namespace Bokeh {
             const framebuffers: (ResourceHandle | null)[] = [this.sceneFramebuffer, this.sceneColorFramebuffer,
                 this.dofFramebuffer, this.rgbzFramebuffer, this.rgbzHalfFramebuffer, this.sceneColor, this.sceneDepth,
                 this.dofColor, this.rgbzCopy, this.rgbzHalfCopy];
-            for (let i = 0; i < framebuffers.length; i++) {
-                const resource = framebuffers[i];
+            for (const resource of framebuffers) {
                 if (resource) {
                     this.app.releaseResource(resource);
                 }

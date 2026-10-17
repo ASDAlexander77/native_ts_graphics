@@ -289,8 +289,7 @@ namespace RasterizationOrderAttachmentAccess {
             }
             const resources: (ResourceHandle | null)[] = [this.backgroundBindingSet.handle, this.blendBindingSet.handle, this.displayBindingSet.handle,
                 this.colorTexture];
-            for (let i = 0; i < resources.length; i++) {
-                const resource = resources[i];
+            for (const resource of resources) {
                 if (resource) {
                     this.app.releaseResource(resource);
                 }

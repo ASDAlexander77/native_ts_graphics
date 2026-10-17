@@ -888,8 +888,7 @@ namespace Collision {
             }
             Donut_CollisionFrustumCorners(Ref(frustum[0]), Ref(c[0]));
             const edges = [0, 1, 1, 2, 2, 3, 3, 0, 0, 4, 1, 5, 2, 6, 3, 7, 4, 5, 5, 6, 6, 7, 7, 4];
-            for (let i = 0; i < edges.length; i++) {
-                const k = edges[i];
+            for (const k of edges) {
                 const corner: number[] = [c[k * 3], c[k * 3 + 1], c[k * 3 + 2]];
                 this.vertex(corner, color);
             }

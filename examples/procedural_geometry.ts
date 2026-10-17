@@ -581,8 +581,7 @@ namespace ProceduralGeometry {
             pipelineDesc.addShader(shaderLibrary, "MyMissShader_ShadowRay", ShaderType.Miss);
             pipelineDesc.addHitGroup(shaderLibrary, "MyHitGroup_Triangle", "MyClosestHitShader_Triangle", "", null);
             pipelineDesc.addHitGroup(shaderLibrary, "MyHitGroup_Triangle_ShadowRay", "", "", null);
-            for (let t = 0; t < INTERSECTION_SHADER_NAMES.length; t++) {
-                const name = INTERSECTION_SHADER_NAMES[t];
+            for (const name of INTERSECTION_SHADER_NAMES) {
                 pipelineDesc.addProceduralHitGroup(shaderLibrary, `MyHitGroup_AABB_${name}`,
                     `MyIntersectionShader_${name}`, "MyClosestHitShader_AABB", "", null);
                 pipelineDesc.addProceduralHitGroup(shaderLibrary, `MyHitGroup_AABB_${name}_ShadowRay`,
