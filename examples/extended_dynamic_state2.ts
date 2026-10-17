@@ -550,8 +550,7 @@ namespace ExtendedDynamicState2 {
             frame.drawIndexedRangeWithPushConstants(RESTART_INDICES.length, 0, 0, Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
 
             // The tessellated scene.
-            for (let i = 0; i < this.tessNodes.length; i++) {
-                const node = this.tessNodes[i];
+            for (const node of this.tessNodes) {
                 this.drawNode(frame, this.tessPipeline, framebuffer, node, node.color[3]);
             }
         }

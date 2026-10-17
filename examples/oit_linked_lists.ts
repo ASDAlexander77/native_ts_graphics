@@ -292,8 +292,7 @@ namespace OitLinkedLists {
             }
             const resources: (ResourceHandle | null)[] = [this.gatherBindingSet.handle, this.combineBindingSet.handle, this.linkedListHead,
                 this.fragmentBuffer, this.fragmentCounter];
-            for (let i = 0; i < resources.length; i++) {
-                const resource = resources[i];
+            for (const resource of resources) {
                 if (resource) {
                     this.app.releaseResource(resource);
                 }

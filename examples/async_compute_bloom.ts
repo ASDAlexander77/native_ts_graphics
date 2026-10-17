@@ -475,8 +475,7 @@ namespace AsyncComputeBloom {
             // The draw state's blending (-1 before the first draw) and texture.
             let currentBlend = -1;
             let currentTexture = -1;
-            for (let i = 0; i < this.order.length; i++) {
-                const d = this.order[i];
+            for (const d of this.order) {
                 const blend = this.drawBlend[d] ? 1 : 0;
                 const texture = forward ? this.drawTexture[d] : 0;
                 // A new draw state for another pipeline or binding set.
@@ -677,8 +676,7 @@ namespace AsyncComputeBloom {
 
             // As the framework loads ASTC textures on GPUs without ASTC: level 0 decoded (to DDS
             // here), the mip levels generated.
-            for (let t = 0; t < imageNames.length; t++) {
-                const name = imageNames[t];
+            for (const name of imageNames) {
                 const dot = name.lastIndexOf(".");
                 const path = SCENE_DIR + (dot >= 0 ? name.substring(0, dot) : name) + ".dds";
                 const texture = this.app.loadTexture(commandList, path, 1);

@@ -389,8 +389,7 @@ namespace MeshletInstancing {
             commandList.clearTextureFloat(this.colorBuffer, CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
             commandList.clearDepth(this.depthBuffer, 1.0);
 
-            for (let m = 0; m < this.meshes.length; m++) {
-                const mesh = this.meshes[m];
+            for (const mesh of this.meshes) {
                 frame.beginMeshDrawToFramebuffer(this.pipeline, this.framebuffer);
                 frame.drawAddBindingSet(mesh.bindingSet);
                 for (let s = 0; s < mesh.packCounts.length; s++) {

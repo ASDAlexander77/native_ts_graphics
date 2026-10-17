@@ -776,8 +776,7 @@ namespace SparseImage {
             const oldMip: int = Math.floor(block.oldMipLevel);
             let pageIndices = this.getMemoryDependencyForTheBlock(block.column, block.row, oldMip);
             const oldKey = this.blockKey(oldMip, block.column, block.row);
-            for (let i = 0; i < pageIndices.length; i++) {
-                const pageIndex = pageIndices[i];
+            for (const pageIndex of pageIndices) {
                 if (!this.pageFixed[pageIndex]) {
                     sortedRemove(this.pageRenderRequired[pageIndex], oldKey);
                 }
@@ -790,8 +789,7 @@ namespace SparseImage {
             const newMip: int = Math.floor(block.newMipLevel);
             pageIndices = this.getMemoryDependencyForTheBlock(block.column, block.row, newMip);
             const newKey = this.blockKey(newMip, block.column, block.row);
-            for (let i = 0; i < pageIndices.length; i++) {
-                const pageIndex = pageIndices[i];
+            for (const pageIndex of pageIndices) {
                 sortedInsert(this.pageRenderRequired[pageIndex], newKey);
 
                 if (!this.pageValid[pageIndex]) {
@@ -980,8 +978,7 @@ namespace SparseImage {
             this.pendingCommands = true;
 
             let tempSectors: int[] = [];
-            for (let i = 0; i < pages.length; i++) {
-                const pageIndex = pages[i];
+            for (const pageIndex of pages) {
                 const sectorIndex = this.pageSector[pageIndex];
                 this.sectors[sectorIndex].references++;
                 tempSectors.push(sectorIndex);

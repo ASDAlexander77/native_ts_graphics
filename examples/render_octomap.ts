@@ -663,8 +663,7 @@ namespace RenderOctomap {
         releaseTargets(): void {
             const resources: (ResourceHandle | null)[] = [this.octomapPipeline, this.gltfPipeline, this.splatPipeline, this.framebuffer,
                 this.colorBuffer, this.depthBuffer];
-            for (let i = 0; i < resources.length; i++) {
-                const resource = resources[i];
+            for (const resource of resources) {
                 if (resource) {
                     this.app.releaseResource(resource);
                 }

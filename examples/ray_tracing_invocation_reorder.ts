@@ -183,15 +183,13 @@ namespace RayTracingInvocationReorder {
 
         updateParticles(timeDelta: number): void {
             const remaining: FlameParticle[] = [];
-            for (let i = 0; i < this.particles.length; i++) {
-                const particle = this.particles[i];
+            for (const particle of this.particles) {
                 if (!(particle.duration > generateRandom() * this.lifetime)) {
                     remaining.push(particle);
                 }
             }
 
-            for (let i = 0; i < remaining.length; i++) {
-                const particle = remaining[i];
+            for (const particle of remaining) {
                 for (let k = 0; k < 3; k++) {
                     particle.position[k] += timeDelta * particle.velocity[k];
                 }
@@ -576,8 +574,7 @@ namespace RayTracingInvocationReorder {
             this.createDynamicObjectBuffers(this.time);
             commandList.writeBuffer(this.dynamicVertexBuffer, Ref(this.refractionModel[0]),
                 GRID_SIZE * GRID_SIZE * VERTEX_SIZE);
-            for (let i = 0; i < this.modelBuffers.length; i++) {
-                const modelBuffer = this.modelBuffers[i];
+            for (const modelBuffer of this.modelBuffers) {
                 if (!modelBuffer.isStatic) {
                     modelBuffer.blas.update(commandList);
                 }
@@ -660,8 +657,7 @@ namespace RayTracingInvocationReorder {
 
             const pts = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]];
             let vertices: f32[] = [];
-            for (let i = 0; i < pts.length; i++) {
-                const pt = pts[i];
+            for (const pt of pts) {
                 // center the point
                 vertices.push(pt[0] - 0.5);
                 vertices.push(pt[1] - 0.5);
@@ -686,8 +682,7 @@ namespace RayTracingInvocationReorder {
         createBuffersAndBlases(commandList: CommandList): void {
             let staticVertices: f32[] = [];
             let staticTriangles: int[] = [];
-            for (let i = 0; i < this.models.length; i++) {
-                const model = this.models[i];
+            for (const model of this.models) {
                 const modelBuffer = new ModelBuffer(staticVertices.length / VERTEX_FLOATS * VERTEX_SIZE,
                     staticTriangles.length / 3 * TRIANGLE_SIZE, model.vertices.length / VERTEX_FLOATS,
                     model.triangles.length / 3, model.textureIndex, model.objectType, true);
@@ -730,8 +725,7 @@ namespace RayTracingInvocationReorder {
             // This buffer is used to correlate the instance information with model information:
             // struct SceneInstanceData { vertex_index, indices_index, image_index, object_type }.
             let modelInstanceData: int[] = [];
-            for (let i = 0; i < this.modelBuffers.length; i++) {
-                const modelBuffer = this.modelBuffers[i];
+            for (const modelBuffer of this.modelBuffers) {
                 modelInstanceData.push(modelBuffer.vertexOffset / VERTEX_SIZE);
                 modelInstanceData.push(modelBuffer.indexOffset / TRIANGLE_SIZE);
                 modelInstanceData.push(modelBuffer.textureIndex);

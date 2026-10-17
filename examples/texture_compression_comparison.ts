@@ -291,8 +291,7 @@ namespace TextureCompressionComparison {
             let time = 0.0;
             let bytes = 0.0;
             let loaded = true;
-            for (let t = 0; t < this.imageNames.length; t++) {
-                const name = this.imageNames[t];
+            for (const name of this.imageNames) {
                 const file = this.app.loadBinaryFile(SCENE_DIR + "ktx2/" + name + "2");
                 if (file.isNull()) {
                     loaded = false;
@@ -406,8 +405,7 @@ namespace TextureCompressionComparison {
             }
             this.sortDraws(position[0], position[1], position[2]);
             let currentTexture = -1;
-            for (let i = 0; i < this.order.length; i++) {
-                const d = this.order[i];
+            for (const d of this.order) {
                 const texture = this.drawTexture[d];
                 if (texture != currentTexture) {
                     frame.beginDrawToFramebuffer(this.pipeline, this.framebuffers[index]);

@@ -239,8 +239,7 @@ namespace ConditionalRendering {
 
         releaseTargets(): void {
             const resources: (ResourceHandle | null)[] = [this.pipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
-            for (let i = 0; i < resources.length; i++) {
-                const resource = resources[i];
+            for (const resource of resources) {
                 if (resource) {
                     this.app.releaseResource(resource);
                 }
