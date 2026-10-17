@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { perspProjReverse } from "../core/matrix";
 
 namespace TerrainTessellation {
     // Test mode: the frames rendered.
@@ -60,24 +61,6 @@ namespace TerrainTessellation {
     // glm::radians(float): in float32, as every use in the sample is.
     function radians(degrees: number) {
         return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
-    }
-
-    // The sample's glm::perspective(fov, aspect, 512, 0.1) (near and far swapped for reversed
-    // depth), in Donut's row-vector convention, with view space z forward.
-    // In float32, in glm's order of operations.
-    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
-        const near = Math.fround(zNear);
-        const far = Math.fround(zFar);
-        const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
-        const xScale = Math.fround(1.0 / Math.fround(Math.fround(aspect) * tanHalfFovy));
-        const yScale = Math.fround(1.0 / tanHalfFovy);
-        const depthRange = Math.fround(far - near);
-        return [
-            xScale, 0.0,    0.0,                                            0.0,
-            0.0,    yScale, 0.0,                                            0.0,
-            0.0,    0.0,    -Math.fround(near / depthRange),                1.0,
-            0.0,    0.0,    Math.fround(Math.fround(far * near) / depthRange), 0.0,
-        ];
     }
 
     // --- Passes -------------------------------------------------------------------------------

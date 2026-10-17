@@ -857,7 +857,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_buffer.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/vertex_buffer
 )
-add_tslang_example(vertex_buffer MEDIA nvidia-logo.png)
+add_tslang_example(vertex_buffer core/matrix.ts MEDIA nvidia-logo.png)
 add_tslang_example_test(vertex_buffer)
 
 # The whole media folder goes next to the executables, at build time so files added to it later are
@@ -896,7 +896,7 @@ add_tslang_example_test(threaded_rendering)
 
 # Port of Donut-Samples' deferred_shading: no shaders of its own (Donut's G-buffer fill and
 # deferred lighting passes); uses media/nvidia-logo.png, copied with the media folder above.
-add_tslang_example(deferred_shading MEDIA nvidia-logo.png)
+add_tslang_example(deferred_shading core/matrix.ts MEDIA nvidia-logo.png)
 add_tslang_example_test(deferred_shading)
 
 # Port of Donut-Samples' rt_shadows: ray traced sun shadows on Sponza (see DONUT_SAMPLES_MEDIA_DIR
@@ -909,7 +909,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_shadows/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_shadows/spirv
 )
-add_tslang_example(rt_shadows MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example(rt_shadows core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(rt_shadows)
 
 # Port of Donut-Samples' variable_shading: variable rate shading of Sponza (see
@@ -922,7 +922,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/variable_shading/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/variable_shading/spirv
 )
-add_tslang_example(variable_shading MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example(variable_shading core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(variable_shading)
 
 # Port of Donut-Samples' async_compute: a compute-queue worker thread animates textures that the
@@ -946,7 +946,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_nbody
 )
-add_tslang_example(compute_nbody)
+add_tslang_example(compute_nbody core/matrix.ts)
 add_tslang_example_test(compute_nbody)
 
 # compute_nbody with collisions: a third compute pass makes the particles bounce off each other
@@ -958,7 +958,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody_collisions.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody_collisions_post.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_nbody_collisions
 )
-add_tslang_example(compute_nbody_collisions)
+add_tslang_example(compute_nbody_collisions core/matrix.ts)
 add_tslang_example_test(compute_nbody_collisions)
 # Two heavy centers head on: their bounce keeps the momentum only if the compute passes, which
 # share one binding set, are separated by UAV barriers (patches/nvrhi-uav-barriers-same-binding-set.patch).
@@ -1010,7 +1010,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/terrain_tessellation.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/terrain_tessellation
 )
-add_tslang_example(terrain_tessellation MEDIA terrain_tessellation)
+add_tslang_example(terrain_tessellation core/matrix.ts MEDIA terrain_tessellation)
 add_tslang_example_test(terrain_tessellation)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1040,7 +1040,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/instancing.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/instancing
 )
-add_tslang_example(instancing MEDIA instancing)
+add_tslang_example(instancing core/matrix.ts MEDIA instancing)
 add_tslang_example_test(instancing)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1080,7 +1080,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/hdr
 )
-add_tslang_example(hdr MEDIA hdr)
+add_tslang_example(hdr core/matrix.ts MEDIA hdr)
 add_tslang_example_test(hdr)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1116,7 +1116,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/calibrated_timestamps
 )
-add_tslang_example(calibrated_timestamps MEDIA fonts hdr)
+add_tslang_example(calibrated_timestamps core/matrix.ts MEDIA fonts hdr)
 if (TARGET hdr_media)
     add_dependencies(calibrated_timestamps hdr_media)
 endif()
@@ -1135,7 +1135,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/spirv
 )
-add_tslang_example(ray_tracing_extended MEDIA ray_tracing_extended)
+add_tslang_example(ray_tracing_extended core/matrix.ts MEDIA ray_tracing_extended)
 add_tslang_example_test(ray_tracing_extended)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1190,7 +1190,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multi_draw_indirect/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/multi_draw_indirect/spirv
 )
-add_tslang_example(multi_draw_indirect MEDIA multi_draw_indirect)
+add_tslang_example(multi_draw_indirect core/matrix.ts MEDIA multi_draw_indirect)
 add_tslang_example_test(multi_draw_indirect)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1241,7 +1241,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute_bloom.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/async_compute_bloom_post.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/async_compute_bloom
 )
-add_tslang_example(async_compute_bloom MEDIA async_compute_bloom)
+add_tslang_example(async_compute_bloom core/matrix.ts MEDIA async_compute_bloom)
 add_tslang_example_test(async_compute_bloom)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1293,7 +1293,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_linked_lists.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_linked_lists
 )
-add_tslang_example(oit_linked_lists MEDIA oit_linked_lists)
+add_tslang_example(oit_linked_lists core/matrix.ts MEDIA oit_linked_lists)
 add_tslang_example_test(oit_linked_lists)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1337,7 +1337,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/gshader_to_mshader/spirv
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_mesh_shader"
 )
-add_tslang_example(gshader_to_mshader MEDIA gshader_to_mshader)
+add_tslang_example(gshader_to_mshader core/matrix.ts MEDIA gshader_to_mshader)
 add_tslang_example_test(gshader_to_mshader)
 add_dependencies(gshader_to_mshader gshader_to_mshader_mesh_shaders)
 if (VULKAN_SAMPLES_ASSETS_DIR)
@@ -1364,7 +1364,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/sparse_image/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/sparse_image/spirv
 )
-add_tslang_example(sparse_image MEDIA sparse_image)
+add_tslang_example(sparse_image core/matrix.ts MEDIA sparse_image)
 add_tslang_example_test(sparse_image)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1403,7 +1403,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/conservative_rasterization.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/conservative_rasterization
 )
-add_tslang_example(conservative_rasterization)
+add_tslang_example(conservative_rasterization core/matrix.ts)
 add_tslang_example_test(conservative_rasterization)
 
 # Port of Vulkan-Samples' conditional_rendering: each node of a glTF model drawn or skipped by a
@@ -1417,7 +1417,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/conditional_rendering.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/conditional_rendering
 )
-add_tslang_example(conditional_rendering MEDIA conditional_rendering)
+add_tslang_example(conditional_rendering core/matrix.ts MEDIA conditional_rendering)
 add_tslang_example_test(conditional_rendering)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/Buggy/glTF-Embedded/Buggy.gltf")
@@ -1444,7 +1444,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rasterization_order_attachment_access
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_fragment_shader_interlock"
 )
-add_tslang_example(rasterization_order_attachment_access MEDIA rasterization_order_attachment_access)
+add_tslang_example(rasterization_order_attachment_access core/matrix.ts MEDIA rasterization_order_attachment_access)
 add_tslang_example_test(rasterization_order_attachment_access)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1481,7 +1481,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shader_barycentric/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shader_barycentric/spirv
 )
-add_tslang_example(fragment_shader_barycentric MEDIA fragment_shader_barycentric)
+add_tslang_example(fragment_shader_barycentric core/matrix.ts MEDIA fragment_shader_barycentric)
 add_tslang_example_test(fragment_shader_barycentric)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1558,7 +1558,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/logic_op_dynamic_state.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/logic_op_dynamic_state
 )
-add_tslang_example(logic_op_dynamic_state MEDIA logic_op_dynamic_state)
+add_tslang_example(logic_op_dynamic_state core/matrix.ts MEDIA logic_op_dynamic_state)
 add_tslang_example_test(logic_op_dynamic_state)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1593,7 +1593,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_depth_peeling.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_depth_peeling
 )
-add_tslang_example(oit_depth_peeling MEDIA oit_depth_peeling)
+add_tslang_example(oit_depth_peeling core/matrix.ts MEDIA oit_depth_peeling)
 add_tslang_example_test(oit_depth_peeling)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1628,7 +1628,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/render_octomap.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/render_octomap
 )
-add_tslang_example(render_octomap MEDIA render_octomap)
+add_tslang_example(render_octomap core/matrix.ts MEDIA render_octomap)
 add_tslang_example_test(render_octomap)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(octomap_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/octmap_and_splats")
@@ -1661,7 +1661,7 @@ donut_compile_shaders(
 )
 # Hit objects are shader model 6.9: the Agility SDK runtime on D3D12 (the OS's may not have it).
 if (NVRHI_WITH_DX12)
-    add_tslang_example(ray_tracing_invocation_reorder core/d3d12_agility_sdk.cpp)
+    add_tslang_example(ray_tracing_invocation_reorder core/matrix.ts core/d3d12_agility_sdk.cpp)
 else()
     add_tslang_example(ray_tracing_invocation_reorder MEDIA ray_tracing_extended)
 endif()
@@ -1682,7 +1682,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/msaa.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/msaa_post.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/msaa
 )
-add_tslang_example(msaa MEDIA msaa)
+add_tslang_example(msaa core/matrix.ts MEDIA msaa)
 add_tslang_example_test(msaa)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1728,7 +1728,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_blending.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_blending
 )
-add_tslang_example(dynamic_blending)
+add_tslang_example(dynamic_blending core/matrix.ts core/text_format.ts)
 add_tslang_example_test(dynamic_blending)
 
 # Port of Vulkan-Samples' texture_mipmap_generation: a texture's mip chain generated on the GPU from
@@ -1742,7 +1742,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_mipmap_generation.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_mipmap_generation
 )
-add_tslang_example(texture_mipmap_generation MEDIA texture_mipmap_generation)
+add_tslang_example(texture_mipmap_generation core/matrix.ts MEDIA texture_mipmap_generation)
 add_tslang_example_test(texture_mipmap_generation)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1778,7 +1778,7 @@ donut_compile_shaders(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ray_tracing_position_fetch.hlsl
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_position_fetch/spirv
 )
-add_tslang_example(ray_tracing_position_fetch MEDIA ray_tracing_position_fetch)
+add_tslang_example(ray_tracing_position_fetch core/matrix.ts MEDIA ray_tracing_position_fetch)
 add_tslang_example_test(ray_tracing_position_fetch APIS vk)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(position_fetch_media)
@@ -1810,7 +1810,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate_dynamic/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate_dynamic/spirv
 )
-add_tslang_example(fragment_shading_rate_dynamic MEDIA fragment_shading_rate_dynamic)
+add_tslang_example(fragment_shading_rate_dynamic core/matrix.ts MEDIA fragment_shading_rate_dynamic)
 add_tslang_example_test(fragment_shading_rate_dynamic)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1876,7 +1876,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/msaa.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_compression_comparison
 )
-add_tslang_example(texture_compression_comparison core/transcoded_texture.ts core/basis_transcoder.cpp MEDIA texture_compression_comparison)
+add_tslang_example(texture_compression_comparison core/matrix.ts core/transcoded_texture.ts core/basis_transcoder.cpp MEDIA texture_compression_comparison)
 add_tslang_example_test(texture_compression_comparison)
 target_link_libraries(texture_compression_comparison PRIVATE basisu_transcoder)
 if (TARGET texture_compression_comparison_app)
@@ -1939,7 +1939,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_line_rasterization.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_line_rasterization
 )
-add_tslang_example(dynamic_line_rasterization)
+add_tslang_example(dynamic_line_rasterization core/matrix.ts core/text_format.ts)
 add_tslang_example_test(dynamic_line_rasterization)
 
 # Port of Vulkan-Samples' extended_dynamic_state2: primitives over an environment cube map, each
@@ -1955,7 +1955,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/extended_dynamic_state2.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/extended_dynamic_state2
 )
-add_tslang_example(extended_dynamic_state2 MEDIA extended_dynamic_state2)
+add_tslang_example(extended_dynamic_state2 core/matrix.ts core/text_format.ts MEDIA extended_dynamic_state2)
 add_tslang_example_test(extended_dynamic_state2)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1994,7 +1994,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fragment_shading_rate/spirv
 )
-add_tslang_example(fragment_shading_rate MEDIA fragment_shading_rate)
+add_tslang_example(fragment_shading_rate core/matrix.ts MEDIA fragment_shading_rate)
 add_tslang_example_test(fragment_shading_rate)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -2035,7 +2035,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/instancing.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/memory_budget
 )
-add_tslang_example(memory_budget MEDIA memory_budget)
+add_tslang_example(memory_budget core/matrix.ts core/text_format.ts MEDIA memory_budget)
 add_tslang_example_test(memory_budget)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -2075,7 +2075,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mobile_nerf.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mobile_nerf
 )
-add_tslang_example(mobile_nerf MEDIA mobile_nerf)
+add_tslang_example(mobile_nerf core/matrix.ts MEDIA mobile_nerf)
 add_tslang_example_test(mobile_nerf)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(mobile_nerf_media)
@@ -2106,7 +2106,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_primitive_clipping.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_primitive_clipping
 )
-add_tslang_example(dynamic_primitive_clipping MEDIA dynamic_primitive_clipping)
+add_tslang_example(dynamic_primitive_clipping core/matrix.ts core/text_format.ts MEDIA dynamic_primitive_clipping)
 add_tslang_example_test(dynamic_primitive_clipping)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(dynamic_primitive_clipping_media)
@@ -2136,7 +2136,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mobile_nerf_rayquery/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mobile_nerf_rayquery/spirv
 )
-add_tslang_example(mobile_nerf_rayquery MEDIA mobile_nerf)
+add_tslang_example(mobile_nerf_rayquery core/matrix.ts MEDIA mobile_nerf)
 add_tslang_example_test(mobile_nerf_rayquery)
 if (TARGET mobile_nerf_media)
     add_dependencies(mobile_nerf_rayquery mobile_nerf_media)
@@ -2154,7 +2154,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_queries/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_queries/spirv
 )
-add_tslang_example(ray_queries MEDIA ray_tracing_extended)
+add_tslang_example(ray_queries core/matrix.ts MEDIA ray_tracing_extended)
 add_tslang_example_test(ray_queries)
 if (TARGET ray_tracing_extended_media)
     add_dependencies(ray_queries ray_tracing_extended_media)
@@ -2171,7 +2171,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_reflection/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_reflection/spirv
 )
-add_tslang_example(ray_tracing_reflection)
+add_tslang_example(ray_tracing_reflection core/matrix.ts)
 add_tslang_example_test(ray_tracing_reflection)
 
 # Port of Vulkan-Samples' timestamp_queries: its hdr sample (hdr's shaders and models) with the GPU
@@ -2183,7 +2183,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/hdr.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/timestamp_queries
 )
-add_tslang_example(timestamp_queries MEDIA hdr)
+add_tslang_example(timestamp_queries core/matrix.ts MEDIA hdr)
 add_tslang_example_test(timestamp_queries)
 if (TARGET hdr_media)
     add_dependencies(timestamp_queries hdr_media)
@@ -2200,7 +2200,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/patch_control_points.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/patch_control_points
 )
-add_tslang_example(patch_control_points MEDIA patch_control_points)
+add_tslang_example(patch_control_points core/matrix.ts MEDIA patch_control_points)
 add_tslang_example_test(patch_control_points)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/terrain/terrain.gltf")
@@ -2266,7 +2266,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_multisample_rasterization.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_multisample_rasterization
 )
-add_tslang_example(dynamic_multisample_rasterization MEDIA msaa dynamic_multisample_rasterization)
+add_tslang_example(dynamic_multisample_rasterization core/matrix.ts MEDIA msaa dynamic_multisample_rasterization)
 add_tslang_example_test(dynamic_multisample_rasterization)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(sources)
@@ -2299,7 +2299,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_dynamic_state.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/vertex_dynamic_state
 )
-add_tslang_example(vertex_dynamic_state MEDIA hdr)
+add_tslang_example(vertex_dynamic_state core/matrix.ts MEDIA hdr)
 add_tslang_example_test(vertex_dynamic_state)
 if (TARGET hdr_media)
     add_dependencies(vertex_dynamic_state hdr_media)
@@ -2315,7 +2315,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/vertex_dynamic_state.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_rendering
 )
-add_tslang_example(dynamic_rendering MEDIA hdr)
+add_tslang_example(dynamic_rendering core/matrix.ts MEDIA hdr)
 add_tslang_example_test(dynamic_rendering)
 if (TARGET hdr_media)
     add_dependencies(dynamic_rendering hdr_media)
@@ -2332,7 +2332,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/graphics_pipeline_library.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/graphics_pipeline_library
 )
-add_tslang_example(graphics_pipeline_library MEDIA hdr)
+add_tslang_example(graphics_pipeline_library core/matrix.ts MEDIA hdr)
 add_tslang_example_test(graphics_pipeline_library)
 if (TARGET hdr_media)
     add_dependencies(graphics_pipeline_library hdr_media)
@@ -2362,7 +2362,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_uniform_buffers.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_uniform_buffers
 )
-add_tslang_example(dynamic_uniform_buffers)
+add_tslang_example(dynamic_uniform_buffers core/matrix.ts)
 add_tslang_example_test(dynamic_uniform_buffers)
 
 # Port of Vulkan-Samples' texture_loading: a lit quad with a texture loaded with its mip levels,
@@ -2375,7 +2375,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_loading.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_loading
 )
-add_tslang_example(texture_loading MEDIA fragment_shading_rate)
+add_tslang_example(texture_loading core/matrix.ts MEDIA fragment_shading_rate)
 add_tslang_example_test(texture_loading)
 if (TARGET fragment_shading_rate_media)
     add_dependencies(texture_loading fragment_shading_rate_media)
@@ -2392,7 +2392,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_loading.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/host_image_copy
 )
-add_tslang_example(host_image_copy MEDIA fonts fragment_shading_rate)
+add_tslang_example(host_image_copy core/matrix.ts MEDIA fonts fragment_shading_rate)
 if (TARGET fragment_shading_rate_media)
     add_dependencies(host_image_copy fragment_shading_rate_media)
 endif()
@@ -2424,7 +2424,7 @@ donut_compile_shaders(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_debugprintf.hlsl
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_debugprintf/spirv
 )
-add_tslang_example(shader_debugprintf MEDIA fonts fragment_shading_rate_dynamic)
+add_tslang_example(shader_debugprintf core/matrix.ts MEDIA fonts fragment_shading_rate_dynamic)
 if (TARGET fragment_shading_rate_dynamic_media)
     add_dependencies(shader_debugprintf fragment_shading_rate_dynamic_media)
 endif()
@@ -2443,7 +2443,7 @@ donut_compile_shaders(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/push_descriptors.hlsl
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/push_descriptors/spirv
 )
-add_tslang_example(push_descriptors MEDIA fonts fragment_shading_rate push_descriptors)
+add_tslang_example(push_descriptors core/matrix.ts MEDIA fonts fragment_shading_rate push_descriptors)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(push_descriptors_media)
@@ -2475,7 +2475,7 @@ donut_compile_shaders(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/descriptor_buffer_basic.hlsl
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/descriptor_buffer_basic/spirv
 )
-add_tslang_example(descriptor_buffer_basic MEDIA fonts fragment_shading_rate push_descriptors)
+add_tslang_example(descriptor_buffer_basic core/matrix.ts MEDIA fonts fragment_shading_rate push_descriptors)
 if (TARGET push_descriptors_media)
     add_dependencies(descriptor_buffer_basic push_descriptors_media fragment_shading_rate_media)
 endif()
@@ -2491,7 +2491,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/separate_image_sampler.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/separate_image_sampler
 )
-add_tslang_example(separate_image_sampler MEDIA fragment_shading_rate)
+add_tslang_example(separate_image_sampler core/matrix.ts MEDIA fragment_shading_rate)
 add_tslang_example_test(separate_image_sampler)
 if (TARGET fragment_shading_rate_media)
     add_dependencies(separate_image_sampler fragment_shading_rate_media)
@@ -2509,7 +2509,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/dynamic_rendering_local_read.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/dynamic_rendering_local_read
 )
-add_tslang_example(dynamic_rendering_local_read MEDIA dynamic_rendering_local_read)
+add_tslang_example(dynamic_rendering_local_read core/matrix.ts MEDIA dynamic_rendering_local_read)
 add_tslang_example_test(dynamic_rendering_local_read)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(dynamic_rendering_local_read_media)
@@ -2547,7 +2547,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/shader_object.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/shader_object
 )
-add_tslang_example(shader_object MEDIA hdr instancing/rock.gltf terrain_tessellation texture_mipmap_generation/checkerboard_rgba.dds)
+add_tslang_example(shader_object core/matrix.ts MEDIA hdr instancing/rock.gltf terrain_tessellation texture_mipmap_generation/checkerboard_rgba.dds)
 add_tslang_example_test(shader_object)
 foreach(media hdr_media instancing_media terrain_tessellation_media texture_mipmap_generation_media)
     if (TARGET ${media})
@@ -2567,7 +2567,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/texture_compression_basisu.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/texture_compression_basisu
 )
-add_tslang_example(texture_compression_basisu core/transcoded_texture.ts core/basis_transcoder.cpp MEDIA texture_compression_basisu)
+add_tslang_example(texture_compression_basisu core/matrix.ts core/text_format.ts core/transcoded_texture.ts core/basis_transcoder.cpp MEDIA texture_compression_basisu)
 add_tslang_example_test(texture_compression_basisu)
 target_link_libraries(texture_compression_basisu PRIVATE basisu_transcoder)
 if (TARGET texture_compression_basisu_app)
@@ -2609,7 +2609,7 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fast_block_compress_quad.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/fast_block_compress
 )
-add_tslang_example(fast_block_compress core/fbc_texture.ts core/fast_block_compress.cpp core/fbc_cpu.cpp MEDIA fast_block_compress)
+add_tslang_example(fast_block_compress core/text_format.ts core/fbc_texture.ts core/fast_block_compress.cpp core/fbc_cpu.cpp MEDIA fast_block_compress)
 add_tslang_example_test(fast_block_compress)
 if (XBOX_ATG_SAMPLES_DIR)
     set(fbc_media)
@@ -2643,7 +2643,7 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_hdr_convert.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_hdr
 )
-add_tslang_example(simple_hdr MEDIA fonts)
+add_tslang_example(simple_hdr core/text_format.ts MEDIA fonts)
 add_tslang_example_test(simple_hdr)
 
 # Port of the Xbox ATG VideoTexturePC12 sample (PCSamples/Graphics/VideoTexturePC12): a video played
@@ -2659,7 +2659,7 @@ if (WIN32)
         SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/video_texture.hlsl
         OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/video_texture
     )
-    add_tslang_example(video_texture core/video_player.ts core/video_player.cpp MEDIA fonts video_texture)
+    add_tslang_example(video_texture core/matrix.ts core/video_player.ts core/video_player.cpp MEDIA fonts video_texture)
     add_tslang_example_test(video_texture)
     target_link_libraries(video_texture PRIVATE delayimp)
     target_link_options(video_texture PRIVATE /DELAYLOAD:mfplat.dll)
@@ -2721,7 +2721,7 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/bokeh_scene.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bokeh
 )
-add_tslang_example(bokeh core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts bokeh)
+add_tslang_example(bokeh core/matrix.ts core/text_format.ts core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts bokeh)
 add_tslang_example_test(bokeh)
 add_atg_media(bokeh bokeh
     Media/Meshes/MicroscopeCity/scanner.sdkmesh
@@ -2754,7 +2754,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_ao/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_ao/spirv
 )
-add_tslang_example(raytracing_ao core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts raytracing_ao)
+add_tslang_example(raytracing_ao core/matrix.ts core/text_format.ts core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts raytracing_ao)
 add_tslang_example_test(raytracing_ao)
 add_atg_media(raytracing_ao raytracing_ao
     Media/Meshes/Dragon/Dragon.sdkmesh
@@ -2777,7 +2777,7 @@ donut_compile_shaders_all_platforms(
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_pbr_tonemap.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_pbr
 )
-add_tslang_example(simple_pbr core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts simple_pbr)
+add_tslang_example(simple_pbr core/matrix.ts core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts simple_pbr)
 add_tslang_example_test(simple_pbr)
 add_atg_media(simple_pbr simple_pbr
     Media/PBR/ToyRobot/Floor/Floor.sdkmesh
@@ -2807,7 +2807,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_compute.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_compute
 )
-add_tslang_example(simple_compute MEDIA fonts)
+add_tslang_example(simple_compute core/text_format.ts MEDIA fonts)
 add_tslang_example_test(simple_compute)
 
 # Port of the Xbox ATG SimpleBezierPC12 sample (PCSamples/IntroGraphics/SimpleBezierPC12): a Mobius
@@ -2820,7 +2820,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/simple_bezier.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/simple_bezier
 )
-add_tslang_example(simple_bezier MEDIA fonts)
+add_tslang_example(simple_bezier core/text_format.ts MEDIA fonts)
 add_tslang_example_test(simple_bezier)
 
 # Port of the Xbox ATG MouseCursor UWP sample (UWPSamples/System/MouseCursor): a menu picked with the
@@ -2835,7 +2835,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/mouse_cursor.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/mouse_cursor
 )
-add_tslang_example(mouse_cursor core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts mouse_cursor)
+add_tslang_example(mouse_cursor core/matrix.ts core/sdk_mesh.ts core/sdkmesh.cpp MEDIA fonts mouse_cursor)
 add_tslang_example_test(mouse_cursor)
 add_atg_media(mouse_cursor mouse_cursor
     Media/Meshes/FPSRoom/FPSRoom.sdkmesh
@@ -3394,7 +3394,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_bindless/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_bindless/spirv
 )
-add_tslang_example(rt_bindless MEDIA sponza-plus.scene.json glTF-Sample-Assets/Models/Sponza glTF-Sample-Assets/Models/BrainStem)
+add_tslang_example(rt_bindless core/matrix.ts MEDIA sponza-plus.scene.json glTF-Sample-Assets/Models/Sponza glTF-Sample-Assets/Models/BrainStem)
 add_tslang_example_test(rt_bindless)
 
 # Port of Donut-Samples' bindless_rendering: Sponza (see DONUT_SAMPLES_MEDIA_DIR above) drawn with
@@ -3409,7 +3409,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bindless_rendering/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/bindless_rendering/spirv
 )
-add_tslang_example(bindless_rendering MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example(bindless_rendering core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(bindless_rendering)
 
 # Donut's forward shading of Sponza (see DONUT_SAMPLES_MEDIA_DIR above) under an environment map
@@ -3417,7 +3417,7 @@ add_tslang_example_test(bindless_rendering)
 # The environment map is rt_particles' lat-long BC7 DDS, or with -ktx2 the KTX 2 file
 # tools/dds_to_ktx2.py makes of it here (the same blocks, through Donut's KTX 2 loader). No shaders
 # of its own; all APIs.
-add_tslang_example(environment_map MEDIA glTF-Sample-Assets/Models/Sponza rt_particles)
+add_tslang_example(environment_map core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza rt_particles)
 add_tslang_example_test(environment_map)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(source "${CMAKE_CURRENT_SOURCE_DIR}/media/rt_particles/environment-map.dds")
@@ -3441,7 +3441,7 @@ donut_compile_shaders(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_reflections.hlsl
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections/dxil
 )
-add_tslang_example(rt_reflections MEDIA glTF-Sample-Assets/Models/Sponza)
+add_tslang_example(rt_reflections core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(rt_reflections)
 
 # Port of Donut-Samples' rt_particles: ray query rendering of billboard and intersection
@@ -3460,7 +3460,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/spirv
 )
-add_tslang_example(rt_particles MEDIA rt_particles nvidia-logo.png)
+add_tslang_example(rt_particles core/matrix.ts MEDIA rt_particles nvidia-logo.png)
 add_tslang_example_test(rt_particles)
 
 # Port of Donut-Samples' work_graphs: deferred shading of a procedural scene with one D3D12 work
@@ -3483,7 +3483,7 @@ if (NVRHI_WITH_DX12)
         DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/work_graphs/dxil
         SHADER_MODEL 6_8
     )
-    add_tslang_example(work_graphs core/d3d12_agility_sdk.cpp)
+    add_tslang_example(work_graphs core/matrix.ts core/d3d12_agility_sdk.cpp)
     add_tslang_example_test(work_graphs APIS dx12)
 endif()
 
@@ -3491,6 +3491,6 @@ endif()
 # shadows, SSAO, procedural sky, TAA or MSAA, bloom, tone mapping, light probes, material picking)
 # over a loaded scene, with an ImGui settings window and material editor; DLSS with
 # DONUT_WITH_DLSS=ON. No shaders of its own; needs the scenes and fonts of DONUT_SAMPLES_MEDIA_DIR above.
-add_tslang_example(feature_demo MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
+add_tslang_example(feature_demo core/text_format.ts MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
 add_tslang_example_test(feature_demo)
 copy_dlss_library(feature_demo)

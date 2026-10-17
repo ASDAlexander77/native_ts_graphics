@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { formatFixed } from "../core/text_format";
 
 namespace SimpleHdr {
     // Test mode: the frames rendered.
@@ -86,22 +87,6 @@ namespace SimpleHdr {
     const KEY_RIGHT_SHIFT = 344;
     const ACTION_RELEASE = 0;
     const ACTION_PRESS = 1;
-
-    function formatFixed(value: number, digits: int) {
-        let scale = 1.0;
-        for (let i = 0; i < digits; i++) {
-            scale *= 10.0;
-        }
-        const scaled = Math.round(Math.abs(value) * scale);
-        const whole: int = Math.floor(scaled / scale);
-        const fraction: int = scaled - whole * scale;
-        let fractionText = `${fraction}`;
-        while (fractionText.length < digits) {
-            fractionText = "0" + fractionText;
-        }
-        const sign = value < 0.0 && scaled > 0.0 ? "-" : "";
-        return digits > 0 ? `${sign}${whole}.${fractionText}` : `${sign}${whole}`;
-    }
 
     // HDRCommon.h (float arithmetic as the sample's): the ST.2084 curve of a normalized linear
     // value (1.0 = 10,000 nits).

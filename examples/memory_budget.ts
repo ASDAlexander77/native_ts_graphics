@@ -3,6 +3,8 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { perspProjReverse } from "../core/matrix";
+import { formatFixed } from "../core/text_format";
 
 namespace MemoryBudget {
     // Test mode: the frames rendered.
@@ -65,23 +67,6 @@ namespace MemoryBudget {
     const MEGABYTE = KILOBYTE * 1024.0;
     const GIGABYTE = MEGABYTE * 1024.0;
 
-    // A number with `digits` decimals, like printf's %.Nf (Number.toFixed is missing under the JIT).
-    function formatFixed(value: number, digits: int) {
-        let scale = 1.0;
-        for (let i = 0; i < digits; i++) {
-            scale *= 10.0;
-        }
-        const scaled = Math.round(Math.abs(value) * scale);
-        const whole: int = Math.floor(scaled / scale);
-        const fraction: int = scaled - whole * scale;
-        let fractionText = `${fraction}`;
-        while (fractionText.length < digits) {
-            fractionText = "0" + fractionText;
-        }
-        const sign = value < 0.0 && scaled > 0.0 ? "-" : "";
-        return digits > 0 ? `${sign}${whole}.${fractionText}` : `${sign}${whole}`;
-    }
-
     // The sample's update_converted_memory: a byte count in the largest unit it reaches, "%.2f %s".
     function formatMemory(bytes: number) {
         if (bytes < KILOBYTE) {
@@ -119,24 +104,6 @@ namespace MemoryBudget {
     function randomFloat() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
         return g_RandomSeed / 2147483647.0;
-    }
-
-    // The sample's glm::perspective(fov, aspect, 256, 0.1) (near and far swapped for reversed
-    // depth), in Donut's row-vector convention, with view space z forward.
-    // In float32, in glm's order of operations.
-    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
-        const near = Math.fround(zNear);
-        const far = Math.fround(zFar);
-        const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
-        const xScale = Math.fround(1.0 / Math.fround(Math.fround(aspect) * tanHalfFovy));
-        const yScale = Math.fround(1.0 / tanHalfFovy);
-        const depthRange = Math.fround(far - near);
-        return [
-            xScale, 0.0,    0.0,                                            0.0,
-            0.0,    yScale, 0.0,                                            0.0,
-            0.0,    0.0,    -Math.fround(near / depthRange),                1.0,
-            0.0,    0.0,    Math.fround(Math.fround(far * near) / depthRange), 0.0,
-        ];
     }
 
     // --- Passes -------------------------------------------------------------------------------

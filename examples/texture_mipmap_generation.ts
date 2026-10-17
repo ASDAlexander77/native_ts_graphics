@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
 
 namespace TextureMipmapGeneration {
     // Test mode: the frames rendered.
@@ -63,56 +64,6 @@ namespace TextureMipmapGeneration {
     const KEY_S = 83;
     const KEY_D = 68;
     const ACTION_RELEASE = 0;
-
-    // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
-
-    function identity() {
-        return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-    }
-
-    // a * b.
-    function multiply(a: number[], b: number[]) {
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[k * 4 + row] * b[column * 4 + k];
-                }
-                result.push(sum);
-            }
-        }
-        return result;
-    }
-
-    // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
-        const c = Math.cos(angle);
-        const s = Math.sin(angle);
-        const t = 1.0 - c;
-        const r = [
-            c + t * x * x,     t * x * y + s * z, t * x * z - s * y, 0.0,
-            t * x * y - s * z, c + t * y * y,     t * y * z + s * x, 0.0,
-            t * x * z + s * y, t * y * z - s * x, c + t * z * z,     0.0,
-            0.0,               0.0,               0.0,               1.0,
-        ];
-        return multiply(m, r);
-    }
-
-    function radians(degrees: number) {
-        return degrees * Math.PI / 180.0;
-    }
-
-    // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
-        const tanHalfFovy = Math.tan(0.5 * fov);
-        return [
-            1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
-            0.0,                          1.0 / tanHalfFovy, 0.0,                              0.0,
-            0.0,                          0.0,               zFar / (zNear - zFar),            -1.0,
-            0.0,                          0.0,               -(zFar * zNear) / (zFar - zNear), 0.0,
-        ];
-    }
 
     // The sample's camera (the framework's vkb::Camera, first person type), with ApiVulkanSample's
     // controls: the left mouse button turns it, the right one zooms, the middle one pans; W, A, S, D

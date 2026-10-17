@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { multiply, reversedPerspective, vulkanStyleProjection, toDonutClip } from "../core/matrix";
 
 namespace Msaa {
     // Test mode: the frames rendered.
@@ -99,21 +100,6 @@ namespace Msaa {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns, quaternions as x, y, z, w) --------------
 
-    // a * b.
-    function multiply(a: number[], b: number[]) {
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[k * 4 + row] * b[column * 4 + k];
-                }
-                result.push(sum);
-            }
-        }
-        return result;
-    }
-
     // glm::mat3_cast(q) * v.
     function rotate(q: number[], v: number[]) {
         const x = q[0];
@@ -125,39 +111,6 @@ namespace Msaa {
             2.0 * (x * y + w * z) * v[0] + (1.0 - 2.0 * (x * x + z * z)) * v[1] + 2.0 * (y * z - w * x) * v[2],
             2.0 * (x * z - w * y) * v[0] + 2.0 * (y * z + w * x) * v[1] + (1.0 - 2.0 * (x * x + y * y)) * v[2],
         ];
-    }
-
-    // The framework's PerspectiveCamera::get_projection, glm::perspective(fov, aspect, far, near)
-    // (near and far swapped for reversed depth; right-handed, depth from 0 to 1).
-    function reversedPerspective(fov: number, aspect: number, zNear: number, zFar: number) {
-        const tanHalfFovy = Math.tan(0.5 * fov);
-        const n = zFar;
-        const f = zNear;
-        return [
-            1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                0.0,
-            0.0,                          1.0 / tanHalfFovy, 0.0,                0.0,
-            0.0,                          0.0,               f / (n - f),        -1.0,
-            0.0,                          0.0,               -(f * n) / (f - n), 0.0,
-        ];
-    }
-
-    // The framework's vulkan_style_projection: [1][1] negated, for Vulkan's clip space (y down).
-    function vulkanStyleProjection(m: number[]) {
-        let result: number[] = [];
-        for (let i = 0; i < 16; i++) {
-            result.push(i == 5 ? -m[i] : m[i]);
-        }
-        return result;
-    }
-
-    // A matrix into the sample's clip space, into Donut's (y up on the screen): clip y negated. The
-    // pictures land where the sample's do.
-    function toDonutClip(m: number[]) {
-        let result: number[] = [];
-        for (let i = 0; i < 16; i++) {
-            result.push(i % 4 == 1 ? -m[i] : m[i]);
-        }
-        return result;
     }
 
     // --- Passes -------------------------------------------------------------------------------

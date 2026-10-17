@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, isFinite32 } from "../core/test_check";
+import { radians, perspProjD3DStyleReverse } from "../core/matrix";
 
 namespace ComputeNBody {
     const WINDOW_TITLE = "Donut Example: Compute N-Body";
@@ -26,10 +27,6 @@ namespace ComputeNBody {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    function radians(degrees: number) {
-        return degrees * Math.PI / 180.0;
-    }
-
     // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
     let g_RandomSeed = 12345.0;
     function randomFloat() {
@@ -43,21 +40,6 @@ namespace ComputeNBody {
         const u1 = randomFloat();
         const u2 = randomFloat();
         return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-    }
-
-    // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane,
-    // row-major with Donut's row-vector convention.
-    // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
-    // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
-        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
-        const xScale = Math.fround(yScale / Math.fround(aspect));
-        return [
-            xScale, 0.0,    0.0,   0.0,
-            0.0,    yScale, 0.0,   0.0,
-            0.0,    0.0,    0.0,   1.0,
-            0.0,    0.0,    zNear, 0.0,
-        ];
     }
 
     // --- Passes -------------------------------------------------------------------------------

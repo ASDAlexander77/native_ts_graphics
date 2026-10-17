@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
+import { radians, cross3, dot3 } from "../core/matrix";
 
 namespace RayTracingExtended {
     // Test mode: the frames rendered.
@@ -78,10 +79,6 @@ namespace RayTracingExtended {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    function radians(degrees: number) {
-        return degrees * Math.PI / 180.0;
-    }
-
     // std::default_random_engine with a uniform distribution over [0, 1) replacement: a Park-Miller
     // generator (tslang's Math.random isn't usable). The sample seeds its engine with the time.
     let g_RandomSeed = 12345.0;
@@ -90,17 +87,9 @@ namespace RayTracingExtended {
         return g_RandomSeed / 2147483647.0;
     }
 
-    function dot(a: number[], b: number[]) {
-        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    }
-
-    function cross(a: number[], b: number[]) {
-        return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-    }
-
     // glm::normalize: a zero vector gives NaNs, as there.
     function normalize(v: number[]) {
-        const inverseLength = 1.0 / Math.sqrt(dot(v, v));
+        const inverseLength = 1.0 / Math.sqrt(dot3(v, v));
         return [v[0] * inverseLength, v[1] * inverseLength, v[2] * inverseLength];
     }
 
@@ -135,9 +124,9 @@ namespace RayTracingExtended {
             this.radius = radius;
             this.nParticles = nParticles;
             this.lifetime = 5.0;
-            this.u = normalize(Math.abs(dot(direction, [0.0, 0.0, 1.0])) > 0.9
-                ? cross(direction, [1.0, 0.0, 0.0]) : cross(direction, [0.0, 0.0, 1.0]));
-            this.v = normalize(cross(direction, this.u));
+            this.u = normalize(Math.abs(dot3(direction, [0.0, 0.0, 1.0])) > 0.9
+                ? cross3(direction, [1.0, 0.0, 0.0]) : cross3(direction, [0.0, 0.0, 1.0]));
+            this.v = normalize(cross3(direction, this.u));
         }
 
         generateRandomDirection() {
@@ -384,7 +373,7 @@ namespace RayTracingExtended {
                 const a = indices[t] * VERTEX_FLOATS;
                 const b = indices[t + 1] * VERTEX_FLOATS;
                 const c = indices[t + 2] * VERTEX_FLOATS;
-                const normal = normalize(cross(
+                const normal = normalize(cross3(
                     [model[b] - model[a], model[b + 1] - model[a + 1], model[b + 2] - model[a + 2]],
                     [model[c] - model[a], model[c + 1] - model[a + 1], model[c + 2] - model[a + 2]]));
                 for (let k = 0; k < 3; k++) {
@@ -410,8 +399,8 @@ namespace RayTracingExtended {
             if (freezeY) {
                 normal = normalize(Math.abs(normal[1]) > 0.99 ? [0.0, 0.0, 1.0] : [normal[0], 0.0, normal[2]]);
             }
-            const u = normalize(cross(normal, [0.0, 1.0, 0.0]));
-            const v = normalize(cross(normal, u));
+            const u = normalize(cross3(normal, [0.0, 1.0, 0.0]));
+            const v = normalize(cross3(normal, u));
 
             // wait to multiply by scale until after calculating basis to prevent floating point problems
             for (let row = 0; row < 3; row++) {

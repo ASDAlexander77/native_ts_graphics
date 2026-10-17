@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
+import { perspProjD3DStyleReverse } from "../core/matrix";
 
 namespace RtBindless {
     // Test mode: the frames rendered.
@@ -37,23 +38,6 @@ namespace RtBindless {
     // come from Donut (see BindlessRayTracingPass.init).
     const AMBIENT_COLOR_OFFSET = 0;
     const LIGHT_OFFSET = 4;
-
-    // --- Math ---------------------------------------------------------------------------------
-    // Row-major 4x4 matrices (16 numbers) with Donut's row-vector convention.
-
-    // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane.
-    // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
-    // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
-        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
-        const xScale = Math.fround(yScale / Math.fround(aspect));
-        return [
-            xScale, 0.0,    0.0,   0.0,
-            0.0,    yScale, 0.0,   0.0,
-            0.0,    0.0,    0.0,   1.0,
-            0.0,    0.0,    zNear, 0.0,
-        ];
-    }
 
     // --- Passes -------------------------------------------------------------------------------
 

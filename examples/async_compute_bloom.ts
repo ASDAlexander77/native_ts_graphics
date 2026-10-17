@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { identity, multiply, reversedPerspective, vulkanStyleProjection, toDonutClip } from "../core/matrix";
 
 namespace AsyncComputeBloom {
     // Test mode: the frames rendered.
@@ -102,25 +103,6 @@ namespace AsyncComputeBloom {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns, quaternions as x, y, z, w) --------------
 
-    function identity() {
-        return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-    }
-
-    // a * b.
-    function multiply(a: number[], b: number[]) {
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[k * 4 + row] * b[column * 4 + k];
-                }
-                result.push(sum);
-            }
-        }
-        return result;
-    }
-
     // glm::angleAxis.
     function angleAxis(angle: number, x: number, y: number, z: number) {
         const s = Math.sin(0.5 * angle);
@@ -166,20 +148,6 @@ namespace AsyncComputeBloom {
         return result;
     }
 
-    // The framework's PerspectiveCamera::get_projection, glm::perspective(fov, aspect, far, near)
-    // (near and far swapped for reversed depth; right-handed, depth from 0 to 1).
-    function reversedPerspective(fov: number, aspect: number, zNear: number, zFar: number) {
-        const tanHalfFovy = Math.tan(0.5 * fov);
-        const n = zFar;
-        const f = zNear;
-        return [
-            1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                0.0,
-            0.0,                          1.0 / tanHalfFovy, 0.0,                0.0,
-            0.0,                          0.0,               f / (n - f),        -1.0,
-            0.0,                          0.0,               -(f * n) / (f - n), 0.0,
-        ];
-    }
-
     // The framework's OrthographicCamera::get_projection, glm::ortho(left, right, bottom, top,
     // far, near) (swapped too).
     function reversedOrtho(left: number, right: number, bottom: number, top: number, zNear: number, zFar: number) {
@@ -191,26 +159,6 @@ namespace AsyncComputeBloom {
             0.0,                              0.0,                              -1.0 / (f - n),   0.0,
             -(right + left) / (right - left), -(top + bottom) / (top - bottom), -n / (f - n),     1.0,
         ];
-    }
-
-    // The framework's vulkan_style_projection: [1][1] negated (only that element), for Vulkan's
-    // clip space, y down on the screen.
-    function vulkanStyleProjection(m: number[]) {
-        let result: number[] = [];
-        for (let i = 0; i < 16; i++) {
-            result.push(i == 5 ? -m[i] : m[i]);
-        }
-        return result;
-    }
-
-    // A matrix into the sample's clip space, into Donut's (y up on the screen): clip y negated. The
-    // pictures (and shadow map texels) land where the sample's do.
-    function toDonutClip(m: number[]) {
-        let result: number[] = [];
-        for (let i = 0; i < 16; i++) {
-            result.push(i % 4 == 1 ? -m[i] : m[i]);
-        }
-        return result;
     }
 
     // --- Passes -------------------------------------------------------------------------------

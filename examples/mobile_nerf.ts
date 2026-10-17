@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { identity, multiply, rotate, radians, perspective, cross3, dot3 } from "../core/matrix";
 
 namespace MobileNerf {
     // Test mode: the frames rendered.
@@ -270,65 +271,9 @@ namespace MobileNerf {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity() {
-        return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-    }
-
-    // a * b.
-    function multiply(a: number[], b: number[]) {
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[k * 4 + row] * b[column * 4 + k];
-                }
-                result.push(sum);
-            }
-        }
-        return result;
-    }
-
-    // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
-        const c = Math.cos(angle);
-        const s = Math.sin(angle);
-        const t = 1.0 - c;
-        const r = [
-            c + t * x * x,     t * x * y + s * z, t * x * z - s * y, 0.0,
-            t * x * y - s * z, c + t * y * y,     t * y * z + s * x, 0.0,
-            t * x * z + s * y, t * y * z - s * x, c + t * z * z,     0.0,
-            0.0,               0.0,               0.0,               1.0,
-        ];
-        return multiply(m, r);
-    }
-
-    function radians(degrees: number) {
-        return degrees * Math.PI / 180.0;
-    }
-
-    // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
-        const tanHalfFovy = Math.tan(0.5 * fov);
-        return [
-            1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
-            0.0,                          1.0 / tanHalfFovy, 0.0,                              0.0,
-            0.0,                          0.0,               zFar / (zNear - zFar),            -1.0,
-            0.0,                          0.0,               -(zFar * zNear) / (zFar - zNear), 0.0,
-        ];
-    }
-
     function normalize(v: number[]) {
         const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         return [v[0] / length, v[1] / length, v[2] / length];
-    }
-
-    function cross(a: number[], b: number[]) {
-        return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-    }
-
-    function dot(a: number[], b: number[]) {
-        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
     // The sample's camera (the framework's vkb::Camera, look-at type), with ApiVulkanSample's mouse
@@ -353,13 +298,13 @@ namespace MobileNerf {
         // in radians) multiplied by pi / 180 taken as the rotation in degrees, so barely any.
         setLookAt(eye: number[], look: number[], up: number[]) {
             const f = normalize([look[0] - eye[0], look[1] - eye[1], look[2] - eye[2]]);
-            const s = normalize(cross(f, up));
-            const u = cross(s, f);
+            const s = normalize(cross3(f, up));
+            const u = cross3(s, f);
             // The view's rotation by columns (Row[i] in glm::decompose is the matrix's column i).
             const row0 = [s[0], u[0], -f[0]];
             const row1 = [s[1], u[1], -f[1]];
             const row2 = [s[2], u[2], -f[2]];
-            const translation = [-dot(s, eye), -dot(u, eye), dot(f, eye)];
+            const translation = [-dot3(s, eye), -dot3(u, eye), dot3(f, eye)];
 
             let qx = 0.0;
             let qy = 0.0;
