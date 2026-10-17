@@ -489,7 +489,7 @@ namespace TextureCompressionBasisu {
 
         constructor(sample: TextureCompressionBasisuPass) {
             this.sample = sample;
-            let names: string[] = [];
+            const names: string[] = [];
             for (let i = 0; i < sample.targets.length; i++) {
                 names.push(TARGET_NAMES[sample.targets[i]]);
             }

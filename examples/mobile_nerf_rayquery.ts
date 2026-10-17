@@ -188,7 +188,7 @@ namespace MobileNerfRayQuery {
 
         // The numbers of the (nested) array at the position, in order.
         readArray(): number[] {
-            let values: number[] = [];
+            const values: number[] = [];
             while (this.pos < this.bytes.length && this.bytes[this.pos] != CHAR_OPEN) {
                 this.pos++;
             }
@@ -668,9 +668,9 @@ namespace MobileNerfRayQuery {
         loadModels(commandList: CommandList): boolean {
             let vertices: f32[] = [];
             let indices: int[] = [];
-            let firstVertices: int[] = [];
-            let firstIndices: int[] = [];
-            let counts: int[] = [];
+            const firstVertices: int[] = [];
+            const firstIndices: int[] = [];
+            const counts: int[] = [];
             for (let m = 0; m < MODELS.length; m++) {
                 const path = MEDIA_DIR + MODELS[m] + "/shape0.gltf";
                 const scene = this.app.loadGltfModel(path);
@@ -758,8 +758,8 @@ namespace MobileNerfRayQuery {
             const commandList = this.app.createCommandList();
             commandList.open();
             let loaded = this.loadModels(commandList);
-            let features0: TextureHandle[] = [];
-            let features1: TextureHandle[] = [];
+            const features0: TextureHandle[] = [];
+            const features1: TextureHandle[] = [];
             for (let m = 0; m < MODELS.length && loaded; m++) {
                 const dir = MEDIA_DIR + MODELS[m] + "/";
                 const feature0 = this.app.loadTexture(commandList, dir + "shape0.pngfeat0.png", 0);

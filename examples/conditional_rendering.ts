@@ -348,11 +348,11 @@ namespace ConditionalRendering {
 
             let vertices: f32[] = [];
             let indices: int[] = [];
-            let primitiveFirstIndex: int[] = [];
-            let primitiveIndexCount: int[] = [];
-            let primitiveBaseVertex: int[] = [];
-            let primitiveColor: f32[] = [];
-            let meshFirstPrimitive: int[] = [];
+            const primitiveFirstIndex: int[] = [];
+            const primitiveIndexCount: int[] = [];
+            const primitiveBaseVertex: int[] = [];
+            const primitiveColor: f32[] = [];
+            const meshFirstPrimitive: int[] = [];
             let color: f32[] = [0.0, 0.0, 0.0, 0.0];
             for (let p = 0; p < primitiveCount; p++) {
                 const mesh = model.getPrimitiveMesh(p);

@@ -185,7 +185,7 @@ namespace MobileNerf {
 
         // The numbers of the (nested) array at the position, in order.
         readArray(): number[] {
-            let values: number[] = [];
+            const values: number[] = [];
             while (this.pos < this.bytes.length && this.bytes[this.pos] != CHAR_OPEN) {
                 this.pos++;
             }
@@ -666,7 +666,7 @@ namespace MobileNerf {
             let loaded = true;
             for (let m = 0; m < MODELS.length && loaded; m++) {
                 const dir = MEDIA_DIR + MODELS[m] + "/";
-                let weights: f32[] = [];
+                const weights: f32[] = [];
                 const mesh = this.app.loadGltfMesh(commandList, dir + "shape0.gltf");
                 const feature0 = this.app.loadTexture(commandList, dir + "shape0.pngfeat0.png", 0);
                 const feature1 = this.app.loadTexture(commandList, dir + "shape0.pngfeat1.png", 0);

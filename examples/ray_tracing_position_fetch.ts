@@ -323,8 +323,8 @@ namespace RayTracingPositionFetch {
             const primitiveCount = scene.getPrimitiveCount();
             let vertices: f32[] = [];
             let indices: int[] = [];
-            let firstVertex: int[] = [];
-            let firstIndex: int[] = [];
+            const firstVertex: int[] = [];
+            const firstIndex: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);

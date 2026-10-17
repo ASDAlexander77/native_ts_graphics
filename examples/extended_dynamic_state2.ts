@@ -567,9 +567,9 @@ namespace ExtendedDynamicState2 {
             const primitiveCount = model.getPrimitiveCount();
             let vertices: f32[] = [];
             let indices: int[] = [];
-            let firstIndex: int[] = [];
-            let indexCounts: int[] = [];
-            let baseVertex: int[] = [];
+            const firstIndex: int[] = [];
+            const indexCounts: int[] = [];
+            const baseVertex: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = model.getVertexCount(p);
                 const indexCount = model.getIndexCount(p);
@@ -611,7 +611,7 @@ namespace ExtendedDynamicState2 {
                         }
                         model.copyNodeTransform(n, Ref(transform[0]));
                         model.copyBaseColorFactor(p, Ref(color[0]));
-                        let t: number[] = [];
+                        const t: number[] = [];
                         for (let i = 0; i < 16; i++) {
                             t.push(transform[i]);
                         }
@@ -754,7 +754,7 @@ namespace ExtendedDynamicState2 {
             }
             if (Donut_ImGuiCollapsingHeaderDefaultOpen("Models") != 0) {
                 p.selectionActive = Donut_ImGuiCheckbox("Selection effect active", p.selectionActive ? 1 : 0) != 0;
-                let names: string[] = [];
+                const names: string[] = [];
                 for (let i = 0; i < p.baselineNodes.length; i++) {
                     names.push(p.baselineNodes[i].name);
                 }

@@ -343,7 +343,7 @@ namespace Multithreading {
                 return false;
             }
             const textureCount = SQUID_ROOM_TEXTURES.length / SQUID_ROOM_TEXTURE_FIELDS;
-            let textures: TextureHandle[] = [];
+            const textures: TextureHandle[] = [];
             for (let i = 0; i < textureCount; i++) {
                 const t = i * SQUID_ROOM_TEXTURE_FIELDS;
                 const format = SQUID_ROOM_TEXTURES[t + 2] == 0 ? Format.BC1_UNORM : Format.RGBA8_UNORM;
@@ -373,7 +373,7 @@ namespace Multithreading {
             this.sceneBatch.addBindingSet(sceneSet);
             this.shadowBatch.addBindingSet(shadowSet);
             // The materials' binding sets by diffuse texture, made as draws need them.
-            let materialSets: BindingSet[] = [];
+            const materialSets: BindingSet[] = [];
             let materialSetIndices: int[] = [];
             for (let i = 0; i < textureCount; i++) {
                 materialSetIndices.push(-1);

@@ -740,7 +740,7 @@ namespace MeshletCull {
 
             const instanceBuffer = this.app.createConstantBuffer(INSTANCE_SIZE, "Instance");
             const obj = new SceneObject(instanceBuffer, OBJECT_FLAGS[index], OBJECT_SCALES[index]);
-            let ic: f32[] = [];
+            const ic: f32[] = [];
             for (let i = 0; i < INSTANCE_FLOATS; i++) {
                 ic.push(0.0);
             }

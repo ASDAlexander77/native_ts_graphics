@@ -303,7 +303,7 @@ namespace MeshletInstancing {
                 this.createBindingSets(buffer);
             }
 
-            let data: f32[] = [];
+            const data: f32[] = [];
             for (let i = 0; i < this.instanceCount; i++) {
                 const x = Math.fround(Math.fround((i % width) * spacing) - extents);
                 const y = Math.fround(Math.fround((Math.floor(i / width) % width) * spacing) - extents);

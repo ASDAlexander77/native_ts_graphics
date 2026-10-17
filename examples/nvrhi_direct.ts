@@ -1985,7 +1985,7 @@ namespace NvrhiDirect {
         otherTable.Release();
         check(table.getCapacity() == (isD3D12 ? BUFFERS : MAX_CAPACITY),
             `IDevice::resizeDescriptorTable, IDescriptorTable::getCapacity (${table.getCapacity()})`);
-        let buffers: nvrhi.IBuffer[] = [];
+        const buffers: nvrhi.IBuffer[] = [];
         for (let i = 0; i < BUFFERS; i++) {
             let desc = nvrhi.bufferDesc(16, `Bindless ${i}`, nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
             desc.canHaveRawViews = true;
@@ -2973,7 +2973,7 @@ namespace NvrhiDirect {
         let geometries: nvrhi.GeometryDesc[] = [nvrhi.triangleGeometryDesc(indexBuffer, 3, vertexBuffer, 3)];
         const blas = nvrhi.createAccelStruct(device,
             nvrhi.accelStructDesc(geometries, 0, nvrhi.ACCEL_STRUCT_BUILD_ALLOW_COMPACTION, "BLAS", false));
-        let noGeometries: nvrhi.GeometryDesc[] = [];
+        const noGeometries: nvrhi.GeometryDesc[] = [];
         const tlasDesc = nvrhi.accelStructDesc(noGeometries, 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE, "TLAS", false);
         const tlas = nvrhi.createAccelStruct(device, tlasDesc);
         let copyDesc = tlasDesc;
@@ -3076,8 +3076,8 @@ namespace NvrhiDirect {
         const outputs: (nvrhi.ITexture | null)[] = [rayTracingOutput(device, "Traced"), rayTracingOutput(device, "Traced copy"),
             rayTracingOutput(device, "Traced placed")];
         const tlases: nvrhi.IAccelStruct[] = [tlas, tlasCopy, placedTlas];
-        let stagings: nvrhi.IStagingTexture[] = [];
-        let bindingSets: nvrhi.IBindingSet[] = [];
+        const stagings: nvrhi.IStagingTexture[] = [];
+        const bindingSets: nvrhi.IBindingSet[] = [];
         for (let i = 0; i < 3; i++) {
             const output = outputs[i];
             const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
@@ -3233,7 +3233,7 @@ namespace NvrhiDirect {
         geometries[0].geometryData.numOmmUsageCounts = 1;
         const blas = nvrhi.createAccelStruct(device,
             nvrhi.accelStructDesc(geometries, 0, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE, "OMM BLAS", false));
-        let noGeometries: nvrhi.GeometryDesc[] = [];
+        const noGeometries: nvrhi.GeometryDesc[] = [];
         const tlas = nvrhi.createAccelStruct(device,
             nvrhi.accelStructDesc(noGeometries, 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE, "OMM TLAS", false));
         if (!blas || !tlas) {
@@ -3557,7 +3557,7 @@ namespace NvrhiDirect {
         // IDevice::createStagingTexture, IStagingTexture::getDesc
         const copied = nvrhi.createTexture(device, nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM,
             "Copied texture", nvrhi.RESOURCE_STATE_COPY_DEST));
-        let stagingDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Staging texture",
+        const stagingDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Staging texture",
             nvrhi.RESOURCE_STATE_COPY_DEST);
         const staging = nvrhi.createStagingTexture(device, stagingDesc, nvrhi.CPU_ACCESS_READ);
         if (!copied || !staging) {

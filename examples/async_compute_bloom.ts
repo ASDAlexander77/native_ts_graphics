@@ -610,15 +610,15 @@ namespace AsyncComputeBloom {
             const primitiveCount = scene.getPrimitiveCount();
 
             // The primitives' textures (by image URI) and vertices.
-            let imageNames: string[] = [];
-            let primitiveTexture: int[] = [];
-            let primitiveFirstIndex: int[] = [];
-            let primitiveBaseVertex: int[] = [];
+            const imageNames: string[] = [];
+            const primitiveTexture: int[] = [];
+            const primitiveFirstIndex: int[] = [];
+            const primitiveBaseVertex: int[] = [];
             let vertices: f32[] = [];
             let indices: int[] = [];
             // Per mesh: its bounds (min x, y, z, max x, y, z) and first primitive.
             let meshBounds: number[] = [];
-            let meshFirstPrimitive: int[] = [];
+            const meshFirstPrimitive: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const image = scene.getBaseColorImage(p);
                 let texture = -1;

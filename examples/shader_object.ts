@@ -461,7 +461,7 @@ namespace ShaderObjectSample {
         // enabled changes (std::uniform_int_distribution<int>{0, 100} over its engine, as it does).
         iterateCurrent(): void {
             const selectedShader: int = this.rng.uniformInt(0, 100) % MAX_SELECTABLE_OBJECTS;
-            let funcs: int[] = [];
+            const funcs: int[] = [];
             if (this.iterateBasic) {
                 funcs.push(0);
             }
@@ -783,7 +783,7 @@ namespace ShaderObjectSample {
                 return false;
             }
             const scaleFactor = HEIGHTMAP_DIM / TERRAIN_RESOLUTION;
-            let heights: number[] = [];
+            const heights: number[] = [];
             let row: int[] = [];
             for (let i = 0; i < HEIGHTMAP_DIM * 2; i++) {
                 row.push(0);
@@ -817,7 +817,7 @@ namespace ShaderObjectSample {
                     vertices[v + 7] = y / TERRAIN_RESOLUTION;
 
                     // h[hx + 1][hy + 1], the samples around.
-                    let h: number[] = [];
+                    const h: number[] = [];
                     for (let hx = -1; hx <= 1; hx++) {
                         for (let hy = -1; hy <= 1; hy++) {
                             const sx = Math.min(Math.max(x + hx, 0), TERRAIN_RESOLUTION - 1);

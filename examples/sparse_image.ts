@@ -237,7 +237,7 @@ namespace SparseImage {
     function sortBlocks(blocks: TextureBlock[]): TextureBlock[] {
         let source = blocks;
         for (let width = 1; width < source.length; width *= 2) {
-            let merged: TextureBlock[] = [];
+            const merged: TextureBlock[] = [];
             for (let start = 0; start < source.length; start += 2 * width) {
                 const middle = Math.min(start + width, source.length);
                 const end = Math.min(start + 2 * width, source.length);
@@ -717,7 +717,7 @@ namespace SparseImage {
 
         // get_memory_dependency_for_the_block: the pages of a level a BLOCK covers.
         getMemoryDependencyForTheBlock(column: int, row: int, mipLevel: int): int[] {
-            let dependencies: int[] = [];
+            const dependencies: int[] = [];
 
             const heightOnScreenDivider = 1.0 / this.numVerticalBlocks;
             const widthOnScreenDivider = 1.0 / this.numHorizontalBlocks;
@@ -796,7 +796,7 @@ namespace SparseImage {
                     this.pageInUpdateSet[pageIndex] = true;
 
                     // A stack of pages (by index) whose sources to check.
-                    let required: int[] = [pageIndex];
+                    const required: int[] = [pageIndex];
                     while (required.length > 0) {
                         const page = required[required.length - 1];
                         required.pop();
@@ -808,7 +808,7 @@ namespace SparseImage {
 
         // compare_mips_table: the BLOCKS whose visibility or required level changed.
         compareMipsTable(): void {
-            let blocks: TextureBlock[] = [];
+            const blocks: TextureBlock[] = [];
             for (let y = 0; y < this.numVerticalBlocks; y++) {
                 for (let x = 0; x < this.numHorizontalBlocks; x++) {
                     const i = y * this.numHorizontalBlocks + x;
@@ -922,14 +922,14 @@ namespace SparseImage {
                 }
             }
 
-            let reallocate: boolean[] = [];
+            const reallocate: boolean[] = [];
             for (let pageIndex = 0; pageIndex < this.pageCount; pageIndex++) {
                 reallocate.push(false);
             }
             let anyToReallocate = false;
             let sectorsToReallocate: int = 0;
 
-            let kept: int[] = [];
+            const kept: int[] = [];
             for (let i = 0; i < this.sectorList.length; i++) {
                 const sector = this.sectors[this.sectorList[i]];
                 if (sector.references == 0) {
@@ -958,7 +958,7 @@ namespace SparseImage {
 
             // The pages to move: copied out to a texture of whole tiles (the sample's buffer), the
             // sectors kept until they're copied back.
-            let pages: int[] = [];
+            const pages: int[] = [];
             for (let pageIndex = 0; pageIndex < this.pageCount; pageIndex++) {
                 if (reallocate[pageIndex]) {
                     pages.push(pageIndex);
@@ -977,7 +977,7 @@ namespace SparseImage {
             }
             this.pendingCommands = true;
 
-            let tempSectors: int[] = [];
+            const tempSectors: int[] = [];
             for (const pageIndex of pages) {
                 const sectorIndex = this.pageSector[pageIndex];
                 this.sectors[sectorIndex].references++;

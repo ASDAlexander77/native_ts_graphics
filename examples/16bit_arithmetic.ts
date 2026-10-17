@@ -67,7 +67,7 @@ namespace Khr16BitArithmetic {
             return 0;
         }
         const sign = value < 0.0 ? 0x8000 : 0;
-        let a = Math.abs(value);
+        const a = Math.abs(value);
         let exponent = Math.floor(Math.log2(a));
         if (Math.pow(2.0, exponent) > a) {
             exponent--;
@@ -79,7 +79,7 @@ namespace Khr16BitArithmetic {
         }
         // Subnormals below 2^-14: mantissa in units of 2^-24.
         const unit = exponent < -14 ? Math.pow(2.0, -24) : Math.pow(2.0, exponent - 10);
-        let scaled = a / unit;
+        const scaled = a / unit;
         let rounded = Math.floor(scaled);
         const remainder = scaled - rounded;
         if (remainder > 0.5 || (remainder == 0.5 && rounded % 2 == 1)) {

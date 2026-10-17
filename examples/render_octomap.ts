@@ -838,7 +838,7 @@ namespace RenderOctomap {
             const zRange = maxZ - minZ;
 
             let instances: f32[] = [];
-            let rgb: number[] = [0.0, 0.0, 0.0];
+            const rgb: number[] = [0.0, 0.0, 0.0];
             for (let i = 0; i < leafCount; i++) {
                 if (!reader.occupied[i]) {
                     continue;
@@ -910,10 +910,10 @@ namespace RenderOctomap {
             let positions: f32[] = [];
             let colors: f32[] = [];
             let indices: int[] = [];
-            let primitiveFirstIndex: int[] = [];
-            let primitiveIndexCount: int[] = [];
-            let primitiveBaseVertex: int[] = [];
-            let primitiveColor: f32[] = [];
+            const primitiveFirstIndex: int[] = [];
+            const primitiveIndexCount: int[] = [];
+            const primitiveBaseVertex: int[] = [];
+            const primitiveColor: f32[] = [];
             let color: f32[] = [1.0, 1.0, 1.0, 1.0];
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = model.getAttributeCount(p, "POSITION");
@@ -963,7 +963,7 @@ namespace RenderOctomap {
             for (let node = 0; node < nodeCount; node++) {
                 const mesh = model.getNodeMesh(node);
                 model.copyNodeTransform(node, Ref(transform[0]));
-                let world: number[] = [];
+                const world: number[] = [];
                 for (let i = 0; i < 16; i++) {
                     world.push(transform[i]);
                 }

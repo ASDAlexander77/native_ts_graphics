@@ -196,7 +196,7 @@ namespace DenoisedRtao {
             // RotateAroundYAxis.
             const rotation = matrixRotationY(yaw);
             let eye = vadd(this.at, transformCoord3(vsub(this.eye, this.at), rotation));
-            let up = transformNormal3(this.up, rotation);
+            const up = transformNormal3(this.up, rotation);
             this.eye = eye;
             this.up = up;
             // RotatePitch.
@@ -950,7 +950,7 @@ namespace DenoisedRtao {
         loadScenes(commandList: CommandList): boolean {
             const sceneNames = ["spaceship", "groundplane", "car", "dragon", "house", "mirrorquad", "quad"];
             const directory = Donut_GetExecutableDirectory() + "/" + ASSETS;
-            let scenes: PbrtScene[] = [];
+            const scenes: PbrtScene[] = [];
             let totalVertices = 0;
             let totalIndices = 0;
             for (let s = 0; s < sceneNames.length; s++) {
@@ -981,7 +981,7 @@ namespace DenoisedRtao {
             }
             let materials: f32[] = [];
             let records: int[] = [];
-            let textureNames: string[] = [];
+            const textureNames: string[] = [];
             let material: f32[] = [];
             for (let i = 0; i < MATERIAL_VALUES; i++) {
                 material.push(0.0);
