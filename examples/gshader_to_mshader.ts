@@ -377,13 +377,8 @@ namespace GshaderToMshader {
         }
 
         releaseTargets(): void {
-            const resources: (ResourceHandle | null)[] = [this.modelPipeline, this.geometryPipeline, this.meshPipeline,
-                this.framebuffer, this.colorBuffer, this.depthBuffer];
-            for (const resource of resources) {
-                if (resource) {
-                    this.app.releaseResource(resource);
-                }
-            }
+            this.app.releaseResources([this.modelPipeline, this.geometryPipeline, this.meshPipeline,
+                this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.modelPipeline = null;
             this.geometryPipeline = null;
             this.meshPipeline = null;

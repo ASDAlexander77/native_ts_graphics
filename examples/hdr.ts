@@ -222,15 +222,10 @@ namespace Hdr {
             this.bloomFilterBindingSet = new BindingSet(null);
             this.compositionBindingSet = new BindingSet(null);
 
-            const resources: (ResourceHandle | null)[] = [this.skyboxPipeline, this.reflectPipeline, this.bloomFilterPipeline,
+            this.app.releaseResources([this.skyboxPipeline, this.reflectPipeline, this.bloomFilterPipeline,
                 this.compositionPipeline, this.bloomCompositePipeline, this.offscreenFramebuffer,
                 this.filterFramebuffer, this.offscreenColor0, this.offscreenColor1, this.offscreenDepth,
-                this.filterColor];
-            for (const resource of resources) {
-                if (resource) {
-                    this.app.releaseResource(resource);
-                }
-            }
+                this.filterColor]);
             this.skyboxPipeline = null;
             this.reflectPipeline = null;
             this.bloomFilterPipeline = null;

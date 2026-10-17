@@ -260,13 +260,8 @@ namespace OitDepthPeeling {
             this.gatherBindingSets = [];
             this.combineBindingSet = new BindingSet(null);
 
-            const sized: (ResourceHandle | null)[] = [this.gatherFirstPipeline, this.gatherPipeline,
-                this.backgroundPipeline, this.combinePipeline, this.framebuffer, this.colorBuffer];
-            for (const resource of sized) {
-                if (resource) {
-                    this.app.releaseResource(resource);
-                }
-            }
+            this.app.releaseResources([this.gatherFirstPipeline, this.gatherPipeline,
+                this.backgroundPipeline, this.combinePipeline, this.framebuffer, this.colorBuffer]);
             for (let i = 0; i < this.gatherFramebuffers.length; i++) {
                 this.app.releaseResource(this.gatherFramebuffers[i]);
             }

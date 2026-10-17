@@ -695,14 +695,9 @@ namespace Bokeh {
             this.recombineBindingSet = new BindingSet(null);
             this.copyBindingSet = new BindingSet(null);
 
-            const framebuffers: (ResourceHandle | null)[] = [this.sceneFramebuffer, this.sceneColorFramebuffer,
+            this.app.releaseResources([this.sceneFramebuffer, this.sceneColorFramebuffer,
                 this.dofFramebuffer, this.rgbzFramebuffer, this.rgbzHalfFramebuffer, this.sceneColor, this.sceneDepth,
-                this.dofColor, this.rgbzCopy, this.rgbzHalfCopy];
-            for (const resource of framebuffers) {
-                if (resource) {
-                    this.app.releaseResource(resource);
-                }
-            }
+                this.dofColor, this.rgbzCopy, this.rgbzHalfCopy]);
             this.sceneFramebuffer = null;
             this.sceneColorFramebuffer = null;
             this.dofFramebuffer = null;
