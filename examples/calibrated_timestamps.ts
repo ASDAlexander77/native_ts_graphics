@@ -181,12 +181,7 @@ namespace CalibratedTimestampsSample {
         }
 
         anyMeasured() {
-            for (let i = 0; i < this.measured.length; i++) {
-                if (this.measured[i]) {
-                    return true;
-                }
-            }
-            return false;
+            return this.measured.some((m) => m);
         }
     }
 
