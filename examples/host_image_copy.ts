@@ -3,7 +3,8 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
-import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
+import { radians, perspective } from "../core/matrix";
+import { SampleView } from "../core/vulkan_samples_camera";
 
 namespace HostImageCopy {
     const WINDOW_TITLE = "Donut Example: Host Image Copy";
@@ -37,66 +38,6 @@ namespace HostImageCopy {
 
     // ApiVulkanSample's default_clear_color.
     const CLEAR_COLOR = 0.002;
-
-    // ApiVulkanSample's own view (not its camera): zoom, rotation and camera_pos, with its mouse
-    // controls: the left button turns (1.25 degrees per pixel), the right one zooms, the middle one
-    // pans.
-    class SampleView {
-        zoom: number;
-        rotation: number[];
-        position: number[];
-        private mouseX: number;
-        private mouseY: number;
-        private buttons: boolean[];
-
-        constructor(zoom: number, rotation: number[]) {
-            this.zoom = zoom;
-            this.rotation = [rotation[0], rotation[1], rotation[2]];
-            this.position = [0.0, 0.0, 0.0];
-            this.mouseX = 0.0;
-            this.mouseY = 0.0;
-            this.buttons = [false, false, false];
-        }
-
-        // The samples' update_uniform_buffers: translate(0, 0, zoom) * translate(camera_pos) *
-        // rotations around x, y, z.
-        model() {
-            let m = identity();
-            m[12] = this.position[0];
-            m[13] = this.position[1];
-            m[14] = this.zoom + this.position[2];
-            m = rotate(m, radians(this.rotation[0]), 1.0, 0.0, 0.0);
-            m = rotate(m, radians(this.rotation[1]), 0.0, 1.0, 0.0);
-            m = rotate(m, radians(this.rotation[2]), 0.0, 0.0, 1.0);
-            return m;
-        }
-
-        // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int) {
-            if (button >= 0 && button < 3) {
-                this.buttons[button] = action == 1;
-            }
-        }
-
-        // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number) {
-            const dx = Math.floor(this.mouseX) - Math.floor(x);
-            const dy = Math.floor(this.mouseY) - Math.floor(y);
-            if (this.buttons[0]) {
-                this.rotation[0] += dy * 1.25;
-                this.rotation[1] -= dx * 1.25;
-            }
-            if (this.buttons[1]) {
-                this.zoom += dy * 0.005;
-            }
-            if (this.buttons[2]) {
-                this.position[0] -= dx * 0.01;
-                this.position[1] -= dy * 0.01;
-            }
-            this.mouseX = x;
-            this.mouseY = y;
-        }
-    }
 
     // --- Pass -------------------------------------------------------------------------------
 
