@@ -692,8 +692,8 @@ namespace MeshletCull {
             commandList.clearDepth(this.depthBuffer, 1.0);
 
             // All scene objects with the same pipeline state, a thread per meshlet.
-            for (let o = 0; o < this.objects.length; o++) {
-                const meshes = this.objects[o].meshes;
+            for (const meshObject of this.objects) {
+                const meshes = meshObject.meshes;
                 for (let m = 0; m < meshes.length; m++) {
                     frame.beginMeshDrawToFramebuffer(this.meshPipeline, this.framebuffer);
                     frame.drawAddBindingSet(meshes[m].bindingSet);

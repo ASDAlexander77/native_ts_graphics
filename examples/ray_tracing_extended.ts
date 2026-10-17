@@ -453,8 +453,8 @@ namespace RayTracingExtended {
             // find the flame particle object, then add the particles as instances
             const flame = this.modelBuffers[flameIndex];
             const particles = this.flameGenerator.particles;
-            for (let i = 0; i < particles.length; i++) {
-                this.calculateRotation(particles[i].position, 0.25, true);
+            for (const particle of particles) {
+                this.calculateRotation(particle.position, 0.25, true);
                 tlas.addInstanceWithTransform(flame.blas.getAccelStruct(), 0xFF, flameIndex, INSTANCE_FLAGS_CULL_DISABLE,
                     Ref(this.transform[0]));
             }
@@ -665,11 +665,11 @@ namespace RayTracingExtended {
                     staticTriangles.length / 3 * TRIANGLE_SIZE, model.vertices.length / VERTEX_FLOATS,
                     model.triangles.length / 3, model.textureIndex, model.objectType, true);
                 this.modelBuffers.push(modelBuffer);
-                for (let k = 0; k < model.vertices.length; k++) {
-                    staticVertices.push(model.vertices[k]);
+                for (const vertex of model.vertices) {
+                    staticVertices.push(vertex);
                 }
-                for (let k = 0; k < model.triangles.length; k++) {
-                    staticTriangles.push(model.triangles[k]);
+                for (const triangle of model.triangles) {
+                    staticTriangles.push(triangle);
                 }
             }
 

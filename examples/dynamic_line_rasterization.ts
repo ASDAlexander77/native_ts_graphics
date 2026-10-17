@@ -356,8 +356,8 @@ namespace DynamicLineRasterization {
                 this.app.releaseResource(this.gridPipeline);
                 this.app.releaseResource(this.fillPipeline);
             }
-            for (let i = 0; i < this.edgePipelines.length; i++) {
-                this.app.releaseResource(this.edgePipelines[i]);
+            for (const edgePipeline of this.edgePipelines) {
+                this.app.releaseResource(edgePipeline);
             }
             this.pipelinesCreated = false;
             this.edgeKeys = [];
@@ -423,8 +423,8 @@ namespace DynamicLineRasterization {
             }
             // Keep a handful of edge pipelines: drop them all now and then.
             if (this.edgePipelines.length > 32) {
-                for (let i = 0; i < this.edgePipelines.length; i++) {
-                    this.app.releaseResource(this.edgePipelines[i]);
+                for (const edgePipeline of this.edgePipelines) {
+                    this.app.releaseResource(edgePipeline);
                 }
                 this.edgeKeys = [];
                 this.edgePipelines = [];

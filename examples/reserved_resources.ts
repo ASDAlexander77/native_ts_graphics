@@ -346,8 +346,8 @@ namespace ReservedResources {
         destroy(): void {
             Donut_WaitForIdle(this.app.handle);
             this.app.releaseResource(this.texture);
-            for (let n = 0; n < this.heaps.length; n++) {
-                this.app.releaseResource(this.heaps[n]);
+            for (const heap of this.heaps) {
+                this.app.releaseResource(heap);
             }
         }
     }

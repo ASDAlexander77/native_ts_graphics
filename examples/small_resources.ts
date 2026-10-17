@@ -138,11 +138,11 @@ namespace SmallResources {
         }
 
         releaseTextures(): void {
-            for (let i = 0; i < this.bindingSets.length; i++) {
-                this.app.releaseResource(this.bindingSets[i].handle);
+            for (const bindingSet of this.bindingSets) {
+                this.app.releaseResource(bindingSet.handle);
             }
-            for (let i = 0; i < this.textures.length; i++) {
-                this.app.releaseResource(this.textures[i]);
+            for (const texture of this.textures) {
+                this.app.releaseResource(texture);
             }
             this.bindingSets = [];
             this.textures = [];

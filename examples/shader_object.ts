@@ -552,14 +552,14 @@ namespace ShaderObjectSample {
             if (this.outputImages.length == 0) {
                 return;
             }
-            for (let i = 0; i < this.framebuffers.length; i++) {
-                this.app.releaseResource(this.framebuffers[i]);
+            for (const framebuffer of this.framebuffers) {
+                this.app.releaseResource(framebuffer);
             }
-            for (let i = 0; i < this.outputImages.length; i++) {
-                this.app.releaseResource(this.outputImages[i]);
+            for (const outputImage of this.outputImages) {
+                this.app.releaseResource(outputImage);
             }
-            for (let i = 0; i < this.depthImages.length; i++) {
-                this.app.releaseResource(this.depthImages[i]);
+            for (const depthImage of this.depthImages) {
+                this.app.releaseResource(depthImage);
             }
             this.app.releaseResource(this.postFramebuffer);
             this.app.releaseResource(this.postImage);
@@ -577,25 +577,25 @@ namespace ShaderObjectSample {
         // supported depth format, the post-processing image (RGBA8).
         createTargets(width: int, height: int): void {
             this.releaseTargets();
-            for (let i = 0; i < this.outputFormats.length; i++) {
-                const format = OUTPUT_FORMATS[this.outputFormats[i]];
-                this.outputImages.push(this.app.createRenderTargetTexture(width, height, format, OUTPUT_FORMAT_NAMES[this.outputFormats[i]]));
+            for (const outputFormat of this.outputFormats) {
+                const format = OUTPUT_FORMATS[outputFormat];
+                this.outputImages.push(this.app.createRenderTargetTexture(width, height, format, OUTPUT_FORMAT_NAMES[outputFormat]));
             }
-            for (let i = 0; i < this.depthFormats.length; i++) {
-                const format = DEPTH_FORMATS[this.depthFormats[i]];
-                this.depthImages.push(this.app.createDepthTexture(width, height, format, 0.0, DEPTH_FORMAT_NAMES[this.depthFormats[i]]));
+            for (const depthFormat of this.depthFormats) {
+                const format = DEPTH_FORMATS[depthFormat];
+                this.depthImages.push(this.app.createDepthTexture(width, height, format, 0.0, DEPTH_FORMAT_NAMES[depthFormat]));
             }
-            for (let c = 0; c < this.outputImages.length; c++) {
+            for (const outputImage of this.outputImages) {
                 for (let d = 0; d < this.depthImages.length; d++) {
-                    this.framebuffers.push(this.app.createFramebuffer(this.outputImages[c], this.depthImages[d]));
+                    this.framebuffers.push(this.app.createFramebuffer(outputImage, this.depthImages[d]));
                 }
             }
             this.postImage = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "Post-processing");
             this.postFramebuffer = this.app.createFramebuffer(this.postImage, null);
-            for (let c = 0; c < this.outputImages.length; c++) {
+            for (const outputImage of this.outputImages) {
                 const setDesc = BindingSetDesc.create();
                 setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-                setDesc.bindTextureSRV(0, this.outputImages[c]);
+                setDesc.bindTextureSRV(0, outputImage);
                 setDesc.bindSampler(0, this.postSampler);
                 this.postBindingSets.push(this.app.createBindingSetForLayout(setDesc, this.postLayout));
             }

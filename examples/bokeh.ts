@@ -682,11 +682,11 @@ namespace Bokeh {
         }
 
         releaseFrameResources(): void {
-            const sets = [this.rgbzBindingSet, this.downsampleBindingSet, this.quadPointBindingSet, this.recombineBindingSet,
+            const bindingSets = [this.rgbzBindingSet, this.downsampleBindingSet, this.quadPointBindingSet, this.recombineBindingSet,
                 this.copyBindingSet];
-            for (let i = 0; i < sets.length; i++) {
-                if (!sets[i].isNull()) {
-                    this.app.releaseResource(sets[i].handle);
+            for (const bindingSet of bindingSets) {
+                if (!bindingSet.isNull()) {
+                    this.app.releaseResource(bindingSet.handle);
                 }
             }
             this.rgbzBindingSet = new BindingSet(null);

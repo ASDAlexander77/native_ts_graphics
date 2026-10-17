@@ -249,8 +249,8 @@ namespace OitDepthPeeling {
 
         releaseTargets(): void {
             const bindingSets = [this.combineBindingSet];
-            for (let i = 0; i < this.gatherBindingSets.length; i++) {
-                bindingSets.push(this.gatherBindingSets[i]);
+            for (const gatherBindingSet of this.gatherBindingSets) {
+                bindingSets.push(gatherBindingSet);
             }
             for (const bindingSet of bindingSets) {
                 if (!bindingSet.isNull()) {
@@ -262,14 +262,14 @@ namespace OitDepthPeeling {
 
             this.app.releaseResources([this.gatherFirstPipeline, this.gatherPipeline,
                 this.backgroundPipeline, this.combinePipeline, this.framebuffer, this.colorBuffer]);
-            for (let i = 0; i < this.gatherFramebuffers.length; i++) {
-                this.app.releaseResource(this.gatherFramebuffers[i]);
+            for (const gatherFramebuffer of this.gatherFramebuffers) {
+                this.app.releaseResource(gatherFramebuffer);
             }
-            for (let i = 0; i < this.layers.length; i++) {
-                this.app.releaseResource(this.layers[i]);
+            for (const layer of this.layers) {
+                this.app.releaseResource(layer);
             }
-            for (let i = 0; i < this.depths.length; i++) {
-                this.app.releaseResource(this.depths[i]);
+            for (const depth of this.depths) {
+                this.app.releaseResource(depth);
             }
             this.gatherFramebuffers = [];
             this.layers = [];

@@ -301,8 +301,8 @@ namespace TextureMipmapGeneration {
         }
 
         releaseTargets(): void {
-            for (let i = 0; i < this.framebuffers.length; i++) {
-                this.app.releaseResource(this.framebuffers[i]);
+            for (const framebuffer of this.framebuffers) {
+                this.app.releaseResource(framebuffer);
             }
             if (this.framebuffers.length > 0) {
                 this.app.releaseResource(this.depth);

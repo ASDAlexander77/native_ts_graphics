@@ -2352,8 +2352,8 @@ namespace NvrhiDirect {
         const texels = readStagingUInts(device, staging, 0, TEXTURE_SIZE);
         if (texels.length != 0) {
             let textureMismatches = 0;
-            for (let i = 0; i < texels.length; i++) {
-                if (texels[i] != UINT_CLEAR_MIP) {
+            for (const texel of texels) {
+                if (texel != UINT_CLEAR_MIP) {
                     textureMismatches++;
                 }
             }

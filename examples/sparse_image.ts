@@ -940,8 +940,8 @@ namespace SparseImage {
                     if (sectorsToReallocate > 0) {
                         // No more pages from this sector.
                         sector.availableOffsets = [];
-                        for (let k = 0; k < sector.virtPageIndices.length; k++) {
-                            reallocate[sector.virtPageIndices[k]] = true;
+                        for (const virtPageIndex of sector.virtPageIndices) {
+                            reallocate[virtPageIndex] = true;
                             anyToReallocate = true;
                         }
                     }
@@ -999,8 +999,8 @@ namespace SparseImage {
             }
             this.app.releaseResource(reallocation);
 
-            for (let i = 0; i < tempSectors.length; i++) {
-                this.releaseSector(tempSectors[i]);
+            for (const tempSector of tempSectors) {
+                this.releaseSector(tempSector);
             }
         }
 

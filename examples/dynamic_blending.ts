@@ -378,8 +378,8 @@ namespace DynamicBlending {
         }
 
         releaseTargets(): void {
-            for (let i = 0; i < this.framebuffers.length; i++) {
-                this.app.releaseResource(this.framebuffers[i]);
+            for (const framebuffer of this.framebuffers) {
+                this.app.releaseResource(framebuffer);
             }
             if (this.framebuffers.length > 0) {
                 this.app.releaseResource(this.depth);
@@ -451,8 +451,8 @@ namespace DynamicBlending {
             }
             // Keep a handful of pipelines: drop them all now and then.
             if (this.pipelines.length > 32) {
-                for (let i = 0; i < this.pipelines.length; i++) {
-                    this.app.releaseResource(this.pipelines[i]);
+                for (const pipeline of this.pipelines) {
+                    this.app.releaseResource(pipeline);
                 }
                 this.pipelineKeys = [];
                 this.pipelines = [];
