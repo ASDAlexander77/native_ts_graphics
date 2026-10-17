@@ -495,9 +495,9 @@ namespace SimplePbr {
             } else if (this.dragging) {
                 // Rotate camera (ArcBall::OnMove)
                 const curr = this.screenToVector(input.x, input.y);
-                const from = this.downPoint;
-                const dot = Math.fround(dot3(from, curr));
-                const part = cross3(from, curr);
+                const downPoint = this.downPoint;
+                const dot = Math.fround(dot3(downPoint, curr));
+                const part = cross3(downPoint, curr);
                 this.qnow = quatNormalize(quatMultiply(this.qdown, [part[0], part[1], part[2], dot]));
                 this.rotation = quatInverse(this.qnow);
             } else {

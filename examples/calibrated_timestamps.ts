@@ -558,9 +558,9 @@ namespace CalibratedTimestampsSample {
             const skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
             let objectsLoaded = !skybox.isNull();
             for (const objectPath of OBJECT_PATHS) {
-                const object = this.app.loadGltfMesh(commandList, objectPath);
-                objectsLoaded = objectsLoaded && !object.isNull();
-                this.objects.push(object);
+                const mesh = this.app.loadGltfMesh(commandList, objectPath);
+                objectsLoaded = objectsLoaded && !mesh.isNull();
+                this.objects.push(mesh);
             }
             // Load HDR cube map
             const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);

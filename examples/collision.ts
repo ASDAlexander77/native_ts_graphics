@@ -258,9 +258,9 @@ namespace Collision {
     }
 
     // ArcBall::QuatFromBallPoints.
-    function quatFromBallPoints(from: number[], to: number[]) {
-        const part = cross3(from, to);
-        return [part[0], part[1], part[2], dot3(from, to)];
+    function quatFromBallPoints(fromPoint: number[], toPoint: number[]) {
+        const part = cross3(fromPoint, toPoint);
+        return [part[0], part[1], part[2], dot3(fromPoint, toPoint)];
     }
 
     // --- ATGTK's OrbitCamera ------------------------------------------------------------------

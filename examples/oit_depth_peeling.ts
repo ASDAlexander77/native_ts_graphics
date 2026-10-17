@@ -393,18 +393,18 @@ namespace OitDepthPeeling {
 
             const commandList = this.app.createCommandList();
             commandList.open();
-            const object = this.app.loadGltfMesh(commandList, OBJECT_PATH);
+            const mesh = this.app.loadGltfMesh(commandList, OBJECT_PATH);
             // KTX 1 files have no color space: the framework takes color textures as sRGB.
             const background = this.app.loadTexture(commandList, BACKGROUND_PATH, 1);
             commandList.close();
             this.app.executeCommandList(commandList);
             this.app.waitForIdle();
             this.app.releaseResource(commandList.handle);
-            if (object.isNull() || !background) {
+            if (mesh.isNull() || !background) {
                 console.log("Cannot load the model and the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return false;
             }
-            this.object = object;
+            this.object = mesh;
             this.background = background;
 
             this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");

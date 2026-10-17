@@ -343,21 +343,21 @@ namespace OpacityMicromaps {
         // again in place when rebuilding every frame.
         buildAccelerationStructures(frame: Frame) {
             const commandList = frame.getCommandList();
-            const set = this.ommSet(this.currentSubDLevel, this.use4State);
-            if (!set.loaded) {
+            const ommSet = this.ommSet(this.currentSubDLevel, this.use4State);
+            if (!ommSet.loaded) {
                 return false;
             }
-            const setChanged = !set.built || this.rebuildASNextFrame;
-            if (!set.built) {
-                const omm = this.app.createOpacityMicromap(commandList, set.arrayBuffer, 0, set.descBuffer, 0,
-                    Ref(set.histogram[0]), set.histogramCount, OMM_BUILD_FAST_TRACE, "OMMArray");
+            const setChanged = !ommSet.built || this.rebuildASNextFrame;
+            if (!ommSet.built) {
+                const omm = this.app.createOpacityMicromap(commandList, ommSet.arrayBuffer, 0, ommSet.descBuffer, 0,
+                    Ref(ommSet.histogram[0]), ommSet.histogramCount, OMM_BUILD_FAST_TRACE, "OMMArray");
                 if (!omm) {
                     return false;
                 }
-                set.omm = omm as OpacityMicromapHandle;
-                set.built = true;
+                ommSet.omm = omm as OpacityMicromapHandle;
+                ommSet.built = true;
             } else if (!setChanged) {
-                commandList.buildOpacityMicromap(set.omm);
+                commandList.buildOpacityMicromap(ommSet.omm);
             }
 
             if (setChanged || !this.hasBlas) {
@@ -373,8 +373,8 @@ namespace OpacityMicromaps {
                         blas.setGeometryFlags(i, GEOMETRY_FLAG_NONE);
                         // Its triangles' micromap indices start the set's (the only alpha-tested
                         // geometry).
-                        blas.setGeometryOpacityMicromap(i, set.omm, set.indexBuffer, 0, set.indexFormat,
-                            Ref(set.usage[0]), set.usageCount);
+                        blas.setGeometryOpacityMicromap(i, ommSet.omm, ommSet.indexBuffer, 0, ommSet.indexFormat,
+                            Ref(ommSet.usage[0]), ommSet.usageCount);
                     } else {
                         blas.setGeometryFlags(i, GEOMETRY_FLAG_OPAQUE);
                     }
@@ -576,7 +576,7 @@ namespace OpacityMicromaps {
         }
 
         // LoadOMM: a set's counts, its descs, raw data, histogram and per-triangle indices.
-        loadOmmSet(commandList: CommandList, path: string, set: OmmSet) {
+        loadOmmSet(commandList: CommandList, path: string, ommSet: OmmSet) {
             const file = this.app.loadBinaryFile(path);
             if (file.isNull()) {
                 return;
@@ -586,7 +586,7 @@ namespace OpacityMicromaps {
             const arrayDataSize = counts[0];
             const descCount = counts[1];
             const histogramCount = counts[2];
-            set.indexFormat = counts[3] == 0 ? Format.R16_UINT : Format.R32_UINT;
+            ommSet.indexFormat = counts[3] == 0 ? Format.R16_UINT : Format.R32_UINT;
             const indexCount = counts[4];
             const indexSize = indexCount * (counts[3] == 0 ? 2 : 4);
 
@@ -596,25 +596,25 @@ namespace OpacityMicromaps {
             const histogramOffset = arrayOffset + arrayDataSize;
             const indexOffset = histogramOffset + histogramCount * 12;
 
-            set.descBuffer = this.app.createAccelStructInputBuffer(descSize, "OMM Desc Buffer");
-            set.arrayBuffer = this.app.createAccelStructInputBuffer(arrayDataSize, "OMM Array Buffer");
-            set.indexBuffer = this.app.createAccelStructInputBuffer(indexSize, "OMM Index Buffer");
-            file.writeBufferFromBinaryFile(commandList, set.descBuffer, 0, descOffset, descSize);
-            file.writeBufferFromBinaryFile(commandList, set.arrayBuffer, 0, arrayOffset, arrayDataSize);
-            file.writeBufferFromBinaryFile(commandList, set.indexBuffer, 0, indexOffset, indexSize);
+            ommSet.descBuffer = this.app.createAccelStructInputBuffer(descSize, "OMM Desc Buffer");
+            ommSet.arrayBuffer = this.app.createAccelStructInputBuffer(arrayDataSize, "OMM Array Buffer");
+            ommSet.indexBuffer = this.app.createAccelStructInputBuffer(indexSize, "OMM Index Buffer");
+            file.writeBufferFromBinaryFile(commandList, ommSet.descBuffer, 0, descOffset, descSize);
+            file.writeBufferFromBinaryFile(commandList, ommSet.arrayBuffer, 0, arrayOffset, arrayDataSize);
+            file.writeBufferFromBinaryFile(commandList, ommSet.indexBuffer, 0, indexOffset, indexSize);
 
             for (let i = 0; i < histogramCount * 3; i++) {
-                set.histogram.push(0);
+                ommSet.histogram.push(0);
             }
-            file.copyUInts(histogramOffset, histogramCount * 3, Ref(set.histogram[0]));
-            set.histogramCount = histogramCount;
+            file.copyUInts(histogramOffset, histogramCount * 3, Ref(ommSet.histogram[0]));
+            ommSet.histogramCount = histogramCount;
             for (let i = 0; i < MAX_USAGE_COUNTS * 3; i++) {
-                set.usage.push(0);
+                ommSet.usage.push(0);
             }
-            set.usageCount = file.countOpacityMicromapUsage(indexOffset, indexCount, set.indexFormat, descOffset, descCount,
-                Ref(set.usage[0]), MAX_USAGE_COUNTS);
+            ommSet.usageCount = file.countOpacityMicromapUsage(indexOffset, indexCount, ommSet.indexFormat, descOffset, descCount,
+                Ref(ommSet.usage[0]), MAX_USAGE_COUNTS);
             this.app.releaseObject(file.handle);
-            set.loaded = set.usageCount <= MAX_USAGE_COUNTS;
+            ommSet.loaded = ommSet.usageCount <= MAX_USAGE_COUNTS;
         }
 
         // CreateRaytracingPipelineStateObject and BuildShaderTables: one hit group (closest hit and
@@ -708,12 +708,12 @@ namespace OpacityMicromaps {
             // LoadAndBuildAccelerationStructures: every level's 2- and 4-state sets.
             for (let level = 0; level < MAX_SUBDIVISION_LEVELS; level++) {
                 for (let state = 0; state <= 1; state++) {
-                    const set = new OmmSet();
+                    const ommSet = new OmmSet();
                     if (loaded) {
                         const states = state == 0 ? 2 : 4;
-                        this.loadOmmSet(commandList, `${MEDIA_DIR}treeOMM_SubD${level + 1}_${states}State.bin`, set);
+                        this.loadOmmSet(commandList, `${MEDIA_DIR}treeOMM_SubD${level + 1}_${states}State.bin`, ommSet);
                     }
-                    this.ommSets.push(set);
+                    this.ommSets.push(ommSet);
                 }
             }
             commandList.close();
