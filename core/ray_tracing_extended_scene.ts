@@ -1,20 +1,13 @@
 // What the two ports of Vulkan-Samples' ray_tracing_extended scene (ray_tracing_extended,
-// ray_tracing_invocation_reorder) share: the sample's random numbers, its flame particles and its
-// model types.
+// ray_tracing_invocation_reorder) share: the sample's flame particles and its model types.
 //
-// Imported with `import { generateRandom, ... } from "../core/ray_tracing_extended_scene";` (from
-// examples/), and listed with core/matrix.ts in the example's add_tslang_example sources.
+// Imported with `import { FlameParticleGenerator, ... } from "../core/ray_tracing_extended_scene";`
+// (from examples/), and listed with core/matrix.ts and core/random.ts in the example's
+// add_tslang_example sources.
 
 import { TriangleBlas } from "./donut";
 import { cross3, dot3 } from "./matrix";
-
-// std::default_random_engine with a uniform distribution over [0, 1) replacement: a Park-Miller
-// generator (tslang's Math.random isn't usable). The sample seeds its engine with the time.
-let g_RandomSeed = 12345.0;
-function generateRandom() {
-    g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
-    return g_RandomSeed / 2147483647.0;
-}
+import { randomFloat } from "./random";
 
 // glm::normalize: a zero vector gives NaNs, as there.
 export function normalize(v: number[]) {
@@ -57,9 +50,9 @@ export class FlameParticleGenerator {
     }
 
     generateRandomDirection() {
-        const a = 0.2 * generateRandom();
-        const b = 0.2 * generateRandom();
-        const c = 0.8 * generateRandom();
+        const a = 0.2 * randomFloat();
+        const b = 0.2 * randomFloat();
+        const c = 0.8 * randomFloat();
         const u = this.u;
         const v = this.v;
         const d = this.direction;
@@ -67,10 +60,10 @@ export class FlameParticleGenerator {
     }
 
     generateParticle(lifetime: number) {
-        const theta = 2.0 * 3.14159 * generateRandom();
-        const R = this.radius * generateRandom();
+        const theta = 2.0 * 3.14159 * randomFloat();
+        const R = this.radius * randomFloat();
         const velocityDirection = this.generateRandomDirection();
-        const speed = generateRandom() * 0.2;
+        const speed = randomFloat() * 0.2;
 
         const s = Math.sin(theta);
         const c = Math.cos(theta);
@@ -86,13 +79,13 @@ export class FlameParticleGenerator {
     // The sample's constructor's particles, at random points of their lifetimes.
     init() {
         for (let i = 0; i < this.nParticles; i++) {
-            const startingLifetime = generateRandom() * this.lifetime;
+            const startingLifetime = randomFloat() * this.lifetime;
             this.particles.push(this.generateParticle(startingLifetime));
         }
     }
 
     updateParticles(timeDelta: number) {
-        const remaining = this.particles.filter((particle) => !(particle.duration > generateRandom() * this.lifetime));
+        const remaining = this.particles.filter((particle) => !(particle.duration > randomFloat() * this.lifetime));
 
         for (const particle of remaining) {
             for (let k = 0; k < 3; k++) {

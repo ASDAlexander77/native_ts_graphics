@@ -5,6 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
 import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
+import { randomFloat } from "../core/random";
 
 namespace RtParticles {
     // Test mode: the frames rendered.
@@ -76,13 +77,6 @@ namespace RtParticles {
 
     function saturate(x: number) {
         return Math.min(Math.max(x, 0.0), 1.0);
-    }
-
-    // std::rand() / RAND_MAX replacement: a Park-Miller generator (tslang's Math.random isn't usable).
-    let g_RandomSeed = 12345.0;
-    function randomFloat() {
-        g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
-        return g_RandomSeed / 2147483647.0;
     }
 
     // --- Particles ----------------------------------------------------------------------------

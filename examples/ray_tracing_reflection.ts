@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { radians, perspective } from "../core/matrix";
+import { radians, perspective, inverseGaussJordan } from "../core/matrix";
 import { LookAtCamera } from "../core/vulkan_samples_camera";
 
 namespace RayTracingReflection {
@@ -123,52 +123,6 @@ namespace RayTracingReflection {
         return [sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, sz, 0.0, tx, ty, tz, 1.0];
     }
 
-    // The inverse of m, by Gauss-Jordan elimination with partial pivoting.
-    function inverse(m: number[]) {
-        // Rows of [m | I].
-        let a: number[] = [];
-        for (let row = 0; row < 4; row++) {
-            for (let column = 0; column < 4; column++) {
-                a.push(m[column * 4 + row]);
-            }
-            for (let column = 0; column < 4; column++) {
-                a.push(row == column ? 1.0 : 0.0);
-            }
-        }
-        for (let column = 0; column < 4; column++) {
-            let pivot = column;
-            for (let row = column + 1; row < 4; row++) {
-                if (Math.abs(a[row * 8 + column]) > Math.abs(a[pivot * 8 + column])) {
-                    pivot = row;
-                }
-            }
-            for (let k = 0; k < 8; k++) {
-                const t = a[column * 8 + k];
-                a[column * 8 + k] = a[pivot * 8 + k];
-                a[pivot * 8 + k] = t;
-            }
-            const p = a[column * 8 + column];
-            for (let k = 0; k < 8; k++) {
-                a[column * 8 + k] /= p;
-            }
-            for (let row = 0; row < 4; row++) {
-                if (row != column) {
-                    const f = a[row * 8 + column];
-                    for (let k = 0; k < 8; k++) {
-                        a[row * 8 + k] -= f * a[column * 8 + k];
-                    }
-                }
-            }
-        }
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                result.push(a[row * 8 + 4 + column]);
-            }
-        }
-        return result;
-    }
-
     // --- Pass -------------------------------------------------------------------------------
 
     // Port of Vulkan-Samples' ray_tracing_reflection: two cubes with a color per face over a
@@ -273,8 +227,8 @@ namespace RayTracingReflection {
         updateUniformBuffers(width: int, height: int) {
             let projection = perspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             projection[5] = -projection[5];
-            const projInverse = inverse(projection);
-            const viewInverse = inverse(this.camera.view());
+            const projInverse = inverseGaussJordan(projection);
+            const viewInverse = inverseGaussJordan(this.camera.view());
             for (let i = 0; i < 16; i++) {
                 this.ubo[UBO_VIEW_INVERSE + i] = viewInverse[i];
                 this.ubo[UBO_PROJ_INVERSE + i] = projInverse[i];

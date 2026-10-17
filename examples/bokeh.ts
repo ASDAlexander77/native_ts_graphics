@@ -4,7 +4,9 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
-import { rotationY, transpose, inverse, cross3, dot3, normalize3 } from "../core/matrix";
+import {
+    rotationY, transpose, inverse, cross3, dot3, normalize3, multiplyF32,
+} from "../core/matrix";
 import { formatFixed } from "../core/text_format";
 import {
     KEY_1, KEY_A, KEY_D, KEY_E, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
@@ -110,20 +112,6 @@ namespace Bokeh {
     const STEPS_PER_SECOND = 60.0;
 
     // --- DirectXMath, row-major for mul(vector, matrix) --------------------------------------
-
-    function multiply(a: number[], b: number[]) {
-        let m: number[] = [];
-        for (let row = 0; row < 4; row++) {
-            for (let column = 0; column < 4; column++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[row * 4 + k] * b[k * 4 + column];
-                }
-                m.push(Math.fround(sum));
-            }
-        }
-        return m;
-    }
 
     // XMMatrixLookAtLH: XMMatrixLookToLH towards the focus.
     function lookAtLH(eye: number[], focus: number[], up: number[]) {
@@ -750,7 +738,7 @@ namespace Bokeh {
 
                 const world = rotationY(Math.fround(Math.fround(2.0 * Math.PI) * Math.fround(OBJECT_TURNS[o] / 6.0)));
                 const worldInverseTranspose = transpose(inverse(world));
-                const worldViewProj = multiply(multiply(world, view), proj);
+                const worldViewProj = multiplyF32(multiplyF32(world, view), proj);
                 for (let i = 0; i < 16; i++) {
                     this.parameters[base + PARAMETERS_WORLD + i] = world[i];
                     this.parameters[base + PARAMETERS_WORLD_INVERSE_TRANSPOSE + i] = worldInverseTranspose[i];

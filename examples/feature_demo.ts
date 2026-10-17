@@ -8,6 +8,7 @@ import { formatFixed } from "../core/text_format";
 import {
     KEY_SPACE, KEY_T, KEY_V, KEY_GRAVE_ACCENT, KEY_ESCAPE, ACTION_PRESS, MOUSE_BUTTON_2,
 } from "../core/glfw_input";
+import { radiansF32 } from "../core/matrix";
 
 namespace FeatureDemoExample {
     // Test mode: the frames rendered.
@@ -67,11 +68,6 @@ namespace FeatureDemoExample {
     }
 
     // --- Math ---------------------------------------------------------------------------------
-
-    // dm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number) {
-        return Math.fround(Math.fround(degrees) * Math.fround(Math.fround(Math.PI) / 180.0));
-    }
 
     // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse-Z, infinite far plane;
     // row-major, row-vector convention, into 16 floats.
@@ -398,7 +394,7 @@ namespace FeatureDemoExample {
             this.thirdPersonCamera.thirdPersonSetTarget(
                 (b[0] + b[3]) * 0.5, (b[1] + b[4]) * 0.5, (b[2] + b[5]) * 0.5);
             const radius = this.boundsDiagonalLength() * 0.5;
-            const distance = radius / Math.sin(radians(this.cameraVerticalFov * 0.5));
+            const distance = radius / Math.sin(radiansF32(this.cameraVerticalFov * 0.5));
             this.thirdPersonCamera.thirdPersonSetDistance(distance);
             this.thirdPersonCamera.animate(0.0);
         }
@@ -438,7 +434,7 @@ namespace FeatureDemoExample {
                 this.cameraVerticalFov = 60.0;
             }
 
-            this.thirdPersonCamera.thirdPersonSetRotation(radians(135.0), radians(20.0));
+            this.thirdPersonCamera.thirdPersonSetRotation(radiansF32(135.0), radiansF32(20.0));
             this.pointThirdPersonCameraAt(sceneGraph.getRootNode());
 
             this.ui.useThirdPersonCamera = this.currentSceneName.endsWith(".gltf") || this.currentSceneName.endsWith(".glb");
@@ -488,7 +484,7 @@ namespace FeatureDemoExample {
                 pixelOffsetY = this.vector1[1];
             }
 
-            let verticalFov = radians(this.cameraVerticalFov);
+            let verticalFov = radiansF32(this.cameraVerticalFov);
             let zNear = 0.01;
             const sceneCamera = this.ui.activeSceneCamera;
             if (!sceneCamera.isNull()) {

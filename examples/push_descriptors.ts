@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
-import { identity, rotate, radians, perspective } from "../core/matrix";
+import { rotate, radians, perspective, translation } from "../core/matrix";
 import { LookAtCamera } from "../core/vulkan_samples_camera";
 
 namespace PushDescriptors {
@@ -49,15 +49,6 @@ namespace PushDescriptors {
     const TEST_FRAMES = 10;
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
-
-    // glm::translate(identity, (x, y, z)).
-    function translation(x: number, y: number, z: number) {
-        let m = identity();
-        m[12] = x;
-        m[13] = y;
-        m[14] = z;
-        return m;
-    }
 
     // --- Pass -------------------------------------------------------------------------------
 
