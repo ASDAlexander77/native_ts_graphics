@@ -1673,6 +1673,16 @@ export class App {
     createLightProbeCapture(size: int, mipLevels: int): LightProbeCapture {
         return new LightProbeCapture(Donut_CreateLightProbeCapture(this.handle, size, mipLevels));
     }
+
+    // releaseResource for each of the handles, skipping the null ones (the resources a pass
+    // recreates on a resize, say).
+    releaseResources(resources: (ResourceHandle | null)[]): void {
+        for (const resource of resources) {
+            if (resource) {
+                Donut_ReleaseResource(this.handle, resource);
+            }
+        }
+    }
 }
 
 export class Pass {

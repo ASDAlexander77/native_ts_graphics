@@ -249,12 +249,7 @@ namespace MultiDrawIndirect {
         }
 
         releaseTargets(): void {
-            const resources: (ResourceHandle | null)[] = [this.drawPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
-            for (const resource of resources) {
-                if (resource) {
-                    this.app.releaseResource(resource);
-                }
-            }
+            this.app.releaseResources([this.drawPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.drawPipeline = null;
             this.framebuffer = null;
             this.colorBuffer = null;

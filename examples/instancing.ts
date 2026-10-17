@@ -191,13 +191,8 @@ namespace Instancing {
         }
 
         releaseTargets(): void {
-            const resources: (ResourceHandle | null)[] = [this.rocksPipeline, this.planetPipeline, this.starfieldPipeline,
-                this.framebuffer, this.colorBuffer, this.depthBuffer];
-            for (const resource of resources) {
-                if (resource) {
-                    this.app.releaseResource(resource);
-                }
-            }
+            this.app.releaseResources([this.rocksPipeline, this.planetPipeline, this.starfieldPipeline,
+                this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.rocksPipeline = null;
             this.planetPipeline = null;
             this.starfieldPipeline = null;

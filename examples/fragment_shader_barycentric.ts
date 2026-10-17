@@ -221,12 +221,7 @@ namespace FragmentShaderBarycentric {
         }
 
         releaseTargets(): void {
-            const resources: (ResourceHandle | null)[] = [this.skyboxPipeline, this.objectPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer];
-            for (const resource of resources) {
-                if (resource) {
-                    this.app.releaseResource(resource);
-                }
-            }
+            this.app.releaseResources([this.skyboxPipeline, this.objectPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.skyboxPipeline = null;
             this.objectPipeline = null;
             this.framebuffer = null;

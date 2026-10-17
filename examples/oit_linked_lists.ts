@@ -290,13 +290,8 @@ namespace OitLinkedLists {
             if (this.width == 0) {
                 return;
             }
-            const resources: (ResourceHandle | null)[] = [this.gatherBindingSet.handle, this.combineBindingSet.handle, this.linkedListHead,
-                this.fragmentBuffer, this.fragmentCounter];
-            for (const resource of resources) {
-                if (resource) {
-                    this.app.releaseResource(resource);
-                }
-            }
+            this.app.releaseResources([this.gatherBindingSet.handle, this.combineBindingSet.handle, this.linkedListHead,
+                this.fragmentBuffer, this.fragmentCounter]);
             this.width = 0;
             this.height = 0;
             this.fragmentMaxCount = 0;

@@ -465,6 +465,23 @@ MODULE_HEADER = (
 )
 
 
+# Hand-written methods appended to a generated class: TS logic on top of the interop functions.
+EXTRA_METHODS = {
+    "App": [
+        "",
+        "    // releaseResource for each of the handles, skipping the null ones (the resources a pass",
+        "    // recreates on a resize, say).",
+        "    releaseResources(resources: (ResourceHandle | null)[]): void {",
+        "        for (const resource of resources) {",
+        "            if (resource) {",
+        "                Donut_ReleaseResource(this.handle, resource);",
+        "            }",
+        "        }",
+        "    }",
+    ],
+}
+
+
 def generate(functions, handles, module=None):
     methods = {cls: [] for cls in CLASSES.values()}
     statics = {cls: [] for cls in CLASSES.values()}
@@ -521,6 +538,7 @@ def generate(functions, handles, module=None):
             if name in names:
                 sys.exit(f"{cls}.{name} twice ({function.name})")
             names.add(name)
+        out += EXTRA_METHODS.get(cls, [])
         out.append("}")
     return "\n".join(out) + "\n"
 
