@@ -11,7 +11,7 @@ namespace ShaderSpecializations {
     // -test: checks the last frame. The corners are black; the four triangles, each from its own
     // specialization of one shader, red, green, blue and magenta, cover a quarter of the frame
     // (1/16 each).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -57,18 +57,18 @@ namespace ShaderSpecializations {
             this.pipelines = [];
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             for (const pipeline of this.pipelines) {
                 this.app.releaseResource(pipeline);
             }
             this.pipelines = [];
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (this.pipelines.length == 0) {
                 // Create pipelines with shader specializations.
@@ -97,7 +97,7 @@ namespace ShaderSpecializations {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vertexShader = this.app.createShader("shader_specializations.hlsl", "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("shader_specializations.hlsl", "main_ps", ShaderType.Pixel);
 
@@ -113,7 +113,7 @@ namespace ShaderSpecializations {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_specializations");
 
@@ -153,6 +153,6 @@ namespace ShaderSpecializations {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ShaderSpecializations.main(argc, argv);
 }

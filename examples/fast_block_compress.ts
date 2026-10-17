@@ -14,7 +14,7 @@ namespace FastBlockCompress {
     // -test: checks the last frame and the compression. The corners are the gray clear color; the
     // images drawn; the RMS error of the compressed image against the source, which the GPU computes
     // (an error pass, then reduce passes), small but not 0.
-    function checkFrame(app: App, pass: FastBlockCompressPass): string {
+    function checkFrame(app: App, pass: FastBlockCompressPass) {
         const check = new TestCheck(app);
         const corners = check.corners(0x414141);
         if (corners != "") {
@@ -98,7 +98,7 @@ namespace FastBlockCompress {
     const LAYOUT_HEIGHT = 1080.0;
 
     // ImGui combo items: the names separated by '|'.
-    function comboItems(names: string[]): string {
+    function comboItems(names: string[]) {
         let items = "";
         for (let i = 0; i < names.length; i++) {
             items += (i > 0 ? "|" : "") + names[i];
@@ -106,7 +106,7 @@ namespace FastBlockCompress {
         return items;
     }
 
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scale = 1.0;
         for (let i = 0; i < digits; i++) {
             scale *= 10.0;
@@ -122,7 +122,7 @@ namespace FastBlockCompress {
         return `${sign}${whole}.${fractionText}`;
     }
 
-    function formatName(format: Format): string {
+    function formatName(format: Format) {
         return format == Format.BC1_UNORM ? "BC1" : format == Format.BC3_UNORM ? "BC3" : "BC5";
     }
 
@@ -282,13 +282,13 @@ namespace FastBlockCompress {
         }
 
         // The texture the current method shows.
-        compressedTexture(image: Image): TextureHandle {
+        compressedTexture(image: Image) {
             const method = this.currentMethod;
             return method == RTC_GPU ? image.gpuBC : method == RTC_CPU ? image.cpuBC
                 : method == OFFLINE ? image.offlineBC : image.offlineBC7;
         }
 
-        methodLabel(method: int): string {
+        methodLabel(method: int) {
             const bc = formatName(this.images[this.currentImage].format);
             return method == RTC_GPU ? `GPU (${bc})` : method == RTC_CPU ? `CPU (${bc})`
                 : method == OFFLINE ? `Offline (${bc})` : "Offline (BC7)";
@@ -297,7 +297,7 @@ namespace FastBlockCompress {
         // The viewports of the sample's layout (left, top, width, height), scaled to the frame, their
         // edges on whole pixels as the sample's (APIs differ on the pixels at fractional edges).
         // Side by side: the original, then the method's. Fullscreen: one.
-        viewport(index: int): number[] {
+        viewport(index: int) {
             const sx = this.frameWidth / LAYOUT_WIDTH;
             const sy = this.frameHeight / LAYOUT_HEIGHT;
             const left = this.fullscreen ? 448.0 : index == 0 ? 96.0 : 1014.0;
@@ -309,20 +309,20 @@ namespace FastBlockCompress {
         }
 
         // Clamps the zoom and the offsets as the sample's Update.
-        clampCamera(): void {
+        clampCamera() {
             this.zoom = Math.max(this.zoom, 1.0);
             const oneOverZoom = 1.0 / this.zoom;
             this.offsetX = Math.min(Math.max(this.offsetX, 0.0), 1.0 - oneOverZoom);
             this.offsetY = Math.min(Math.max(this.offsetY, 0.0), 1.0 - oneOverZoom);
         }
 
-        resetCamera(): void {
+        resetCamera() {
             this.zoom = 1.0;
             this.offsetX = 0.0;
             this.offsetY = 0.0;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             if (this.dragging) {
                 // The image follows the mouse: a viewport's width is the visible part of the image.
                 const vp = this.viewport(this.fullscreen ? 0 : 1);
@@ -336,7 +336,7 @@ namespace FastBlockCompress {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             // GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS.
             if (button == 0) {
                 this.dragging = action == 1;
@@ -344,19 +344,19 @@ namespace FastBlockCompress {
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.zoom *= Math.pow(ZOOM_PER_NOTCH, yOffset);
             this.clampCamera();
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The sample's Update for the GPU method: the top mip alone, timed, then all mips, timed;
         // then (not on Xbox One) the blocks copied into the BC texture.
-        compressGPU(commandList: CommandList, image: Image): void {
+        compressGPU(commandList: CommandList, image: Image) {
             const timerBase = (this.frameIndex % TIMER_FRAMES) * 2;
             if (this.timerPending[this.frameIndex % TIMER_FRAMES]) {
                 this.times[0] = this.app.getTimerQueryTime(this.timers[timerBase]) * 1000.0;
@@ -388,7 +388,7 @@ namespace FastBlockCompress {
         }
 
         // The sample's Update for the CPU method: compressed, timed, then uploaded.
-        compressCPU(commandList: CommandList, image: Image): void {
+        compressCPU(commandList: CommandList, image: Image) {
             const result = image.rgba.compressCpu(image.format, Ref(this.cpuStats[0]));
             if (result.isNull()) {
                 return;
@@ -405,7 +405,7 @@ namespace FastBlockCompress {
 
         // The sample's RMSError: the squared errors of the shown level, reduced to one value and
         // copied for reading READBACK_FRAMES frames later (the sample polls a fence instead).
-        computeRMS(commandList: CommandList, image: Image): void {
+        computeRMS(commandList: CommandList, image: Image) {
             const slot = this.frameIndex % READBACK_FRAMES;
             const pendingWidth = this.rmsReadbackWidth[slot];
             if (pendingWidth > 0) {
@@ -448,7 +448,7 @@ namespace FastBlockCompress {
             commandList.endMarker();
         }
 
-        drawQuad(frame: Frame, viewportIndex: int, bindingSet: BindingSet, image: Image, diffs: boolean): void {
+        drawQuad(frame: Frame, viewportIndex: int, bindingSet: BindingSet, image: Image, diffs: boolean) {
             // QuadWithCameraConstants: the camera, the level's size (square), the level, the options.
             this.quadConstants[0] = 1.0 / this.zoom;
             this.quadConstants[1] = this.offsetX;
@@ -468,7 +468,7 @@ namespace FastBlockCompress {
             frame.drawVerticesWithPushConstants(3, Ref(this.quadConstants[0]), QUAD_CONSTANTS_FLOATS * 4);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             this.frameWidth = frame.getWidth();
             this.frameHeight = frame.getHeight();
@@ -510,13 +510,13 @@ namespace FastBlockCompress {
 
         // The frame's framebuffer layout changes with the back buffers' format only, not their
         // size: the pipeline stays.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
         }
 
         // The sample's Image constructor: the source levels (decoded on the CPU, for its CPU
         // compressor too) and the offline versions; here also the run-time compressions' textures,
         // dispatches and binding sets.
-        loadImage(commandList: CommandList, index: int): Image | null {
+        loadImage(commandList: CommandList, index: int) {
             const image = new Image(IMAGE_FORMATS[index]);
             const name = IMAGE_NAMES[index];
             const file = this.app.loadBinaryFile(MEDIA_DIR + name + IMAGE_EXTENSIONS[index]);
@@ -580,7 +580,7 @@ namespace FastBlockCompress {
             return image;
         }
 
-        compressPass(image: Image, kind: int, level: int, groups: int, oneOverTextureWidth: number): CompressPass {
+        compressPass(image: Image, kind: int, level: int, groups: int, oneOverTextureWidth: number) {
             const formatIndex = image.format == Format.BC1_UNORM ? 0 : image.format == Format.BC3_UNORM ? 1 : 2;
             const desc = BindingSetDesc.create();
             desc.bindPushConstants(0, COMPRESS_CONSTANTS_SIZE);
@@ -600,7 +600,7 @@ namespace FastBlockCompress {
 
         // CompressorGPU::Compress's dispatches: for the top mip alone (generateMips false), then for
         // all of them.
-        createPasses(image: Image): void {
+        createPasses(image: Image) {
             const texSize = image.width;
             image.topPass = this.compressPass(image, KIND_ONE_MIP, 0,
                 Math.max(1, Math.floor(texSize / 4 / COMPRESS_ONE_MIP_THREADGROUP_WIDTH)), 1.0 / texSize);
@@ -632,7 +632,7 @@ namespace FastBlockCompress {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.pointSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
 
             for (let kind = 0; kind < 3; kind++) {
@@ -743,7 +743,7 @@ namespace FastBlockCompress {
             this.sample = sample;
         }
 
-        label(text: string, x: number, y: number): void {
+        label(text: string, x: number, y: number) {
             Donut_ImGuiBeginOverlay(text, x, y, 300.0, Donut_ImGuiGetFontSize() * 1.6);
             Donut_ImGuiPushTextColor(GREEN[0], GREEN[1], GREEN[2], 1.0);
             Donut_ImGuiText(text);
@@ -751,7 +751,7 @@ namespace FastBlockCompress {
             Donut_ImGuiEnd();
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             // Three rows above the images, as the sample's text.
             Donut_ImGuiSetNextWindowPos(10.0, 4.0);
@@ -847,7 +847,7 @@ namespace FastBlockCompress {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -865,7 +865,7 @@ namespace FastBlockCompress {
         // -diffs <n>: 1 color, 2 alpha differences.
         diffs = 0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-image" && i + 1 < this.argc) {
@@ -893,7 +893,7 @@ namespace FastBlockCompress {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fast_block_compress");
 
@@ -945,6 +945,6 @@ namespace FastBlockCompress {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return FastBlockCompress.main(argc, argv);
 }

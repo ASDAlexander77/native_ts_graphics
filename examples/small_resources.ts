@@ -10,7 +10,7 @@ namespace SmallResources {
 
     // -test: checks the last frame. The corners are the blue clear color; the grid of small
     // textures (placed in small resource heaps) covers about 76% of the frame, 58% colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -62,7 +62,7 @@ namespace SmallResources {
     }
 
     // FormatMemoryUsage.
-    function formatMemoryUsage(usage: number): string {
+    function formatMemoryUsage(usage: number) {
         if (usage > MB) {
             return `${Math.fround(usage / MB).toFixed(1)} MB`;
         }
@@ -105,7 +105,7 @@ namespace SmallResources {
             this.usePlacedResources = true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_SPACE && action == ACTION_PRESS) {
                 this.usePlacedResources = !this.usePlacedResources;
                 this.recreate = true;
@@ -114,7 +114,7 @@ namespace SmallResources {
         }
 
         // The textures, outside a frame: after the GPU is done with the old ones.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             if (this.recreate) {
                 Donut_WaitForIdle(this.app.handle);
                 this.createTextures();
@@ -137,7 +137,7 @@ namespace SmallResources {
             Donut_SetWindowTitle(this.app.handle, `${WINDOW_TITLE}: [ResourceType: ${type}] - Memory Used: ${formatMemoryUsage(usage)}`);
         }
 
-        releaseTextures(): void {
+        releaseTextures() {
             for (const bindingSet of this.bindingSets) {
                 this.app.releaseResource(bindingSet.handle);
             }
@@ -153,7 +153,7 @@ namespace SmallResources {
         }
 
         // GenerateTexture: a checkerboard of 8 x 8 cells, black and a random color.
-        generateTexture(random: MsvcRandom): int[] {
+        generateTexture(random: MsvcRandom) {
             const r = random.next() & 0xff;
             const g = random.next() & 0xff;
             const b = random.next() & 0xff;
@@ -176,7 +176,7 @@ namespace SmallResources {
         }
 
         // CreateTextures: placed in one heap, or committed.
-        createTextures(): void {
+        createTextures() {
             this.releaseTextures();
             const commandList = this.app.createCommandList();
             commandList.open();
@@ -213,7 +213,7 @@ namespace SmallResources {
         }
 
         // PopulateCommandList: the grid, a quad (triangle strip) per texture.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (!this.hasPipeline) {
                 const desc = GraphicsPipelineDesc.create(this.vertexShader, this.pixelShader);
@@ -233,7 +233,7 @@ namespace SmallResources {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (this.hasPipeline) {
                 this.app.releaseResource(this.pipeline);
                 this.hasPipeline = false;
@@ -241,7 +241,7 @@ namespace SmallResources {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // The sample's static sampler: linear, wrapping. Before any command list is open: it
             // creates Donut's common passes.
             this.sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
@@ -310,7 +310,7 @@ namespace SmallResources {
         // -committed: start with committed resources (the sample starts with placed ones).
         committed = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-committed") {
@@ -320,7 +320,7 @@ namespace SmallResources {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("small_resources");
 
@@ -357,6 +357,6 @@ namespace SmallResources {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return SmallResources.main(argc, argv);
 }

@@ -49,7 +49,7 @@ namespace DynamicIndexing {
 
     // DirectXMath's XMColorHSLToRGB, in float, for the saturation and lightness the sample uses (0.5,
     // 0.5): its q, p and hue-to-color steps (multiplies and adds without fusing, as its SSE2 path).
-    function hue2Clr(p: number, q: number, h: number): number {
+    function hue2Clr(p: number, q: number, h: number) {
         const oneSixth = Math.fround(1.0 / 6.0);
         const twoThirds = Math.fround(2.0 / 3.0);
         let t = h;
@@ -71,7 +71,7 @@ namespace DynamicIndexing {
         return p;
     }
 
-    function hslToRgb(h: number, s: number, l: number): number[] {
+    function hslToRgb(h: number, s: number, l: number) {
         const oneThird = Math.fround(1.0 / 3.0);
         let q = 0.0;
         if (l < 0.5) {
@@ -129,12 +129,12 @@ namespace DynamicIndexing {
         }
 
         // OnUpdate: the camera.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.camera.update(Math.fround(elapsedSeconds));
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -148,7 +148,7 @@ namespace DynamicIndexing {
 
         // The sample's back buffer, depth buffer and pipeline state: no culling, the default blend
         // state (opaque) and depth state (less, writes).
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             this.depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.framebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
@@ -164,7 +164,7 @@ namespace DynamicIndexing {
 
         // UpdateConstantBuffers and the bundle's draws: each city with its model-view-projection
         // matrix and material index.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
@@ -198,7 +198,7 @@ namespace DynamicIndexing {
         // LoadAssets: the city's mesh and diffuse texture from the data file, the material textures
         // (rows of a rainbow: city i spans hues i / 120 to (i + 1) / 120 down its texture), and the
         // cities' positions (SetCityPositions; y raised a little per city against z-fighting).
-        loadAssets(commandList: CommandList): boolean {
+        loadAssets(commandList: CommandList) {
             const binaryFile = this.app.loadBinaryFile(DATA_FILE);
             if (binaryFile.isNull()) {
                 console.log(`Cannot load ${DATA_FILE} (the sample's data: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
@@ -266,7 +266,7 @@ namespace DynamicIndexing {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "dynamic_indexing.hlsl";
             this.vertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
             this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
@@ -316,7 +316,7 @@ namespace DynamicIndexing {
 
     // -test: checks the last frame. The sky (the frame's top row) is the clear color; the cities
     // cover a good part of the frame, each in its own color: their pixels spread over many hues.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -376,7 +376,7 @@ namespace DynamicIndexing {
         return "";
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_indexing");
 
@@ -414,6 +414,6 @@ namespace DynamicIndexing {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DynamicIndexing.main(argc, argv);
 }

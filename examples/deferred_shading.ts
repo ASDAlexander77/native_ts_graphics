@@ -10,7 +10,7 @@ namespace DeferredShading {
 
     // -test: checks the last frame. The corners are black; the cube, shaded from the G-buffer,
     // covers about 18% of the frame, its middle included.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -133,7 +133,7 @@ namespace DeferredShading {
 
     // donut::math::vectorToSnorm8(float4(x, y, z, w)): each component scaled by 127 / |xyz|, one
     // byte each.
-    function vectorToSnorm8(x: number, y: number, z: number, w: number): int {
+    function vectorToSnorm8(x: number, y: number, z: number, w: number) {
         const scale = 127.0 / Math.sqrt(x * x + y * y + z * z);
         const xi: int = Math.trunc(x * scale);
         const yi: int = Math.trunc(y * scale);
@@ -142,7 +142,7 @@ namespace DeferredShading {
         return (xi & 0xff) | ((yi & 0xff) << 8) | ((zi & 0xff) << 16) | ((wi & 0xff) << 24);
     }
 
-    function packFaceVectors(): void {
+    function packFaceVectors() {
         for (let vertex = 0; vertex < VERTEX_COUNT; vertex++) {
             const face = Math.floor(vertex / 4);
             g_Normals.push(vectorToSnorm8(g_FaceNormals[face * 3], g_FaceNormals[face * 3 + 1], g_FaceNormals[face * 3 + 2], 0.0));
@@ -156,11 +156,11 @@ namespace DeferredShading {
     // Donut's row-vector convention: `mul(a, b)` applies a, then b.
 
     // math::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return Math.fround(Math.fround(degrees) * Math.fround(Math.fround(Math.PI) / 180.0));
     }
 
-    function mul(a: number[], b: number[]): number[] {
+    function mul(a: number[], b: number[]) {
         // `let`: tslang's push needs a non-const array.
         const r: number[] = [];
         for (let i = 0; i < 4; i++) {
@@ -176,7 +176,7 @@ namespace DeferredShading {
     }
 
     // math::yawPitchRoll(yaw, pitch, roll).
-    function yawPitchRoll(yaw: number, pitch: number, roll: number): number[] {
+    function yawPitchRoll(yaw: number, pitch: number, roll: number) {
         const sh = Math.sin(yaw);
         const ch = Math.cos(yaw);
         const sp = Math.sin(pitch);
@@ -192,7 +192,7 @@ namespace DeferredShading {
     }
 
     // math::translation(float3(x, y, z)).
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [
             1.0, 0.0, 0.0, 0.0,
             0.0, 1.0, 0.0, 0.0,
@@ -204,7 +204,7 @@ namespace DeferredShading {
     // math::perspProjD3DStyle(verticalFOV, aspect, zNear, zFar).
     // In float32 as Donut's (computed in double, the terms differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const near = Math.fround(zNear);
         const far = Math.fround(zFar);
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
@@ -225,7 +225,7 @@ namespace DeferredShading {
         public sceneGraph: SceneGraph;
         public meshNode: Node;
 
-        init(app: App): boolean {
+        init(app: App) {
             packFaceVectors();
 
             const commandList = app.createCommandList();
@@ -295,7 +295,7 @@ namespace DeferredShading {
             }
         }
 
-        setupView(width: int, height: int): void {
+        setupView(width: int, height: int) {
             const viewMatrix = mul(mul(
                 yawPitchRoll(this.rotation, 0.0, 0.0),
                 yawPitchRoll(0.0, radians(-30.0), 0.0)),
@@ -311,7 +311,7 @@ namespace DeferredShading {
             this.view.setPlanarView(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
         }
 
-        createRenderTargets(width: int, height: int): GBufferTargets {
+        createRenderTargets(width: int, height: int) {
             const oldTargets = this.renderTargets;
             if (!oldTargets.isNull()) {
                 this.app.releaseObject(oldTargets.handle);
@@ -333,12 +333,12 @@ namespace DeferredShading {
             return targets;
         }
 
-        onAnimate(seconds: number): void {
+        onAnimate(seconds: number) {
             this.rotation += seconds * 1.1;
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -369,7 +369,7 @@ namespace DeferredShading {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.deferredLightingPass = this.app.createDeferredLightingPass();
             this.view = this.app.createPlanarView();
 
@@ -384,7 +384,7 @@ namespace DeferredShading {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("deferred_shading");
 
@@ -418,6 +418,6 @@ namespace DeferredShading {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DeferredShading.main(argc, argv);
 }

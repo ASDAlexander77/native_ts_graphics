@@ -130,7 +130,7 @@ namespace RaytracingLibrarySubobjects {
         }
 
         // The output texture has the back buffers' size.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const output = this.output;
             if (output) {
                 this.app.releaseResource(output);
@@ -140,7 +140,7 @@ namespace RaytracingLibrarySubobjects {
 
         // OnUpdate: the camera circles the cube about y once in 24 s, the light the other way once
         // in 8 s.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             const elapsedTime = Math.fround(elapsedSeconds);
             {
@@ -159,7 +159,7 @@ namespace RaytracingLibrarySubobjects {
 
         // UpdateCameraMatrices: projectionToWorld, the inverse of the view-projection matrix
         // (45 degrees vertically, depth 1 to 125), and the camera position; the light.
-        writeSceneConstants(width: int, height: int): void {
+        writeSceneConstants(width: int, height: int) {
             const view = matrixLookAtLH(this.eye, this.at, this.up);
             const aspectRatio = Math.fround(Math.fround(width) / Math.fround(height));
             const proj = matrixPerspectiveFovLH(radians(45.0), aspectRatio, 1.0, 125.0);
@@ -182,7 +182,7 @@ namespace RaytracingLibrarySubobjects {
             this.sceneData[31] = 1.0;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
@@ -216,7 +216,7 @@ namespace RaytracingLibrarySubobjects {
         // BuildGeometry and BuildAccelerationStructures: the cube's vertex and index buffers (which
         // the closest hit shader reads too), its BLAS (opaque, preferring fast tracing) and the
         // TLAS's one instance (identity transform).
-        createAccelerationStructures(commandList: CommandList): boolean {
+        createAccelerationStructures(commandList: CommandList) {
             let vertices = CUBE_VERTICES.map((v): f32 => v);
             // Two 16-bit indices per int.
             let indices: int[] = [];
@@ -254,7 +254,7 @@ namespace RaytracingLibrarySubobjects {
         // table's records: the ray generation shader, the miss shader, and the hit group with the
         // cube's albedo as its local root constants (white). Then the global root signature's
         // arguments.
-        createRayTracingPipeline(): boolean {
+        createRayTracingPipeline() {
             const shaderLibrary = this.app.createShaderLibrary("raytracing_library_subobjects.hlsl");
             if (!shaderLibrary) {
                 return false;
@@ -281,7 +281,7 @@ namespace RaytracingLibrarySubobjects {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // InitializeScene's camera: from (0, 2, -5) towards the origin, its up vector
             // perpendicular to the view direction and x, both turned 45 degrees about y.
             this.eye = [0.0, 2.0, -5.0, 1.0];
@@ -316,7 +316,7 @@ namespace RaytracingLibrarySubobjects {
     // -test: checks the last frame. The background (the miss shader's (0, 0.2, 0.4)) around the
     // cube in the middle; the cube's faces ambient gray (0.5) at least, the lit ones greened by
     // the diffuse light.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -361,7 +361,7 @@ namespace RaytracingLibrarySubobjects {
         return "";
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("raytracing_library_subobjects");
 
@@ -407,6 +407,6 @@ namespace RaytracingLibrarySubobjects {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RaytracingLibrarySubobjects.main(argc, argv);
 }

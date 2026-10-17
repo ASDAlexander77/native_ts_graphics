@@ -40,7 +40,7 @@ namespace BufferDeviceAddress {
 
     // --- Math (glm's, in float32: 4 x 4 matrices by columns) ---------------------------------
 
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -55,7 +55,7 @@ namespace BufferDeviceAddress {
     }
 
     // glm::perspective (right-handed, depth from 0 to 1, as the samples build glm).
-    function perspective(fovy: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fovy: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.fround(Math.tan(Math.fround(fovy / 2.0)));
         const near = Math.fround(zNear);
         const far = Math.fround(zFar);
@@ -68,7 +68,7 @@ namespace BufferDeviceAddress {
     }
 
     // glm::lookAt from (0, 0, 5) at the origin, y up: a translation by -5 along z.
-    function lookAtOriginFromZ5(): number[] {
+    function lookAtOriginFromZ5() {
         return [
             1.0, 0.0, 0.0, 0.0,
             0.0, 1.0, 0.0, 0.0,
@@ -130,7 +130,7 @@ namespace BufferDeviceAddress {
         }
 
         // render: the time advances 0.2 a second, kept to a fraction.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.accumulatedTime = Math.fround(this.accumulatedTime + Math.fround(0.2 * Math.fround(elapsedSeconds)));
             this.accumulatedTime = Math.fround(this.accumulatedTime - Math.floor(this.accumulatedTime));
@@ -139,7 +139,7 @@ namespace BufferDeviceAddress {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const pipeline = this.pipeline;
             if (pipeline) {
                 this.app.releaseResource(pipeline);
@@ -147,7 +147,7 @@ namespace BufferDeviceAddress {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
@@ -203,7 +203,7 @@ namespace BufferDeviceAddress {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "buffer_device_address.hlsl";
             this.computeShader = this.app.createShaderWithDefine(shader, "update_vbo_cs", ShaderType.Compute, "UPDATE_VBO", "1");
             this.vertexShader = this.app.createShader(shader, "render_vs", ShaderType.Vertex);
@@ -270,7 +270,7 @@ namespace BufferDeviceAddress {
 
     // -test: checks the last frame: the corners are the clear color; the meshes (in their red,
     // green and dark checkers) cover a good part of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -311,7 +311,7 @@ namespace BufferDeviceAddress {
         // -time <t>: the animation time fixed at t (a fraction).
         fixedTime = -1.0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-time" && i + 1 < this.argc) {
@@ -322,7 +322,7 @@ namespace BufferDeviceAddress {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("buffer_device_address");
 
@@ -366,6 +366,6 @@ namespace BufferDeviceAddress {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return BufferDeviceAddress.main(argc, argv);
 }

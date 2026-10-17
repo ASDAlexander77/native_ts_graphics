@@ -10,7 +10,7 @@ namespace FragmentShadingRateDynamic {
 
     // -test: checks the last frame: the cubes with the Vulkan logo over the sky, about 13% of it
     // red and 31% white.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -76,12 +76,12 @@ namespace FragmentShadingRateDynamic {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -96,7 +96,7 @@ namespace FragmentShadingRateDynamic {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -109,12 +109,12 @@ namespace FragmentShadingRateDynamic {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); with near > far, depth is reversed.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -146,7 +146,7 @@ namespace FragmentShadingRateDynamic {
         }
 
         // vkb::Camera::update_view_matrix: rotations around x, y, z, then translate(position).
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -158,7 +158,7 @@ namespace FragmentShadingRateDynamic {
             return multiply(r, t);
         }
 
-        key(key: int, action: int): void {
+        key(key: int, action: int) {
             const down = action != ACTION_RELEASE;
             if (key == KEY_W) {
                 this.keys[0] = down;
@@ -172,7 +172,7 @@ namespace FragmentShadingRateDynamic {
         }
 
         // vkb::Camera::update: first person movement, 1 unit per second.
-        update(deltaTime: number): void {
+        update(deltaTime: number) {
             const rx = radians(this.rotation[0]);
             const ry = radians(this.rotation[1]);
             let front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
@@ -203,14 +203,14 @@ namespace FragmentShadingRateDynamic {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -346,36 +346,36 @@ namespace FragmentShadingRateDynamic {
         }
 
         // The reduced size pass's size, for the UI's placement.
-        getSubpassHeight(): int {
+        getSubpassHeight() {
             return this.subpassHeight;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.key(key, action);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.update(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const resource of this.resources) {
                 this.app.releaseResource(resource);
             }
@@ -389,14 +389,14 @@ namespace FragmentShadingRateDynamic {
             this.targetWidth = 0;
         }
 
-        own<T extends ResourceHandle>(resource: T): T {
+        own<T extends ResourceHandle>(resource: T) {
             this.resources.push(resource);
             return resource;
         }
 
         // The sample's create_shading_rate_attachment, setup_framebuffer, update_compute_pipeline
         // and setup_descriptor_sets, recorded into an open command list.
-        createTargets(commandList: CommandList, width: int, height: int): void {
+        createTargets(commandList: CommandList, width: int, height: int) {
             this.app.waitForIdle();
             this.releaseTargets();
 
@@ -504,7 +504,7 @@ namespace FragmentShadingRateDynamic {
 
         // The sample's build_command_buffer for one target: the sky sphere (if shown) and the three
         // cubes, each draw's shading rate the attachment's (Override) or the pipeline's 1x1.
-        drawScene(frame: Frame, framebuffer: FramebufferHandle, bindingSet: BindingSet, useAttachment: boolean): void {
+        drawScene(frame: Frame, framebuffer: FramebufferHandle, bindingSet: BindingSet, useAttachment: boolean) {
             const imageCombiner = useAttachment ? ShadingRateCombiner.Override : ShadingRateCombiner.Passthrough;
             if (this.displaySkySphere) {
                 frame.beginDrawToFramebuffer(this.skyspherePipeline, framebuffer);
@@ -534,7 +534,7 @@ namespace FragmentShadingRateDynamic {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -591,7 +591,7 @@ namespace FragmentShadingRateDynamic {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.rateCount = this.app.getFragmentShadingRates(Ref(this.rates[0]));
             this.tileSize = this.app.getShadingRateTileSize();
             if (this.rateCount == 0 || this.tileSize == 0) {
@@ -675,7 +675,7 @@ namespace FragmentShadingRateDynamic {
             this.pass = pass;
         }
 
-        buildUI(): void {
+        buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, p.getSubpassHeight() + 10.0);
             Donut_ImGuiBegin("Options", 1);
@@ -695,7 +695,7 @@ namespace FragmentShadingRateDynamic {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -710,7 +710,7 @@ namespace FragmentShadingRateDynamic {
         // -nosky: without the sky sphere.
         noSky = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-visualize" && i + 1 < this.argc) {
@@ -728,7 +728,7 @@ namespace FragmentShadingRateDynamic {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shading_rate_dynamic");
 
@@ -779,6 +779,6 @@ namespace FragmentShadingRateDynamic {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return FragmentShadingRateDynamic.main(argc, argv);
 }

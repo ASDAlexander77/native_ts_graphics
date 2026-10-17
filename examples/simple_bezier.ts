@@ -10,7 +10,7 @@ namespace SimpleBezier {
 
     // -test: checks the last frame. The corners are the gray clear color; the tessellated red
     // Bezier patches cover about 30% of the frame, red in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -155,7 +155,7 @@ namespace SimpleBezier {
     const ACTION_PRESS = 1;
 
 
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scale = 1.0;
         for (let i = 0; i < digits; i++) {
             scale *= 10.0;
@@ -173,11 +173,11 @@ namespace SimpleBezier {
 
     // --- Math (DirectXMath's layout: 4 x 4 matrices by rows, for row vectors; float precision) -
 
-    function f(x: number): number {
+    function f(x: number) {
         return Math.fround(x);
     }
 
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -191,21 +191,21 @@ namespace SimpleBezier {
         return result;
     }
 
-    function normalize3(v: number[]): number[] {
+    function normalize3(v: number[]) {
         const length = f(Math.sqrt(f(f(f(v[0] * v[0]) + f(v[1] * v[1])) + f(v[2] * v[2]))));
         return [f(v[0] / length), f(v[1] / length), f(v[2] / length)];
     }
 
-    function cross3(a: number[], b: number[]): number[] {
+    function cross3(a: number[], b: number[]) {
         return [f(f(a[1] * b[2]) - f(a[2] * b[1])), f(f(a[2] * b[0]) - f(a[0] * b[2])), f(f(a[0] * b[1]) - f(a[1] * b[0]))];
     }
 
-    function dot3(a: number[], b: number[]): number {
+    function dot3(a: number[], b: number[]) {
         return f(f(f(a[0] * b[0]) + f(a[1] * b[1])) + f(a[2] * b[2]));
     }
 
     // XMMatrixLookAtLH.
-    function lookAtLH(eye: number[], at: number[], up: number[]): number[] {
+    function lookAtLH(eye: number[], at: number[], up: number[]) {
         const r2 = normalize3([f(at[0] - eye[0]), f(at[1] - eye[1]), f(at[2] - eye[2])]);
         const r0 = normalize3(cross3(up, r2));
         const r1 = cross3(r2, r0);
@@ -219,7 +219,7 @@ namespace SimpleBezier {
     }
 
     // XMMatrixPerspectiveFovLH.
-    function perspectiveFovLH(fovY: number, aspect: number, nearZ: number, farZ: number): number[] {
+    function perspectiveFovLH(fovY: number, aspect: number, nearZ: number, farZ: number) {
         const height = f(f(Math.cos(0.5 * fovY)) / f(Math.sin(0.5 * fovY)));
         const width = f(height / aspect);
         const range = f(farZ / f(farZ - nearZ));
@@ -232,7 +232,7 @@ namespace SimpleBezier {
     }
 
     // XMVector3Transform(v, XMMatrixRotationY(angle)).
-    function rotateY(v: number[], angle: number): number[] {
+    function rotateY(v: number[], angle: number) {
         const c = f(Math.cos(angle));
         const s = f(Math.sin(angle));
         return [f(f(v[0] * c) + f(v[2] * s)), v[1], f(f(-v[0] * s) + f(v[2] * c))];
@@ -305,7 +305,7 @@ namespace SimpleBezier {
         }
 
         // Turns the camera around the strip (positive: to the left), steps times.
-        rotateCamera(angle: number, steps: int): void {
+        rotateCamera(angle: number, steps: int) {
             for (let i = 0; i < steps; i++) {
                 this.cameraEye = rotateY(this.cameraEye, angle);
             }
@@ -313,7 +313,7 @@ namespace SimpleBezier {
         }
 
         // Sample::Update's key presses: one action per press, in the sample's order.
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != ACTION_RELEASE;
             }
@@ -340,7 +340,7 @@ namespace SimpleBezier {
         }
 
         // Sample::Update's held keys, once per frame.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             const held = this.held;
             if (held[KEY_DOWN]) {
@@ -357,11 +357,11 @@ namespace SimpleBezier {
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -375,7 +375,7 @@ namespace SimpleBezier {
 
         // The sample's PSOs: 16 control point patches, no culling, depth clip on, depth tested
         // (less) and written; solid with BezierPS or wireframe with SolidColorPS.
-        createPipeline(wireframe: int, partitionMode: int): GraphicsPipelineHandle {
+        createPipeline(wireframe: int, partitionMode: int) {
             const desc = GraphicsPipelineDesc.create(this.vs, this.pixelShaders[wireframe]);
             desc.setTessellation(this.hullShaders[partitionMode], this.ds, PATCH_SIZE);
             desc.setInputLayout(this.inputLayout);
@@ -392,7 +392,7 @@ namespace SimpleBezier {
         }
 
         // Sample::CreateWindowSizeDependentResources: the depth buffer (D32_FLOAT) and projection.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 1.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -412,7 +412,7 @@ namespace SimpleBezier {
             this.frameHeight = height;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -450,7 +450,7 @@ namespace SimpleBezier {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "simple_bezier.hlsl";
             this.vs = this.app.createShader(shader, "BezierVS", ShaderType.Vertex);
             this.ds = this.app.createShader(shader, "BezierDS", ShaderType.Domain);
@@ -519,11 +519,11 @@ namespace SimpleBezier {
             this.app = app;
         }
 
-        line(x: number, y: number, text: string): void {
+        line(x: number, y: number, text: string) {
             Donut_ImGuiDrawText(x, y, text, LIGHT_GREY, LIGHT_GREY, LIGHT_GREY, 1.0, 0);
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             // SimpleMath::Viewport::ComputeTitleSafeArea
             const safeW = Math.fround((sample.frameWidth + 19.0) / 20.0);
@@ -566,7 +566,7 @@ namespace SimpleBezier {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(): boolean {
+        init() {
             const imguiPass = this.app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -591,7 +591,7 @@ namespace SimpleBezier {
         rotateSteps = 0;
         showHelp = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-wireframe") {
@@ -612,7 +612,7 @@ namespace SimpleBezier {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_bezier");
 
@@ -663,6 +663,6 @@ namespace SimpleBezier {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return SimpleBezier.main(argc, argv);
 }

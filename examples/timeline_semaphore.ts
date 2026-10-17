@@ -10,7 +10,7 @@ namespace TimelineSemaphore {
 
     // -test: checks the last frame. The corners are the blue background, beside the square grid;
     // about a tenth of its cells are alive (white) by then.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x664C33);
         if (corners != "") {
@@ -95,17 +95,17 @@ namespace TimelineSemaphore {
             this.push = [0.0];
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.computeElapsed += this.benchmark ? 1.0 / 60.0 : elapsedSeconds;
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -114,7 +114,7 @@ namespace TimelineSemaphore {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             const count = this.app.getBackBufferCount();
             for (let i = 0; i < count; i++) {
@@ -136,7 +136,7 @@ namespace TimelineSemaphore {
         // The sample's build_compute_command_buffers: this frame's image from the previous one,
         // stepped once the timer passes a second (and the timer restarted), else its cells'
         // intensity raised to the seconds since the last step.
-        recordCompute(commandList: CommandList): void {
+        recordCompute(commandList: CommandList) {
             const frameIndex = this.frameNumber % NUM_ASYNC_FRAMES;
             if (this.computeElapsed > 1.0) {
                 // (The layout's push constants are set for every dispatch; the step doesn't read them.)
@@ -150,7 +150,7 @@ namespace TimelineSemaphore {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -193,7 +193,7 @@ namespace TimelineSemaphore {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "timeline_semaphore.hlsl";
             const initCS = this.app.createShader(shader, "init_cs", ShaderType.Compute);
             const mutateCS = this.app.createShader(shader, "mutate_cs", ShaderType.Compute);
@@ -262,7 +262,7 @@ namespace TimelineSemaphore {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("timeline_semaphore");
 
@@ -298,6 +298,6 @@ namespace TimelineSemaphore {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return TimelineSemaphore.main(argc, argv);
 }

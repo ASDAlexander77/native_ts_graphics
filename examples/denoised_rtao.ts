@@ -92,19 +92,19 @@ namespace DenoisedRtao {
     const TEST_FRAMES = 60;
 
     // Sets a float array's element to an int's bits (uint fields of constant buffers).
-    function storeInt(values: f32[], index: int, value: int): void {
+    function storeInt(values: f32[], index: int, value: int) {
         Donut_StoreInt32(Ref(values[index]), value);
     }
 
     // A matrix (16 floats, XMMATRIX's memory) into a constant buffer's floats.
-    function storeMatrix(values: f32[], index: int, m: number[]): void {
+    function storeMatrix(values: f32[], index: int, m: number[]) {
         for (let k = 0; k < 16; k++) {
             values[index + k] = m[k];
         }
     }
 
     // XMVector3Length's SSE2 order: sqrt((x^2 + z^2) + y^2).
-    function length3(v: number[]): number {
+    function length3(v: number[]) {
         const x2 = Math.fround(v[0] * v[0]);
         const y2 = Math.fround(v[1] * v[1]);
         const z2 = Math.fround(v[2] * v[2]);
@@ -112,12 +112,12 @@ namespace DenoisedRtao {
     }
 
     // XMVectorScale.
-    function vscale(v: number[], s: number): number[] {
+    function vscale(v: number[], s: number) {
         return [Math.fround(v[0] * s), Math.fround(v[1] * s), Math.fround(v[2] * s), Math.fround(v[3] * s)];
     }
 
     // An XMMATRIX as a TLAS instance's 3x4 transform (XMStoreFloat3x4: rows of the transpose).
-    function toTransform3x4(m: number[], out: f32[]): void {
+    function toTransform3x4(m: number[], out: f32[]) {
         for (let r = 0; r < 3; r++) {
             for (let c = 0; c < 4; c++) {
                 out[r * 4 + c] = m[c * 4 + r];
@@ -127,7 +127,7 @@ namespace DenoisedRtao {
 
     // XMMatrixRotationAxis (normalized axis), for the mouse's pitch (only exact for angle 0,
     // where it's the identity, as the sample's is).
-    function matrixRotationAxis(axis: number[], angle: number): number[] {
+    function matrixRotationAxis(axis: number[], angle: number) {
         const n = normalize3(axis);
         const s = Math.fround(Math.sin(angle));
         const c = Math.fround(Math.cos(angle));
@@ -157,20 +157,20 @@ namespace DenoisedRtao {
             this.up = [0.0, 1.0, 0.0, 0.0];
         }
 
-        set(eye: number[], at: number[], up: number[]): void {
+        set(eye: number[], at: number[], up: number[]) {
             this.eye = [eye[0], eye[1], eye[2], 1.0];
             this.at = [at[0], at[1], at[2], 1.0];
             this.up = [up[0], up[1], up[2], 0.0];
         }
 
-        copyFrom(other: Camera): void {
+        copyFrom(other: Camera) {
             this.eye = [other.eye[0], other.eye[1], other.eye[2], other.eye[3]];
             this.at = [other.at[0], other.at[1], other.at[2], other.at[3]];
             this.up = [other.up[0], other.up[1], other.up[2], other.up[3]];
         }
 
         // Camera::GetProj.
-        projection(width: int, height: int): number[] {
+        projection(width: int, height: int) {
             const aspectRatio = Math.fround(Math.fround(width) / Math.fround(height));
             let fovAngleY = radians(45.0);
             if (aspectRatio < 1.0) {
@@ -180,19 +180,19 @@ namespace DenoisedRtao {
         }
 
         // Camera::GetViewProj's view.
-        view(): number[] {
+        view() {
             return matrixLookAtLH(this.eye, this.at, this.up);
         }
 
         // XMMatrixLookAtLH from the origin toward at - eye (the sample's "camera at origin" view).
-        viewAtOrigin(): number[] {
+        viewAtOrigin() {
             const dir = vsub(this.at, this.eye);
             return matrixLookAtLH([0.0, 0.0, 0.0, 1.0], [dir[0], dir[1], dir[2], 1.0], this.up);
         }
 
         // CameraController::Update's camera moves: RotateAroundYAxis, RotatePitch,
         // TranslateRightUpForward, then the boundary clamp (y >= 0) and Set.
-        update(yaw: number, pitch: number, strafe: number, ascent: number, forward: number): void {
+        update(yaw: number, pitch: number, strafe: number, ascent: number, forward: number) {
             // RotateAroundYAxis.
             const rotation = matrixRotationY(yaw);
             let eye = vadd(this.at, transformCoord3(vsub(this.eye, this.at), rotation));
@@ -254,7 +254,7 @@ namespace DenoisedRtao {
         }
 
         // A binding set desc with the index-th constant buffer bound.
-        setDesc(index: int): BindingSetDesc {
+        setDesc(index: int) {
             const desc = BindingSetDesc.create();
             desc.bindConstantBuffer(0, this.constantBuffers[index], 0, constantBufferSize(this.constantsSize));
             return desc;
@@ -262,7 +262,7 @@ namespace DenoisedRtao {
 
         // Dispatches with the constants written into the index-th constant buffer (the one the
         // binding set binds).
-        dispatch(commandList: CommandList, index: int, bindingSet: BindingSet, groupsX: int, groupsY: int): void {
+        dispatch(commandList: CommandList, index: int, bindingSet: BindingSet, groupsX: int, groupsY: int) {
             commandList.writeBuffer(this.constantBuffers[index], Ref(this.constants[0]), this.constantsSize);
             commandList.dispatch(this.pipeline, bindingSet, groupsX, groupsY, 1);
         }
@@ -476,7 +476,7 @@ namespace DenoisedRtao {
             this.temporalCacheIndex = 0;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             const held = [KEY_W, KEY_S, KEY_A, KEY_D, KEY_E, KEY_Q];
             for (let i = 0; i < 6; i++) {
                 if (key == held[i] && (action == ACTION_PRESS || action == ACTION_RELEASE)) {
@@ -531,7 +531,7 @@ namespace DenoisedRtao {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             if (this.hasMouse && this.mouseButton >= 0) {
                 this.mouseDX += x - this.mouseX;
                 this.mouseDY += y - this.mouseY;
@@ -542,7 +542,7 @@ namespace DenoisedRtao {
             return 0;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             if (action == ACTION_PRESS && (button == MOUSE_LEFT || button == MOUSE_RIGHT)) {
                 this.mouseButton = button;
             } else if (action == ACTION_RELEASE && button == this.mouseButton) {
@@ -553,7 +553,7 @@ namespace DenoisedRtao {
 
         // Scene::OnKeyDown's moves of the car by the house (x in [-9, 0]) and the spaceship (y in
         // [0, 10], turned in 45 degree steps).
-        updateMovableInstances(): void {
+        updateMovableInstances() {
             if (this.carByTheHousePosition < -9.0) {
                 this.carByTheHousePosition = -9.0;
             }
@@ -573,7 +573,7 @@ namespace DenoisedRtao {
 
         // OnUpdate: the timer, the camera (the previous frame's kept), the animated car, the
         // camera's and the light's rotations when on.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.elapsedTicks = this.test ? TICKS_PER_FRAME : Math.floor(elapsedSeconds * TICKS_PER_SECOND);
             this.totalTicks += this.elapsedTicks;
@@ -613,7 +613,7 @@ namespace DenoisedRtao {
         // CameraController::Update: WASD move (100 and 250 units a second; Shift: a tenth), E/Q
         // up and down, a mouse drag turns (the left button around the y axis and pitching, the
         // right one the other way).
-        updateCamera(elapsedTime: number): void {
+        updateCamera(elapsedTime: number) {
             const speedScale = Math.fround((this.fineMovement ? 0.1 : 1.0) * elapsedTime);
             const forwardKeys = this.keys[0] - this.keys[1];
             const strafeKeys = this.keys[3] - this.keys[2];
@@ -636,7 +636,7 @@ namespace DenoisedRtao {
         // Scene::GenerateGrassGeometry: each LOD's straws into its next vertex buffer, the BLASes
         // pointed at them; then the patches' transforms and levels of detail by their distance to
         // the camera, and their geometry records (by the LOD change from the previous frame).
-        generateGrass(commandList: CommandList): void {
+        generateGrass(commandList: CommandList) {
             const totalTime = this.animateScene ? Math.fround(this.totalTicks / TICKS_PER_SECOND) : 0.0;
             this.currentGrassVertexBuffer = (this.currentGrassVertexBuffer + 1) % 2;
             const c = this.grassKernel.constants;
@@ -723,7 +723,7 @@ namespace DenoisedRtao {
 
         // Scene::UpdateAccelerationStructure: the TLAS from this frame's instances, and the
         // previous frame's instance transforms for the motion vectors.
-        updateAccelerationStructure(frame: Frame, commandList: CommandList): void {
+        updateAccelerationStructure(frame: Frame, commandList: CommandList) {
             let transform: f32[] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             const count = this.instanceScenes.length;
             for (let i = 0; i < count; i++) {
@@ -749,7 +749,7 @@ namespace DenoisedRtao {
         }
 
         // Pathtracer::UpdateConstantBuffer (PathtracerConstantBuffer).
-        updatePathtracerConstants(): void {
+        updatePathtracerConstants() {
             const c = this.pathtracerConstants;
             const proj = this.camera.projection(WIDTH, HEIGHT);
             const viewProj = matrixMultiply(this.camera.viewAtOrigin(), proj);
@@ -781,7 +781,7 @@ namespace DenoisedRtao {
         }
 
         // RTAO::UpdateConstantBuffer (RTAOConstantBuffer): a new seed from the sample's generator.
-        updateRtaoConstants(): void {
+        updateRtaoConstants() {
             const c = this.rtaoConstants;
             storeInt(c, 0, this.randomEngine.uniformUInt(0, -1));
             storeInt(c, 1, SAMPLES_PER_SET);
@@ -810,7 +810,7 @@ namespace DenoisedRtao {
 
         // The denoiser (Denoiser::Run): reverse reprojection, the frame's mean and variance, the
         // temporal blend, the a-trous filter and the disocclusion blur.
-        denoise(commandList: CommandList): void {
+        denoise(commandList: CommandList) {
             const previous = this.temporalCacheIndex;
             this.temporalCacheIndex = 1 - this.temporalCacheIndex;
             const current = this.temporalCacheIndex;
@@ -897,7 +897,7 @@ namespace DenoisedRtao {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             if (this.renderOnce && this.framesToRender == 0) {
@@ -947,7 +947,7 @@ namespace DenoisedRtao {
         // The scenes (Scene::LoadPBRTScene): every mesh of every scene in one vertex and one
         // index buffer, a BLAS per scene of its meshes (non-opaque: the see-through ones and the
         // perfect mirrors, which AO rays skip), their materials and textures.
-        loadScenes(commandList: CommandList): boolean {
+        loadScenes(commandList: CommandList) {
             const sceneNames = ["spaceship", "groundplane", "car", "dragon", "house", "mirrorquad", "quad"];
             const directory = Donut_GetExecutableDirectory() + "/" + ASSETS;
             const scenes: PbrtScene[] = [];
@@ -1141,7 +1141,7 @@ namespace DenoisedRtao {
         // Scene::InitializeAccelerationStructures' instances: the scenes (identity transforms),
         // the second car driving around, a ring of 12 quads and 12 mirrors around the house, and
         // the grass patches (placed each frame).
-        createInstances(): void {
+        createInstances() {
             const sceneOrder = [0, 1, 3, 2, 4];
             for (let i = 0; i < sceneOrder.length; i++) {
                 const index = this.instanceScenes.length;
@@ -1199,7 +1199,7 @@ namespace DenoisedRtao {
         }
 
         // A texture the passes write (UAV) and read, cleared to 0.
-        createTarget(commandList: CommandList, format: Format, isUInt: boolean, name: string): TextureHandle {
+        createTarget(commandList: CommandList, format: Format, isUInt: boolean, name: string) {
             const texture = this.app.createUAVTextureWithFormat(WIDTH, HEIGHT, format, name);
             if (isUInt) {
                 commandList.clearTextureUInt(texture, 0);
@@ -1209,7 +1209,7 @@ namespace DenoisedRtao {
             return texture;
         }
 
-        createTargets(commandList: CommandList): void {
+        createTargets(commandList: CommandList) {
             // GBufferResource: hit position, normal and depth, depth, partial depth derivatives,
             // motion vector, reprojected normal and depth, color, AO surface albedo.
             this.gbuffer.push(this.createTarget(commandList, Format.RGBA32_FLOAT, false, "GBufferHitPosition"));
@@ -1241,7 +1241,7 @@ namespace DenoisedRtao {
 
         // The ray tracing pipelines: the path tracer's (radiance and shadow rays, recursion 5) and
         // RTAO's, with their global bindings (the sample's global root signatures).
-        createRayTracing(): boolean {
+        createRayTracing() {
             const anisotropicWrap = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 3.402823466e+38, 16.0);
 
             const layoutDesc = BindingLayoutDesc.create();
@@ -1375,7 +1375,7 @@ namespace DenoisedRtao {
         }
 
         // The compute passes and their bindings (the sample's compute root signatures).
-        createKernels(): void {
+        createKernels() {
             // GenerateGrassStrawsCS: the wind map (linear, wrapping), a vertex buffer out.
             const windMap = this.windMap;
             let desc = BindingLayoutDesc.create();
@@ -1539,7 +1539,7 @@ namespace DenoisedRtao {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // Blitting creates Donut's common passes: before any command list is open.
             this.app.getCommonSampler(CommonSampler.LinearClamp);
 
@@ -1599,7 +1599,7 @@ namespace DenoisedRtao {
     // the house, cars and grass (darker pixels); the denoised AO smooth (few neighboring pixels
     // differ much), the raw one noisy (many do: the denoiser is what smooths it). The shaded view:
     // colored (the cars, the dragon, the grass) as well as gray.
-    function checkFrame(app: App, mode: int): string {
+    function checkFrame(app: App, mode: int) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -1672,7 +1672,7 @@ namespace DenoisedRtao {
         // -raw / -shaded: start in the raw AO (key 1) or shaded (key 3) view.
         mode = COMPOSITION_AO_DENOISED;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-raw") {
@@ -1684,7 +1684,7 @@ namespace DenoisedRtao {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("denoised_rtao");
 
@@ -1726,6 +1726,6 @@ namespace DenoisedRtao {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DenoisedRtao.main(argc, argv);
 }

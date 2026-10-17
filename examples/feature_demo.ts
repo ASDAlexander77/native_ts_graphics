@@ -11,7 +11,7 @@ namespace FeatureDemoExample {
 
     // -test: checks the last frame: Donut's renderer draws Sponza and its character all over it,
     // about 11% colored, the blue banners about 4%.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -74,7 +74,7 @@ namespace FeatureDemoExample {
     // --- Math ---------------------------------------------------------------------------------
 
     // dm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return Math.fround(Math.fround(degrees) * Math.fround(Math.fround(Math.PI) / 180.0));
     }
 
@@ -82,7 +82,7 @@ namespace FeatureDemoExample {
     // row-major, row-vector convention, into 16 floats.
     // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(dst: f32[], verticalFOV: number, aspect: number, zNear: number): void {
+    function perspProjD3DStyleReverse(dst: f32[], verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         for (let i = 0; i < 16; i++) {
@@ -95,7 +95,7 @@ namespace FeatureDemoExample {
     }
 
     // A number with `digits` decimals, like printf's %.Nf (Number.toFixed is missing under the JIT).
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scale = 1.0;
         for (let i = 0; i < digits; i++) {
             scale *= 10.0;
@@ -331,23 +331,23 @@ namespace FeatureDemoExample {
             }
         }
 
-        getActiveCamera(): Camera {
+        getActiveCamera() {
             return this.ui.useThirdPersonCamera ? this.thirdPersonCamera : this.firstPersonCamera;
         }
 
         // Loads the node's world-space bounds into this.bounds.
-        loadBounds(node: Node): void {
+        loadBounds(node: Node) {
             node.getBoundingBox(Ref(this.bounds[0]));
         }
 
-        boundsDiagonalLength(): number {
+        boundsDiagonalLength() {
             const dx = this.bounds[3] - this.bounds[0];
             const dy = this.bounds[4] - this.bounds[1];
             const dz = this.bounds[5] - this.bounds[2];
             return Math.sqrt(dx * dx + dy * dy + dz * dz);
         }
 
-        sceneUnloading(): void {
+        sceneUnloading() {
             const forwardPass = this.forwardPass;
             if (!forwardPass.isNull()) {
                 forwardPass.resetBindingCache();
@@ -378,7 +378,7 @@ namespace FeatureDemoExample {
             }
         }
 
-        setCurrentSceneName(sceneName: string): void {
+        setCurrentSceneName(sceneName: string) {
             if (this.currentSceneName == sceneName) {
                 return;
             }
@@ -394,7 +394,7 @@ namespace FeatureDemoExample {
             this.sceneLoader.beginLoadingScene(sceneName);
         }
 
-        copyActiveCameraToFirstPerson(): void {
+        copyActiveCameraToFirstPerson() {
             const sceneCamera = this.ui.activeSceneCamera;
             if (!sceneCamera.isNull()) {
                 // Rows of the view-to-world matrix: 1 = up, 2 = forward, 3 = the position.
@@ -414,7 +414,7 @@ namespace FeatureDemoExample {
             }
         }
 
-        pointThirdPersonCameraAt(node: Node): void {
+        pointThirdPersonCameraAt(node: Node) {
             this.loadBounds(node);
             const b = this.bounds;
             this.thirdPersonCamera.thirdPersonSetTarget(
@@ -425,7 +425,7 @@ namespace FeatureDemoExample {
             this.thirdPersonCamera.animate(0.0);
         }
 
-        sceneLoaded(): void {
+        sceneLoaded() {
             const scene = this.sceneLoader.getLoadedScene();
             const sceneGraph = scene.getSceneGraph();
             this.scene = scene;
@@ -472,7 +472,7 @@ namespace FeatureDemoExample {
             }
         }
 
-        releaseViews(): void {
+        releaseViews() {
             const view = this.view;
             if (!view.isNull()) {
                 this.app.releaseObject(view.handle);
@@ -485,14 +485,14 @@ namespace FeatureDemoExample {
             }
         }
 
-        releaseObject(object: ObjectHandle | null): void {
+        releaseObject(object: ObjectHandle | null) {
             if (object) {
                 this.app.releaseObject(object);
             }
         }
 
         // Sets up this.view for the frame; true if it had to be created (then so do the passes).
-        setupView(): boolean {
+        setupView() {
             const width = this.renderTargetsWidth;
             const height = this.renderTargetsHeight;
 
@@ -578,7 +578,7 @@ namespace FeatureDemoExample {
         }
 
         // Returns whether the exposure needs resetting (the first time there's a tone mapping pass).
-        createRenderPasses(): boolean {
+        createRenderPasses() {
             const app = this.app;
             const targets = this.renderTargets;
             const view = this.view;
@@ -638,13 +638,13 @@ namespace FeatureDemoExample {
             return exposureResetRequired;
         }
 
-        renderSplashScreen(frame: Frame): void {
+        renderSplashScreen(frame: Frame) {
             frame.clearColor(0.0, 0.0, 0.0, 0.0);
             this.app.setVsyncEnabled(1);
         }
 
         // After the frame's commands have been submitted: finds what the right mouse button clicked.
-        finishPick(): void {
+        finishPick() {
             const sceneGraph = this.sceneGraph;
             this.pixelReadbackPass.readPixelUInts(Ref(this.pixel[0]));
             this.ui.selectedMaterial = new Material(null);
@@ -676,7 +676,7 @@ namespace FeatureDemoExample {
             }
         }
 
-        renderScene(frame: Frame): void {
+        renderScene(frame: Frame) {
             const app = this.app;
             const ui = this.ui;
             const scene = this.scene;
@@ -919,7 +919,7 @@ namespace FeatureDemoExample {
         }
 
         // Renders a light probe's cube maps from the camera position (the sample's RenderLightProbe).
-        renderLightProbe(index: int): void {
+        renderLightProbe(index: int) {
             const app = this.app;
             const sceneGraph = this.sceneGraph;
             const sunLight = this.sunLight;
@@ -1008,7 +1008,7 @@ namespace FeatureDemoExample {
 
         // --- Pass callbacks ---
 
-        onKeyboard(key: int, scancode: int, action: int, mods: int): int {
+        onKeyboard(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_ESCAPE && action == ACTION_PRESS) {
                 this.ui.showUI = !this.ui.showUI;
                 return 1;
@@ -1048,7 +1048,7 @@ namespace FeatureDemoExample {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().mousePosUpdate(x, y);
             }
@@ -1059,7 +1059,7 @@ namespace FeatureDemoExample {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().mouseButtonUpdate(button, action, mods);
             }
@@ -1071,7 +1071,7 @@ namespace FeatureDemoExample {
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().mouseScrollUpdate(xOffset, yOffset);
             }
@@ -1079,7 +1079,7 @@ namespace FeatureDemoExample {
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().animate(elapsedSeconds);
             }
@@ -1106,7 +1106,7 @@ namespace FeatureDemoExample {
         }
 
         // ApplicationBase::Render: a splash screen until the scene and its textures have loaded.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const state = this.sceneLoader.update(frame);
             if (state == SceneLoaderState.Loading) {
@@ -1131,7 +1131,7 @@ namespace FeatureDemoExample {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(sceneName: string): boolean {
+        init(sceneName: string) {
             const app = this.app;
 
             // The whole media folder (the C++ sample lists media/glTF-Sample-Assets/Models only), so
@@ -1214,17 +1214,17 @@ namespace FeatureDemoExample {
             }
         }
 
-        checkbox(label: string, value: boolean): boolean {
+        checkbox(label: string, value: boolean) {
             return Donut_ImGuiCheckbox(label, value ? 1 : 0) != 0;
         }
 
         // Scene paths are shown relative to the scene folder.
-        getRelativePath(name: string): string {
+        getRelativePath(name: string) {
             const sceneDir = this.demo.sceneDir;
             return name.startsWith(sceneDir) ? name.substring(sceneDir.length) : name;
         }
 
-        buildUI(): void {
+        buildUI() {
             const ui = this.ui;
             const demo = this.demo;
             const app = this.app;
@@ -1452,7 +1452,7 @@ namespace FeatureDemoExample {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(): boolean {
+        init() {
             const imguiPass = this.app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -1467,7 +1467,7 @@ namespace FeatureDemoExample {
 
     // --- Main -------------------------------------------------------------------------------
 
-    function printFormats(app: App): void {
+    function printFormats(app: App) {
         const formatCount = Donut_GetFormatCount();
         for (let format = 0; format < formatCount; format++) {
             const support = app.queryFormatSupport(format);
@@ -1505,7 +1505,7 @@ namespace FeatureDemoExample {
         // The scene: the argument which is not an option.
         sceneName = "";
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-width") {
@@ -1535,7 +1535,7 @@ namespace FeatureDemoExample {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("feature_demo");
 
@@ -1597,6 +1597,6 @@ namespace FeatureDemoExample {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return FeatureDemoExample.main(argc, argv);
 }

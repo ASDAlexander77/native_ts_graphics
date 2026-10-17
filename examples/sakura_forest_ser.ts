@@ -213,14 +213,14 @@ namespace SakuraForestSER {
             this.sortByBoth = false;
         }
 
-        setSortMode(mode: int): void {
+        setSortMode(mode: int) {
             this.serEnabled = mode != SORTMODE_OFF;
             this.sortByHit = mode == SORTMODE_BY_HIT;
             this.sortByMaterial = mode == SORTMODE_BY_MATERIAL;
             this.sortByBoth = mode == SORTMODE_BY_BOTH;
         }
 
-        heldIndex(key: int): int {
+        heldIndex(key: int) {
             const keys = [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT];
             for (let i = 0; i < keys.length; i++) {
                 if (keys[i] == key) {
@@ -230,14 +230,14 @@ namespace SakuraForestSER {
             return -1;
         }
 
-        isHeld(key: int): boolean {
+        isHeld(key: int) {
             const index = this.heldIndex(key);
             return index >= 0 && this.held[index] != 0;
         }
 
         // OnUpdate's keys: P toggles SER (sorting by the hit when on), H, M and B pick the sort key
         // (turning SER on); the movement keys are held.
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             const index = this.heldIndex(key);
             if (index >= 0) {
                 if (action == ACTION_PRESS) {
@@ -262,7 +262,7 @@ namespace SakuraForestSER {
         }
 
         // The output texture has the back buffers' size.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const output = this.output;
             if (output) {
                 this.app.releaseResource(output);
@@ -272,7 +272,7 @@ namespace SakuraForestSER {
 
         // OnUpdate: the camera moves and turns with the held keys (5 units, 30 degrees a second),
         // never below 2.02; the light circles the y axis once in 8 s.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             const elapsedTime = Math.fround(elapsedSeconds);
             const movementSpeed = Math.fround(5.0 * elapsedTime);
@@ -335,7 +335,7 @@ namespace SakuraForestSER {
         }
 
         // Pitch (about the camera's right vector) or yaw (about up), by angle radians.
-        turn(pitch: boolean, angle: number): void {
+        turn(pitch: boolean, angle: number) {
             const forward = normalize3(vsub(this.at, this.eye));
             let axis = this.up;
             if (pitch) {
@@ -346,7 +346,7 @@ namespace SakuraForestSER {
         }
 
         // UpdateCameraMatrices and the rest of the scene constants.
-        writeSceneConstants(width: int, height: int): void {
+        writeSceneConstants(width: int, height: int) {
             const view = matrixLookAtLH(this.eye, this.at, this.up);
             const aspectRatio = Math.fround(Math.fround(width) / Math.fround(height));
             const proj = matrixPerspectiveFovLH(radians(45.0), aspectRatio, 1.0, 125.0);
@@ -376,7 +376,7 @@ namespace SakuraForestSER {
             this.sortModeData[0] = sortMode;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
@@ -409,7 +409,7 @@ namespace SakuraForestSER {
         // A mesh's buffers and BLAS (opaque triangles, preferring fast tracing). indexCount of the
         // indices are the mesh's; any after them are padding the BLAS doesn't use (see
         // createObjMesh).
-        createMesh(commandList: CommandList, vertices: f32[], indices: int[], indexCount: int, name: string): Mesh | null {
+        createMesh(commandList: CommandList, vertices: f32[], indices: int[], indexCount: int, name: string) {
             const vertexCount = Math.floor(vertices.length / VERTEX_FLOATS);
             const indexBuffer = this.app.createAccelStructInputRawBuffer(indices.length * 4, `${name}IndexBuffer`);
             const vertexBuffer = this.app.createAccelStructInputStructuredBuffer(VERTEX_STRIDE, vertexCount, `${name}VertexBuffer`);
@@ -429,7 +429,7 @@ namespace SakuraForestSER {
         // IndicesTrunk is meant), past its end for most trunk triangles. Those reads give 0 in the
         // sample (out-of-bounds raw buffer reads do on D3D12), which the zeros reproduce; read past
         // the end here, they hung the GPU.
-        createObjMesh(commandList: CommandList, model: ObjModel, objectName: string, name: string, minIndexCount: int): Mesh | null {
+        createObjMesh(commandList: CommandList, model: ObjModel, objectName: string, name: string, minIndexCount: int) {
             const vertexCount = model.buildMesh(objectName, MODEL_SCALE);
             if (vertexCount <= 0) {
                 console.log(`The OBJ models have no object ${objectName}`);
@@ -453,7 +453,7 @@ namespace SakuraForestSER {
         }
 
         // BuildCubeGeometry, BuildTreeGeometry and CreateTexture.
-        createGeometry(commandList: CommandList): boolean {
+        createGeometry(commandList: CommandList) {
             const cubeVertices: f32[] = [];
             for (let i = 0; i < CUBE_VERTICES.length; i += 6) {
                 for (let j = 0; j < 6; j++) {
@@ -515,7 +515,7 @@ namespace SakuraForestSER {
         }
 
         // An instance: a uniform scale and a translation, its index as instance ID and hit group.
-        addInstance(mesh: Mesh, index: int, scale: number, x: number, y: number, z: number, flags: int): void {
+        addInstance(mesh: Mesh, index: int, scale: number, x: number, y: number, z: number, flags: int) {
             let transform: f32[] = [
                 scale, 0.0, 0.0, x,
                 0.0, scale, 0.0, y,
@@ -528,7 +528,7 @@ namespace SakuraForestSER {
         // cubes at random heights, the trees (trunks, then leaves at the same places) at random
         // offsets, the bushes at random places. The random offsets come from two std::mt19937s with
         // std::uniform_real_distribution<float>, seeded with seed and bushSeed.
-        createInstances(seed: int, bushSeed: int): void {
+        createInstances(seed: int, bushSeed: int) {
             const cube = this.meshes[0];
             const trunk = this.meshes[1];
             const leaves = this.meshes[2];
@@ -608,7 +608,7 @@ namespace SakuraForestSER {
         // BuildShaderTables: the ray generation record (its local root constants unused), the miss
         // record, and a hit record per instance in instance order: the material's hit group, albedo
         // white, the material ID.
-        createShaderTable(): boolean {
+        createShaderTable() {
             const counts: int[] = [441, 961, 961, 961, 10201];
             const materials = [MATERIAL_FLOOR, MATERIAL_REFLECTIVE_CUBE, MATERIAL_TRUNK, MATERIAL_LEAVES, MATERIAL_BUSH];
             let recordHitGroups: int[] = [];
@@ -629,7 +629,7 @@ namespace SakuraForestSER {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(seed: int, bushSeed: int): boolean {
+        init(seed: int, bushSeed: int) {
             // InitializeScene's camera: from (0, 2.2, -2) turned 45 degrees about y, towards
             // (1, 2.5, -6), upright.
             this.eye = [0.0, Math.fround(2.2), -2.0, 1.0];
@@ -701,18 +701,18 @@ namespace SakuraForestSER {
             this.sample = sample;
         }
 
-        line(y: number, text: string): void {
+        line(y: number, text: string) {
             Donut_ImGuiDrawText(30.0, y, text, 1.0, 1.0, 0.0, 1.0, 0);
         }
 
-        enabled(on: boolean): string {
+        enabled(on: boolean) {
             if (on) {
                 return "Enabled";
             }
             return "Disabled";
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             this.font.push();
             let y = 30.0;
@@ -733,7 +733,7 @@ namespace SakuraForestSER {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             const imguiPass = app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -749,7 +749,7 @@ namespace SakuraForestSER {
 
     // -test: checks the last frame: the forest covers most of it (the sky shows through the gaps,
     // the floor below); the leaves' sakura pinks and the bushes' greens are there.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -800,7 +800,7 @@ namespace SakuraForestSER {
         // -sortMode <0..3>: off, by hit, by reflection hint, by both (the sample starts by hit).
         sortMode = SORTMODE_BY_HIT;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-seed" && i + 2 < this.argc) {
@@ -815,7 +815,7 @@ namespace SakuraForestSER {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("sakura_forest_ser");
 
@@ -872,6 +872,6 @@ namespace SakuraForestSER {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return SakuraForestSER.main(argc, argv);
 }

@@ -48,7 +48,7 @@ namespace CalibratedTimestampsSample {
     // --- Math ---------------------------------------------------------------------------------
 
     // glm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
     }
 
@@ -56,7 +56,7 @@ namespace CalibratedTimestampsSample {
     // depth; right-handed, depth from 0 to 1), for row vectors, with clip y negated: the sample's
     // clip space has y down on the screen (Vulkan's), Donut's y up.
     // In float32, in glm's order of operations.
-    function samplePerspective(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
         // glm's near and far, swapped.
         const n = Math.fround(zFar);
@@ -71,7 +71,7 @@ namespace CalibratedTimestampsSample {
 
     // The same projection in Donut's conventions (view space z forward), for Donut's camera.
     // In float32, in glm's order of operations.
-    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const near = Math.fround(zNear);
         const far = Math.fround(zFar);
         const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
@@ -87,7 +87,7 @@ namespace CalibratedTimestampsSample {
     }
 
     // time_domain_to_string.
-    function timeDomainToString(timeDomain: int): string {
+    function timeDomainToString(timeDomain: int) {
         if (timeDomain == TimeDomain.Device) {
             return "device time domain";
         }
@@ -148,12 +148,12 @@ namespace CalibratedTimestampsSample {
             }
         }
 
-        available(): boolean {
+        available() {
             return this.calibrated != null;
         }
 
         // The selected domain's timestamp, sampled now with the others; -1 on failure.
-        sample(): number {
+        sample() {
             const calibrated = this.calibrated;
             if (!calibrated || calibrated.sample() == 0) {
                 return -1.0;
@@ -161,7 +161,7 @@ namespace CalibratedTimestampsSample {
             return calibrated.getTimestamp(this.selectedIndex);
         }
 
-        begin(tag: int): void {
+        begin(tag: int) {
             const timestamp = this.sample();
             if (timestamp >= 0.0) {
                 this.begins[tag] = timestamp;
@@ -169,7 +169,7 @@ namespace CalibratedTimestampsSample {
             }
         }
 
-        end(tag: int): void {
+        end(tag: int) {
             if (!this.begun[tag]) {
                 return;
             }
@@ -180,7 +180,7 @@ namespace CalibratedTimestampsSample {
             }
         }
 
-        anyMeasured(): boolean {
+        anyMeasured() {
             for (let i = 0; i < this.measured.length; i++) {
                 if (this.measured[i]) {
                     return true;
@@ -287,34 +287,34 @@ namespace CalibratedTimestampsSample {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             // The previous frame's submission and presentation end here.
             this.timestamps.end(TAG_DRAW);
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             const bindingSets = [this.bloomFilterBindingSet, this.compositionBindingSet];
             for (const bindingSet of bindingSets) {
                 if (!bindingSet.isNull()) {
@@ -341,7 +341,7 @@ namespace CalibratedTimestampsSample {
             this.filterColor = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
@@ -349,7 +349,7 @@ namespace CalibratedTimestampsSample {
         // counter-clockwise front faces. The sample's projection keeps its framebuffer
         // coordinates, so its cull modes too.
         createModelPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, depthTestAndWrite: int,
-            cullMode: CullMode): GraphicsPipelineHandle {
+            cullMode: CullMode) {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.modelsBindingLayout);
@@ -358,7 +358,7 @@ namespace CalibratedTimestampsSample {
             return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        createPostBindingSet(texture0: TextureHandle, texture1: TextureHandle): BindingSet {
+        createPostBindingSet(texture0: TextureHandle, texture1: TextureHandle) {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, texture0);
             setDesc.bindTextureSRV(1, texture1);
@@ -367,7 +367,7 @@ namespace CalibratedTimestampsSample {
         }
 
         // The sample's prepare_offscreen_buffer and the pipelines drawing into its targets.
-        createTargets(frame: Frame, width: int, height: int): void {
+        createTargets(frame: Frame, width: int, height: int) {
             // We are using two 128-Bit RGBA floating point color buffers for this sample
             // In a performance or bandwidth-limited scenario you should consider using a format with lower precision
             const offscreenColor0 = this.app.createRenderTargetTexture(width, height, Format.RGBA32_FLOAT, "OffscreenColor0");
@@ -408,7 +408,7 @@ namespace CalibratedTimestampsSample {
         }
 
         // The sample's update_uniform_buffers and update_params.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const projection = perspProjReverse(radians(60.0), width / height, Z_NEAR, Z_FAR);
             for (let i = 0; i < 16; i++) {
                 this.projMatrix[i] = projection[i];
@@ -464,7 +464,7 @@ namespace CalibratedTimestampsSample {
             this.params[PARAMS_EXPOSURE] = this.exposure;
         }
 
-        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, mesh: GltfMesh): void {
+        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, mesh: GltfMesh) {
             frame.beginDrawToFramebuffer(pipeline, framebuffer);
             frame.drawAddBindingSet(this.modelsBindingSet);
             frame.drawAddVertexBuffer(mesh.getVertexBuffer(), 0, 0);
@@ -472,7 +472,7 @@ namespace CalibratedTimestampsSample {
             frame.drawIndexed(mesh.getIndexCount());
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -555,7 +555,7 @@ namespace CalibratedTimestampsSample {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // Get the optimal time domain as soon as possible.
             this.timestamps = new Timestamps(this.app);
 
@@ -656,7 +656,7 @@ namespace CalibratedTimestampsSample {
 
         // on_update_ui_overlay: the timestamp period, the settings, the time domain and the times
         // (the timestamps' deltas in microseconds).
-        buildUI(): void {
+        buildUI() {
             const hdr = this.hdr;
             const timestamps = hdr.timestamps;
             const timestampPeriod = Math.fround(this.timestampPeriod);
@@ -687,7 +687,7 @@ namespace CalibratedTimestampsSample {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -695,7 +695,7 @@ namespace CalibratedTimestampsSample {
     // -test: checks the last frame and the times. The object in the middle and the environment
     // around it are lit (not black); every timed piece of code was timed, and took more than nothing
     // and less than 10 s.
-    function checkFrame(app: App, timestamps: Timestamps, timestampPeriod: number): string {
+    function checkFrame(app: App, timestamps: Timestamps, timestampPeriod: number) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -738,7 +738,7 @@ namespace CalibratedTimestampsSample {
         bloom = true;
         displaySkybox = true;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-nobloom") {
@@ -753,7 +753,7 @@ namespace CalibratedTimestampsSample {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("calibrated_timestamps");
 
@@ -805,6 +805,6 @@ namespace CalibratedTimestampsSample {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return CalibratedTimestampsSample.main(argc, argv);
 }

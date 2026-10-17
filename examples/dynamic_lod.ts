@@ -91,23 +91,23 @@ namespace DynamicLod {
             this.keys = [0, 0, 0, 0, 0, 0, 0, 0];
         }
 
-        init(x: number, y: number, z: number): void {
+        init(x: number, y: number, z: number) {
             this.initialPosition = [Math.fround(x), Math.fround(y), Math.fround(z), 0.0];
             this.reset();
         }
 
-        setMoveSpeed(unitsPerSecond: number): void {
+        setMoveSpeed(unitsPerSecond: number) {
             this.moveSpeed = Math.fround(unitsPerSecond);
         }
 
-        reset(): void {
+        reset() {
             this.position = [this.initialPosition[0], this.initialPosition[1], this.initialPosition[2], 0.0];
             this.yaw = XM_PI;
             this.pitch = 0.0;
             this.lookDirection = [0.0, 0.0, -1.0, 0.0];
         }
 
-        onKey(key: int, down: boolean): void {
+        onKey(key: int, down: boolean) {
             let index = -1;
             if (key == KEY_W) {
                 index = 0;
@@ -131,7 +131,7 @@ namespace DynamicLod {
             }
         }
 
-        update(elapsedSeconds: number): void {
+        update(elapsedSeconds: number) {
             const k = this.keys;
             // The move vector in camera space.
             let moveX = 0.0;
@@ -191,7 +191,7 @@ namespace DynamicLod {
             this.lookDirection = [Math.fround(r * sinYaw), Math.fround(Math.sin(this.pitch)), Math.fround(r * cosYaw), 0.0];
         }
 
-        viewMatrix(): number[] {
+        viewMatrix() {
             return matrixLookToRH(this.position, this.lookDirection, [0.0, 1.0, 0.0, 0.0]);
         }
 
@@ -260,7 +260,7 @@ namespace DynamicLod {
         }
 
         // OnKeyDown / OnKeyUp.
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_PRESS) {
                 if (key == KEY_EQUAL || key == KEY_KP_ADD) {
                     this.instanceLevel++;
@@ -286,7 +286,7 @@ namespace DynamicLod {
         // RegenerateInstances: the dragons in a cube growing with the level, 1.5 bounding sphere
         // radii apart, each with its bounding sphere (its position, the finest LOD's radius); the
         // instance buffer made larger when they don't fit.
-        regenerateInstances(): void {
+        regenerateInstances() {
             this.updateInstances = true;
             const radius = this.radius;
             const spacing = Math.fround(Math.fround(1.0 + 0.5) * radius);
@@ -329,12 +329,12 @@ namespace DynamicLod {
         }
 
         // OnUpdate: the camera; the constants with its frustum planes and position.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, `${this.instanceCount} instances`);
             this.camera.update(Math.fround(elapsedSeconds));
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -348,7 +348,7 @@ namespace DynamicLod {
 
         // The sample's back buffer and depth buffer, and its pipeline state: the default rasterizer
         // state (back faces culled), blend state (opaque) and depth state (less, writes).
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             this.depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.framebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
@@ -363,7 +363,7 @@ namespace DynamicLod {
 
         // OnUpdate's constants for the frame: the view, the 60 degree perspective (near 1, far
         // 10000), the frustum planes from their product, the camera's position.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const view = this.camera.viewMatrix();
             const proj = matrixPerspectiveFovRH(this.fovY, Math.fround(width / height), 1.0, 10000.0);
             const viewProj = matrixMultiply(view, proj);
@@ -401,7 +401,7 @@ namespace DynamicLod {
         }
 
         // PopulateCommandList.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
@@ -447,7 +447,7 @@ namespace DynamicLod {
 
         // The binding set: the LODs' buffers in the arrays' first slots, placeholders (zeroed) in
         // the rest, as the sample's null descriptors; and an instance buffer.
-        createBindingSet(instanceBuffer: BufferHandle): void {
+        createBindingSet(instanceBuffer: BufferHandle) {
             const lodCount = LOD_FILES.length;
             const setDesc = BindingSetDesc.create();
             setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
@@ -468,7 +468,7 @@ namespace DynamicLod {
 
         // Model::LoadFromFile and UploadGpuResources, for each LOD's first mesh: its MeshInfo and
         // buffers for the shaders.
-        loadLods(commandList: CommandList): boolean {
+        loadLods(commandList: CommandList) {
             for (let l = 0; l < LOD_FILES.length; l++) {
                 const path = MEDIA_DIR + LOD_FILES[l];
                 const binaryFile = this.app.loadBinaryFile(path);
@@ -537,7 +537,7 @@ namespace DynamicLod {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "dynamic_lod.hlsl";
             this.ampShader = this.app.createShader(shader, "main_as", ShaderType.Amplification);
             this.meshShader = this.app.createShader(shader, "main_ms", ShaderType.Mesh);
@@ -589,7 +589,7 @@ namespace DynamicLod {
     // -test: checks the last frame, at instance level 2 with LOD colors. The camera starts among the
     // dragons (inside the nearest one); the dragons near it are drawn at the finest LOD (red), the
     // farther ones at coarser LODs (toward green), and the clear color shows between them.
-    function checkFrame(app: App, pass: DynamicLodPass): string {
+    function checkFrame(app: App, pass: DynamicLodPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -641,7 +641,7 @@ namespace DynamicLod {
         // -instanceLevel <n>: start at instance level n (0 by default, as the sample; 2 for -test).
         instanceLevel = -1;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-instanceLevel" && i + 1 < this.argc) {
@@ -652,7 +652,7 @@ namespace DynamicLod {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_lod");
 
@@ -702,6 +702,6 @@ namespace DynamicLod {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DynamicLod.main(argc, argv);
 }

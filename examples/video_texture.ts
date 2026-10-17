@@ -14,7 +14,7 @@ namespace VideoTexture {
     // -test: checks the last frame. The corners are the gray clear color; the cube in the middle
     // shows the video (the first frame waits for TEST_VIDEO_FRAMES of it), its light making bright
     // pixels there.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -78,7 +78,7 @@ namespace VideoTexture {
 
     // --- DirectXMath, row-major for mul(vector, matrix) --------------------------------------
 
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         const m: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -93,27 +93,27 @@ namespace VideoTexture {
     }
 
     // XMMatrixRotationY.
-    function rotationY(angle: number): number[] {
+    function rotationY(angle: number) {
         const s = Math.fround(Math.sin(angle));
         const c = Math.fround(Math.cos(angle));
         return [c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
-    function normalize3(v: number[]): number[] {
+    function normalize3(v: number[]) {
         const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         return [v[0] / length, v[1] / length, v[2] / length];
     }
 
-    function cross3(a: number[], b: number[]): number[] {
+    function cross3(a: number[], b: number[]) {
         return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     }
 
-    function dot3(a: number[], b: number[]): number {
+    function dot3(a: number[], b: number[]) {
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
     // XMMatrixLookAtRH: XMMatrixLookToLH towards the eye's opposite.
-    function lookAtRH(eye: number[], focus: number[], up: number[]): number[] {
+    function lookAtRH(eye: number[], focus: number[], up: number[]) {
         const r2 = normalize3([eye[0] - focus[0], eye[1] - focus[1], eye[2] - focus[2]]);
         const r0 = normalize3(cross3(up, r2));
         const r1 = cross3(r2, r0);
@@ -127,7 +127,7 @@ namespace VideoTexture {
     }
 
     // XMMatrixPerspectiveFovRH.
-    function perspectiveFovRH(fovY: number, aspect: number, nearZ: number, farZ: number): number[] {
+    function perspectiveFovRH(fovY: number, aspect: number, nearZ: number, farZ: number) {
         const height = Math.cos(0.5 * fovY) / Math.sin(0.5 * fovY);
         const width = height / aspect;
         const range = farZ / (nearZ - farZ);
@@ -209,7 +209,7 @@ namespace VideoTexture {
             this.frameHeight = 720;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_SPACE && action == ACTION_PRESS) {
                 this.show3D = !this.show3D;
             }
@@ -218,7 +218,7 @@ namespace VideoTexture {
 
         // The sample's Update: the cube's angle from the total time; the sample exits once the
         // video has played.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.time += elapsedSeconds;
             if (this.player.isFinished() != 0) {
@@ -226,7 +226,7 @@ namespace VideoTexture {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const framebuffer = this.framebuffer;
             if (framebuffer) {
                 this.app.releaseResource(framebuffer);
@@ -246,7 +246,7 @@ namespace VideoTexture {
 
         // BasicEffect's constants for this frame: the world matrix, the camera of the sample's
         // CreateWindowSizeDependentResources, and the material and lights (EnableDefaultLighting).
-        updateParameters(): void {
+        updateParameters() {
             const world = rotationY(Math.fround(Math.cos(Math.fround(this.time))) * 2.0);
             const view = lookAtRH([2.0, 2.0, 2.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
             const proj = perspectiveFovRH(Math.PI / 4.0, this.frameWidth / this.frameHeight, 0.1, 10.0);
@@ -283,7 +283,7 @@ namespace VideoTexture {
         }
 
         // The video's next frame, if there is one, into its texture; 1 if there was one.
-        transferVideoFrame(commandList: CommandList): int {
+        transferVideoFrame(commandList: CommandList) {
             const shared = this.sharedTexture;
             if (shared) {
                 return this.player.transferFrame(shared.getHandle());
@@ -296,7 +296,7 @@ namespace VideoTexture {
             return 0;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             this.frameWidth = frame.getWidth();
             this.frameHeight = frame.getHeight();
@@ -368,7 +368,7 @@ namespace VideoTexture {
 
         // GeometricPrimitive::CreateCube(1): DirectXTK's ComputeBox, each face's four vertices
         // (position, normal, texture coordinate) and two triangles.
-        createCube(commandList: CommandList): void {
+        createCube(commandList: CommandList) {
             const faceNormals = [0, 0, 1, 0, 0, -1, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0];
             const textureCoordinates = [1, 0, 1, 1, 0, 1, 0, 0];
             let vertices: f32[] = [];
@@ -408,7 +408,7 @@ namespace VideoTexture {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(muted: boolean): boolean {
+        init(muted: boolean) {
             // The sample's MediaEnginePlayer on the app's GPU.
             let luid: int[] = [0, 0];
             this.app.getAdapterLuid(Ref(luid[0]));
@@ -484,7 +484,7 @@ namespace VideoTexture {
             return true;
         }
 
-        destroy(): void {
+        destroy() {
             this.player.destroy();
         }
     }
@@ -497,7 +497,7 @@ namespace VideoTexture {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             const left = Math.floor((sample.frameWidth + 19.0) / 20.0);
             const safeH = (sample.frameHeight + 19.0) / 20.0;
@@ -509,7 +509,7 @@ namespace VideoTexture {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             const imguiPass = app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -525,7 +525,7 @@ namespace VideoTexture {
         // -sprite: start with the video as a sprite.
         sprite = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-mute") {
@@ -537,7 +537,7 @@ namespace VideoTexture {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("video_texture");
 
@@ -582,6 +582,6 @@ namespace VideoTexture {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return VideoTexture.main(argc, argv);
 }

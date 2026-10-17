@@ -10,7 +10,7 @@ namespace ComputeShaderDerivatives {
 
     // -test: checks the last frame. The corners are black; the radial pattern, colored by the
     // compute shader's derivatives, lights about 84% of the frame, about 35% blue.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -70,24 +70,24 @@ namespace ComputeShaderDerivatives {
             this.graphicsPipeline = null;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             this.app.releaseResources([this.graphicsPipeline, this.framebuffer, this.colorBuffer]);
             this.graphicsPipeline = null;
             this.framebuffer = null;
             this.colorBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "ColorBuffer");
             const framebuffer = this.app.createFramebuffer(colorBuffer, null);
             this.colorBuffer = colorBuffer;
@@ -101,7 +101,7 @@ namespace ComputeShaderDerivatives {
             this.graphicsPipeline = this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -130,7 +130,7 @@ namespace ComputeShaderDerivatives {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // Prefer quads when available; otherwise, fall back to linear.
             const support = this.app.getComputeShaderDerivatives();
             if (support == 0) {
@@ -188,7 +188,7 @@ namespace ComputeShaderDerivatives {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
             Donut_ImGuiBegin("Vulkan Example", 1);
@@ -209,7 +209,7 @@ namespace ComputeShaderDerivatives {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -218,7 +218,7 @@ namespace ComputeShaderDerivatives {
         // -linear: linear derivative groups (4 threads in a row) where the device has them.
         linear = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-linear") {
@@ -228,7 +228,7 @@ namespace ComputeShaderDerivatives {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("compute_shader_derivatives");
 
@@ -271,6 +271,6 @@ namespace ComputeShaderDerivatives {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ComputeShaderDerivatives.main(argc, argv);
 }

@@ -10,7 +10,7 @@ namespace RenderOctomap {
 
     // -test: checks the last frame. The top left corner is black; the octomap's voxels, colored by
     // height, cover about 56% of the frame, magenta in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -111,12 +111,12 @@ namespace RenderOctomap {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -131,7 +131,7 @@ namespace RenderOctomap {
     }
 
     // glm::rotate(mat4(1), angle, axis) about a unit axis.
-    function rotation(angle: number, x: number, y: number, z: number): number[] {
+    function rotation(angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -143,17 +143,17 @@ namespace RenderOctomap {
         ];
     }
 
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
     }
 
-    function scale(x: number, y: number, z: number): number[] {
+    function scale(x: number, y: number, z: number) {
         return [x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, z, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), with clip y
     // negated: the sample's clip space has y down on the screen (Vulkan's), Donut's y up.
-    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                              0.0,
@@ -164,7 +164,7 @@ namespace RenderOctomap {
     }
 
     // The sample's hsv_to_rgb (h in [0,1], s and v in [0,1]), into rgb[0..2].
-    function hsvToRgb(hIn: number, s: number, v: number, rgb: number[]): void {
+    function hsvToRgb(hIn: number, s: number, v: number, rgb: number[]) {
         let h = hIn - Math.floor(hIn);
         h *= 6.0;
         const i = Math.floor(h);
@@ -193,7 +193,7 @@ namespace RenderOctomap {
 
     // A decimal number in bytes [start, end) ("0.1", "-2e-3"...): digits as an integer, scaled by a
     // power of ten, as strtod rounds it for numbers of up to 15 digits.
-    function parseNumber(bytes: int[], start: int, end: int): number {
+    function parseNumber(bytes: int[], start: int, end: int) {
         let i = start;
         let negative = false;
         if (i < end && bytes[i] == CHAR_MINUS) {
@@ -259,7 +259,7 @@ namespace RenderOctomap {
             this.occupied = [];
         }
 
-        keyToCoord(key: int, depth: int): number {
+        keyToCoord(key: int, depth: int) {
             if (depth == 0) {
                 return 0.0;
             }
@@ -270,7 +270,7 @@ namespace RenderOctomap {
             return (Math.floor((key - TREE_MAX_VAL) / cells) + 0.5) * this.resolution * cells;
         }
 
-        addLeaf(depth: int, kx: int, ky: int, kz: int, occupied: boolean): void {
+        addLeaf(depth: int, kx: int, ky: int, kz: int, occupied: boolean) {
             this.leaves.push(this.keyToCoord(kx, depth));
             this.leaves.push(this.keyToCoord(ky, depth));
             this.leaves.push(this.keyToCoord(kz, depth));
@@ -279,14 +279,14 @@ namespace RenderOctomap {
         }
 
         // computeChildKey for one axis.
-        childKey(parentKey: int, centerOffsetKey: int, upper: boolean): int {
+        childKey(parentKey: int, centerOffsetKey: int, upper: boolean) {
             if (upper) {
                 return parentKey + centerOffsetKey;
             }
             return parentKey - centerOffsetKey - (centerOffsetKey != 0 ? 0 : 1);
         }
 
-        readNode(depth: int, kx: int, ky: int, kz: int): boolean {
+        readNode(depth: int, kx: int, ky: int, kz: int) {
             if (this.position + 2 > this.bytes.length) {
                 return false;
             }
@@ -320,7 +320,7 @@ namespace RenderOctomap {
         }
 
         // The header's lines up to "data" (its resolution from "res"), then the tree.
-        read(file: BinaryFile): boolean {
+        read(file: BinaryFile) {
             const size = file.getSize();
             for (let i = 0; i < size; i++) {
                 this.bytes.push(0);
@@ -358,7 +358,7 @@ namespace RenderOctomap {
     }
 
     // Sorts order[] by key[] descending (merge sort, stable), with scratch[] as large as order.
-    function sortDescending(order: int[], key: number[], scratch: int[]): void {
+    function sortDescending(order: int[], key: number[], scratch: int[]) {
         const n = order.length;
         let width = 1;
         let src = order;
@@ -544,7 +544,7 @@ namespace RenderOctomap {
 
         // WASD move the camera, numpad 4/6/8/2 turn it. Seen before the overlay (see main), so
         // they work while it has the keyboard; the other keys go on to it.
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return key == KEY_W || key == KEY_A || key == KEY_S || key == KEY_D || key == KEY_KP_2
                     || key == KEY_KP_4 || key == KEY_KP_6 || key == KEY_KP_8 ? 1 : 0;
@@ -574,7 +574,7 @@ namespace RenderOctomap {
 
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.leftButton) {
@@ -593,7 +593,7 @@ namespace RenderOctomap {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             const pressed = action == ACTION_PRESS;
             if (button == MOUSE_BUTTON_LEFT) {
                 this.leftButton = pressed;
@@ -607,7 +607,7 @@ namespace RenderOctomap {
 
         // The framework's first-person camera update (WASD along the view direction and its
         // right), then the sample's numpad look.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             const r = this.cameraRotation;
             const p = this.cameraPosition;
             if (this.keyUp || this.keyDown || this.keyLeft || this.keyRight) {
@@ -660,7 +660,7 @@ namespace RenderOctomap {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             this.app.releaseResources([this.octomapPipeline, this.gltfPipeline, this.splatPipeline, this.framebuffer,
                 this.colorBuffer, this.depthBuffer]);
             this.octomapPipeline = null;
@@ -671,14 +671,14 @@ namespace RenderOctomap {
             this.depthBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
         }
 
         createPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, bindingLayout: BindingLayoutHandle,
-            cullMode: CullMode, depthWrite: int, blendMode: BlendMode, primitiveType: PrimitiveType): GraphicsPipelineHandle {
+            cullMode: CullMode, depthWrite: int, blendMode: BlendMode, primitiveType: PrimitiveType) {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(inputLayout);
             desc.addBindingLayout(bindingLayout);
@@ -693,7 +693,7 @@ namespace RenderOctomap {
 
         // The sample's pipelines: depth from 0 to 1 (less or equal passes), counter-clockwise front
         // faces; the splats unculled, without depth writes, blended with premultiplied alpha.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "ColorBuffer");
             const depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             const framebuffer = this.app.createFramebuffer(colorBuffer, depthBuffer);
@@ -710,7 +710,7 @@ namespace RenderOctomap {
         }
 
         // The sample's update_ubo: a first-person camera, rotation * translation.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             const r = this.cameraRotation;
@@ -727,7 +727,7 @@ namespace RenderOctomap {
         // Sort splats back-to-front for correct alpha compositing, from the camera's position
         // (-R^T * t of the view, the position negated for this camera), and write them in that
         // order.
-        sortSplats(commandList: CommandList, splatBuffer: BufferHandle): void {
+        sortSplats(commandList: CommandList, splatBuffer: BufferHandle) {
             const p = this.cameraPosition;
             const cx = -p[0];
             const cy = -p[1];
@@ -751,7 +751,7 @@ namespace RenderOctomap {
             commandList.writeBuffer(splatBuffer, Ref(sorted[0]), this.splatCount * SPLAT_FLOATS * 4);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -820,7 +820,7 @@ namespace RenderOctomap {
         // The sample's build_cubes: an instance per occupied leaf, at its center (y negated), its
         // size, colored by height (hue from red, high, to 80% of the circle, low) between the
         // lowest and highest corners of all leaves.
-        buildCubes(commandList: CommandList, reader: OctomapReader): void {
+        buildCubes(commandList: CommandList, reader: OctomapReader) {
             const leaves = reader.leaves;
             const leafCount = reader.occupied.length;
             let minZ = 1e300;
@@ -861,7 +861,7 @@ namespace RenderOctomap {
         }
 
         // The sample's generate_master_cube: a unit cube, counter-clockwise outward faces.
-        createCube(commandList: CommandList): void {
+        createCube(commandList: CommandList) {
             const vertices: f32[] = [
                 0.5, 0.5, 0.5,
                 0.5, 0.5, -0.5,
@@ -894,7 +894,7 @@ namespace RenderOctomap {
         // The sample's load_gltf_scene: the meshes' primitives (POSITION and COLOR_0) in shared
         // buffers, drawn per node (each node instancing a mesh, its primitives), the node's world
         // transform mirrored in y (the octomap's convention) and its material's color.
-        loadGltf(): void {
+        loadGltf() {
             this.gltfLoaded = true;
             const model = this.app.loadGltfModel(GLTF_PATH);
             if (model.isNull()) {
@@ -992,7 +992,7 @@ namespace RenderOctomap {
 
         // One accessor of a splat cell, count elements of `components` floats, into the splats'
         // data at `offset` of each splat (the splats from `first` on).
-        copySplatAttribute(model: GltfModel, name: string, components: int, offset: int, first: int, count: int): boolean {
+        copySplatAttribute(model: GltfModel, name: string, components: int, offset: int, first: int, count: int) {
             if (model.getAttributeCount(0, name) != count || model.getAttributeComponents(0, name) < components) {
                 return false;
             }
@@ -1013,7 +1013,7 @@ namespace RenderOctomap {
         // The sample's load_gaussian_splats_scene: every cell's splats (POSITION,
         // KHR_gaussian_splatting:ROTATION, SCALE, OPACITY, and COLOR_0 or else the SH degree 0
         // coefficients), appended in the cells' order.
-        loadSplats(): void {
+        loadSplats() {
             this.splatsLoaded = true;
             for (let c = 0; c < SPLAT_CELLS.length; c++) {
                 const model = this.app.loadGltfModel(MEDIA + SPLAT_CELLS[c]);
@@ -1057,7 +1057,7 @@ namespace RenderOctomap {
         }
 
         // The sample's on_view_state_changed: the glTF scene and the splats load when first shown.
-        setViewState(viewState: int): void {
+        setViewState(viewState: int) {
             this.viewState = viewState;
             if (viewState == VIEW_GLTF && !this.gltfLoaded) {
                 this.loadGltf();
@@ -1067,7 +1067,7 @@ namespace RenderOctomap {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "render_octomap.hlsl";
             this.renderVS = this.app.createShader(shader, "render_vs", ShaderType.Vertex);
             this.colorPS = this.app.createShader(shader, "color_ps", ShaderType.Pixel);
@@ -1149,7 +1149,7 @@ namespace RenderOctomap {
         }
 
         // The camera keys, in a pass added after the overlay's (so it sees them first).
-        addKeyPass(): void {
+        addKeyPass() {
             this.app.addPass().setKeyboardCallback(this.onKey);
         }
     }
@@ -1162,7 +1162,7 @@ namespace RenderOctomap {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -1180,7 +1180,7 @@ namespace RenderOctomap {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             if (app.addImGuiPass(this.buildUI).isNull()) {
                 return false;
             }
@@ -1194,7 +1194,7 @@ namespace RenderOctomap {
         // -view <0..2>: the view at start (octomap, glTF map, splats).
         view = VIEW_OCTOMAP;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-view" && i + 1 < this.argc) {
@@ -1205,7 +1205,7 @@ namespace RenderOctomap {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("render_octomap");
 
@@ -1249,6 +1249,6 @@ namespace RenderOctomap {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RenderOctomap.main(argc, argv);
 }

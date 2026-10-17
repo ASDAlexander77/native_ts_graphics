@@ -26,20 +26,20 @@ namespace ComputeNBody {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
     let g_RandomSeed = 12345.0;
-    function randomFloat(): number {
+    function randomFloat() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
         return g_RandomSeed / 2147483647.0;
     }
 
     // std::normal_distribution<float>(0, 1) replacement: Box-Muller over randomFloat, which never
     // returns 0.
-    function randomNormal(): number {
+    function randomNormal() {
         const u1 = randomFloat();
         const u2 = randomFloat();
         return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
@@ -49,7 +49,7 @@ namespace ComputeNBody {
     // row-major with Donut's row-vector convention.
     // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
+    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
@@ -114,7 +114,7 @@ namespace ComputeNBody {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
@@ -124,22 +124,22 @@ namespace ComputeNBody {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
 
             this.simulationConstants[0] = this.paused ? 0.0 : elapsedSeconds;
@@ -148,7 +148,7 @@ namespace ComputeNBody {
                 this.paused ? `${this.numParticles} particles (paused)` : `${this.numParticles} particles`);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const graphicsPipeline = this.graphicsPipeline;
             if (graphicsPipeline) {
                 this.app.releaseResource(graphicsPipeline);
@@ -156,7 +156,7 @@ namespace ComputeNBody {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -195,7 +195,7 @@ namespace ComputeNBody {
         }
 
         // The sample's prepare_storage_buffers: the particles around their attractors, uploaded once.
-        createParticles(): void {
+        createParticles() {
             const attractors: number[] = [
                 5.0, 0.0, 0.0,
                 -5.0, 0.0, 0.0,
@@ -272,7 +272,7 @@ namespace ComputeNBody {
 
         // -test: checks the particles after the last frame, every position and velocity finite,
         // then the frame: black corners, and particles drawn.
-        checkTest(): string {
+        checkTest() {
             const check = new TestCheck(this.app);
             const particles = check.readFloats(this.particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
             if (particles.length == 0) {
@@ -295,7 +295,7 @@ namespace ComputeNBody {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vertexShader = this.app.createShader("compute_nbody.hlsl", "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("compute_nbody.hlsl", "main_ps", ShaderType.Pixel);
             const calculateShader = this.app.createShaderWithDefine("compute_nbody.hlsl", "calculate_cs", ShaderType.Compute, "SIMULATION", "1");
@@ -362,7 +362,7 @@ namespace ComputeNBody {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("compute_nbody");
 
@@ -398,6 +398,6 @@ namespace ComputeNBody {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ComputeNBody.main(argc, argv);
 }

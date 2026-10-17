@@ -11,7 +11,7 @@ namespace TextureCompressionComparison {
 
     // -test: checks the last frame: Sponza with its textures compressed fills it, its banners
     // about 24% colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -78,7 +78,7 @@ namespace TextureCompressionComparison {
     // --- Math (glm's layout: 4 x 4 matrices by columns, quaternions as x, y, z, w) --------------
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -93,7 +93,7 @@ namespace TextureCompressionComparison {
     }
 
     // glm::mat3_cast(q) * v.
-    function rotate(q: number[], v: number[]): number[] {
+    function rotate(q: number[], v: number[]) {
         const x = q[0];
         const y = q[1];
         const z = q[2];
@@ -107,7 +107,7 @@ namespace TextureCompressionComparison {
 
     // The framework's PerspectiveCamera::get_projection, glm::perspective(fov, aspect, far, near)
     // (near and far swapped for reversed depth; right-handed, depth from 0 to 1).
-    function reversedPerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function reversedPerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         const n = zFar;
         const f = zNear;
@@ -120,7 +120,7 @@ namespace TextureCompressionComparison {
     }
 
     // The framework's vulkan_style_projection: [1][1] negated, for Vulkan's clip space (y down).
-    function vulkanStyleProjection(m: number[]): number[] {
+    function vulkanStyleProjection(m: number[]) {
         let result: number[] = [];
         for (let i = 0; i < 16; i++) {
             result.push(i == 5 ? -m[i] : m[i]);
@@ -129,7 +129,7 @@ namespace TextureCompressionComparison {
     }
 
     // A matrix into the sample's clip space, into Donut's (y up on the screen): clip y negated.
-    function toDonutClip(m: number[]): number[] {
+    function toDonutClip(m: number[]) {
         let result: number[] = [];
         for (let i = 0; i < 16; i++) {
             result.push(i % 4 == 1 ? -m[i] : m[i]);
@@ -223,37 +223,37 @@ namespace TextureCompressionComparison {
         }
 
         // The sample's is_texture_format_supported: a format NVRHI has, that the device samples.
-        isFormatSupported(index: int): boolean {
+        isFormatSupported(index: int) {
             const format = TEXTURE_FORMATS[index];
             return format >= 0 && (this.app.queryFormatSupport(format) & FORMAT_SUPPORT_TEXTURE) != 0;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, SHORT_NAMES[this.currentFormat]);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -265,7 +265,7 @@ namespace TextureCompressionComparison {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -280,7 +280,7 @@ namespace TextureCompressionComparison {
         // KTX 2 file into the format (each once), the time and bytes summed; the textures replaced,
         // their uploads recorded into an open command list (the frame's: the previous textures stay
         // alive until the GPU is done with them).
-        updateTextures(commandList: CommandList, formatIndex: int): boolean {
+        updateTextures(commandList: CommandList, formatIndex: int) {
             for (let i = 0; i < this.textures.length; i++) {
                 this.app.releaseResource(this.bindingSets[i].handle);
                 this.app.releaseResource(this.textures[i]);
@@ -332,7 +332,7 @@ namespace TextureCompressionComparison {
 
         // The framework's GeometrySubpass order, from a camera at (x, y, z): front to back, by the
         // distance to the node's bounds; stable, as its multimap.
-        sortDraws(x: number, y: number, z: number): void {
+        sortDraws(x: number, y: number, z: number) {
             const count = this.drawIndexCount.length;
             for (let d = 0; d < count; d++) {
                 const dx = this.drawCenters[d * 3] - x;
@@ -350,7 +350,7 @@ namespace TextureCompressionComparison {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -421,7 +421,7 @@ namespace TextureCompressionComparison {
 
         // The scene's draws: every node's primitives, their vertices and indices in one vertex and
         // one index buffer, recorded into an open command list.
-        loadScene(commandList: CommandList): boolean {
+        loadScene(commandList: CommandList) {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -536,7 +536,7 @@ namespace TextureCompressionComparison {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "msaa.hlsl";
             const vs = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
             const ps = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
@@ -613,7 +613,7 @@ namespace TextureCompressionComparison {
             this.items = "";
         }
 
-        buildUI(): void {
+        buildUI() {
             const p = this.pass;
             if (this.items == "") {
                 for (let i = 0; i < SHORT_NAMES.length; i++) {
@@ -641,7 +641,7 @@ namespace TextureCompressionComparison {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -650,7 +650,7 @@ namespace TextureCompressionComparison {
         // -format <n>: 0 RGBA 32 (the default), 1 BC7, 2 BC3, 3 ASTC 4x4, 4 ETC2.
         format = 0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-format" && i + 1 < this.argc) {
@@ -661,7 +661,7 @@ namespace TextureCompressionComparison {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_compression_comparison");
 
@@ -709,6 +709,6 @@ namespace TextureCompressionComparison {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return TextureCompressionComparison.main(argc, argv);
 }

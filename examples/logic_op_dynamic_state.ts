@@ -10,7 +10,7 @@ namespace LogicOpDynamicState {
 
     // -test: checks the last frame: the street around (about 88% lit), and the dark teal cube in
     // the middle, drawn with the logic operation (copy by default).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -67,12 +67,12 @@ namespace LogicOpDynamicState {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -87,7 +87,7 @@ namespace LogicOpDynamicState {
     }
 
     // glm::rotate(mat4(1), angle, axis) about a unit axis.
-    function rotation(angle: number, x: number, y: number, z: number): number[] {
+    function rotation(angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -99,13 +99,13 @@ namespace LogicOpDynamicState {
         ];
     }
 
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
     }
 
     // glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), with clip y
     // negated: the sample's clip space has y down on the screen (Vulkan's), Donut's y up.
-    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                              0.0,
@@ -115,7 +115,7 @@ namespace LogicOpDynamicState {
         ];
     }
 
-    function normalize3(x: number, y: number, z: number): number[] {
+    function normalize3(x: number, y: number, z: number) {
         const length = Math.sqrt(x * x + y * y + z * z);
         return [x / length, y / length, z / length];
     }
@@ -224,7 +224,7 @@ namespace LogicOpDynamicState {
 
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.leftButton) {
@@ -243,7 +243,7 @@ namespace LogicOpDynamicState {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             const pressed = action == ACTION_PRESS;
             if (button == MOUSE_BUTTON_LEFT) {
                 this.leftButton = pressed;
@@ -255,11 +255,11 @@ namespace LogicOpDynamicState {
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (let i = 0; i < LOGIC_OP_COUNT; i++) {
                 const pipeline = this.baselinePipelines[i];
                 if (pipeline) {
@@ -275,14 +275,14 @@ namespace LogicOpDynamicState {
             this.depthBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
         }
 
         // The sample's pipelines: reversed depth (greater passes), back faces culled.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createTypelessRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "ColorBuffer");
             const depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.colorBuffer = colorBuffer;
@@ -305,7 +305,7 @@ namespace LogicOpDynamicState {
 
         // The cube's pipeline for a logic operation, for its view of the color target (UINT on D3D):
         // clockwise front faces, the logic operation instead of blending.
-        getBaselinePipeline(framebuffer: FramebufferHandle, logicOp: int): GraphicsPipelineHandle | null {
+        getBaselinePipeline(framebuffer: FramebufferHandle, logicOp: int) {
             const existing = this.baselinePipelines[logicOp];
             if (existing) {
                 return existing;
@@ -322,7 +322,7 @@ namespace LogicOpDynamicState {
         }
 
         // The sample's update_uniform_buffers: its camera's matrices.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -337,7 +337,7 @@ namespace LogicOpDynamicState {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -391,7 +391,7 @@ namespace LogicOpDynamicState {
         // primitive restart); NVRHI has no primitive restart, so here they are unrolled into a
         // triangle list: a strip's odd triangles with their first two vertices swapped, which keeps
         // their winding.
-        createCube(commandList: CommandList): void {
+        createCube(commandList: CommandList) {
             const corners = [
                 0.0, 0.0, 0.0,
                 1.0, 0.0, 0.0,
@@ -446,7 +446,7 @@ namespace LogicOpDynamicState {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             if (this.app.hasLogicOps() == 0) {
                 console.log("This example needs logic operations in blend states (OutputMergerLogicOp, Vulkan's logicOp)");
                 return false;
@@ -538,7 +538,7 @@ namespace LogicOpDynamicState {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -550,7 +550,7 @@ namespace LogicOpDynamicState {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -559,7 +559,7 @@ namespace LogicOpDynamicState {
         // -op <0..15>: the logic operation at start (LogicOp, Vulkan's order: 3 is COPY).
         operation = LogicOp.Copy;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-op" && i + 1 < this.argc) {
@@ -570,7 +570,7 @@ namespace LogicOpDynamicState {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("logic_op_dynamic_state");
 
@@ -614,6 +614,6 @@ namespace LogicOpDynamicState {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return LogicOpDynamicState.main(argc, argv);
 }

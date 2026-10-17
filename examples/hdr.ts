@@ -10,7 +10,7 @@ namespace Hdr {
 
     // -test: checks the last frame: the street skybox, tone mapped from HDR with bloom, about 97%
     // lit, the sky and the sphere's highlights about 3.6% white.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -56,7 +56,7 @@ namespace Hdr {
     // --- Math ---------------------------------------------------------------------------------
 
     // glm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
     }
 
@@ -64,7 +64,7 @@ namespace Hdr {
     // depth; right-handed, depth from 0 to 1), for row vectors, with clip y negated: the sample's
     // clip space has y down on the screen (Vulkan's), Donut's y up.
     // In float32, in glm's order of operations.
-    function samplePerspective(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
         // glm's near and far, swapped.
         const n = Math.fround(zFar);
@@ -79,7 +79,7 @@ namespace Hdr {
 
     // The same projection in Donut's conventions (view space z forward), for Donut's camera.
     // In float32, in glm's order of operations.
-    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const near = Math.fround(zNear);
         const far = Math.fround(zFar);
         const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
@@ -187,32 +187,32 @@ namespace Hdr {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             const bindingSets = [this.bloomFilterBindingSet, this.compositionBindingSet];
             for (const bindingSet of bindingSets) {
                 if (!bindingSet.isNull()) {
@@ -239,7 +239,7 @@ namespace Hdr {
             this.filterColor = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
@@ -247,7 +247,7 @@ namespace Hdr {
         // counter-clockwise front faces. The sample's projection keeps its framebuffer
         // coordinates, so its cull modes too.
         createModelPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, depthTestAndWrite: int,
-            cullMode: CullMode): GraphicsPipelineHandle {
+            cullMode: CullMode) {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.modelsBindingLayout);
@@ -256,7 +256,7 @@ namespace Hdr {
             return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        createPostBindingSet(texture0: TextureHandle, texture1: TextureHandle): BindingSet {
+        createPostBindingSet(texture0: TextureHandle, texture1: TextureHandle) {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, texture0);
             setDesc.bindTextureSRV(1, texture1);
@@ -265,7 +265,7 @@ namespace Hdr {
         }
 
         // The sample's prepare_offscreen_buffer and the pipelines drawing into its targets.
-        createTargets(frame: Frame, width: int, height: int): void {
+        createTargets(frame: Frame, width: int, height: int) {
             // We are using two 128-Bit RGBA floating point color buffers for this sample
             // In a performance or bandwidth-limited scenario you should consider using a format with lower precision
             const offscreenColor0 = this.app.createRenderTargetTexture(width, height, Format.RGBA32_FLOAT, "OffscreenColor0");
@@ -306,7 +306,7 @@ namespace Hdr {
         }
 
         // The sample's update_uniform_buffers and update_params.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const projection = perspProjReverse(radians(60.0), width / height, Z_NEAR, Z_FAR);
             for (let i = 0; i < 16; i++) {
                 this.projMatrix[i] = projection[i];
@@ -362,7 +362,7 @@ namespace Hdr {
             this.params[PARAMS_EXPOSURE] = this.exposure;
         }
 
-        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, mesh: GltfMesh): void {
+        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, mesh: GltfMesh) {
             frame.beginDrawToFramebuffer(pipeline, framebuffer);
             frame.drawAddBindingSet(this.modelsBindingSet);
             frame.drawAddVertexBuffer(mesh.getVertexBuffer(), 0, 0);
@@ -370,7 +370,7 @@ namespace Hdr {
             frame.drawIndexed(mesh.getIndexCount());
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -445,7 +445,7 @@ namespace Hdr {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.skyboxVS = this.app.createShader("hdr.hlsl", "skybox_vs", ShaderType.Vertex);
             this.skyboxPS = this.app.createShader("hdr.hlsl", "skybox_ps", ShaderType.Pixel);
             this.reflectVS = this.app.createShader("hdr.hlsl", "reflect_vs", ShaderType.Vertex);
@@ -537,7 +537,7 @@ namespace Hdr {
             this.hdr = hdr;
         }
 
-        buildUI(): void {
+        buildUI() {
             const hdr = this.hdr;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("High dynamic range rendering", 1);
@@ -553,7 +553,7 @@ namespace Hdr {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -565,7 +565,7 @@ namespace Hdr {
         bloom = true;
         displaySkybox = true;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-nobloom") {
@@ -583,7 +583,7 @@ namespace Hdr {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("hdr");
 
@@ -629,6 +629,6 @@ namespace Hdr {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Hdr.main(argc, argv);
 }

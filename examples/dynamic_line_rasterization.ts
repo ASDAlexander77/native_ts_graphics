@@ -10,7 +10,7 @@ namespace DynamicLineRasterization {
 
     // -test: checks the last frame. The corners are the gray background; the orange cube and its
     // lines color about a quarter of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x3F3F3F);
         if (corners != "") {
@@ -73,7 +73,7 @@ namespace DynamicLineRasterization {
     const CAMERA_FLOATS = 32;
 
     // ImGui's combo items: names separated by '|'.
-    function comboItems(names: string[]): string {
+    function comboItems(names: string[]) {
         let items = "";
         for (let i = 0; i < names.length; i++) {
             items += (i > 0 ? "|" : "") + names[i];
@@ -82,7 +82,7 @@ namespace DynamicLineRasterization {
     }
 
     // value as std::hex prints it (lowercase, no leading zeros).
-    function hex(value: int): string {
+    function hex(value: int) {
         const digits = "0123456789abcdef";
         let result = "";
         let v = value;
@@ -95,12 +95,12 @@ namespace DynamicLineRasterization {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -115,7 +115,7 @@ namespace DynamicLineRasterization {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -128,12 +128,12 @@ namespace DynamicLineRasterization {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); with near > far, depth is reversed.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -144,7 +144,7 @@ namespace DynamicLineRasterization {
     }
 
     // The inverse of m, by Gauss-Jordan elimination with partial pivoting.
-    function inverse(m: number[]): number[] {
+    function inverse(m: number[]) {
         // Rows of [m | I].
         let a: number[] = [];
         for (let row = 0; row < 4; row++) {
@@ -207,7 +207,7 @@ namespace DynamicLineRasterization {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -220,14 +220,14 @@ namespace DynamicLineRasterization {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -322,7 +322,7 @@ namespace DynamicLineRasterization {
         }
 
         // The stipple pattern's bits, the first checkbox the lowest.
-        pattern(): int {
+        pattern() {
             let result = 0;
             for (let i = 0; i < 16; i++) {
                 if (this.stipplePattern[i]) {
@@ -333,25 +333,25 @@ namespace DynamicLineRasterization {
         }
 
         // Whether the device stipples lines of the selected mode.
-        canStipple(): boolean {
+        canStipple() {
             return (this.modes & STIPPLED_MODE_BITS[this.rasterizationMode]) != 0;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releasePipelines(): void {
+        releasePipelines() {
             if (this.pipelinesCreated) {
                 this.app.releaseResource(this.gridPipeline);
                 this.app.releaseResource(this.fillPipeline);
@@ -364,13 +364,13 @@ namespace DynamicLineRasterization {
             this.edgePipelines = [];
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releasePipelines();
         }
 
         // The sample's pipeline state: no depth test, no culling, counter-clockwise front faces,
         // blending by the source's alpha (the alpha written as is).
-        pipelineDesc(vs: ShaderHandle, ps: ShaderHandle, primitiveType: PrimitiveType): GraphicsPipelineDesc {
+        pipelineDesc(vs: ShaderHandle, ps: ShaderHandle, primitiveType: PrimitiveType) {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.addBindingLayout(this.bindingLayout);
             desc.setPrimitiveType(primitiveType);
@@ -382,7 +382,7 @@ namespace DynamicLineRasterization {
         }
 
         // The edges' pipeline for the line settings.
-        edgePipeline(frame: Frame): GraphicsPipelineHandle {
+        edgePipeline(frame: Frame) {
             const stipple = this.stippleEnabled && this.canStipple();
             const key = `${this.rasterizationMode} ${this.lineWidth} ${stipple ? 1 : 0} ${this.stippleFactor} ${this.pattern()}`;
             for (let i = 0; i < this.edgeKeys.length; i++) {
@@ -400,14 +400,14 @@ namespace DynamicLineRasterization {
         }
 
         // The sample's push constant.
-        setColor(frame: Frame, color: number[]): void {
+        setColor(frame: Frame, color: number[]) {
             for (let i = 0; i < 4; i++) {
                 this.colorConstants[i] = color[i];
             }
             frame.getCommandList().writeBuffer(this.colorBuffer, Ref(this.colorConstants[0]), 4 * 4);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -474,7 +474,7 @@ namespace DynamicLineRasterization {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "dynamic_line_rasterization.hlsl";
             this.baseVS = this.app.createShader(shader, "base_vs", ShaderType.Vertex);
             this.basePS = this.app.createShader(shader, "base_ps", ShaderType.Pixel);
@@ -534,7 +534,7 @@ namespace DynamicLineRasterization {
             this.lines = lines;
         }
 
-        buildUI(): void {
+        buildUI() {
             const l = this.lines;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
@@ -569,7 +569,7 @@ namespace DynamicLineRasterization {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -586,7 +586,7 @@ namespace DynamicLineRasterization {
         // -nogrid: grid off.
         gridOn = true;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-mode" && i + 1 < this.argc) {
@@ -606,7 +606,7 @@ namespace DynamicLineRasterization {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_line_rasterization");
 
@@ -657,6 +657,6 @@ namespace DynamicLineRasterization {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DynamicLineRasterization.main(argc, argv);
 }

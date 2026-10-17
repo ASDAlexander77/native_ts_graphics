@@ -11,7 +11,7 @@ namespace MouseCursor {
 
     // -test: checks the last frame: the menu over the gray background, its two green buttons about
     // 7% of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -90,25 +90,25 @@ namespace MouseCursor {
     // --- Math (DirectXMath's layout: 4 x 4 matrices by rows, for row vectors) ----------------
 
 
-    function f(x: number): number {
+    function f(x: number) {
         return Math.fround(x);
     }
 
     // std::max and std::min. (tslang's Math.max starts from Number.MIN_VALUE, the smallest
     // positive number: it gives that for negative arguments.)
-    function maxf(a: number, b: number): number {
+    function maxf(a: number, b: number) {
         return a > b ? a : b;
     }
 
-    function minf(a: number, b: number): number {
+    function minf(a: number, b: number) {
         return a < b ? a : b;
     }
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -122,7 +122,7 @@ namespace MouseCursor {
         return result;
     }
 
-    function transpose(a: number[]): number[] {
+    function transpose(a: number[]) {
         let result: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -132,7 +132,7 @@ namespace MouseCursor {
         return result;
     }
 
-    function inverse(m: number[]): number[] {
+    function inverse(m: number[]) {
         const a00 = m[0]; const a01 = m[1]; const a02 = m[2]; const a03 = m[3];
         const a10 = m[4]; const a11 = m[5]; const a12 = m[6]; const a13 = m[7];
         const a20 = m[8]; const a21 = m[9]; const a22 = m[10]; const a23 = m[11];
@@ -172,34 +172,34 @@ namespace MouseCursor {
     }
 
     // XMMatrixRotationX.
-    function rotationX(angle: number): number[] {
+    function rotationX(angle: number) {
         const c = f(Math.cos(angle));
         const s = f(Math.sin(angle));
         return [1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // XMMatrixRotationY.
-    function rotationY(angle: number): number[] {
+    function rotationY(angle: number) {
         const c = f(Math.cos(angle));
         const s = f(Math.sin(angle));
         return [c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
-    function normalize3(v: number[]): number[] {
+    function normalize3(v: number[]) {
         const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         return [f(v[0] / length), f(v[1] / length), f(v[2] / length)];
     }
 
-    function cross3(a: number[], b: number[]): number[] {
+    function cross3(a: number[], b: number[]) {
         return [f(a[1] * b[2] - a[2] * b[1]), f(a[2] * b[0] - a[0] * b[2]), f(a[0] * b[1] - a[1] * b[0])];
     }
 
-    function dot3(a: number[], b: number[]): number {
+    function dot3(a: number[], b: number[]) {
         return f(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]);
     }
 
     // XMMatrixLookToLH.
-    function lookToLH(eye: number[], direction: number[], up: number[]): number[] {
+    function lookToLH(eye: number[], direction: number[], up: number[]) {
         const r2 = normalize3(direction);
         const r0 = normalize3(cross3(up, r2));
         const r1 = cross3(r2, r0);
@@ -213,12 +213,12 @@ namespace MouseCursor {
     }
 
     // SimpleMath's Matrix::CreateLookAt: XMMatrixLookAtRH (XMMatrixLookToLH along eye - target).
-    function lookAtRH(eye: number[], target: number[], up: number[]): number[] {
+    function lookAtRH(eye: number[], target: number[], up: number[]) {
         return lookToLH(eye, [f(eye[0] - target[0]), f(eye[1] - target[1]), f(eye[2] - target[2])], up);
     }
 
     // XMMatrixPerspectiveFovLH.
-    function perspectiveFovLH(fovY: number, aspect: number, nearZ: number, farZ: number): number[] {
+    function perspectiveFovLH(fovY: number, aspect: number, nearZ: number, farZ: number) {
         const height = f(Math.cos(0.5 * fovY) / Math.sin(0.5 * fovY));
         const width = f(height / aspect);
         const range = f(farZ / (farZ - nearZ));
@@ -231,13 +231,13 @@ namespace MouseCursor {
     }
 
     // Whether the camera may go to eye (the RTS map's bounds).
-    function inBounds(eye: number[]): boolean {
+    function inBounds(eye: number[]) {
         return eye[2] < -1.0 * eye[0] + 400.0 && eye[2] < eye[0] + 800.0
             && eye[2] > -1.0 * eye[0] - 300.0 && eye[2] > eye[0] - 800.0;
     }
 
     // Whether (x, y) is inside a tile (left, top, right, bottom), its edges excluded.
-    function inTile(tile: int[], x: number, y: number): boolean {
+    function inTile(tile: int[], x: number, y: number) {
         return x < tile[2] && x > tile[0] && y > tile[1] && y < tile[3];
     }
 
@@ -286,7 +286,7 @@ namespace MouseCursor {
         // The file's buffers uploaded by an open command list, its materials' textures loaded
         // (DDS files as they are). dualTexture: the materials' specular textures too, and the
         // vertices must have two texture coordinates. False (after printing why) on failure.
-        load(app: App, commandList: CommandList, file: string, stride: int, dualTexture: boolean): boolean {
+        load(app: App, commandList: CommandList, file: string, stride: int, dualTexture: boolean) {
             const binaryFile = app.loadBinaryFile(MEDIA_DIR + file);
             if (binaryFile.isNull()) {
                 console.log(`Cannot load ${file}: set XBOX_ATG_SAMPLES_DIR when configuring`);
@@ -557,13 +557,13 @@ namespace MouseCursor {
         // --- Sample: mouse cursor camera and target updates -------------------------------------
 
         // Update the pointer location in clip cursor mode
-        updatePointer(x: number, y: number): void {
+        updatePointer(x: number, y: number) {
             this.screenX = x;
             this.screenY = y;
         }
 
         // Change the target value based on the mouse movement for move-look/relative mouse mode
-        updateCamera(dx: number, dy: number): void {
+        updateCamera(dx: number, dy: number) {
             // Adjust pitch and yaw based on the mouse movement
             this.pitch = f(this.pitch + f(dy * ROTATION_GAIN));
             this.yaw = f(this.yaw + f(dx * ROTATION_GAIN));
@@ -589,7 +589,7 @@ namespace MouseCursor {
         }
 
         // Move the camera forward or backward
-        moveForward(amount: number): void {
+        moveForward(amount: number) {
             const movement = [f(this.target[0] - this.eye[0]), 0.0, f(this.target[2] - this.eye[2])];
             const eyeTemp = [f(this.eye[0] - f(amount * movement[0])), this.eye[1], f(this.eye[2] - f(amount * movement[2]))];
             if (inBounds(eyeTemp)) {
@@ -600,7 +600,7 @@ namespace MouseCursor {
         }
 
         // Move the camera to the right or left
-        moveRight(amount: number): void {
+        moveRight(amount: number) {
             const movement = [-f(this.target[2] - this.eye[2]), 0.0, f(this.target[0] - this.eye[0])];
             const eyeTemp = [f(this.eye[0] + f(amount * movement[0])), this.eye[1], f(this.eye[2] + f(amount * movement[2]))];
             if (inBounds(eyeTemp)) {
@@ -611,13 +611,13 @@ namespace MouseCursor {
         }
 
         // Update the viewport based on the updated eye and target values
-        setView(): void {
+        setView() {
             this.view = lookAtRH(this.eye, this.target, [0.0, 1.0, 0.0]);
             this.proj = perspectiveFovLH(f(PI / 4.0), f(f(this.frameWidth) / f(this.frameHeight)), 0.1, 10000.0);
         }
 
         // Set mode to relative ( 1 ), absolute ( 0 ), or clip cursor ( 2 )
-        setMode(x: number, y: number): int {
+        setMode(x: number, y: number) {
             // If entering FPS or relative mode
             if (inTile(this.fpsTile, x, y)) {
                 this.screenX = this.frameWidth / 2.0;
@@ -660,7 +660,7 @@ namespace MouseCursor {
         }
 
         // When the mouse moves, check to see if it is on top of the FPS or RTS selection tiles
-        checkLocation(x: number, y: number): void {
+        checkLocation(x: number, y: number) {
             if (this.isAbsolute) {
                 // If hovering over FPS or relative selection
                 if (inTile(this.fpsTile, x, y)) {
@@ -678,7 +678,7 @@ namespace MouseCursor {
         }
 
         // Sample::CreateWindowSizeDependentResources: the menu's layout.
-        layout(width: int, height: int): void {
+        layout(width: int, height: int) {
             // Update pointer location
             if (this.isRelative) {
                 this.screenX = width / 2.0;
@@ -710,7 +710,7 @@ namespace MouseCursor {
         // --- Main.cpp: the window's pointer and keyboard events --------------------------------
 
         // The mouse is captured and hidden: the sample draws its own cursor.
-        capture(x: number, y: number): void {
+        capture(x: number, y: number) {
             this.app.setCursorMode(CursorMode.Disabled);
             this.resyncMouse = true;
             // Save the pointers position
@@ -719,7 +719,7 @@ namespace MouseCursor {
         }
 
         // Back to the menu: the system cursor returns where the sample's was.
-        release(): void {
+        release() {
             this.app.setCursorMode(CursorMode.Normal);
             this.resyncMouse = true;
             this.app.setCursorPosition(Math.trunc(this.virtualX), Math.trunc(this.virtualY));
@@ -730,7 +730,7 @@ namespace MouseCursor {
         }
 
         // OnPointerMoved in absolute mode (hover), OnMouseMoved in the captured ones.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             const dx = x - this.mouseX;
             const dy = y - this.mouseY;
             const resync = this.resyncMouse;
@@ -752,7 +752,7 @@ namespace MouseCursor {
         }
 
         // OnPointerPressed: in absolute mode, a tile clicked enters its mode.
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             if (action == ACTION_PRESS && this.absolute) {
                 const mode = this.setMode(this.mouseX, this.mouseY);
                 if (mode == RELATIVE_MOUSE) {
@@ -770,7 +770,7 @@ namespace MouseCursor {
 
         // OnKeyDown: Escape leaves the captured modes (and goes on to InputPass, closing the
         // window, from the menu).
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_ESCAPE && action == ACTION_PRESS && !this.absolute) {
                 this.release();
                 return 1;
@@ -781,7 +781,7 @@ namespace MouseCursor {
         // Sample::Update: in clip cursor mode, scrolling when the cursor nears the window's edges
         // (each frame, as the sample). OnPointerCaptureLost: the captured modes end when the
         // window loses the focus.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             if (!this.absolute && this.app.isWindowFocused() == 0) {
                 this.release();
@@ -805,11 +805,11 @@ namespace MouseCursor {
         // --- Rendering ----------------------------------------------------------------------------
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -819,7 +819,7 @@ namespace MouseCursor {
             this.framebuffers = [];
         }
 
-        createPipelines(): void {
+        createPipelines() {
             const framebuffer = this.framebuffers[0];
 
             // SpriteBatch: premultiplied alpha blending (CommonStates::AlphaBlend), no depth, no culling.
@@ -854,7 +854,7 @@ namespace MouseCursor {
 
         // Main.cpp's OnWindowSizeChanged (the virtual cursor follows) and the sample's
         // CreateWindowSizeDependentResources; the depth buffer and framebuffers.
-        resize(width: int, height: int): void {
+        resize(width: int, height: int) {
             const previousWidth = this.frameWidth;
             const previousHeight = this.frameHeight;
             this.releaseTargets();
@@ -951,7 +951,7 @@ namespace MouseCursor {
 
         // Sample::Render: the menu's sprites (its text and the cursor are UserInterface's), or the
         // mode's model.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -985,7 +985,7 @@ namespace MouseCursor {
         }
 
         // A sprite texture (CreateWICTextureFromFile: as stored, UNORM) and its binding set.
-        loadSprite(commandList: CommandList, file: string): TextureHandle | null {
+        loadSprite(commandList: CommandList, file: string) {
             const texture = this.app.loadTexture(commandList, MEDIA_DIR + file, 0);
             if (!texture) {
                 console.log(`Cannot load ${file}: set XBOX_ATG_SAMPLES_DIR when configuring`);
@@ -993,7 +993,7 @@ namespace MouseCursor {
             return texture;
         }
 
-        spriteBindingSet(texture: TextureHandle): BindingSet {
+        spriteBindingSet(texture: TextureHandle) {
             const desc = BindingSetDesc.create();
             desc.bindPushConstants(0, SPRITE_FLOATS * 4);
             desc.bindTextureSRV(0, texture);
@@ -1003,7 +1003,7 @@ namespace MouseCursor {
 
         // Each material's binding set: the parameters, its texture(s) (the first again where
         // there's no second), Model::Draw's LinearWrap sampler.
-        createMaterialBindingSets(model: Model, sampler: SamplerHandle, dualTexture: boolean): void {
+        createMaterialBindingSets(model: Model, sampler: SamplerHandle, dualTexture: boolean) {
             for (let m = 0; m < model.materialTextures.length; m++) {
                 const desc = BindingSetDesc.create();
                 desc.bindEntireConstantBuffer(0, this.parametersBuffer);
@@ -1015,7 +1015,7 @@ namespace MouseCursor {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "mouse_cursor.hlsl";
             this.spriteVS = this.app.createShader(shader, "sprite_vs", ShaderType.Vertex);
             this.spritePS = this.app.createShader(shader, "sprite_ps", ShaderType.Pixel);
@@ -1117,7 +1117,7 @@ namespace MouseCursor {
 
         // SpriteFont::DrawString with its origin at MeasureString / 2: the lines' block centered
         // on (x, y), each line placed in its sprite font line.
-        centered(x: number, y: number, lines: string[], fontSize: number, lineSpacing: number): void {
+        centered(x: number, y: number, lines: string[], fontSize: number, lineSpacing: number) {
             let width = 0.0;
             for (const line of lines) {
                 width = Math.max(width, Donut_ImGuiCalcTextWidth(line));
@@ -1129,7 +1129,7 @@ namespace MouseCursor {
             }
         }
 
-        cursor(x: number, y: number): void {
+        cursor(x: number, y: number) {
             const cx = Math.floor(x) + 4.0;
             const cy = Math.floor(y) - 1.0;
             const side = 0.333;
@@ -1144,7 +1144,7 @@ namespace MouseCursor {
             Donut_ImGuiDrawRect(cx + 2.0, cy + 1.0, cx + 11.0, cy + 2.0, 1.0, 1.0, 1.0, side);
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             if (sample.isAbsolute) {
                 this.titleFont.push();
@@ -1163,7 +1163,7 @@ namespace MouseCursor {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(): boolean {
+        init() {
             const imguiPass = this.app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -1179,7 +1179,7 @@ namespace MouseCursor {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mouse_cursor");
 
@@ -1221,6 +1221,6 @@ namespace MouseCursor {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MouseCursor.main(argc, argv);
 }

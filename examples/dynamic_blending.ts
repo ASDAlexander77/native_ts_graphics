@@ -10,7 +10,7 @@ namespace DynamicBlending {
 
     // -test: checks the last frame. The corners are the gray background; the two blended quads,
     // right of the settings window, cover about a fifth of the frame's right half and its middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0xBCBCBC);
         if (corners != "") {
@@ -95,7 +95,7 @@ namespace DynamicBlending {
     const COLOR_FLOATS = 32;
 
     // A ColorMask from the sample's red, green, blue, alpha switches.
-    function colorMask(enabled: boolean[]): ColorMask {
+    function colorMask(enabled: boolean[]) {
         let mask = 0;
         if (enabled[0]) {
             mask |= ColorMask.Red;
@@ -113,7 +113,7 @@ namespace DynamicBlending {
     }
 
     // ImGui's combo items: names separated by '|'.
-    function comboItems(names: string[]): string {
+    function comboItems(names: string[]) {
         let items = "";
         for (let i = 0; i < names.length; i++) {
             items += (i > 0 ? "|" : "") + names[i];
@@ -123,12 +123,12 @@ namespace DynamicBlending {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -143,7 +143,7 @@ namespace DynamicBlending {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -156,12 +156,12 @@ namespace DynamicBlending {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); with near > far, depth is reversed.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -172,7 +172,7 @@ namespace DynamicBlending {
     }
 
     // The inverse of a rotation and translation [R t]: [R^T -R^T t].
-    function inverseRigid(m: number[]): number[] {
+    function inverseRigid(m: number[]) {
         let result = identity();
         for (let row = 0; row < 3; row++) {
             for (let column = 0; column < 3; column++) {
@@ -207,7 +207,7 @@ namespace DynamicBlending {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -220,14 +220,14 @@ namespace DynamicBlending {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -358,26 +358,26 @@ namespace DynamicBlending {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -389,7 +389,7 @@ namespace DynamicBlending {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -401,7 +401,7 @@ namespace DynamicBlending {
         }
 
         // What makes a face's pipeline differ: the blend state and the face's write mask.
-        pipelineKey(face: FacePreferences): string {
+        pipelineKey(face: FacePreferences) {
             const mask = colorMask(face.colorBitEnabled);
             const blend = this.blendEnable ? 1 : 0;
             if (this.blendOption == BLEND_ADVANCED) {
@@ -413,7 +413,7 @@ namespace DynamicBlending {
 
         // The sample's pipeline with a face's dynamic state: depth test (greater: reversed) and
         // write, no culling, the blend state, the face's color write mask.
-        facePipeline(face: FacePreferences): GraphicsPipelineHandle {
+        facePipeline(face: FacePreferences) {
             const key = this.pipelineKey(face);
             for (let i = 0; i < this.pipelineKeys.length; i++) {
                 if (this.pipelineKeys[i] == key) {
@@ -440,7 +440,7 @@ namespace DynamicBlending {
             return pipeline;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -497,7 +497,7 @@ namespace DynamicBlending {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "dynamic_blending.hlsl";
             this.vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
             this.ps = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
@@ -552,14 +552,14 @@ namespace DynamicBlending {
         }
 
         // A color editor (as the sample's, 200 pixels wide).
-        colorEdit(id: int, caption: string, colors: f32[], first: int): void {
+        colorEdit(id: int, caption: string, colors: f32[], first: int) {
             Donut_ImGuiPushID(id);
             Donut_ImGuiColorEdit4(caption, Ref(colors[first]), 200.0);
             Donut_ImGuiPopID();
         }
 
         // A "Next" button, then a combo of names; returns the new index.
-        comboWithButton(id: int, caption: string, index: int, names: string[]): int {
+        comboWithButton(id: int, caption: string, index: int, names: string[]) {
             let result = index;
             Donut_ImGuiPushID(id);
             if (Donut_ImGuiButton("Next") != 0) {
@@ -571,7 +571,7 @@ namespace DynamicBlending {
         }
 
         // The sample's random colors (alpha kept).
-        randomize(colors: f32[]): void {
+        randomize(colors: f32[]) {
             for (let corner = 0; corner < 4; corner++) {
                 for (let i = 0; i < 3; i++) {
                     colors[corner * 4 + i] = Math.random();
@@ -579,7 +579,7 @@ namespace DynamicBlending {
             }
         }
 
-        buildUI(): void {
+        buildUI() {
             const b = this.blending;
             let id = 0;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
@@ -653,7 +653,7 @@ namespace DynamicBlending {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -664,7 +664,7 @@ namespace DynamicBlending {
         // -noblend: blending off.
         noBlend = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-advanced" && i + 1 < this.argc) {
@@ -677,7 +677,7 @@ namespace DynamicBlending {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_blending");
 
@@ -728,6 +728,6 @@ namespace DynamicBlending {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DynamicBlending.main(argc, argv);
 }

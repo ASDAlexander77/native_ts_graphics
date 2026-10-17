@@ -10,7 +10,7 @@ namespace Collision {
 
     // -test: checks the last frame. The corners are the gray clear color; the grid, the frustum and
     // the bounding volumes' lines cover about 4.4% of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -74,11 +74,11 @@ namespace Collision {
     // --- Math (DirectXMath's layout: 4 x 4 matrices by rows, for row vectors; float precision) -
 
 
-    function f(x: number): number {
+    function f(x: number) {
         return Math.fround(x);
     }
 
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -92,7 +92,7 @@ namespace Collision {
         return result;
     }
 
-    function inverse(m: number[]): number[] {
+    function inverse(m: number[]) {
         const a00 = m[0]; const a01 = m[1]; const a02 = m[2]; const a03 = m[3];
         const a10 = m[4]; const a11 = m[5]; const a12 = m[6]; const a13 = m[7];
         const a20 = m[8]; const a21 = m[9]; const a22 = m[10]; const a23 = m[11];
@@ -131,21 +131,21 @@ namespace Collision {
         ];
     }
 
-    function normalize3(v: number[]): number[] {
+    function normalize3(v: number[]) {
         const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         return [f(v[0] / length), f(v[1] / length), f(v[2] / length)];
     }
 
-    function cross3(a: number[], b: number[]): number[] {
+    function cross3(a: number[], b: number[]) {
         return [f(a[1] * b[2] - a[2] * b[1]), f(a[2] * b[0] - a[0] * b[2]), f(a[0] * b[1] - a[1] * b[0])];
     }
 
-    function dot3(a: number[], b: number[]): number {
+    function dot3(a: number[], b: number[]) {
         return f(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]);
     }
 
     // XMMatrixLookAtRH: XMMatrixLookToLH along eye - focus.
-    function lookAtRH(eye: number[], focus: number[], up: number[]): number[] {
+    function lookAtRH(eye: number[], focus: number[], up: number[]) {
         const r2 = normalize3([f(eye[0] - focus[0]), f(eye[1] - focus[1]), f(eye[2] - focus[2])]);
         const r0 = normalize3(cross3(up, r2));
         const r1 = cross3(r2, r0);
@@ -159,7 +159,7 @@ namespace Collision {
     }
 
     // XMMatrixPerspectiveFovLH, XMMatrixPerspectiveFovRH.
-    function perspectiveFov(fovY: number, aspect: number, nearZ: number, farZ: number, rightHanded: boolean): number[] {
+    function perspectiveFov(fovY: number, aspect: number, nearZ: number, farZ: number, rightHanded: boolean) {
         const height = f(Math.cos(0.5 * fovY) / Math.sin(0.5 * fovY));
         const width = f(height / aspect);
         if (rightHanded) {
@@ -171,7 +171,7 @@ namespace Collision {
     }
 
     // v (a point) * m.
-    function transformPoint(v: number[], m: number[]): number[] {
+    function transformPoint(v: number[], m: number[]) {
         let result: number[] = [];
         for (let i = 0; i < 3; i++) {
             result.push(f(v[0] * m[i] + v[1] * m[4 + i] + v[2] * m[8 + i] + m[12 + i]));
@@ -180,7 +180,7 @@ namespace Collision {
     }
 
     // v (a direction) * m.
-    function transformNormal(v: number[], m: number[]): number[] {
+    function transformNormal(v: number[], m: number[]) {
         let result: number[] = [];
         for (let i = 0; i < 3; i++) {
             result.push(f(v[0] * m[i] + v[1] * m[4 + i] + v[2] * m[8 + i]));
@@ -189,7 +189,7 @@ namespace Collision {
     }
 
     // Quaternions (x, y, z, w). XMQuaternionMultiply(q1, q2): q1's rotation, then q2's.
-    function quaternionMultiply(q1: number[], q2: number[]): number[] {
+    function quaternionMultiply(q1: number[], q2: number[]) {
         return [
             f(q2[3] * q1[0] + q2[0] * q1[3] + q2[1] * q1[2] - q2[2] * q1[1]),
             f(q2[3] * q1[1] - q2[0] * q1[2] + q2[1] * q1[3] + q2[2] * q1[0]),
@@ -198,13 +198,13 @@ namespace Collision {
         ];
     }
 
-    function quaternionNormalize(q: number[]): number[] {
+    function quaternionNormalize(q: number[]) {
         const length = Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
         return [f(q[0] / length), f(q[1] / length), f(q[2] / length), f(q[3] / length)];
     }
 
     // XMQuaternionInverse.
-    function quaternionInverse(q: number[]): number[] {
+    function quaternionInverse(q: number[]) {
         const lengthSq = f(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
         if (lengthSq <= 1.192092896e-7) {
             return [0.0, 0.0, 0.0, 0.0];
@@ -213,21 +213,21 @@ namespace Collision {
     }
 
     // XMQuaternionRotationAxis.
-    function quaternionRotationAxis(axis: number[], angle: number): number[] {
+    function quaternionRotationAxis(axis: number[], angle: number) {
         const n = normalize3(axis);
         const s = f(Math.sin(0.5 * angle));
         return [f(n[0] * s), f(n[1] * s), f(n[2] * s), f(Math.cos(0.5 * angle))];
     }
 
     // XMVector3Rotate.
-    function rotate3(v: number[], q: number[]): number[] {
+    function rotate3(v: number[], q: number[]) {
         const conjugate = [-q[0], -q[1], -q[2], q[3]];
         const result = quaternionMultiply(quaternionMultiply(conjugate, [v[0], v[1], v[2], 0.0]), q);
         return [result[0], result[1], result[2]];
     }
 
     // XMMatrixRotationQuaternion.
-    function matrixRotationQuaternion(q: number[]): number[] {
+    function matrixRotationQuaternion(q: number[]) {
         const x = q[0]; const y = q[1]; const z = q[2]; const w = q[3];
         return [
             f(1.0 - 2.0 * (y * y + z * z)), f(2.0 * (x * y + z * w)), f(2.0 * (x * z - y * w)), 0.0,
@@ -244,7 +244,7 @@ namespace Collision {
         return [q[0], q[1], q[2], q[3]];
     }
 
-    function matrixRollPitchYaw(pitch: number, yaw: number, roll: number): number[] {
+    function matrixRollPitchYaw(pitch: number, yaw: number, roll: number) {
         let m: f32[] = [];
         for (let i = 0; i < 16; i++) {
             m.push(0.0);
@@ -258,7 +258,7 @@ namespace Collision {
     }
 
     // ArcBall::QuatFromBallPoints.
-    function quatFromBallPoints(from: number[], to: number[]): number[] {
+    function quatFromBallPoints(from: number[], to: number[]) {
         const part = cross3(from, to);
         return [part[0], part[1], part[2], dot3(from, to)];
     }
@@ -285,25 +285,25 @@ namespace Collision {
             this.drag = false;
         }
 
-        reset(): void {
+        reset() {
             this.qdown = [0.0, 0.0, 0.0, 1.0];
             this.qnow = [0.0, 0.0, 0.0, 1.0];
         }
 
-        onBegin(x: number, y: number, quat: number[]): void {
+        onBegin(x: number, y: number, quat: number[]) {
             this.drag = true;
             this.qdown = quat;
             this.downPoint = this.screenToVector(x, y);
         }
 
-        onMove(x: number, y: number): void {
+        onMove(x: number, y: number) {
             if (this.drag) {
                 const curr = this.screenToVector(x, y);
                 this.qnow = quaternionNormalize(quaternionMultiply(this.qdown, quatFromBallPoints(this.downPoint, curr)));
             }
         }
 
-        screenToVector(screenX: number, screenY: number): number[] {
+        screenToVector(screenX: number, screenY: number) {
             let x = f(-(screenX - this.width / 2.0) / (this.radius * this.width / 2.0));
             let y = f((screenY - this.height / 2.0) / (this.radius * this.height / 2.0));
             let z = 0.0;
@@ -352,7 +352,7 @@ namespace Collision {
             this.cameraPosition = [0.0, 0.0, 0.0];
         }
 
-        reset(): void {
+        reset() {
             this.focus = [this.homeFocus[0], this.homeFocus[1], this.homeFocus[2]];
             this.radius = this.defaultRadius;
             this.rotation = [this.homeRotation[0], this.homeRotation[1], this.homeRotation[2], this.homeRotation[3]];
@@ -360,39 +360,39 @@ namespace Collision {
             this.arcBall.drag = false;
         }
 
-        setWindow(width: int, height: int): void {
+        setWindow(width: int, height: int) {
             this.width = width;
             this.height = height;
             this.arcBall.width = width;
             this.arcBall.height = height;
         }
 
-        setFocus(focus: number[]): void {
+        setFocus(focus: number[]) {
             this.focus = [focus[0], focus[1], focus[2]];
             this.homeFocus = [focus[0], focus[1], focus[2]];
         }
 
-        setRotation(rotation: number[]): void {
+        setRotation(rotation: number[]) {
             const nr = quaternionNormalize(rotation);
             this.rotation = nr;
             this.homeRotation = [nr[0], nr[1], nr[2], nr[3]];
         }
 
-        getView(): number[] {
+        getView() {
             const dir = rotate3([0.0, 0.0, 1.0], this.rotation);
             const up = rotate3([0.0, 1.0, 0.0], this.rotation);
             this.cameraPosition = [f(this.focus[0] + dir[0] * this.radius), f(this.focus[1] + dir[1] * this.radius), f(this.focus[2] + dir[2] * this.radius)];
             return lookAtRH(this.cameraPosition, this.focus, up);
         }
 
-        getProjection(): number[] {
+        getProjection() {
             const aspect = this.height > 0 ? f(f(this.width) / f(this.height)) : 1.0;
             return perspectiveFov(f(PI / 4.0), aspect, 0.1, 1000.0, true);
         }
 
         // OrbitCamera::Update(elapsedTime, mouse, keyboard): the mouse's position and buttons and
         // the keys held this frame. Returns the mouse mode wanted (true: relative).
-        update(elapsedTime: number, mouseX: number, mouseY: number, leftButton: boolean, rightButton: boolean, held: boolean[]): boolean {
+        update(elapsedTime: number, mouseX: number, mouseY: number, leftButton: boolean, rightButton: boolean, held: boolean[]) {
             const handed = -1.0;
             const im = inverse(this.getView());
 
@@ -549,7 +549,7 @@ namespace Collision {
             this.setViewForGroup(0);
         }
 
-        initializeObjects(): void {
+        initializeObjects() {
             // Set up the primary frustum object from a D3D projection matrix
             // NOTE: This can also be done on your camera's projection matrix.  The projection
             // matrix built here is somewhat contrived so it renders well.
@@ -598,7 +598,7 @@ namespace Collision {
 
         // A triangle's points: the equilateral triangle of radius 2 in local space, turned by
         // XMMatrixRotationRollPitchYaw(t * 1.4, t * 2.5, t) and moved to (x, y, z).
-        setTriangle(triangle: f32[], t: number, x: number, y: number, z: number): void {
+        setTriangle(triangle: f32[], t: number, x: number, y: number, z: number) {
             // triangle points in local space - equilateral triangle with radius of 2
             const points = [0.0, 2.0, 0.0, 1.732, -1.0, 0.0, -1.732, -1.0, 0.0];
             let coords = matrixRollPitchYaw(f(t * 1.4), f(t * 2.5), t);
@@ -613,14 +613,14 @@ namespace Collision {
             }
         }
 
-        setOrientation(box: f32[], q: number[]): void {
+        setOrientation(box: f32[], q: number[]) {
             box[6] = q[0];
             box[7] = q[1];
             box[8] = q[2];
             box[9] = q[3];
         }
 
-        animate(time: number): void {
+        animate(time: number) {
             const t = f(time * 0.2);
 
             const camera0OriginX = this.cameraOrigins[0][0];
@@ -715,7 +715,7 @@ namespace Collision {
         }
 
         // The containment of group g's objects in its primary (shape, floats).
-        collideGroup(g: int, primaryShape: CollisionShape, primary: f32[]): void {
+        collideGroup(g: int, primaryShape: CollisionShape, primary: f32[]) {
             this.collisions[g * 4] = Donut_CollisionContains(primaryShape, Ref(primary[0]), CollisionShape.Sphere, Ref(this.spheres[g][0]));
             this.collisions[g * 4 + 1] = Donut_CollisionContains(primaryShape, Ref(primary[0]), CollisionShape.OrientedBox, Ref(this.orientedBoxes[g][0]));
             this.collisions[g * 4 + 2] = Donut_CollisionContains(primaryShape, Ref(primary[0]), CollisionShape.Box, Ref(this.aaBoxes[g][0]));
@@ -732,7 +732,7 @@ namespace Collision {
             return fDistance;
         }
 
-        collide(): void {
+        collide() {
             // test collisions between objects and frustum
             this.collideGroup(0, CollisionShape.Frustum, this.primaryFrustum);
             // test collisions between objects and aligned box
@@ -761,13 +761,13 @@ namespace Collision {
         }
 
         // Sets the camera to view a particular group of objects
-        setViewForGroup(group: int): void {
+        setViewForGroup(group: int) {
             this.camera.setFocus(this.cameraOrigins[group]);
             this.camera.setRotation(quaternionRollPitchYaw(f(-PI / 4.0), 0.0, 0.0));
             this.name = GROUP_NAMES[group];
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != ACTION_RELEASE;
             }
@@ -788,13 +788,13 @@ namespace Collision {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.mouseX = x;
             this.mouseY = y;
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             if (button == MOUSE_LEFT) {
                 this.leftButton = action != ACTION_RELEASE;
             } else if (button == MOUSE_RIGHT) {
@@ -804,7 +804,7 @@ namespace Collision {
         }
 
         // Sample::Update: the objects move and are tested, then the camera follows the input.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.totalTime += elapsedSeconds;
 
@@ -829,7 +829,7 @@ namespace Collision {
 
         // --- DebugDraw ---------------------------------------------------------------------------
 
-        vertex(p: number[], color: number[]): void {
+        vertex(p: number[], color: number[]) {
             if (this.vertexCount >= MAX_VERTICES) {
                 return;
             }
@@ -845,13 +845,13 @@ namespace Collision {
             this.vertexCount++;
         }
 
-        line(a: number[], b: number[], color: number[]): void {
+        line(a: number[], b: number[], color: number[]) {
             this.vertex(a, color);
             this.vertex(b, color);
         }
 
         // DrawCube: the unit cube's 12 edges through matWorld.
-        drawCube(world: number[], color: number[]): void {
+        drawCube(world: number[], color: number[]) {
             const corners = [
                 -1.0, -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0, -1.0, 1.0,
                 -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
@@ -866,12 +866,12 @@ namespace Collision {
             }
         }
 
-        drawBox(box: f32[], color: number[]): void {
+        drawBox(box: f32[], color: number[]) {
             const world: number[] = [box[3], 0.0, 0.0, 0.0, 0.0, box[4], 0.0, 0.0, 0.0, 0.0, box[5], 0.0, box[0], box[1], box[2], 1.0];
             this.drawCube(world, color);
         }
 
-        drawOrientedBox(box: f32[], color: number[]): void {
+        drawOrientedBox(box: f32[], color: number[]) {
             const scale: number[] = [box[3], 0.0, 0.0, 0.0, 0.0, box[4], 0.0, 0.0, 0.0, 0.0, box[5], 0.0, 0.0, 0.0, 0.0, 1.0];
             const orientation: number[] = [box[6], box[7], box[8], box[9]];
             let world = multiply(scale, matrixRotationQuaternion(orientation));
@@ -881,7 +881,7 @@ namespace Collision {
             this.drawCube(world, color);
         }
 
-        drawFrustum(frustum: f32[], color: number[]): void {
+        drawFrustum(frustum: f32[], color: number[]) {
             let c: f32[] = [];
             for (let i = 0; i < 24; i++) {
                 c.push(0.0);
@@ -895,7 +895,7 @@ namespace Collision {
         }
 
         // DrawRing: 32 segments, the sines and cosines rotated incrementally.
-        drawRing(origin: number[], majorAxis: number[], minorAxis: number[], color: number[]): void {
+        drawRing(origin: number[], majorAxis: number[], minorAxis: number[], color: number[]) {
             const segments = 32;
             const angleDelta = f(f(2.0 * PI) / segments);
             const cosDelta = f(Math.cos(angleDelta));
@@ -920,7 +920,7 @@ namespace Collision {
             }
         }
 
-        drawSphere(sphere: f32[], color: number[]): void {
+        drawSphere(sphere: f32[], color: number[]) {
             const origin: number[] = [sphere[0], sphere[1], sphere[2]];
             const radius = sphere[3];
             const xaxis: number[] = [radius, 0.0, 0.0];
@@ -931,7 +931,7 @@ namespace Collision {
             this.drawRing(origin, yaxis, zaxis, color);
         }
 
-        drawGrid(xAxis: number[], yAxis: number[], origin: number[], xdivs: int, ydivs: int, color: number[]): void {
+        drawGrid(xAxis: number[], yAxis: number[], origin: number[], xdivs: int, ydivs: int, color: number[]) {
             for (let i = 0; i <= xdivs; i++) {
                 const percent = f(f(f(i) / f(xdivs)) * 2.0 - 1.0);
                 const scale = [f(xAxis[0] * percent + origin[0]), f(xAxis[1] * percent + origin[1]), f(xAxis[2] * percent + origin[2])];
@@ -948,11 +948,11 @@ namespace Collision {
 
         // DrawRay (not normalized): its line strip has only the first two points, origin and
         // origin + direction.
-        drawRay(origin: number[], direction: number[], color: number[]): void {
+        drawRay(origin: number[], direction: number[], color: number[]) {
             this.line(origin, [f(direction[0] + origin[0]), f(direction[1] + origin[1]), f(direction[2] + origin[2])], color);
         }
 
-        drawTriangle(t: f32[], color: number[]): void {
+        drawTriangle(t: f32[], color: number[]) {
             const a: number[] = [t[0], t[1], t[2]];
             const b: number[] = [t[3], t[4], t[5]];
             const c: number[] = [t[6], t[7], t[8]];
@@ -964,7 +964,7 @@ namespace Collision {
         // Returns the color based on the collision result and the group number.
         // Frustum tests (group 0) return 0, 1, or 2 for outside, partially inside, and fully inside;
         // all other tests return 0 or 1 for no collision or collision.
-        collisionColor(collision: int, group: int): number[] {
+        collisionColor(collision: int, group: int) {
             // special case: a value of 1 for groups 1 and higher needs to register as a full collision
             let c = collision;
             if (group >= 3 && c > 0) {
@@ -983,7 +983,7 @@ namespace Collision {
 
         // Sample::Render: the scene's lines (opaque, no depth, no culling) with BasicEffect's
         // vertex colors.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -1063,7 +1063,7 @@ namespace Collision {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vs = this.app.createShader("collision.hlsl", "line_vs", ShaderType.Vertex);
             this.ps = this.app.createShader("collision.hlsl", "line_ps", ShaderType.Pixel);
             if (!this.vs || !this.ps) {
@@ -1108,7 +1108,7 @@ namespace Collision {
             this.app = app;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             // SimpleMath::Viewport::ComputeTitleSafeArea
             const safeW = Math.fround((sample.frameWidth + 19.0) / 20.0);
@@ -1148,7 +1148,7 @@ namespace Collision {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(): boolean {
+        init() {
             const imguiPass = this.app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -1171,7 +1171,7 @@ namespace Collision {
         // -help: start with the help screen.
         showHelp = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-group" && i + 1 < this.argc) {
@@ -1187,7 +1187,7 @@ namespace Collision {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("collision");
 
@@ -1232,6 +1232,6 @@ namespace Collision {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Collision.main(argc, argv);
 }

@@ -11,7 +11,7 @@ namespace ShaderQuadControl {
     // -test: checks the last frame: the screen-space gradient (red across, green down, blue 188),
     // its corners at its ends: no red or green at the top left, red at the top right, green at the
     // bottom left, both at the bottom right.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -56,11 +56,11 @@ namespace ShaderQuadControl {
             this.broadcast = false;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (this.pipelinesCreated) {
                 this.app.releaseResource(this.plainPipeline);
                 this.app.releaseResource(this.broadcastPipeline);
@@ -69,7 +69,7 @@ namespace ShaderQuadControl {
         }
 
         // The sample's build_command_buffers: cleared to black, the triangle drawn (no culling).
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (!this.pipelinesCreated) {
                 this.plainPipeline = this.app.createGraphicsPipelineWithTopology(frame, this.vs, this.plainPS, null, null,
@@ -84,7 +84,7 @@ namespace ShaderQuadControl {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "shader_quad_control.hlsl";
             this.vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
             this.plainPS = this.app.createShaderWithDefine(shader, "main_ps", ShaderType.Pixel, "BROADCAST", "0");
@@ -109,7 +109,7 @@ namespace ShaderQuadControl {
             this.pass = pass;
         }
 
-        buildUI(): void {
+        buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
             this.pass.broadcast = Donut_ImGuiCheckbox("Broadcast from the quad leader", this.pass.broadcast ? 1 : 0) != 0;
@@ -117,7 +117,7 @@ namespace ShaderQuadControl {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -126,7 +126,7 @@ namespace ShaderQuadControl {
         // -broadcast: each quad shows its top left pixel's coordinates.
         broadcast = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-broadcast") {
@@ -136,7 +136,7 @@ namespace ShaderQuadControl {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_quad_control");
 
@@ -184,6 +184,6 @@ namespace ShaderQuadControl {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ShaderQuadControl.main(argc, argv);
 }

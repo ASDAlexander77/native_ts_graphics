@@ -10,7 +10,7 @@ namespace RtTriangle {
 
     // -test: checks the last frame. The top corners are the gray clear color; the ray traced
     // triangle covers half the frame, colored in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -53,7 +53,7 @@ namespace RtTriangle {
             this.bindingSet = new BindingSet(null);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -70,11 +70,11 @@ namespace RtTriangle {
             this.app.clearBindingCache();
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             let renderTarget = this.renderTarget;
             let bindingSet = this.bindingSet;
@@ -95,7 +95,7 @@ namespace RtTriangle {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.shaderLibrary = this.app.createShaderLibrary("rt_triangle.hlsl");
             if (!this.shaderLibrary) {
                 return false;
@@ -152,7 +152,7 @@ namespace RtTriangle {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_triangle");
 
@@ -194,6 +194,6 @@ namespace RtTriangle {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RtTriangle.main(argc, argv);
 }

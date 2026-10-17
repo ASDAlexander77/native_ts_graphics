@@ -10,7 +10,7 @@ namespace Meshlets {
 
     // -test: checks the last frame. The corners are the black clear color; the meshlet triangle
     // covers an eighth of the frame, colored in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -46,7 +46,7 @@ namespace Meshlets {
             this.pipeline = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const pipeline = this.pipeline;
             if (pipeline) {
                 this.app.releaseResource(pipeline);
@@ -54,11 +54,11 @@ namespace Meshlets {
             }
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             let pipeline = this.pipeline;
             if (!pipeline) {
@@ -71,7 +71,7 @@ namespace Meshlets {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.amplificationShader = this.app.createShader("meshlets.hlsl", "main_as", ShaderType.Amplification);
             this.meshShader = this.app.createShader("meshlets.hlsl", "main_ms", ShaderType.Mesh);
             this.pixelShader = this.app.createShader("meshlets.hlsl", "main_ps", ShaderType.Pixel);
@@ -88,7 +88,7 @@ namespace Meshlets {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("meshlets");
 
@@ -128,6 +128,6 @@ namespace Meshlets {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Meshlets.main(argc, argv);
 }

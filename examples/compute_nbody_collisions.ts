@@ -202,10 +202,10 @@ namespace ComputeNBodyCollisions {
     // The UI's choices of particles per attractor: the gravity pass expects the heavy centers at
     // multiples of 1024 (but any count works up to 256 particles in all, as in -particles 1).
     const PARTICLE_CHOICES = "1|1024|2048|4096|8192|16384|32768|65536";
-    function particleChoiceIndex(particles: int): int {
+    function particleChoiceIndex(particles: int) {
         return particles == 1 ? 0 : (particles == 1024 ? 1 : (particles == 2048 ? 2 : -1));
     }
-    function particleChoice(index: int): int {
+    function particleChoice(index: int) {
         return index == 0 ? 1 : (index == 1 ? 1024 : 2048);
     }
 
@@ -216,20 +216,20 @@ namespace ComputeNBodyCollisions {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
     let g_RandomSeed = DEFAULT_SEED * 1.0;
-    function randomFloat(): number {
+    function randomFloat() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
         return g_RandomSeed / 2147483647.0;
     }
 
     // std::normal_distribution<float>(0, 1) replacement: Box-Muller over randomFloat, which never
     // returns 0.
-    function randomNormal(): number {
+    function randomNormal() {
         const u1 = randomFloat();
         const u2 = randomFloat();
         return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
@@ -239,7 +239,7 @@ namespace ComputeNBodyCollisions {
     // row-major with Donut's row-vector convention.
     // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
+    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
@@ -506,7 +506,7 @@ namespace ComputeNBodyCollisions {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.idleSeconds = 0.0;
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
@@ -532,7 +532,7 @@ namespace ComputeNBodyCollisions {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             // The mouse moving over the window isn't input for the camera, dragging is.
             if (this.buttonsDown > 0) {
                 this.idleSeconds = 0.0;
@@ -541,7 +541,7 @@ namespace ComputeNBodyCollisions {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.idleSeconds = 0.0;
             if (action == ACTION_PRESS) {
                 this.buttonsDown++;
@@ -552,13 +552,13 @@ namespace ComputeNBodyCollisions {
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.idleSeconds = 0.0;
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             // Before this frame's commands exist: the GPU is idle, so the buffers can be replaced.
             if (this.restartRequested) {
                 this.restartRequested = false;
@@ -595,7 +595,7 @@ namespace ComputeNBodyCollisions {
                 : `${this.aliveCount} particles, ${collisionsInfo}`);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const graphicsPipeline = this.graphicsPipeline;
             if (graphicsPipeline) {
                 this.app.releaseResource(graphicsPipeline);
@@ -623,7 +623,7 @@ namespace ComputeNBodyCollisions {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -755,7 +755,7 @@ namespace ComputeNBodyCollisions {
 
         // A pipeline drawing into the HDR target: no depth, blended as the pass wants.
         createHdrPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, bindingLayout: BindingLayoutHandle,
-            blendMode: BlendMode): GraphicsPipelineHandle {
+            blendMode: BlendMode) {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.addBindingLayout(bindingLayout);
             desc.setDepthState(0, 0, ComparisonFunc.Always);
@@ -766,7 +766,7 @@ namespace ComputeNBodyCollisions {
         // The HDR target, the blur chain and the binding sets over them, for a frame of width x
         // height: made on the first frame and again when the size changes (the old ones released once
         // the GPU is done with them).
-        ensureBloomTargets(width: int, height: int): void {
+        ensureBloomTargets(width: int, height: int) {
             if (width == this.bloomWidth && height == this.bloomHeight) {
                 return;
             }
@@ -824,7 +824,7 @@ namespace ComputeNBodyCollisions {
             this.compositeBindingSet = this.app.createBindingSetForLayout(compositeSetDesc, this.compositeBindingLayout);
         }
 
-        createBlurBindingSet(input: TextureHandle, output: TextureHandle): BindingSet {
+        createBlurBindingSet(input: TextureHandle, output: TextureHandle) {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, input);
             setDesc.bindSampler(0, this.linearClamp);
@@ -835,7 +835,7 @@ namespace ComputeNBodyCollisions {
 
         // One bloom pass: a thread per texel of the destination.
         dispatchBlurPass(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet,
-            width: int, height: int, inputWidth: int, inputHeight: int): void {
+            width: int, height: int, inputWidth: int, inputHeight: int) {
             const b = this.blurConstants;
             Donut_StoreInt32(Ref(b[0]), width);
             Donut_StoreInt32(Ref(b[1]), height);
@@ -852,7 +852,7 @@ namespace ComputeNBodyCollisions {
         // A threshold pass into the first blur level, then blurring down the levels and back up to
         // the second (async_compute's "very basic and dumb HDR Bloom pipeline"). With no strength, the
         // chain stays black: the passes still run, as the composite reads it.
-        renderBloom(commandList: CommandList): void {
+        renderBloom(commandList: CommandList) {
             const w = this.bloomWidth;
             const h = this.bloomHeight;
             this.dispatchBlurPass(commandList, this.thresholdPipeline, this.thresholdBindingSet,
@@ -868,7 +868,7 @@ namespace ComputeNBodyCollisions {
         }
 
         // Adds a segment from (x0, y0) to (x1, y1), in pixels from the top left, to the gizmo.
-        addGizmoSegment(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number, a: number): void {
+        addGizmoSegment(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number, a: number) {
             if (this.gizmoSegments >= GIZMO_MAX_SEGMENTS) {
                 return;
             }
@@ -888,7 +888,7 @@ namespace ComputeNBodyCollisions {
         // The world X, Y and Z axes as the camera sees them: each axis direction in view space is a
         // row of the view matrix (row-vector convention), x to the right, y up and z away from the
         // camera. Axes pointing away are fainter, and each has its letter beyond the tip.
-        buildGizmo(width: number, height: number): void {
+        buildGizmo(width: number, height: number) {
             const scale = height / 720.0;
             const originX = GIZMO_ORIGIN * scale;
             const originY = GIZMO_ORIGIN * scale;
@@ -934,7 +934,7 @@ namespace ComputeNBodyCollisions {
         // Whether a light particle at (x, y, z) would overlap one of the first `count` particles or
         // any attractor's heavy center (those of later groups aren't placed yet).
         overlaps(particles: f32[], count: int, heavies: number[], x: number, y: number, z: number,
-            radius: number): boolean {
+            radius: number) {
             for (let i = 0; i < count; i++) {
                 const q = i * PARTICLE_FLOATS;
                 const dx = x - particles[q + 0];
@@ -960,7 +960,7 @@ namespace ComputeNBodyCollisions {
         // Where the attractors' heavy centers go, per the UI's layout: three numbers each. The
         // preset's are compute_nbody's, whose clouds sit at 1/1.5 of them (the cloud centers, which
         // the other layouts put at the heavy centers). The random positions keep apart.
-        layoutAttractors(clouds: number[], heavies: number[]): void {
+        layoutAttractors(clouds: number[], heavies: number[]) {
             const preset: number[] = [
                 5.0, 0.0, 0.0,
                 -5.0, 0.0, 0.0,
@@ -1035,7 +1035,7 @@ namespace ComputeNBodyCollisions {
         }
 
         // compute_nbody's particles around their attractors, uploaded once, with collision radii.
-        createParticles(): void {
+        createParticles() {
             const clouds: number[] = [];
             const heavies: number[] = [];
             this.layoutAttractors(clouds, heavies);
@@ -1191,7 +1191,7 @@ namespace ComputeNBodyCollisions {
         }
 
         // The binding sets over the particle and contact buffers (compute, and the vertex shader's).
-        createParticleBindings(): void {
+        createParticleBindings() {
             const computeSetDesc = BindingSetDesc.create();
             computeSetDesc.bindPushConstants(0, SIMULATION_CONSTANTS_SIZE);
             computeSetDesc.bindStructuredBufferUAV(0, this.particleBuffer);
@@ -1214,7 +1214,7 @@ namespace ComputeNBodyCollisions {
 
         // The total linear momentum m v of the particles in `particles` (the PARTICLE_FLOATS layout)
         // that are left, and the sum of m |v|, what its drift is measured against.
-        linearMomentum(particles: f32[]): number[] {
+        linearMomentum(particles: f32[]) {
             let total = [0.0, 0.0, 0.0, 0.0];
             for (let i = 0; i < this.numParticles; i++) {
                 const q = i * PARTICLE_FLOATS;
@@ -1234,7 +1234,7 @@ namespace ComputeNBodyCollisions {
         // The total angular momentum about the origin of the particles in `particles`: the orbits
         // m (p x v), and the spins 2/5 m r^2 w of the solid spheres; and, as the fourth number, the
         // sum of their sizes, what its drift is measured against.
-        angularMomentum(particles: f32[]): number[] {
+        angularMomentum(particles: f32[]) {
             let total = [0.0, 0.0, 0.0, 0.0];
             for (let i = 0; i < this.numParticles; i++) {
                 const q = i * PARTICLE_FLOATS;
@@ -1262,7 +1262,7 @@ namespace ComputeNBodyCollisions {
         // 2 G m m' ((r^2 + s)^(1/4) - s^(1/4)) per pair, s its softening (0 for a pair merged into one, as
         // in the shader's PairPotential); heat is energy over mass times heatFactor. Gravity between
         // all pairs only: the sampled one has no potential energy.
-        totalEnergy(particles: f32[]): number {
+        totalEnergy(particles: f32[]) {
             const gravity = this.simulationConstants[CONSTANT_GRAVITY];
             const heatFactor = this.simulationConstants[CONSTANT_HEAT_FACTOR];
             const sizeSoftening = this.sizeSoftening;
@@ -1317,7 +1317,7 @@ namespace ComputeNBodyCollisions {
         }
 
         // The shader's MergeSpeed: below it two particles of these heats merge.
-        mergeSpeedOf(heat: number, otherHeat: number): number {
+        mergeSpeedOf(heat: number, otherHeat: number) {
             const mergeSpeed = this.simulationConstants[CONSTANT_MERGE_SPEED];
             if (mergeSpeed <= 0.0) {
                 return 0.0;
@@ -1328,7 +1328,7 @@ namespace ComputeNBodyCollisions {
 
         // How many particles are left (the others merged into them), read back from the GPU. Only
         // ever fewer than at the start: a failed read keeps the last count.
-        countAlive(): void {
+        countAlive() {
             const particles = new TestCheck(this.app).readFloats(this.particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
             if (particles.length == 0) {
                 return;
@@ -1342,24 +1342,24 @@ namespace ComputeNBodyCollisions {
             this.aliveCount = alive;
         }
 
-        setFullGravity(full: boolean): void {
+        setFullGravity(full: boolean) {
             this.fullGravity = full;
             Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_FULL_GRAVITY]), full ? 1 : 0);
         }
 
         // The free slots left for fragments at the start, as a share of the particles placed: for the
         // first simulation (before init) and the next restart.
-        setFragmentRoom(room: number): void {
+        setFragmentRoom(room: number) {
             this.fragmentRoom = room;
             this.uiFragmentRoom = room;
         }
 
-        setCooling(seconds: number): void {
+        setCooling(seconds: number) {
             this.simulationConstants[CONSTANT_COOL_SECONDS] = seconds;
         }
 
         // -fragment and -merge: a speed above 0 turns the feature on, at that speed.
-        setFragmentSpeed(speed: number): void {
+        setFragmentSpeed(speed: number) {
             if (speed > 0.0) {
                 this.breakOn = true;
                 this.breakValue = speed;
@@ -1367,7 +1367,7 @@ namespace ComputeNBodyCollisions {
             this.applySwitches();
         }
 
-        setMergeSpeed(speed: number): void {
+        setMergeSpeed(speed: number) {
             if (speed > 0.0) {
                 this.mergeOn = true;
                 this.mergeValue = speed;
@@ -1377,7 +1377,7 @@ namespace ComputeNBodyCollisions {
 
         // The switches into the simulation's constants: a feature switched off gets 0 (friction,
         // merging and breaking all stop at 0), on gets its slider's value.
-        applySwitches(): void {
+        applySwitches() {
             this.simulationConstants[CONSTANT_FRICTION] = this.frictionOn ? this.frictionValue : 0.0;
             this.simulationConstants[CONSTANT_MERGE_SPEED] = this.mergeOn ? this.mergeValue : 0.0;
             this.simulationConstants[CONSTANT_HOT_MERGE_SPEED] = this.hotStickOn ? this.hotStickValue : 0.0;
@@ -1390,7 +1390,7 @@ namespace ComputeNBodyCollisions {
 
         // The simulation's live settings back to their defaults (the UI's Defaults button); the
         // switches stay as they are.
-        resetSimulationConstants(): void {
+        resetSimulationConstants() {
             this.simulationConstants[CONSTANT_TIME_FACTOR] = DEFAULT_TIME_FACTOR;
             this.simulationConstants[CONSTANT_GRAVITY] = DEFAULT_GRAVITY;
             this.simulationConstants[CONSTANT_RESTITUTION] = DEFAULT_RESTITUTION;
@@ -1407,7 +1407,7 @@ namespace ComputeNBodyCollisions {
 
         // Starts again with the UI's attractors, particles, spread and seed: new particles, in
         // new buffers (the old ones are released once the GPU is done with them).
-        restart(): void {
+        restart() {
             this.app.waitForIdle();
             this.app.releaseResource(this.computeBindingSet.handle);
             this.app.releaseResource(this.drawBindingSet.handle);
@@ -1431,7 +1431,7 @@ namespace ComputeNBodyCollisions {
         // alone), the two have bounced off each other once, symmetrically: equal and opposite
         // positions and velocities (the momentum kept), as far apart and as fast as a CPU run of the
         // shaders has them at frame 900. Then the frame: black corners, and particles drawn.
-        checkTest(): string {
+        checkTest() {
             const check = new TestCheck(this.app);
             const particles = check.readFloats(this.particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
             if (particles.length == 0) {
@@ -1607,7 +1607,7 @@ namespace ComputeNBodyCollisions {
         }
 
         // Slider and checkbox values are written back to the simulation as they change.
-        buildUI(): void {
+        buildUI() {
             Donut_ImGuiSetNextWindowPosPivot(this.frameWidth - 10.0, 10.0, 1.0, 0.0);
             Donut_ImGuiBegin("N-Body Collisions", 1);
             Donut_ImGuiPushItemWidth(180.0);
@@ -1749,7 +1749,7 @@ namespace ComputeNBodyCollisions {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shaderFile = "compute_nbody_collisions.hlsl";
             this.vertexShader = this.app.createShader(shaderFile, "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader(shaderFile, "main_ps", ShaderType.Pixel);
@@ -1898,7 +1898,7 @@ namespace ComputeNBodyCollisions {
         // -room <percent>: free slots left for fragments at the start, a share of the particles placed.
         fragmentRoom = DEFAULT_FRAGMENT_ROOM;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-attractors" && i + 1 < this.argc) {
@@ -1934,7 +1934,7 @@ namespace ComputeNBodyCollisions {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("compute_nbody_collisions");
 
@@ -1977,6 +1977,6 @@ namespace ComputeNBodyCollisions {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ComputeNBodyCollisions.main(argc, argv);
 }

@@ -10,7 +10,7 @@ namespace OitLinkedLists {
 
     // -test: checks the last frame. The corners are the gray background; the translucent spheres
     // blended over it make about 40% of the frame colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x959595);
         if (corners != "") {
@@ -85,12 +85,12 @@ namespace OitLinkedLists {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -105,7 +105,7 @@ namespace OitLinkedLists {
     }
 
     // glm::rotate(mat4(1), angle, axis) about a unit axis.
-    function rotation(angle: number, x: number, y: number, z: number): number[] {
+    function rotation(angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -117,13 +117,13 @@ namespace OitLinkedLists {
         ];
     }
 
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
     }
 
     // glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), with clip y
     // negated: the sample's clip space has y down on the screen (Vulkan's), Donut's y up.
-    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                              0.0,
@@ -141,13 +141,13 @@ namespace OitLinkedLists {
             this.state = 1;
         }
 
-        next(): number {
+        next() {
             this.state = (this.state * 214013 + 2531011) % 4294967296;
             return Math.floor(this.state / 65536) % 32768;
         }
 
         // static_cast<float>(rand()) / RAND_MAX.
-        nextFloat(): number {
+        nextFloat() {
             return this.next() / 32767.0;
         }
     }
@@ -246,7 +246,7 @@ namespace OitLinkedLists {
 
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.leftButton) {
@@ -265,7 +265,7 @@ namespace OitLinkedLists {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             const pressed = action == ACTION_PRESS;
             if (button == MOUSE_BUTTON_LEFT) {
                 this.leftButton = pressed;
@@ -277,7 +277,7 @@ namespace OitLinkedLists {
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             if (this.cameraAutoRotation) {
                 const deltaTime = this.benchmark ? BENCHMARK_FRAME_TIME : elapsedSeconds;
                 this.cameraRotation[0] += deltaTime * AUTO_ROTATION_SPEED;
@@ -286,7 +286,7 @@ namespace OitLinkedLists {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseSizedResources(): void {
+        releaseSizedResources() {
             if (this.width == 0) {
                 return;
             }
@@ -297,14 +297,14 @@ namespace OitLinkedLists {
             this.fragmentMaxCount = 0;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseSizedResources();
         }
 
         // The sample's create_fragment_resources and clear_sized_resources: a list head per pixel
         // (all empty), room for FRAGMENTS_PER_PIXEL_AVERAGE fragments per pixel, and the counter (0),
         // cleared by an open command list.
-        createSizedResources(commandList: CommandList, width: int, height: int): void {
+        createSizedResources(commandList: CommandList, width: int, height: int) {
             this.width = width;
             this.height = height;
             this.fragmentMaxCount = width * height * FRAGMENTS_PER_PIXEL_AVERAGE;
@@ -337,7 +337,7 @@ namespace OitLinkedLists {
 
         // The sample's pipelines, for the back buffer: no vertex input but the gather pass's
         // positions, no culling, no depth test.
-        createPipelines(frame: Frame): void {
+        createPipelines(frame: Frame) {
             const gatherDesc = GraphicsPipelineDesc.create(this.gatherVS, this.gatherPS);
             gatherDesc.setInputLayout(this.inputLayout);
             gatherDesc.addBindingLayout(this.gatherBindingLayout);
@@ -364,7 +364,7 @@ namespace OitLinkedLists {
         }
 
         // The sample's update_scene_constants: its camera's matrices and the settings.
-        updateSceneConstants(width: int, height: int): void {
+        updateSceneConstants(width: int, height: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -383,7 +383,7 @@ namespace OitLinkedLists {
             Donut_StoreInt32(Ref(c[CONST_SORTED_FRAGMENT_COUNT]), this.sortedFragmentCount);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -422,7 +422,7 @@ namespace OitLinkedLists {
         }
 
         // The sample's fill_instance_data: the grid's transforms and random colors (alpha 0.2 to 1).
-        fillInstanceData(commandList: CommandList): void {
+        fillInstanceData(commandList: CommandList) {
             const random = new MsvcRandom();
             let instances: f32[] = [];
             for (let l = 0; l < INSTANCE_LAYER_COUNT; l++) {
@@ -448,7 +448,7 @@ namespace OitLinkedLists {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             if (this.app.hasFragmentStoresAndAtomics() == 0) {
                 console.log("This example requires support for buffers and images stores and atomic operations in the fragment shader stage");
                 return false;
@@ -544,7 +544,7 @@ namespace OitLinkedLists {
             this.oit = oit;
         }
 
-        buildUI(): void {
+        buildUI() {
             const oit = this.oit;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -560,7 +560,7 @@ namespace OitLinkedLists {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -575,7 +575,7 @@ namespace OitLinkedLists {
         // -grayscale <0..1>: the background's brightness.
         backgroundGrayscale = 0.3;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-nosort") {
@@ -593,7 +593,7 @@ namespace OitLinkedLists {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("oit_linked_lists");
 
@@ -642,6 +642,6 @@ namespace OitLinkedLists {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return OitLinkedLists.main(argc, argv);
 }

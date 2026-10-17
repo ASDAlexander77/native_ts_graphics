@@ -10,7 +10,7 @@ namespace Instancing {
 
     // -test: checks the last frame. The corners are black space; the planet in the middle and the
     // rock instances around it light about 29% of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x000000);
         if (corners != "") {
@@ -62,13 +62,13 @@ namespace Instancing {
     // --- Math ---------------------------------------------------------------------------------
 
     // glm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
     }
 
     // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
     let g_RandomSeed = 12345.0;
-    function randomFloat(): number {
+    function randomFloat() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
         return g_RandomSeed / 2147483647.0;
     }
@@ -76,7 +76,7 @@ namespace Instancing {
     // The sample's glm::perspective(fov, aspect, 256, 0.1) (near and far swapped for reversed
     // depth), in Donut's row-vector convention, with view space z forward.
     // In float32, in glm's order of operations.
-    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const near = Math.fround(zNear);
         const far = Math.fround(zFar);
         const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
@@ -154,7 +154,7 @@ namespace Instancing {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_P && action == ACTION_PRESS) {
@@ -164,23 +164,23 @@ namespace Instancing {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
         // The sample's update_uniform_buffer: the rocks spin, and the rings turn slowly.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             if (!this.paused) {
                 this.constants[CONST_LOC_SPEED] += elapsedSeconds * 0.35;
@@ -190,7 +190,7 @@ namespace Instancing {
                 this.paused ? `${INSTANCE_COUNT} instances (paused)` : `${INSTANCE_COUNT} instances`);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             this.app.releaseResources([this.rocksPipeline, this.planetPipeline, this.starfieldPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.rocksPipeline = null;
@@ -201,14 +201,14 @@ namespace Instancing {
             this.depthBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
         }
 
         // The rocks and the planet: reversed depth (greater passes), back faces culled.
-        createMeshPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle): GraphicsPipelineHandle {
+        createMeshPipeline(framebuffer: FramebufferHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle) {
             const desc = GraphicsPipelineDesc.create(vertexShader, pixelShader);
             desc.setInputLayout(inputLayout);
             desc.addBindingLayout(this.bindingLayout);
@@ -217,7 +217,7 @@ namespace Instancing {
             return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             const depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             const framebuffer = this.app.createFramebuffer(colorBuffer, depthBuffer);
@@ -236,7 +236,7 @@ namespace Instancing {
         }
 
         // The view and projection of the UBO; locSpeed and globSpeed advance in onAnimate.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const c = this.constants;
 
             const projection = perspProjReverse(radians(60.0), width / height, Z_NEAR, Z_FAR);
@@ -262,7 +262,7 @@ namespace Instancing {
             c[CONST_LIGHT_POS + 3] = 1.0;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -314,7 +314,7 @@ namespace Instancing {
 
         // The sample's prepare_instance_data: the rocks distributed randomly on two rings, half on
         // each, uploaded once.
-        createInstanceBuffer(commandList: CommandList): BufferHandle {
+        createInstanceBuffer(commandList: CommandList) {
             let instanceData: f32[] = [];
             for (let i = 0; i < INSTANCE_COUNT * INSTANCE_FLOATS; i++) {
                 instanceData.push(0.0);
@@ -349,7 +349,7 @@ namespace Instancing {
                 INSTANCE_COUNT * INSTANCE_SIZE, "InstanceBuffer");
         }
 
-        createBindingSet(texture: TextureHandle): BindingSet {
+        createBindingSet(texture: TextureHandle) {
             const setDesc = BindingSetDesc.create();
             setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
             setDesc.bindTextureSRV(0, texture);
@@ -358,7 +358,7 @@ namespace Instancing {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.rocksVS = this.app.createShader("instancing.hlsl", "instancing_vs", ShaderType.Vertex);
             this.rocksPS = this.app.createShader("instancing.hlsl", "instancing_ps", ShaderType.Pixel);
             this.planetVS = this.app.createShader("instancing.hlsl", "planet_vs", ShaderType.Vertex);
@@ -436,7 +436,7 @@ namespace Instancing {
         // The sample's look-at camera, rotated (-17.2, -4.7) degrees and translated by
         // (5.5, -1.85, -18.5): its view matrix is T * Rx * Ry. The orbit camera starts at its position,
         // looking at the point 18.5 ahead (as far ahead as the world's origin is), in Donut's world.
-        lookFromSampleCamera(): void {
+        lookFromSampleCamera() {
             const ca = Math.cos(radians(-17.2));
             const sa = Math.sin(radians(-17.2));
             const cb = Math.cos(radians(-4.7));
@@ -467,7 +467,7 @@ namespace Instancing {
 
     // The sample's overlay.
     class UserInterface {
-        buildUI(): void {
+        buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Statistics", 1);
             Donut_ImGuiText(`Instances: ${INSTANCE_COUNT}`);
@@ -475,12 +475,12 @@ namespace Instancing {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("instancing");
 
@@ -522,6 +522,6 @@ namespace Instancing {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Instancing.main(argc, argv);
 }

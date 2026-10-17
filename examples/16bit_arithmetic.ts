@@ -10,7 +10,7 @@ namespace Khr16BitArithmetic {
 
     // -test: checks the last frame. The corners are the black clear color; the blobs, merged by
     // then, make the middle of the frame white.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x000000);
         if (corners != "") {
@@ -158,24 +158,24 @@ namespace Khr16BitArithmetic {
             this.timerQueryInFlight = false;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             this.app.releaseResources([this.visualizePipeline, this.framebuffer, this.colorBuffer]);
             this.visualizePipeline = null;
             this.framebuffer = null;
             this.colorBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "ColorBuffer");
             const framebuffer = this.app.createFramebuffer(colorBuffer, null);
             this.colorBuffer = colorBuffer;
@@ -188,7 +188,7 @@ namespace Khr16BitArithmetic {
             this.visualizePipeline = this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -260,14 +260,14 @@ namespace Khr16BitArithmetic {
             this.app.blitTexture(frame, colorBuffer);
         }
 
-        writePush32(seedValue: number): void {
+        writePush32(seedValue: number) {
             Donut_StoreInt32(Ref(this.push32[0]), NUM_BLOBS);
             this.push32[1] = seedValue;
             Donut_StoreInt32(Ref(this.push32[2]), RANGE_X);
             Donut_StoreInt32(Ref(this.push32[3]), RANGE_Y);
         }
 
-        createComputeBindingSet(layout: BindingLayoutHandle, pushConstantsSize: int): BindingSet {
+        createComputeBindingSet(layout: BindingLayoutHandle, pushConstantsSize: int) {
             const setDesc = BindingSetDesc.create();
             setDesc.bindStructuredBufferSRV(0, this.blobBuffer);
             setDesc.bindTextureUAV(0, this.image);
@@ -275,7 +275,7 @@ namespace Khr16BitArithmetic {
             return this.app.createBindingSetForLayout(setDesc, layout);
         }
 
-        createComputeBindingLayout(pushConstantsSize: int): BindingLayoutHandle {
+        createComputeBindingLayout(pushConstantsSize: int) {
             const layoutDesc = BindingLayoutDesc.create();
             layoutDesc.layoutStructuredBufferSRV(0);
             layoutDesc.layoutTextureUAV(0);
@@ -284,7 +284,7 @@ namespace Khr16BitArithmetic {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.native16Bit = this.app.hasNative16BitShaderOps() != 0;
             this.native16BitConstants = this.app.hasNative16BitConstants() != 0;
 
@@ -366,7 +366,7 @@ namespace Khr16BitArithmetic {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("16-bit arithmetic", 1);
@@ -382,7 +382,7 @@ namespace Khr16BitArithmetic {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -391,7 +391,7 @@ namespace Khr16BitArithmetic {
         // -fp16: start with 16-bit arithmetic enabled (where the device has it).
         fp16 = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-fp16") {
@@ -401,7 +401,7 @@ namespace Khr16BitArithmetic {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("16bit_arithmetic");
 
@@ -444,6 +444,6 @@ namespace Khr16BitArithmetic {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Khr16BitArithmetic.main(argc, argv);
 }

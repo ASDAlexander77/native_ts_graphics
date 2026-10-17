@@ -10,7 +10,7 @@ namespace TextureLoading {
 
     // -test: checks the last frame. The corners are the dark clear color; the textured quad covers
     // about 28% of the frame, with the texture's glowing cyan center in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x070707);
         if (corners != "") {
@@ -62,12 +62,12 @@ namespace TextureLoading {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -82,7 +82,7 @@ namespace TextureLoading {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -95,12 +95,12 @@ namespace TextureLoading {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -132,7 +132,7 @@ namespace TextureLoading {
 
         // The samples' update_uniform_buffers: translate(0, 0, zoom) * translate(camera_pos) *
         // rotations around x, y, z.
-        model(): number[] {
+        model() {
             let m = identity();
             m[12] = this.position[0];
             m[13] = this.position[1];
@@ -144,14 +144,14 @@ namespace TextureLoading {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -217,26 +217,26 @@ namespace TextureLoading {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.view.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.view.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -248,7 +248,7 @@ namespace TextureLoading {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -269,7 +269,7 @@ namespace TextureLoading {
             this.targetHeight = height;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -306,7 +306,7 @@ namespace TextureLoading {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "texture_loading.hlsl";
             this.vs = this.app.createShader(shader, "texture_vs", ShaderType.Vertex);
             this.ps = this.app.createShader(shader, "texture_ps", ShaderType.Pixel);
@@ -370,7 +370,7 @@ namespace TextureLoading {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Texture Loading", 1);
@@ -383,7 +383,7 @@ namespace TextureLoading {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -392,7 +392,7 @@ namespace TextureLoading {
         // -lodbias <value>: the initial level of detail bias.
         lodBias = 0.0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-lodbias" && i + 1 < this.argc) {
@@ -403,7 +403,7 @@ namespace TextureLoading {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_loading");
 
@@ -446,6 +446,6 @@ namespace TextureLoading {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return TextureLoading.main(argc, argv);
 }

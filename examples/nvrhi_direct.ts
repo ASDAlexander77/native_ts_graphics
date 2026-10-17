@@ -64,19 +64,19 @@ namespace NvrhiDirect {
 
     let failures = 0;
 
-    function check(condition: boolean, what: string): void {
+    function check(condition: boolean, what: string) {
         if (!condition) {
             console.log(`FAILED: ${what}`);
             failures++;
         }
     }
 
-    function near(value: int, expected: int): boolean {
+    function near(value: int, expected: int) {
         return value >= expected - 1 && value <= expected + 1;
     }
 
     // Whether the RGBA8 pixel at pixels[i] is (r, g, b) and opaque, give or take one
-    function sameColor(pixels: u8[], i: int, r: int, g: int, b: int): boolean {
+    function sameColor(pixels: u8[], i: int, r: int, g: int, b: int) {
         return near(pixels[i], r) && near(pixels[i + 1], g) && near(pixels[i + 2], b) && near(pixels[i + 3], 255);
     }
 
@@ -96,7 +96,7 @@ namespace NvrhiDirect {
         expecting = false;
         provoked = 0;
 
-        message(severity: u8, text: string): void {
+        message(severity: u8, text: string) {
             if (this.expecting && severity == nvrhi.MESSAGE_SEVERITY_ERROR && text == PROVOKED_MESSAGE) {
                 this.provoked++;
                 return;
@@ -110,7 +110,7 @@ namespace NvrhiDirect {
     // device lives.
     let messageLog = new MessageLog();
 
-    function renderTargetDesc(): nvrhi.TextureDesc {
+    function renderTargetDesc() {
         let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Cleared texture",
             nvrhi.RESOURCE_STATE_RENDER_TARGET);
         desc.isRenderTarget = true;
@@ -120,7 +120,7 @@ namespace NvrhiDirect {
     // IDevice::createShader of a shader ShaderMake compiled from shaders/<fileName>.hlsl (its
     // entry point's name in the file's: nvrhi_direct_main_vs.bin)
     function loadShader(app: App, device: nvrhi.IDevice, isD3D12: boolean, fileName: string, entryName: string,
-        shaderType: u16): nvrhi.IShader | null {
+        shaderType: u16) {
         const file = app.loadBinaryFile(`shaders/nvrhi_direct/${isD3D12 ? "dxil" : "spirv"}/${fileName}_${entryName}.bin`);
         if (file.isNull()) {
             return null;
@@ -131,7 +131,7 @@ namespace NvrhiDirect {
 
     // The pixels of a TEXTURE_SIZE x TEXTURE_SIZE RGBA8 staging texture: IDevice::mapStagingTexture
     // (its rows rowPitch bytes apart: 256 on D3D12), unmapStagingTexture. None on failure, reported.
-    function readStaging(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture): u8[] {
+    function readStaging(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture) {
         let pixels: u8[] = [];
         let rowPitch: index = 0;
         const mapped = nvrhi.mapStagingTexture(device, staging, nvrhi.entireTexture(), nvrhi.CPU_ACCESS_READ, Ref(rowPitch));
@@ -159,7 +159,7 @@ namespace NvrhiDirect {
     // a pipeline with the default render state (depth test Less, depth writes) but for culling. One
     // draw of a near red quad over the left half, then a far blue triangle over the whole texture
     // (triangles are drawn in order): the left half stays red. Read back through a staging texture.
-    function testDepth(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testDepth(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const color = nvrhi.createTexture(device, renderTargetDesc());
         let depthDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.D32, "Depth texture",
             nvrhi.RESOURCE_STATE_DEPTH_WRITE);
@@ -239,14 +239,14 @@ namespace NvrhiDirect {
     }
 
     // Whether the RGBA8 pixel at pixels[i] is (r, g, b, a), give or take one
-    function sameColorAlpha(pixels: u8[], i: int, r: int, g: int, b: int, a: int): boolean {
+    function sameColorAlpha(pixels: u8[], i: int, r: int, g: int, b: int, a: int) {
         return near(pixels[i], r) && near(pixels[i + 1], g) && near(pixels[i + 2], b) && near(pixels[i + 3], a);
     }
 
     // A pipeline drawing over the viewport (nvrhi_direct.hlsl's vertex shader) the pixel shader's
     // (0, 0.5, 0.5, 0.5) into the framebuffer, blended as target, without culling or a depth test
     function blendPipeline(device: nvrhi.IDevice, vertexShader: nvrhi.IShader, pixelShader: nvrhi.IShader,
-        framebuffer: nvrhi.IFramebuffer, target: nvrhi.RenderTarget): nvrhi.IGraphicsPipeline | null {
+        framebuffer: nvrhi.IFramebuffer, target: nvrhi.RenderTarget) {
         let renderState = nvrhi.renderState();
         renderState.blendState.targets._0 = target;
         renderState.depthStencilState.depthTestEnable = false;
@@ -260,7 +260,7 @@ namespace NvrhiDirect {
     // left half drawn over with alpha blending (SrcAlpha, InvSrcAlpha; the alpha One, Zero), its
     // right half added (One, One) under a write mask of red and blue only. Read back through a
     // staging texture; IGraphicsPipeline::getDesc keeps the blend state.
-    function testBlend(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testBlend(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const color = nvrhi.createTexture(device, renderTargetDesc());
         const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
         const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
@@ -343,7 +343,7 @@ namespace NvrhiDirect {
     // a pipeline of both. ICommandList::setPushConstants before each draw, after the graphics state
     // (which discards them): one color into the left half, another into the right half. Read back
     // through a staging texture; IBindingLayout::getDesc keeps the item's type and size.
-    function testPushConstants(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testPushConstants(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const color = nvrhi.createTexture(device, renderTargetDesc());
         const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
         const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
@@ -433,7 +433,7 @@ namespace NvrhiDirect {
     // vertices, one instance), then into the right half from the first (no instance): the left
     // half drawn green (nvrhi_direct.hlsl), the right half as cleared. Read back through a staging
     // texture.
-    function testDrawIndirect(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testDrawIndirect(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const color = nvrhi.createTexture(device, renderTargetDesc());
         const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
         const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
@@ -525,7 +525,7 @@ namespace NvrhiDirect {
     // from the second arguments (offset 12: one group), into the second from the first (no group):
     // the first computed, the second as cleared. Read back through a buffer.
     function testDispatchIndirect(device: nvrhi.IDevice, pipeline: nvrhi.IComputePipeline,
-        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]): void {
+        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]) {
         let outputDesc = nvrhi.bufferDesc(SIZE, "Dispatched", nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
         outputDesc.format = <u8>Format.R32_UINT;
         outputDesc.canHaveTypedViews = true;
@@ -609,7 +609,7 @@ namespace NvrhiDirect {
     // CPU writes (IDevice::createStagingTexture with CPU_ACCESS_WRITE, mapStagingTexture for writing,
     // its rows rowPitch bytes apart), ICommandList::copyTexture from it into a texture (the third
     // overload), and that read back through a staging texture: the same pixels.
-    function testStagingUpload(device: nvrhi.IDevice): void {
+    function testStagingUpload(device: nvrhi.IDevice) {
         const upload = nvrhi.createStagingTexture(device, nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE,
             Format.RGBA8_UNORM, "Upload texture", nvrhi.RESOURCE_STATE_COPY_SOURCE), nvrhi.CPU_ACCESS_WRITE);
         const uploaded = nvrhi.createTexture(device, nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE,
@@ -675,7 +675,7 @@ namespace NvrhiDirect {
     // textures (IFramebuffer::getFramebufferInfo: two color formats), a pipeline whose pixel shader
     // (nvrhi_direct_mrt.hlsl) writes a color to each, one draw over both. Each read back through a
     // staging texture.
-    function testMultipleRenderTargets(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testMultipleRenderTargets(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const first = nvrhi.createTexture(device, renderTargetDesc());
         const second = nvrhi.createTexture(device, renderTargetDesc());
         const firstStaging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
@@ -754,7 +754,7 @@ namespace NvrhiDirect {
     // centers of the diagonal's pixels; ICommandList::resolveTexture into a texture of one sample,
     // read back through a staging texture. Below the diagonal green, above it as cleared (black),
     // on it half and half: 2 of the standard positions' 4 samples are covered.
-    function testMultisampleResolve(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testMultisampleResolve(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         let multisampledDesc = renderTargetDesc();
         multisampledDesc.sampleCount = 4;
         multisampledDesc.dimension = nvrhi.TEXTURE_DIMENSION_2D_MS;
@@ -847,7 +847,7 @@ namespace NvrhiDirect {
     // graphics queue and waitEventQuery, without waitForIdle: pollEventQuery says it is done (not
     // yet without the wait). pollTimerQuery, getTimerQueryTime: the time the work took, in seconds,
     // more than 0 and less than 1. (Not a readback: mapBuffer waits for the buffer by itself.)
-    function testQueries(device: nvrhi.IDevice): void {
+    function testQueries(device: nvrhi.IDevice) {
         const WORK_SIZE = 1024;
         const eventQuery = nvrhi.createEventQuery(device);
         const timerQuery = nvrhi.createTimerQuery(device);
@@ -887,7 +887,7 @@ namespace NvrhiDirect {
     // stencil test of stencilFunc and passOp against reference 1 (failing pixels keep the
     // stencil), its color writes as colorWriteMask, no depth test or culling
     function stencilPipeline(device: nvrhi.IDevice, vertexShader: nvrhi.IShader, pixelShader: nvrhi.IShader,
-        framebuffer: nvrhi.IFramebuffer, stencilFunc: u8, passOp: u8, colorWriteMask: u8): nvrhi.IGraphicsPipeline | null {
+        framebuffer: nvrhi.IFramebuffer, stencilFunc: u8, passOp: u8, colorWriteMask: u8) {
         let renderState = nvrhi.renderState();
         renderState.blendState.targets._0.colorWriteMask = colorWriteMask;
         renderState.depthStencilState.depthTestEnable = false;
@@ -907,7 +907,7 @@ namespace NvrhiDirect {
     // A draw over the left half that writes 1 into the stencil (Always, Replace) and no color, then
     // one over the whole texture where the stencil is 1 (Equal): the left half green, the right
     // half as cleared. Read back through a staging texture.
-    function testStencil(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testStencil(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const color = nvrhi.createTexture(device, renderTargetDesc());
         let depthStencilDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.D32S8, "Stencil texture",
             nvrhi.RESOURCE_STATE_DEPTH_WRITE);
@@ -995,7 +995,7 @@ namespace NvrhiDirect {
     // two instances of a quad over the left half (nvrhi_direct_instanced.hlsl, its vertices from
     // SV_VertexID): the first left in red, the second moved right in blue. Read back through a
     // staging texture.
-    function testInstancing(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testInstancing(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const color = nvrhi.createTexture(device, renderTargetDesc());
         const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
         const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct_instanced", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
@@ -1084,7 +1084,7 @@ namespace NvrhiDirect {
     // (TextureDesc::isUAV), a binding layout and set of its UAV (Texture_UAV, mip level 0), a
     // compute pipeline (nvrhi_direct_texture_uav.hlsl), one group of 4 x 4 threads, each writing a
     // pixel (64 x, 64 y, 128). Read back through a staging texture, exactly.
-    function testTextureUav(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testTextureUav(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         let outputDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Texture UAV",
             nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
         outputDesc.isUAV = true;
@@ -1148,7 +1148,7 @@ namespace NvrhiDirect {
     // layout and set of their views (StructuredBuffer_SRV, RawBuffer_UAV), a compute pipeline
     // (nvrhi_direct_buffers.hlsl) storing item i's a * 100 + b at byte 4 i. Read back through a
     // buffer.
-    function testStructuredAndRawBuffers(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testStructuredAndRawBuffers(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const ITEMS = 16;
         let itemsDesc = nvrhi.bufferDesc(ITEMS * 8, "Items", nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
         itemsDesc.structStride = 8;
@@ -1235,7 +1235,7 @@ namespace NvrhiDirect {
     // cleared texture; copyTexture of each subresource into a staging texture of the same shape,
     // mapped a subresource at a time (mapStagingTexture of its slice). Each subresource its color;
     // the region its color in the cleared texture.
-    function testTextureSubresources(device: nvrhi.IDevice): void {
+    function testTextureSubresources(device: nvrhi.IDevice) {
         let arrayDesc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Texture array",
             nvrhi.RESOURCE_STATE_COPY_DEST);
         arrayDesc.mipLevels = MIP_LEVELS;
@@ -1349,7 +1349,7 @@ namespace NvrhiDirect {
 
     // The u32 texels of a size x size R32_UINT staging texture's mip level (of array slice 0):
     // IDevice::mapStagingTexture of its slice, unmapStagingTexture. None on failure, reported.
-    function readStagingUInts(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture, mipLevel: u32, size: int): u32[] {
+    function readStagingUInts(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture, mipLevel: u32, size: int) {
         let texels: u32[] = [];
         let rowPitch: index = 0;
         const mapped = nvrhi.mapStagingTexture(device, staging, nvrhi.subresourceSlice(mipLevel, 0), nvrhi.CPU_ACCESS_READ, Ref(rowPitch));
@@ -1379,7 +1379,7 @@ namespace NvrhiDirect {
     // and 2 mip levels, cleared whole to UINT_CLEAR_ALL, then its mip level 1 alone to
     // UINT_CLEAR_MIP (a TextureSubresourceSet by value, as clearTextureFloat's). Each mip level read
     // back through a staging texture: exactly its value.
-    function testClearTextureUInt(device: nvrhi.IDevice): void {
+    function testClearTextureUInt(device: nvrhi.IDevice) {
         let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.R32_UINT, "UInt texture",
             nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
         desc.mipLevels = 2;
@@ -1436,7 +1436,7 @@ namespace NvrhiDirect {
     // Vulkan's transfer) and commitBarriers; clearTextureFloat; setPermanentTextureState to
     // CopySource, which NVRHI keeps from then on. getTextureSubresourceState after each. Read back
     // through a staging texture (automatic barriers on again): the clear color.
-    function testTextureStateTracking(device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testTextureStateTracking(device: nvrhi.IDevice, isD3D12: boolean) {
         let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Tracked texture", nvrhi.RESOURCE_STATE_UNKNOWN);
         desc.isRenderTarget = true;
         const texture = nvrhi.createTexture(device, desc);
@@ -1491,7 +1491,7 @@ namespace NvrhiDirect {
     // to CopyDest for writeBuffer, then to CopySource for copyBuffer into a readback buffer;
     // setPermanentBufferState to ShaderResource. getBufferState after each. The readback: what was
     // written.
-    function testBufferStateTracking(device: nvrhi.IDevice): void {
+    function testBufferStateTracking(device: nvrhi.IDevice) {
         const VALUES = 16;
         const buffer = nvrhi.createBuffer(device, nvrhi.bufferDesc(VALUES * 4, "Tracked buffer", nvrhi.RESOURCE_STATE_UNKNOWN,
             nvrhi.CPU_ACCESS_NONE));
@@ -1549,7 +1549,7 @@ namespace NvrhiDirect {
     }
 
     // n rounded up to a multiple of alignment (`%`: tslang's `/` divides as floats)
-    function alignUp(n: u64, alignment: u64): u64 {
+    function alignUp(n: u64, alignment: u64) {
         return alignment == 0 || n % alignment == 0 ? n : n + alignment - n % alignment;
     }
 
@@ -1559,7 +1559,7 @@ namespace NvrhiDirect {
     // (createHeap, IHeap::getDesc), bindBufferMemory at an offset of one alignment into its heap,
     // bindTextureMemory at 0. The buffer written and copied into a readback buffer, the texture
     // cleared and read back through a staging texture.
-    function testPlacedResources(device: nvrhi.IDevice): void {
+    function testPlacedResources(device: nvrhi.IDevice) {
         const VALUES = 16;
         let bufferDesc = nvrhi.bufferDesc(VALUES * 4, "Placed buffer", nvrhi.RESOURCE_STATE_COPY_DEST, nvrhi.CPU_ACCESS_NONE);
         bufferDesc.isVirtual = true;
@@ -1646,7 +1646,7 @@ namespace NvrhiDirect {
     // baseVertexLocation, startInstanceLocation; 20 bytes). ICommandList::drawIndexedIndirect into
     // the left half from offset 20 (one instance), into the right half from 0 (none): the left half
     // green, the right half as cleared.
-    function testDrawIndexedIndirect(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testDrawIndexedIndirect(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const color = nvrhi.createTexture(device, renderTargetDesc());
         const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
         const vertexShader = loadShader(app, device, isD3D12, "nvrhi_direct", "main_vs", nvrhi.SHADER_TYPE_VERTEX);
@@ -1737,7 +1737,7 @@ namespace NvrhiDirect {
     // IDevice::queryFormatSupport (FormatSupport bits): RGBA8_UNORM a sampled, blendable render
     // target and no depth format, D32 a depth format and no render target, R32_UINT a buffer format
     // with UAV stores.
-    function testFormatSupport(device: nvrhi.IDevice): void {
+    function testFormatSupport(device: nvrhi.IDevice) {
         const rgba8 = device.queryFormatSupport(<u8>Format.RGBA8_UNORM);
         const d32 = device.queryFormatSupport(<u8>Format.D32);
         const r32 = device.queryFormatSupport(<u8>Format.R32_UINT);
@@ -1755,7 +1755,7 @@ namespace NvrhiDirect {
     // Two command lists in one submission (IDevice::executeCommandLists of an array of them, run in
     // order): the first clears a texture, the second copies it into a staging texture. The copy: the
     // clear color.
-    function testExecuteCommandLists(device: nvrhi.IDevice): void {
+    function testExecuteCommandLists(device: nvrhi.IDevice) {
         const texture = nvrhi.createTexture(device, renderTargetDesc());
         const staging = nvrhi.createStagingTexture(device, renderTargetDesc(), nvrhi.CPU_ACCESS_READ);
         const first = nvrhi.createCommandList(device, nvrhi.commandListParameters());
@@ -1797,7 +1797,7 @@ namespace NvrhiDirect {
     // queue, CommandListParameters::lifetimeTracker), which holds the command list's work until the
     // GPU is done with it, released by ICommandListLifetimeTracker::runGarbageCollection. The
     // command list clears a texture and copies it into a staging texture: the clear color.
-    function testLifetimeTracker(device: nvrhi.IDevice): void {
+    function testLifetimeTracker(device: nvrhi.IDevice) {
         const tracker = nvrhi.createCommandListLifetimeTracker(device, nvrhi.COMMAND_QUEUE_GRAPHICS);
         if (!tracker) {
             check(false, "IDevice::createCommandListLifetimeTracker");
@@ -1842,7 +1842,7 @@ namespace NvrhiDirect {
 
     // testShaderSpecialization's compute pipeline of a shader over the layout; null on failure,
     // reported.
-    function specializationPipeline(device: nvrhi.IDevice, shader: nvrhi.IShader, layout: nvrhi.IBindingLayout): nvrhi.IComputePipeline | null {
+    function specializationPipeline(device: nvrhi.IDevice, shader: nvrhi.IShader, layout: nvrhi.IBindingLayout) {
         const pipeline = nvrhi.createComputePipeline(device, nvrhi.computePipelineDesc(shader, layout));
         if (!pipeline) {
             check(false, "IDevice::createComputePipeline for the shader specialization test");
@@ -1855,7 +1855,7 @@ namespace NvrhiDirect {
     // createShaderSpecialization of nvrhi_direct_specialization.hlsl with its constant 0 set to 42
     // (a ShaderSpecialization: its ID, its value). The shader unspecialized (7) on both, and
     // specialized on Vulkan, each into a buffer: c_Value * 10 plus the index.
-    function testShaderSpecialization(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testShaderSpecialization(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const supported = device.queryFeatureSupport(nvrhi.FEATURE_SHADER_SPECIALIZATIONS, null, 0);
         console.log(`IDevice::queryFeatureSupport(ShaderSpecializations): ${supported}`);
         check(supported == !isD3D12, "IDevice::queryFeatureSupport(ShaderSpecializations): on Vulkan only");
@@ -1943,7 +1943,7 @@ namespace NvrhiDirect {
     // bindless layout: nvrhi_direct_bindless.hlsl), its state of a binding set and the table; the
     // buffers set to ShaderResource by hand after their writes (NVRHI doesn't track a table's
     // resources). Thread i stores buffer 3 - i's value: the values reversed.
-    function testBindless(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testBindless(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const BUFFERS = 4;
         const MAX_CAPACITY = 16;
         const shader = loadShader(app, device, isD3D12, "nvrhi_direct_bindless", "main_cs", nvrhi.SHADER_TYPE_COMPUTE);
@@ -2056,7 +2056,7 @@ namespace NvrhiDirect {
     // descriptor, Vulkan a VkImageView) of a texture of 2 mip levels, of all its subresources, of mip
     // level 1, then of all again. NVRHI makes a view per subresource set and keeps it: the first and
     // the third the same, the second another.
-    function testNativeViews(device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testNativeViews(device: nvrhi.IDevice, isD3D12: boolean) {
         let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, "Viewed texture", nvrhi.RESOURCE_STATE_SHADER_RESOURCE);
         desc.mipLevels = 2;
         const texture = nvrhi.createTexture(device, desc);
@@ -2085,7 +2085,7 @@ namespace NvrhiDirect {
     // (IDevice::createHandleForNativeTexture, createHandleForNativeBuffer: an nvrhi::Object by
     // value). The first command list clears the texture and writes the buffer through the new
     // handles, the second copies them through the old ones: what the first wrote.
-    function testNativeHandles(device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testNativeHandles(device: nvrhi.IDevice, isD3D12: boolean) {
         const VALUES = 16;
         const texture = nvrhi.createTexture(device, renderTargetDesc());
         const buffer = nvrhi.createBuffer(device, nvrhi.bufferDesc(VALUES * 4, "Native buffer", nvrhi.RESOURCE_STATE_COPY_DEST,
@@ -2173,7 +2173,7 @@ namespace NvrhiDirect {
 
     // IResource::queryMemoryRequirements of a buffer, with no command list: what its memory takes,
     // at least its bytes (NVRHI reports buffers', not textures': those assert)
-    function testResourceMemoryRequirements(device: nvrhi.IDevice): void {
+    function testResourceMemoryRequirements(device: nvrhi.IDevice) {
         const buffer = nvrhi.createBuffer(device, nvrhi.bufferDesc(256, "Queried buffer", nvrhi.RESOURCE_STATE_COPY_DEST,
             nvrhi.CPU_ACCESS_NONE));
         if (!buffer) {
@@ -2191,7 +2191,7 @@ namespace NvrhiDirect {
     // Queries used twice, with a command list of their own: an event query and a timer query used
     // as testQueries uses them, IDevice::resetEventQuery and resetTimerQuery (pollTimerQuery false
     // again, the time not read yet), then used again: each done again, the timer's time more than 0.
-    function testQueryResets(device: nvrhi.IDevice): void {
+    function testQueryResets(device: nvrhi.IDevice) {
         const eventQuery = nvrhi.createEventQuery(device);
         const timerQuery = nvrhi.createTimerQuery(device);
         const texture = nvrhi.createTexture(device, renderTargetDesc());
@@ -2230,7 +2230,7 @@ namespace NvrhiDirect {
     }
 
     // An output buffer of runTest's compute pipeline (input * 2 + 1); null on failure.
-    function computeOutputBuffer(device: nvrhi.IDevice, name: string): nvrhi.IBuffer | null {
+    function computeOutputBuffer(device: nvrhi.IDevice, name: string) {
         let outputDesc = nvrhi.bufferDesc(SIZE, name, nvrhi.RESOURCE_STATE_UNORDERED_ACCESS, nvrhi.CPU_ACCESS_NONE);
         outputDesc.format = <u8>Format.R32_UINT;
         outputDesc.canHaveTypedViews = true;
@@ -2240,14 +2240,14 @@ namespace NvrhiDirect {
 
     // A binding set of runTest's compute pipeline over input and an output buffer; null on failure.
     function computeBindingSet(device: nvrhi.IDevice, bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer,
-        output: nvrhi.IBuffer): nvrhi.IBindingSet | null {
+        output: nvrhi.IBuffer) {
         return nvrhi.createBindingSet(device, bindingLayout, [
             nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_SRV, input),
             nvrhi.bufferBindingSetItem(0, nvrhi.RESOURCE_TYPE_TYPED_BUFFER_UAV, output)]);
     }
 
     // How many of a readback buffer's COUNT values at offset (in values) differ from data * 2 + 1
-    function computedMismatches(readback: nvrhi.IBuffer, device: nvrhi.IDevice, offset: int, data: u32[]): int {
+    function computedMismatches(readback: nvrhi.IBuffer, device: nvrhi.IDevice, offset: int, data: u32[]) {
         const mapped = <Ref<u32>>device.mapBuffer(readback, nvrhi.CPU_ACCESS_READ);
         let mismatches = 0;
         for (let i = 0; i < COUNT; i++) {
@@ -2265,7 +2265,7 @@ namespace NvrhiDirect {
     // the graphics queue waiting for it (queueWaitForCommandList of its submission) before a copy
     // into a readback buffer: input * 2 + 1.
     function testComputeQueue(device: nvrhi.IDevice, hasComputeQueue: boolean, pipeline: nvrhi.IComputePipeline,
-        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]): void {
+        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]) {
         if (!hasComputeQueue) {
             console.log("Compute queue: none, not tested");
             return;
@@ -2313,7 +2313,7 @@ namespace NvrhiDirect {
     // R32_UINT texture with UAVs cleared twice to one value with setEnableUavBarriersForTexture off,
     // then on. The buffer: input * 2 + 1; the texture: the value.
     function testUavBarrierControl(device: nvrhi.IDevice, pipeline: nvrhi.IComputePipeline,
-        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]): void {
+        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]) {
         const output = computeOutputBuffer(device, "Unbarriered");
         const bindingSet = output ? computeBindingSet(device, bindingLayout, input, output) : null;
         const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(SIZE, "UAV readback", nvrhi.RESOURCE_STATE_COPY_DEST,
@@ -2375,7 +2375,7 @@ namespace NvrhiDirect {
     // UnorderedAccess); then a dispatch, which
     // NVRHI doesn't transition for, and a copy into a readback buffer: input * 2 + 1.
     function testBindingSetStates(device: nvrhi.IDevice, pipeline: nvrhi.IComputePipeline,
-        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]): void {
+        bindingLayout: nvrhi.IBindingLayout, input: nvrhi.IBuffer, data: u32[]) {
         const output = computeOutputBuffer(device, "Set states");
         const bindingSet = output ? computeBindingSet(device, bindingLayout, input, output) : null;
         const readback = nvrhi.createBuffer(device, nvrhi.bufferDesc(SIZE, "States readback", nvrhi.RESOURCE_STATE_COPY_DEST,
@@ -2420,7 +2420,7 @@ namespace NvrhiDirect {
     // counts (1, 0), the graphics state's indirectCountBuffer. ICommandList::drawIndexedIndirectCount
     // of at most one draw into the left half with the count at offset 0, into the right half with
     // the count at offset 4: the left half green, the right half as cleared.
-    function testDrawIndexedIndirectCount(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testDrawIndexedIndirectCount(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         if (!countsIndirectDraws(app)) {
             console.log("drawIndexedIndirectCount: no counted indirect draws, not tested");
             return;
@@ -2522,7 +2522,7 @@ namespace NvrhiDirect {
 
     // Whether the device counts indirect draws from a buffer (Donut_GetIndirectDrawSupport: D3D12;
     // Vulkan's drawIndirectCount, which Donut turns on where the GPU has it)
-    function countsIndirectDraws(app: App): boolean {
+    function countsIndirectDraws(app: App) {
         return (app.getIndirectDrawSupport() & IndirectDrawSupport.Count) != 0;
     }
 
@@ -2534,7 +2534,7 @@ namespace NvrhiDirect {
     // from offset 12 of an argument buffer (one group; top right); where the device counts indirect
     // draws, dispatchMeshIndirectCount of those arguments with a count of 0 (bottom left, as cleared)
     // and of 1 (bottom right). The triangle covers its quarter, orange.
-    function testMeshShaders(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testMeshShaders(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const supported = device.queryFeatureSupport(nvrhi.FEATURE_MESHLETS, null, 0);
         console.log(`IDevice::queryFeatureSupport(Meshlets): ${supported}`);
         if (!supported) {
@@ -2662,7 +2662,7 @@ namespace NvrhiDirect {
     // getTextureTiling (4 tiles of 128 x 128, one standard mip level, none packed, 2 x 2 tiles in it);
     // updateTextureTileMappings of its top right tile to a heap of one tile. Cleared, and the top
     // right tile copied into a staging texture: the clear color.
-    function testTiledTexture(app: App, device: nvrhi.IDevice): void {
+    function testTiledTexture(app: App, device: nvrhi.IDevice) {
         if (app.hasSparseResidency() == 0) {
             console.log("Tiled textures: none, not tested");
             return;
@@ -2752,7 +2752,7 @@ namespace NvrhiDirect {
     // between ICommandList::clearSamplerFeedbackTexture and setSamplerFeedbackTextureState; then
     // decodeSamplerFeedbackTexture into a buffer (R8_UINT, a byte per region, row after row) read
     // back: 0 in the left half's regions, 1 in the right's.
-    function testSamplerFeedback(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testSamplerFeedback(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const supported = device.queryFeatureSupport(nvrhi.FEATURE_SAMPLER_FEEDBACK, null, 0);
         console.log(`IDevice::queryFeatureSupport(SamplerFeedback): ${supported}`);
         if (!supported) {
@@ -2883,7 +2883,7 @@ namespace NvrhiDirect {
     const RT_VERTICES: f32[] = [-4, -4, 1, 0, -4, 1, 0, 4, 1];
 
     // A 4 x 4 RGBA8 texture with UAVs that testRayTracing traces into; null on failure, reported.
-    function rayTracingOutput(device: nvrhi.IDevice, name: string): nvrhi.ITexture | null {
+    function rayTracingOutput(device: nvrhi.IDevice, name: string) {
         let desc = nvrhi.textureDesc(TEXTURE_SIZE, TEXTURE_SIZE, Format.RGBA8_UNORM, name, nvrhi.RESOURCE_STATE_UNORDERED_ACCESS);
         desc.isUAV = true;
         const texture = nvrhi.createTexture(device, desc);
@@ -2895,7 +2895,7 @@ namespace NvrhiDirect {
 
     // Checks what testRayTracing's rays traced into a staging texture: the left half hit (red) and
     // the right half missed (blue), or the other way around, half green from the callable shader
-    function rayTraced(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture, what: string, leftHit: boolean): void {
+    function rayTraced(device: nvrhi.IDevice, staging: nvrhi.IStagingTexture, what: string, leftHit: boolean) {
         const pixels = readStaging(device, staging);
         if (pixels.length == 0) {
             return;
@@ -2941,7 +2941,7 @@ namespace NvrhiDirect {
     // - setRayTracingState and dispatchRays through each top level structure into a texture of its
     //   own, read back: the triangle's half hit, the other missed;
     // - where the device has them, opacity micromaps (traceOpacityMicromaps).
-    function testRayTracing(app: App, device: nvrhi.IDevice, isD3D12: boolean): void {
+    function testRayTracing(app: App, device: nvrhi.IDevice, isD3D12: boolean) {
         const supported = device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_ACCEL_STRUCT, null, 0)
             && device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_PIPELINE, null, 0);
         console.log(`IDevice::queryFeatureSupport(RayTracingAccelStruct, RayTracingPipeline): ${supported}`);
@@ -3183,7 +3183,7 @@ namespace NvrhiDirect {
     const OMM_VERTICES: f32[] = [-4, -4, 1, 0, -4, 1, 0, 4, 1, 4, -4, 1, 0, -4, 1, 0, 4, 1];
 
     // An acceleration structure input buffer of byteSize bytes; null on failure.
-    function buildInputBuffer(device: nvrhi.IDevice, byteSize: int, name: string): nvrhi.IBuffer | null {
+    function buildInputBuffer(device: nvrhi.IDevice, byteSize: int, name: string) {
         let desc = nvrhi.bufferDesc(byteSize, name, nvrhi.RESOURCE_STATE_SHADER_RESOURCE, nvrhi.CPU_ACCESS_NONE);
         desc.isAccelStructBuildInput = true;
         return nvrhi.createBuffer(device, desc);
@@ -3196,7 +3196,7 @@ namespace NvrhiDirect {
     // buildOpacityMicromap; IOpacityMicromap::getDesc, isCompacted, getDeviceAddress); a bottom level
     // structure of two triangles (not opaque: an OMM decides), the left one's OMM index 0, the right
     // one's 1, and a top level one of it. The rays: the left half missed, the right half hit.
-    function traceOpacityMicromaps(device: nvrhi.IDevice, shaderTable: nvrhi.IShaderTable, layout: nvrhi.IBindingLayout): void {
+    function traceOpacityMicromaps(device: nvrhi.IDevice, shaderTable: nvrhi.IShaderTable, layout: nvrhi.IBindingLayout) {
         const indexBuffer = buildInputBuffer(device, 6 * 4, "OMM indices");
         const vertexBuffer = buildInputBuffer(device, 18 * 4, "OMM vertices");
         const ommData = buildInputBuffer(device, 8, "OMM data");
@@ -3314,7 +3314,7 @@ namespace NvrhiDirect {
     // DeviceFeatures says), getCoopVecMatrixSize of a 4 x 4 float16 matrix (32 bytes row-major); then
     // ICommandList::convertCoopVecMatrices of it from row-major to the inferencing-optimal layout
     // and back, read back: the matrix again.
-    function testCooperativeVectors(device: nvrhi.IDevice): void {
+    function testCooperativeVectors(device: nvrhi.IDevice) {
         const inferencing = device.queryFeatureSupport(nvrhi.FEATURE_COOPERATIVE_VECTOR_INFERENCING, null, 0);
         const training = device.queryFeatureSupport(nvrhi.FEATURE_COOPERATIVE_VECTOR_TRAINING, null, 0);
         const features = device.queryCoopVecFeatures();
@@ -3393,7 +3393,7 @@ namespace NvrhiDirect {
     // IDevice::getClusterOperationSizeInfo), its indirect arguments (nvrhi::rt::cluster::
     // IndirectTriangleClasArgs: 64 bytes, the buffers' addresses in them) and count from buffers
     // (ICommandList::executeMultiIndirectClusterOperation). The size it writes: more than 0.
-    function testClusters(device: nvrhi.IDevice): void {
+    function testClusters(device: nvrhi.IDevice) {
         const supported = device.queryFeatureSupport(nvrhi.FEATURE_RAY_TRACING_CLUSTERS, null, 0);
         console.log(`IDevice::queryFeatureSupport(RayTracingClusters): ${supported}`);
         if (!supported) {
@@ -3466,7 +3466,7 @@ namespace NvrhiDirect {
         indexBuffer.Release();
     }
 
-    function runTest(app: App, api: GraphicsAPI, validation: boolean): void {
+    function runTest(app: App, api: GraphicsAPI, validation: boolean) {
         // the tuples NVRHI reads as its structs: the same sizes as the C++ build's
         check(nvrhi.layoutMatches(), "the tuples have the C++ structs' sizes");
 
@@ -3912,7 +3912,7 @@ namespace NvrhiDirect {
         // --help: print the usage and exit.
         help = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "--help") {
                     this.help = true;
@@ -3921,7 +3921,7 @@ namespace NvrhiDirect {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("nvrhi_direct");
 
@@ -3972,6 +3972,6 @@ namespace NvrhiDirect {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return NvrhiDirect.main(argc, argv);
 }

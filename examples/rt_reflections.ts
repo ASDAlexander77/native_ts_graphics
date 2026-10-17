@@ -9,7 +9,7 @@ namespace RtReflections {
     const TEST_FRAMES = 120;
 
     // -test: checks the last frame: Sponza with ray traced reflections, about 95% lit.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -68,7 +68,7 @@ namespace RtReflections {
     // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane.
     // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
+    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
@@ -127,27 +127,27 @@ namespace RtReflections {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -176,7 +176,7 @@ namespace RtReflections {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -240,7 +240,7 @@ namespace RtReflections {
             this.app.blitTexture(frame, renderTargets.getShadedColor());
         }
 
-        createRayTracingPipeline(): boolean {
+        createRayTracingPipeline() {
             const shaderLibrary = this.app.createShaderLibrary("rt_reflections.hlsl");
             if (!shaderLibrary) {
                 return false;
@@ -331,7 +331,7 @@ namespace RtReflections {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string): boolean {
+        init(scenePath: string) {
             const scene = this.app.loadScene(scenePath);
             if (scene.isNull()) {
                 console.log(`Cannot load the scene ${scenePath}`);
@@ -382,7 +382,7 @@ namespace RtReflections {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_reflections");
 
@@ -428,6 +428,6 @@ namespace RtReflections {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RtReflections.main(argc, argv);
 }

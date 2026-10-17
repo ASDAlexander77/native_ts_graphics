@@ -58,7 +58,7 @@ namespace Multithreading {
             this.up = [0.0, 1.0, 0.0, 0.0];
         }
 
-        set(eye: number[], at: number[], up: number[]): void {
+        set(eye: number[], at: number[], up: number[]) {
             this.eye = eye;
             this.at = at;
             this.up = up;
@@ -66,11 +66,11 @@ namespace Multithreading {
 
         // The view and projection matrices for a fovInDegrees vertical field of view, transposed
         // (as the constant buffer takes them).
-        viewMatrix(): number[] {
+        viewMatrix() {
             return matrixTranspose(matrixLookAtRH(this.eye, this.at, this.up));
         }
 
-        projectionMatrix(fovInDegrees: number, screenWidth: number, screenHeight: number): number[] {
+        projectionMatrix(fovInDegrees: number, screenWidth: number, screenHeight: number) {
             const aspectRatio = Math.fround(Math.fround(screenWidth) / Math.fround(screenHeight));
             let fovAngleY = Math.fround(Math.fround(Math.fround(fovInDegrees) * XM_PI) / 180.0);
             if (aspectRatio < 1.0) {
@@ -79,11 +79,11 @@ namespace Multithreading {
             return matrixTranspose(matrixPerspectiveFovRH(fovAngleY, aspectRatio, Math.fround(0.01), 125.0));
         }
 
-        rotateYaw(angle: number): void {
+        rotateYaw(angle: number) {
             this.eye = transformCoord3(this.eye, matrixRotationAxis(this.up, angle));
         }
 
-        rotatePitch(angle: number): void {
+        rotatePitch(angle: number) {
             const right = normalize3(cross3(this.eye, this.up));
             this.eye = transformCoord3(this.eye, matrixRotationAxis(right, angle));
         }
@@ -187,7 +187,7 @@ namespace Multithreading {
             this.singleThreaded = false;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
             }
@@ -212,7 +212,7 @@ namespace Multithreading {
 
         // OnUpdate: the camera turned by the arrow keys, the lights circling the room (the first and
         // third one way, the second the other) and looking at its middle, the constant buffers.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, this.singleThreaded ? "(single-threaded)" : "(3 threads)");
             const frameTime = Math.fround(elapsedSeconds);
             const frameChange = Math.fround(2.0 * frameTime);
@@ -250,7 +250,7 @@ namespace Multithreading {
 
         // FrameResource::WriteConstantBuffers: the scene pass seen from the camera, sampling the
         // shadow map; the shadow pass seen from the first light.
-        writeConstants(constants: f32[], camera: Camera, sampleShadowMap: int): void {
+        writeConstants(constants: f32[], camera: Camera, sampleShadowMap: int) {
             // Scale down the world a bit.
             const scale = Math.fround(0.1);
             for (let k = 0; k < 16; k++) {
@@ -290,7 +290,7 @@ namespace Multithreading {
         // OnRender: the main thread records the constant buffer writes and the clears (the sample's
         // BeginFrame) while the workers record the passes' draws; then everything is executed, and
         // the frame blitted to the back buffer.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             for (let i = 0; i < NUM_CONTEXTS; i++) {
                 if (this.singleThreaded) {
@@ -329,7 +329,7 @@ namespace Multithreading {
         // LoadAssets: the mesh and the textures from the data file, the passes' binding sets (a
         // binding set per diffuse texture: the sample's descriptor table of the diffuse texture and
         // the one after it as the normal map) and their draw batches.
-        loadAssets(commandList: CommandList, scenePipeline: GraphicsPipelineHandle, shadowPipeline: GraphicsPipelineHandle): boolean {
+        loadAssets(commandList: CommandList, scenePipeline: GraphicsPipelineHandle, shadowPipeline: GraphicsPipelineHandle) {
             const binaryFile = this.app.loadBinaryFile(DATA_FILE);
             if (binaryFile.isNull()) {
                 console.log(`Cannot load ${DATA_FILE} (the sample's data: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
@@ -399,7 +399,7 @@ namespace Multithreading {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "multithreading.hlsl";
             this.sceneVertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
             this.shadowVertexShader = this.app.createShader(shader, "VSShadow", ShaderType.Vertex);
@@ -493,7 +493,7 @@ namespace Multithreading {
     // -test: checks the last frame: the room, textured and lit (ambient light alone leaves it dark:
     // a mean brightness around 25), fills it. (Against the sample's frame 60, its time step fixed
     // at 1/60 s: 21 of 921600 pixels differed on D3D12, 17 on Vulkan, nearly all by 1/255.)
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -529,7 +529,7 @@ namespace Multithreading {
         // -singleThreaded: record the draws on the main thread.
         singleThreaded = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-singleThreaded") {
@@ -539,7 +539,7 @@ namespace Multithreading {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("multithreading");
 
@@ -576,6 +576,6 @@ namespace Multithreading {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Multithreading.main(argc, argv);
 }

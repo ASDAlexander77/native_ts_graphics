@@ -10,7 +10,7 @@ namespace RtParticles {
 
     // -test: checks the last frame: the reflective scene fills it, the particles' colored puffs
     // about 0.6% of it.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -76,17 +76,17 @@ namespace RtParticles {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
-    function saturate(x: number): number {
+    function saturate(x: number) {
         return Math.min(Math.max(x, 0.0), 1.0);
     }
 
     // std::rand() / RAND_MAX replacement: a Park-Miller generator (tslang's Math.random isn't usable).
     let g_RandomSeed = 12345.0;
-    function randomFloat(): number {
+    function randomFloat() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
         return g_RandomSeed / 2147483647.0;
     }
@@ -95,7 +95,7 @@ namespace RtParticles {
     // row-major with Donut's row-vector convention.
     // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
+    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
@@ -141,7 +141,7 @@ namespace RtParticles {
             this.rotation = 0.0;
         }
 
-        emit(emitterX: number, emitterY: number, emitterZ: number): void {
+        emit(emitterX: number, emitterY: number, emitterZ: number) {
             this.active = true;
             this.positionX = emitterX;
             this.positionY = emitterY;
@@ -158,7 +158,7 @@ namespace RtParticles {
             this.rotation = randomFloat() * 6.28;
         }
 
-        animate(time: number): void {
+        animate(time: number) {
             const lifeTime = 2.0;
 
             this.positionX += this.velocityX * time;
@@ -305,7 +305,7 @@ namespace RtParticles {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
@@ -315,22 +315,22 @@ namespace RtParticles {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
 
             if (this.ui.enableAnimations) {
@@ -364,7 +364,7 @@ namespace RtParticles {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -382,7 +382,7 @@ namespace RtParticles {
         }
 
         // Recreates the compute pipeline for ui.mlabFragments.
-        createComputePipeline(): boolean {
+        createComputePipeline() {
             const oldPipeline = this.computePipeline;
             if (oldPipeline) {
                 this.app.releaseResource(oldPipeline);
@@ -411,7 +411,7 @@ namespace RtParticles {
 
         // Updates the particle billboards (facing the camera) and ParticleInfo data, and rebuilds the
         // particle mesh's BLAS.
-        buildParticleGeometry(frame: Frame): void {
+        buildParticleGeometry(frame: Frame) {
             this.camera.getDirection(Ref(this.cameraForward[0]));
             this.camera.getUp(Ref(this.cameraUp[0]));
             let forwardX = this.cameraForward[0];
@@ -538,7 +538,7 @@ namespace RtParticles {
 
         // The TLAS: the scene's instances (the particle mesh with its own mask), plus one scaled AABB
         // instance per active particle for the intersection path.
-        buildTLAS(frame: Frame): void {
+        buildTLAS(frame: Frame) {
             this.topLevelAS.addSceneInstances(this.scene, INSTANCE_MASK_OPAQUE,
                 this.particleMesh, INSTANCE_MASK_PARTICLE_GEOMETRY);
 
@@ -557,7 +557,7 @@ namespace RtParticles {
             frame.buildTopLevelAS(this.topLevelAS);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -635,7 +635,7 @@ namespace RtParticles {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
             bindlessLayoutDesc.addRawBuffers(1);
             bindlessLayoutDesc.addTextures(2);
@@ -733,11 +733,11 @@ namespace RtParticles {
             this.ui = ui;
         }
 
-        checkbox(label: string, value: boolean): boolean {
+        checkbox(label: string, value: boolean) {
             return Donut_ImGuiCheckbox(label, value ? 1 : 0) != 0;
         }
 
-        buildUI(): void {
+        buildUI() {
             const ui = this.ui;
 
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
@@ -794,12 +794,12 @@ namespace RtParticles {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_particles");
 
@@ -847,6 +847,6 @@ namespace RtParticles {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RtParticles.main(argc, argv);
 }

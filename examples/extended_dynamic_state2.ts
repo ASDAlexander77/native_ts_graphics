@@ -10,7 +10,7 @@ namespace ExtendedDynamicState2 {
 
     // -test: checks the last frame: the street skybox fills it (about 99% lit), with the green of
     // the scene's cube in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -77,7 +77,7 @@ namespace ExtendedDynamicState2 {
     const MOVE_STEP = 0.0005;
 
     // ImGui's combo items: names separated by '|'.
-    function comboItems(names: string[]): string {
+    function comboItems(names: string[]) {
         let items = "";
         for (let i = 0; i < names.length; i++) {
             items += (i > 0 ? "|" : "") + names[i];
@@ -87,12 +87,12 @@ namespace ExtendedDynamicState2 {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -107,7 +107,7 @@ namespace ExtendedDynamicState2 {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -120,12 +120,12 @@ namespace ExtendedDynamicState2 {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); with near > far, depth is reversed.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -153,7 +153,7 @@ namespace ExtendedDynamicState2 {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -166,14 +166,14 @@ namespace ExtendedDynamicState2 {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -329,12 +329,12 @@ namespace ExtendedDynamicState2 {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
@@ -347,7 +347,7 @@ namespace ExtendedDynamicState2 {
 
         // The sample's cube_animation: every 0.05 seconds the moving cube steps along x (back and
         // forth by up to 0.05), and the selection effect's alpha steps too.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             const delta = this.fround(this.fixedDelta > 0.0 ? this.fixedDelta : elapsedSeconds);
             this.timePass[0] = this.timePass[0] + delta;
@@ -373,16 +373,16 @@ namespace ExtendedDynamicState2 {
 
         // The sample's get_changed_alpha, at a tick (it consumes the tick as it rebuilds the
         // command buffers): the selected node's alpha steps down to 0.3 and up to 0.98.
-        tickAlpha(): void {
+        tickAlpha() {
             this.accumulatedDiff[0] = this.accumulatedDiff[0] + this.fround(this.alphaRise ? ALPHA_STEP : -ALPHA_STEP);
             this.updateAlphaDirection();
         }
 
-        selectedAlpha(): number {
+        selectedAlpha() {
             return this.fround(this.baselineNodes[this.selectedObject].color[3] + this.accumulatedDiff[0]);
         }
 
-        updateAlphaDirection(): void {
+        updateAlphaDirection() {
             if (this.previousSelected != this.selectedObject) {
                 this.accumulatedDiff[0] = 0.0;
                 this.previousSelected = this.selectedObject;
@@ -396,11 +396,11 @@ namespace ExtendedDynamicState2 {
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -419,7 +419,7 @@ namespace ExtendedDynamicState2 {
 
         // The sample's pipeline state: depth test (greater: reversed) and write, blending by the
         // source's alpha (the alpha written as is), back faces culled, clockwise front faces.
-        pipelineDesc(vs: ShaderHandle, ps: ShaderHandle): GraphicsPipelineDesc {
+        pipelineDesc(vs: ShaderHandle, ps: ShaderHandle) {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.setInputLayout(this.inputLayout);
             desc.addBindingLayout(this.bindingLayout);
@@ -430,7 +430,7 @@ namespace ExtendedDynamicState2 {
             return desc;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -471,7 +471,7 @@ namespace ExtendedDynamicState2 {
         }
 
         // A draw of the shared buffers' range with a node's push constants.
-        drawNode(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, node: SceneNode, alpha: number): void {
+        drawNode(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, node: SceneNode, alpha: number) {
             for (let i = 0; i < 16; i++) {
                 this.nodeConstants[i] = node.transform[i];
             }
@@ -487,7 +487,7 @@ namespace ExtendedDynamicState2 {
                 Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -556,7 +556,7 @@ namespace ExtendedDynamicState2 {
         }
 
         // The sample's load_assets and model_data_creation.
-        loadModels(commandList: CommandList): boolean {
+        loadModels(commandList: CommandList) {
             const model = this.app.loadGltfModel(SCENE_PATH);
             this.background = this.app.loadGltfMesh(commandList, BACKGROUND_PATH);
             if (model.isNull() || this.background.isNull()) {
@@ -659,7 +659,7 @@ namespace ExtendedDynamicState2 {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "extended_dynamic_state2.hlsl";
             this.baselineVS = this.app.createShader(shader, "baseline_vs", ShaderType.Vertex);
             this.baselinePS = this.app.createShader(shader, "baseline_ps", ShaderType.Pixel);
@@ -740,7 +740,7 @@ namespace ExtendedDynamicState2 {
             this.pass = pass;
         }
 
-        buildUI(): void {
+        buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
@@ -761,7 +761,7 @@ namespace ExtendedDynamicState2 {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -776,7 +776,7 @@ namespace ExtendedDynamicState2 {
         // -noselection: the selection effect off.
         selection = true;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-tessellation" && i + 1 < this.argc) {
@@ -795,7 +795,7 @@ namespace ExtendedDynamicState2 {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("extended_dynamic_state2");
 
@@ -852,6 +852,6 @@ namespace ExtendedDynamicState2 {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ExtendedDynamicState2.main(argc, argv);
 }

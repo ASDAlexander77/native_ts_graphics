@@ -10,7 +10,7 @@ namespace DynamicUniformBuffers {
 
     // -test: checks the last frame. The corners are the dark clear color; the cubes, each with its
     // own transform from the dynamic uniform buffer, color about a third of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x070707);
         if (corners != "") {
@@ -68,12 +68,12 @@ namespace DynamicUniformBuffers {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -88,7 +88,7 @@ namespace DynamicUniformBuffers {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -101,13 +101,13 @@ namespace DynamicUniformBuffers {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); the sample swaps near and far for
     // reversed depth.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -135,7 +135,7 @@ namespace DynamicUniformBuffers {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -148,14 +148,14 @@ namespace DynamicUniformBuffers {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -244,12 +244,12 @@ namespace DynamicUniformBuffers {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
@@ -258,7 +258,7 @@ namespace DynamicUniformBuffers {
         // rotations advanced by the time since the last update times its speeds (in float, as
         // the sample), its model matrix: moved to its place in the grid, turned around (1, 1, 0),
         // then y, then z.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             if (!this.paused) {
                 this.animationTimer = Math.fround(this.animationTimer + Math.fround(this.benchmark ? 1.0 / 60.0 : elapsedSeconds));
                 if (this.animationTimer + 0.0025 >= Math.fround(1.0 / 60.0)) {
@@ -269,7 +269,7 @@ namespace DynamicUniformBuffers {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        updateModels(time: number): void {
+        updateModels(time: number) {
             const diagonal = 1.0 / Math.sqrt(2.0);
             for (let x = 0; x < DIM; x++) {
                 for (let y = 0; y < DIM; y++) {
@@ -296,11 +296,11 @@ namespace DynamicUniformBuffers {
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -312,7 +312,7 @@ namespace DynamicUniformBuffers {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -333,7 +333,7 @@ namespace DynamicUniformBuffers {
             this.targetHeight = height;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -374,7 +374,7 @@ namespace DynamicUniformBuffers {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "dynamic_uniform_buffers.hlsl";
             this.vs = this.app.createShader(shader, "base_vs", ShaderType.Vertex);
             this.ps = this.app.createShader(shader, "base_ps", ShaderType.Pixel);
@@ -444,7 +444,7 @@ namespace DynamicUniformBuffers {
         // -pause: the cubes not turning.
         paused = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-pause") {
@@ -454,7 +454,7 @@ namespace DynamicUniformBuffers {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_uniform_buffers");
 
@@ -490,6 +490,6 @@ namespace DynamicUniformBuffers {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DynamicUniformBuffers.main(argc, argv);
 }

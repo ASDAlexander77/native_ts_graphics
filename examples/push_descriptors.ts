@@ -48,12 +48,12 @@ namespace PushDescriptors {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -68,7 +68,7 @@ namespace PushDescriptors {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -82,7 +82,7 @@ namespace PushDescriptors {
     }
 
     // glm::translate(identity, (x, y, z)).
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         let m = identity();
         m[12] = x;
         m[13] = y;
@@ -90,12 +90,12 @@ namespace PushDescriptors {
         return m;
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); with near > far, depth is reversed.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -124,7 +124,7 @@ namespace PushDescriptors {
 
         // vkb::Camera::update_view_matrix: rotations around x, y, z; a look-at camera's view is
         // translate(position) * rotation.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -133,14 +133,14 @@ namespace PushDescriptors {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -159,7 +159,7 @@ namespace PushDescriptors {
         }
 
         // ApiVulkanSample's mouse wheel: zoom.
-        mouseScroll(yoffset: number): void {
+        mouseScroll(yoffset: number) {
             this.position[2] += yoffset * 0.005;
         }
     }
@@ -228,32 +228,32 @@ namespace PushDescriptors {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onMouseScroll(xoffset: number, yoffset: number): int {
+        onMouseScroll(xoffset: number, yoffset: number) {
             this.camera.mouseScroll(yoffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.deltaTime = elapsedSeconds;
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -269,7 +269,7 @@ namespace PushDescriptors {
         // buffers (the vertex shader's) and a combined image sampler (the pixel shader's), with the
         // push descriptor flag; back faces (counterclockwise ones) culled, depth tested (greater:
         // reversed) and written.
-        createTargets(width: int, height: int): boolean {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -298,7 +298,7 @@ namespace PushDescriptors {
 
         // The sample's update_cube_uniform_buffers: each cube's model matrix, then (animated) its
         // turn advanced for the next frame.
-        updateCubes(commandList: CommandList, deltaTime: number): void {
+        updateCubes(commandList: CommandList, deltaTime: number) {
             for (let i = 0; i < 2; i++) {
                 let m = translation(CUBE_POSITIONS[i * 3], CUBE_POSITIONS[i * 3 + 1], CUBE_POSITIONS[i * 3 + 2]);
                 const rx = i == 0 ? this.rotations[0] : 0.0;
@@ -321,7 +321,7 @@ namespace PushDescriptors {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -362,7 +362,7 @@ namespace PushDescriptors {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.maxPushDescriptors = this.app.getMaxPushDescriptors();
             const shader = "push_descriptors.hlsl";
             this.vs = this.app.createShader(shader, "cube_vs", ShaderType.Vertex);
@@ -429,7 +429,7 @@ namespace PushDescriptors {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Push descriptors", 1);
@@ -443,14 +443,14 @@ namespace PushDescriptors {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 
     // -test: checks the last frame: the corners are the clear color; both cubes show their
     // textures (the left and right thirds of the frame's middle row differ from the background).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -484,7 +484,7 @@ namespace PushDescriptors {
         // -noanimate: the cubes don't turn.
         animate = true;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-noanimate") {
@@ -494,7 +494,7 @@ namespace PushDescriptors {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("push_descriptors");
 
@@ -547,6 +547,6 @@ namespace PushDescriptors {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return PushDescriptors.main(argc, argv);
 }

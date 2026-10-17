@@ -10,7 +10,7 @@ namespace DxrRefit {
 
     // -test: checks the last frame: the green sky at the top corners, the white floor (about 41%
     // of the frame), and a ray traced triangle (refitted every frame) in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -135,7 +135,7 @@ namespace DxrRefit {
         }
 
         // The storage image has the back buffers' size.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -148,7 +148,7 @@ namespace DxrRefit {
             }
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.rotationStep = this.benchmark ? ROTATION_STEP : ROTATION_STEP * STEPS_PER_SECOND * elapsedSeconds;
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
@@ -156,7 +156,7 @@ namespace DxrRefit {
         // The tutorial's buildTopLevelAS: instance 0 (the triangle and the plane) unmoved, instances
         // 1 and 2 (the triangle) rotated about y by `rotation`, then moved to x = -2 and 2;
         // translate(x) * eulerAngleY(rotation) in rows.
-        addInstances(): void {
+        addInstances() {
             const c = Math.cos(this.rotation);
             const s = Math.sin(this.rotation);
             for (let i = 0; i < 3; i++) {
@@ -176,7 +176,7 @@ namespace DxrRefit {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -218,7 +218,7 @@ namespace DxrRefit {
         // The tutorial's createAccelerationStructures: one BLAS of the triangle and the plane, one
         // of the triangle alone (the tutorial's geometries have no index buffers; here they index
         // their vertices in order).
-        createAccelerationStructures(commandList: CommandList): boolean {
+        createAccelerationStructures(commandList: CommandList) {
             let vertices: f32[] = [];
             for (let i = 0; i < TRIANGLE_VERTICES.length; i++) {
                 vertices.push(TRIANGLE_VERTICES[i]);
@@ -265,7 +265,7 @@ namespace DxrRefit {
         // The tutorial's createRtPipelineState and createShaderTable: the ray generation shader,
         // the primary and shadow miss shaders, the triangle, plane and shadow hit groups, and the
         // hit entries of HIT_GROUPS.
-        createRayTracingPipeline(): boolean {
+        createRayTracingPipeline() {
             const shaderLibrary = this.app.createShaderLibrary("dxr_refit.hlsl");
             if (!shaderLibrary) {
                 return false;
@@ -297,7 +297,7 @@ namespace DxrRefit {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const layoutDesc = BindingLayoutDesc.create();
             layoutDesc.layoutAccelStruct(0);
             layoutDesc.layoutTextureUAV(0);
@@ -339,7 +339,7 @@ namespace DxrRefit {
         // -rebuild: build the TLAS anew every frame instead of refitting it.
         rebuild = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-rebuild") {
@@ -349,7 +349,7 @@ namespace DxrRefit {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dxr_refit");
 
@@ -392,6 +392,6 @@ namespace DxrRefit {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DxrRefit.main(argc, argv);
 }
