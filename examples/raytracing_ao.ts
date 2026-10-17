@@ -1464,10 +1464,7 @@ namespace RaytracingAo {
             this.addMenuLine("  Misc: ", false, -1);
             this.addMenuLine(`     Normal Factor: ${this.optionValue(7)}`, true, 7);
 
-            let wExtent = 0.0;
-            for (const menuLine of this.menuLines) {
-                wExtent = Math.max(wExtent, Donut_ImGuiCalcTextWidth(menuLine));
-            }
+            const wExtent = this.menuLines.reduce((w, menuLine) => Math.max(w, Donut_ImGuiCalcTextWidth(menuLine)), 0.0);
             const height = this.menuLines.length * LINE_SPACING;
             let startX = 0.0;
             let startY = 0.0;

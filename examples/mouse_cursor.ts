@@ -1118,10 +1118,7 @@ namespace MouseCursor {
         // SpriteFont::DrawString with its origin at MeasureString / 2: the lines' block centered
         // on (x, y), each line placed in its sprite font line.
         centered(x: number, y: number, lines: string[], fontSize: number, lineSpacing: number) {
-            let width = 0.0;
-            for (const line of lines) {
-                width = Math.max(width, Donut_ImGuiCalcTextWidth(line));
-            }
+            const width = lines.reduce((w, line) => Math.max(w, Donut_ImGuiCalcTextWidth(line)), 0.0);
             const left = x - width / 2.0;
             const top = y - lines.length * lineSpacing / 2.0 + (lineSpacing - fontSize) / 2.0;
             for (let i = 0; i < lines.length; i++) {
