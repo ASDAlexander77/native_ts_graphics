@@ -138,9 +138,7 @@ namespace SmallResources {
         }
 
         releaseTextures() {
-            for (const bindingSet of this.bindingSets) {
-                this.app.releaseResource(bindingSet.handle);
-            }
+            this.app.releaseBindingSets(this.bindingSets);
             for (const texture of this.textures) {
                 this.app.releaseResource(texture);
             }

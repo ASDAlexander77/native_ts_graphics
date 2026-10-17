@@ -682,13 +682,8 @@ namespace Bokeh {
         }
 
         releaseFrameResources() {
-            const bindingSets = [this.rgbzBindingSet, this.downsampleBindingSet, this.quadPointBindingSet, this.recombineBindingSet,
-                this.copyBindingSet];
-            for (const bindingSet of bindingSets) {
-                if (!bindingSet.isNull()) {
-                    this.app.releaseResource(bindingSet.handle);
-                }
-            }
+            this.app.releaseBindingSets([this.rgbzBindingSet, this.downsampleBindingSet, this.quadPointBindingSet, this.recombineBindingSet,
+                this.copyBindingSet]);
             this.rgbzBindingSet = new BindingSet(null);
             this.downsampleBindingSet = new BindingSet(null);
             this.quadPointBindingSet = new BindingSet(null);

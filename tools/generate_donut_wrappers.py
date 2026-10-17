@@ -478,6 +478,15 @@ EXTRA_METHODS = {
         "            }",
         "        }",
         "    }",
+        "",
+        "    // The same for binding sets, skipping the null ones.",
+        "    releaseBindingSets(bindingSets: BindingSet[]): void {",
+        "        for (const bindingSet of bindingSets) {",
+        "            if (!bindingSet.isNull()) {",
+        "                Donut_ReleaseResource(this.handle, bindingSet.handle);",
+        "            }",
+        "        }",
+        "    }",
     ],
 }
 

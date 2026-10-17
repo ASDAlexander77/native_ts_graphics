@@ -310,12 +310,7 @@ namespace CalibratedTimestampsSample {
         }
 
         releaseTargets() {
-            const bindingSets = [this.bloomFilterBindingSet, this.compositionBindingSet];
-            for (const bindingSet of bindingSets) {
-                if (!bindingSet.isNull()) {
-                    this.app.releaseResource(bindingSet.handle);
-                }
-            }
+            this.app.releaseBindingSets([this.bloomFilterBindingSet, this.compositionBindingSet]);
             this.bloomFilterBindingSet = new BindingSet(null);
             this.compositionBindingSet = new BindingSet(null);
 

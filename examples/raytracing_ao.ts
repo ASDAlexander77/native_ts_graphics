@@ -882,9 +882,7 @@ namespace RaytracingAo {
         }
 
         releaseFrameResources() {
-            for (const frameBindingSet of this.frameBindingSets) {
-                this.app.releaseResource(frameBindingSet.handle);
-            }
+            this.app.releaseBindingSets(this.frameBindingSets);
             this.frameBindingSets = [];
             for (const resource of this.resources) {
                 this.app.releaseResource(resource);
