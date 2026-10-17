@@ -428,7 +428,7 @@ namespace NBodyGravity {
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(colors[0]), PARTICLE_COUNT * 16, "ParticleColors");
-            let buffers: BufferHandle[] = [];
+            const buffers: BufferHandle[] = [];
             for (let i = 0; i < 2; i++) {
                 const buffer = this.app.createRWStructuredBuffer(PARTICLE_STRIDE, GROUP_COUNT * BLOCK_SIZE, `Particles${i}`);
                 commandList.writeBuffer(buffer, Ref(data[0]), GROUP_COUNT * BLOCK_SIZE * PARTICLE_STRIDE);

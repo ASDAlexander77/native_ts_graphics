@@ -634,7 +634,7 @@ namespace RayTracingExtended {
             }
 
             const pts = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]];
-            let vertices: f32[] = [];
+            const vertices: f32[] = [];
             for (const pt of pts) {
                 // center the point
                 vertices.push(pt[0] - 0.5);
@@ -646,7 +646,7 @@ namespace RayTracingExtended {
                 vertices.push(pt[0]);
                 vertices.push(1.0 - pt[1]);
             }
-            let triangles: int[] = [0, 1, 2, 0, 2, 3];
+            const triangles: int[] = [0, 1, 2, 0, 2, 3];
             this.models.push(new Model(vertices, triangles, texture.getDescriptorIndex(), OBJECT_FLAME));
 
             this.flameGenerator.init();

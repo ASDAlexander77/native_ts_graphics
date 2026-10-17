@@ -222,7 +222,7 @@ namespace BufferDeviceAddress {
             this.pointerBuffer = this.app.createRWStructuredBuffer(ADDRESS_SIZE, MESH_COUNT, "PointerBuffer");
 
             // create_index_buffer: the strips' 16-bit indices, two to an int.
-            let indices16: int[] = [];
+            const indices16: int[] = [];
             for (let strip = 0; strip < MESH_STRIPS; strip++) {
                 for (let x = 0; x < MESH_WIDTH; x++) {
                     indices16.push(strip * MESH_WIDTH + x);

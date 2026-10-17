@@ -766,7 +766,7 @@ namespace FastBlockCompress {
                 sample.currentMethod = 0;
                 sample.toggleOriginal = false;
             }
-            let methods: string[] = [];
+            const methods: string[] = [];
             for (let m = 0; m < MAX_METHOD; m++) {
                 methods.push(sample.methodLabel(m));
             }

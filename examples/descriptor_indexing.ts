@@ -229,7 +229,7 @@ namespace DescriptorIndexing {
         // then each image made with its color, and written into the non-uniform table.
         createImages(commandList: CommandList): void {
             const rng = this.app.createRandomEngine(42);
-            let colors: number[] = [];
+            const colors: number[] = [];
             for (let i = 0; i < NUM_DESCRIPTORS_NON_UNIFORM * 3; i++) {
                 colors.push(rng.uniformFloat(0.2, 0.8));
             }

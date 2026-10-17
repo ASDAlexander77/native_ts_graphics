@@ -79,7 +79,7 @@ namespace VideoTexture {
     // --- DirectXMath, row-major for mul(vector, matrix) --------------------------------------
 
     function multiply(a: number[], b: number[]): number[] {
-        let m: number[] = [];
+        const m: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
                 let sum = 0.0;
@@ -304,7 +304,7 @@ namespace VideoTexture {
 
             // The sample's Render starts with the video's next frame (under -test the first one
             // waits up to 10 seconds for its TEST_VIDEO_FRAMES-th: the first ones are near black).
-            let transferred = this.transferVideoFrame(commandList);
+            const transferred = this.transferVideoFrame(commandList);
             if (this.waitForVideo) {
                 let frames = transferred;
                 for (let i = 0; i < 1000 && frames < TEST_VIDEO_FRAMES; i++) {

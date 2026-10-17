@@ -454,7 +454,7 @@ namespace SakuraForestSER {
 
         // BuildCubeGeometry, BuildTreeGeometry and CreateTexture.
         createGeometry(commandList: CommandList): boolean {
-            let cubeVertices: f32[] = [];
+            const cubeVertices: f32[] = [];
             for (let i = 0; i < CUBE_VERTICES.length; i += 6) {
                 for (let j = 0; j < 6; j++) {
                     cubeVertices.push(CUBE_VERTICES[i + j]);
@@ -463,7 +463,7 @@ namespace SakuraForestSER {
                 cubeVertices.push(0.0);
                 cubeVertices.push(0.0);
             }
-            let cubeIndices: int[] = [];
+            const cubeIndices: int[] = [];
             for (let i = 0; i < CUBE_INDICES.length; i++) {
                 cubeIndices.push(CUBE_INDICES[i]);
             }
@@ -569,7 +569,7 @@ namespace SakuraForestSER {
             }
 
             // Trunks at random offsets, then the leaves at the same places.
-            let trunkPositions: number[] = [];
+            const trunkPositions: number[] = [];
             for (let x = -treesPerRow / 2; x <= treesPerRow / 2; x++) {
                 for (let z = -treesPerRow / 2; z <= treesPerRow / 2; z++) {
                     const randomXOffset = gen.uniformFloat(-0.1, 0.7);

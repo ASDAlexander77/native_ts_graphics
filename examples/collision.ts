@@ -857,7 +857,7 @@ namespace Collision {
                 -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0, 1.0, 1.0,
             ];
             const indices = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7];
-            let verts: number[][] = [];
+            const verts: number[][] = [];
             for (let i = 0; i < 8; i++) {
                 verts.push(transformPoint([corners[i * 3], corners[i * 3 + 1], corners[i * 3 + 2]], world));
             }
@@ -902,9 +902,9 @@ namespace Collision {
             const sinDelta = f(Math.sin(angleDelta));
             let incrementalSin = 0.0;
             let incrementalCos = 1.0;
-            let points: number[][] = [];
+            const points: number[][] = [];
             for (let i = 0; i < segments; i++) {
-                let pos: number[] = [];
+                const pos: number[] = [];
                 for (let k = 0; k < 3; k++) {
                     pos.push(f(f(majorAxis[k] * incrementalCos + origin[k]) + minorAxis[k] * incrementalSin));
                 }

@@ -369,7 +369,7 @@ namespace TextureCompressionComparison {
 
             // The scene uniforms: the camera's view-projection in Donut's clip space, the light.
             this.camera.getWorldToView(Ref(this.viewMatrix[0]));
-            let view: number[] = [];
+            const view: number[] = [];
             for (let i = 0; i < 16; i++) {
                 view.push(i % 4 == 2 ? -this.viewMatrix[i] : this.viewMatrix[i]);
             }
@@ -428,13 +428,13 @@ namespace TextureCompressionComparison {
             }
             const primitiveCount = scene.getPrimitiveCount();
 
-            let primitiveTexture: int[] = [];
-            let primitiveFirstIndex: int[] = [];
-            let primitiveBaseVertex: int[] = [];
+            const primitiveTexture: int[] = [];
+            const primitiveFirstIndex: int[] = [];
+            const primitiveBaseVertex: int[] = [];
             let vertices: f32[] = [];
             let indices: int[] = [];
             let meshBounds: number[] = [];
-            let meshFirstPrimitive: int[] = [];
+            const meshFirstPrimitive: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const image = scene.getBaseColorImage(p);
                 let texture = -1;

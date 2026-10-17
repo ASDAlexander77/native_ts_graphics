@@ -226,20 +226,20 @@ namespace SimplePbr {
     // duplicate positions), right-handed: an octahedron subdivided `tessellation` times, pushed onto
     // the sphere.
     function geoSphere(diameter: number, tessellation: int, positions: f32[], indices: int[]): void {
-        let vertices: number[] = [0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 0.0, -1.0, 0.0];
+        const vertices: number[] = [0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 0.0, -1.0, 0.0];
         let current: int[] = [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1, 5, 1, 4, 5, 4, 3, 5, 3, 2, 5, 2, 1];
         for (let subdivision = 0; subdivision < tessellation; subdivision++) {
             // The edges divided so far (larger index first) and their midpoints.
-            let edgeA: int[] = [];
+            const edgeA: int[] = [];
             let edgeB: int[] = [];
-            let edgeMid: int[] = [];
-            let next: int[] = [];
+            const edgeMid: int[] = [];
+            const next: int[] = [];
             const triangleCount = current.length / 3;
             for (let t = 0; t < triangleCount; t++) {
                 const iv0 = current[t * 3];
                 const iv1 = current[t * 3 + 1];
                 const iv2 = current[t * 3 + 2];
-                let mids: int[] = [];
+                const mids: int[] = [];
                 const pairs = [iv0, iv1, iv1, iv2, iv0, iv2];
                 for (let e = 0; e < 3; e++) {
                     const i0 = pairs[e * 2];
@@ -806,7 +806,7 @@ namespace SimplePbr {
             Donut_StoreInt32(Ref(c[PBR_NUM_RADIANCE_MIPS]), this.numRadianceMips);
 
             // SkyboxEffect::SetMatrices: the view without its translation, no world.
-            let skyView = [view[0], view[1], view[2], view[3], view[4], view[5], view[6], view[7], view[8], view[9], view[10], view[11],
+            const skyView = [view[0], view[1], view[2], view[3], view[4], view[5], view[6], view[7], view[8], view[9], view[10], view[11],
                 0.0, 0.0, 0.0, 1.0];
             const skyWorldViewProjT = transpose(multiply(skyView, proj));
             for (let i = 0; i < 16; i++) {

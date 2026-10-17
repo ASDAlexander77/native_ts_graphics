@@ -298,8 +298,8 @@ namespace FragmentShadingRate {
         // device's rates but its first (largest), finest innermost; the rate codes are the sample's,
         // (width >> 1) | (height << 1).
         shadingRatePattern(width: int, height: int): int[] {
-            let keys: number[] = [];
-            let codes: int[] = [];
+            const keys: number[] = [];
+            const codes: int[] = [];
             const range = this.fround(RING_SPAN / this.rateCount);
             let current = this.fround(RING_START);
             for (let i = this.rateCount - 1; i > 0; i--) {

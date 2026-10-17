@@ -254,8 +254,8 @@ namespace DynamicRenderingLocalRead {
             const primitiveCount = model.getPrimitiveCount();
             let vertices: f32[] = [];
             let indices: int[] = [];
-            let firstIndex: int[] = [];
-            let baseVertex: int[] = [];
+            const firstIndex: int[] = [];
+            const baseVertex: int[] = [];
             let meshCount: int = 0;
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = model.getVertexCount(p);
@@ -623,7 +623,7 @@ namespace DynamicRenderingLocalRead {
 
             const commandList = this.app.createCommandList();
             commandList.open();
-            let loaded = this.opaqueScene.load(this.app, commandList, OPAQUE_SCENE_PATH)
+            const loaded = this.opaqueScene.load(this.app, commandList, OPAQUE_SCENE_PATH)
                 && this.transparentScene.load(this.app, commandList, TRANSPARENT_SCENE_PATH);
             const glass = this.app.loadTexture(commandList, GLASS_TEXTURE_PATH, 1);
             commandList.close();

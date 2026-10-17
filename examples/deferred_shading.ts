@@ -162,7 +162,7 @@ namespace DeferredShading {
 
     function mul(a: number[], b: number[]): number[] {
         // `let`: tslang's push needs a non-const array.
-        let r: number[] = [];
+        const r: number[] = [];
         for (let i = 0; i < 4; i++) {
             for (let j = 0; j < 4; j++) {
                 let sum = 0.0;
