@@ -11,7 +11,7 @@ namespace TextureMipmapGeneration {
     // -test: checks the last frame: the checkered tunnel, about 45% white; in the distance, around
     // the middle, the generated mip levels blur the checks to mid gray (about a fifth of a 300x200
     // rectangle there; without mipmaps it's black and white).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -66,12 +66,12 @@ namespace TextureMipmapGeneration {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -86,7 +86,7 @@ namespace TextureMipmapGeneration {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -99,12 +99,12 @@ namespace TextureMipmapGeneration {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -136,7 +136,7 @@ namespace TextureMipmapGeneration {
         }
 
         // vkb::Camera::update_view_matrix: rotations around x, y, z, then translate(position).
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -148,7 +148,7 @@ namespace TextureMipmapGeneration {
             return multiply(r, t);
         }
 
-        key(key: int, action: int): void {
+        key(key: int, action: int) {
             const down = action != ACTION_RELEASE;
             if (key == KEY_W) {
                 this.keys[0] = down;
@@ -162,7 +162,7 @@ namespace TextureMipmapGeneration {
         }
 
         // vkb::Camera::update: first person movement, 1 unit per second.
-        update(deltaTime: number): void {
+        update(deltaTime: number) {
             const rx = radians(this.rotation[0]);
             const ry = radians(this.rotation[1]);
             let front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
@@ -193,14 +193,14 @@ namespace TextureMipmapGeneration {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -268,23 +268,23 @@ namespace TextureMipmapGeneration {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.key(key, action);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
         // The sample's render: the rotation advances while the scene rotates.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.update(elapsedSeconds);
             if (this.rotateScene) {
                 this.timer += elapsedSeconds * 0.005;
@@ -296,11 +296,11 @@ namespace TextureMipmapGeneration {
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -312,7 +312,7 @@ namespace TextureMipmapGeneration {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 1.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -323,7 +323,7 @@ namespace TextureMipmapGeneration {
             this.targetHeight = height;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -364,7 +364,7 @@ namespace TextureMipmapGeneration {
         // texture with the whole chain (1 + floor(log2(max(width, height))) levels), in sRGB as the
         // sample takes KTX 1 files; then each level drawn from the one above, recorded into an open
         // command list.
-        loadTextureGenerateMipmaps(commandList: CommandList): TextureHandle | null {
+        loadTextureGenerateMipmaps(commandList: CommandList) {
             const staging = this.app.loadStagingTexture(TEXTURE_PATH);
             if (staging.isNull()) {
                 return null;
@@ -410,7 +410,7 @@ namespace TextureMipmapGeneration {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "texture_mipmap_generation.hlsl";
             const vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
             const ps = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
@@ -489,7 +489,7 @@ namespace TextureMipmapGeneration {
             this.pass = pass;
         }
 
-        buildUI(): void {
+        buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
@@ -502,7 +502,7 @@ namespace TextureMipmapGeneration {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -515,7 +515,7 @@ namespace TextureMipmapGeneration {
         // -rotate: the scene rotating.
         rotateScene = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-sampler" && i + 1 < this.argc) {
@@ -531,7 +531,7 @@ namespace TextureMipmapGeneration {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_mipmap_generation");
 
@@ -576,6 +576,6 @@ namespace TextureMipmapGeneration {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return TextureMipmapGeneration.main(argc, argv);
 }

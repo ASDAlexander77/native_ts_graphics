@@ -10,7 +10,7 @@ namespace RayTracingReflection {
 
     // -test: checks the last frame. The top corners are the gray background; the cubes and their
     // reflections color about a quarter of the frame, blue about 1.5%.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -116,12 +116,12 @@ namespace RayTracingReflection {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -136,7 +136,7 @@ namespace RayTracingReflection {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -149,12 +149,12 @@ namespace RayTracingReflection {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -165,12 +165,12 @@ namespace RayTracingReflection {
     }
 
     // glm::scale(glm::translate(mat4(1), t), s): columns scaled, translation t.
-    function scaled(tx: number, ty: number, tz: number, sx: number, sy: number, sz: number): number[] {
+    function scaled(tx: number, ty: number, tz: number, sx: number, sy: number, sz: number) {
         return [sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, sz, 0.0, tx, ty, tz, 1.0];
     }
 
     // The inverse of m, by Gauss-Jordan elimination with partial pivoting.
-    function inverse(m: number[]): number[] {
+    function inverse(m: number[]) {
         // Rows of [m | I].
         let a: number[] = [];
         for (let row = 0; row < 4; row++) {
@@ -233,7 +233,7 @@ namespace RayTracingReflection {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -246,14 +246,14 @@ namespace RayTracingReflection {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -320,22 +320,22 @@ namespace RayTracingReflection {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The storage image has the back buffers' size.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -350,7 +350,7 @@ namespace RayTracingReflection {
 
         // The sample's create_blas_instance: the instance's transform, transposed to 3 rows of 4,
         // its custom index the model's (for its buffers).
-        addInstance(blasId: int, m: number[]): void {
+        addInstance(blasId: int, m: number[]) {
             for (let row = 0; row < 3; row++) {
                 for (let column = 0; column < 4; column++) {
                     this.transform[row * 4 + column] = m[column * 4 + row];
@@ -362,7 +362,7 @@ namespace RayTracingReflection {
 
         // The rest of the sample's create_scene: the mirrors behind and in front, the floor below,
         // the two cubes side by side.
-        buildTopLevelAS(frame: Frame): void {
+        buildTopLevelAS(frame: Frame) {
             this.addInstance(0, scaled(-1.0, 0.0, 0.0, 1.0, 1.0, 1.0));
             this.addInstance(0, scaled(1.0, 0.0, 0.0, 1.0, 1.0, 1.0));
             this.addInstance(1, scaled(0.0, -1.0, 0.0, 15.0, 15.0, 15.0));
@@ -373,7 +373,7 @@ namespace RayTracingReflection {
 
         // The sample's update_uniform_buffers: the inverses of its view and of its projection
         // with the Vulkan y flip (the ray generation shader's launch rows run down, as Vulkan's).
-        updateUniformBuffers(width: int, height: int): void {
+        updateUniformBuffers(width: int, height: int) {
             let projection = perspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             projection[5] = -projection[5];
             const projInverse = inverse(projection);
@@ -384,7 +384,7 @@ namespace RayTracingReflection {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -430,7 +430,7 @@ namespace RayTracingReflection {
         // The sample's create_model for each model and create_bottom_level_acceleration_structure:
         // its vertices, indices, material indices (clamped to its materials) and materials,
         // appended to one buffer of each, and a BLAS of its triangles.
-        createModels(commandList: CommandList): boolean {
+        createModels(commandList: CommandList) {
             const vertexLists = [CUBE_VERTICES, PLANE_VERTICES, CUBE_VERTICES];
             const indexLists = [CUBE_INDICES, PLANE_INDICES, CUBE_INDICES];
             const matIndexLists = [CUBE_MAT_INDEX, PLANE_MAT_INDEX, CUBE_MAT_INDEX];
@@ -499,7 +499,7 @@ namespace RayTracingReflection {
 
         // The sample's create_ray_tracing_pipeline and create_shader_binding_tables: ray generation,
         // the miss shaders (primary rays, then shadow rays) and one hit group.
-        createRayTracingPipeline(): boolean {
+        createRayTracingPipeline() {
             const shaderLibrary = this.app.createShaderLibrary("ray_tracing_reflection.hlsl");
             if (!shaderLibrary) {
                 return false;
@@ -527,7 +527,7 @@ namespace RayTracingReflection {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const layoutDesc = BindingLayoutDesc.create();
             layoutDesc.layoutVolatileConstantBuffer(0);
             layoutDesc.layoutAccelStruct(0);
@@ -567,7 +567,7 @@ namespace RayTracingReflection {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_reflection");
 
@@ -606,6 +606,6 @@ namespace RayTracingReflection {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RayTracingReflection.main(argc, argv);
 }

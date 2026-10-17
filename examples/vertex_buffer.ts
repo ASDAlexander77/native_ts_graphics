@@ -10,7 +10,7 @@ namespace VertexBuffer {
 
     // -test: checks the last frame. The corners are the black clear color; the four textured cubes,
     // one in each quarter of the frame, cover about 17% of each, mostly white.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x000000);
         if (corners != "") {
@@ -102,11 +102,11 @@ namespace VertexBuffer {
     // Donut's row-vector convention: `mul(a, b)` applies a, then b.
 
     // math::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return Math.fround(Math.fround(degrees) * Math.fround(Math.fround(Math.PI) / 180.0));
     }
 
-    function mul(a: number[], b: number[]): number[] {
+    function mul(a: number[], b: number[]) {
         // `let`: tslang's push needs a non-const array.
         const r: number[] = [];
         for (let i = 0; i < 4; i++) {
@@ -122,7 +122,7 @@ namespace VertexBuffer {
     }
 
     // math::rotation(normalize(axis), radians): Rodrigues' rotation formula.
-    function rotation(ax: number, ay: number, az: number, angle: number): number[] {
+    function rotation(ax: number, ay: number, az: number, angle: number) {
         const len = Math.sqrt(ax * ax + ay * ay + az * az);
         const x = ax / len;
         const y = ay / len;
@@ -139,7 +139,7 @@ namespace VertexBuffer {
     }
 
     // math::yawPitchRoll(yaw, pitch, roll).
-    function yawPitchRoll(yaw: number, pitch: number, roll: number): number[] {
+    function yawPitchRoll(yaw: number, pitch: number, roll: number) {
         const sh = Math.sin(yaw);
         const ch = Math.cos(yaw);
         const sp = Math.sin(pitch);
@@ -155,7 +155,7 @@ namespace VertexBuffer {
     }
 
     // math::translation(float3(x, y, z)).
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [
             1.0, 0.0, 0.0, 0.0,
             0.0, 1.0, 0.0, 0.0,
@@ -167,7 +167,7 @@ namespace VertexBuffer {
     // math::perspProjD3DStyle(verticalFOV, aspect, zNear, zFar).
     // In float32 as Donut's (computed in double, the terms differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const near = Math.fround(zNear);
         const far = Math.fround(zFar);
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
@@ -212,12 +212,12 @@ namespace VertexBuffer {
             }
         }
 
-        onAnimate(seconds: number): void {
+        onAnimate(seconds: number) {
             this.rotation += seconds * 1.1;
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const pipeline = this.pipeline;
             if (pipeline) {
                 this.app.releaseResource(pipeline);
@@ -225,7 +225,7 @@ namespace VertexBuffer {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -279,7 +279,7 @@ namespace VertexBuffer {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vertexShader = this.app.createShader("vertex_buffer.hlsl", "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("vertex_buffer.hlsl", "main_ps", ShaderType.Pixel);
 
@@ -347,7 +347,7 @@ namespace VertexBuffer {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("vertex_buffer");
 
@@ -381,6 +381,6 @@ namespace VertexBuffer {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return VertexBuffer.main(argc, argv);
 }

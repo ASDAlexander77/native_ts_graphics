@@ -68,16 +68,16 @@ namespace NBodyGravity {
             this.keys = [0, 0, 0, 0, 0, 0, 0, 0];
         }
 
-        init(x: number, y: number, z: number): void {
+        init(x: number, y: number, z: number) {
             this.initialPosition = [Math.fround(x), Math.fround(y), Math.fround(z), 0.0];
             this.reset();
         }
 
-        setMoveSpeed(unitsPerSecond: number): void {
+        setMoveSpeed(unitsPerSecond: number) {
             this.moveSpeed = Math.fround(unitsPerSecond);
         }
 
-        reset(): void {
+        reset() {
             this.position = [this.initialPosition[0], this.initialPosition[1], this.initialPosition[2], 0.0];
             this.yaw = XM_PI;
             this.pitch = 0.0;
@@ -85,7 +85,7 @@ namespace NBodyGravity {
         }
 
         // True if it took the key.
-        onKey(key: int, down: boolean): boolean {
+        onKey(key: int, down: boolean) {
             let index = -1;
             if (key == KEY_W) {
                 index = 0;
@@ -111,7 +111,7 @@ namespace NBodyGravity {
             return true;
         }
 
-        update(elapsedSeconds: number): void {
+        update(elapsedSeconds: number) {
             const k = this.keys;
             // The move vector in camera space.
             let moveX = 0.0;
@@ -171,7 +171,7 @@ namespace NBodyGravity {
             this.lookDirection = [Math.fround(r * sinYaw), Math.fround(Math.sin(this.pitch)), Math.fround(r * cosYaw), 0.0];
         }
 
-        viewMatrix(): number[] {
+        viewMatrix() {
             return matrixLookToRH(this.position, this.lookDirection, [0.0, 1.0, 0.0, 0.0]);
         }
     }
@@ -185,12 +185,12 @@ namespace NBodyGravity {
             this.state = 0;
         }
 
-        next(): int {
+        next() {
             this.state = (this.state * 214013 + 2531011) % 4294967296;
             return Math.floor(this.state / 65536) & 0x7FFF;
         }
 
-        percent(): number {
+        percent() {
             const value = Math.fround((this.next() % 10000) - 5000);
             return Math.fround(value / 5000.0);
         }
@@ -198,7 +198,7 @@ namespace NBodyGravity {
 
     // The sample's LoadParticles: count particles at random within a sphere of radius spread around
     // (centerX, 0, 0), their mass (10000 * 10000) in position.w, all moving along z at velocityZ.
-    function loadParticles(data: f32[], first: int, count: int, centerX: number, velocityZ: number, spread: number): void {
+    function loadParticles(data: f32[], first: int, count: int, centerX: number, velocityZ: number, spread: number) {
         const rand = new Rand();
         const spreadSquared = Math.fround(spread * spread);
         for (let i = 0; i < count; i++) {
@@ -286,13 +286,13 @@ namespace NBodyGravity {
         }
 
         // OnUpdate: the camera, by a tenth of a second whatever the frame time (as the sample's).
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.camera.update(Math.fround(0.1));
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -303,7 +303,7 @@ namespace NBodyGravity {
 
         // The sample's pipeline state: points the geometry shader makes quads of, back faces culled,
         // blended additively by the sprites' alpha (alpha written as 0), no depth.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.onBackBufferResizing();
             const count = this.app.getBackBufferCount();
             for (let i = 0; i < count; i++) {
@@ -327,7 +327,7 @@ namespace NBodyGravity {
 
         // The sample's Simulate, stepsPerFrame times: each step reads one particle buffer and writes
         // the other, which the next step reads.
-        recordSteps(commandList: CommandList): void {
+        recordSteps(commandList: CommandList) {
             for (let i = 0; i < this.stepsPerFrame; i++) {
                 commandList.dispatchWithPushConstants(this.stepPipeline, this.stepBindingSets[this.srvIndex],
                     Ref(this.stepConstants[0]), STEP_CONSTANT_FLOATS * 4, GROUP_COUNT, 1, 1);
@@ -336,7 +336,7 @@ namespace NBodyGravity {
         }
 
         // OnRender: the steps, then the particles from the buffer the last step wrote.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -376,7 +376,7 @@ namespace NBodyGravity {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vertexShader = this.app.createShader("n_body_gravity_draw.hlsl", "VSParticleDraw", ShaderType.Vertex);
             this.geometryShader = this.app.createShader("n_body_gravity_draw.hlsl", "GSParticleDraw", ShaderType.Geometry);
             this.pixelShader = this.app.createShader("n_body_gravity_draw.hlsl", "PSParticleDraw", ShaderType.Pixel);
@@ -465,7 +465,7 @@ namespace NBodyGravity {
 
     // -test: checks the last frame. The corners are the clear color; the clusters (merging by then)
     // show as bright, mostly yellow pixels, in both the left and the right half of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -522,7 +522,7 @@ namespace NBodyGravity {
         // -steps <n>: simulation steps per frame (10 by default).
         stepsPerFrame = DEFAULT_STEPS_PER_FRAME;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-steps" && i + 1 < this.argc) {
@@ -533,7 +533,7 @@ namespace NBodyGravity {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("n_body_gravity");
 
@@ -572,6 +572,6 @@ namespace NBodyGravity {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return NBodyGravity.main(argc, argv);
 }

@@ -48,7 +48,7 @@ namespace ReservedResources {
 
     // GenerateTextureData for one level: a red and white checkerboard of 8 x 8 cells (cells at
     // least a pixel wide and high), as RGBA8 pixels.
-    function generateTextureLevel(mip: int): int[] {
+    function generateTextureLevel(mip: int) {
         const width = TEXTURE_WIDTH >> mip;
         const height = TEXTURE_HEIGHT >> mip;
         const rowPitch = width * TEXTURE_PIXEL_SIZE;
@@ -125,7 +125,7 @@ namespace ReservedResources {
             return this.mips.length;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action != ACTION_PRESS && action != ACTION_REPEAT) {
                 return 0;
             }
@@ -147,7 +147,7 @@ namespace ReservedResources {
         // previously mapped level's, then uploads the level (all the packed levels if it is one of
         // them). Outside the frame: the sample remaps on the queue before the frame's command list,
         // whose copy writes the level.
-        updateTileMapping(): void {
+        updateTileMapping() {
             const firstSubresource = this.mips[this.activeMip].heapIndex;
             let subresourceCount = 1;
             if (this.mips[this.activeMip].packedMip) {
@@ -194,7 +194,7 @@ namespace ReservedResources {
             Donut_SetWindowTitle(this.app.handle, `${WINDOW_TITLE}: Mip Level: ${this.activeMip}`);
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             if (this.testTargetMip >= 0) {
                 if (this.activeMip > this.testTargetMip) {
                     this.activeMip--;
@@ -210,7 +210,7 @@ namespace ReservedResources {
         }
 
         // PopulateCommandList: the quad (a triangle strip) sampling the active level.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (!this.hasPipeline) {
                 const desc = GraphicsPipelineDesc.create(this.vertexShader, this.pixelShader);
@@ -229,7 +229,7 @@ namespace ReservedResources {
             frame.drawVerticesWithPushConstants(4, Ref(this.rootConstants[0]), 4);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (this.hasPipeline) {
                 this.app.releaseResource(this.pipeline);
                 this.hasPipeline = false;
@@ -237,7 +237,7 @@ namespace ReservedResources {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // The sample's static sampler: linear, a transparent black border. Before any command
             // list is open: it creates Donut's common passes.
             this.sampler = this.app.createBorderSampler(1, 1, 1, 0.0, 0.0, 0.0, 0.0);
@@ -343,7 +343,7 @@ namespace ReservedResources {
             return true;
         }
 
-        destroy(): void {
+        destroy() {
             Donut_WaitForIdle(this.app.handle);
             this.app.releaseResource(this.texture);
             for (const heap of this.heaps) {
@@ -357,7 +357,7 @@ namespace ReservedResources {
     // centers of the quad's 8 x 8 cells the checkerboard's red and white, red in the top left cell
     // (levels of 16 texels or more: a cell's center is between texels of its own color, which
     // linear filtering keeps pure).
-    function checkFrame(app: App, mip: int): string {
+    function checkFrame(app: App, mip: int) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -406,7 +406,7 @@ namespace ReservedResources {
         // -mip <level>: the level the test steps to.
         testMip = 0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-mip" && i + 1 < this.argc) {
@@ -417,7 +417,7 @@ namespace ReservedResources {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("reserved_resources");
 
@@ -466,6 +466,6 @@ namespace ReservedResources {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ReservedResources.main(argc, argv);
 }

@@ -11,7 +11,7 @@ namespace ColorWriteEnable {
     // -test: checks the last frame. The corners are the gray background color; the triangle (all
     // three channels written) and the settings window cover about 22% of the frame, the middle of
     // the triangle (the frame's) colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0xBCBCBC);
         if (corners != "") {
@@ -81,16 +81,16 @@ namespace ColorWriteEnable {
             this.compositionPipelineMade = false;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -106,7 +106,7 @@ namespace ColorWriteEnable {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.colorR = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "Red");
             this.colorG = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "Green");
@@ -135,7 +135,7 @@ namespace ColorWriteEnable {
 
         // The sample's color pipeline: back faces (clockwise front faces) culled, no depth, no
         // blending; each target written in its one channel, or not at all when disabled.
-        trianglePipeline(enabled: int): GraphicsPipelineHandle {
+        trianglePipeline(enabled: int) {
             if (!this.trianglePipelineMade[enabled]) {
                 const desc = GraphicsPipelineDesc.create(this.triangleVS, this.trianglePS);
                 desc.setDepthState(0, 0, ComparisonFunc.Always);
@@ -149,7 +149,7 @@ namespace ColorWriteEnable {
             return this.trianglePipelines[enabled] as GraphicsPipelineHandle;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -180,7 +180,7 @@ namespace ColorWriteEnable {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "color_write_enable.hlsl";
             this.triangleVS = this.app.createShader(shader, "triangle_vs", ShaderType.Vertex);
             this.trianglePS = this.app.createShader(shader, "triangle_ps", ShaderType.Pixel);
@@ -216,7 +216,7 @@ namespace ColorWriteEnable {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Color Write Enable", 1);
@@ -234,7 +234,7 @@ namespace ColorWriteEnable {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -247,7 +247,7 @@ namespace ColorWriteEnable {
         // -background <r> <g> <b>: the initial background color.
         background = [0.5, 0.5, 0.5];
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-nored") {
@@ -266,7 +266,7 @@ namespace ColorWriteEnable {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("color_write_enable");
 
@@ -314,6 +314,6 @@ namespace ColorWriteEnable {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ColorWriteEnable.main(argc, argv);
 }

@@ -10,7 +10,7 @@ namespace MeshShaderCulling {
 
     // -test: checks the last frame. The corners are the dark clear color; the meshlets the task
     // shader kept (those within the cull radius) cover about 70% of the frame, about 55% colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -64,7 +64,7 @@ namespace MeshShaderCulling {
     const STAT_MESH = 2;
 
     // Task shader workgroups per side for each density level: 4 x 4, 6 x 6, 8 x 8.
-    function workGroupsPerSide(densityLevel: int): int {
+    function workGroupsPerSide(densityLevel: int) {
         return densityLevel == 0 ? 4 : (densityLevel == 1 ? 6 : (densityLevel == 2 ? 8 : 2));
     }
 
@@ -122,7 +122,7 @@ namespace MeshShaderCulling {
         }
 
         // ApiVulkanSample's keys: WASD move the camera while held.
-        onKeyboard(key: int, scancode: int, action: int, mods: int): int {
+        onKeyboard(key: int, scancode: int, action: int, mods: int) {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
             }
@@ -142,7 +142,7 @@ namespace MeshShaderCulling {
         }
 
         // The framework's first person camera, never rotated: W and S along z, A and D along x.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             const moveSpeed = elapsedSeconds * TRANSLATION_SPEED;
             if (this.keyUp) {
                 this.cameraZ += moveSpeed;
@@ -159,7 +159,7 @@ namespace MeshShaderCulling {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
 
@@ -199,7 +199,7 @@ namespace MeshShaderCulling {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
                 this.unsupportedReason = "This example needs task and mesh shaders (D3D12 or Vulkan)";
                 return false;
@@ -242,7 +242,7 @@ namespace MeshShaderCulling {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -263,7 +263,7 @@ namespace MeshShaderCulling {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -274,7 +274,7 @@ namespace MeshShaderCulling {
         // -density <0..2>: 4 x 4, 6 x 6 or 8 x 8.
         densityLevel = 2;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-radius" && i + 1 < this.argc) {
@@ -288,7 +288,7 @@ namespace MeshShaderCulling {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mesh_shader_culling");
 
@@ -332,6 +332,6 @@ namespace MeshShaderCulling {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MeshShaderCulling.main(argc, argv);
 }

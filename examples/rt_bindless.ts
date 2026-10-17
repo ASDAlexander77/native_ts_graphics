@@ -10,7 +10,7 @@ namespace RtBindless {
 
     // -test: checks the last frame: Sponza and the character in it, lit through bindless
     // resources, about 63% lit.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -44,7 +44,7 @@ namespace RtBindless {
     // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane.
     // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
+    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
@@ -108,7 +108,7 @@ namespace RtBindless {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
@@ -118,22 +118,22 @@ namespace RtBindless {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
 
             if (this.enableAnimations) {
@@ -155,7 +155,7 @@ namespace RtBindless {
                 this.useRayQuery ? "- using RayQuery" : "- using RayPipeline");
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -172,7 +172,7 @@ namespace RtBindless {
             this.app.clearBindingCache();
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -225,7 +225,7 @@ namespace RtBindless {
             this.app.blitTexture(frame, colorBuffer);
         }
 
-        createRayTracingPipeline(): boolean {
+        createRayTracingPipeline() {
             const shaderLibrary = this.app.createShaderLibraryWithDefine("rt_bindless.hlsl", "USE_RAY_QUERY", "0");
             if (!shaderLibrary) {
                 return false;
@@ -248,7 +248,7 @@ namespace RtBindless {
             return true;
         }
 
-        createComputePipeline(): boolean {
+        createComputePipeline() {
             const computeShader = this.app.createShaderWithDefine("rt_bindless.hlsl", "main", ShaderType.Compute,
                 "USE_RAY_QUERY", "1");
             if (!computeShader) {
@@ -264,7 +264,7 @@ namespace RtBindless {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string): boolean {
+        init(scenePath: string) {
             const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
             bindlessLayoutDesc.addRawBuffers(1);
             bindlessLayoutDesc.addTextures(2);
@@ -338,7 +338,7 @@ namespace RtBindless {
         // -rayQuery: inline ray queries in a compute shader instead of a ray tracing pipeline.
         useRayQuery = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-rayQuery") {
@@ -348,7 +348,7 @@ namespace RtBindless {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rt_bindless");
 
@@ -399,6 +399,6 @@ namespace RtBindless {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RtBindless.main(argc, argv);
 }

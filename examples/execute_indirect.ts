@@ -50,12 +50,12 @@ namespace ExecuteIndirect {
             this.state = 1;
         }
 
-        next(): int {
+        next() {
             this.state = (this.state * 214013 + 2531011) % 4294967296;
             return Math.floor(this.state / 65536) & 0x7FFF;
         }
 
-        float(min: number, max: number): number {
+        float(min: number, max: number) {
             const scale = Math.fround(Math.fround(this.next()) / 32767.0);
             const range = Math.fround(Math.fround(max) - Math.fround(min));
             return Math.fround(Math.fround(scale * range) + Math.fround(min));
@@ -119,7 +119,7 @@ namespace ExecuteIndirect {
             this.enableCulling = true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_SPACE && action == ACTION_PRESS) {
                 this.enableCulling = !this.enableCulling;
                 return 1;
@@ -129,7 +129,7 @@ namespace ExecuteIndirect {
 
         // OnUpdate: the triangles move right, coming back at the left with a new speed past the
         // bounds; the frame's copy of their constants is written in the render callback.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setWindowTitle(WINDOW_TITLE);
             const offsetBounds = 2.5;
             const c = this.constants;
@@ -143,7 +143,7 @@ namespace ExecuteIndirect {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -157,7 +157,7 @@ namespace ExecuteIndirect {
 
         // The projection of every triangle's constants for the back buffer's aspect ratio: the
         // sample's window is always 1280x720, this one's is the display's on Android.
-        updateProjection(): void {
+        updateProjection() {
             const aspectRatio = Math.fround(Math.fround(this.width) / Math.fround(this.height));
             const projection = matrixTranspose(matrixPerspectiveFovLH(Math.fround(0.785398163), aspectRatio, 0.01, 20.0));
             for (let n = 0; n < TRIANGLE_COUNT; n++) {
@@ -170,7 +170,7 @@ namespace ExecuteIndirect {
         // The sample's back buffer and depth buffer, and its pipeline state: triangle strips, the
         // default rasterizer state (back faces culled), blend state (opaque), depth state (less).
         // The culling band and the projection follow its size.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.width = width;
             this.height = height;
             this.updateProjection();
@@ -193,7 +193,7 @@ namespace ExecuteIndirect {
         // PopulateCommandLists: with culling, the compute shader culls the frame's commands into
         // its processed command buffer (its count reset first) and the draw is scissored to the
         // culling band; then the indirect draw of all or the kept commands.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             if (!this.hasTargets) {
@@ -239,7 +239,7 @@ namespace ExecuteIndirect {
         // LoadAssets: the triangle, its indices (the strip's three), the triangles' indices for the
         // instance attribute, their constants (random speeds, positions, colors), the commands of
         // every frame and the buffers the culling writes.
-        createResources(commandList: CommandList): void {
+        createResources(commandList: CommandList) {
             const h = TRIANGLE_HALF_WIDTH;
             let vertices: f32[] = [
                 0.0, h, TRIANGLE_DEPTH,
@@ -300,7 +300,7 @@ namespace ExecuteIndirect {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "execute_indirect.hlsl";
             this.vertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
             this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
@@ -359,7 +359,7 @@ namespace ExecuteIndirect {
 
     // -test: checks the last frame, culling on: outside the culling band (the middle half of the
     // screen) only the clear color; inside it, triangles.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -395,7 +395,7 @@ namespace ExecuteIndirect {
         return "";
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("execute_indirect");
 
@@ -440,6 +440,6 @@ namespace ExecuteIndirect {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ExecuteIndirect.main(argc, argv);
 }

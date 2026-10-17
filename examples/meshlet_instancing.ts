@@ -81,23 +81,23 @@ namespace MeshletInstancing {
             this.keys = [0, 0, 0, 0, 0, 0, 0, 0];
         }
 
-        init(x: number, y: number, z: number): void {
+        init(x: number, y: number, z: number) {
             this.initialPosition = [Math.fround(x), Math.fround(y), Math.fround(z), 0.0];
             this.reset();
         }
 
-        setMoveSpeed(unitsPerSecond: number): void {
+        setMoveSpeed(unitsPerSecond: number) {
             this.moveSpeed = Math.fround(unitsPerSecond);
         }
 
-        reset(): void {
+        reset() {
             this.position = [this.initialPosition[0], this.initialPosition[1], this.initialPosition[2], 0.0];
             this.yaw = XM_PI;
             this.pitch = 0.0;
             this.lookDirection = [0.0, 0.0, -1.0, 0.0];
         }
 
-        onKey(key: int, down: boolean): void {
+        onKey(key: int, down: boolean) {
             let index = -1;
             if (key == KEY_W) {
                 index = 0;
@@ -121,7 +121,7 @@ namespace MeshletInstancing {
             }
         }
 
-        update(elapsedSeconds: number): void {
+        update(elapsedSeconds: number) {
             const k = this.keys;
             // The move vector in camera space.
             let moveX = 0.0;
@@ -181,7 +181,7 @@ namespace MeshletInstancing {
             this.lookDirection = [Math.fround(r * sinYaw), Math.fround(Math.sin(this.pitch)), Math.fround(r * cosYaw), 0.0];
         }
 
-        viewMatrix(): number[] {
+        viewMatrix() {
             return matrixLookToRH(this.position, this.lookDirection, [0.0, 1.0, 0.0, 0.0]);
         }
 
@@ -259,7 +259,7 @@ namespace MeshletInstancing {
         }
 
         // OnKeyDown / OnKeyUp.
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_PRESS) {
                 if (key == KEY_EQUAL || key == KEY_KP_ADD) {
                     this.instanceLevel++;
@@ -284,7 +284,7 @@ namespace MeshletInstancing {
 
         // RegenerateInstances: the instances in a cube growing with the level, a bounding sphere's
         // diameter apart; the instance buffer made larger when they don't fit.
-        regenerateInstances(): void {
+        regenerateInstances() {
             this.updateInstances = true;
             const spacing = Math.fround(Math.fround(1.0 * this.radius) * 2.0);
             const width = this.instanceLevel * 2 + 1;
@@ -322,12 +322,12 @@ namespace MeshletInstancing {
         }
 
         // OnUpdate: the camera and the constants for its view.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, `${this.instanceCount} instances`);
             this.camera.update(Math.fround(elapsedSeconds));
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -341,7 +341,7 @@ namespace MeshletInstancing {
 
         // The sample's back buffer and depth buffer, and its pipeline state: the default rasterizer
         // state (back faces culled), blend state (opaque) and depth state (less, writes).
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             this.depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.framebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
@@ -355,7 +355,7 @@ namespace MeshletInstancing {
         }
 
         // PopulateCommandList.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
@@ -419,7 +419,7 @@ namespace MeshletInstancing {
         }
 
         // The meshes' binding sets, for an instance buffer.
-        createBindingSets(instanceBuffer: BufferHandle): void {
+        createBindingSets(instanceBuffer: BufferHandle) {
             for (let m = 0; m < this.meshes.length; m++) {
                 const setDesc = BindingSetDesc.create();
                 setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
@@ -435,7 +435,7 @@ namespace MeshletInstancing {
 
         // Model::LoadFromFile and UploadGpuResources: each mesh's vertices, meshlets, unique vertex
         // indices and primitives in buffers for the mesh shader, its subsets and their pack counts.
-        loadModel(): boolean {
+        loadModel() {
             const binaryFile = this.app.loadBinaryFile(MESH_FILE);
             if (binaryFile.isNull()) {
                 console.log(`Cannot load ${MESH_FILE} (the sample's model: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
@@ -509,7 +509,7 @@ namespace MeshletInstancing {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.meshShader = this.app.createShader("meshlet_instancing.hlsl", "main_ms", ShaderType.Mesh);
             this.pixelShader = this.app.createShader("meshlet_instancing.hlsl", "main_ps", ShaderType.Pixel);
             if (!this.meshShader || !this.pixelShader) {
@@ -551,7 +551,7 @@ namespace MeshletInstancing {
     // -test: checks the last frame, at instance level 2 (125 robots around the camera). They cover
     // most of the frame but not all of it (the clear color shows between them), in meshlet colors:
     // some pixels without red (odd meshlets), some with.
-    function checkFrame(app: App, pass: MeshletInstancingPass): string {
+    function checkFrame(app: App, pass: MeshletInstancingPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -591,7 +591,7 @@ namespace MeshletInstancing {
         return "";
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("meshlet_instancing");
 
@@ -635,6 +635,6 @@ namespace MeshletInstancing {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MeshletInstancing.main(argc, argv);
 }

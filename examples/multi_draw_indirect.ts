@@ -10,7 +10,7 @@ namespace MultiDrawIndirect {
 
     // -test: checks the last frame and the culling. The top corners are the dark clear color, the
     // scene covers about half the frame; the GPU culling kept some of the instances, not all.
-    function checkFrame(app: App, mdi: MultiDrawIndirectPass): string {
+    function checkFrame(app: App, mdi: MultiDrawIndirectPass) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -81,14 +81,14 @@ namespace MultiDrawIndirect {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // The sample's glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), as glm
     // lays it out (columns), with clip y negated: the sample's clip space has y down on the screen
     // (Vulkan's), Donut's y up.
-    function samplePerspective(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * verticalFOV);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                              0.0,
@@ -128,7 +128,7 @@ namespace MultiDrawIndirect {
             }
         }
 
-        isVisible(x: number, y: number, z: number, radius: number): boolean {
+        isVisible(x: number, y: number, z: number, radius: number) {
             const tested = [0, 1, 4, 5];
             for (let t = 0; t < tested.length; t++) {
                 const p = tested[t] * 4;
@@ -227,28 +227,28 @@ namespace MultiDrawIndirect {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE,
                 `${this.instanceCount} / ${this.modelCount} instances`);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             this.app.releaseResources([this.drawPipeline, this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.drawPipeline = null;
             this.framebuffer = null;
@@ -256,7 +256,7 @@ namespace MultiDrawIndirect {
             this.depthBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
@@ -265,7 +265,7 @@ namespace MultiDrawIndirect {
         // The sample's render pass: an sRGB color target (as its swap chain) and depth. Its pipeline:
         // depth test (less), back faces culled, counter-clockwise front faces, in the sample's clip
         // space (see updateSceneUniform).
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "ColorBuffer");
             const depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             const framebuffer = this.app.createFramebuffer(colorBuffer, depthBuffer);
@@ -283,7 +283,7 @@ namespace MultiDrawIndirect {
 
         // The sample's update_scene_uniform: its camera's view and projection matrices, and the
         // number of models.
-        updateSceneUniform(width: int, height: int): void {
+        updateSceneUniform(width: int, height: int) {
             this.camera.getWorldToView(Ref(this.viewMatrix[0]));
 
             // The sample's world has -y up on the screen. Mirrored in y it is Donut's world, y up,
@@ -319,7 +319,7 @@ namespace MultiDrawIndirect {
         }
 
         // The sample's cpu_cull: every model's draw, visible (one instance) or not (none).
-        cpuCull(): void {
+        cpuCull() {
             const tester = new VisibilityTester(this.constants, CONST_PROJ_VIEW);
             let visible = 0;
             for (let i = 0; i < this.modelCount; i++) {
@@ -335,7 +335,7 @@ namespace MultiDrawIndirect {
         }
 
         // The sample's run_gpu_cull: a thread per model.
-        runGpuCull(commandList: CommandList): void {
+        runGpuCull(commandList: CommandList) {
             const groups = Math.floor((this.modelCount + 63) / 64);
             const addressPipeline = this.addressPipeline;
             if (this.renderMode == RENDER_GPU_DEVICE_ADDRESS) {
@@ -351,7 +351,7 @@ namespace MultiDrawIndirect {
 
         // The sample's overlay counts the instances the GPU culling left: here from a copy of the
         // commands made READBACK_BUFFERS - 1 frames before, then a copy of this frame's.
-        readBackInstanceCount(commandList: CommandList): void {
+        readBackInstanceCount(commandList: CommandList) {
             const slot = this.frameIndex % READBACK_BUFFERS;
             const oldest = (this.frameIndex + 1) % READBACK_BUFFERS;
             if (this.readbackValid[oldest]) {
@@ -371,7 +371,7 @@ namespace MultiDrawIndirect {
             this.readbackValid[slot] = true;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -433,7 +433,7 @@ namespace MultiDrawIndirect {
         // triangles in one vertex and one index buffer, recorded into an open command list. As the
         // sample, the vertices are mirrored in y (into its world), but not the bounding spheres,
         // computed from the vertices as read: so its culling tests mirrored spheres.
-        loadScene(commandList: CommandList, sampler: SamplerHandle): boolean {
+        loadScene(commandList: CommandList, sampler: SamplerHandle) {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -541,7 +541,7 @@ namespace MultiDrawIndirect {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.support = this.app.getIndirectDrawSupport();
 
             this.drawVS = this.app.createShader("multi_draw_indirect.hlsl", "mdi_vs", ShaderType.Vertex);
@@ -666,7 +666,7 @@ namespace MultiDrawIndirect {
         }
     }
 
-    function supportText(supported: boolean): string {
+    function supportText(supported: boolean) {
         return supported ? "Supported" : "Not supported";
     }
 
@@ -678,7 +678,7 @@ namespace MultiDrawIndirect {
             this.mdi = mdi;
         }
 
-        buildUI(): void {
+        buildUI() {
             const mdi = this.mdi;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -699,7 +699,7 @@ namespace MultiDrawIndirect {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -712,7 +712,7 @@ namespace MultiDrawIndirect {
         // -freeze: culling frozen.
         freezeCull = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-nomdi") {
@@ -727,7 +727,7 @@ namespace MultiDrawIndirect {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("multi_draw_indirect");
 
@@ -778,6 +778,6 @@ namespace MultiDrawIndirect {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MultiDrawIndirect.main(argc, argv);
 }

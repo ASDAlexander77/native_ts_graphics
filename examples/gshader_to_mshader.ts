@@ -10,7 +10,7 @@ namespace GshaderToMshader {
 
     // -test: checks the last frame. The corners are the dark clear color; the cyan teapot covers
     // about 7% of the frame, its middle included.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -83,12 +83,12 @@ namespace GshaderToMshader {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -103,7 +103,7 @@ namespace GshaderToMshader {
     }
 
     // glm::rotate(mat4(1), angle, axis) about a unit axis.
-    function rotation(angle: number, x: number, y: number, z: number): number[] {
+    function rotation(angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -115,11 +115,11 @@ namespace GshaderToMshader {
         ];
     }
 
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
     }
 
-    function transpose(m: number[]): number[] {
+    function transpose(m: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -130,7 +130,7 @@ namespace GshaderToMshader {
     }
 
     // glm::inverse, by Gauss-Jordan elimination with partial pivoting.
-    function inverse(m: number[]): number[] {
+    function inverse(m: number[]) {
         // Rows of [m | identity].
         let rows: number[][] = [];
         for (let row = 0; row < 4; row++) {
@@ -177,7 +177,7 @@ namespace GshaderToMshader {
 
     // glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), with clip y
     // negated: the sample's clip space has y down on the screen (Vulkan's), Donut's y up.
-    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                              0.0,
@@ -194,7 +194,7 @@ namespace GshaderToMshader {
     // starts the next meshlet). A meshlet's vertices are the different ones it indexes, in
     // increasing order, the triangle cut short's included. One meshlet record is reused all along:
     // what lies past its counts is the previous meshlets'. Returns the meshlets' uints.
-    function prepareMeshlets(indices: int[], indexCount: int, vertexCount: int): int[] {
+    function prepareMeshlets(indices: int[], indexCount: int, vertexCount: int) {
         let meshlet: int[] = [];
         for (let i = 0; i < MESHLET_UINTS; i++) {
             meshlet.push(0);
@@ -341,7 +341,7 @@ namespace GshaderToMshader {
 
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.leftButton) {
@@ -360,7 +360,7 @@ namespace GshaderToMshader {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             const pressed = action == ACTION_PRESS;
             if (button == MOUSE_BUTTON_LEFT) {
                 this.leftButton = pressed;
@@ -372,11 +372,11 @@ namespace GshaderToMshader {
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             this.app.releaseResources([this.modelPipeline, this.geometryPipeline, this.meshPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.modelPipeline = null;
@@ -387,7 +387,7 @@ namespace GshaderToMshader {
             this.depthBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
@@ -396,7 +396,7 @@ namespace GshaderToMshader {
         // The sample's render pass targets (an sRGB color buffer, as its swapchain, and a depth
         // buffer) and its three pipelines, which share their state: reversed depth (greater passes),
         // no culling.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "ColorBuffer");
             const depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             const framebuffer = this.app.createFramebuffer(colorBuffer, depthBuffer);
@@ -434,7 +434,7 @@ namespace GshaderToMshader {
 
         // The sample's update_uniform_buffers: its camera's matrices, the model turned half a turn
         // about z, and the normal matrix.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -453,7 +453,7 @@ namespace GshaderToMshader {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -509,7 +509,7 @@ namespace GshaderToMshader {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.meshShadersSupported = this.app.isFeatureSupported(Feature.Meshlets) != 0;
             if (!this.meshShadersSupported) {
                 console.log("The device has no mesh shaders: the normals are drawn by the geometry shader only");
@@ -647,7 +647,7 @@ namespace GshaderToMshader {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -671,7 +671,7 @@ namespace GshaderToMshader {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -681,7 +681,7 @@ namespace GshaderToMshader {
         showNormalsGeo = false;
         showNormalsMesh = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-gshader") {
@@ -695,7 +695,7 @@ namespace GshaderToMshader {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("gshader_to_mshader");
 
@@ -739,6 +739,6 @@ namespace GshaderToMshader {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return GshaderToMshader.main(argc, argv);
 }

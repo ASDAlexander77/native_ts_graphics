@@ -10,7 +10,7 @@ namespace EnvironmentMap {
 
     // -test: checks the last frame: Sponza, reflecting the environment map, fills it, with the sky
     // through the roof about 0.8% white.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -52,7 +52,7 @@ namespace EnvironmentMap {
 
     // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane,
     // in float32 as Donut's.
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
+    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
@@ -116,7 +116,7 @@ namespace EnvironmentMap {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
@@ -126,35 +126,35 @@ namespace EnvironmentMap {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
 
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE,
                 `- ${this.useKtx2 ? "KTX 2" : "DDS"} environment map, shadows ${this.enableShadows ? "on" : "off"}`);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             // The blit's cached binding sets reference the old LDR color texture.
             this.app.clearBindingCache();
         }
 
         // The targets and the passes made for their framebuffers.
-        createRenderTargets(width: int, height: int): void {
+        createRenderTargets(width: int, height: int) {
             if (!this.renderTargets.isNull()) {
                 this.app.releaseObject(this.renderTargets.handle);
             }
@@ -180,7 +180,7 @@ namespace EnvironmentMap {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -238,7 +238,7 @@ namespace EnvironmentMap {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string): boolean {
+        init(scenePath: string) {
             const scene = this.app.loadScene(scenePath);
             if (scene.isNull()) {
                 console.log(`Cannot load the scene ${scenePath}`);
@@ -295,7 +295,7 @@ namespace EnvironmentMap {
         // -ktx2: the environment map from its KTX 2 file instead of the DDS one.
         useKtx2 = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-ktx2") {
@@ -305,7 +305,7 @@ namespace EnvironmentMap {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("environment_map");
 
@@ -344,6 +344,6 @@ namespace EnvironmentMap {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return EnvironmentMap.main(argc, argv);
 }

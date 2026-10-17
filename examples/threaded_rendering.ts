@@ -10,7 +10,7 @@ namespace ThreadedRendering {
 
     // -test: checks the last frame. The corners are black; the scene, drawn by several threads into
     // its viewports, covers about half the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -67,7 +67,7 @@ namespace ThreadedRendering {
             this.useThreads = true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == KEY_SPACE && action == ACTION_PRESS) {
@@ -77,27 +77,27 @@ namespace ThreadedRendering {
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
 
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, this.useThreads ? "(With threads)" : "(No threads)");
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.app.clearBindingCache();
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             this.cubemap.setViewFromCamera(this.camera, 0.1, 100.0);
 
@@ -129,7 +129,7 @@ namespace ThreadedRendering {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string): boolean {
+        init(scenePath: string) {
             const scene = this.app.loadScene(scenePath);
             if (scene.isNull()) {
                 console.log(`Cannot load the scene ${scenePath}`);
@@ -159,7 +159,7 @@ namespace ThreadedRendering {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("threaded_rendering");
 
@@ -205,6 +205,6 @@ namespace ThreadedRendering {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ThreadedRendering.main(argc, argv);
 }

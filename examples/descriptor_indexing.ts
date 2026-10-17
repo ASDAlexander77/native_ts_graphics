@@ -10,7 +10,7 @@ namespace DescriptorIndexing {
 
     // -test: checks the last frame. The corners are the blue clear color; the rows of quads, each
     // with its texture picked by index, cover about 21% of every quarter of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x664C33);
         if (corners != "") {
@@ -55,7 +55,7 @@ namespace DescriptorIndexing {
     // The sample's create_image: 16 x 16 RGBA8, a pattern picked by the seed (a checkerboard,
     // stripes or diagonals of 4-texel cells) in the color, the dark cells at a quarter, each
     // channel plus noise in [0, 0.1) from the sample's random engine; packed 4 bytes per int.
-    function createImageData(rgb: number[], imageSeed: int, rng: RandomEngine): int[] {
+    function createImageData(rgb: number[], imageSeed: int, rng: RandomEngine) {
         let texels: int[] = [];
         for (let y = 0; y < IMAGE_SIZE; y++) {
             for (let x = 0; x < IMAGE_SIZE; x++) {
@@ -140,7 +140,7 @@ namespace DescriptorIndexing {
         }
 
         // The sample's render: the time accumulated in float, wrapped to [0, 1).
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             const deltaTime = Math.fround(this.benchmark ? 1.0 / 60.0 : elapsedSeconds);
             const time = Math.fround(this.accumulatedTime + Math.fround(Math.fround(0.2) * deltaTime));
             this.accumulatedTime = Math.fround(time - Math.floor(time));
@@ -148,11 +148,11 @@ namespace DescriptorIndexing {
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -162,7 +162,7 @@ namespace DescriptorIndexing {
         }
 
         // The sample's pipelines: triangle strips, no culling, no depth, no blending.
-        createPipeline(vs: ShaderHandle, ps: ShaderHandle): GraphicsPipelineHandle {
+        createPipeline(vs: ShaderHandle, ps: ShaderHandle) {
             const desc = GraphicsPipelineDesc.create(vs, ps);
             desc.setPrimitiveType(PrimitiveType.TriangleStrip);
             desc.addBindingLayout(this.bindingLayout);
@@ -172,7 +172,7 @@ namespace DescriptorIndexing {
             return this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             const count = this.app.getBackBufferCount();
             for (let i = 0; i < count; i++) {
@@ -187,7 +187,7 @@ namespace DescriptorIndexing {
             this.targetHeight = height;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -227,7 +227,7 @@ namespace DescriptorIndexing {
 
         // The sample's create_images: 64 colors in [0.2, 0.8) from its random engine (seed 42),
         // then each image made with its color, and written into the non-uniform table.
-        createImages(commandList: CommandList): void {
+        createImages(commandList: CommandList) {
             const rng = this.app.createRandomEngine(42);
             const colors: number[] = [];
             for (let i = 0; i < NUM_DESCRIPTORS_NON_UNIFORM * 3; i++) {
@@ -243,7 +243,7 @@ namespace DescriptorIndexing {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "descriptor_indexing.hlsl";
             this.nonUniformVS = this.app.createShader(shader, "nonuniform_vs", ShaderType.Vertex);
             this.nonUniformPS = this.app.createShader(shader, "nonuniform_ps", ShaderType.Pixel);
@@ -293,7 +293,7 @@ namespace DescriptorIndexing {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("descriptor_indexing");
 
@@ -333,6 +333,6 @@ namespace DescriptorIndexing {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DescriptorIndexing.main(argc, argv);
 }

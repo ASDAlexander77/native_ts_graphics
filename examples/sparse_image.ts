@@ -10,7 +10,7 @@ namespace SparseImage {
 
     // -test: checks the last frame: the sparse texture's red and white Vulkan logo art, about 32%
     // red and 19% white, white in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -88,12 +88,12 @@ namespace SparseImage {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -108,7 +108,7 @@ namespace SparseImage {
     }
 
     // glm::rotate(mat4(1), angle, axis) about a unit axis.
-    function rotation(angle: number, x: number, y: number, z: number): number[] {
+    function rotation(angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -120,12 +120,12 @@ namespace SparseImage {
         ];
     }
 
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
     }
 
     // glm::perspective(fov, aspect, near, far): right-handed, depth from 0 to 1.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -137,18 +137,18 @@ namespace SparseImage {
 
     // std::max and std::min, which keep their first argument when a comparison involves NaN (as
     // the sample's mip level arithmetic can).
-    function stdMax(a: number, b: number): number {
+    function stdMax(a: number, b: number) {
         return a < b ? b : a;
     }
 
-    function stdMin(a: number, b: number): number {
+    function stdMin(a: number, b: number) {
         return b < a ? b : a;
     }
 
     // --- Sorted int arrays (the sample's std::set) ----------------------------------------------
 
     // The first position whose value isn't below value.
-    function lowerBound(values: int[], value: int): int {
+    function lowerBound(values: int[], value: int) {
         let low: int = 0;
         let high = values.length;
         while (low < high) {
@@ -162,7 +162,7 @@ namespace SparseImage {
         return low;
     }
 
-    function sortedInsert(values: int[], value: int): void {
+    function sortedInsert(values: int[], value: int) {
         const position = lowerBound(values, value);
         if (position < values.length && values[position] == value) {
             return;
@@ -174,7 +174,7 @@ namespace SparseImage {
         values[position] = value;
     }
 
-    function sortedRemove(values: int[], value: int): void {
+    function sortedRemove(values: int[], value: int) {
         const position = lowerBound(values, value);
         if (position >= values.length || values[position] != value) {
             return;
@@ -223,7 +223,7 @@ namespace SparseImage {
     }
 
     // TextureBlock::operator<: by new level, then column, then row.
-    function blockLess(a: TextureBlock, b: TextureBlock): boolean {
+    function blockLess(a: TextureBlock, b: TextureBlock) {
         if (a.newMipLevel == b.newMipLevel) {
             if (a.column == b.column) {
                 return a.row < b.row;
@@ -234,7 +234,7 @@ namespace SparseImage {
     }
 
     // In the set's order: a merge sort.
-    function sortBlocks(blocks: TextureBlock[]): TextureBlock[] {
+    function sortBlocks(blocks: TextureBlock[]) {
         let source = blocks;
         for (let width = 1; width < source.length; width *= 2) {
             const merged: TextureBlock[] = [];
@@ -508,7 +508,7 @@ namespace SparseImage {
         // --- Input ------------------------------------------------------------------------------
 
         // ApiVulkanSample's keys: WASD move the camera while held.
-        onKeyboard(key: int, scancode: int, action: int, mods: int): int {
+        onKeyboard(key: int, scancode: int, action: int, mods: int) {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
             }
@@ -529,7 +529,7 @@ namespace SparseImage {
 
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.leftButton) {
@@ -548,7 +548,7 @@ namespace SparseImage {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             const pressed = action == ACTION_PRESS;
             if (button == MOUSE_BUTTON_LEFT) {
                 this.leftButton = pressed;
@@ -561,7 +561,7 @@ namespace SparseImage {
         }
 
         // The framework's first person camera: WASD along the view direction and sideways.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             if (this.keyUp || this.keyDown || this.keyLeft || this.keyRight) {
                 const rx = radians(this.cameraRotation[0]);
                 const ry = radians(this.cameraRotation[1]);
@@ -604,7 +604,7 @@ namespace SparseImage {
         // --- Pages ------------------------------------------------------------------------------
 
         // get_mip_level: the level a page belongs to.
-        getMipLevel(pageIndex: int): int {
+        getMipLevel(pageIndex: int) {
             for (let i = 0; i < MIP_LEVELS; i++) {
                 const mip = this.mipProperties[i];
                 if (pageIndex < mip.mipBasePageIndex + mip.mipNumPages) {
@@ -614,19 +614,19 @@ namespace SparseImage {
             return 255;
         }
 
-        getPageIndex(mipLevel: int, x: int, y: int): int {
+        getPageIndex(mipLevel: int, x: int, y: int) {
             const mip = this.mipProperties[mipLevel];
             return mip.mipBasePageIndex + mip.numColumns * y + x;
         }
 
         // The keys of render_required_set: (level, column, row).
-        blockKey(mipLevel: int, column: int, row: int): int {
+        blockKey(mipLevel: int, column: int, row: int) {
             return mipLevel * 65536 + column * 256 + row;
         }
 
         // MemAllocInfo::get_allocation: a free page in the front sector, or in a new sector put in
         // front when that one is gone or full.
-        getAllocation(pageIndex: int): void {
+        getAllocation(pageIndex: int) {
             let sectorIndex = -1;
             if (this.sectorList.length > 0) {
                 const front = this.sectors[this.sectorList[0]];
@@ -652,7 +652,7 @@ namespace SparseImage {
         }
 
         // A page's memory_sector (shared_ptr) set to a sector or reset (-1).
-        setPageSector(pageIndex: int, sectorIndex: int): void {
+        setPageSector(pageIndex: int, sectorIndex: int) {
             if (sectorIndex >= 0) {
                 this.sectors[sectorIndex].references++;
             }
@@ -664,7 +664,7 @@ namespace SparseImage {
         }
 
         // One reference to a sector dropped: with none left its memory goes (once unmapped).
-        releaseSector(sectorIndex: int): void {
+        releaseSector(sectorIndex: int) {
             const sector = this.sectors[sectorIndex];
             sector.references--;
             if (sector.references == 0) {
@@ -674,7 +674,7 @@ namespace SparseImage {
 
         // bind_sparse_image: maps the pages needed and not mapped yet, unmaps the others. Work
         // recorded before runs first.
-        bindSparseImage(frame: Frame): void {
+        bindSparseImage(frame: Frame) {
             if (this.pendingCommands) {
                 this.app.submitFrameCommandList(frame);
                 this.pendingCommands = false;
@@ -716,7 +716,7 @@ namespace SparseImage {
         }
 
         // get_memory_dependency_for_the_block: the pages of a level a BLOCK covers.
-        getMemoryDependencyForTheBlock(column: int, row: int, mipLevel: int): int[] {
+        getMemoryDependencyForTheBlock(column: int, row: int, mipLevel: int) {
             const dependencies: int[] = [];
 
             const heightOnScreenDivider = 1.0 / this.numVerticalBlocks;
@@ -746,7 +746,7 @@ namespace SparseImage {
 
         // check_mip_page_requirements: the 2 x 2 pages of the level above that a page is generated
         // from, marked as needed (and to fill if not valid), down to level 0.
-        checkMipPageRequirements(required: int[], mipLevel: int, x: int, y: int): void {
+        checkMipPageRequirements(required: int[], mipLevel: int, x: int, y: int) {
             if (mipLevel == 0) {
                 return;
             }
@@ -772,7 +772,7 @@ namespace SparseImage {
         // process_texture_block: a BLOCK no longer needs its old level's pages; if on screen, it
         // needs its new level's, and those not valid are to be filled, with what they're generated
         // from.
-        processTextureBlock(block: TextureBlock): void {
+        processTextureBlock(block: TextureBlock) {
             const oldMip: int = Math.floor(block.oldMipLevel);
             let pageIndices = this.getMemoryDependencyForTheBlock(block.column, block.row, oldMip);
             const oldKey = this.blockKey(oldMip, block.column, block.row);
@@ -807,7 +807,7 @@ namespace SparseImage {
         }
 
         // compare_mips_table: the BLOCKS whose visibility or required level changed.
-        compareMipsTable(): void {
+        compareMipsTable() {
             const blocks: TextureBlock[] = [];
             for (let y = 0; y < this.numVerticalBlocks; y++) {
                 for (let x = 0; x < this.numHorizontalBlocks; x++) {
@@ -835,7 +835,7 @@ namespace SparseImage {
         }
 
         // process_texture_blocks: the next blocks_to_update_per_cycle of them.
-        processTextureBlocks(): void {
+        processTextureBlocks() {
             let blockCounter = Math.min(this.blocksToUpdatePerCycle, this.updateBlockCount());
             // uint8_t
             this.frameCounterPerTransfer = (this.frameCounterPerTransfer + 1) % 256;
@@ -851,7 +851,7 @@ namespace SparseImage {
 
         // update_and_generate: maps the pages, then fills those to fill, in page order (so by
         // level): level 0 from the CPU-side data, the others from the level above.
-        updateAndGenerate(frame: Frame): void {
+        updateAndGenerate(frame: Frame) {
             this.bindSparseImage(frame);
 
             const commandList = frame.getCommandList();
@@ -884,7 +884,7 @@ namespace SparseImage {
 
         // MemSectorCompare in std::list::sort (stable): sectors that are gone last, the others by
         // free pages, most first.
-        sectorLess(left: int, right: int): boolean {
+        sectorLess(left: int, right: int) {
             const l = this.sectors[left];
             const r = this.sectors[right];
             if (l.references == 0) {
@@ -895,7 +895,7 @@ namespace SparseImage {
             return l.availableOffsets.length > r.availableOffsets.length;
         }
 
-        sortSectors(): void {
+        sortSectors() {
             const list = this.sectorList;
             for (let i = 1; i < list.length; i++) {
                 const value = list[i];
@@ -911,7 +911,7 @@ namespace SparseImage {
         // free_unused_memory: frees the pages no BLOCK needs for rendering, drops the sectors that
         // are gone, and with defragmentation moves the pages of sparse sectors (but the first) to
         // others; then maps.
-        freeUnusedMemory(frame: Frame): void {
+        freeUnusedMemory(frame: Frame) {
             for (let pageIndex = 0; pageIndex < this.pageCount; pageIndex++) {
                 if (this.pageRenderRequired[pageIndex].length == 0 && this.pageValid[pageIndex]) {
                     this.pageValid[pageIndex] = false;
@@ -1008,7 +1008,7 @@ namespace SparseImage {
 
         // reset_mip_table: both tables at the block counts, nothing on screen yet; the pages' BLOCK
         // sets emptied (but the fixed ones').
-        resetMipTable(): void {
+        resetMipTable() {
             const count = this.numVerticalBlocks * this.numHorizontalBlocks;
             this.currentMipLevel = [];
             this.currentOnScreen = [];
@@ -1029,7 +1029,7 @@ namespace SparseImage {
 
         // calculate_mesh_coordinates: the plane's grid nodes on screen (pixels from the center),
         // through the sample's MVP, and the slopes of its first row and column of edges.
-        calculateMeshCoordinates(): void {
+        calculateMeshCoordinates() {
             const vertical = this.numVerticalBlocks;
             const horizontal = this.numHorizontalBlocks;
             const hInterval = (2.0 * PLANE_HALF_SIZE) / horizontal;
@@ -1083,7 +1083,7 @@ namespace SparseImage {
         // calculate_mip_levels: per BLOCK, the level from how many texels a pixel step on screen
         // covers on the texture (log2 of the largest ratio along the block's edges), see the
         // sample's comments; on screen if any of its corners is.
-        calculateMipLevels(): void {
+        calculateMipLevels() {
             const numRows = this.numVerticalBlocks;
             const numColumns = this.numHorizontalBlocks;
             const stride = numColumns + 1;
@@ -1191,7 +1191,7 @@ namespace SparseImage {
 
         // calculate_mips_table: the grid (set up again if the block counts changed), then the
         // level each BLOCK needs.
-        calculateMipsTable(): void {
+        calculateMipsTable() {
             if (this.numVerticalBlocks != this.numVerticalBlocksUpd || this.numHorizontalBlocks != this.numHorizontalBlocksUpd) {
                 this.numVerticalBlocks = this.numVerticalBlocksUpd;
                 this.numHorizontalBlocks = this.numHorizontalBlocksUpd;
@@ -1208,7 +1208,7 @@ namespace SparseImage {
         }
 
         // process_stage: the state machine, one step per frame.
-        processStage(frame: Frame): void {
+        processStage(frame: Frame) {
             const stage = this.nextStage;
             if (stage == STAGE_IDLE) {
                 this.nextStage = STAGE_FREE_MEMORY;
@@ -1244,7 +1244,7 @@ namespace SparseImage {
         // load_least_detailed_level: the least detailed level made required by every BLOCK and
         // never freed, then filled (and with it, at first, every level: its pages are generated
         // from them).
-        loadLeastDetailedLevel(frame: Frame): void {
+        loadLeastDetailedLevel(frame: Frame) {
             const least = this.mipProperties[MIP_LEVELS - 1];
             for (let pageIndex = least.mipBasePageIndex; pageIndex < least.mipBasePageIndex + least.mipNumPages; pageIndex++) {
                 this.pageFixed[pageIndex] = true;
@@ -1263,7 +1263,7 @@ namespace SparseImage {
         // --- Frames -----------------------------------------------------------------------------
 
         // update_mvp: the camera's matrices; the shader gets the projection with clip y negated.
-        updateMvp(width: int, height: int): void {
+        updateMvp(width: int, height: int) {
             const projection = perspective(radians(FOV_DEGREES), width / height, Z_NEAR, Z_FAR);
             const r = this.cameraRotation;
             let view = multiply(rotation(radians(r[0]), 1.0, 0.0, 0.0), rotation(radians(r[1]), 0.0, 1.0, 0.0));
@@ -1280,14 +1280,14 @@ namespace SparseImage {
         }
 
         // update_frag_settings.
-        updateFragSettings(commandList: CommandList): void {
+        updateFragSettings(commandList: CommandList) {
             this.settings[0] = this.colorHighlight ? 1 : 0;
             this.settings[1] = 0;
             this.settings[2] = MIP_LEVELS - 1;
             commandList.writeBuffer(this.settingsBuffer, Ref(this.settings[0]), SETTINGS_INTS * 4);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -1338,13 +1338,13 @@ namespace SparseImage {
             return this.sectorList.length * PAGES_PER_ALLOC;
         }
 
-        virtualPages(): int {
+        virtualPages() {
             return this.pageCount;
         }
 
         // create_sparse_texture_image: the texture, its tiling, and the pages of each level (rows
         // and columns of tiles, the edge ones cut at the level's edge).
-        createSparseTexture(): boolean {
+        createSparseTexture() {
             this.texture = this.app.createTiledTexture(this.width, this.height, MIP_LEVELS, Format.SRGBA8_UNORM, "SparseTexture");
             if (!this.texture) {
                 return false;
@@ -1413,7 +1413,7 @@ namespace SparseImage {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             if (this.app.hasSparseResidency() == 0) {
                 this.unsupportedReason = "Sparse binding not supported: this example needs tiled textures with residency queries (D3D12 or Vulkan)";
                 return false;
@@ -1524,7 +1524,7 @@ namespace SparseImage {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -1548,7 +1548,7 @@ namespace SparseImage {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -1557,7 +1557,7 @@ namespace SparseImage {
         // -nohighlight: without the color highlight of the levels.
         colorHighlight = true;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-nohighlight") {
@@ -1567,7 +1567,7 @@ namespace SparseImage {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("sparse_image");
 
@@ -1610,6 +1610,6 @@ namespace SparseImage {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return SparseImage.main(argc, argv);
 }

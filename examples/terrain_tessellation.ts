@@ -10,7 +10,7 @@ namespace TerrainTessellation {
 
     // -test: checks the last frame: the tessellated terrain under the sky fills it, the top left
     // corner the blue sky.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -58,14 +58,14 @@ namespace TerrainTessellation {
     // --- Math ---------------------------------------------------------------------------------
 
     // glm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
     }
 
     // The sample's glm::perspective(fov, aspect, 512, 0.1) (near and far swapped for reversed
     // depth), in Donut's row-vector convention, with view space z forward.
     // In float32, in glm's order of operations.
-    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const near = Math.fround(zNear);
         const far = Math.fround(zFar);
         const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
@@ -153,32 +153,32 @@ namespace TerrainTessellation {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.camera.mouseScrollUpdate(xOffset, yOffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             this.app.releaseResources([this.terrainPipeline, this.wireframePipeline, this.skyPipeline,
                 this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.terrainPipeline = null;
@@ -189,14 +189,14 @@ namespace TerrainTessellation {
             this.depthBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
         }
 
         // The terrain pipeline: quad patches, reversed depth (greater passes), back faces culled.
-        createTerrainPipeline(framebuffer: FramebufferHandle, fillMode: FillMode): GraphicsPipelineHandle {
+        createTerrainPipeline(framebuffer: FramebufferHandle, fillMode: FillMode) {
             const desc = GraphicsPipelineDesc.create(this.terrainVS, this.terrainPS);
             desc.setTessellation(this.terrainHS, this.terrainDS, PATCH_VERTICES);
             desc.addBindingLayout(this.bindingLayout);
@@ -205,7 +205,7 @@ namespace TerrainTessellation {
             return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             const depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             const framebuffer = this.app.createFramebuffer(colorBuffer, depthBuffer);
@@ -225,7 +225,7 @@ namespace TerrainTessellation {
         }
 
         // The sample's update_uniform_buffers.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const c = this.constants;
 
             // The sample's world has the terrain rising towards -y and, rendered by Vulkan without a
@@ -295,7 +295,7 @@ namespace TerrainTessellation {
             c[CONST_TESSELLATED_EDGE_SIZE] = 20.0;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -334,7 +334,7 @@ namespace TerrainTessellation {
 
         // The sample's samplers: mirrored for the heightmap (only ever sampled inside [0, 1]),
         // repeating and anisotropic for the terrain layers, repeating for the sky.
-        createBindingSet(): BindingSet {
+        createBindingSet() {
             const setDesc = BindingSetDesc.create();
             setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
             setDesc.bindTextureSRV(0, this.heightmap);
@@ -347,7 +347,7 @@ namespace TerrainTessellation {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.terrainVS = this.app.createShader("terrain_tessellation.hlsl", "main_vs", ShaderType.Vertex);
             this.terrainHS = this.app.createShader("terrain_tessellation.hlsl", "main_hs", ShaderType.Hull);
             this.terrainDS = this.app.createShader("terrain_tessellation.hlsl", "main_ds", ShaderType.Domain);
@@ -417,11 +417,11 @@ namespace TerrainTessellation {
             this.ui = ui;
         }
 
-        checkbox(label: string, value: boolean): boolean {
+        checkbox(label: string, value: boolean) {
             return Donut_ImGuiCheckbox(label, value ? 1 : 0) != 0;
         }
 
-        buildUI(): void {
+        buildUI() {
             const ui = this.ui;
 
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
@@ -433,12 +433,12 @@ namespace TerrainTessellation {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("terrain_tessellation");
 
@@ -481,6 +481,6 @@ namespace TerrainTessellation {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return TerrainTessellation.main(argc, argv);
 }

@@ -10,7 +10,7 @@ namespace WorkGraphs {
 
     // -test: checks the last frame: the colored buildings and the lights' sprites over the dark
     // scene (about 15% of the frame lit, 5% in color).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -156,26 +156,26 @@ namespace WorkGraphs {
             this.z = z;
         }
 
-        normalized(): Float3 {
+        normalized() {
             const length = Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
             return new Float3(this.x / length, this.y / length, this.z / length);
         }
     }
 
-    function randomPosXZ(extentsX: number, y: number, extentsZ: number): Float3 {
+    function randomPosXZ(extentsX: number, y: number, extentsZ: number) {
         const x = ((msvcRand() / RAND_MAX) - 0.5) * extentsX * 2.0;
         const z = ((msvcRand() / RAND_MAX) - 0.5) * extentsZ * 2.0;
         return new Float3(x, y, z);
     }
 
-    function randomSize(height: number, size: number, heightVariation: number, sizeVariation: number): Float3 {
+    function randomSize(height: number, size: number, heightVariation: number, sizeVariation: number) {
         const x = size + (msvcRand() / RAND_MAX - 0.5) * sizeVariation;
         const y = height + (msvcRand() / RAND_MAX - 0.5) * heightVariation;
         const z = size + (msvcRand() / RAND_MAX - 0.5) * sizeVariation;
         return new Float3(x, y, z);
     }
 
-    function randomColor(normalized: boolean): Float3 {
+    function randomColor(normalized: boolean) {
         const r = msvcRand() / RAND_MAX;
         const g = msvcRand() / RAND_MAX;
         const b = msvcRand() / RAND_MAX;
@@ -183,18 +183,18 @@ namespace WorkGraphs {
         return normalized ? color.normalized() : color;
     }
 
-    function random01(): number {
+    function random01() {
         return msvcRand() / RAND_MAX;
     }
 
-    function randomAngle(): number {
+    function randomAngle() {
         return (msvcRand() / RAND_MAX) * Math.PI * 2.0;
     }
 
     // 4x4 matrices: 16 numbers, row-major, with Donut's row-vector convention (v * M).
 
     // The sample's lookToD3DStyle: left-handed view matrix looking from eye at focus.
-    function lookToD3DStyle(eye: Float3, focus: Float3, up: Float3): number[] {
+    function lookToD3DStyle(eye: Float3, focus: Float3, up: Float3) {
         const z = new Float3(focus.x - eye.x, focus.y - eye.y, focus.z - eye.z).normalized();
         // cross(up, z)
         const x = new Float3(up.y * z.z - up.z * z.y, up.z * z.x - up.x * z.z, up.x * z.y - up.y * z.x).normalized();
@@ -215,7 +215,7 @@ namespace WorkGraphs {
     // math::perspProjD3DStyle(verticalFOV, aspect, zNear, zFar).
     // In float32 as Donut's (computed in double, the terms differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
         const near = Math.fround(zNear);
         const far = Math.fround(zFar);
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
@@ -229,7 +229,7 @@ namespace WorkGraphs {
         ];
     }
 
-    function multiplyMatrices(a: number[], b: number[]): number[] {
+    function multiplyMatrices(a: number[], b: number[]) {
         let result: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -244,7 +244,7 @@ namespace WorkGraphs {
     }
 
     // Gauss-Jordan elimination with partial pivoting; m must be invertible.
-    function invertMatrix(m: number[]): number[] {
+    function invertMatrix(m: number[]) {
         let a: number[] = [];
         let inverse: number[] = [];
         for (let i = 0; i < 16; i++) {
@@ -305,7 +305,7 @@ namespace WorkGraphs {
             this.vertexCount = 0;
         }
 
-        addVertex(px: number, py: number, pz: number, nx: number, ny: number, nz: number): void {
+        addVertex(px: number, py: number, pz: number, nx: number, ny: number, nz: number) {
             this.vertices.push(px);
             this.vertices.push(py);
             this.vertices.push(pz);
@@ -315,12 +315,12 @@ namespace WorkGraphs {
             this.vertexCount++;
         }
 
-        addIndex(index: int): void {
+        addIndex(index: int) {
             this.indices.push(index);
         }
     }
 
-    function generatePlaneInternal(y: number, sign: number, mesh: MeshData): void {
+    function generatePlaneInternal(y: number, sign: number, mesh: MeshData) {
         const baseVertex = mesh.vertexCount;
         mesh.addVertex(-0.5 * sign, y, -0.5, 0.0, sign, 0.0);
         mesh.addVertex(-0.5 * sign, y, 0.5, 0.0, sign, 0.0);
@@ -335,7 +335,7 @@ namespace WorkGraphs {
         mesh.addIndex(baseVertex + 0);
     }
 
-    function generatePlane(mesh: MeshData): void {
+    function generatePlane(mesh: MeshData) {
         generatePlaneInternal(0.0, 1.0, mesh);
         generatePlaneInternal(0.0, -1.0, mesh);
     }
@@ -343,7 +343,7 @@ namespace WorkGraphs {
     // One side of a box: a grid of (subdivisions + 1)^2 vertices over the coordinates coord0 and
     // coord1 (0 = x, 1 = y, 2 = z) of posInit.
     function generateBoxSide(subdivisions: int, coord0: int, coord1: int, posInit: Float3, normal: Float3, sign: number,
-        mesh: MeshData): void {
+        mesh: MeshData) {
         const baseVertex = mesh.vertexCount;
         let pos = [posInit.x, posInit.y, posInit.z];
         for (let y = 0; y < subdivisions + 1; y++) {
@@ -368,7 +368,7 @@ namespace WorkGraphs {
         }
     }
 
-    function generateBox(subdivisions: int, mesh: MeshData): void {
+    function generateBox(subdivisions: int, mesh: MeshData) {
         generateBoxSide(subdivisions, 0, 1, new Float3(0.0, 0.0, -0.5), new Float3(0.0, 0.0, -1.0), 1.0, mesh); // Front side.
         generateBoxSide(subdivisions, 2, 1, new Float3(0.5, 0.0, 0.0), new Float3(1.0, 0.0, 0.0), 1.0, mesh);   // Right side.
         generateBoxSide(subdivisions, 0, 1, new Float3(0.0, 0.0, 0.5), new Float3(0.0, 0.0, 1.0), -1.0, mesh);  // Back side.
@@ -377,7 +377,7 @@ namespace WorkGraphs {
         generatePlaneInternal(-0.5, -1.0, mesh); // Bottom side.
     }
 
-    function generateSphere(sides: int, slices: int, mesh: MeshData): void {
+    function generateSphere(sides: int, slices: int, mesh: MeshData) {
         const baseVertex = mesh.vertexCount;
 
         mesh.addVertex(0.0, -0.5, 0.0, 0.0, -1.0, 0.0); // Bottom vertex.
@@ -514,16 +514,16 @@ namespace WorkGraphs {
             this.lightData = [];
         }
 
-        static getSceneSize(): number {
+        static getSceneSize() {
             return SCENE_FLOOR_SIZE;
         }
 
-        static getSceneHeight(): number {
+        static getSceneHeight() {
             return SCENE_FLOOR_TO_CEILING_HEIGHT * SCENE_FLOORS;
         }
 
         // Generates the scene and records its upload into an open command list.
-        createAssets(app: App, commandList: CommandList): void {
+        createAssets(app: App, commandList: CommandList) {
             // Generate geometry data.
             const meshSet = [new MeshData(), new MeshData(), new MeshData()];
             generatePlane(meshSet[MESH_PLANE]);
@@ -561,7 +561,7 @@ namespace WorkGraphs {
 
         // Lays out the materials, instances and lights as the shaders' structures (all the elements
         // first: Donut_StoreInt32 writes into the arrays' current storage).
-        packBuffers(): void {
+        packBuffers() {
             for (let i = 0; i < this.materials.length * MATERIAL_FLOATS; i++) {
                 this.materialData.push(0.0);
             }
@@ -618,7 +618,7 @@ namespace WorkGraphs {
             }
         }
 
-        populateWorld(): void {
+        populateWorld() {
             g_RandomSeed = 0.0; // srand(0): deterministic world content.
 
             // Generate materials.
@@ -877,7 +877,7 @@ namespace WorkGraphs {
         }
 
         // The newest GPU time (in ms) of a set of timers that the GPU has finished; -1 if none.
-        getLastValidQueryTimer(timers: TimerQueryHandle[]): number {
+        getLastValidQueryTimer(timers: TimerQueryHandle[]) {
             for (let i = this.nextTimerToUse - 1; i >= 0; i--) {
                 if (this.app.pollTimerQuery(timers[i]) != 0) {
                     return this.app.getTimerQueryTime(timers[i]) * 1000.0;
@@ -892,7 +892,7 @@ namespace WorkGraphs {
             return -1.0;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             if (!this.ui.paused) {
                 this.timeDiffThisFrame = elapsedSeconds;
                 this.timeInSeconds += elapsedSeconds;
@@ -918,14 +918,14 @@ namespace WorkGraphs {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseResource(resource: ResourceHandle | null): void {
+        releaseResource(resource: ResourceHandle | null) {
             if (resource) {
                 this.app.releaseResource(resource);
             }
         }
 
         // Drops the size-dependent objects.
-        releaseRenderTargets(): void {
+        releaseRenderTargets() {
             const workGraph = this.workGraph;
             if (workGraph) {
                 // The GPU reads the work graph and its backing memory without NVRHI knowing, so they
@@ -963,13 +963,13 @@ namespace WorkGraphs {
             this.targetsHeight = 0;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseRenderTargets();
         }
 
         // A binding set of the shared layout: every pass fills all its slots, unused ones with null
         // resources. The resource registers must match with assignments used in the shader files.
-        createBindingSet(t0: BufferHandle, t1: TextureHandle, t2: TextureHandle, t3: BufferHandle, t4: BufferHandle, u0: BufferHandle, u1: TextureHandle): BindingSet {
+        createBindingSet(t0: BufferHandle, t1: TextureHandle, t2: TextureHandle, t3: BufferHandle, t4: BufferHandle, u0: BufferHandle, u1: TextureHandle) {
             const desc = BindingSetDesc.create();
             desc.bindPushConstants(0, PUSH_CONSTANTS_SIZE);
             desc.bindEntireConstantBuffer(1, this.constantBuffer);
@@ -985,7 +985,7 @@ namespace WorkGraphs {
 
         // First frame or window resize: the render targets, the g-buffer pipeline, the culled lights
         // buffer, the binding sets, and the work graph (whose entry node's grid covers the screen tiles).
-        createRenderTargets(frame: Frame, width: int, height: int): boolean {
+        createRenderTargets(frame: Frame, width: int, height: int) {
             const depth = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             const gbuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA16_UINT, "GBuffer");
             const ldrBuffer = this.app.createUAVTextureForFrameWithFormat(frame, "LDRBuffer", Format.RGBA8_UNORM);
@@ -1042,7 +1042,7 @@ namespace WorkGraphs {
             return true;
         }
 
-        updateSceneConstants(commandList: CommandList): void {
+        updateSceneConstants(commandList: CommandList) {
             // Camera calculations.
             const sceneSize = Scene.getSceneSize();
             const sceneHeight = Scene.getSceneHeight();
@@ -1089,7 +1089,7 @@ namespace WorkGraphs {
         }
 
         // Enough thread groups of the animation shaders for `count` elements, laid out as the sample does.
-        dispatchAnimation(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet, count: int): void {
+        dispatchAnimation(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet, count: int) {
             const totalDispatchSize: int = Math.floor((count + ANIMATION_THREADS_X - 1) / ANIMATION_THREADS_X);
             const dispatchY: int = Math.max(Math.floor(totalDispatchSize / D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION), 1);
             const dispatchX: int = Math.max(totalDispatchSize % D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION, 1);
@@ -1097,7 +1097,7 @@ namespace WorkGraphs {
                 PUSH_CONSTANTS_SIZE, dispatchX, dispatchY, 1);
         }
 
-        populateAnimationPass(commandList: CommandList, objectsBindings: BindingSet, lightsBindings: BindingSet): void {
+        populateAnimationPass(commandList: CommandList, objectsBindings: BindingSet, lightsBindings: BindingSet) {
             commandList.beginMarker("Animation");
 
             const resetAnim = this.forceResetAnimation || this.ui.resetAnim;
@@ -1115,7 +1115,7 @@ namespace WorkGraphs {
         }
 
         populateGBufferPass(frame: Frame, commandList: CommandList, depth: TextureHandle, framebuffer: FramebufferHandle, pipeline: GraphicsPipelineHandle,
-            bindingSet: BindingSet): void {
+            bindingSet: BindingSet) {
             // It is enough to clear the depth-buffer without the g-buffer. Depth buffer values of 1 mean "sky".
             commandList.clearDepth(depth, 1.0);
 
@@ -1146,7 +1146,7 @@ namespace WorkGraphs {
         }
 
         // Tiled light culling, then deferred shading with an uber shader, as compute dispatches.
-        populateDeferredShadingDispatches(commandList: CommandList, lightCullingBindings: BindingSet, deferredShadingBindings: BindingSet): void {
+        populateDeferredShadingDispatches(commandList: CommandList, lightCullingBindings: BindingSet, deferredShadingBindings: BindingSet) {
             const tilesX = getLightTileCountX(this.targetsWidth);
             const tilesY = getLightTileCountY(this.targetsHeight);
             this.rootConstants[0] = tilesX;
@@ -1170,7 +1170,7 @@ namespace WorkGraphs {
             commandList.endMarker();
         }
 
-        populateDeferredShadingWorkGraph(commandList: CommandList, workGraph: D3D12WorkGraphHandle, bindingSet: BindingSet): void {
+        populateDeferredShadingWorkGraph(commandList: CommandList, workGraph: D3D12WorkGraphHandle, bindingSet: BindingSet) {
             commandList.beginMarker("Deferred Shading Work Graph");
 
             this.rootConstants[0] = this.scene.lights.length;
@@ -1186,7 +1186,7 @@ namespace WorkGraphs {
             commandList.endMarker();
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -1258,7 +1258,7 @@ namespace WorkGraphs {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // Resources used to fill unused shader binding slots (null resources).
             this.nullSRVBuffer = this.app.createStructuredBuffer(16, 32, "NullSRVBuffer");
             this.nullUAVBuffer = this.app.createRWStructuredBuffer(16, 32, "NullUAVBuffer");
@@ -1337,7 +1337,7 @@ namespace WorkGraphs {
             this.ui = ui;
         }
 
-        buildUI(): void {
+        buildUI() {
             const ui = this.ui;
 
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
@@ -1352,12 +1352,12 @@ namespace WorkGraphs {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("work_graphs");
 
@@ -1414,6 +1414,6 @@ namespace WorkGraphs {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return WorkGraphs.main(argc, argv);
 }

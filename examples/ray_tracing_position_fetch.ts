@@ -10,7 +10,7 @@ namespace RayTracingPositionFetch {
 
     // -test: checks the last frame. The corners are the dark blue clear color; the model, colored by
     // the positions its hit shader fetches, covers about 22% of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x330000);
         if (corners != "") {
@@ -70,12 +70,12 @@ namespace RayTracingPositionFetch {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -90,7 +90,7 @@ namespace RayTracingPositionFetch {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -103,12 +103,12 @@ namespace RayTracingPositionFetch {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // The inverse of a rotation and translation [R t]: [R^T -R^T t].
-    function inverseRigid(m: number[]): number[] {
+    function inverseRigid(m: number[]) {
         let result = identity();
         for (let row = 0; row < 3; row++) {
             for (let column = 0; column < 3; column++) {
@@ -126,7 +126,7 @@ namespace RayTracingPositionFetch {
     }
 
     // inverse(glm::perspective(fov, aspect, near, far)) (right-handed, depth from 0 to 1).
-    function inversePerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function inversePerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         const p22 = zFar / (zNear - zFar);
         const p32 = -(zFar * zNear) / (zFar - zNear);
@@ -156,7 +156,7 @@ namespace RayTracingPositionFetch {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -169,14 +169,14 @@ namespace RayTracingPositionFetch {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -238,21 +238,21 @@ namespace RayTracingPositionFetch {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const storageImage = this.storageImage;
             if (storageImage) {
                 this.app.releaseResource(storageImage);
@@ -265,7 +265,7 @@ namespace RayTracingPositionFetch {
         }
 
         // The sample's update_uniform_buffers: inverse view and projection matrices, the display mode.
-        updateUniformBuffers(commandList: CommandList, width: int, height: int): void {
+        updateUniformBuffers(commandList: CommandList, width: int, height: int) {
             const viewInverse = inverseRigid(this.camera.view());
             const projInverse = inversePerspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             const u = this.ubo;
@@ -277,7 +277,7 @@ namespace RayTracingPositionFetch {
             commandList.writeBuffer(this.uniformBuffer, Ref(u[0]), UBO_FLOATS * 4);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -315,7 +315,7 @@ namespace RayTracingPositionFetch {
         // space: the scene's node transforms aren't applied), each a geometry with the transform,
         // in one BLAS, its vertex positions readable by hit shaders. Recorded into an open command
         // list.
-        createBottomLevelAccelerationStructure(commandList: CommandList): boolean {
+        createBottomLevelAccelerationStructure(commandList: CommandList) {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -366,7 +366,7 @@ namespace RayTracingPositionFetch {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const layoutDesc = BindingLayoutDesc.create();
             layoutDesc.layoutVolatileConstantBuffer(0);
             layoutDesc.layoutAccelStruct(0);
@@ -418,7 +418,7 @@ namespace RayTracingPositionFetch {
             this.pass = pass;
         }
 
-        buildUI(): void {
+        buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
             this.pass.displayMode = Donut_ImGuiCombo("Display mode", this.pass.displayMode, DISPLAY_MODE_NAMES);
@@ -426,7 +426,7 @@ namespace RayTracingPositionFetch {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -435,7 +435,7 @@ namespace RayTracingPositionFetch {
         // -mode <n>: display mode 0 (geometric normal) or 1 (vertex position).
         displayMode = 0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-mode" && i + 1 < this.argc) {
@@ -446,7 +446,7 @@ namespace RayTracingPositionFetch {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_position_fetch");
 
@@ -501,6 +501,6 @@ namespace RayTracingPositionFetch {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RayTracingPositionFetch.main(argc, argv);
 }

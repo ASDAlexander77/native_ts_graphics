@@ -15,7 +15,7 @@ namespace ProceduralGeometry {
     // -test: checks the last frame. The top corners are the sky; the procedural objects color about
     // 9% of the frame (the green pyramid and menger sponge about 2%), the reflective floor's
     // highlights about 6% white.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -244,7 +244,7 @@ namespace ProceduralGeometry {
         }
 
         // The storage image has the back buffers' size.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -257,7 +257,7 @@ namespace ProceduralGeometry {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_PRESS) {
                 if (key == KEY_C) {
                     this.animateCamera = !this.animateCamera;
@@ -271,7 +271,7 @@ namespace ProceduralGeometry {
         }
 
         // The sample's OnUpdate.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             const elapsedSeconds32 = Math.fround(elapsedSeconds);
             const elapsedTime = this.benchmark ? Math.fround(1.0 / 60.0) : elapsedSeconds32;
             this.updateFrameStats(elapsedSeconds);
@@ -305,7 +305,7 @@ namespace ProceduralGeometry {
 
         // CalculateFrameStats: the frame rate, DispatchRays' GPU time and the primary rays per
         // second, in the title once a second.
-        updateFrameStats(elapsedSeconds: number): void {
+        updateFrameStats(elapsedSeconds: number) {
             this.statsSeconds += elapsedSeconds;
             this.statsFrames++;
             if (this.statsSeconds >= 1.0) {
@@ -326,7 +326,7 @@ namespace ProceduralGeometry {
 
         // UpdateCameraMatrices: projectionToWorld, the inverse of the view-projection matrix
         // (45 degrees vertically, depth 0.01 to 125), and the camera position.
-        writeSceneConstants(width: int, height: int): void {
+        writeSceneConstants(width: int, height: int) {
             const view = matrixLookAtLH(this.eye, this.at, this.up);
             const proj = matrixPerspectiveFovLH(radians(45.0), Math.fround(width / height), 0.01, 125.0);
             const projectionToWorld = matrixInverse(matrixMultiply(view, proj));
@@ -351,7 +351,7 @@ namespace ProceduralGeometry {
 
         // UpdateAABBPrimitiveAttributes: each AABB's local space (scaled, rotated about y by
         // -2 * animationTime, centered on the AABB) to the BLAS's space, and back.
-        writeAabbAttributes(animationTime: number): void {
+        writeAabbAttributes(animationTime: number) {
             const rotation = matrixRotationY(Math.fround(-2.0 * animationTime));
             const identity = matrixIdentity();
             for (let i = 0; i < PRIMITIVE_COUNT; i++) {
@@ -374,7 +374,7 @@ namespace ProceduralGeometry {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
@@ -439,7 +439,7 @@ namespace ProceduralGeometry {
 
         // BuildProceduralGeometryAABBs: the AABBs on a 4 x 1 x 4 grid of cells 4 apart, centered
         // on the origin, in float arithmetic as the sample's.
-        buildAabbs(): void {
+        buildAabbs() {
             const grid = [4.0, 1.0, 4.0];
             const stride = AABB_WIDTH + AABB_DISTANCE;
             for (let i = 0; i < PRIMITIVE_COUNT; i++) {
@@ -457,7 +457,7 @@ namespace ProceduralGeometry {
         // and each AABB geometry's PrimitiveInstanceConstantBuffer.
         // A PrimitiveConstantBuffer (SetAttributes).
         addMaterial(materials: f32[], albedo: number[], reflectanceCoef: number, diffuseCoef: number,
-            specularCoef: number, specularPower: number, stepScale: number): void {
+            specularCoef: number, specularPower: number, stepScale: number) {
             for (let i = 0; i < 4; i++) {
                 materials.push(albedo[i]);
             }
@@ -471,7 +471,7 @@ namespace ProceduralGeometry {
             materials.push(0.0);
         }
 
-        writeMaterials(commandList: CommandList): void {
+        writeMaterials(commandList: CommandList) {
             let materials: f32[] = [];
             // SetAttributes' defaults: reflectanceCoef 0, diffuseCoef 0.9, specularCoef 0.7,
             // specularPower 50, stepScale 1.
@@ -504,7 +504,7 @@ namespace ProceduralGeometry {
 
         // BuildGeometry and BuildAccelerationStructures: the plane's BLAS, the AABBs' (one geometry
         // per AABB, for a hit group per AABB), and the TLAS's two instances.
-        createAccelerationStructures(commandList: CommandList): boolean {
+        createAccelerationStructures(commandList: CommandList) {
             let vertices = PLANE_VERTICES.map((v): f32 => v);
             let indices = PLANE_INDICES.map((v): int => v);
             this.vertexBuffer = this.app.createAccelStructInputStructuredBuffer(4, vertices.length, "VertexBuffer");
@@ -562,7 +562,7 @@ namespace ProceduralGeometry {
         // radiance rays, nothing for shadow rays: they skip closest hit shaders), and each
         // intersection shader's (with the AABB closest hit shader for radiance rays); in the hit
         // group table the plane's two, then each AABB's two.
-        createRayTracingPipeline(): boolean {
+        createRayTracingPipeline() {
             const shaderLibrary = this.app.createShaderLibrary("procedural_geometry.hlsl");
             if (!shaderLibrary) {
                 return false;
@@ -606,7 +606,7 @@ namespace ProceduralGeometry {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // CreateRootSignatures' global root signature; the local ones' constants are in t4, t5.
             const layoutDesc = BindingLayoutDesc.create();
             layoutDesc.layoutAccelStruct(0);
@@ -670,7 +670,7 @@ namespace ProceduralGeometry {
         // -time <seconds>: the geometry animation's time, fixed.
         fixedTime = -1.0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-time" && i + 1 < this.argc) {
@@ -681,7 +681,7 @@ namespace ProceduralGeometry {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("procedural_geometry");
 
@@ -724,6 +724,6 @@ namespace ProceduralGeometry {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ProceduralGeometry.main(argc, argv);
 }

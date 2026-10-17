@@ -11,7 +11,7 @@ namespace RaytracingAo {
 
     // -test: checks the last frame. The bottom corners are the blue background; the gray dragon
     // fills about half of each side, SSAO's on the left and ray traced AO's on the right.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -100,7 +100,7 @@ namespace RaytracingAo {
     // scaled to the frame's time at 60 Hz here.
     const STEPS_PER_SECOND = 60.0;
 
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scale = 1.0;
         for (let i = 0; i < digits; i++) {
             scale *= 10.0;
@@ -123,7 +123,7 @@ namespace RaytracingAo {
 
     // --- DirectXMath, row-major for mul(vector, matrix) --------------------------------------
 
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let m: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -137,7 +137,7 @@ namespace RaytracingAo {
         return m;
     }
 
-    function transpose(a: number[]): number[] {
+    function transpose(a: number[]) {
         let m: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -148,7 +148,7 @@ namespace RaytracingAo {
     }
 
     // XMMatrixInverse (by cofactors, in doubles).
-    function inverse(m: number[]): number[] {
+    function inverse(m: number[]) {
         const a00 = m[0]; const a01 = m[1]; const a02 = m[2]; const a03 = m[3];
         const a10 = m[4]; const a11 = m[5]; const a12 = m[6]; const a13 = m[7];
         const a20 = m[8]; const a21 = m[9]; const a22 = m[10]; const a23 = m[11];
@@ -188,7 +188,7 @@ namespace RaytracingAo {
     }
 
     // XMVector4Transform of (x, y, z, w).
-    function transform4(v: number[], m: number[]): number[] {
+    function transform4(v: number[], m: number[]) {
         let r: number[] = [];
         for (let column = 0; column < 4; column++) {
             r.push(Math.fround(v[0] * m[column] + v[1] * m[4 + column] + v[2] * m[8 + column] + v[3] * m[12 + column]));
@@ -196,21 +196,21 @@ namespace RaytracingAo {
         return r;
     }
 
-    function normalize3(v: number[]): number[] {
+    function normalize3(v: number[]) {
         const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         return [v[0] / length, v[1] / length, v[2] / length];
     }
 
-    function cross3(a: number[], b: number[]): number[] {
+    function cross3(a: number[], b: number[]) {
         return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     }
 
-    function dot3(a: number[], b: number[]): number {
+    function dot3(a: number[], b: number[]) {
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
     // XMMatrixLookAtLH: XMMatrixLookToLH towards the focus.
-    function lookAtLH(eye: number[], focus: number[], up: number[]): number[] {
+    function lookAtLH(eye: number[], focus: number[], up: number[]) {
         const r2 = normalize3([focus[0] - eye[0], focus[1] - eye[1], focus[2] - eye[2]]);
         const r0 = normalize3(cross3(up, r2));
         const r1 = cross3(r2, r0);
@@ -224,7 +224,7 @@ namespace RaytracingAo {
     }
 
     // XMMatrixPerspectiveFovLH.
-    function perspectiveFovLH(fovY: number, aspect: number, nearZ: number, farZ: number): number[] {
+    function perspectiveFovLH(fovY: number, aspect: number, nearZ: number, farZ: number) {
         const height = Math.fround(Math.cos(0.5 * fovY) / Math.sin(0.5 * fovY));
         const width = Math.fround(height / aspect);
         const range = Math.fround(farZ / (farZ - nearZ));
@@ -251,31 +251,31 @@ namespace RaytracingAo {
             this.isInt = isInt;
         }
 
-        increment(): boolean {
+        increment() {
             const previous = this.current;
             this.current = Math.min(Math.max(this.current + this.inc, this.min), this.max);
             return previous != this.current;
         }
 
-        decrement(): boolean {
+        decrement() {
             const previous = this.current;
             this.current = Math.min(Math.max(this.current - this.inc, this.min), this.max);
             return previous != this.current;
         }
 
-        isLowerLimit(): boolean {
+        isLowerLimit() {
             return this.current == this.min;
         }
 
-        isUpperLimit(): boolean {
+        isUpperLimit() {
             return this.current == this.max;
         }
 
-        reset(): void {
+        reset() {
             this.current = this.start;
         }
 
-        value(): number {
+        value() {
             return this.current;
         }
     }
@@ -308,7 +308,7 @@ namespace RaytracingAo {
 
         // A material texture (DirectXTK's EffectTextureFactory: DDS files as they are), or the
         // placeholder for none.
-        loadTexture(app: App, commandList: CommandList, name: string, placeholder: TextureHandle): TextureHandle | null {
+        loadTexture(app: App, commandList: CommandList, name: string, placeholder: TextureHandle) {
             if (name == "") {
                 return placeholder;
             }
@@ -320,7 +320,7 @@ namespace RaytracingAo {
         }
 
         // False (after printing why) on failure.
-        load(app: App, commandList: CommandList, file: string, placeholder: TextureHandle): boolean {
+        load(app: App, commandList: CommandList, file: string, placeholder: TextureHandle) {
             const binaryFile = app.loadBinaryFile(MEDIA_DIR + file);
             if (binaryFile.isNull()) {
                 return false;
@@ -430,7 +430,7 @@ namespace RaytracingAo {
         }
 
         // The sample's one instance: identity transform, mask 1. Valid in a render callback.
-        buildTopLevelAS(frame: Frame): void {
+        buildTopLevelAS(frame: Frame) {
             if (this.builtTopLevelAS) {
                 return;
             }
@@ -641,7 +641,7 @@ namespace RaytracingAo {
         }
 
         // Sample::Update's keys and Menus::ProcessKeys.
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_A) {
                 this.aHeld = action != ACTION_RELEASE;
             } else if (key == KEY_D) {
@@ -683,7 +683,7 @@ namespace RaytracingAo {
         }
 
         // Sample::Update: the camera radius (A / D held), the menu's held Left / Right.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             const steps = elapsedSeconds * STEPS_PER_SECOND;
             if (this.aHeld) {
@@ -712,7 +712,7 @@ namespace RaytracingAo {
 
         // AO::OnOptionUpdate and SSAO::OnOptionUpdate: the AO options and its sample table
         // (Sampler::SetSeed(0), then a stratified sampler of numSamples x numSamples cells).
-        applyOptions(commandList: CommandList): void {
+        applyOptions(commandList: CommandList) {
             const numSamples: int = this.aoNumSamples.value();
             const sampleType: int = this.aoSampleType.value();
             this.aoOptions[0] = this.aoDistance.value();
@@ -762,14 +762,14 @@ namespace RaytracingAo {
         }
 
         // The outputs' share of the frame's width: half when split.
-        widthScale(): number {
+        widthScale() {
             const scale = this.isSplit ? 0.5 : 1.0;
             return scale;
         }
 
         // Sample::UpdateCameraMatrices: the camera on the z axis looking at the origin, the
         // frustum's far corners for SSAO's position reconstruction.
-        updateScene(width: int, height: int): number[] {
+        updateScene(width: int, height: int) {
             const screenWidth = Math.fround(width * this.widthScale());
             const screenHeight = height;
             const eye = [0.0, 0.0, this.radius];
@@ -821,7 +821,7 @@ namespace RaytracingAo {
         }
 
         // SSAO::UpdateSSAOConstant into a slice of the SSAO constants.
-        updateSsaoRenderConstants(slice: int, width: int, height: int, depth: int, tanHalfFovH: number): void {
+        updateSsaoRenderConstants(slice: int, width: int, height: int, depth: int, tanHalfFovH: number) {
             const base = slice * SSAO_SLICE_FLOATS;
             const c = this.ssaoConstants;
             // The shaders are set up to sample a circular region within a 5-pixel radius.
@@ -861,7 +861,7 @@ namespace RaytracingAo {
         }
 
         // SSAO::UpdateBlurAndUpsampleConstant into a slice of the SSAO constants.
-        updateBlurConstants(slice: int, lowWidth: int, lowHeight: int, highWidth: int, highHeight: int): void {
+        updateBlurConstants(slice: int, lowWidth: int, lowHeight: int, highWidth: int, highHeight: int) {
             const base = slice * SSAO_SLICE_FLOATS;
             const c = this.ssaoConstants;
             const screenWidth = this.outputWidth;
@@ -881,7 +881,7 @@ namespace RaytracingAo {
             c[base + 7] = upsampleTolerance;
         }
 
-        releaseFrameResources(): void {
+        releaseFrameResources() {
             for (const frameBindingSet of this.frameBindingSets) {
                 this.app.releaseResource(frameBindingSet.handle);
             }
@@ -915,16 +915,16 @@ namespace RaytracingAo {
             this.app.clearBindingCache();
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseFrameResources();
         }
 
-        own<T extends ResourceHandle>(resource: T): T {
+        own<T extends ResourceHandle>(resource: T) {
             this.resources.push(resource);
             return resource;
         }
 
-        frameSet(desc: BindingSetDesc, layout: BindingLayoutHandle): BindingSet {
+        frameSet(desc: BindingSetDesc, layout: BindingLayoutHandle) {
             const set = this.app.createBindingSetForLayout(desc, layout);
             this.frameBindingSets.push(set);
             return set;
@@ -932,7 +932,7 @@ namespace RaytracingAo {
 
         // AO::CreateRaytracingOutputResource and SSAO::CreateResources / BindResources for an output
         // of width x height, and each pass's bindings.
-        createFrameResources(width: int, height: int): void {
+        createFrameResources(width: int, height: int) {
             this.outputWidth = width;
             this.outputHeight = height;
             this.aoOutput = this.own(this.app.createUAVTextureWithFormat(width, height, Format.RGBA8_UNORM, "RaytracingOutput"));
@@ -1074,7 +1074,7 @@ namespace RaytracingAo {
         }
 
         // SSAO::OnCameraChanged and UpdateConstants: the dispatches' constants for this output.
-        updateSsaoConstants(proj: number[]): void {
+        updateSsaoConstants(proj: number[]) {
             // The first element of the projection: the cotangent of half the horizontal FOV.
             const fovTangent = Math.fround(1.0 / proj[0]);
             for (let i = 0; i < NUM_BUFFERS; i++) {
@@ -1087,12 +1087,12 @@ namespace RaytracingAo {
         }
 
         // AO::RunAORaytracing: the primary and AO rays into the AO output.
-        runAo(frame: Frame): void {
+        runAo(frame: Frame) {
             frame.dispatchRays(this.shaderTable, this.meshAoSets[this.meshIndex], this.outputWidth, this.outputHeight);
         }
 
         // SSAO::Run: the G-buffer, then the SSAO dispatches, into the SSAO output.
-        runSsao(frame: Frame, commandList: CommandList): void {
+        runSsao(frame: Frame, commandList: CommandList) {
             const mesh = this.meshes[this.meshIndex];
 
             // Phase 1: Render GBuffer.
@@ -1129,7 +1129,7 @@ namespace RaytracingAo {
         }
 
         // Sample::Render (the HUD is the ImGui pass's).
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -1183,7 +1183,7 @@ namespace RaytracingAo {
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         // Sample::CreateDeviceDependentResources, AO::Setup, SSAO::Setup.
-        init(): boolean {
+        init() {
             // CommonRenderPasses (behind the common samplers and the blits) opens its own command
             // list: before ours.
             this.linearClampSampler = this.app.getCommonSampler(CommonSampler.LinearClamp);
@@ -1384,12 +1384,12 @@ namespace RaytracingAo {
             this.menuIndex = 0;
         }
 
-        box(x0: number, y0: number, x1: number, y1: number, value: number, alpha: number): void {
+        box(x0: number, y0: number, x1: number, y1: number, value: number, alpha: number) {
             Donut_ImGuiDrawRect(x0, y0, x1, y1, value, value, value, alpha);
         }
 
         // A label in a 0.2-grey box MENU_BORDER around it (DrawSplitLabels, DrawLabel).
-        label(text: string, x: number, y: number, r: number, g: number, b: number): void {
+        label(text: string, x: number, y: number, r: number, g: number, b: number) {
             const width = Donut_ImGuiCalcTextWidth(text);
             this.box(x - MENU_BORDER, y - MENU_BORDER, x + width + MENU_BORDER, y + LINE_SPACING + MENU_BORDER, 0.2, 1.0);
             Donut_ImGuiDrawText(x, y, text, r, g, b, 1.0, 0);
@@ -1401,7 +1401,7 @@ namespace RaytracingAo {
 
         // Menus::DrawMainMenu's RenderString: a line, its color by whether it is an option (and
         // option `option`, -1 for none) and the selection.
-        addMenuLine(text: string, isOption: boolean, option: int): void {
+        addMenuLine(text: string, isOption: boolean, option: int) {
             const sample = this.sample;
             this.menuLines.push(text);
             let r = DARK_GREY;
@@ -1434,13 +1434,13 @@ namespace RaytracingAo {
             }
         }
 
-        optionValue(option: int): string {
+        optionValue(option: int) {
             const o = this.sample.options[option];
             return formatFixed(o.value(), o.isInt ? 0 : 2);
         }
 
         // Menus::DrawMainMenu: centered when split, at the title-safe corner otherwise.
-        mainMenu(center: boolean): void {
+        mainMenu(center: boolean) {
             const sample = this.sample;
             const screenWidth = sample.frameWidth;
             const screenHeight = sample.frameHeight;
@@ -1488,7 +1488,7 @@ namespace RaytracingAo {
         }
 
         // Menus::Draw.
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             const screenWidth = sample.frameWidth;
             const screenHeight = sample.frameHeight;
@@ -1525,7 +1525,7 @@ namespace RaytracingAo {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             const imguiPass = app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -1549,7 +1549,7 @@ namespace RaytracingAo {
         // -help: start with the options menu (F1).
         help = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-maze") {
@@ -1565,7 +1565,7 @@ namespace RaytracingAo {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("raytracing_ao");
 
@@ -1620,6 +1620,6 @@ namespace RaytracingAo {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RaytracingAo.main(argc, argv);
 }

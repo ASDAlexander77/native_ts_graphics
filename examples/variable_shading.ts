@@ -9,7 +9,7 @@ namespace VariableShading {
     const TEST_FRAMES = 120;
 
     // -test: checks the last frame: Sponza fills it (about 99% lit).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -30,7 +30,7 @@ namespace VariableShading {
     // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane.
     // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
+    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
@@ -89,27 +89,27 @@ namespace VariableShading {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const renderTargets = this.renderTargets;
             if (!renderTargets.isNull()) {
                 this.app.releaseObject(renderTargets.handle);
@@ -149,7 +149,7 @@ namespace VariableShading {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -245,7 +245,7 @@ namespace VariableShading {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string): boolean {
+        init(scenePath: string) {
             this.shadingRateSurfaceShader = this.app.createShader("variable_shading.hlsl", "main_cs", ShaderType.Compute);
             if (!this.shadingRateSurfaceShader) {
                 return false;
@@ -289,7 +289,7 @@ namespace VariableShading {
         // -raw: on D3D12, bind the shading rate surface through the D3D12 API directly.
         rawD3D12 = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "-raw") {
                     this.rawD3D12 = this.api == GraphicsAPI.D3D12;
@@ -298,7 +298,7 @@ namespace VariableShading {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("variable_shading");
 
@@ -348,6 +348,6 @@ namespace VariableShading {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return VariableShading.main(argc, argv);
 }

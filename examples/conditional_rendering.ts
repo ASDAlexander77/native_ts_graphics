@@ -10,7 +10,7 @@ namespace ConditionalRendering {
 
     // -test: checks the last frame. The corners are black; the model's parts, each drawn under its
     // own condition (all on), cover about a third of the frame, green in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -66,12 +66,12 @@ namespace ConditionalRendering {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -86,7 +86,7 @@ namespace ConditionalRendering {
     }
 
     // glm::rotate(mat4(1), angle, axis) about a unit axis.
-    function rotation(angle: number, x: number, y: number, z: number): number[] {
+    function rotation(angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -98,17 +98,17 @@ namespace ConditionalRendering {
         ];
     }
 
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
     }
 
-    function scale(x: number, y: number, z: number): number[] {
+    function scale(x: number, y: number, z: number) {
         return [x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, z, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), with clip y
     // negated: the sample's clip space has y down on the screen (Vulkan's), Donut's y up.
-    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                              0.0,
@@ -195,14 +195,14 @@ namespace ConditionalRendering {
         }
 
         // A node's visibility: written to the predication buffer, read by the GPU.
-        setVisible(index: int, visible: boolean): void {
+        setVisible(index: int, visible: boolean) {
             this.visible[index] = visible;
             this.predication.setValue(index, visible ? 1 : 0);
         }
 
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.leftButton) {
@@ -221,7 +221,7 @@ namespace ConditionalRendering {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             const pressed = action == ACTION_PRESS;
             if (button == MOUSE_BUTTON_LEFT) {
                 this.leftButton = pressed;
@@ -233,11 +233,11 @@ namespace ConditionalRendering {
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             this.app.releaseResources([this.pipeline, this.framebuffer, this.colorBuffer, this.depthBuffer]);
             this.pipeline = null;
             this.framebuffer = null;
@@ -245,7 +245,7 @@ namespace ConditionalRendering {
             this.depthBuffer = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             // The blit's cached binding sets still reference the old color buffer.
             this.app.clearBindingCache();
@@ -253,7 +253,7 @@ namespace ConditionalRendering {
 
         // The targets and the sample's pipeline: reversed depth (greater passes), back faces culled
         // (counter-clockwise triangles are front faces).
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             const colorBuffer = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "ColorBuffer");
             const depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             const framebuffer = this.app.createFramebuffer(colorBuffer, depthBuffer);
@@ -271,7 +271,7 @@ namespace ConditionalRendering {
 
         // The sample's update_uniform_buffers: its camera's matrices, the view scaled down and
         // turned upside down.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -287,7 +287,7 @@ namespace ConditionalRendering {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -334,7 +334,7 @@ namespace ConditionalRendering {
         // The sample's load_assets: the model's primitives in one vertex and one index buffer, and
         // the nodes to draw, in the framework's order (meshes, the nodes instancing each, their
         // primitives).
-        loadModel(commandList: CommandList): boolean {
+        loadModel(commandList: CommandList) {
             const model = this.app.loadGltfModel(MODEL_PATH);
             if (model.isNull()) {
                 return false;
@@ -421,7 +421,7 @@ namespace ConditionalRendering {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             if (this.app.hasConditionalRendering() == 0) {
                 this.unsupportedReason = "This example needs conditional rendering (D3D12 predication or Vulkan's VK_EXT_conditional_rendering)";
                 return false;
@@ -491,7 +491,7 @@ namespace ConditionalRendering {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -523,7 +523,7 @@ namespace ConditionalRendering {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -533,7 +533,7 @@ namespace ConditionalRendering {
         hideFirst = 0;
         hideCount = 0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-hide" && i + 2 < this.argc) {
@@ -545,7 +545,7 @@ namespace ConditionalRendering {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("conditional_rendering");
 
@@ -590,6 +590,6 @@ namespace ConditionalRendering {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ConditionalRendering.main(argc, argv);
 }

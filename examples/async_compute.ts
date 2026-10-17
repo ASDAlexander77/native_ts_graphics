@@ -10,7 +10,7 @@ namespace AsyncCompute {
 
     // -test: checks the last frame: the simplex noise the compute queue animates (at 100Hz of real
     // time, so not the same frame every run) covers it, dark (about 28%) and bright (about 20%).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -61,7 +61,7 @@ namespace AsyncCompute {
             this.graphicsPipeline = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const graphicsPipeline = this.graphicsPipeline;
             if (graphicsPipeline) {
                 this.app.releaseResource(graphicsPipeline);
@@ -69,11 +69,11 @@ namespace AsyncCompute {
             }
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             let graphicsPipeline = this.graphicsPipeline;
             if (!graphicsPipeline) {
@@ -99,12 +99,12 @@ namespace AsyncCompute {
         }
 
         // Joins the worker thread; before Donut_DestroyApp.
-        stop(): void {
+        stop() {
             this.computeLoop.stop();
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vertexShader = this.app.createShader("async_compute.hlsl", "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("async_compute.hlsl", "main_ps", ShaderType.Pixel);
             this.computeShader = this.app.createShader("async_compute.hlsl", "main_cs", ShaderType.Compute);
@@ -150,7 +150,7 @@ namespace AsyncCompute {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("async_compute");
 
@@ -187,6 +187,6 @@ namespace AsyncCompute {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return AsyncCompute.main(argc, argv);
 }

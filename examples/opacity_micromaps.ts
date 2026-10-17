@@ -14,7 +14,7 @@ namespace OpacityMicromaps {
 
     // -test: checks the last frame. The corners are the blue sky; the ray traced tree, its leaves'
     // alpha resolved through opacity micromaps, and the text cover about 22% of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -215,7 +215,7 @@ namespace OpacityMicromaps {
         }
 
         // The storage image has the back buffers' size.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -227,13 +227,13 @@ namespace OpacityMicromaps {
             }
         }
 
-        ommSet(subDLevel: int, use4State: boolean): OmmSet {
+        ommSet(subDLevel: int, use4State: boolean) {
             const state = use4State ? 1 : 0;
             return this.ommSets[subDLevel * 2 + state];
         }
 
         // The sample's OnUpdate keys.
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_Z || key == KEY_X) {
                 const held = action != ACTION_RELEASE;
                 if (key == KEY_Z) {
@@ -277,7 +277,7 @@ namespace OpacityMicromaps {
 
         // The rest of the sample's OnUpdate, in float as its: the zoom and the camera's rotation
         // about y (360 degrees a minute).
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             const elapsedTime = this.benchmark ? Math.fround(1.0 / 60.0) : Math.fround(elapsedSeconds);
             this.updateFrameStats(elapsedSeconds);
 
@@ -305,7 +305,7 @@ namespace OpacityMicromaps {
         }
 
         // CalculateFrameStats: the frame rate and primary rays per second, once a second.
-        updateFrameStats(elapsedSeconds: number): void {
+        updateFrameStats(elapsedSeconds: number) {
             this.statsSeconds += elapsedSeconds;
             this.statsFrames++;
             if (this.statsSeconds >= 1.0) {
@@ -320,7 +320,7 @@ namespace OpacityMicromaps {
 
         // UpdateCameraMatrices and the root constants: projectionToWorld (fov vertically, depth 1 to
         // 1000), the camera position, the config and extra ray flags.
-        writeParams(commandList: CommandList): void {
+        writeParams(commandList: CommandList) {
             const view = matrixLookAtLH(this.eye, this.at, this.up);
             const proj = matrixPerspectiveFovLH(radians(this.fov), Math.fround(this.width / this.height), 1.0, 1000.0);
             const projectionToWorld = matrixInverse(matrixMultiply(view, proj));
@@ -341,7 +341,7 @@ namespace OpacityMicromaps {
         // geometries (the leaves non-opaque, linked to the array), and the TLAS's one instance
         // (micromaps disabled by its flags when they're off). Built anew when the set changes,
         // again in place when rebuilding every frame.
-        buildAccelerationStructures(frame: Frame): boolean {
+        buildAccelerationStructures(frame: Frame) {
             const commandList = frame.getCommandList();
             const set = this.ommSet(this.currentSubDLevel, this.use4State);
             if (!set.loaded) {
@@ -396,7 +396,7 @@ namespace OpacityMicromaps {
             return true;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             this.width = frame.getWidth();
@@ -446,21 +446,21 @@ namespace OpacityMicromaps {
         }
 
         // RenderUI: white lines from (30, 30), the any-hit legend in its colors.
-        line(y: number, text: string, r: number, g: number, b: number): void {
+        line(y: number, text: string, r: number, g: number, b: number) {
             const scale = this.height / LAYOUT_HEIGHT;
             this.font.push();
             Donut_ImGuiDrawText(30.0 * scale, y * scale, text, r, g, b, 1.0, 0);
             Donut_ImGuiPopFont();
         }
 
-        onOff(value: boolean): string {
+        onOff(value: boolean) {
             if (value) {
                 return "On";
             }
             return "Off";
         }
 
-        buildUI(): void {
+        buildUI() {
             let y = 30.0;
             this.line(y, "D3D12: Opacity Micromaps", 1.0, 1.0, 1.0);
             y += LINE_SPACING * 2.0;
@@ -506,7 +506,7 @@ namespace OpacityMicromaps {
 
         // LoadModel: positions, normals and texture coordinates, then the geometries' index counts
         // and the position, normal and texture coordinate indices of all, each indexed separately.
-        loadModel(commandList: CommandList): boolean {
+        loadModel(commandList: CommandList) {
             const file = this.app.loadBinaryFile(MEDIA_DIR + "treeModel.bin");
             if (file.isNull()) {
                 return false;
@@ -576,7 +576,7 @@ namespace OpacityMicromaps {
         }
 
         // LoadOMM: a set's counts, its descs, raw data, histogram and per-triangle indices.
-        loadOmmSet(commandList: CommandList, path: string, set: OmmSet): void {
+        loadOmmSet(commandList: CommandList, path: string, set: OmmSet) {
             const file = this.app.loadBinaryFile(path);
             if (file.isNull()) {
                 return;
@@ -619,7 +619,7 @@ namespace OpacityMicromaps {
 
         // CreateRaytracingPipelineStateObject and BuildShaderTables: one hit group (closest hit and
         // any hit), micromaps allowed.
-        createRayTracingPipeline(): boolean {
+        createRayTracingPipeline() {
             const shaderLibrary = this.app.createShaderLibrary("opacity_micromaps.hlsl");
             if (!shaderLibrary) {
                 return false;
@@ -645,7 +645,7 @@ namespace OpacityMicromaps {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // The sample's static sampler: anisotropic (16), wrapping. Before any command list is
             // open: it creates Donut's common passes.
             this.sampler = this.app.getCommonSampler(CommonSampler.AnisotropicWrap);
@@ -745,7 +745,7 @@ namespace OpacityMicromaps {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("opacity_micromaps");
 
@@ -793,6 +793,6 @@ namespace OpacityMicromaps {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return OpacityMicromaps.main(argc, argv);
 }

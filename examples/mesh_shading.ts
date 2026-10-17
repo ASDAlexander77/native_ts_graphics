@@ -10,7 +10,7 @@ namespace MeshShading {
 
     // -test: checks the last frame. The corners are the dark clear color; the mesh shader's red
     // triangle covers an eighth of the frame, its middle included.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -51,11 +51,11 @@ namespace MeshShading {
             this.unsupportedReason = "";
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (!this.pipelineCreated) {
                 // The sample's pipeline: no culling, no depth test, no blending.
@@ -72,7 +72,7 @@ namespace MeshShading {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
                 this.unsupportedReason = "The graphics device does not support mesh shaders";
                 return false;
@@ -90,7 +90,7 @@ namespace MeshShading {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mesh_shading");
 
@@ -124,6 +124,6 @@ namespace MeshShading {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MeshShading.main(argc, argv);
 }

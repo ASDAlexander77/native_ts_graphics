@@ -10,7 +10,7 @@ namespace RayQueries {
 
     // -test: checks the last frame: Sponza in gray, lit with ray queried shadows, about 20% in full
     // light (white), no color.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -71,12 +71,12 @@ namespace RayQueries {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -91,7 +91,7 @@ namespace RayQueries {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -104,12 +104,12 @@ namespace RayQueries {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -141,7 +141,7 @@ namespace RayQueries {
         }
 
         // vkb::Camera::update_view_matrix: rotations around x, y, z, then translate(position).
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -153,7 +153,7 @@ namespace RayQueries {
             return multiply(r, t);
         }
 
-        key(key: int, action: int): void {
+        key(key: int, action: int) {
             const down = action != ACTION_RELEASE;
             if (key == KEY_W) {
                 this.keys[0] = down;
@@ -167,7 +167,7 @@ namespace RayQueries {
         }
 
         // vkb::Camera::update: first person movement, 1 unit per second.
-        update(deltaTime: number): void {
+        update(deltaTime: number) {
             const rx = radians(this.rotation[0]);
             const ry = radians(this.rotation[1]);
             let front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
@@ -198,14 +198,14 @@ namespace RayQueries {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -286,33 +286,33 @@ namespace RayQueries {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.key(key, action);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.update(elapsedSeconds);
             this.timeMs += elapsedSeconds * 1000.0;
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -324,7 +324,7 @@ namespace RayQueries {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 1.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -349,7 +349,7 @@ namespace RayQueries {
         // The sample's update_uniform_buffers: the camera's view and projection (without the
         // Vulkan y flip: Donut's clip space is y-up), and the light: angle = mod(time * speed, pi)
         // with the time in whole milliseconds, in float as the sample computes it.
-        updateUniforms(width: int, height: int): void {
+        updateUniforms(width: int, height: int) {
             const u = this.ubo;
             const view = this.camera.view();
             const projection = perspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
@@ -370,7 +370,7 @@ namespace RayQueries {
             u[UBO_LIGHT_POSITION + 2] = LIGHT_RADIUS * Math.fround(Math.cos(angle));
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -406,7 +406,7 @@ namespace RayQueries {
         // multiplies vec4(position, 1) by it), normals by its normal matrix (not normalized), into
         // one vertex and one index list; then create_bottom_level_acceleration_structure and
         // create_uniforms: a BLAS of them, and the buffers the rasterization reads.
-        loadScene(commandList: CommandList): boolean {
+        loadScene(commandList: CommandList) {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -485,7 +485,7 @@ namespace RayQueries {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "ray_queries.hlsl";
             this.vs = this.app.createShader(shader, "ray_shadow_vs", ShaderType.Vertex);
             this.ps = this.app.createShader(shader, "ray_shadow_ps", ShaderType.Pixel);
@@ -538,7 +538,7 @@ namespace RayQueries {
         // -time <ms>: the light where it is that many milliseconds after the start, not moving.
         fixedTimeMs = -1.0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-time" && i + 1 < this.argc) {
@@ -549,7 +549,7 @@ namespace RayQueries {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_queries");
 
@@ -590,6 +590,6 @@ namespace RayQueries {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RayQueries.main(argc, argv);
 }

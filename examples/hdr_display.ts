@@ -116,7 +116,7 @@ namespace HdrDisplay {
 
         // EnsureSwapChainColorSpace: the display curve for the format (and ST.2084 switch), and the
         // swap chain's color space where it can present it.
-        ensureColorSpace(): void {
+        ensureColorSpace() {
             let colorSpace = SwapChainColorSpace.SRGB;
             if (this.bitDepth == BIT_DEPTH_8) {
                 this.displayCurve = CURVE_SRGB;
@@ -137,7 +137,7 @@ namespace HdrDisplay {
         }
 
         // PgUp / PgDn: UpdateSwapChainBuffer with the next format.
-        setBitDepth(bitDepth: int): void {
+        setBitDepth(bitDepth: int) {
             const formats = [Format.RGBA8_UNORM, Format.R10G10B10A2_UNORM, Format.RGBA16_FLOAT];
             if (this.app.setSwapChainFormat(formats[bitDepth]) == 0) {
                 console.log(`The swap chain can't have ${FORMAT_NAMES[bitDepth]} back buffers`);
@@ -147,7 +147,7 @@ namespace HdrDisplay {
             this.ensureColorSpace();
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action != ACTION_PRESS) {
                 return 0;
             }
@@ -170,11 +170,11 @@ namespace HdrDisplay {
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (this.hasPresentPipeline) {
                 this.app.releaseResource(this.presentPipeline);
                 this.hasPresentPipeline = false;
@@ -194,7 +194,7 @@ namespace HdrDisplay {
         }
 
         // TransformVertex: an xy chromaticity into the window, its aspect ratio kept, at an offset.
-        transformVertex(x: number, y: number, offsetX: number, offsetY: number): number[] {
+        transformVertex(x: number, y: number, offsetX: number, offsetY: number) {
             const aspectRatio = Math.fround(this.width / this.height);
             const scaleX = Math.min(1.0, Math.fround(1.0 / aspectRatio));
             const scaleY = Math.min(1.0, aspectRatio);
@@ -208,7 +208,7 @@ namespace HdrDisplay {
         // (the back buffer's size), the pipelines for them, and the gamut triangles for this size:
         // three per gamut (red, green, blue paired around the white point), Rec.709's offset by
         // (0.2, 0), Rec.2020's by (0.2, -1).
-        createTargets(commandList: CommandList, width: int, height: int): void {
+        createTargets(commandList: CommandList, width: int, height: int) {
             this.width = width;
             this.height = height;
             this.sceneTexture = this.app.createRenderTargetTexture(width, height, Format.RGBA16_FLOAT, "Intermediate");
@@ -268,7 +268,7 @@ namespace HdrDisplay {
 
         // RenderScene's first part: the gradients and the triangles into the scene's target, and
         // the UI layer's texture cleared for the ImGui pass after this one.
-        onRenderScene(frameHandle: FrameHandle): void {
+        onRenderScene(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             if (!this.hasTargets) {
@@ -297,13 +297,13 @@ namespace HdrDisplay {
             }
         }
 
-        framebufferOrScene(): FramebufferHandle {
+        framebufferOrScene() {
             return this.sceneFramebuffer;
         }
 
         // RenderScene's second part, after the UI: the scene and the UI layer composed and presented
         // into the back buffer (cleared to black first) with the display's curve.
-        onRenderPresent(frameHandle: FrameHandle): void {
+        onRenderPresent(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (!this.hasTargets) {
                 return;
@@ -328,7 +328,7 @@ namespace HdrDisplay {
         }
 
         // A label drawn as DirectWrite lays it out: centered in [left, right] or from left.
-        drawLabel(text: string, left: number, right: number, top: number, centered: boolean): void {
+        drawLabel(text: string, left: number, right: number, top: number, centered: boolean) {
             let x = left;
             if (centered) {
                 x = left + (right - left - Donut_ImGuiCalcTextWidth(text)) * 0.5;
@@ -338,7 +338,7 @@ namespace HdrDisplay {
 
         // UILayer: the format, signal and HDR support at the top; the gradients' and gamuts' names
         // under them; the keys at the bottom left (the sample's tabs as spaces).
-        buildUI(): void {
+        buildUI() {
             if (!this.enableUI || !this.hasTargets) {
                 return;
             }
@@ -366,7 +366,7 @@ namespace HdrDisplay {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // The sample's static sampler: point filtering (its border addressing only ever reached
             // outside the window).
             this.sampler = this.app.getCommonSampler(CommonSampler.PointClamp);
@@ -456,7 +456,7 @@ namespace HdrDisplay {
     }
 
     // A half float's value.
-    function halfToFloat(h: int): number {
+    function halfToFloat(h: int) {
         const sign = (h & 0x8000) != 0 ? -1.0 : 1.0;
         const exponent = (h >> 10) & 0x1F;
         const mantissa = h & 0x3FF;
@@ -468,7 +468,7 @@ namespace HdrDisplay {
 
     // The back buffer's pixel (x, y) as RGB, 0 to 1 for UNORM formats and linear for RGBA16_FLOAT,
     // from its raw texels (pixels: the back buffer read back, 4 or 8 bytes a pixel).
-    function pixelRGB(pixels: int[], format: Format, width: int, x: int, y: int): number[] {
+    function pixelRGB(pixels: int[], format: Format, width: int, x: int, y: int) {
         if (format == Format.RGBA16_FLOAT) {
             const lo = pixels[(y * width + x) * 2];
             const hi = pixels[(y * width + x) * 2 + 1];
@@ -491,7 +491,7 @@ namespace HdrDisplay {
     // middle rows: the SDR gradient black at its left end, white at its right, rising between; the
     // HDR gradient clipped to white past its first third with the sRGB curve, above 1 in scRGB
     // (linear, its right end pow(3, 2.2)); the right half of the window shows the gamut triangles.
-    function checkFrame(app: App, pass: HdrPass): string {
+    function checkFrame(app: App, pass: HdrPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         const format = app.getBackBufferFormat();
@@ -554,7 +554,7 @@ namespace HdrDisplay {
         // -testFormat 8|10|16: the bits of the back buffers of -test.
         testFormat = 8;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-testFormat" && i + 1 < this.argc) {
@@ -565,7 +565,7 @@ namespace HdrDisplay {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("hdr_display");
 
@@ -613,6 +613,6 @@ namespace HdrDisplay {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return HdrDisplay.main(argc, argv);
 }

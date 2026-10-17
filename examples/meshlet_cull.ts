@@ -106,23 +106,23 @@ namespace MeshletCull {
             this.keys = [0, 0, 0, 0, 0, 0, 0, 0];
         }
 
-        init(x: number, y: number, z: number): void {
+        init(x: number, y: number, z: number) {
             this.initialPosition = [Math.fround(x), Math.fround(y), Math.fround(z), 0.0];
             this.reset();
         }
 
-        setMoveSpeed(unitsPerSecond: number): void {
+        setMoveSpeed(unitsPerSecond: number) {
             this.moveSpeed = Math.fround(unitsPerSecond);
         }
 
-        reset(): void {
+        reset() {
             this.position = [this.initialPosition[0], this.initialPosition[1], this.initialPosition[2], 0.0];
             this.yaw = XM_PI;
             this.pitch = 0.0;
             this.lookDirection = [0.0, 0.0, -1.0, 0.0];
         }
 
-        onKey(key: int, down: boolean): void {
+        onKey(key: int, down: boolean) {
             let index = -1;
             if (key == KEY_W) {
                 index = 0;
@@ -146,7 +146,7 @@ namespace MeshletCull {
             }
         }
 
-        update(elapsedSeconds: number): void {
+        update(elapsedSeconds: number) {
             const k = this.keys;
             // The move vector in camera space.
             let moveX = 0.0;
@@ -206,12 +206,12 @@ namespace MeshletCull {
             this.lookDirection = [Math.fround(r * sinYaw), Math.fround(Math.sin(this.pitch)), Math.fround(r * cosYaw), 0.0];
         }
 
-        viewMatrix(): number[] {
+        viewMatrix() {
             return matrixLookToRH(this.position, this.lookDirection, [0.0, 1.0, 0.0, 0.0]);
         }
 
         // Near 1, far farZ.
-        projectionMatrix(fovY: number, aspectRatio: number, farZ: number): number[] {
+        projectionMatrix(fovY: number, aspectRatio: number, farZ: number) {
             return matrixPerspectiveFovRH(fovY, aspectRatio, 1.0, farZ);
         }
     }
@@ -270,7 +270,7 @@ namespace MeshletCull {
     }
 
     // RayIntersectSphere: whether the ray (o, d) meets the sphere (center, radius in s).
-    function rayIntersectSphere(o: number[], d: number[], s: number[]): boolean {
+    function rayIntersectSphere(o: number[], d: number[], s: number[]) {
         const l = vsub(o, s);
         const r = s[3];
         const a = dot3(d, d);
@@ -282,7 +282,7 @@ namespace MeshletCull {
 
     // RayIntersectTriangle (Moller-Trumbore): the ray's t at the triangle, -1 if it misses it.
     const EPSILON = 1.192092896e-7;
-    function rayIntersectTriangle(o: number[], d: number[], p0: number[], p1: number[], p2: number[]): number {
+    function rayIntersectTriangle(o: number[], d: number[], p0: number[], p1: number[], p2: number[]) {
         const edge1 = vsub(p1, p0);
         const edge2 = vsub(p2, p0);
         const h = cross(d, edge2);
@@ -308,7 +308,7 @@ namespace MeshletCull {
         return -1.0;
     }
 
-    function cross(a: number[], b: number[]): number[] {
+    function cross(a: number[], b: number[]) {
         return [
             Math.fround(Math.fround(a[1] * b[2]) - Math.fround(a[2] * b[1])),
             Math.fround(Math.fround(a[2] * b[0]) - Math.fround(a[0] * b[2])),
@@ -318,7 +318,7 @@ namespace MeshletCull {
     }
 
     // XMMatrixDecompose's scale x: the length of the first row.
-    function scaleOf(m: number[]): number {
+    function scaleOf(m: number[]) {
         const r = row(m, 0);
         return Math.fround(Math.sqrt(dot3(r, r)));
     }
@@ -416,7 +416,7 @@ namespace MeshletCull {
         }
 
         // OnKeyDown / OnKeyUp.
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_PRESS) {
                 if (key == KEY_SPACE) {
                     this.drawMeshlets = !this.drawMeshlets;
@@ -445,7 +445,7 @@ namespace MeshletCull {
             return 0;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.mouseX = x;
             this.mouseY = y;
             return 0;
@@ -453,7 +453,7 @@ namespace MeshletCull {
 
         // OnUpdate: the cameras; the constants with the culling camera's frustum planes, the
         // instances' constants; then the picking ray cast.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.frameNumber++;
             if (this.frameNumber == this.selectBeforeFrame) {
@@ -567,7 +567,7 @@ namespace MeshletCull {
 
         // Pick: the meshlet of the view model's first mesh whose triangle the ray from the camera
         // through the mouse meets first.
-        pick(view: number[], proj: number[]): void {
+        pick(view: number[], proj: number[]) {
             this.highlightedIndex = -1;
             if (this.mouseX < 0.0) {
                 return;
@@ -614,7 +614,7 @@ namespace MeshletCull {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -632,7 +632,7 @@ namespace MeshletCull {
         // The sample's back buffer, depth buffer and pipeline states: the meshlets with culling off
         // (to see the backs of culled meshlets), the frustum's lines, the bounding sphere blended
         // over the scene and the normal cone's lines, those two without depth testing.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             this.depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.framebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
@@ -668,7 +668,7 @@ namespace MeshletCull {
         }
 
         // PopulateCommandList.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             if (!this.hasTargets) {
@@ -724,7 +724,7 @@ namespace MeshletCull {
 
         // Model::LoadFromFile and UploadGpuResources, for an object: each mesh's buffers for the
         // shaders, its MeshInfo, and its data for picking.
-        loadObject(commandList: CommandList, index: int): boolean {
+        loadObject(commandList: CommandList, index: int) {
             const path = MEDIA_DIR + MODEL_FILES[index];
             const binaryFile = this.app.loadBinaryFile(path);
             if (binaryFile.isNull()) {
@@ -839,7 +839,7 @@ namespace MeshletCull {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "meshlet_cull.hlsl";
             const visualizers = "meshlet_cull_visualizers.hlsl";
             this.meshPipelineAS = this.app.createShader(shader, "main_as", ShaderType.Amplification);
@@ -917,7 +917,7 @@ namespace MeshletCull {
     // background is the clear color at the corners; the selected meshlet keeps its color and the
     // others are desaturated (lerp(color, luminosity + 0.2, 0.8): nearly gray); its bounding sphere
     // is blended yellow over the dragon; the culling camera's frustum is purple lines.
-    function checkFrame(app: App, pass: MeshletCullPass): string {
+    function checkFrame(app: App, pass: MeshletCullPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -995,7 +995,7 @@ namespace MeshletCull {
         return "";
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("meshlet_cull");
 
@@ -1039,6 +1039,6 @@ namespace MeshletCull {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MeshletCull.main(argc, argv);
 }

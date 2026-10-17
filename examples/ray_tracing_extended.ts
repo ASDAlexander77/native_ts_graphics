@@ -9,7 +9,7 @@ namespace RayTracingExtended {
     const TEST_FRAMES = 120;
 
     // -test: checks the last frame: Sponza (about 67% lit) and the white hot fire in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -78,28 +78,28 @@ namespace RayTracingExtended {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // std::default_random_engine with a uniform distribution over [0, 1) replacement: a Park-Miller
     // generator (tslang's Math.random isn't usable). The sample seeds its engine with the time.
     let g_RandomSeed = 12345.0;
-    function generateRandom(): number {
+    function generateRandom() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
         return g_RandomSeed / 2147483647.0;
     }
 
-    function dot(a: number[], b: number[]): number {
+    function dot(a: number[], b: number[]) {
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
-    function cross(a: number[], b: number[]): number[] {
+    function cross(a: number[], b: number[]) {
         return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     }
 
     // glm::normalize: a zero vector gives NaNs, as there.
-    function normalize(v: number[]): number[] {
+    function normalize(v: number[]) {
         const inverseLength = 1.0 / Math.sqrt(dot(v, v));
         return [v[0] * inverseLength, v[1] * inverseLength, v[2] * inverseLength];
     }
@@ -140,7 +140,7 @@ namespace RayTracingExtended {
             this.v = normalize(cross(direction, this.u));
         }
 
-        generateRandomDirection(): number[] {
+        generateRandomDirection() {
             const a = 0.2 * generateRandom();
             const b = 0.2 * generateRandom();
             const c = 0.8 * generateRandom();
@@ -150,7 +150,7 @@ namespace RayTracingExtended {
             return normalize([a * u[0] + b * v[0] + c * d[0], a * u[1] + b * v[1] + c * d[1], a * u[2] + b * v[2] + c * d[2]]);
         }
 
-        generateParticle(lifetime: number): FlameParticle {
+        generateParticle(lifetime: number) {
             const theta = 2.0 * 3.14159 * generateRandom();
             const R = this.radius * generateRandom();
             const velocityDirection = this.generateRandomDirection();
@@ -168,14 +168,14 @@ namespace RayTracingExtended {
         }
 
         // The sample's constructor's particles, at random points of their lifetimes.
-        init(): void {
+        init() {
             for (let i = 0; i < this.nParticles; i++) {
                 const startingLifetime = generateRandom() * this.lifetime;
                 this.particles.push(this.generateParticle(startingLifetime));
             }
         }
 
-        updateParticles(timeDelta: number): void {
+        updateParticles(timeDelta: number) {
             const remaining: FlameParticle[] = [];
             for (const particle of this.particles) {
                 if (!(particle.duration > generateRandom() * this.lifetime)) {
@@ -307,22 +307,22 @@ namespace RayTracingExtended {
             this.flameGenerator = new FlameParticleGenerator([-0.15, -1.5, -2.3], [0.0, -1.0, 0.0], 0.5, FLAME_PARTICLE_COUNT);
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
 
@@ -330,7 +330,7 @@ namespace RayTracingExtended {
             this.flameGenerator.updateParticles(elapsedSeconds);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
                 this.app.releaseResource(bindingSet.handle);
@@ -346,7 +346,7 @@ namespace RayTracingExtended {
         // The refraction model: a GRID_SIZE x GRID_SIZE sheet with waves running along it, its
         // normals averaged from the faces'. As in the sample, its index array has room for
         // 2 x GRID_SIZE^2 triangles but uses 2 x (GRID_SIZE - 1)^2: the rest are (0, 0, 0).
-        createDynamicObjectBuffers(time: number): void {
+        createDynamicObjectBuffers(time: number) {
             const model = this.refractionModel;
             const indices = this.refractionIndices;
             if (model.length == 0) {
@@ -410,7 +410,7 @@ namespace RayTracingExtended {
 
         // The sample's calculate_rotation into this.transform: a billboard at pt facing the camera,
         // turned only around y if freezeY.
-        calculateRotation(pt: number[], scale: number, freezeY: boolean): void {
+        calculateRotation(pt: number[], scale: number, freezeY: boolean) {
             let normal = normalize([pt[0] - this.eye[0], pt[1] - this.eye[1], pt[2] - this.eye[2]]);
             if (freezeY) {
                 normal = normalize(Math.abs(normal[1]) > 0.99 ? [0.0, 0.0, 1.0] : [normal[0], 0.0, normal[2]]);
@@ -429,7 +429,7 @@ namespace RayTracingExtended {
 
         // The sample's create_top_level_acceleration_structure: Sponza and the refraction model,
         // then a billboard instance per flame particle.
-        createTopLevelAccelerationStructure(frame: Frame): void {
+        createTopLevelAccelerationStructure(frame: Frame) {
             const tlas = this.topLevelAS;
             let flameIndex = -1;
             for (let i = 0; i < this.modelBuffers.length; i++) {
@@ -463,7 +463,7 @@ namespace RayTracingExtended {
         }
 
         // The sample's update_uniform_buffers: inverse view and projection matrices.
-        updateUniformBuffers(width: int, height: int): void {
+        updateUniformBuffers(width: int, height: int) {
             this.camera.getWorldToView(Ref(this.viewMatrix[0]));
 
             // The sample's world has -y up on the screen. Mirrored in y it is Donut's world, y up,
@@ -516,7 +516,7 @@ namespace RayTracingExtended {
             Donut_StoreInt32(Ref(c[CONST_MAX_RAYS]), MAX_RAYS);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -574,7 +574,7 @@ namespace RayTracingExtended {
 
         // The sample's RaytracingScene: every Sponza submesh, its positions scaled to meters and
         // its axes turned (the vase moved too), with its base color texture.
-        loadScene(descriptorTableManager: DescriptorTableManager): boolean {
+        loadScene(descriptorTableManager: DescriptorTableManager) {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -627,7 +627,7 @@ namespace RayTracingExtended {
         }
 
         // The sample's create_flame_model: a unit square billboard with the flame texture.
-        createFlameModel(descriptorTableManager: DescriptorTableManager): boolean {
+        createFlameModel(descriptorTableManager: DescriptorTableManager) {
             const texture = this.app.loadBindlessTexture(descriptorTableManager, FLAME_TEXTURE_PATH, 1);
             if (texture.isNull()) {
                 return false;
@@ -657,7 +657,7 @@ namespace RayTracingExtended {
         // create_bottom_level_acceleration_structure, recorded into an open command list: the
         // models' vertices and triangles in one vertex and one index buffer, the refraction model
         // in its own pair, a BLAS for each.
-        createBuffersAndBlases(commandList: CommandList): void {
+        createBuffersAndBlases(commandList: CommandList) {
             let staticVertices: f32[] = [];
             let staticTriangles: int[] = [];
             for (const model of this.models) {
@@ -713,7 +713,7 @@ namespace RayTracingExtended {
             commandList.writeBuffer(this.dataToModelBuffer, Ref(modelInstanceData[0]), modelInstanceData.length * 4);
         }
 
-        createRayTracingPipeline(): boolean {
+        createRayTracingPipeline() {
             const shaderLibrary = this.app.createShaderLibrary("ray_tracing_extended.hlsl");
             if (!shaderLibrary) {
                 return false;
@@ -732,7 +732,7 @@ namespace RayTracingExtended {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // The scene's textures, as an array indexed by their descriptor indices.
             const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
             bindlessLayoutDesc.addTextures(1);
@@ -802,7 +802,7 @@ namespace RayTracingExtended {
         // their shadow and AO output).
         renderMode = RENDER_DEFAULT;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-mode" && i + 1 < this.argc) {
@@ -813,7 +813,7 @@ namespace RayTracingExtended {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("ray_tracing_extended");
 
@@ -854,6 +854,6 @@ namespace RayTracingExtended {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RayTracingExtended.main(argc, argv);
 }

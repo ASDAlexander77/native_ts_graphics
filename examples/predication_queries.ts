@@ -10,7 +10,7 @@ namespace PredicationQueries {
 
     // -test: checks the last frame. The corners are the blue clear color; the white quad in the
     // middle (about 11%) and the red one its occlusion query left drawn (about 9%).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -92,7 +92,7 @@ namespace PredicationQueries {
             this.unsupportedReason = "";
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -106,14 +106,14 @@ namespace PredicationQueries {
         }
 
         // OnUpdate: the near quad moves right, back to the left past the bounds.
-        step(): void {
+        step() {
             this.nearOffset[0] = Math.fround(this.nearOffset[0] + TRANSLATION_SPEED);
             if (this.nearOffset[0] > OFFSET_BOUNDS) {
                 this.nearOffset[0] = -OFFSET_BOUNDS;
             }
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             if (this.benchmark) {
                 this.step();
@@ -128,7 +128,7 @@ namespace PredicationQueries {
 
         // The sample's back buffer (RGBA8_UNORM) and D32_FLOAT depth buffer, here a color target
         // blitted into the back buffer; and its two pipeline states for them.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             this.depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.framebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
@@ -156,14 +156,14 @@ namespace PredicationQueries {
         }
 
         // A quad: four vertices from `first` of the vertex buffer, with a quad's constants.
-        beginQuad(frame: Frame, pipeline: GraphicsPipelineHandle, bindingSet: BindingSet, first: int): void {
+        beginQuad(frame: Frame, pipeline: GraphicsPipelineHandle, bindingSet: BindingSet, first: int) {
             frame.beginDrawToFramebuffer(pipeline, this.framebuffer);
             frame.drawAddBindingSet(bindingSet);
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, first * VERTEX_STRIDE);
         }
 
         // PopulateCommandList: back to front, for the transparency.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             if (!this.hasTargets) {
@@ -193,7 +193,7 @@ namespace PredicationQueries {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const occlusion = this.app.createOcclusionPredication(1);
             if (!occlusion) {
                 this.unsupportedReason = "The graphics device has no predication (D3D12, or Vulkan with VK_EXT_conditional_rendering)";
@@ -262,7 +262,7 @@ namespace PredicationQueries {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("predication_queries");
 
@@ -301,6 +301,6 @@ namespace PredicationQueries {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return PredicationQueries.main(argc, argv);
 }

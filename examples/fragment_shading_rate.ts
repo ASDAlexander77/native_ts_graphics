@@ -10,7 +10,7 @@ namespace FragmentShadingRate {
 
     // -test: checks the last frame: the textured cubes over the blue sky fill it, the texture's
     // cyan glow in the middle, the sky about 7% blue.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -73,12 +73,12 @@ namespace FragmentShadingRate {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -93,7 +93,7 @@ namespace FragmentShadingRate {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -106,12 +106,12 @@ namespace FragmentShadingRate {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); with near > far, depth is reversed.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -139,7 +139,7 @@ namespace FragmentShadingRate {
         }
 
         // vkb::Camera::update_view_matrix: rotations around x, y, z, then translate(position).
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -152,14 +152,14 @@ namespace FragmentShadingRate {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -261,26 +261,26 @@ namespace FragmentShadingRate {
             return this.scratch[0];
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -297,7 +297,7 @@ namespace FragmentShadingRate {
         // distance from the center, in percent of the image's size) it lies in. The rings take the
         // device's rates but its first (largest), finest innermost; the rate codes are the sample's,
         // (width >> 1) | (height << 1).
-        shadingRatePattern(width: int, height: int): int[] {
+        shadingRatePattern(width: int, height: int) {
             const keys: number[] = [];
             const codes: int[] = [];
             const range = this.fround(RING_SPAN / this.rateCount);
@@ -338,7 +338,7 @@ namespace FragmentShadingRate {
         }
 
         // The sample's setup_framebuffer, recorded into an open command list.
-        createTargets(commandList: CommandList, width: int, height: int): void {
+        createTargets(commandList: CommandList, width: int, height: int) {
             this.releaseTargets();
             const rateWidth = Math.ceil(width / this.tileSize);
             const rateHeight = Math.ceil(height / this.tileSize);
@@ -382,7 +382,7 @@ namespace FragmentShadingRate {
             this.targetHeight = height;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -443,7 +443,7 @@ namespace FragmentShadingRate {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.rateCount = this.app.getFragmentShadingRates(Ref(this.rates[0]));
             this.tileSize = this.app.getShadingRateTileSize();
             if (this.rateCount == 0 || this.tileSize == 0) {
@@ -521,7 +521,7 @@ namespace FragmentShadingRate {
             this.pass = pass;
         }
 
-        buildUI(): void {
+        buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
@@ -535,7 +535,7 @@ namespace FragmentShadingRate {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -548,7 +548,7 @@ namespace FragmentShadingRate {
         // -nosky: without the sky sphere.
         noSky = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-color") {
@@ -562,7 +562,7 @@ namespace FragmentShadingRate {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("fragment_shading_rate");
 
@@ -612,6 +612,6 @@ namespace FragmentShadingRate {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return FragmentShadingRate.main(argc, argv);
 }

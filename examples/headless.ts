@@ -19,7 +19,7 @@ namespace Headless {
     const UINT_SIZE = 4;
 
     // The comparison headless.cpp ends with
-    function reportResult(expectedResult: int, computedResult: int): boolean {
+    function reportResult(expectedResult: int, computedResult: int) {
         console.log(`Expected result: ${expectedResult}, computed result: ${computedResult}`);
         if (computedResult == expectedResult) {
             console.log("Test PASSED");
@@ -33,7 +33,7 @@ namespace Headless {
     // headless.cpp's RunTest, line for line: NVRHI's interfaces called directly, with Donut's
     // shader factory for the shader and Donut's binding set helper (nvrhi::utils::
     // CreateBindingSetAndLayout's, C++ code rather than an interface) for the binding set.
-    function runTestNvrhi(app: App): boolean {
+    function runTestNvrhi(app: App) {
         const device = <nvrhi.IDevice>app.getNvrhiDevice();
 
         const computeShader = <nvrhi.IShader><Opaque>app.createShader("headless.hlsl", "main", ShaderType.Compute);
@@ -137,7 +137,7 @@ namespace Headless {
     }
 
     // The same through Donut's wrappers, for builds that can't call NVRHI directly
-    function runTestDonut(app: App): boolean {
+    function runTestDonut(app: App) {
         const computeShader = app.createShader("headless.hlsl", "main", ShaderType.Compute);
         if (!computeShader) {
             return false;
@@ -207,7 +207,7 @@ namespace Headless {
         return reportResult(expectedResult, computedResult);
     }
 
-    function runTest(app: App, forceDonut: boolean): boolean {
+    function runTest(app: App, forceDonut: boolean) {
         if (!forceDonut && nvrhi.supported()) {
             console.log("Calling NVRHI directly (core/nvrhi.ts).");
             return runTestNvrhi(app);
@@ -217,7 +217,7 @@ namespace Headless {
         return runTestDonut(app);
     }
 
-    function listAdapters(api: GraphicsAPI): int {
+    function listAdapters(api: GraphicsAPI) {
         const adapters = AdapterList.enumerate(api);
         if (adapters.isNull()) {
             return 1;
@@ -247,7 +247,7 @@ namespace Headless {
         // program before the test.
         firstExit = EXIT_NONE;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "--help") {
@@ -326,6 +326,6 @@ namespace Headless {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Headless.main(argc, argv);
 }

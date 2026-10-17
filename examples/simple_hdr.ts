@@ -10,7 +10,7 @@ namespace SimpleHdr {
 
     // -test: checks the last frame (R10G10B10A2 back buffers, SDR). The corners are black; the
     // paper white block in the middle is white, about 5% of the frame, the text and it about 7%.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -87,7 +87,7 @@ namespace SimpleHdr {
     const ACTION_RELEASE = 0;
     const ACTION_PRESS = 1;
 
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scale = 1.0;
         for (let i = 0; i < digits; i++) {
             scale *= 10.0;
@@ -105,7 +105,7 @@ namespace SimpleHdr {
 
     // HDRCommon.h (float arithmetic as the sample's): the ST.2084 curve of a normalized linear
     // value (1.0 = 10,000 nits).
-    function linearToST2084(normalizedLinearValue: number): number {
+    function linearToST2084(normalizedLinearValue: number) {
         const p = Math.fround(Math.pow(Math.abs(normalizedLinearValue), Math.fround(0.1593017578)));
         const numerator = Math.fround(Math.fround(0.8359375) + Math.fround(Math.fround(18.8515625) * p));
         const denominator = Math.fround(1.0 + Math.fround(Math.fround(18.6875) * p));
@@ -113,17 +113,17 @@ namespace SimpleHdr {
     }
 
     // The same of an HDR scene value (1.0 = paper white).
-    function sceneValueToST2084(hdrSceneValue: number, paperWhiteNits: number): number {
+    function sceneValueToST2084(hdrSceneValue: number, paperWhiteNits: number) {
         return linearToST2084(Math.fround(Math.fround(hdrSceneValue * paperWhiteNits) / MAX_NITS_FOR_2084));
     }
 
     // The brightness of an HDR scene value, in nits.
-    function calcNits(hdrSceneValue: number, paperWhiteNits: number): number {
+    function calcNits(hdrSceneValue: number, paperWhiteNits: number) {
         return Math.fround(Math.fround(Math.fround(hdrSceneValue * paperWhiteNits) / MAX_NITS_FOR_2084) * MAX_NITS_FOR_2084);
     }
 
     // The sample's LinearToSRGB: the sRGB curve of a value clamped to [0, 1] (for the UI).
-    function linearToSRGB(hdrSceneValue: number): number {
+    function linearToSRGB(hdrSceneValue: number) {
         const value = Math.min(Math.max(hdrSceneValue, 0.0), 1.0);
         if (value < 0.0031308) {
             return Math.fround(value * 12.92);
@@ -231,18 +231,18 @@ namespace SimpleHdr {
 
         // The sample's DeviceResources::UpdateColorSpace: HDR10 when the window's display is in HDR
         // mode (the swap chain takes it from the next frame on), sRGB otherwise.
-        updateColorSpace(): void {
+        updateColorSpace() {
             const wanted = this.app.isDisplayHdr() != 0 && !this.forceSdr ? SwapChainColorSpace.HDR10 : SwapChainColorSpace.SRGB;
             if (wanted != this.app.getSwapChainColorSpace()) {
                 this.app.setSwapChainColorSpace(wanted);
             }
         }
 
-        hdrMode(): boolean {
+        hdrMode() {
             return this.app.getSwapChainColorSpace() == SwapChainColorSpace.HDR10;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_UP || key == KEY_RIGHT) {
                 this.upHeld = action != ACTION_RELEASE;
             } else if (key == KEY_DOWN || key == KEY_LEFT) {
@@ -264,7 +264,7 @@ namespace SimpleHdr {
         }
 
         // The sample's Update: the countdown, the held keys' changes, and the display's mode.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
 
             if (this.countDownToBright >= 0.0) {
@@ -295,7 +295,7 @@ namespace SimpleHdr {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const sceneSet = this.sceneBindingSet;
             if (!sceneSet.isNull()) {
                 this.app.releaseResource(sceneSet.handle);
@@ -320,7 +320,7 @@ namespace SimpleHdr {
         }
 
         // A rectangle of the sample's layout in one color (SpriteBatch::Draw with ColorPS).
-        drawRect(frame: Frame, left: number, top: number, right: number, bottom: number, value: number): void {
+        drawRect(frame: Frame, left: number, top: number, right: number, bottom: number, value: number) {
             this.drawConstants[0] = left;
             this.drawConstants[1] = top;
             this.drawConstants[2] = right;
@@ -341,7 +341,7 @@ namespace SimpleHdr {
 
         // The sample's RenderHDRScene: four blocks with the HDR scene values (only the paper white
         // one at first). Its text is the UI's.
-        renderHDRScene(frame: Frame): void {
+        renderHDRScene(frame: Frame) {
             const step = Math.floor(LAYOUT_WIDTH / (NUM_INPUT_VALUES + 2.0));
             let left = 115.0;
             for (let i = 0; i < NUM_INPUT_VALUES; i++) {
@@ -356,7 +356,7 @@ namespace SimpleHdr {
             }
         }
 
-        addLine(count: int, x1: number, y1: number, x2: number, y2: number): int {
+        addLine(count: int, x1: number, y1: number, x2: number, y2: number) {
             this.lineVertices[count * 2] = x1;
             this.lineVertices[count * 2 + 1] = y1;
             this.lineVertices[count * 2 + 2] = x2;
@@ -367,7 +367,7 @@ namespace SimpleHdr {
         // The sample's Render2084Curve: the curve's outline, ticks and graph and the selected
         // brightness's lines in a viewport (lines in its pixels), then a paper white block and one
         // of the selected brightness. Its text is the UI's.
-        renderST2084Curve(frame: Frame, commandList: CommandList): void {
+        renderST2084Curve(frame: Frame, commandList: CommandList) {
             const scale = Math.fround(this.frameHeight / LAYOUT_HEIGHT);
             const viewportWidth = Math.fround(1675.0 * scale);
             const viewportHeight = Math.fround(600.0 * scale);
@@ -431,7 +431,7 @@ namespace SimpleHdr {
             this.drawRect(frame, blockLeft + size * 2.0, 50.0, blockLeft + size * 3.0, 50.0 + size, hdrSceneValue);
         }
 
-        createPipelines(frame: Frame): void {
+        createPipelines(frame: Frame) {
             const rectDesc = GraphicsPipelineDesc.create(this.rectVS, this.colorPS);
             rectDesc.addBindingLayout(this.sceneLayout);
             rectDesc.setDepthState(0, 0, ComparisonFunc.Always);
@@ -465,7 +465,7 @@ namespace SimpleHdr {
         }
 
         // The sample's Clear and scene rendering: the HDR scene, window-sized, cleared to black.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -517,7 +517,7 @@ namespace SimpleHdr {
 
         // The sample's PrepareSwapChainBuffer: the HDR scene as HDR10 (Rec.2020, ST.2084) into the
         // back buffer when it is in that color space, clipped to SDR otherwise.
-        onRenderPrepareSwapChain(frameHandle: FrameHandle): void {
+        onRenderPrepareSwapChain(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             this.convertConstants[0] = this.paperWhiteNits;
             const pipeline = this.hdrMode() ? this.hdr10Pipeline : this.sdrPipeline;
@@ -530,7 +530,7 @@ namespace SimpleHdr {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.pointSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
 
             const sceneLayoutDesc = BindingLayoutDesc.create();
@@ -563,7 +563,7 @@ namespace SimpleHdr {
         }
 
         // The second pass, after the ImGui one.
-        initPrepareSwapChain(): void {
+        initPrepareSwapChain() {
             const pass = this.app.addPass();
             pass.setRenderCallback(this.onRenderPrepareSwapChain);
         }
@@ -579,7 +579,7 @@ namespace SimpleHdr {
 
         // Text at the sample's layout position, in one of its font scales; right-aligned at x if
         // alignRight (where the sample's text is rotated by -90 degrees).
-        text(font: int, x: number, y: number, text: string, alignRight: boolean): void {
+        text(font: int, x: number, y: number, text: string, alignRight: boolean) {
             const sample = this.sample;
             sample.fonts[font].push();
             Donut_ImGuiDrawText(x * sample.frameWidth / LAYOUT_WIDTH, y * sample.frameHeight / LAYOUT_HEIGHT, text,
@@ -588,7 +588,7 @@ namespace SimpleHdr {
         }
 
         // RenderHDRScene's text: the values of each block, in the HDR scene, SDR and HDR10.
-        hdrSceneText(): void {
+        hdrSceneText() {
             const sample = this.sample;
             const step = Math.floor(LAYOUT_WIDTH / (NUM_INPUT_VALUES + 2.0));
             const startY = 40.0;
@@ -618,7 +618,7 @@ namespace SimpleHdr {
         }
 
         // Render2084Curve's text: the axes' ends and the selected brightness.
-        curveText(): void {
+        curveText() {
             const sample = this.sample;
             const startX = 150.0;
             const startY = 250.0;
@@ -659,7 +659,7 @@ namespace SimpleHdr {
         }
 
         // The sample's RenderUI, with its keyboard controls.
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             const startX = 50.0;
             const startY = 40.0;
@@ -684,7 +684,7 @@ namespace SimpleHdr {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App, height: int): boolean {
+        init(app: App, height: int) {
             const imguiPass = app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -710,7 +710,7 @@ namespace SimpleHdr {
         // -sdr: the SDR signal (sRGB back buffers) even on an HDR display.
         sdr = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-curve") {
@@ -724,7 +724,7 @@ namespace SimpleHdr {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_hdr");
 
@@ -777,6 +777,6 @@ namespace SimpleHdr {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return SimpleHdr.main(argc, argv);
 }

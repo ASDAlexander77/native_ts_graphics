@@ -10,7 +10,7 @@ namespace RasterizationOrderAttachmentAccess {
 
     // -test: checks the last frame. The corners are the gray background; the translucent spheres,
     // blended in rasterization order, color about 57% of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -72,12 +72,12 @@ namespace RasterizationOrderAttachmentAccess {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -92,7 +92,7 @@ namespace RasterizationOrderAttachmentAccess {
     }
 
     // glm::rotate(mat4(1), angle, axis) about a unit axis.
-    function rotation(angle: number, x: number, y: number, z: number): number[] {
+    function rotation(angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -104,13 +104,13 @@ namespace RasterizationOrderAttachmentAccess {
         ];
     }
 
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
     }
 
     // glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), with clip y
     // negated: the sample's clip space has y down on the screen (Vulkan's), Donut's y up.
-    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                              0.0,
@@ -121,7 +121,7 @@ namespace RasterizationOrderAttachmentAccess {
     }
 
     // printf's %.3f.
-    function formatFixed3(value: number): string {
+    function formatFixed3(value: number) {
         const scaled = Math.round(value * 1000.0);
         const whole = Math.floor(scaled / 1000);
         let fraction = `${scaled - whole * 1000}`;
@@ -139,13 +139,13 @@ namespace RasterizationOrderAttachmentAccess {
             this.state = seed;
         }
 
-        next(): number {
+        next() {
             this.state = (this.state * 214013 + 2531011) % 4294967296;
             return Math.floor(this.state / 65536) % 32768;
         }
 
         // static_cast<float>(rand()) / RAND_MAX.
-        nextFloat(): number {
+        nextFloat() {
             return this.next() / 32767.0;
         }
     }
@@ -238,17 +238,17 @@ namespace RasterizationOrderAttachmentAccess {
             this.drawConstants = [0];
         }
 
-        drawCallCount(): int {
+        drawCallCount() {
             return this.rovEnabled ? 2 : INSTANCE_COUNT + 1;
         }
 
-        barrierCount(): int {
+        barrierCount() {
             return this.rovEnabled ? 0 : INSTANCE_COUNT - 1;
         }
 
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.leftButton) {
@@ -267,7 +267,7 @@ namespace RasterizationOrderAttachmentAccess {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             const pressed = action == ACTION_PRESS;
             if (button == MOUSE_BUTTON_LEFT) {
                 this.leftButton = pressed;
@@ -279,11 +279,11 @@ namespace RasterizationOrderAttachmentAccess {
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseSizedResources(): void {
+        releaseSizedResources() {
             if (this.width == 0) {
                 return;
             }
@@ -293,12 +293,12 @@ namespace RasterizationOrderAttachmentAccess {
             this.height = 0;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseSizedResources();
         }
 
         // The color texture: the swapchain's bytes (sRGB-encoded RGBA8), packed in a uint.
-        createSizedResources(width: int, height: int): void {
+        createSizedResources(width: int, height: int) {
             this.width = width;
             this.height = height;
             this.colorTexture = this.app.createUAVTextureWithFormat(width, height, Format.R32_UINT, "Color");
@@ -324,7 +324,7 @@ namespace RasterizationOrderAttachmentAccess {
 
         // The background and the blending write the color texture only (no color output); no depth
         // test; the spheres' back faces culled (counter-clockwise triangles are front faces).
-        createPipelines(frame: Frame): void {
+        createPipelines(frame: Frame) {
             const backgroundDesc = GraphicsPipelineDesc.create(this.fullscreenVS, this.backgroundPS);
             backgroundDesc.addBindingLayout(this.backgroundBindingLayout);
             backgroundDesc.setDepthState(0, 0, ComparisonFunc.Greater);
@@ -359,7 +359,7 @@ namespace RasterizationOrderAttachmentAccess {
         }
 
         // The sample's update_scene_uniforms.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -375,7 +375,7 @@ namespace RasterizationOrderAttachmentAccess {
             c[CONST_BACKGROUND_GRAYSCALE] = BACKGROUND_GRAYSCALE;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -446,7 +446,7 @@ namespace RasterizationOrderAttachmentAccess {
         }
 
         // The sample's instance data: the grid's transforms and random colors (alpha 0.2 to 1).
-        createInstanceBuffer(commandList: CommandList): void {
+        createInstanceBuffer(commandList: CommandList) {
             const random = new MsvcRandom(RANDOM_SEED);
             let instances: f32[] = [];
             for (let z = 0; z < INSTANCE_LAYER_COUNT; z++) {
@@ -480,7 +480,7 @@ namespace RasterizationOrderAttachmentAccess {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.rovSupported = this.app.hasRasterizerOrderedViews() != 0;
             this.rovEnabled = this.rovSupported;
 
@@ -568,7 +568,7 @@ namespace RasterizationOrderAttachmentAccess {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
@@ -587,7 +587,7 @@ namespace RasterizationOrderAttachmentAccess {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -596,7 +596,7 @@ namespace RasterizationOrderAttachmentAccess {
         // -norov: start with a draw and a barrier per sphere.
         rov = true;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-norov") {
@@ -606,7 +606,7 @@ namespace RasterizationOrderAttachmentAccess {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("rasterization_order_attachment_access");
 
@@ -649,6 +649,6 @@ namespace RasterizationOrderAttachmentAccess {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return RasterizationOrderAttachmentAccess.main(argc, argv);
 }

@@ -11,7 +11,7 @@ namespace TextureCompressionBasisu {
 
     // -test: checks the last frame. The corners are the gray clear color; the transcoded parrots
     // cover about 84% of the frame, about 6% the red parrot's red.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -81,12 +81,12 @@ namespace TextureCompressionBasisu {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -101,7 +101,7 @@ namespace TextureCompressionBasisu {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -114,12 +114,12 @@ namespace TextureCompressionBasisu {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -130,7 +130,7 @@ namespace TextureCompressionBasisu {
     }
 
     // A number with `digits` decimals, like printf's %.Nf (Number.toFixed is missing under the JIT).
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scale = 1.0;
         for (let i = 0; i < digits; i++) {
             scale *= 10.0;
@@ -147,7 +147,7 @@ namespace TextureCompressionBasisu {
     }
 
     // ImGui combo items: the names separated by '|'.
-    function comboItems(names: string[]): string {
+    function comboItems(names: string[]) {
         let items = "";
         for (let i = 0; i < names.length; i++) {
             items += (i > 0 ? "|" : "") + names[i];
@@ -177,7 +177,7 @@ namespace TextureCompressionBasisu {
 
         // The samples' update_uniform_buffers: translate(0, 0, zoom) * translate(camera_pos) *
         // rotations around x, y, z.
-        model(): number[] {
+        model() {
             let m = identity();
             m[12] = this.position[0];
             m[13] = this.position[1];
@@ -189,14 +189,14 @@ namespace TextureCompressionBasisu {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -283,26 +283,26 @@ namespace TextureCompressionBasisu {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.view.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.view.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -314,7 +314,7 @@ namespace TextureCompressionBasisu {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -338,7 +338,7 @@ namespace TextureCompressionBasisu {
         // The sample's transcode_texture: the KTX 2 file transcoded into the target format, timed,
         // every level uploaded (recorded into the frame's command list: the previous texture stays
         // alive until the GPU is done with it). False if the file can't be read or transcoded.
-        transcodeTexture(commandList: CommandList): boolean {
+        transcodeTexture(commandList: CommandList) {
             const target = this.targets[this.selectedTranscodeTargetFormat];
             const name = TEXTURE_FILE_NAMES[this.selectedInputTexture];
             const file = this.app.loadBinaryFile(TEXTURE_DIR + name);
@@ -375,7 +375,7 @@ namespace TextureCompressionBasisu {
             return true;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -419,7 +419,7 @@ namespace TextureCompressionBasisu {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             for (let i = 0; i < TARGET_TEXTURE_FORMATS.length; i++) {
                 const format = TARGET_TEXTURE_FORMATS[i];
                 const support = format == Format.UNKNOWN ? 0 : this.app.queryFormatSupport(format);
@@ -487,7 +487,7 @@ namespace TextureCompressionBasisu {
             this.targetNames = comboItems(names);
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Basis Universal texture loading", 1);
@@ -509,7 +509,7 @@ namespace TextureCompressionBasisu {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -520,7 +520,7 @@ namespace TextureCompressionBasisu {
         image = 0;
         target = 0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-image" && i + 1 < this.argc) {
@@ -534,7 +534,7 @@ namespace TextureCompressionBasisu {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("texture_compression_basisu");
 
@@ -578,6 +578,6 @@ namespace TextureCompressionBasisu {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return TextureCompressionBasisu.main(argc, argv);
 }

@@ -11,7 +11,7 @@ namespace SimplePbr {
 
     // -test: checks the last frame (R10G10B10A2 back buffers, SDR): the PBR models over the blurred
     // garden, about 41% of the frame colored, 4% white.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -86,7 +86,7 @@ namespace SimplePbr {
 
     // --- DirectXMath ----------------------------------------------------------------------------
 
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let m: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -100,7 +100,7 @@ namespace SimplePbr {
         return m;
     }
 
-    function transpose(a: number[]): number[] {
+    function transpose(a: number[]) {
         let m: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -111,7 +111,7 @@ namespace SimplePbr {
     }
 
     // XMMatrixInverse (by cofactors, in doubles).
-    function inverse(m: number[]): number[] {
+    function inverse(m: number[]) {
         const a00 = m[0]; const a01 = m[1]; const a02 = m[2]; const a03 = m[3];
         const a10 = m[4]; const a11 = m[5]; const a12 = m[6]; const a13 = m[7];
         const a20 = m[8]; const a21 = m[9]; const a22 = m[10]; const a23 = m[11];
@@ -151,27 +151,27 @@ namespace SimplePbr {
     }
 
     // XMMatrixRotationY.
-    function rotationY(angle: number): number[] {
+    function rotationY(angle: number) {
         const s = Math.fround(Math.sin(angle));
         const c = Math.fround(Math.cos(angle));
         return [c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
-    function normalize3(v: number[]): number[] {
+    function normalize3(v: number[]) {
         const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         return [Math.fround(v[0] / length), Math.fround(v[1] / length), Math.fround(v[2] / length)];
     }
 
-    function cross3(a: number[], b: number[]): number[] {
+    function cross3(a: number[], b: number[]) {
         return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     }
 
-    function dot3(a: number[], b: number[]): number {
+    function dot3(a: number[], b: number[]) {
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
     // XMMatrixLookAtRH: XMMatrixLookToLH away from the focus.
-    function lookAtRH(eye: number[], focus: number[], up: number[]): number[] {
+    function lookAtRH(eye: number[], focus: number[], up: number[]) {
         const r2 = normalize3([eye[0] - focus[0], eye[1] - focus[1], eye[2] - focus[2]]);
         const r0 = normalize3(cross3(up, r2));
         const r1 = cross3(r2, r0);
@@ -185,7 +185,7 @@ namespace SimplePbr {
     }
 
     // XMMatrixPerspectiveFovRH.
-    function perspectiveFovRH(fovY: number, aspect: number, nearZ: number, farZ: number): number[] {
+    function perspectiveFovRH(fovY: number, aspect: number, nearZ: number, farZ: number) {
         const height = Math.fround(Math.cos(0.5 * fovY) / Math.sin(0.5 * fovY));
         const width = Math.fround(height / aspect);
         const range = Math.fround(farZ / (nearZ - farZ));
@@ -193,7 +193,7 @@ namespace SimplePbr {
     }
 
     // Quaternions (x, y, z, w). XMQuaternionMultiply(q1, q2): q1's rotation, then q2's.
-    function quatMultiply(q1: number[], q2: number[]): number[] {
+    function quatMultiply(q1: number[], q2: number[]) {
         return [
             Math.fround(q2[3] * q1[0] + q2[0] * q1[3] + q2[1] * q1[2] - q2[2] * q1[1]),
             Math.fround(q2[3] * q1[1] - q2[0] * q1[2] + q2[1] * q1[3] + q2[2] * q1[0]),
@@ -202,19 +202,19 @@ namespace SimplePbr {
         ];
     }
 
-    function quatNormalize(q: number[]): number[] {
+    function quatNormalize(q: number[]) {
         const length = Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
         return [Math.fround(q[0] / length), Math.fround(q[1] / length), Math.fround(q[2] / length), Math.fround(q[3] / length)];
     }
 
     // XMQuaternionInverse.
-    function quatInverse(q: number[]): number[] {
+    function quatInverse(q: number[]) {
         const lengthSq = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
         return [Math.fround(-q[0] / lengthSq), Math.fround(-q[1] / lengthSq), Math.fround(-q[2] / lengthSq), Math.fround(q[3] / lengthSq)];
     }
 
     // XMVector3Rotate: conjugate(q) * v, then * q.
-    function rotate3(v: number[], q: number[]): number[] {
+    function rotate3(v: number[], q: number[]) {
         const conjugate = [-q[0], -q[1], -q[2], q[3]];
         const r = quatMultiply(quatMultiply(conjugate, [v[0], v[1], v[2], 0.0]), q);
         return [r[0], r[1], r[2]];
@@ -225,7 +225,7 @@ namespace SimplePbr {
     // DirectXTK's ComputeGeoSphere positions (its texture coordinate seams and pole copies only
     // duplicate positions), right-handed: an octahedron subdivided `tessellation` times, pushed onto
     // the sphere.
-    function geoSphere(diameter: number, tessellation: int, positions: f32[], indices: int[]): void {
+    function geoSphere(diameter: number, tessellation: int, positions: f32[], indices: int[]) {
         const vertices: number[] = [0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 0.0, -1.0, 0.0];
         let current: int[] = [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1, 5, 1, 4, 5, 4, 3, 5, 3, 2, 5, 2, 1];
         for (let subdivision = 0; subdivision < tessellation; subdivision++) {
@@ -315,7 +315,7 @@ namespace SimplePbr {
         }
 
         // False (after printing why) on failure.
-        load(app: App, commandList: CommandList, name: string): boolean {
+        load(app: App, commandList: CommandList, name: string) {
             const binaryFile = app.loadBinaryFile(MEDIA_DIR + name + ".sdkmesh");
             if (binaryFile.isNull()) {
                 return false;
@@ -454,7 +454,7 @@ namespace SimplePbr {
             this.downPoint = [0.0, 0.0, 0.0];
         }
 
-        reset(): void {
+        reset() {
             this.focus = [this.homeFocus[0], this.homeFocus[1], this.homeFocus[2]];
             this.radius = this.defaultRadius;
             this.rotation = [this.homeRotation[0], this.homeRotation[1], this.homeRotation[2], this.homeRotation[3]];
@@ -465,7 +465,7 @@ namespace SimplePbr {
         }
 
         // GetView: the camera radius away from the focus along the rotated +z, LookAtRH.
-        getView(): number[] {
+        getView() {
             const dir = rotate3([0.0, 0.0, 1.0], this.rotation);
             const up = rotate3([0.0, 1.0, 0.0], this.rotation);
             for (let i = 0; i < 3; i++) {
@@ -474,7 +474,7 @@ namespace SimplePbr {
             return lookAtRH(this.cameraPosition, this.focus, up);
         }
 
-        getProjection(): number[] {
+        getProjection() {
             let aspectRatio = 1.0;
             if (this.height > 0) {
                 aspectRatio = Math.fround(this.width / this.height);
@@ -483,7 +483,7 @@ namespace SimplePbr {
         }
 
         // ArcBall::ScreenToVector (radius 1).
-        screenToVector(screenX: number, screenY: number): number[] {
+        screenToVector(screenX: number, screenY: number) {
             let x = Math.fround(-Math.fround(screenX - Math.fround(this.width / 2.0)) / Math.fround(this.width / 2.0));
             let y = Math.fround(Math.fround(screenY - Math.fround(this.height / 2.0)) / Math.fround(this.height / 2.0));
             let z = 0.0;
@@ -499,7 +499,7 @@ namespace SimplePbr {
         }
 
         // Update(elapsedTime, Mouse, Keyboard).
-        update(elapsedTime: number, input: InputState): void {
+        update(elapsedTime: number, input: InputState) {
             const handed = -1.0;
             const im = inverse(this.getView());
 
@@ -710,21 +710,21 @@ namespace SimplePbr {
         }
 
         // DeviceResources::UpdateColorSpace: HDR10 when the window's display is in HDR mode.
-        updateColorSpace(): void {
+        updateColorSpace() {
             const wanted = this.app.isDisplayHdr() != 0 && !this.forceSdr ? SwapChainColorSpace.HDR10 : SwapChainColorSpace.SRGB;
             if (wanted != this.app.getSwapChainColorSpace()) {
                 this.app.setSwapChainColorSpace(wanted);
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
                 this.input.held[key] = action != ACTION_RELEASE;
             }
             return 0;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             if (this.input.relative) {
                 this.input.deltaX += x - this.input.x;
                 this.input.deltaY += y - this.input.y;
@@ -734,7 +734,7 @@ namespace SimplePbr {
             return 0;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             if (button == MOUSE_LEFT) {
                 this.input.leftButton = action != ACTION_RELEASE;
             } else if (button == MOUSE_RIGHT) {
@@ -743,14 +743,14 @@ namespace SimplePbr {
             return 0;
         }
 
-        onMouseScroll(xOffset: number, yOffset: number): int {
+        onMouseScroll(xOffset: number, yOffset: number) {
             this.input.scrollWheel += yOffset * 120.0;
             return 0;
         }
 
         // SharedSimplePBR::Update: the camera, then every model's matrices (world: a half turn about
         // y) and the sky box's.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.camera.width = this.frameWidth;
             this.camera.height = this.frameHeight;
@@ -764,7 +764,7 @@ namespace SimplePbr {
         }
 
         // PBREffect::Apply's constants (and SkyboxEffect's), for this frame's camera.
-        updateConstants(): void {
+        updateConstants() {
             const view = this.camera.getView();
             const proj = this.camera.getProjection();
             const world = rotationY(Math.fround(Math.PI));
@@ -814,7 +814,7 @@ namespace SimplePbr {
             }
         }
 
-        releaseFrameResources(): void {
+        releaseFrameResources() {
             if (!this.toneMapBindingSet.isNull()) {
                 this.app.releaseResource(this.toneMapBindingSet.handle);
                 this.toneMapBindingSet = new BindingSet(null);
@@ -837,11 +837,11 @@ namespace SimplePbr {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseFrameResources();
         }
 
-        createPipelines(frame: Frame): void {
+        createPipelines(frame: Frame) {
             // PBRModel::Create: Opaque, DepthDefault (less or equal), CullClockwise (counter-clockwise
             // triangles are front faces).
             const pbrDesc = GraphicsPipelineDesc.create(this.pbrVS, this.pbrPS);
@@ -875,7 +875,7 @@ namespace SimplePbr {
 
         // SharedSimplePBR::Render, the HDR scene: the models, then the sky box (the HUD is the ImGui
         // pass's, drawn into the scene after this).
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -937,7 +937,7 @@ namespace SimplePbr {
 
         // The tone mapping into the back buffer (a pass after the ImGui one): HDR10 or SDR by the
         // swap chain's color space.
-        onRenderToneMap(frameHandle: FrameHandle): void {
+        onRenderToneMap(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const hdr10 = this.app.getSwapChainColorSpace() == SwapChainColorSpace.HDR10;
             const pipeline = hdr10 ? this.hdr10Pipeline : this.acesPipeline;
@@ -952,7 +952,7 @@ namespace SimplePbr {
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         // SharedSimplePBR::CreateDeviceDependentResources.
-        init(): boolean {
+        init() {
             // CommonRenderPasses (behind the common samplers) opens its own command list: before ours.
             this.pointClampSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
             // CommonStates::AnisotropicClamp (16 samples) and LinearWrap.
@@ -1080,7 +1080,7 @@ namespace SimplePbr {
         }
 
         // The second pass, after the ImGui one.
-        initToneMap(): void {
+        initToneMap() {
             const pass = this.app.addPass();
             pass.setRenderCallback(this.onRenderToneMap);
         }
@@ -1097,7 +1097,7 @@ namespace SimplePbr {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             // SimpleMath::Viewport::ComputeTitleSafeArea
             const safeW = Math.fround((sample.frameWidth + 19.0) / 20.0);
@@ -1113,7 +1113,7 @@ namespace SimplePbr {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             const imguiPass = app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -1132,7 +1132,7 @@ namespace SimplePbr {
         // -sdr: the tone mapped SDR signal even on an HDR display.
         sdr = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-sdr") {
@@ -1142,7 +1142,7 @@ namespace SimplePbr {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_pbr");
 
@@ -1189,6 +1189,6 @@ namespace SimplePbr {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return SimplePbr.main(argc, argv);
 }

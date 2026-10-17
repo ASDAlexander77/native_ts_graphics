@@ -10,7 +10,7 @@ namespace DepthBoundsTest {
 
     // -test: checks the last frame. The corners are the cornflower clear color; the cube (the part
     // of it within the depth bounds) covers about 5% of the frame, colored in the middle.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0xED9564);
         if (corners != "") {
@@ -63,7 +63,7 @@ namespace DepthBoundsTest {
             this.benchmark = false;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -77,7 +77,7 @@ namespace DepthBoundsTest {
         }
 
         // OnUpdate: the next frame number.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             if (this.benchmark) {
                 this.frameNumber++;
@@ -91,7 +91,7 @@ namespace DepthBoundsTest {
 
         // The sample's back buffer (RGBA8_UNORM) and D32_FLOAT depth buffer, here a color target
         // blitted into the back buffer; and its two pipeline states for them.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             this.depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.framebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
@@ -116,7 +116,7 @@ namespace DepthBoundsTest {
         }
 
         // PopulateCommandList.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             if (!this.hasTargets) {
@@ -145,7 +145,7 @@ namespace DepthBoundsTest {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vertexShader = this.app.createShader("depth_bounds_test.hlsl", "VSMain", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("depth_bounds_test.hlsl", "PSMain", ShaderType.Pixel);
             if (!this.vertexShader || !this.pixelShader) {
@@ -182,7 +182,7 @@ namespace DepthBoundsTest {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("depth_bounds_test");
 
@@ -226,6 +226,6 @@ namespace DepthBoundsTest {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DepthBoundsTest.main(argc, argv);
 }

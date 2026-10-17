@@ -44,7 +44,7 @@ namespace GenericPrograms {
             this.programs = [];
         }
 
-        releasePrograms(): void {
+        releasePrograms() {
             for (const program of this.programs) {
                 this.app.releaseObject(program);
             }
@@ -56,13 +56,13 @@ namespace GenericPrograms {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releasePrograms();
         }
 
         // LoadAssets' generic programs: myGenericProgram (myRenamedVS, PSMain), then
         // myGenericProgram2 (myRenamedVS, PSMain2) added to its state object.
-        createPrograms(frame: Frame): boolean {
+        createPrograms(frame: Frame) {
             const desc = GraphicsPipelineDesc.create(this.vertexShader, this.pixelShader);
             desc.setInputLayout(this.inputLayout);
             desc.setDepthState(0, 0, ComparisonFunc.Always);
@@ -84,7 +84,7 @@ namespace GenericPrograms {
         }
 
         // PopulateCommandList: the triangle with each program, in each half of the window.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (this.programs.length == 0 && !this.createPrograms(frame)) {
                 return;
@@ -111,7 +111,7 @@ namespace GenericPrograms {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vertexShader = this.app.createShader("generic_programs.hlsl", "VSMain", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("generic_programs.hlsl", "PSMain", ShaderType.Pixel);
             this.pixelShader2 = this.app.createShader("generic_programs.hlsl", "PSMain2", ShaderType.Pixel);
@@ -150,7 +150,7 @@ namespace GenericPrograms {
     // -test: checks the last frame. The corners are the clear color; each half has a triangle in
     // the middle: the left one's center its interpolated colors (green below 1), the right one's
     // with green at 1.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -189,7 +189,7 @@ namespace GenericPrograms {
         return "";
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("generic_programs");
 
@@ -236,6 +236,6 @@ namespace GenericPrograms {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return GenericPrograms.main(argc, argv);
 }

@@ -13,7 +13,7 @@ namespace SimpleCompute {
     // cardioid at (860, 360)) is yellow, about 17% of the frame, where the driver divides by an
     // approximate reciprocal (NVIDIA's), or the outside's dark red where it divides exactly
     // (lavapipe, on Android's emulator): see fractal_cs.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x000040);
         if (corners != "") {
@@ -76,7 +76,7 @@ namespace SimpleCompute {
     const ACTION_RELEASE = 0;
     const ACTION_PRESS = 1;
 
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scale = 1.0;
         for (let i = 0; i < digits; i++) {
             scale *= 10.0;
@@ -93,7 +93,7 @@ namespace SimpleCompute {
     }
 
     // An R8G8B8A8_UNORM texel (the sample's 0xAABBGGRR values), opaque.
-    function texel(r: int, g: int, b: int): int {
+    function texel(r: int, g: int, b: int) {
         return r | (g << 8) | (b << 16) | (255 << 24);
     }
 
@@ -160,7 +160,7 @@ namespace SimpleCompute {
             this.resetWindow();
         }
 
-        resetWindow(): void {
+        resetWindow() {
             this.constants[4] = 4.0;
             this.constants[5] = 2.25;
             this.constants[6] = -0.65;
@@ -168,14 +168,14 @@ namespace SimpleCompute {
         }
 
         // The fractal window, for -window.
-        setWindow(x: number, y: number, z: number, w: number): void {
+        setWindow(x: number, y: number, z: number, w: number) {
             this.constants[4] = x;
             this.constants[5] = y;
             this.constants[6] = z;
             this.constants[7] = w;
         }
 
-        setUsingAsyncCompute(value: boolean): void {
+        setUsingAsyncCompute(value: boolean) {
             if (!this.hasAsyncCompute) {
                 return;
             }
@@ -187,7 +187,7 @@ namespace SimpleCompute {
             this.computeLoop.setPaused(value ? 0 : 1);
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != ACTION_RELEASE;
             }
@@ -202,7 +202,7 @@ namespace SimpleCompute {
         }
 
         // Sample::Update: the smoothed rates, then the held keys pan and zoom the window.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             const elapsedTime = Math.fround(elapsedSeconds);
 
@@ -263,7 +263,7 @@ namespace SimpleCompute {
 
         // Sample::Render: the fractal (computed now, or the worker's newest), stretched over the
         // window by a linear clamped blit as SpriteBatch draws it.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             this.frameWidth = frame.getWidth();
             this.frameHeight = frame.getHeight();
@@ -289,7 +289,7 @@ namespace SimpleCompute {
         }
 
         // Joins the worker thread; before Donut_DestroyApp.
-        stop(): void {
+        stop() {
             if (this.hasAsyncCompute) {
                 this.computeLoop.stop();
             }
@@ -297,14 +297,14 @@ namespace SimpleCompute {
 
         // A color map texture of 8 texels, uploaded by an open command list. It rests at
         // NonPixelShaderResource, which the compute queue can use.
-        createColorMap(commandList: CommandList, texels: int[], name: string): TextureHandle {
+        createColorMap(commandList: CommandList, texels: int[], name: string) {
             const texture = this.app.createComputeTexture(COLOR_MAP_SIZE, 1, Format.RGBA8_UNORM, name);
             commandList.writeTextureLevel(texture, 0, Ref(texels[0]), COLOR_MAP_SIZE * 4);
             return texture;
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const computeShader = this.app.createShader("simple_compute.hlsl", "fractal_cs", ShaderType.Compute);
             if (!computeShader) {
                 return false;
@@ -386,11 +386,11 @@ namespace SimpleCompute {
             this.app = app;
         }
 
-        line(x: number, y: number, text: string): void {
+        line(x: number, y: number, text: string) {
             Donut_ImGuiDrawText(x, y, text, 1.0, 1.0, 1.0, 1.0, 0);
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             const width = sample.frameWidth;
             const height = sample.frameHeight;
@@ -414,7 +414,7 @@ namespace SimpleCompute {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(): boolean {
+        init() {
             const imguiPass = this.app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -435,7 +435,7 @@ namespace SimpleCompute {
         hasWindow = false;
         windowValues = [0.0, 0.0, 0.0, 0.0];
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-async") {
@@ -451,7 +451,7 @@ namespace SimpleCompute {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("simple_compute");
 
@@ -498,6 +498,6 @@ namespace SimpleCompute {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return SimpleCompute.main(argc, argv);
 }

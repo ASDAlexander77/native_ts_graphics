@@ -10,7 +10,7 @@ namespace PatchControlPoints {
 
     // -test: checks the last frame. The corners are black; the three tessellated terrains, red, blue
     // and green wireframes, color about 17% of the frame, each 2.5% to 8%.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x000000);
         if (corners != "") {
@@ -70,12 +70,12 @@ namespace PatchControlPoints {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -90,7 +90,7 @@ namespace PatchControlPoints {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -103,13 +103,13 @@ namespace PatchControlPoints {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); the sample swaps near and far for
     // reversed depth.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -141,7 +141,7 @@ namespace PatchControlPoints {
         }
 
         // vkb::Camera::update_view_matrix: rotations around x, y, z, then translate(position).
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -153,7 +153,7 @@ namespace PatchControlPoints {
             return multiply(r, t);
         }
 
-        key(key: int, action: int): void {
+        key(key: int, action: int) {
             const down = action != ACTION_RELEASE;
             if (key == KEY_W) {
                 this.keys[0] = down;
@@ -167,7 +167,7 @@ namespace PatchControlPoints {
         }
 
         // vkb::Camera::update: first person movement, 1 unit per second.
-        update(deltaTime: number): void {
+        update(deltaTime: number) {
             const rx = radians(this.rotation[0]);
             const ry = radians(this.rotation[1]);
             let front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
@@ -198,14 +198,14 @@ namespace PatchControlPoints {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -286,32 +286,32 @@ namespace PatchControlPoints {
             this.push = [0.0, 0.0, 0.0];
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.key(key, action);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.update(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -325,7 +325,7 @@ namespace PatchControlPoints {
 
         // The sample's create_pipelines: patches of 3 control points, wireframe, front faces
         // (counter-clockwise) culled, alpha blended, reversed depth (greater).
-        createPipeline(): GraphicsPipelineHandle {
+        createPipeline() {
             const desc = GraphicsPipelineDesc.create(this.vs, this.ps);
             desc.setTessellation(this.hs, this.ds, 3);
             desc.setInputLayout(this.inputLayout);
@@ -337,7 +337,7 @@ namespace PatchControlPoints {
             return this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 0.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -353,7 +353,7 @@ namespace PatchControlPoints {
             this.targetHeight = height;
         }
 
-        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, bindingSet: BindingSet, model: int): void {
+        drawModel(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, bindingSet: BindingSet, model: int) {
             for (let i = 0; i < 3; i++) {
                 this.push[i] = DIRECTIONS[model * 3 + i];
             }
@@ -364,7 +364,7 @@ namespace PatchControlPoints {
             frame.drawIndexedWithPushConstants(this.model.getIndexCount(), Ref(this.push[0]), PUSH_FLOATS * 4);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -398,7 +398,7 @@ namespace PatchControlPoints {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "patch_control_points.hlsl";
             this.vs = this.app.createShader(shader, "tess_vs", ShaderType.Vertex);
             this.hs = this.app.createShader(shader, "tess_hs", ShaderType.Hull);
@@ -465,7 +465,7 @@ namespace PatchControlPoints {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Patch Control Points", 1);
@@ -480,7 +480,7 @@ namespace PatchControlPoints {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -490,7 +490,7 @@ namespace PatchControlPoints {
         tessellation = true;
         tessLevel = 3.0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-notessellation") {
@@ -503,7 +503,7 @@ namespace PatchControlPoints {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("patch_control_points");
 
@@ -547,6 +547,6 @@ namespace PatchControlPoints {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return PatchControlPoints.main(argc, argv);
 }

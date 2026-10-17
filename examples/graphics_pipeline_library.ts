@@ -11,7 +11,7 @@ namespace GraphicsPipelineLibrary {
     // -test: checks the last frame (seeded with 0). The corners are the dark blue clear color; the
     // teapot of the one pipeline there is at first covers about 3% of the frame, in its top left
     // cell.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -66,12 +66,12 @@ namespace GraphicsPipelineLibrary {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -86,7 +86,7 @@ namespace GraphicsPipelineLibrary {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -99,12 +99,12 @@ namespace GraphicsPipelineLibrary {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -132,7 +132,7 @@ namespace GraphicsPipelineLibrary {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -145,14 +145,14 @@ namespace GraphicsPipelineLibrary {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -239,18 +239,18 @@ namespace GraphicsPipelineLibrary {
             this.push = [0.0, 0.0, 0.0, 0.0];
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
         // The sample's render: the time accumulated in float, wrapped to [0, 1).
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             const deltaTime = Math.fround(this.benchmark ? 1.0 / 60.0 : elapsedSeconds);
             const time = Math.fround(this.accumulatedTime + Math.fround(Math.fround(0.2) * deltaTime));
             this.accumulatedTime = Math.fround(time - Math.floor(time));
@@ -258,11 +258,11 @@ namespace GraphicsPipelineLibrary {
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -274,7 +274,7 @@ namespace GraphicsPipelineLibrary {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 1.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -288,7 +288,7 @@ namespace GraphicsPipelineLibrary {
         // The sample's prepare_new_pipeline: a lighting model at random, the pipeline with it
         // (triangle lists, back faces culled with clockwise front faces, depth tested less or equal
         // and written, no blending); the grid grows by a row and a column when full.
-        addPipeline(): void {
+        addPipeline() {
             const lightingModel = Math.min(Math.floor(this.rng.uniformFloat(0.0, LIGHTING_MODELS)), LIGHTING_MODELS - 1);
             const desc = GraphicsPipelineDesc.create(this.vs, this.ps[lightingModel]);
             desc.setInputLayout(this.inputLayout);
@@ -303,7 +303,7 @@ namespace GraphicsPipelineLibrary {
             }
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -362,7 +362,7 @@ namespace GraphicsPipelineLibrary {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(seed: int): boolean {
+        init(seed: int) {
             const shader = "graphics_pipeline_library.hlsl";
             this.vs = this.app.createShader(shader, "shared_vs", ShaderType.Vertex);
             if (!this.vs) {
@@ -429,7 +429,7 @@ namespace GraphicsPipelineLibrary {
             this.sample = sample;
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Graphics Pipeline Library", 1);
@@ -442,7 +442,7 @@ namespace GraphicsPipelineLibrary {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -453,7 +453,7 @@ namespace GraphicsPipelineLibrary {
         // -seed <n>: the random colors' and lighting models' seed (random by default).
         seed = -1;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-pipelines" && i + 1 < this.argc) {
@@ -467,7 +467,7 @@ namespace GraphicsPipelineLibrary {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("graphics_pipeline_library");
 
@@ -513,6 +513,6 @@ namespace GraphicsPipelineLibrary {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return GraphicsPipelineLibrary.main(argc, argv);
 }

@@ -11,7 +11,7 @@ namespace Bokeh {
 
     // -test: checks the last frame: the scene, blurred by the bokeh depth of field, fills it, its
     // golden pillar about 5% colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -118,7 +118,7 @@ namespace Bokeh {
     // scaled to the frame's time here.
     const STEPS_PER_SECOND = 60.0;
 
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scale = 1.0;
         for (let i = 0; i < digits; i++) {
             scale *= 10.0;
@@ -136,7 +136,7 @@ namespace Bokeh {
 
     // --- DirectXMath, row-major for mul(vector, matrix) --------------------------------------
 
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let m: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -150,7 +150,7 @@ namespace Bokeh {
         return m;
     }
 
-    function transpose(a: number[]): number[] {
+    function transpose(a: number[]) {
         let m: number[] = [];
         for (let row = 0; row < 4; row++) {
             for (let column = 0; column < 4; column++) {
@@ -161,7 +161,7 @@ namespace Bokeh {
     }
 
     // XMMatrixInverse (by cofactors, in doubles).
-    function inverse(m: number[]): number[] {
+    function inverse(m: number[]) {
         const a00 = m[0]; const a01 = m[1]; const a02 = m[2]; const a03 = m[3];
         const a10 = m[4]; const a11 = m[5]; const a12 = m[6]; const a13 = m[7];
         const a20 = m[8]; const a21 = m[9]; const a22 = m[10]; const a23 = m[11];
@@ -201,27 +201,27 @@ namespace Bokeh {
     }
 
     // XMMatrixRotationY.
-    function rotationY(angle: number): number[] {
+    function rotationY(angle: number) {
         const s = Math.fround(Math.sin(angle));
         const c = Math.fround(Math.cos(angle));
         return [c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
-    function normalize3(v: number[]): number[] {
+    function normalize3(v: number[]) {
         const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         return [v[0] / length, v[1] / length, v[2] / length];
     }
 
-    function cross3(a: number[], b: number[]): number[] {
+    function cross3(a: number[], b: number[]) {
         return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     }
 
-    function dot3(a: number[], b: number[]): number {
+    function dot3(a: number[], b: number[]) {
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
     // XMMatrixLookAtLH: XMMatrixLookToLH towards the focus.
-    function lookAtLH(eye: number[], focus: number[], up: number[]): number[] {
+    function lookAtLH(eye: number[], focus: number[], up: number[]) {
         const r2 = normalize3([focus[0] - eye[0], focus[1] - eye[1], focus[2] - eye[2]]);
         const r0 = normalize3(cross3(up, r2));
         const r1 = cross3(r2, r0);
@@ -235,7 +235,7 @@ namespace Bokeh {
     }
 
     // XMMatrixPerspectiveFovLH.
-    function perspectiveFovLH(fovY: number, aspect: number, nearZ: number, farZ: number): number[] {
+    function perspectiveFovLH(fovY: number, aspect: number, nearZ: number, farZ: number) {
         const height = Math.cos(0.5 * fovY) / Math.sin(0.5 * fovY);
         const width = height / aspect;
         const range = farZ / (farZ - nearZ);
@@ -280,7 +280,7 @@ namespace Bokeh {
         // The file's buffers uploaded by an open command list, its materials' textures loaded
         // (DirectXTK's EffectTextureFactory: DDS files as they are). False (after printing why) on
         // failure.
-        load(app: App, commandList: CommandList, file: string): boolean {
+        load(app: App, commandList: CommandList, file: string) {
             const binaryFile = app.loadBinaryFile(MEDIA_DIR + file);
             if (binaryFile.isNull()) {
                 return false;
@@ -544,7 +544,7 @@ namespace Bokeh {
         }
 
         // Sample::SetPredefinedScene.
-        setPredefinedScene(index: int): void {
+        setPredefinedScene(index: int) {
             if (index == 1) {
                 // default scene
                 this.focusLength = 0.075;    // 75 mm lens
@@ -580,7 +580,7 @@ namespace Bokeh {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != ACTION_RELEASE;
             }
@@ -597,12 +597,12 @@ namespace Bokeh {
             return 1;
         }
 
-        isHeld(key: int): boolean {
+        isHeld(key: int) {
             return this.held[key];
         }
 
         // A stick axis from two keys: 1, -1 or 0.
-        axis(positiveKey: int, negativeKey: int): number {
+        axis(positiveKey: int, negativeKey: int) {
             let value = 0.0;
             if (this.held[positiveKey]) {
                 value += 1.0;
@@ -614,7 +614,7 @@ namespace Bokeh {
         }
 
         // Sample::Update: the held controls, a step per 1/60 s.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.cpuFrameMs = 1000.0 * elapsedSeconds;
             const steps = elapsedSeconds * STEPS_PER_SECOND;
@@ -681,7 +681,7 @@ namespace Bokeh {
             }
         }
 
-        releaseFrameResources(): void {
+        releaseFrameResources() {
             const bindingSets = [this.rgbzBindingSet, this.downsampleBindingSet, this.quadPointBindingSet, this.recombineBindingSet,
                 this.copyBindingSet];
             for (const bindingSet of bindingSets) {
@@ -710,7 +710,7 @@ namespace Bokeh {
             this.rgbzHalfCopy = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseFrameResources();
         }
 
@@ -718,7 +718,7 @@ namespace Bokeh {
         // FP16 color and depth, the DOF target (the layers' six viewports: two at a quarter of the
         // size one below the other, two at a sixteenth and two at a 64th along the bottom), and
         // the RGBZ copies at full and quarter size.
-        createFrameResources(width: int, height: int): void {
+        createFrameResources(width: int, height: int) {
             this.sceneColor = this.app.createRenderTargetTexture(width, height, Format.RGBA16_FLOAT, "SceneColor");
             this.sceneDepth = this.app.createDepthTexture(width, height, Format.D32, 1.0, "SceneDepth");
             this.dofHeight = Math.floor(2 * height / FIRST_DOWNSAMPLE) + Math.floor(height / (2 * FIRST_DOWNSAMPLE))
@@ -774,7 +774,7 @@ namespace Bokeh {
         }
 
         // The full-screen passes: no depth, nothing culled (the triangles face the camera anyway).
-        fullScreenDesc(pixelShader: ShaderHandle, layout: BindingLayoutHandle): GraphicsPipelineDesc {
+        fullScreenDesc(pixelShader: ShaderHandle, layout: BindingLayoutHandle) {
             const desc = GraphicsPipelineDesc.create(this.quadVS, pixelShader);
             desc.addBindingLayout(layout);
             desc.setDepthState(0, 0, ComparisonFunc.Always);
@@ -783,7 +783,7 @@ namespace Bokeh {
         }
 
         // BokehEffect::CreatePSO and the scene's EffectPipelineStateDescription.
-        createPipelines(frame: Frame): void {
+        createPipelines(frame: Frame) {
             // Opaque, DepthDefault (less or equal), CullCounterClockwise.
             const sceneDesc = GraphicsPipelineDesc.create(this.sceneVS, this.scenePS);
             sceneDesc.addBindingLayout(this.sceneLayout);
@@ -821,7 +821,7 @@ namespace Bokeh {
         // Sample::CalculateCameraMatrix and Model::UpdateEffectMatrices: each object's BasicEffect
         // constants (EffectMatrices and EffectLights::SetConstants: ambient folded into emissive,
         // diffuse premultiplied by alpha; the sample sets every effect's emissive color to white).
-        updateScene(view: number[], proj: number[]): void {
+        updateScene(view: number[], proj: number[]) {
             const viewInverse = inverse(view);
             for (let o = 0; o < OBJECT_COUNT; o++) {
                 const model = this.models[OBJECT_MODELS[o]];
@@ -860,7 +860,7 @@ namespace Bokeh {
         }
 
         // BokehEffect::StartRendering's constants.
-        updateBokehConstants(width: int, height: int, invProj: number[]): void {
+        updateBokehConstants(width: int, height: int, invProj: number[]) {
             const c = this.bokehConstants;
             c[0] = this.maxCoCSizeNear;
             c[1] = this.focusLength;
@@ -894,7 +894,7 @@ namespace Bokeh {
         }
 
         // BokehEffect::StartRendering's output viewports: x, y, width, height (which 0..3).
-        viewportValue(index: int, which: int, width: int, height: int): number {
+        viewportValue(index: int, which: int, width: int, height: int) {
             const vpSx = Math.fround(width / FIRST_DOWNSAMPLE);
             const vpSy = Math.fround(height / FIRST_DOWNSAMPLE);
             const vpSx2 = Math.fround(width / (2 * FIRST_DOWNSAMPLE));
@@ -922,7 +922,7 @@ namespace Bokeh {
         }
 
         // The timers of TIMER_FRAMES frames ago, read back and averaged; this frame's reset.
-        readTimers(): void {
+        readTimers() {
             const first = this.timerFrame * TIMER_COUNT;
             if (this.timerPending[this.timerFrame]) {
                 for (let i = 0; i < TIMER_COUNT; i++) {
@@ -936,13 +936,13 @@ namespace Bokeh {
             this.timerPending[this.timerFrame] = true;
         }
 
-        timer(index: int): TimerQueryHandle {
+        timer(index: int) {
             return this.timers[this.timerFrame * TIMER_COUNT + index];
         }
 
         // Sample::Render: the scene, the bokeh effect, the copy to the back buffer (the HUD is the
         // ImGui pass's).
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -1047,7 +1047,7 @@ namespace Bokeh {
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         // Sample::CreateDeviceDependentResources and BokehEffect's resources.
-        init(): boolean {
+        init() {
             // CommonRenderPasses (behind the common samplers) opens its own command list: before ours.
             this.anisotropicSampler = this.app.getCommonSampler(CommonSampler.AnisotropicWrap);
             // BokehRS's s0: FILTER_MIN_MAG_LINEAR_MIP_POINT, CreateEnergyTexRS's: FILTER_MIN_MAG_MIP_LINEAR,
@@ -1196,11 +1196,11 @@ namespace Bokeh {
             this.sample = sample;
         }
 
-        line(x: number, y: number, text: string): void {
+        line(x: number, y: number, text: string) {
             Donut_ImGuiDrawText(x, y, text, GREEN_R, GREEN_G, GREEN_B, 1.0, 0);
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             // SimpleMath::Viewport::ComputeTitleSafeArea
             const safeW = Math.fround((sample.frameWidth + 19.0) / 20.0);
@@ -1232,7 +1232,7 @@ namespace Bokeh {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             const imguiPass = app.addImGuiPass(this.buildUI);
             if (imguiPass.isNull()) {
                 return false;
@@ -1252,7 +1252,7 @@ namespace Bokeh {
         // -slow: start with the full (not the fast) bokeh geometry shader (Up toggles it).
         slow = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-preset" && i + 1 < this.argc) {
@@ -1265,7 +1265,7 @@ namespace Bokeh {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("bokeh");
 
@@ -1311,6 +1311,6 @@ namespace Bokeh {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Bokeh.main(argc, argv);
 }

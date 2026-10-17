@@ -68,16 +68,16 @@ namespace MeshletRender {
             this.keys = [0, 0, 0, 0, 0, 0, 0, 0];
         }
 
-        init(x: number, y: number, z: number): void {
+        init(x: number, y: number, z: number) {
             this.initialPosition = [Math.fround(x), Math.fround(y), Math.fround(z), 0.0];
             this.reset();
         }
 
-        setMoveSpeed(unitsPerSecond: number): void {
+        setMoveSpeed(unitsPerSecond: number) {
             this.moveSpeed = Math.fround(unitsPerSecond);
         }
 
-        reset(): void {
+        reset() {
             this.position = [this.initialPosition[0], this.initialPosition[1], this.initialPosition[2], 0.0];
             this.yaw = XM_PI;
             this.pitch = 0.0;
@@ -85,7 +85,7 @@ namespace MeshletRender {
         }
 
         // True if it took the key.
-        onKey(key: int, down: boolean): boolean {
+        onKey(key: int, down: boolean) {
             let index = -1;
             if (key == KEY_W) {
                 index = 0;
@@ -111,7 +111,7 @@ namespace MeshletRender {
             return true;
         }
 
-        update(elapsedSeconds: number): void {
+        update(elapsedSeconds: number) {
             const k = this.keys;
             // The move vector in camera space.
             let moveX = 0.0;
@@ -171,7 +171,7 @@ namespace MeshletRender {
             this.lookDirection = [Math.fround(r * sinYaw), Math.fround(Math.sin(this.pitch)), Math.fround(r * cosYaw), 0.0];
         }
 
-        viewMatrix(): number[] {
+        viewMatrix() {
             return matrixLookToRH(this.position, this.lookDirection, [0.0, 1.0, 0.0, 0.0]);
         }
     }
@@ -240,12 +240,12 @@ namespace MeshletRender {
         }
 
         // OnUpdate: the camera, then the constants for its view.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.camera.update(Math.fround(elapsedSeconds));
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -260,7 +260,7 @@ namespace MeshletRender {
         // The sample's back buffer and depth buffer, and its pipeline state: the default
         // rasterizer state (back faces culled, clockwise front faces), blend state (opaque) and
         // depth state (less, writes).
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.colorBuffer = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "ColorBuffer");
             this.depthBuffer = this.app.createRenderTargetTexture(width, height, Format.D32, "DepthBuffer");
             this.framebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
@@ -275,7 +275,7 @@ namespace MeshletRender {
 
         // OnUpdate's constants: an identity world, the camera's view, a 60 degree perspective at the
         // back buffer's aspect ratio (near 1, far 1000), stored transposed.
-        updateConstants(width: int, height: int): void {
+        updateConstants(width: int, height: int) {
             const world = matrixIdentity();
             const view = this.camera.viewMatrix();
             const aspectRatio = Math.fround(width / height);
@@ -293,7 +293,7 @@ namespace MeshletRender {
         }
 
         // PopulateCommandList.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
@@ -324,7 +324,7 @@ namespace MeshletRender {
 
         // Model::LoadFromFile and UploadGpuResources: each mesh's vertices, meshlets, unique vertex
         // indices and primitives in buffers for the mesh shader.
-        loadModel(): boolean {
+        loadModel() {
             const binaryFile = this.app.loadBinaryFile(MESH_FILE);
             if (binaryFile.isNull()) {
                 console.log(`Cannot load ${MESH_FILE} (the sample's model: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
@@ -388,7 +388,7 @@ namespace MeshletRender {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.meshShader = this.app.createShader("meshlet_render.hlsl", "main_ms", ShaderType.Mesh);
             this.pixelShader = this.app.createShader("meshlet_render.hlsl", "main_ps", ShaderType.Pixel);
             if (!this.meshShader || !this.pixelShader) {
@@ -428,7 +428,7 @@ namespace MeshletRender {
     // covers the pixel its bounding sphere's center projects to and between minCoverage and
     // maxCoverage of the frame; its pixels show the meshlet colors (diffuse red 0 for odd meshlets
     // and 1 for even ones, so some covered pixels have no red and others do).
-    function checkFrame(app: App, pass: MeshletRenderPass): string {
+    function checkFrame(app: App, pass: MeshletRenderPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         let pixels: int[] = [];
@@ -484,7 +484,7 @@ namespace MeshletRender {
         return "";
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("meshlet_render");
 
@@ -526,6 +526,6 @@ namespace MeshletRender {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MeshletRender.main(argc, argv);
 }

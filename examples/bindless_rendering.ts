@@ -10,7 +10,7 @@ namespace BindlessRendering {
 
     // -test: checks the last frame: Sponza fills it (almost all lit), a quarter of it in color, its
     // blue banners about 3%.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -43,7 +43,7 @@ namespace BindlessRendering {
     // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane.
     // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
     // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number): number[] {
+    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
         const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
         const xScale = Math.fround(yScale / Math.fround(aspect));
         return [
@@ -103,27 +103,27 @@ namespace BindlessRendering {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -142,11 +142,11 @@ namespace BindlessRendering {
             }
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             // Reverse Z: cleared to 0, nearer is greater.
             const depth = this.app.createDepthTexture(width, height, Format.D24S8, 0.0, "Depth");
             this.depth = depth;
@@ -164,7 +164,7 @@ namespace BindlessRendering {
             this.pipeline = this.app.createGraphicsPipelineFromDesc(pipelineDesc, this.framebuffers[0]);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -206,7 +206,7 @@ namespace BindlessRendering {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string): boolean {
+        init(scenePath: string) {
             const vertexShader = this.app.createShader("bindless_rendering.hlsl", "vs_main", ShaderType.Vertex);
             const pixelShader = this.app.createShader("bindless_rendering.hlsl", "ps_main", ShaderType.Pixel);
             if (!vertexShader || !pixelShader) {
@@ -275,7 +275,7 @@ namespace BindlessRendering {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("bindless_rendering");
 
@@ -319,6 +319,6 @@ namespace BindlessRendering {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return BindlessRendering.main(argc, argv);
 }

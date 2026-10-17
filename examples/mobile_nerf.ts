@@ -10,7 +10,7 @@ namespace MobileNerf {
 
     // -test: checks the last frame: the NeRF scenes' meshes (their features decoded by the MLP in
     // the shader) light about 43% of it, about 3.5% colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -100,7 +100,7 @@ namespace MobileNerf {
             this.pos = 0;
         }
 
-        read(file: BinaryFile): boolean {
+        read(file: BinaryFile) {
             const size = file.getSize();
             for (let i = 0; i < size; i++) {
                 this.bytes.push(0);
@@ -113,7 +113,7 @@ namespace MobileNerf {
         }
 
         // Moves past "key": ; false if the key isn't there.
-        findKey(key: string): boolean {
+        findKey(key: string) {
             const n = key.length;
             for (let i = 0; i + n + 1 < this.bytes.length; i++) {
                 if (this.bytes[i] != CHAR_QUOTE || this.bytes[i + n + 1] != CHAR_QUOTE) {
@@ -136,12 +136,12 @@ namespace MobileNerf {
             return false;
         }
 
-        isNumberStart(c: int): boolean {
+        isNumberStart(c: int) {
             return (c >= CHAR_0 && c <= CHAR_9) || c == CHAR_MINUS || c == CHAR_PLUS || c == CHAR_DOT;
         }
 
         // A JSON number at the position.
-        readNumber(): number {
+        readNumber() {
             let sign = 1.0;
             if (this.bytes[this.pos] == CHAR_MINUS) {
                 sign = -1.0;
@@ -184,7 +184,7 @@ namespace MobileNerf {
         }
 
         // The numbers of the (nested) array at the position, in order.
-        readArray(): number[] {
+        readArray() {
             const values: number[] = [];
             while (this.pos < this.bytes.length && this.bytes[this.pos] != CHAR_OPEN) {
                 this.pos++;
@@ -219,7 +219,7 @@ namespace MobileNerf {
     }
 
     // The sample's initialize_mlp_uniform_buffers: the layers' weights and biases, padded.
-    function loadMlp(app: App, path: string, dst: f32[]): boolean {
+    function loadMlp(app: App, path: string, dst: f32[]) {
         const file = app.loadBinaryFile(path);
         const reader = new MlpReader();
         if (file.isNull() || !reader.read(file)) {
@@ -270,12 +270,12 @@ namespace MobileNerf {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -290,7 +290,7 @@ namespace MobileNerf {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -303,12 +303,12 @@ namespace MobileNerf {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1).
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -318,16 +318,16 @@ namespace MobileNerf {
         ];
     }
 
-    function normalize(v: number[]): number[] {
+    function normalize(v: number[]) {
         const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         return [v[0] / length, v[1] / length, v[2] / length];
     }
 
-    function cross(a: number[], b: number[]): number[] {
+    function cross(a: number[], b: number[]) {
         return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     }
 
-    function dot(a: number[], b: number[]): number {
+    function dot(a: number[], b: number[]) {
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
@@ -351,7 +351,7 @@ namespace MobileNerf {
         // The sample's camera_set_look_at: glm::lookAt(eye, look, up), decomposed (glm::decompose:
         // the translation, and the rotation as a quaternion), its Euler angles (glm::eulerAngles,
         // in radians) multiplied by pi / 180 taken as the rotation in degrees, so barely any.
-        setLookAt(eye: number[], look: number[], up: number[]): void {
+        setLookAt(eye: number[], look: number[], up: number[]) {
             const f = normalize([look[0] - eye[0], look[1] - eye[1], look[2] - eye[2]]);
             const s = normalize(cross(f, up));
             const u = cross(s, f);
@@ -407,7 +407,7 @@ namespace MobileNerf {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -420,14 +420,14 @@ namespace MobileNerf {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -510,26 +510,26 @@ namespace MobileNerf {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const framebuffer of this.framebuffers) {
                 this.app.releaseResource(framebuffer);
             }
@@ -541,7 +541,7 @@ namespace MobileNerf {
             this.targetHeight = 0;
         }
 
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             this.depth = this.app.createDepthTexture(width, height, Format.D32, 1.0, "Depth");
             const count = this.app.getBackBufferCount();
@@ -562,7 +562,7 @@ namespace MobileNerf {
             this.targetHeight = height;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -620,7 +620,7 @@ namespace MobileNerf {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "mobile_nerf.hlsl";
             this.vs = this.app.createShader(shader, "raster_vs", ShaderType.Vertex);
             this.ps = this.app.createShader(shader, "merged_ps", ShaderType.Pixel);
@@ -704,7 +704,7 @@ namespace MobileNerf {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("mobile_nerf");
 
@@ -738,6 +738,6 @@ namespace MobileNerf {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MobileNerf.main(argc, argv);
 }

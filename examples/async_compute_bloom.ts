@@ -10,7 +10,7 @@ namespace AsyncComputeBloom {
 
     // -test: checks the last frame: the red dragon (about 3% of the frame), and the bloom's near
     // white glow around the lights (about 5.5%).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -102,12 +102,12 @@ namespace AsyncComputeBloom {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns, quaternions as x, y, z, w) --------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -122,13 +122,13 @@ namespace AsyncComputeBloom {
     }
 
     // glm::angleAxis.
-    function angleAxis(angle: number, x: number, y: number, z: number): number[] {
+    function angleAxis(angle: number, x: number, y: number, z: number) {
         const s = Math.sin(0.5 * angle);
         return [x * s, y * s, z * s, Math.cos(0.5 * angle)];
     }
 
     // a * b.
-    function quatMultiply(a: number[], b: number[]): number[] {
+    function quatMultiply(a: number[], b: number[]) {
         return [
             a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
             a[3] * b[1] + a[1] * b[3] + a[2] * b[0] - a[0] * b[2],
@@ -137,13 +137,13 @@ namespace AsyncComputeBloom {
         ];
     }
 
-    function quatNormalize(q: number[]): number[] {
+    function quatNormalize(q: number[]) {
         const length = Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
         return [q[0] / length, q[1] / length, q[2] / length, q[3] / length];
     }
 
     // glm::mat4_cast.
-    function quatToMatrix(q: number[]): number[] {
+    function quatToMatrix(q: number[]) {
         const x = q[0];
         const y = q[1];
         const z = q[2];
@@ -156,7 +156,7 @@ namespace AsyncComputeBloom {
         ];
     }
 
-    function transpose(m: number[]): number[] {
+    function transpose(m: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -168,7 +168,7 @@ namespace AsyncComputeBloom {
 
     // The framework's PerspectiveCamera::get_projection, glm::perspective(fov, aspect, far, near)
     // (near and far swapped for reversed depth; right-handed, depth from 0 to 1).
-    function reversedPerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function reversedPerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         const n = zFar;
         const f = zNear;
@@ -182,7 +182,7 @@ namespace AsyncComputeBloom {
 
     // The framework's OrthographicCamera::get_projection, glm::ortho(left, right, bottom, top,
     // far, near) (swapped too).
-    function reversedOrtho(left: number, right: number, bottom: number, top: number, zNear: number, zFar: number): number[] {
+    function reversedOrtho(left: number, right: number, bottom: number, top: number, zNear: number, zFar: number) {
         const n = zFar;
         const f = zNear;
         return [
@@ -195,7 +195,7 @@ namespace AsyncComputeBloom {
 
     // The framework's vulkan_style_projection: [1][1] negated (only that element), for Vulkan's
     // clip space, y down on the screen.
-    function vulkanStyleProjection(m: number[]): number[] {
+    function vulkanStyleProjection(m: number[]) {
         let result: number[] = [];
         for (let i = 0; i < 16; i++) {
             result.push(i == 5 ? -m[i] : m[i]);
@@ -205,7 +205,7 @@ namespace AsyncComputeBloom {
 
     // A matrix into the sample's clip space, into Donut's (y up on the screen): clip y negated. The
     // pictures (and shadow map texels) land where the sample's do.
-    function toDonutClip(m: number[]): number[] {
+    function toDonutClip(m: number[]) {
         let result: number[] = [];
         for (let i = 0; i < 16; i++) {
             result.push(i % 4 == 1 ? -m[i] : m[i]);
@@ -340,33 +340,33 @@ namespace AsyncComputeBloom {
             }
         }
 
-        hasComputeQueue(): boolean {
+        hasComputeQueue() {
             return this.computeCommandList != null;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.elapsedTime += this.benchmark ? BENCHMARK_FRAME_TIME : elapsedSeconds;
             const queues = this.asyncEnabled && this.hasComputeQueue() ? "async compute" : "one queue";
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, queues);
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const compositePipeline = this.compositePipeline;
             if (compositePipeline) {
                 this.app.releaseResource(compositePipeline);
@@ -377,7 +377,7 @@ namespace AsyncComputeBloom {
         // The sample's update: the directional light's (and shadow camera's) orientation, "lots of
         // random jank to get a desired orientation quaternion", turning once every 20 seconds when
         // the shadows rotate.
-        lightOrientation(): number[] {
+        lightOrientation() {
             let orientation = quatMultiply(angleAxis(Math.PI, 0.0, -1.0, 0.0), angleAxis(-0.2 * 0.5 * Math.PI, 1.0, 0.0, 0.0));
             if (this.rotateShadows) {
                 const turns = this.elapsedTime * 0.05;
@@ -390,7 +390,7 @@ namespace AsyncComputeBloom {
         // The scene uniforms of both passes: the shadow camera's (on the light's node, at the
         // origin) and the main camera's view-projections, in Donut's clip space; the sample's
         // shadow matrix (its shadow clip space to texture coordinates); the light.
-        updateConstants(commandList: CommandList, width: int, height: int): void {
+        updateConstants(commandList: CommandList, width: int, height: int) {
             const light = quatToMatrix(this.lightOrientation());
             // The shadow camera's view: the inverse of its node's rotation.
             const shadowView = transpose(light);
@@ -438,7 +438,7 @@ namespace AsyncComputeBloom {
         // The framework's GeometrySubpass order, from a camera at (x, y, z): opaque draws front to
         // back, then the blended ones back to front, by the distance to their node's bounds;
         // stable, as its multimap.
-        sortDraws(x: number, y: number, z: number): void {
+        sortDraws(x: number, y: number, z: number) {
             const count = this.drawIndexCount.length;
             for (let d = 0; d < count; d++) {
                 const dx = this.drawCenters[d * 3] - x;
@@ -471,7 +471,7 @@ namespace AsyncComputeBloom {
             }
         }
 
-        drawScene(frame: Frame, pipeline: GraphicsPipelineHandle, blendPipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, forward: boolean): void {
+        drawScene(frame: Frame, pipeline: GraphicsPipelineHandle, blendPipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, forward: boolean) {
             // The draw state's blending (-1 before the first draw) and texture.
             let currentBlend = -1;
             let currentTexture = -1;
@@ -498,7 +498,7 @@ namespace AsyncComputeBloom {
 
         // The sample's render_shadow_pass: the scene's depth from the light, into the shadow map
         // (reversed depth, cleared to 0).
-        renderShadowPass(frame: Frame, commandList: CommandList): void {
+        renderShadowPass(frame: Frame, commandList: CommandList) {
             commandList.beginMarker("Shadow pass");
             commandList.clearDepth(this.shadowMap, 0.0);
             // The shadow camera's node is at the origin.
@@ -508,7 +508,7 @@ namespace AsyncComputeBloom {
         }
 
         // The sample's render_forward_offscreen_pass: the lit and shadowed scene into the HDR target.
-        renderForwardPass(frame: Frame, commandList: CommandList): void {
+        renderForwardPass(frame: Frame, commandList: CommandList) {
             commandList.beginMarker("Forward offscreen pass");
             commandList.clearTextureFloat(this.hdrTargets[this.hdrIndex], 0.0, 0.0, 0.0, 1.0);
             commandList.clearDepth(this.hdrDepth, 0.0);
@@ -527,7 +527,7 @@ namespace AsyncComputeBloom {
 
         // One bloom pass: a thread per texel of the destination.
         dispatchBlurPass(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet,
-            width: int, height: int, inputWidth: int, inputHeight: int): void {
+            width: int, height: int, inputWidth: int, inputHeight: int) {
             const b = this.blurConstants;
             Donut_StoreInt32(Ref(b[0]), width);
             Donut_StoreInt32(Ref(b[1]), height);
@@ -541,7 +541,7 @@ namespace AsyncComputeBloom {
 
         // The sample's render_compute_post: "a very basic and dumb HDR Bloom pipeline", a threshold
         // pass into the first blur level, then blurring down the levels and back up to the second.
-        renderComputePost(commandList: CommandList): void {
+        renderComputePost(commandList: CommandList) {
             commandList.beginMarker("Compute post");
             this.dispatchBlurPass(commandList, this.thresholdPipeline, this.thresholdBindingSets[this.hdrIndex],
                 levelWidth(1), levelHeight(1), HDR_WIDTH, HDR_HEIGHT);
@@ -556,7 +556,7 @@ namespace AsyncComputeBloom {
             commandList.endMarker();
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -602,7 +602,7 @@ namespace AsyncComputeBloom {
 
         // The scene's base color textures and its draws: every node's primitives, their vertices and
         // indices in one vertex and one index buffer, recorded into an open command list.
-        loadScene(commandList: CommandList, linearWrap: SamplerHandle, comparisonSampler: SamplerHandle, forwardBindingLayout: BindingLayoutHandle): boolean {
+        loadScene(commandList: CommandList, linearWrap: SamplerHandle, comparisonSampler: SamplerHandle, forwardBindingLayout: BindingLayoutHandle) {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -743,7 +743,7 @@ namespace AsyncComputeBloom {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "async_compute_bloom.hlsl";
             const shadowVS = this.app.createShader(shader, "shadow_vs", ShaderType.Vertex);
             const shadowPS = this.app.createShader(shader, "shadow_ps", ShaderType.Pixel);
@@ -916,7 +916,7 @@ namespace AsyncComputeBloom {
             return true;
         }
 
-        createBlurBindingSet(layout: BindingLayoutHandle, sampler: SamplerHandle, input: TextureHandle, output: TextureHandle): BindingSet {
+        createBlurBindingSet(layout: BindingLayoutHandle, sampler: SamplerHandle, input: TextureHandle, output: TextureHandle) {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, input);
             setDesc.bindSampler(0, sampler);
@@ -934,7 +934,7 @@ namespace AsyncComputeBloom {
             this.post = post;
         }
 
-        buildUI(): void {
+        buildUI() {
             const post = this.post;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
@@ -949,7 +949,7 @@ namespace AsyncComputeBloom {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -962,7 +962,7 @@ namespace AsyncComputeBloom {
         // -norotate: shadows fixed.
         rotateShadows = true;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-async") {
@@ -976,7 +976,7 @@ namespace AsyncComputeBloom {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("async_compute_bloom");
 
@@ -1027,6 +1027,6 @@ namespace AsyncComputeBloom {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return AsyncComputeBloom.main(argc, argv);
 }

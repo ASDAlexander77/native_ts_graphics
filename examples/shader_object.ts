@@ -10,7 +10,7 @@ namespace ShaderObjectSample {
 
     // -test: checks the last frame: the snow terrain and sky about 42% white, the objects, each with
     // its own shaders, about 8% colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -134,12 +134,12 @@ namespace ShaderObjectSample {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -154,7 +154,7 @@ namespace ShaderObjectSample {
     }
 
     // glm::rotate(m, angle, axis) (the axis normalized, as glm does).
-    function rotate(m: number[], angle: number, ax: number, ay: number, az: number): number[] {
+    function rotate(m: number[], angle: number, ax: number, ay: number, az: number) {
         const length = Math.sqrt(ax * ax + ay * ay + az * az);
         const x = ax / length;
         const y = ay / length;
@@ -171,7 +171,7 @@ namespace ShaderObjectSample {
         return multiply(m, r);
     }
 
-    function translation(x: number, y: number, z: number): number[] {
+    function translation(x: number, y: number, z: number) {
         let m = identity();
         m[12] = x;
         m[13] = y;
@@ -179,7 +179,7 @@ namespace ShaderObjectSample {
         return m;
     }
 
-    function scale(m: number[], s: number): number[] {
+    function scale(m: number[], s: number) {
         let result: number[] = [];
         for (let i = 0; i < 16; i++) {
             result.push(i < 12 ? m[i] * s : m[i]);
@@ -187,13 +187,13 @@ namespace ShaderObjectSample {
         return result;
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); the sample swaps near and far for
     // reversed depth.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -204,7 +204,7 @@ namespace ShaderObjectSample {
     }
 
     // A number with `digits` decimals, like printf's %.Nf (Number.toFixed is missing under the JIT).
-    function formatFixed(value: number, digits: int): string {
+    function formatFixed(value: number, digits: int) {
         let scaleFactor = 1.0;
         for (let i = 0; i < digits; i++) {
             scaleFactor *= 10.0;
@@ -238,7 +238,7 @@ namespace ShaderObjectSample {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -247,14 +247,14 @@ namespace ShaderObjectSample {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -433,19 +433,19 @@ namespace ShaderObjectSample {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
         // The sample's render: the timers (floats) advanced, and every half second in iterate mode,
         // a random change. Its CPU frame time graph gets the real frame time.
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             const deltaTime = Math.fround(this.benchmark ? 1.0 / 60.0 : elapsedSeconds);
             this.elapsedTime = Math.fround(this.elapsedTime + deltaTime);
             this.elapsedIterationTime = Math.fround(this.elapsedIterationTime + deltaTime);
@@ -459,7 +459,7 @@ namespace ShaderObjectSample {
 
         // The sample's iterate_current: one random number picks the object, another one of the
         // enabled changes (std::uniform_int_distribution<int>{0, 100} over its engine, as it does).
-        iterateCurrent(): void {
+        iterateCurrent() {
             const selectedShader: int = this.rng.uniformInt(0, 100) % MAX_SELECTABLE_OBJECTS;
             const funcs: int[] = [];
             if (this.iterateBasic) {
@@ -511,7 +511,7 @@ namespace ShaderObjectSample {
         }
 
         // The sample's randomize_current: every enabled choice advanced by a random number.
-        randomizeCurrent(): void {
+        randomizeCurrent() {
             if (this.iterateBasic) {
                 for (let i = 0; i < NUM_BASIC_OBJECTS; i++) {
                     this.currentBasicLinkedShaders[i] = (this.currentBasicLinkedShaders[i] + this.rng.uniformInt(0, 100)) % BASIC_VS.length;
@@ -544,11 +544,11 @@ namespace ShaderObjectSample {
         }
 
         // The images go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             if (this.outputImages.length == 0) {
                 return;
             }
@@ -575,7 +575,7 @@ namespace ShaderObjectSample {
 
         // The sample's create_images: an output image per supported format, a depth image per
         // supported depth format, the post-processing image (RGBA8).
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.releaseTargets();
             for (const outputFormat of this.outputFormats) {
                 const format = OUTPUT_FORMATS[outputFormat];
@@ -616,7 +616,7 @@ namespace ShaderObjectSample {
         // A scene pipeline: the sample's set_initial_state (counter-clockwise front faces, depth
         // tested greater: reversed, the polygon mode) with the draw's shaders, cull mode and depth
         // writes; depth clipped, as Vulkan does.
-        getPipeline(combo: int, framebuffer: FramebufferHandle): GraphicsPipelineHandle {
+        getPipeline(combo: int, framebuffer: FramebufferHandle) {
             const wireframe = this.wireframeMode ? 1 : 0;
             const key = ((combo * this.outputFormats.length + this.currentOutputFormat) * this.depthFormats.length
                 + this.currentDepthFormat) * 2 + wireframe;
@@ -664,13 +664,13 @@ namespace ShaderObjectSample {
         }
 
         // The model matrix into the push constants.
-        setModel(m: number[]): void {
+        setModel(m: number[]) {
             for (let i = 0; i < 16; i++) {
                 this.push[PUSH_MODEL + i] = m[i];
             }
         }
 
-        drawMesh(frame: Frame, combo: int, framebuffer: FramebufferHandle, mesh: GltfMesh): void {
+        drawMesh(frame: Frame, combo: int, framebuffer: FramebufferHandle, mesh: GltfMesh) {
             frame.beginDrawToFramebuffer(this.getPipeline(combo, framebuffer), framebuffer);
             frame.drawAddBindingSet(this.sceneBindingSet);
             frame.drawSetIndexBuffer(mesh.getIndexBuffer());
@@ -680,19 +680,19 @@ namespace ShaderObjectSample {
 
         // The sample's bind_material_shader: its vertex, geometry (if the geometry pass is
         // enabled) and fragment shaders.
-        drawMaterial(frame: Frame, framebuffer: FramebufferHandle, index: int, mesh: GltfMesh, model: number[]): void {
+        drawMaterial(frame: Frame, framebuffer: FramebufferHandle, index: int, mesh: GltfMesh, model: number[]) {
             this.setModel(model);
             const geo = this.enableGeometryPass ? this.currentMaterialGeo[index] : GEOMETRY_NONE;
             const combo = COMBO_MATERIAL + (this.currentMaterialVert[index] * 4 + geo) * 4 + this.currentMaterialFrag[index];
             this.drawMesh(frame, combo, framebuffer, mesh);
         }
 
-        drawBasic(frame: Frame, framebuffer: FramebufferHandle, index: int, mesh: GltfMesh, model: number[]): void {
+        drawBasic(frame: Frame, framebuffer: FramebufferHandle, index: int, mesh: GltfMesh, model: number[]) {
             this.setModel(model);
             this.drawMesh(frame, COMBO_BASIC + this.currentBasicLinkedShaders[index], framebuffer, mesh);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -777,7 +777,7 @@ namespace ShaderObjectSample {
         // on the CPU (vkb::HeightMap at the grid's resolution: every fourth texel, the edges
         // clamped) by a Sobel filter, two triangles per cell (the last row and column's indices left
         // 0, drawn degenerate as the sample does).
-        generateTerrain(commandList: CommandList): boolean {
+        generateTerrain(commandList: CommandList) {
             const file = this.app.loadBinaryFile(HEIGHTMAP_PATH);
             if (file.isNull() || file.getSize() < HEIGHTMAP_HEADER_SIZE + HEIGHTMAP_DIM * HEIGHTMAP_DIM * 2) {
                 return false;
@@ -855,7 +855,7 @@ namespace ShaderObjectSample {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // The sample's request_gpu_features: the supported output and depth formats, in order.
             for (let i = 0; i < OUTPUT_FORMATS.length; i++) {
                 const support = OUTPUT_FORMATS[i] == Format.UNKNOWN ? 0 : this.app.queryFormatSupport(OUTPUT_FORMATS[i]);
@@ -1034,14 +1034,14 @@ namespace ShaderObjectSample {
             this.sliderValue = 0;
         }
 
-        checkbox(label: string, value: boolean): boolean {
+        checkbox(label: string, value: boolean) {
             return Donut_ImGuiCheckbox(label, value ? 1 : 0) != 0;
         }
 
         // The sample's imgui_slider: a checkbox (iterate this choice), the slider (grayed out when
         // not iterated), the shader's name. Returns the checkbox, the slider's value in sliderValue.
         slider(enabled: boolean, label: string, name: string, value: int, max: int, alignment: number,
-            checkboxAlignment: number): boolean {
+            checkboxAlignment: number) {
             const result = this.checkbox(`##${label}`, enabled);
             Donut_ImGuiSameLineAt(checkboxAlignment);
             if (result) {
@@ -1056,7 +1056,7 @@ namespace ShaderObjectSample {
             return result;
         }
 
-        buildUI(): void {
+        buildUI() {
             const s = this.sample;
             const width = this.app.getWindowWidth();
             const height = this.app.getWindowHeight();
@@ -1135,12 +1135,12 @@ namespace ShaderObjectSample {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(): boolean {
+        init() {
             return !this.app.addImGuiPass(this.buildUI).isNull();
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("shader_object");
 
@@ -1185,6 +1185,6 @@ namespace ShaderObjectSample {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return ShaderObjectSample.main(argc, argv);
 }

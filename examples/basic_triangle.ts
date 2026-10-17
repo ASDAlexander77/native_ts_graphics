@@ -10,7 +10,7 @@ namespace BasicTriangle {
 
     // -test: checks the last frame. The corners are the black clear color; the triangle covers an
     // eighth of the frame, its middle (the frame's) colored.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         const corners = check.corners(0x000000);
         if (corners != "") {
@@ -40,7 +40,7 @@ namespace BasicTriangle {
             this.pipeline = null;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             const pipeline = this.pipeline;
             if (pipeline) {
                 this.app.releaseResource(pipeline);
@@ -48,11 +48,11 @@ namespace BasicTriangle {
             }
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             let pipeline = this.pipeline;
             if (!pipeline) {
@@ -65,7 +65,7 @@ namespace BasicTriangle {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.vertexShader = this.app.createShader("basic_triangle.hlsl", "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("basic_triangle.hlsl", "main_ps", ShaderType.Pixel);
 
@@ -81,7 +81,7 @@ namespace BasicTriangle {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("basic_triangle");
 
@@ -116,6 +116,6 @@ namespace BasicTriangle {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return BasicTriangle.main(argc, argv);
 }

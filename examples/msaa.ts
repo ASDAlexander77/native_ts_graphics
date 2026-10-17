@@ -10,7 +10,7 @@ namespace Msaa {
 
     // -test: checks the last frame: the space station interior fills it (about 90% lit), its white
     // panels about 9%.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -77,11 +77,11 @@ namespace Msaa {
     // Bounds start out inverted.
     const HUGE = 1.0e30;
 
-    function sampleCountName(count: int): string {
+    function sampleCountName(count: int) {
         return count == 1 ? "No MSAA" : `${count}X MSAA`;
     }
 
-    function resolveModeName(mode: ResolveMode): string {
+    function resolveModeName(mode: ResolveMode) {
         if (mode == ResolveMode.SampleZero) {
             return "Sample 0";
         }
@@ -100,7 +100,7 @@ namespace Msaa {
     // --- Math (glm's layout: 4 x 4 matrices by columns, quaternions as x, y, z, w) --------------
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -115,7 +115,7 @@ namespace Msaa {
     }
 
     // glm::mat3_cast(q) * v.
-    function rotate(q: number[], v: number[]): number[] {
+    function rotate(q: number[], v: number[]) {
         const x = q[0];
         const y = q[1];
         const z = q[2];
@@ -129,7 +129,7 @@ namespace Msaa {
 
     // The framework's PerspectiveCamera::get_projection, glm::perspective(fov, aspect, far, near)
     // (near and far swapped for reversed depth; right-handed, depth from 0 to 1).
-    function reversedPerspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function reversedPerspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         const n = zFar;
         const f = zNear;
@@ -142,7 +142,7 @@ namespace Msaa {
     }
 
     // The framework's vulkan_style_projection: [1][1] negated, for Vulkan's clip space (y down).
-    function vulkanStyleProjection(m: number[]): number[] {
+    function vulkanStyleProjection(m: number[]) {
         let result: number[] = [];
         for (let i = 0; i < 16; i++) {
             result.push(i == 5 ? -m[i] : m[i]);
@@ -152,7 +152,7 @@ namespace Msaa {
 
     // A matrix into the sample's clip space, into Donut's (y up on the screen): clip y negated. The
     // pictures land where the sample's do.
-    function toDonutClip(m: number[]): number[] {
+    function toDonutClip(m: number[]) {
         let result: number[] = [];
         for (let i = 0; i < 16; i++) {
             result.push(i % 4 == 1 ? -m[i] : m[i]);
@@ -316,33 +316,33 @@ namespace Msaa {
         }
 
         // Whether render passes can resolve the depth (for the post-processing).
-        canResolveDepthOnWriteback(): boolean {
+        canResolveDepthOnWriteback() {
             return this.depthResolveModes != 0;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mousePosUpdate(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             const post = this.postprocessing ? ", post-processing" : "";
             this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, sampleCountName(this.sampleCount) + post);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
             if (this.postPipelinesCreated) {
                 this.app.releaseResource(this.postPipeline);
@@ -351,7 +351,7 @@ namespace Msaa {
             this.postPipelinesCreated = false;
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const resource of this.resources) {
                 this.app.releaseResource(resource);
             }
@@ -360,7 +360,7 @@ namespace Msaa {
             this.builtSampleCount = 0;
         }
 
-        own<T extends ResourceHandle>(resource: T): T {
+        own<T extends ResourceHandle>(resource: T) {
             this.resources.push(resource);
             return resource;
         }
@@ -368,7 +368,7 @@ namespace Msaa {
         // The sample's update_pipelines (on a change of settings) and create_render_target: the
         // targets and framebuffers of the scene pass for the settings, and the pipelines drawing
         // into them (their sample count is the framebuffer's).
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             // The sample waits for the device to be idle too.
             this.app.waitForIdle();
             this.releaseTargets();
@@ -463,7 +463,7 @@ namespace Msaa {
             this.builtHeight = height;
         }
 
-        targetsAreCurrent(width: int, height: int): boolean {
+        targetsAreCurrent(width: int, height: int) {
             const depthResolveMode = this.depthResolveMode;
             if (this.builtDepthResolveMode != depthResolveMode) {
                 return false;
@@ -477,7 +477,7 @@ namespace Msaa {
         // The framework's GeometrySubpass order, from a camera at (x, y, z): opaque draws front to
         // back, then the blended ones back to front, by the distance to their node's bounds;
         // stable, as its multimap.
-        sortDraws(x: number, y: number, z: number): void {
+        sortDraws(x: number, y: number, z: number) {
             const count = this.drawIndexCount.length;
             for (let d = 0; d < count; d++) {
                 const dx = this.drawCenters[d * 3] - x;
@@ -509,7 +509,7 @@ namespace Msaa {
             }
         }
 
-        drawScene(frame: Frame, framebuffer: FramebufferHandle): void {
+        drawScene(frame: Frame, framebuffer: FramebufferHandle) {
             // The draw state's pipeline (0 opaque, 1 opaque flipped, 2 blended; -1 before the first
             // draw) and texture.
             let currentPipeline = -1;
@@ -533,7 +533,7 @@ namespace Msaa {
 
         // The scene uniforms: the camera's view-projection in Donut's clip space, and the light (its
         // direction, the node's rotation of (0, 0, -1)).
-        updateConstants(commandList: CommandList, width: int, height: int): void {
+        updateConstants(commandList: CommandList, width: int, height: int) {
             // Donut's camera, in Donut's view space (z forward), into the sample's (-z forward).
             this.camera.getWorldToView(Ref(this.viewMatrix[0]));
             let view: number[] = [];
@@ -562,7 +562,7 @@ namespace Msaa {
             commandList.writeBuffer(this.postConstantBuffer, Ref(this.postConstants[0]), POST_FLOATS * 4);
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -636,7 +636,7 @@ namespace Msaa {
 
         // The scene's base color textures and its draws: every node's primitives, their vertices and
         // indices in one vertex and one index buffer, recorded into an open command list.
-        loadScene(commandList: CommandList, linearWrap: SamplerHandle): boolean {
+        loadScene(commandList: CommandList, linearWrap: SamplerHandle) {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -783,7 +783,7 @@ namespace Msaa {
 
         // The sample's prepare_supported_sample_count_list and prepare_depth_resolve_mode_list: what
         // the device has, and the defaults (the first supported in order of preference).
-        querySupport(): void {
+        querySupport() {
             this.supportedSampleCounts = this.app.getSupportedSampleCounts(this.app.getBackBufferFormat(), DEPTH_FORMAT);
             this.renderPassResolve = this.app.hasRenderPassResolve() != 0;
             this.depthResolveModes = this.app.getDepthResolveModes();
@@ -807,7 +807,7 @@ namespace Msaa {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "msaa.hlsl";
             const postShader = "msaa_post.hlsl";
             this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
@@ -892,7 +892,7 @@ namespace Msaa {
             this.msaa = msaa;
         }
 
-        buildUI(): void {
+        buildUI() {
             const m = this.msaa;
             const msaaEnabled = m.sampleCount > 1;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
@@ -966,7 +966,7 @@ namespace Msaa {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -984,7 +984,7 @@ namespace Msaa {
         // -depthresolve zero|average|min|max: the depth resolve mode.
         depthResolveMode = ResolveMode.None;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-samples" && i + 1 < this.argc) {
@@ -1013,7 +1013,7 @@ namespace Msaa {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("msaa");
 
@@ -1072,6 +1072,6 @@ namespace Msaa {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return Msaa.main(argc, argv);
 }

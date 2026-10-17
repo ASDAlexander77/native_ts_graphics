@@ -94,7 +94,7 @@ namespace MemoryManagement {
             this.bottom = 360.0;
         }
 
-        copyFrom(other: Camera): void {
+        copyFrom(other: Camera) {
             this.x = other.x;
             this.y = other.y;
             this.zoom = other.zoom;
@@ -104,7 +104,7 @@ namespace MemoryManagement {
             this.bottom = other.bottom;
         }
 
-        setProjection(width: number, height: number): void {
+        setProjection(width: number, height: number) {
             this.left = -width / 2.0;
             this.top = -height / 2.0;
             this.right = width / 2.0;
@@ -112,18 +112,18 @@ namespace MemoryManagement {
         }
 
         // GenerateViewportBounds: the world rectangle in view (left, top, right, bottom).
-        bounds(): number[] {
+        bounds() {
             return [this.left / this.zoom + this.x, this.top / this.zoom + this.y,
                 this.right / this.zoom + this.x, this.bottom / this.zoom + this.y];
         }
 
-        onMouseMove(dx: number, dy: number): void {
+        onMouseMove(dx: number, dy: number) {
             this.x -= dx / this.zoom;
             this.y -= dy / this.zoom;
         }
 
         // OnMouseWheel: 10% per notch (WHEEL_DELTA), between 0.1 and 100.
-        onMouseWheel(notches: number): void {
+        onMouseWheel(notches: number) {
             const steps = Math.abs(notches);
             if (steps < 1.0) {
                 return;
@@ -145,11 +145,11 @@ namespace MemoryManagement {
         }
     }
 
-    function rectIntersects(a: number[], b: number[]): boolean {
+    function rectIntersects(a: number[], b: number[]) {
         return a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
     }
 
-    function rectNearlyIntersects(a: number[], b: number[], tolerance: number): boolean {
+    function rectNearlyIntersects(a: number[], b: number[], tolerance: number) {
         return a[0] - tolerance < b[2] && a[2] + tolerance > b[0] && a[1] - tolerance < b[3] && a[3] + tolerance > b[1];
     }
 
@@ -294,15 +294,15 @@ namespace MemoryManagement {
             this.graphTime = 0.0;
         }
 
-        sceneCamera(): Camera {
+        sceneCamera() {
             return this.sceneIsDebug ? this.debugCamera : this.viewportCamera;
         }
 
-        capturedCamera(): Camera {
+        capturedCamera() {
             return this.capturedIsDebug ? this.debugCamera : this.viewportCamera;
         }
 
-        getFrameTime(): number {
+        getFrameTime() {
             let total = 0.0;
             for (let i = 0; i < STATISTIC_COUNT; i++) {
                 total += this.frameTimes[i];
@@ -310,7 +310,7 @@ namespace MemoryManagement {
             return total / STATISTIC_COUNT;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_RELEASE) {
                 return 0;
             }
@@ -341,7 +341,7 @@ namespace MemoryManagement {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             if (button == 0) {
                 this.mouseDown = action == 1;
             }
@@ -350,7 +350,7 @@ namespace MemoryManagement {
 
         // Dragging moves the captured camera; the debug camera moves the other way, scaled to the
         // viewport camera's zoom.
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             if (this.mouseDown) {
                 const dx = Math.floor(x) - Math.floor(this.mouseX);
                 const dy = Math.floor(y) - Math.floor(this.mouseY);
@@ -367,12 +367,12 @@ namespace MemoryManagement {
             return 1;
         }
 
-        onMouseScroll(xoffset: number, yoffset: number): int {
+        onMouseScroll(xoffset: number, yoffset: number) {
             this.capturedCamera().onMouseWheel(yoffset);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.frameTimes[this.statIndex] = elapsedSeconds;
             this.statIndex = (this.statIndex + 1) % STATISTIC_COUNT;
@@ -398,7 +398,7 @@ namespace MemoryManagement {
             return Math.floor(mip);
         }
 
-        bindingSetFor(image: int, mip: int): BindingSet {
+        bindingSetFor(image: int, mip: int) {
             const key = image * 16 + mip;
             while (this.bindingSetMade.length <= key) {
                 this.bindingSetMade.push(false);
@@ -415,7 +415,7 @@ namespace MemoryManagement {
             return this.bindingSets[key];
         }
 
-        setPush(r: number[], red: number, green: number, blue: number, alpha: number): void {
+        setPush(r: number[], red: number, green: number, blue: number, alpha: number) {
             const p = this.push;
             p[0] = r[0];
             p[1] = r[1];
@@ -431,7 +431,7 @@ namespace MemoryManagement {
             p[11] = this.cameraScale[3];
         }
 
-        fillRectangle(frame: Frame, r: number[], red: number, green: number, blue: number, alpha: number): void {
+        fillRectangle(frame: Frame, r: number[], red: number, green: number, blue: number, alpha: number) {
             this.setPush(r, red, green, blue, alpha);
             frame.beginDraw(this.colorPipeline);
             frame.drawAddBindingSet(this.colorBindingSet);
@@ -439,7 +439,7 @@ namespace MemoryManagement {
         }
 
         // DrawRectangle: four filled rectangles around r, stroke wide.
-        drawRectangle(frame: Frame, r: number[], stroke: number, red: number, green: number, blue: number, alpha: number): void {
+        drawRectangle(frame: Frame, r: number[], stroke: number, red: number, green: number, blue: number, alpha: number) {
             this.fillRectangle(frame, [r[0] - stroke, r[1] - stroke, r[0], r[3] + stroke], red, green, blue, alpha);
             this.fillRectangle(frame, [r[2], r[1] - stroke, r[2] + stroke, r[3] + stroke], red, green, blue, alpha);
             this.fillRectangle(frame, [r[0], r[1] - stroke, r[2], r[1]], red, green, blue, alpha);
@@ -448,7 +448,7 @@ namespace MemoryManagement {
 
         // FillRectangle with an image: gray until something is resident, else the image from the
         // level ReferenceResource allows for its visible one.
-        fillImage(frame: Frame, image: int, r: number[]): void {
+        fillImage(frame: Frame, image: int, r: number[]) {
             if (this.images.getResidentMip(image) == this.mipCounts[image]) {
                 this.fillRectangle(frame, r, 0.5, 0.5, 0.5, 1.0);
                 return;
@@ -460,7 +460,7 @@ namespace MemoryManagement {
             frame.drawVerticesWithPushConstants(6, Ref(this.push[0]), PUSH_SIZE);
         }
 
-        createPipelines(frame: Frame): void {
+        createPipelines(frame: Frame) {
             const textureDesc = GraphicsPipelineDesc.create(this.vs, this.texturePS);
             textureDesc.addBindingLayout(this.textureLayout);
             textureDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
@@ -482,7 +482,7 @@ namespace MemoryManagement {
         // and prefetched levels (the paging thread reprioritizes the images whose levels change);
         // the images in the viewport camera's view are drawn (with mip overlays), then the paging
         // camera's view outlined by its prefetching region.
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (!this.pipelinesCreated) {
                 this.createPipelines(frame);
@@ -557,7 +557,7 @@ namespace MemoryManagement {
 
         // RenderUI: the statistics (frame times) and the memory graph (top right): usage over the
         // last 10 seconds, the current usage (yellow) and budget (red) lines.
-        renderStatistics(width: number): void {
+        renderStatistics(width: number) {
             if (!this.renderStats) {
                 return;
             }
@@ -634,7 +634,7 @@ namespace MemoryManagement {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             this.visibleMips = [];
             for (let i = 0; i < this.imageCount; i++) {
                 this.visibleMips.push(UNDEFINED_MIPMAP_INDEX);
@@ -680,12 +680,12 @@ namespace MemoryManagement {
             this.app = app;
         }
 
-        buildUI(): void {
+        buildUI() {
             this.sample.renderStatistics(this.app.getWindowWidth());
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(): boolean {
+        init() {
             return !this.app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -693,7 +693,7 @@ namespace MemoryManagement {
     // -test: checks the paging after the frames. Without a budget override every image ends fully
     // resident and the frame shows them; with -budget, the usage stays under it, every image has
     // some level resident, and some aren't fully resident.
-    function checkResult(app: App, images: PagedImageSet, budgetOverride: number): string {
+    function checkResult(app: App, images: PagedImageSet, budgetOverride: number) {
         const count = images.getCount();
         let fullyResident = 0;
         let report = "Resident levels:";
@@ -757,7 +757,7 @@ namespace MemoryManagement {
         mips = false;
         stats = false;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-budget" && i + 1 < this.argc) {
@@ -775,7 +775,7 @@ namespace MemoryManagement {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("memory_management");
 
@@ -845,6 +845,6 @@ namespace MemoryManagement {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return MemoryManagement.main(argc, argv);
 }

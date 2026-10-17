@@ -10,7 +10,7 @@ namespace WaveIntrinsics {
 
     // -test: checks the last frame. The corners are black; the triangle colored by the wave
     // intrinsics, and the help text, about 8% of the frame.
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -129,7 +129,7 @@ namespace WaveIntrinsics {
             this.fontHeight = 0;
         }
 
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
             }
@@ -151,7 +151,7 @@ namespace WaveIntrinsics {
             this.hasTargets = false;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_PRESS && key >= KEY_1 && key <= KEY_9) {
                 this.renderMode = key - KEY_1 + 1;
             }
@@ -159,14 +159,14 @@ namespace WaveIntrinsics {
         }
 
         // The magnified area follows the mouse while its left button is down.
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             if (button == MOUSE_BUTTON_LEFT) {
                 this.mouseLeftButtonDown = action != ACTION_RELEASE;
             }
             return 0;
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             if (this.mouseLeftButtonDown) {
                 this.mousePosition[0] = Math.fround(x);
                 this.mousePosition[1] = Math.fround(y);
@@ -174,13 +174,13 @@ namespace WaveIntrinsics {
             return 0;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // LoadSizeDependentResources: pass 1's texture and the UI layer's (RGBA8_UNORM), and pass
         // 2's rectangle, its x scaled by the aspect ratio as the orthographic projection unscales it.
-        createTargets(frame: Frame, commandList: CommandList): void {
+        createTargets(frame: Frame, commandList: CommandList) {
             const aspectRatio = Math.fround(this.width / this.height);
             const a = aspectRatio;
             let quad: f32[] = [
@@ -226,7 +226,7 @@ namespace WaveIntrinsics {
         // OnUpdate: the orthographic projection (2 * aspect wide, 2 high, depth 0 to 1; transposed
         // for HLSL's column-major matrices: it is diagonal, so as is), the mouse, the resolution,
         // the render mode and WaveLaneCountMin.
-        writeConstants(commandList: CommandList): void {
+        writeConstants(commandList: CommandList) {
             const aspectRatio = Math.fround(this.width / this.height);
             for (let i = 0; i < 16; i++) {
                 this.constants[i] = 0.0;
@@ -246,7 +246,7 @@ namespace WaveIntrinsics {
 
         // RenderScene's pass 1: the triangle into its texture, cleared to transparent black; and
         // the UI layer's texture cleared for the ImGui pass after this one.
-        onRenderScene(frameHandle: FrameHandle): void {
+        onRenderScene(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             this.width = frame.getWidth();
@@ -272,7 +272,7 @@ namespace WaveIntrinsics {
         // Pass 2, after the UI: the textures composed, magnified around the mouse, into the back
         // buffer (cleared to black first). The sample draws the rectangle twice (two instances of
         // the same six vertices, without blending): once is the same.
-        onRenderCompose(frameHandle: FrameHandle): void {
+        onRenderCompose(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             if (!this.hasTargets) {
                 return;
@@ -293,7 +293,7 @@ namespace WaveIntrinsics {
         }
 
         // UILayer: its labels from the top left corner, one a line.
-        buildUI(): void {
+        buildUI() {
             const lineSpacing = LINE_SPACING_PER_HEIGHT * this.height;
             this.font.push();
             for (let i = 0; i < LABELS.length; i++) {
@@ -307,7 +307,7 @@ namespace WaveIntrinsics {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             // The sample's static sampler: point filtering, wrapping. Before any command list is
             // open: it creates Donut's common passes.
             this.sampler = this.app.createSampler(0, 0, 1);
@@ -377,7 +377,7 @@ namespace WaveIntrinsics {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("wave_intrinsics");
 
@@ -419,6 +419,6 @@ namespace WaveIntrinsics {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return WaveIntrinsics.main(argc, argv);
 }

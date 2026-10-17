@@ -9,7 +9,7 @@ namespace DynamicMultisampleRasterization {
     const TEST_FRAMES = 120;
 
     // -test: checks the last frame: the space station interior fills it (about 93% lit).
-    function checkFrame(app: App): string {
+    function checkFrame(app: App) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -76,18 +76,18 @@ namespace DynamicMultisampleRasterization {
     const GROUP_TRANSPARENT = 2;
     const GROUP_TRANSPARENT_FLIPPED = 3;
 
-    function sampleCountName(count: int): string {
+    function sampleCountName(count: int) {
         return count == 1 ? "No MSAA" : `${count}X MSAA`;
     }
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity(): number[] {
+    function identity() {
         return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     // a * b.
-    function multiply(a: number[], b: number[]): number[] {
+    function multiply(a: number[], b: number[]) {
         let result: number[] = [];
         for (let column = 0; column < 4; column++) {
             for (let row = 0; row < 4; row++) {
@@ -102,7 +102,7 @@ namespace DynamicMultisampleRasterization {
     }
 
     // glm::rotate(m, angle, axis) for a unit axis.
-    function rotate(m: number[], angle: number, x: number, y: number, z: number): number[] {
+    function rotate(m: number[], angle: number, x: number, y: number, z: number) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
         const t = 1.0 - c;
@@ -115,13 +115,13 @@ namespace DynamicMultisampleRasterization {
         return multiply(m, r);
     }
 
-    function radians(degrees: number): number {
+    function radians(degrees: number) {
         return degrees * Math.PI / 180.0;
     }
 
     // glm::perspective (right-handed, depth from 0 to 1); the sample swaps near and far for
     // reversed depth.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number): number[] {
+    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
         const tanHalfFovy = Math.tan(0.5 * fov);
         return [
             1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
@@ -150,7 +150,7 @@ namespace DynamicMultisampleRasterization {
         }
 
         // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view(): number[] {
+        view() {
             let r = identity();
             r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
             r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
@@ -163,14 +163,14 @@ namespace DynamicMultisampleRasterization {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int): void {
+        mouseButton(button: int, action: int) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
         }
 
         // ApiVulkanSample::handle_mouse_move.
-        mouseMove(x: number, y: number): void {
+        mouseMove(x: number, y: number) {
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -267,26 +267,26 @@ namespace DynamicMultisampleRasterization {
             }
         }
 
-        onMousePos(x: number, y: number): int {
+        onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int): int {
+        onMouseButton(button: int, action: int, mods: int) {
             this.camera.mouseButton(button, action);
             return 1;
         }
 
-        onAnimate(elapsedSeconds: number): void {
+        onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
 
         // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing(): void {
+        onBackBufferResizing() {
             this.releaseTargets();
         }
 
-        releaseTargets(): void {
+        releaseTargets() {
             for (const resource of this.resources) {
                 this.app.releaseResource(resource);
             }
@@ -296,7 +296,7 @@ namespace DynamicMultisampleRasterization {
             this.builtSampleCount = 0;
         }
 
-        own<T extends ResourceHandle>(resource: T): T {
+        own<T extends ResourceHandle>(resource: T) {
             this.resources.push(resource);
             return resource;
         }
@@ -306,7 +306,7 @@ namespace DynamicMultisampleRasterization {
         // pass ends) or one for a separate resolve, and the pipelines: reversed depth (greater),
         // back faces culled, counter-clockwise front faces (clockwise for flipped nodes), the
         // transparent ones blended.
-        createTargets(width: int, height: int): void {
+        createTargets(width: int, height: int) {
             this.app.waitForIdle();
             this.releaseTargets();
             const msaa = this.sampleCount > 1;
@@ -348,7 +348,7 @@ namespace DynamicMultisampleRasterization {
             this.builtHeight = height;
         }
 
-        onRender(frameHandle: FrameHandle): void {
+        onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
@@ -402,7 +402,7 @@ namespace DynamicMultisampleRasterization {
         // The sample's load_assets: the scene's vertices and indices in one buffer each, its
         // textures (in the file's order: the shader's indices), and the draws, by group, in the
         // framework's order (by mesh, node, primitive), recorded into an open command list.
-        loadScene(commandList: CommandList, setDesc: BindingSetDesc): boolean {
+        loadScene(commandList: CommandList, setDesc: BindingSetDesc) {
             const scene = this.app.loadGltfModel(SCENE_PATH);
             if (scene.isNull()) {
                 return false;
@@ -524,7 +524,7 @@ namespace DynamicMultisampleRasterization {
         }
 
         // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(): boolean {
+        init() {
             const shader = "dynamic_multisample_rasterization.hlsl";
             this.vs = this.app.createShader(shader, "model_vs", ShaderType.Vertex);
             this.ps = this.app.createShader(shader, "model_ps", ShaderType.Pixel);
@@ -599,7 +599,7 @@ namespace DynamicMultisampleRasterization {
             this.names = "";
         }
 
-        buildUI(): void {
+        buildUI() {
             const sample = this.sample;
             if (this.names.length == 0) {
                 for (let i = 0; i < sample.supportedCounts.length; i++) {
@@ -624,7 +624,7 @@ namespace DynamicMultisampleRasterization {
         }
 
         // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App): boolean {
+        init(app: App) {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
@@ -633,7 +633,7 @@ namespace DynamicMultisampleRasterization {
         // -samples <count>: the initial sample count (when supported).
         samples = 0;
 
-        protected parseOptions(): void {
+        protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 if (this[i] == "-samples" && i + 1 < this.argc) {
                     i++;
@@ -643,7 +643,7 @@ namespace DynamicMultisampleRasterization {
         }
     }
 
-    export function main(argc: int, argv: Ref<string>): int {
+    export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("dynamic_multisample_rasterization");
 
@@ -690,6 +690,6 @@ namespace DynamicMultisampleRasterization {
 }
 
 // tslang starts the program at a global main.
-function main(argc: int, argv: Ref<string>): int {
+function main(argc: int, argv: Ref<string>) {
     return DynamicMultisampleRasterization.main(argc, argv);
 }
