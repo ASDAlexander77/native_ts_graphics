@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
+import { perspProjReverse } from "../core/matrix";
 
 namespace CalibratedTimestampsSample {
     const WINDOW_TITLE = "Donut Example: Calibrated Timestamps";
@@ -66,23 +67,6 @@ namespace CalibratedTimestampsSample {
             0.0, -Math.fround(1.0 / tanHalfFovy), 0.0, 0.0,
             0.0, 0.0, Math.fround(f / Math.fround(n - f)), -1.0,
             0.0, 0.0, Math.fround(-Math.fround(f * n) / Math.fround(f - n)), 0.0,
-        ];
-    }
-
-    // The same projection in Donut's conventions (view space z forward), for Donut's camera.
-    // In float32, in glm's order of operations.
-    function perspProjReverse(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
-        const near = Math.fround(zNear);
-        const far = Math.fround(zFar);
-        const tanHalfFovy = Math.fround(Math.tan(Math.fround(Math.fround(verticalFOV) / 2.0)));
-        const xScale = Math.fround(1.0 / Math.fround(Math.fround(aspect) * tanHalfFovy));
-        const yScale = Math.fround(1.0 / tanHalfFovy);
-        const depthRange = Math.fround(far - near);
-        return [
-            xScale, 0.0,    0.0,                                            0.0,
-            0.0,    yScale, 0.0,                                            0.0,
-            0.0,    0.0,    -Math.fround(near / depthRange),                1.0,
-            0.0,    0.0,    Math.fround(Math.fround(far * near) / depthRange), 0.0,
         ];
     }
 

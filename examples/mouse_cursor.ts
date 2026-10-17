@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
+import { identity } from "../core/matrix";
 
 namespace MouseCursor {
     // Test mode: the frames rendered.
@@ -102,10 +103,6 @@ namespace MouseCursor {
 
     function minf(a: number, b: number) {
         return a < b ? a : b;
-    }
-
-    function identity() {
-        return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     }
 
     function multiply(a: number[], b: number[]) {

@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { radians } from "../core/matrix";
 
 namespace MultiDrawIndirect {
     // Test mode: the frames rendered.
@@ -80,10 +81,6 @@ namespace MultiDrawIndirect {
     const READBACK_BUFFERS = 3;
 
     // --- Math ---------------------------------------------------------------------------------
-
-    function radians(degrees: number) {
-        return degrees * Math.PI / 180.0;
-    }
 
     // The sample's glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), as glm
     // lays it out (columns), with clip y negated: the sample's clip space has y down on the screen

@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { identity, multiply, radians, perspective } from "../core/matrix";
 
 namespace ShaderObjectSample {
     // Test mode: the frames rendered.
@@ -134,25 +135,6 @@ namespace ShaderObjectSample {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    function identity() {
-        return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-    }
-
-    // a * b.
-    function multiply(a: number[], b: number[]) {
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[k * 4 + row] * b[column * 4 + k];
-                }
-                result.push(sum);
-            }
-        }
-        return result;
-    }
-
     // glm::rotate(m, angle, axis) (the axis normalized, as glm does).
     function rotate(m: number[], angle: number, ax: number, ay: number, az: number) {
         const length = Math.sqrt(ax * ax + ay * ay + az * az);
@@ -185,22 +167,6 @@ namespace ShaderObjectSample {
             result.push(i < 12 ? m[i] * s : m[i]);
         }
         return result;
-    }
-
-    function radians(degrees: number) {
-        return degrees * Math.PI / 180.0;
-    }
-
-    // glm::perspective (right-handed, depth from 0 to 1); the sample swaps near and far for
-    // reversed depth.
-    function perspective(fov: number, aspect: number, zNear: number, zFar: number) {
-        const tanHalfFovy = Math.tan(0.5 * fov);
-        return [
-            1.0 / (aspect * tanHalfFovy), 0.0,               0.0,                              0.0,
-            0.0,                          1.0 / tanHalfFovy, 0.0,                              0.0,
-            0.0,                          0.0,               zFar / (zNear - zFar),            -1.0,
-            0.0,                          0.0,               -(zFar * zNear) / (zFar - zNear), 0.0,
-        ];
     }
 
     // A number with `digits` decimals, like printf's %.Nf (Number.toFixed is missing under the JIT).

@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { perspProjD3DStyle } from "../core/matrix";
 
 namespace VertexBuffer {
     // Test mode: the frames rendered.
@@ -161,23 +162,6 @@ namespace VertexBuffer {
             0.0, 1.0, 0.0, 0.0,
             0.0, 0.0, 1.0, 0.0,
             x,   y,   z,   1.0,
-        ];
-    }
-
-    // math::perspProjD3DStyle(verticalFOV, aspect, zNear, zFar).
-    // In float32 as Donut's (computed in double, the terms differ in the last bit, which moves
-    // edges by a pixel here and there).
-    function perspProjD3DStyle(verticalFOV: number, aspect: number, zNear: number, zFar: number) {
-        const near = Math.fround(zNear);
-        const far = Math.fround(zFar);
-        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
-        const xScale = Math.fround(yScale / Math.fround(aspect));
-        const zScale = Math.fround(1.0 / Math.fround(far - near));
-        return [
-            xScale, 0.0,    0.0,                                         0.0,
-            0.0,    yScale, 0.0,                                         0.0,
-            0.0,    0.0,    Math.fround(far * zScale),                   1.0,
-            0.0,    0.0,    Math.fround(Math.fround(-near * far) * zScale), 0.0,
         ];
     }
 

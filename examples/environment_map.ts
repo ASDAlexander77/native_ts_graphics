@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { perspProjD3DStyleReverse } from "../core/matrix";
 
 namespace EnvironmentMap {
     // Test mode: the frames rendered.
@@ -46,22 +47,6 @@ namespace EnvironmentMap {
     const EXPOSURE = 0.2;
     const AMBIENT_TOP = 0.15;
     const AMBIENT_BOTTOM = 0.05;
-
-    // --- Math ---------------------------------------------------------------------------------
-    // Row-major 4x4 matrices (16 numbers) with Donut's row-vector convention.
-
-    // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane,
-    // in float32 as Donut's.
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
-        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
-        const xScale = Math.fround(yScale / Math.fround(aspect));
-        return [
-            xScale, 0.0,    0.0,   0.0,
-            0.0,    yScale, 0.0,   0.0,
-            0.0,    0.0,    0.0,   1.0,
-            0.0,    0.0,    zNear, 0.0,
-        ];
-    }
 
     // --- Passes -------------------------------------------------------------------------------
 

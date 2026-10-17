@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { perspProjD3DStyleReverse } from "../core/matrix";
 
 namespace BindlessRendering {
     // Test mode: the frames rendered.
@@ -36,23 +37,6 @@ namespace BindlessRendering {
     // struct InstanceConstants in bindless_rendering.hlsl: the instance and its geometry, as push
     // constants.
     const INSTANCE_CONSTANTS_SIZE = 2 * 4;
-
-    // --- Math ---------------------------------------------------------------------------------
-    // Row-major 4x4 matrices (16 numbers) with Donut's row-vector convention.
-
-    // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane.
-    // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
-    // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
-        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
-        const xScale = Math.fround(yScale / Math.fround(aspect));
-        return [
-            xScale, 0.0,    0.0,   0.0,
-            0.0,    yScale, 0.0,   0.0,
-            0.0,    0.0,    0.0,   1.0,
-            0.0,    0.0,    zNear, 0.0,
-        ];
-    }
 
     // --- Passes -------------------------------------------------------------------------------
 

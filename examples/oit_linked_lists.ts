@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { multiply, rotation, translation, radians, samplePerspective } from "../core/matrix";
 
 namespace OitLinkedLists {
     // Test mode: the frames rendered.
@@ -82,56 +83,6 @@ namespace OitLinkedLists {
     const MOUSE_BUTTON_RIGHT = 1;
     const MOUSE_BUTTON_MIDDLE = 2;
     const ACTION_PRESS = 1;
-
-    // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
-
-    function radians(degrees: number) {
-        return degrees * Math.PI / 180.0;
-    }
-
-    // a * b.
-    function multiply(a: number[], b: number[]) {
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[k * 4 + row] * b[column * 4 + k];
-                }
-                result.push(sum);
-            }
-        }
-        return result;
-    }
-
-    // glm::rotate(mat4(1), angle, axis) about a unit axis.
-    function rotation(angle: number, x: number, y: number, z: number) {
-        const c = Math.cos(angle);
-        const s = Math.sin(angle);
-        const t = 1.0 - c;
-        return [
-            c + t * x * x,     t * x * y + s * z, t * x * z - s * y, 0.0,
-            t * x * y - s * z, c + t * y * y,     t * y * z + s * x, 0.0,
-            t * x * z + s * y, t * y * z - s * x, c + t * z * z,     0.0,
-            0.0,               0.0,               0.0,               1.0,
-        ];
-    }
-
-    function translation(x: number, y: number, z: number) {
-        return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0];
-    }
-
-    // glm::perspective(fov, aspect, near, far) (right-handed, depth from 0 to 1), with clip y
-    // negated: the sample's clip space has y down on the screen (Vulkan's), Donut's y up.
-    function samplePerspective(fov: number, aspect: number, zNear: number, zFar: number) {
-        const tanHalfFovy = Math.tan(0.5 * fov);
-        return [
-            1.0 / (aspect * tanHalfFovy), 0.0,                0.0,                              0.0,
-            0.0,                          -1.0 / tanHalfFovy, 0.0,                              0.0,
-            0.0,                          0.0,                zFar / (zNear - zFar),            -1.0,
-            0.0,                          0.0,                -(zFar * zNear) / (zFar - zNear), 0.0,
-        ];
-    }
 
     // MSVC's rand(), from its default seed, which the sample's colors come from: RAND_MAX 32767.
     class MsvcRandom {

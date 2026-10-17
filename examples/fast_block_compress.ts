@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { FbcTexture } from "../core/fbc_texture";
+import { comboItems } from "../core/text_format";
 
 namespace FastBlockCompress {
     // Test mode: the frames rendered.
@@ -96,15 +97,6 @@ namespace FastBlockCompress {
     // one.
     const LAYOUT_WIDTH = 1920.0;
     const LAYOUT_HEIGHT = 1080.0;
-
-    // ImGui combo items: the names separated by '|'.
-    function comboItems(names: string[]) {
-        let items = "";
-        for (let i = 0; i < names.length; i++) {
-            items += (i > 0 ? "|" : "") + names[i];
-        }
-        return items;
-    }
 
     function formatFixed(value: number, digits: int) {
         let scale = 1.0;

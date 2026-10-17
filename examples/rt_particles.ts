@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
+import { radians, perspProjD3DStyleReverse } from "../core/matrix";
 
 namespace RtParticles {
     // Test mode: the frames rendered.
@@ -76,10 +77,6 @@ namespace RtParticles {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    function radians(degrees: number) {
-        return degrees * Math.PI / 180.0;
-    }
-
     function saturate(x: number) {
         return Math.min(Math.max(x, 0.0), 1.0);
     }
@@ -89,21 +86,6 @@ namespace RtParticles {
     function randomFloat() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
         return g_RandomSeed / 2147483647.0;
-    }
-
-    // math::perspProjD3DStyleReverse(verticalFOV, aspect, zNear): reverse Z, infinite far plane,
-    // row-major with Donut's row-vector convention.
-    // In float32 as Donut's (computed in double, the scales differ in the last bit, which moves
-    // edges by a pixel here and there).
-    function perspProjD3DStyleReverse(verticalFOV: number, aspect: number, zNear: number) {
-        const yScale = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(0.5 * Math.fround(verticalFOV)))));
-        const xScale = Math.fround(yScale / Math.fround(aspect));
-        return [
-            xScale, 0.0,    0.0,   0.0,
-            0.0,    yScale, 0.0,   0.0,
-            0.0,    0.0,    0.0,   1.0,
-            0.0,    0.0,    zNear, 0.0,
-        ];
     }
 
     // --- Particles ----------------------------------------------------------------------------
