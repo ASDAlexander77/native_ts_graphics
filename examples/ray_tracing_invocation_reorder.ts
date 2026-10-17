@@ -760,8 +760,8 @@ namespace RayTracingInvocationReorder {
             this.app.releaseResource(pipeline);
             shaderTable.setRayGeneration("raygen");
             shaderTable.addMiss("miss");
-            for (let i = 0; i < HIT_GROUPS.length; i++) {
-                shaderTable.addHitGroup(HIT_GROUPS[i], null);
+            for (const hitGroup of HIT_GROUPS) {
+                shaderTable.addHitGroup(hitGroup, null);
             }
             this.shaderTable = shaderTable;
             return true;

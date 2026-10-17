@@ -220,11 +220,11 @@ namespace DxrRefit {
         // their vertices in order).
         createAccelerationStructures(commandList: CommandList) {
             let vertices: f32[] = [];
-            for (let i = 0; i < TRIANGLE_VERTICES.length; i++) {
-                vertices.push(TRIANGLE_VERTICES[i]);
+            for (const coordinate of TRIANGLE_VERTICES) {
+                vertices.push(coordinate);
             }
-            for (let i = 0; i < PLANE_VERTICES.length; i++) {
-                vertices.push(PLANE_VERTICES[i]);
+            for (const coordinate of PLANE_VERTICES) {
+                vertices.push(coordinate);
             }
             const triangleVertexCount = TRIANGLE_VERTICES.length / 3;
             const planeVertexCount = PLANE_VERTICES.length / 3;
@@ -289,8 +289,8 @@ namespace DxrRefit {
             shaderTable.setRayGeneration("rayGen");
             shaderTable.addMiss("miss");
             shaderTable.addMiss("shadowMiss");
-            for (let i = 0; i < HIT_GROUPS.length; i++) {
-                shaderTable.addHitGroup(HIT_GROUPS[i], null);
+            for (const hitGroup of HIT_GROUPS) {
+                shaderTable.addHitGroup(hitGroup, null);
             }
             this.shaderTable = shaderTable;
             return true;

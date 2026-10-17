@@ -774,8 +774,8 @@ namespace ComputeNBodyCollisions {
                 this.app.waitForIdle();
                 this.app.releaseResource(this.hdrFramebuffer);
                 this.app.releaseResource(this.hdrTarget);
-                for (let i = 0; i < this.blurChain.length; i++) {
-                    this.app.releaseResource(this.blurChain[i]);
+                for (const blurTexture of this.blurChain) {
+                    this.app.releaseResource(blurTexture);
                 }
                 this.app.releaseResource(this.thresholdBindingSet.handle);
                 for (const blurDownBindingSet of this.blurDownBindingSets) {

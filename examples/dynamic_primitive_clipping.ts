@@ -365,8 +365,8 @@ namespace DynamicPrimitiveClipping {
             const commandList = this.app.createCommandList();
             commandList.open();
             let loaded = true;
-            for (let i = 0; i < MODEL_PATHS.length; i++) {
-                const model = this.app.loadGltfMesh(commandList, MODEL_PATHS[i]);
+            for (const modelPath of MODEL_PATHS) {
+                const model = this.app.loadGltfMesh(commandList, modelPath);
                 loaded = loaded && !model.isNull();
                 this.models.push(model);
             }

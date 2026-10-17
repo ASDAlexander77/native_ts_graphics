@@ -419,8 +419,8 @@ namespace DynamicMultisampleRasterization {
                 const dot = image.lastIndexOf(".");
                 const name = dot >= 0 ? image.substring(0, dot) : image;
                 let dir = SCENE_DIR;
-                for (let k = 0; k < OWN_TEXTURES.length; k++) {
-                    if (OWN_TEXTURES[k] == name) {
+                for (const ownTexture of OWN_TEXTURES) {
+                    if (ownTexture == name) {
                         dir = OWN_TEXTURE_DIR;
                     }
                 }

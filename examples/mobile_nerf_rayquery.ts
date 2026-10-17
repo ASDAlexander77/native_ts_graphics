@@ -671,8 +671,8 @@ namespace MobileNerfRayQuery {
             const firstVertices: int[] = [];
             const firstIndices: int[] = [];
             const counts: int[] = [];
-            for (let m = 0; m < MODELS.length; m++) {
-                const path = MEDIA_DIR + MODELS[m] + "/shape0.gltf";
+            for (const modelName of MODELS) {
+                const path = MEDIA_DIR + modelName + "/shape0.gltf";
                 const scene = this.app.loadGltfModel(path);
                 if (scene.isNull()) {
                     return false;
@@ -748,8 +748,8 @@ namespace MobileNerfRayQuery {
                 return false;
             }
 
-            for (let m = 0; m < MODELS.length; m++) {
-                if (!loadMlp(this.app, MEDIA_DIR + MODELS[m] + "/mlp.json", this.weights)) {
+            for (const modelName of MODELS) {
+                if (!loadMlp(this.app, MEDIA_DIR + modelName + "/mlp.json", this.weights)) {
                     console.log("Cannot load the NeRF models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                     return false;
                 }

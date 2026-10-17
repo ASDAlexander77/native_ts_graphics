@@ -1333,9 +1333,9 @@ namespace RaytracingAo {
             let white: int[] = [-1];
             commandList.writeTextureLevel(this.placeholderTexture, 0, Ref(white[0]), 4);
             let loaded = true;
-            for (let i = 0; i < MESH_FILES.length; i++) {
+            for (const meshFile of MESH_FILES) {
                 const mesh = new Mesh();
-                if (!mesh.load(this.app, commandList, MESH_FILES[i], this.placeholderTexture)) {
+                if (!mesh.load(this.app, commandList, meshFile, this.placeholderTexture)) {
                     loaded = false;
                 }
                 this.meshes.push(mesh);

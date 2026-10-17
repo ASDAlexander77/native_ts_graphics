@@ -451,22 +451,22 @@ namespace RayTracingReflection {
                 objDesc.push(matIndices.length);
                 objDesc.push(materials.length / MATERIAL_FLOATS);
                 const vertexList = vertexLists[o];
-                for (let i = 0; i < vertexList.length; i++) {
-                    vertices.push(vertexList[i]);
+                for (const coordinate of vertexList) {
+                    vertices.push(coordinate);
                 }
                 const indexList = indexLists[o];
-                for (let i = 0; i < indexList.length; i++) {
-                    indices.push(indexList[i]);
+                for (const index of indexList) {
+                    indices.push(index);
                 }
                 const materialList = materialLists[o];
                 const maxIndex = materialList.length - 1;
                 const matIndexList = matIndexLists[o];
-                for (let i = 0; i < matIndexList.length; i++) {
-                    matIndices.push(Math.min(maxIndex, matIndexList[i]));
+                for (const matIndex of matIndexList) {
+                    matIndices.push(Math.min(maxIndex, matIndex));
                 }
-                for (let m = 0; m < materialList.length; m++) {
+                for (const material of materialList) {
                     for (let i = 0; i < MATERIAL_FLOATS; i++) {
-                        materials.push(materialList[m][i]);
+                        materials.push(material[i]);
                     }
                 }
             }

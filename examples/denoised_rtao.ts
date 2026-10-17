@@ -1143,15 +1143,15 @@ namespace DenoisedRtao {
         // the grass patches (placed each frame).
         createInstances() {
             const sceneOrder = [0, 1, 3, 2, 4];
-            for (let i = 0; i < sceneOrder.length; i++) {
+            for (const scene of sceneOrder) {
                 const index = this.instanceScenes.length;
-                if (sceneOrder[i] == 2) {
+                if (scene == 2) {
                     this.carByTheHouseInstance = index;
-                } else if (sceneOrder[i] == 0) {
+                } else if (scene == 0) {
                     this.spaceshipInstance = index;
                 }
-                this.instanceScenes.push(sceneOrder[i]);
-                this.instanceRecords.push(this.sceneRecordBases[sceneOrder[i]]);
+                this.instanceScenes.push(scene);
+                this.instanceRecords.push(this.sceneRecordBases[scene]);
                 this.instanceTransforms.push(matrixScaling(1.0, 1.0, 1.0));
             }
             this.animatedCarInstance = this.instanceScenes.length;

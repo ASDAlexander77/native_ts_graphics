@@ -795,9 +795,9 @@ namespace Msaa {
                 }
             }
             this.depthResolveMode = ResolveMode.None;
-            for (let i = 0; i < DEPTH_RESOLVE_MODES.length; i++) {
-                if ((this.depthResolveModes & (1 << DEPTH_RESOLVE_MODES[i])) != 0) {
-                    this.depthResolveMode = DEPTH_RESOLVE_MODES[i];
+            for (const resolveMode of DEPTH_RESOLVE_MODES) {
+                if ((this.depthResolveModes & (1 << resolveMode)) != 0) {
+                    this.depthResolveMode = resolveMode;
                     break;
                 }
             }

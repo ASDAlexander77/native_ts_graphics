@@ -1015,10 +1015,10 @@ namespace RenderOctomap {
         // coefficients), appended in the cells' order.
         loadSplats() {
             this.splatsLoaded = true;
-            for (let c = 0; c < SPLAT_CELLS.length; c++) {
-                const model = this.app.loadGltfModel(MEDIA + SPLAT_CELLS[c]);
+            for (const splatCell of SPLAT_CELLS) {
+                const model = this.app.loadGltfModel(MEDIA + splatCell);
                 if (model.isNull() || model.getPrimitiveCount() == 0) {
-                    console.log(`Cannot load the splats of ${SPLAT_CELLS[c]}`);
+                    console.log(`Cannot load the splats of ${splatCell}`);
                     continue;
                 }
                 const count = model.getAttributeCount(0, "POSITION");
@@ -1035,7 +1035,7 @@ namespace RenderOctomap {
                         || this.copySplatAttribute(model, "KHR_gaussian_splatting:SH_DEGREE_0_COEF_0", 3, 11, first, count);
                 }
                 if (!ok) {
-                    console.log(`${SPLAT_CELLS[c]} lacks the KHR_gaussian_splatting attributes`);
+                    console.log(`${splatCell} lacks the KHR_gaussian_splatting attributes`);
                     while (this.splatData.length > first * SPLAT_FLOATS) {
                         this.splatData.pop();
                     }

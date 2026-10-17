@@ -467,10 +467,10 @@ namespace SakuraForestSER {
 
             // The models: trunk.obj's "tree", leaves.obj's "leaves", bush.obj's "bush".
             const model = ObjModel.create();
-            for (let i = 0; i < OBJ_FILES.length; i++) {
-                const file = this.app.loadBinaryFile(MEDIA + OBJ_FILES[i]);
+            for (const objFile of OBJ_FILES) {
+                const file = this.app.loadBinaryFile(MEDIA + objFile);
                 if (file.isNull()) {
-                    console.log(`Cannot load ${MEDIA}${OBJ_FILES[i]}: set DIRECTX_GRAPHICS_SAMPLES_DIR when configuring`);
+                    console.log(`Cannot load ${MEDIA}${objFile}: set DIRECTX_GRAPHICS_SAMPLES_DIR when configuring`);
                     model.destroy();
                     return false;
                 }

@@ -492,8 +492,8 @@ namespace ProceduralGeometry {
             // its intersection shader's.
             let aabbConstants: int[] = [];
             let instanceIndex = 0;
-            for (let shader = 0; shader < PRIMITIVES_PER_INTERSECTION_SHADER.length; shader++) {
-                for (let primitive = 0; primitive < PRIMITIVES_PER_INTERSECTION_SHADER[shader]; primitive++) {
+            for (const primitiveCount of PRIMITIVES_PER_INTERSECTION_SHADER) {
+                for (let primitive = 0; primitive < primitiveCount; primitive++) {
                     aabbConstants.push(instanceIndex);
                     aabbConstants.push(primitive);
                     instanceIndex++;

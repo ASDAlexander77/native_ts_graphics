@@ -1129,9 +1129,9 @@ namespace Bokeh {
             const commandList = this.app.createCommandList();
             commandList.open();
             let loaded = true;
-            for (let i = 0; i < MODEL_FILES.length; i++) {
+            for (const modelFile of MODEL_FILES) {
                 const model = new Model();
-                if (!model.load(this.app, commandList, MODEL_FILES[i])) {
+                if (!model.load(this.app, commandList, modelFile)) {
                     loaded = false;
                 }
                 this.models.push(model);

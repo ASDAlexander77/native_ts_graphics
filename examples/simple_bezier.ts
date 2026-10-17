@@ -457,8 +457,8 @@ namespace SimpleBezier {
             if (!this.vs || !this.ds) {
                 return false;
             }
-            for (let i = 0; i < HULL_SHADERS.length; i++) {
-                const hs = this.app.createShader(shader, HULL_SHADERS[i], ShaderType.Hull);
+            for (const entryPoint of HULL_SHADERS) {
+                const hs = this.app.createShader(shader, entryPoint, ShaderType.Hull);
                 if (!hs) {
                     return false;
                 }
