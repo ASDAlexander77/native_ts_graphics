@@ -675,8 +675,8 @@ namespace SimpleHdr {
                 return false;
             }
             this.sample.imguiPass = imguiPass;
-            for (let i = 0; i < FONT_SCALES.length; i++) {
-                const font = imguiPass.createFont(FONT_PATH, FONT_LAYOUT_SIZE * FONT_SCALES[i] * height / LAYOUT_HEIGHT);
+            for (const fontScale of FONT_SCALES) {
+                const font = imguiPass.createFont(FONT_PATH, FONT_LAYOUT_SIZE * fontScale * height / LAYOUT_HEIGHT);
                 if (font.isNull()) {
                     console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
                     return false;

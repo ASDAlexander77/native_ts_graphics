@@ -448,8 +448,8 @@ namespace Hdr {
             commandList.open();
             const skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
             let objectsLoaded = !skybox.isNull();
-            for (let i = 0; i < OBJECT_PATHS.length; i++) {
-                const object = this.app.loadGltfMesh(commandList, OBJECT_PATHS[i]);
+            for (const objectPath of OBJECT_PATHS) {
+                const object = this.app.loadGltfMesh(commandList, objectPath);
                 objectsLoaded = objectsLoaded && !object.isNull();
                 this.objects.push(object);
             }

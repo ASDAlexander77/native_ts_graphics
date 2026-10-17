@@ -694,10 +694,10 @@ namespace MeshletCull {
             // All scene objects with the same pipeline state, a thread per meshlet.
             for (const meshObject of this.objects) {
                 const meshes = meshObject.meshes;
-                for (let m = 0; m < meshes.length; m++) {
+                for (const mesh of meshes) {
                     frame.beginMeshDrawToFramebuffer(this.meshPipeline, this.framebuffer);
-                    frame.drawAddBindingSet(meshes[m].bindingSet);
-                    frame.drawMeshTasks(Math.floor((meshes[m].meshletCount + AS_GROUP_SIZE - 1) / AS_GROUP_SIZE));
+                    frame.drawAddBindingSet(mesh.bindingSet);
+                    frame.drawMeshTasks(Math.floor((mesh.meshletCount + AS_GROUP_SIZE - 1) / AS_GROUP_SIZE));
                 }
             }
 
@@ -932,10 +932,10 @@ namespace MeshletCull {
         }
         const background = 0 | (51 << 8) | (102 << 16);
         const corners = [0, width - 1, (height - 1) * width, height * width - 1];
-        for (let i = 0; i < corners.length; i++) {
-            const p = pixels[corners[i]] & 0xFFFFFF;
+        for (const cornerIndex of corners) {
+            const p = pixels[cornerIndex] & 0xFFFFFF;
             if (p != background) {
-                return `corner pixel ${corners[i]} is ${p & 0xFF}, ${(p >> 8) & 0xFF}, ${(p >> 16) & 0xFF}, not the clear color`;
+                return `corner pixel ${cornerIndex} is ${p & 0xFF}, ${(p >> 8) & 0xFF}, ${(p >> 16) & 0xFF}, not the clear color`;
             }
         }
 

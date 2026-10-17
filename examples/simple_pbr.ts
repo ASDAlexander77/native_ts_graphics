@@ -203,8 +203,8 @@ namespace SimplePbr {
                 const iv12 = mids[1];
                 const iv20 = mids[2];
                 const added = [iv0, iv01, iv20, iv20, iv12, iv2, iv20, iv01, iv12, iv01, iv1, iv12];
-                for (let k = 0; k < added.length; k++) {
-                    next.push(added[k]);
+                for (const vertexIndex of added) {
+                    next.push(vertexIndex);
                 }
             }
             current = next;
@@ -216,8 +216,8 @@ namespace SimplePbr {
             positions.push(Math.fround(n[1] * radius));
             positions.push(Math.fround(n[2] * radius));
         }
-        for (let i = 0; i < current.length; i++) {
-            indices.push(current[i]);
+        for (const index of current) {
+            indices.push(index);
         }
     }
 
@@ -945,9 +945,9 @@ namespace SimplePbr {
             const commandList = this.app.createCommandList();
             commandList.open();
             let loaded = true;
-            for (let i = 0; i < MODEL_NAMES.length; i++) {
+            for (const modelName of MODEL_NAMES) {
                 const model = new Model();
-                if (!model.load(this.app, commandList, MODEL_NAMES[i])) {
+                if (!model.load(this.app, commandList, modelName)) {
                     loaded = false;
                 }
                 this.models.push(model);

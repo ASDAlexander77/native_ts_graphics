@@ -262,8 +262,8 @@ namespace ExtendedDynamicState2 {
                 this.commonConstants.push(0.0);
             }
             this.baselineConstants = [];
-            for (let i = 0; i < BASELINE_CONSTANTS.length; i++) {
-                this.baselineConstants.push(BASELINE_CONSTANTS[i]);
+            for (const constant of BASELINE_CONSTANTS) {
+                this.baselineConstants.push(constant);
             }
             this.tessConstants = [0.0, 0.0, 0.0, 0.0];
             this.nodeConstants = [];

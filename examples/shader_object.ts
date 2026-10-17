@@ -552,8 +552,8 @@ namespace ShaderObjectSample {
                 this.depthImages.push(this.app.createDepthTexture(width, height, format, 0.0, DEPTH_FORMAT_NAMES[depthFormat]));
             }
             for (const outputImage of this.outputImages) {
-                for (let d = 0; d < this.depthImages.length; d++) {
-                    this.framebuffers.push(this.app.createFramebuffer(outputImage, this.depthImages[d]));
+                for (const depthImage of this.depthImages) {
+                    this.framebuffers.push(this.app.createFramebuffer(outputImage, depthImage));
                 }
             }
             this.postImage = this.app.createRenderTargetTexture(width, height, Format.RGBA8_UNORM, "Post-processing");
@@ -862,29 +862,29 @@ namespace ShaderObjectSample {
                 this.basicVS.push(vs);
                 this.basicPS.push(ps);
             }
-            for (let i = 0; i < MATERIAL_VS.length; i++) {
-                const vs = this.app.createShader(shader, MATERIAL_VS[i], ShaderType.Vertex);
+            for (const entryPoint of MATERIAL_VS) {
+                const vs = this.app.createShader(shader, entryPoint, ShaderType.Vertex);
                 if (!vs) {
                     ok = false;
                 }
                 this.materialVS.push(vs);
             }
-            for (let i = 0; i < MATERIAL_GS.length; i++) {
-                const gs = this.app.createShader(shader, MATERIAL_GS[i], ShaderType.Geometry);
+            for (const entryPoint of MATERIAL_GS) {
+                const gs = this.app.createShader(shader, entryPoint, ShaderType.Geometry);
                 if (!gs) {
                     ok = false;
                 }
                 this.materialGS.push(gs);
             }
-            for (let i = 0; i < MATERIAL_PS.length; i++) {
-                const ps = this.app.createShader(shader, MATERIAL_PS[i], ShaderType.Pixel);
+            for (const entryPoint of MATERIAL_PS) {
+                const ps = this.app.createShader(shader, entryPoint, ShaderType.Pixel);
                 if (!ps) {
                     ok = false;
                 }
                 this.materialPS.push(ps);
             }
-            for (let i = 0; i < POST_PS.length; i++) {
-                const ps = this.app.createShader(shader, POST_PS[i], ShaderType.Pixel);
+            for (const entryPoint of POST_PS) {
+                const ps = this.app.createShader(shader, entryPoint, ShaderType.Pixel);
                 if (!ps) {
                     ok = false;
                 }

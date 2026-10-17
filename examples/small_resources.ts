@@ -279,8 +279,8 @@ namespace SmallResources {
                         right, bottom, 0.0, 1.0, 0.0,
                         right, y, 0.0, 1.0, 1.0,
                     ];
-                    for (let i = 0; i < quad.length; i++) {
-                        vertices.push(quad[i]);
+                    for (const value of quad) {
+                        vertices.push(value);
                     }
                     x = Math.fround(x + Math.fround(offsetX + marginX));
                 }

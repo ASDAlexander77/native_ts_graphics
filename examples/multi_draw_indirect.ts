@@ -127,8 +127,8 @@ namespace MultiDrawIndirect {
 
         isVisible(x: number, y: number, z: number, radius: number) {
             const tested = [0, 1, 4, 5];
-            for (let t = 0; t < tested.length; t++) {
-                const p = tested[t] * 4;
+            for (const planeIndex of tested) {
+                const p = planeIndex * 4;
                 const plane = this.planes;
                 if (x * plane[p] + y * plane[p + 1] + z * plane[p + 2] + plane[p + 3] + radius < 0.0) {
                     return false;

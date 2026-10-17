@@ -662,8 +662,8 @@ namespace SparseImage {
             // The sample's MemSector destructor waits for the device before freeing its memory.
             if (this.heapsToRelease.length > 0) {
                 this.app.waitForIdle();
-                for (let i = 0; i < this.heapsToRelease.length; i++) {
-                    this.app.releaseResource(this.heapsToRelease[i]);
+                for (const heap of this.heapsToRelease) {
+                    this.app.releaseResource(heap);
                 }
                 this.heapsToRelease = [];
             }
@@ -884,12 +884,12 @@ namespace SparseImage {
             let sectorsToReallocate: int = 0;
 
             const kept: int[] = [];
-            for (let i = 0; i < this.sectorList.length; i++) {
-                const sector = this.sectors[this.sectorList[i]];
+            for (const sectorIndex of this.sectorList) {
+                const sector = this.sectors[sectorIndex];
                 if (sector.references == 0) {
                     continue;
                 }
-                kept.push(this.sectorList[i]);
+                kept.push(sectorIndex);
                 if (this.memoryDefragmentation && sector.availableOffsets.length > MEMORY_FRAGMENTATION_CAP) {
                     if (sectorsToReallocate > 0) {
                         // No more pages from this sector.

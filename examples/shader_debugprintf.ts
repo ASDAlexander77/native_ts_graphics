@@ -389,8 +389,8 @@ namespace ShaderDebugPrintf {
                 sample.displaySkysphere = Donut_ImGuiCheckbox("skysphere", sample.displaySkysphere ? 1 : 0) != 0;
             }
             if (Donut_ImGuiCollapsingHeaderDefaultOpen("Debug output") != 0) {
-                for (let i = 0; i < sample.output.length; i++) {
-                    Donut_ImGuiText(sample.output[i]);
+                for (const line of sample.output) {
+                    Donut_ImGuiText(line);
                 }
             }
             Donut_ImGuiEnd();
@@ -413,9 +413,9 @@ namespace ShaderDebugPrintf {
         if (output.length == 0) {
             return "no printf output arrived";
         }
-        for (let i = 0; i < output.length; i++) {
-            if (output[i].indexOf(PRINTF_PREFIX) != 0) {
-                return `unexpected message: ${output[i]}`;
+        for (const line of output) {
+            if (line.indexOf(PRINTF_PREFIX) != 0) {
+                return `unexpected message: ${line}`;
             }
         }
         return "";

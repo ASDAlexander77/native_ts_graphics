@@ -245,8 +245,8 @@ namespace HdrDisplay {
             for (let g = 0; g < 2; g++) {
                 const primaries = g == 0 ? primaries709 : primaries2020;
                 const offsetY = g == 0 ? 0.0 : -1.0;
-                for (let k = 0; k < order.length; k++) {
-                    const p = primaries[order[k]];
+                for (const primaryIndex of order) {
+                    const p = primaries[primaryIndex];
                     const v = this.transformVertex(p[0], p[1], 0.2, offsetY);
                     vertices.push(v[0]);
                     vertices.push(v[1]);

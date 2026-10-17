@@ -1408,14 +1408,14 @@ namespace NvrhiDirect {
         const mip1 = readStagingUInts(device, staging, 1, TEXTURE_SIZE / 2);
         if (mip0.length != 0 && mip1.length != 0) {
             let allMismatches = 0;
-            for (let i = 0; i < mip0.length; i++) {
-                if (mip0[i] != UINT_CLEAR_ALL) {
+            for (const texel of mip0) {
+                if (texel != UINT_CLEAR_ALL) {
                     allMismatches++;
                 }
             }
             let mipMismatches = 0;
-            for (let i = 0; i < mip1.length; i++) {
-                if (mip1[i] != UINT_CLEAR_MIP) {
+            for (const texel of mip1) {
+                if (texel != UINT_CLEAR_MIP) {
                     mipMismatches++;
                 }
             }
