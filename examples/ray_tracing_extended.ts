@@ -800,7 +800,7 @@ namespace RayTracingExtended {
         // 1 barycentric, 2 instance ID, 3 distance, 4 global XYZ, 5 shadow map, 6 ambient occlusion
         // (as in the sample, 5 and 6 show the hit's texture: its ray generation shader stops before
         // their shadow and AO output).
-        renderMode: int = RENDER_DEFAULT;
+        renderMode = RENDER_DEFAULT;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

@@ -312,7 +312,7 @@ namespace DxrRefit {
 
             const commandList = this.app.createCommandList();
             commandList.open();
-            let colors: f32[] = INSTANCE_COLORS.map((v): f32 => v);
+            let colors = INSTANCE_COLORS.map((v): f32 => v);
             commandList.writeBuffer(this.colorBuffer, Ref(colors[0]), INSTANCE_COLORS.length / 4 * FLOAT4_SIZE);
             const created = this.createAccelerationStructures(commandList);
             commandList.close();

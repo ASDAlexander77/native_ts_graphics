@@ -225,9 +225,9 @@ namespace Khr16BitArithmetic {
                 if (this.fp16Enabled && this.native16BitConstants) {
                     // 16-bit push constants are supported by VK_KHR_16bit_storage, which is handy for
                     // conserving space without using many "unpack" instructions in the shader.
-                    const seed16: int = packHalf(seedValue);
-                    const rangeX: int = RANGE_X;
-                    const rangeY: int = RANGE_Y;
+                    const seed16 = packHalf(seedValue);
+                    const rangeX = RANGE_X;
+                    const rangeY = RANGE_Y;
                     this.push16[0] = NUM_BLOBS | (seed16 << 16);
                     this.push16[1] = (rangeX & 0xFFFF) | ((rangeY & 0xFFFF) << 16);
                     commandList.dispatchWithPushConstants(computeFP16, this.computeBindingSetFP16, Ref(this.push16[0]),
@@ -320,8 +320,8 @@ namespace Khr16BitArithmetic {
             // Two 16-bit floats to a 32-bit word.
             const blobs: int[] = [];
             for (let i = 0; i < BLOBS.length; i += 2) {
-                const low: int = BLOBS[i];
-                const high: int = BLOBS[i + 1];
+                const low = BLOBS[i];
+                const high = BLOBS[i + 1];
                 blobs.push(low | (high << 16));
             }
             const commandList = this.app.createCommandList();

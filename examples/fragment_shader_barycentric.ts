@@ -421,7 +421,7 @@ namespace FragmentShaderBarycentric {
 
     class FragmentShaderBarycentricArgs extends Args {
         // -effect <0..4>: the effect selected at start.
-        effect: int = 0;
+        effect = 0;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

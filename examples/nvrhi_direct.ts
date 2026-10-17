@@ -59,7 +59,7 @@ namespace NvrhiDirect {
     const COUNT = 64;
     const UINT_SIZE = 4;
     const SIZE = COUNT * UINT_SIZE;
-    const CLEAR_VALUE: u32 = 0x5eed1234;
+    const CLEAR_VALUE = 0x5eed1234;
     const TEXTURE_SIZE = 4;
 
     let failures = 0;
@@ -1372,8 +1372,8 @@ namespace NvrhiDirect {
     }
 
     // The values testClearTextureUInt clears to: all subresources, then mip level 1
-    const UINT_CLEAR_ALL: u32 = 0x12345678;
-    const UINT_CLEAR_MIP: u32 = 0xc0ffee42;
+    const UINT_CLEAR_ALL = 0x12345678;
+    const UINT_CLEAR_MIP = 0xc0ffee42;
 
     // ICommandList::clearTextureUInt, with a command list of its own: an R32_UINT texture with UAVs
     // and 2 mip levels, cleared whole to UINT_CLEAR_ALL, then its mip level 1 alone to
@@ -2014,7 +2014,7 @@ namespace NvrhiDirect {
 
         commandList.open();
         for (let i = 0; i < BUFFERS; i++) {
-            let value: u32[] = [100 + 11 * i];
+            let value = [100 + 11 * i];
             commandList.writeBuffer(buffers[i], <Opaque>Ref(value[0]), 4, 0);
             commandList.setBufferState(buffers[i], nvrhi.RESOURCE_STATE_SHADER_RESOURCE);
         }
@@ -2684,7 +2684,7 @@ namespace NvrhiDirect {
         let numTiles: u32 = 0;
         let packedMips: nvrhi.PackedMipDesc = [0, 0, 0, 0];
         let tileShape: nvrhi.TileShape = [0, 0, 0];
-        let subresourceTilingsNum: u32 = 1;
+        let subresourceTilingsNum = 1;
         let subresourceTilings: nvrhi.SubresourceTiling[] = [[0, 0, 0, 0]];
         device.getTextureTiling(texture, Ref(numTiles), Ref(packedMips), Ref(tileShape), Ref(subresourceTilingsNum),
             Ref(subresourceTilings[0]));
@@ -2970,7 +2970,7 @@ namespace NvrhiDirect {
         }
 
         // the bottom level structure, and the top level ones
-        let geometries: nvrhi.GeometryDesc[] = [nvrhi.triangleGeometryDesc(indexBuffer, 3, vertexBuffer, 3)];
+        let geometries = [nvrhi.triangleGeometryDesc(indexBuffer, 3, vertexBuffer, 3)];
         const blas = nvrhi.createAccelStruct(device,
             nvrhi.accelStructDesc(geometries, 0, nvrhi.ACCEL_STRUCT_BUILD_ALLOW_COMPACTION, "BLAS", false));
         const noGeometries: nvrhi.GeometryDesc[] = [];
@@ -3075,7 +3075,7 @@ namespace NvrhiDirect {
         // the outputs, one per top level structure
         const outputs: (nvrhi.ITexture | null)[] = [rayTracingOutput(device, "Traced"), rayTracingOutput(device, "Traced copy"),
             rayTracingOutput(device, "Traced placed")];
-        const tlases: nvrhi.IAccelStruct[] = [tlas, tlasCopy, placedTlas];
+        const tlases = [tlas, tlasCopy, placedTlas];
         const stagings: nvrhi.IStagingTexture[] = [];
         const bindingSets: nvrhi.IBindingSet[] = [];
         for (let i = 0; i < 3; i++) {
@@ -3099,7 +3099,7 @@ namespace NvrhiDirect {
         buildList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
         buildList.writeBuffer(vertexBuffer, <Opaque>Ref(vertices[0]), 9 * 4, 0);
         buildList.buildBottomLevelAccelStruct(blas, Ref(geometries[0]), 1, nvrhi.ACCEL_STRUCT_BUILD_ALLOW_COMPACTION);
-        let instances: nvrhi.InstanceDesc[] = [nvrhi.instanceDesc(blas)];
+        let instances = [nvrhi.instanceDesc(blas)];
         buildList.buildTopLevelAccelStruct(tlas, Ref(instances[0]), 1, nvrhi.ACCEL_STRUCT_BUILD_PREFER_FAST_TRACE);
         buildList.copyRaytracingAccelerationStructure(tlasCopy, tlas);
         buildList.close();
@@ -3120,7 +3120,7 @@ namespace NvrhiDirect {
         check(blasAddress != 0, "IAccelStruct::getDeviceAddress");
         let transform: f32[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
         let instanceWords: u32[] = [0xff000000, 0];
-        let address: u64[] = [blasAddress];
+        let address = [blasAddress];
         traceList.open();
         traceList.writeBuffer(instanceBuffer, <Opaque>Ref(transform[0]), 48, 0);
         traceList.writeBuffer(instanceBuffer, <Opaque>Ref(instanceWords[0]), 8, 48);
@@ -3224,7 +3224,7 @@ namespace NvrhiDirect {
             && keptOmmDesc.flags == nvrhi.OPACITY_MICROMAP_BUILD_FAST_TRACE, "IOpacityMicromap::getDesc");
         check(!omm.isCompacted(), "IOpacityMicromap::isCompacted");
 
-        let geometries: nvrhi.GeometryDesc[] = [nvrhi.triangleGeometryDesc(indexBuffer, 6, vertexBuffer, 6)];
+        let geometries = [nvrhi.triangleGeometryDesc(indexBuffer, 6, vertexBuffer, 6)];
         geometries[0].flags = nvrhi.GEOMETRY_FLAGS_NONE;
         geometries[0].geometryData.opacityMicromap = omm;
         geometries[0].geometryData.ommIndexBuffer = ommIndices;
@@ -3250,9 +3250,9 @@ namespace NvrhiDirect {
         let indices: u32[] = [0, 1, 2, 3, 4, 5];
         let vertices = OMM_VERTICES;
         let states: u8[] = [0, 0, 0, 0, 1, 0, 0, 0];
-        let descs: u32[] = [0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000, 4, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000];
+        let descs = [0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000, 4, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000];
         let triangleOmms: u32[] = [0, 1];
-        let instances: nvrhi.InstanceDesc[] = [nvrhi.instanceDesc(blas)];
+        let instances = [nvrhi.instanceDesc(blas)];
         let ommDescValue = ommDesc;
         commandList.open();
         commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 6 * 4, 0);
@@ -3430,8 +3430,8 @@ namespace NvrhiDirect {
         // count (9), position truncation (6), index format (4: 32-bit) and OMM index format (4); base
         // geometry index and flags; the index, vertex, geometry index and OMM index strides (16 bits
         // each); then the index, vertex, geometry index, OMM array and OMM index buffers' addresses
-        let header: u32[] = [0, 0, 1 + 3 * 0x200 + nvrhi.CLUSTER_INDEX_FORMAT_32BIT * 0x1000000, 0, 4 + 12 * 0x10000, 0];
-        let addresses: u64[] = [indexBuffer.getGpuVirtualAddress(), vertexBuffer.getGpuVirtualAddress(), 0, 0, 0];
+        let header = [0, 0, 1 + 3 * 0x200 + nvrhi.CLUSTER_INDEX_FORMAT_32BIT * 0x1000000, 0, 4 + 12 * 0x10000, 0];
+        let addresses = [indexBuffer.getGpuVirtualAddress(), vertexBuffer.getGpuVirtualAddress(), 0, 0, 0];
         let indices: u32[] = [0, 1, 2];
         let vertices = RT_VERTICES;
         let count: u32[] = [1];

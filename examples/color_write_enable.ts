@@ -245,7 +245,7 @@ namespace ColorWriteEnable {
         g = true;
         b = true;
         // -background <r> <g> <b>: the initial background color.
-        background: number[] = [0.5, 0.5, 0.5];
+        background = [0.5, 0.5, 0.5];
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

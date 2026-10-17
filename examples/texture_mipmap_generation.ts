@@ -509,7 +509,7 @@ namespace TextureMipmapGeneration {
 
     class TextureMipmapGenerationArgs extends Args {
         // -sampler <n>: sampler 0 (no mip maps), 1 (mip maps) or 2 (anisotropic, the default).
-        samplerIndex: int = 2;
+        samplerIndex = 2;
         // -lodbias <x>: the level of detail bias.
         lodBias = 0.0;
         // -rotate: the scene rotating.

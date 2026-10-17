@@ -221,7 +221,7 @@ namespace SakuraForestSER {
         }
 
         heldIndex(key: int): int {
-            const keys: int[] = [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT];
+            const keys = [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT];
             for (let i = 0; i < keys.length; i++) {
                 if (keys[i] == key) {
                     return i;
@@ -276,7 +276,7 @@ namespace SakuraForestSER {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             const elapsedTime = Math.fround(elapsedSeconds);
             const movementSpeed = Math.fround(5.0 * elapsedTime);
-            const speed: number[] = [movementSpeed, movementSpeed, movementSpeed, movementSpeed];
+            const speed = [movementSpeed, movementSpeed, movementSpeed, movementSpeed];
             if (this.isHeld(KEY_W)) {
                 const forward = normalize3(vsub(this.at, this.eye));
                 this.eye = vadd(this.eye, vmul(forward, speed));
@@ -463,7 +463,7 @@ namespace SakuraForestSER {
                 cubeVertices.push(0.0);
                 cubeVertices.push(0.0);
             }
-            const cubeIndices: int[] = CUBE_INDICES.map((v): int => v);
+            const cubeIndices = CUBE_INDICES.map((v): int => v);
             const cube = this.createMesh(commandList, cubeVertices, cubeIndices, cubeIndices.length, "Cube");
             if (!cube) {
                 return false;
@@ -610,7 +610,7 @@ namespace SakuraForestSER {
         // white, the material ID.
         createShaderTable(): boolean {
             const counts: int[] = [441, 961, 961, 961, 10201];
-            const materials: int[] = [MATERIAL_FLOOR, MATERIAL_REFLECTIVE_CUBE, MATERIAL_TRUNK, MATERIAL_LEAVES, MATERIAL_BUSH];
+            const materials = [MATERIAL_FLOOR, MATERIAL_REFLECTIVE_CUBE, MATERIAL_TRUNK, MATERIAL_LEAVES, MATERIAL_BUSH];
             let recordHitGroups: int[] = [];
             let recordArgs: int[] = [];
             for (let m = 0; m < counts.length; m++) {
@@ -798,7 +798,7 @@ namespace SakuraForestSER {
         seed = -1;
         bushSeed = -1;
         // -sortMode <0..3>: off, by hit, by reflection hint, by both (the sample starts by hit).
-        sortMode: int = SORTMODE_BY_HIT;
+        sortMode = SORTMODE_BY_HIT;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

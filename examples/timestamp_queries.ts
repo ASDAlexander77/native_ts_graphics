@@ -648,7 +648,7 @@ namespace TimestampQueries {
 
     class TimestampQueriesArgs extends Args {
         // -object <0..2>, -exposure <value>, -nobloom, -noskybox: the settings' initial values.
-        objectIndex: int = 0;
+        objectIndex = 0;
         exposure = 1.0;
         bloom = true;
         displaySkybox = true;

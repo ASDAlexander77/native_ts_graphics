@@ -1192,7 +1192,7 @@ namespace RenderOctomap {
 
     class RenderOctomapArgs extends Args {
         // -view <0..2>: the view at start (octomap, glTF map, splats).
-        view: int = VIEW_OCTOMAP;
+        view = VIEW_OCTOMAP;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

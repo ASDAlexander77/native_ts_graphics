@@ -441,7 +441,7 @@ namespace SimpleBezier {
             commandList.writeBuffer(this.constantBuffer, Ref(this.cb[0]), CB_FLOATS * 4);
 
             // Draw the mesh
-            const wireframe: int = this.drawWires ? 1 : 0;
+            const wireframe = this.drawWires ? 1 : 0;
             frame.beginDrawToFramebuffer(this.pipelines[wireframe * HULL_SHADERS.length + this.partitionMode],
                 this.framebuffers[index]);
             frame.drawAddBindingSet(this.bindingSet);
@@ -477,7 +477,7 @@ namespace SimpleBezier {
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
 
             // The control points.
-            let points: f32[] = MOBIUS_STRIP.map((v): f32 => v);
+            let points = MOBIUS_STRIP.map((v): f32 => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.controlPointVB = this.app.createStaticVertexBuffer(commandList, Ref(points[0]), CONTROL_POINTS * 12, "Control Point VB");
@@ -586,8 +586,8 @@ namespace SimpleBezier {
     // screen).
     class SimpleBezierArgs extends Args {
         wireframe = false;
-        partitionMode: int = PARTITION_INTEGER;
-        subdivs: number = DEFAULT_SUBDIVS;
+        partitionMode = PARTITION_INTEGER;
+        subdivs = DEFAULT_SUBDIVS;
         rotateSteps = 0;
         showHelp = false;
 

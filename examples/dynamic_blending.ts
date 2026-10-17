@@ -402,7 +402,7 @@ namespace DynamicBlending {
 
         // What makes a face's pipeline differ: the blend state and the face's write mask.
         pipelineKey(face: FacePreferences): string {
-            const mask: int = colorMask(face.colorBitEnabled);
+            const mask = colorMask(face.colorBitEnabled);
             const blend = this.blendEnable ? 1 : 0;
             if (this.blendOption == BLEND_ADVANCED) {
                 return `a ${blend} ${this.advancedOperator} ${this.srcPremultiplied ? 1 : 0} ${this.dstPremultiplied ? 1 : 0} ${mask}`;
@@ -522,8 +522,8 @@ namespace DynamicBlending {
             setDesc.bindEntireConstantBuffer(1, this.colorBuffer);
             this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
 
-            let vertices: f32[] = VERTICES.map((v): f32 => v);
-            let indices: int[] = INDICES.map((v): int => v);
+            let vertices = VERTICES.map((v): f32 => v);
+            let indices = INDICES.map((v): int => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");

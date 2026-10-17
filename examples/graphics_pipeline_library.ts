@@ -449,9 +449,9 @@ namespace GraphicsPipelineLibrary {
 
     class GraphicsPipelineLibraryArgs extends Args {
         // -pipelines <n>: start with n pipelines (as if "Add pipeline" was pressed n - 1 times).
-        pipelines: int = 1;
+        pipelines = 1;
         // -seed <n>: the random colors' and lighting models' seed (random by default).
-        seed: int = -1;
+        seed = -1;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

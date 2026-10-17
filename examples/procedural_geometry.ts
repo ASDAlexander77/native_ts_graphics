@@ -273,7 +273,7 @@ namespace ProceduralGeometry {
         // The sample's OnUpdate.
         onAnimate(elapsedSeconds: number): void {
             const elapsedSeconds32 = Math.fround(elapsedSeconds);
-            const elapsedTime: number = this.benchmark ? Math.fround(1.0 / 60.0) : elapsedSeconds32;
+            const elapsedTime = this.benchmark ? Math.fround(1.0 / 60.0) : elapsedSeconds32;
             this.updateFrameStats(elapsedSeconds);
 
             // Rotate the camera around Y axis.
@@ -310,11 +310,11 @@ namespace ProceduralGeometry {
             this.statsFrames++;
             if (this.statsSeconds >= 1.0) {
                 const fps = this.statsFrames / this.statsSeconds;
-                const raytracingMs: number = this.statsGpuSamples > 0 ? this.statsGpuSeconds / this.statsGpuSamples * 1000.0 : 0.0;
+                const raytracingMs = this.statsGpuSamples > 0 ? this.statsGpuSeconds / this.statsGpuSamples * 1000.0 : 0.0;
                 const width = this.lastWidth;
                 const height = this.lastHeight;
                 // NumMRaysPerSecond: one primary ray per pixel.
-                const mraysPerSecond: number = raytracingMs > 0.0 ? width * height / (raytracingMs * 1000.0) : 0.0;
+                const mraysPerSecond = raytracingMs > 0.0 ? width * height / (raytracingMs * 1000.0) : 0.0;
                 this.titleInfo = `    fps: ${fps.toFixed(2)}    DispatchRays(): ${raytracingMs.toFixed(2)}ms     ~Million Primary Rays/s: ${mraysPerSecond.toFixed(2)}`;
                 this.statsSeconds = 0.0;
                 this.statsFrames = 0;
@@ -447,7 +447,7 @@ namespace ProceduralGeometry {
                     const axis = c % 3;
                     const base = Math.fround(-(grid[axis] * AABB_WIDTH + (grid[axis] - 1.0) * AABB_DISTANCE) / 2.0);
                     const min = Math.fround(base + Math.fround(Math.fround(AABB_OFFSETS[i * 3 + axis]) * stride));
-                    const value: number = c < 3 ? min : Math.fround(min + AABB_SIZES[i * 3 + axis]);
+                    const value = c < 3 ? min : Math.fround(min + AABB_SIZES[i * 3 + axis]);
                     this.aabbs.push(value);
                 }
             }
@@ -505,8 +505,8 @@ namespace ProceduralGeometry {
         // BuildGeometry and BuildAccelerationStructures: the plane's BLAS, the AABBs' (one geometry
         // per AABB, for a hit group per AABB), and the TLAS's two instances.
         createAccelerationStructures(commandList: CommandList): boolean {
-            let vertices: f32[] = PLANE_VERTICES.map((v): f32 => v);
-            let indices: int[] = PLANE_INDICES.map((v): int => v);
+            let vertices = PLANE_VERTICES.map((v): f32 => v);
+            let indices = PLANE_INDICES.map((v): int => v);
             this.vertexBuffer = this.app.createAccelStructInputStructuredBuffer(4, vertices.length, "VertexBuffer");
             this.indexBuffer = this.app.createAccelStructInputStructuredBuffer(4, indices.length, "IndexBuffer");
             this.aabbBuffer = this.app.createAccelStructInputBuffer(PRIMITIVE_COUNT * AABB_STRIDE, "AABBBuffer");

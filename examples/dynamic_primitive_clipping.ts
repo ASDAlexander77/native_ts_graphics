@@ -431,9 +431,9 @@ namespace DynamicPrimitiveClipping {
 
     class DynamicPrimitiveClippingArgs extends Args {
         // -object <n>: 0 teapot, 1 torus knot, 2 sphere.
-        objectIndex: int = 0;
+        objectIndex = 0;
         // -visualization <n>: the clip distance function (0 ... 8, as the UI lists them).
-        visualization: int = 0;
+        visualization = 0;
         // -noclipping: primitive clipping off.
         clipping = true;
         // -depthclip: depth clipping on.

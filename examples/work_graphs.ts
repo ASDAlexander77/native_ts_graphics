@@ -141,7 +141,7 @@ namespace WorkGraphs {
     let g_RandomSeed = 0.0;
     function msvcRand(): int {
         g_RandomSeed = (g_RandomSeed * 214013.0 + 2531011.0) % 4294967296.0;
-        const value: int = Math.floor(g_RandomSeed / 65536.0) % 32768;
+        const value = Math.floor(g_RandomSeed / 65536.0) % 32768;
         return value;
     }
 
@@ -345,7 +345,7 @@ namespace WorkGraphs {
     function generateBoxSide(subdivisions: int, coord0: int, coord1: int, posInit: Float3, normal: Float3, sign: number,
         mesh: MeshData): void {
         const baseVertex = mesh.vertexCount;
-        let pos: number[] = [posInit.x, posInit.y, posInit.z];
+        let pos = [posInit.x, posInit.y, posInit.z];
         for (let y = 0; y < subdivisions + 1; y++) {
             pos[coord1] = y / subdivisions - 0.5;
             for (let x = 0; x < subdivisions + 1; x++) {
@@ -356,7 +356,7 @@ namespace WorkGraphs {
 
         for (let y = 0; y < subdivisions; y++) {
             for (let x = 0; x < subdivisions; x++) {
-                const faceBaseVertex: int = baseVertex + y * (subdivisions + 1) + x;
+                const faceBaseVertex = baseVertex + y * (subdivisions + 1) + x;
                 mesh.addIndex(faceBaseVertex + 0);
                 mesh.addIndex(faceBaseVertex + (subdivisions + 1) + 0);
                 mesh.addIndex(faceBaseVertex + (subdivisions + 1) + 1);
@@ -403,7 +403,7 @@ namespace WorkGraphs {
 
         // Trunk.
         for (let y = 0; y < slices - 2; y++) {
-            const sliceBaseVertex: int = baseVertex + 1 + y * sides;
+            const sliceBaseVertex = baseVertex + 1 + y * sides;
             for (let x = 0; x < sides; x++) {
                 mesh.addIndex(sliceBaseVertex + x + 0);
                 mesh.addIndex(sliceBaseVertex + x + 0 + sides);
@@ -416,7 +416,7 @@ namespace WorkGraphs {
         }
 
         // Top cap.
-        const capBaseVertex: int = baseVertex + 1 + (slices - 2) * sides;
+        const capBaseVertex = baseVertex + 1 + (slices - 2) * sides;
         for (let i = 0; i < sides; i++) {
             mesh.addIndex(capBaseVertex + i);
             mesh.addIndex(capVertex);
@@ -426,7 +426,7 @@ namespace WorkGraphs {
 
     // Rooms along each side of a floor, for rooms of roomSize.
     function roomCount1D(roomSize: number): int {
-        const count: int = Math.floor(SCENE_FLOOR_SIZE / roomSize);
+        const count = Math.floor(SCENE_FLOOR_SIZE / roomSize);
         return count;
     }
 
@@ -525,7 +525,7 @@ namespace WorkGraphs {
         // Generates the scene and records its upload into an open command list.
         createAssets(app: App, commandList: CommandList): void {
             // Generate geometry data.
-            const meshSet: MeshData[] = [new MeshData(), new MeshData(), new MeshData()];
+            const meshSet = [new MeshData(), new MeshData(), new MeshData()];
             generatePlane(meshSet[MESH_PLANE]);
             generateBox(SCENE_BOX_SUBDIVISIONS, meshSet[MESH_BOX]);
             generateSphere(SCENE_SPHERE_SIDES, SCENE_SPHERE_SLICES, meshSet[MESH_SPHERE]);
@@ -763,12 +763,12 @@ namespace WorkGraphs {
     }
 
     function getLightTileCountX(viewportWidth: int): int {
-        const count: int = Math.floor((viewportWidth + DEFERRED_SHADING_TILE_WIDTH - 1) / DEFERRED_SHADING_TILE_WIDTH);
+        const count = Math.floor((viewportWidth + DEFERRED_SHADING_TILE_WIDTH - 1) / DEFERRED_SHADING_TILE_WIDTH);
         return count;
     }
 
     function getLightTileCountY(viewportHeight: int): int {
-        const count: int = Math.floor((viewportHeight + DEFERRED_SHADING_TILE_HEIGHT - 1) / DEFERRED_SHADING_TILE_HEIGHT);
+        const count = Math.floor((viewportHeight + DEFERRED_SHADING_TILE_HEIGHT - 1) / DEFERRED_SHADING_TILE_HEIGHT);
         return count;
     }
 

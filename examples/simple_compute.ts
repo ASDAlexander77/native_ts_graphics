@@ -433,7 +433,7 @@ namespace SimpleCompute {
         startAsync = false;
         // -window X Y CX CY: the fractal window's size and center instead of the default (Home).
         hasWindow = false;
-        windowValues: number[] = [0.0, 0.0, 0.0, 0.0];
+        windowValues = [0.0, 0.0, 0.0, 0.0];
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

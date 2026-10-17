@@ -1670,7 +1670,7 @@ namespace DenoisedRtao {
 
     class DenoisedRtaoArgs extends Args {
         // -raw / -shaded: start in the raw AO (key 1) or shaded (key 3) view.
-        mode: int = COMPOSITION_AO_DENOISED;
+        mode = COMPOSITION_AO_DENOISED;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

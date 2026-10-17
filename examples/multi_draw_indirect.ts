@@ -706,7 +706,7 @@ namespace MultiDrawIndirect {
 
     class MultiDrawIndirectArgs extends Args {
         // -mode <0..2>: the cull mode (CPU, GPU, GPU device address).
-        renderMode: int = RENDER_GPU;
+        renderMode = RENDER_GPU;
         // -nomdi: a draw call per model.
         enableMdi = true;
         // -freeze: culling frozen.

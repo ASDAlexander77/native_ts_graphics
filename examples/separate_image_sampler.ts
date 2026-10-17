@@ -330,8 +330,8 @@ namespace SeparateImageSampler {
             layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_SIZE);
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
 
-            let vertices: f32[] = QUAD_VERTICES.map((v): f32 => v);
-            let indices: int[] = QUAD_INDICES.map((v): int => v);
+            let vertices = QUAD_VERTICES.map((v): f32 => v);
+            let indices = QUAD_INDICES.map((v): int => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
