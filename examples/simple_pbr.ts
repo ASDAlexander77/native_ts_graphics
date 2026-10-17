@@ -500,7 +500,7 @@ namespace SimplePbr {
 
         // Update(elapsedTime, Mouse, Keyboard).
         update(elapsedTime: number, input: InputState): void {
-            const handed: number = -1.0;
+            const handed = -1.0;
             const im = inverse(this.getView());
 
             if (!input.relative && !this.dragging) {
