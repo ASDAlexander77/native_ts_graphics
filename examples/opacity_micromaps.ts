@@ -7,6 +7,10 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY,
     normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
+import {
+    KEY_A, KEY_B, KEY_F, KEY_H, KEY_O, KEY_Q, KEY_R, KEY_W, KEY_X, KEY_Z, ACTION_RELEASE,
+    ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace OpacityMicromaps {
     // Test mode: the frames rendered.
@@ -36,20 +40,6 @@ namespace OpacityMicromaps {
     const FONT_SIZE = 31.5;
     const LINE_SPACING = 31.9;
     const LAYOUT_HEIGHT = 720.0;
-
-    // GLFW keys and actions.
-    const KEY_A = 65;
-    const KEY_B = 66;
-    const KEY_F = 70;
-    const KEY_H = 72;
-    const KEY_O = 79;
-    const KEY_Q = 81;
-    const KEY_R = 82;
-    const KEY_W = 87;
-    const KEY_X = 88;
-    const KEY_Z = 90;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
 
     // The sample's ConfigFlags, ray flags and instance flags.
     const SHOW_AHS = 0x1;

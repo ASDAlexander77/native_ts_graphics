@@ -3,6 +3,10 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { PagedImageSet } from "../core/paged_images";
+import {
+    KEY_MINUS, KEY_EQUAL, KEY_C, KEY_D, KEY_M, KEY_S, KEY_V, KEY_KP_SUBTRACT, KEY_KP_ADD,
+    ACTION_RELEASE,
+} from "../core/glfw_input";
 
 namespace MemoryManagement {
     const WINDOW_TITLE = "Donut Example: Memory Management";
@@ -57,18 +61,6 @@ namespace MemoryManagement {
     // The push constants: float4 rect; float4 color; float4 camera.
     const PUSH_FLOATS = 12;
     const PUSH_SIZE = PUSH_FLOATS * 4;
-
-    // GLFW's keys.
-    const KEY_C = 67;
-    const KEY_D = 68;
-    const KEY_M = 77;
-    const KEY_S = 83;
-    const KEY_V = 86;
-    const KEY_MINUS = 45;
-    const KEY_EQUAL = 61;
-    const KEY_KP_SUBTRACT = 333;
-    const KEY_KP_ADD = 334;
-    const ACTION_RELEASE = 0;
 
     // Test mode: the frames rendered (each waits for the paging thread to go idle first).
     const TEST_FRAMES = 30;
@@ -384,7 +376,6 @@ namespace MemoryManagement {
                 this.graphTime = 0.0;
             }
         }
-
 
         // CalculateRequiredMipLevel: log2 of texels per pixel, the image being a screen-space quad.
         requiredMip(image: int, imageScale: number): int {

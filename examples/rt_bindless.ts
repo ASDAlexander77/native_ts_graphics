@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { perspProjD3DStyleReverse } from "../core/matrix";
+import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace RtBindless {
     // Test mode: the frames rendered.
@@ -20,10 +21,6 @@ namespace RtBindless {
         return check.share(total - check.countInRange(0, 20, 0, 20, 0, 20, 0, 0, check.width, check.height), total,
             50.0, 78.0, "Lit");
     }
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const ACTION_PRESS = 1;
 
     const WINDOW_TITLE = "Donut Example: Bindless Ray Tracing";
     const DEFAULT_SCENE = "media/sponza-plus.scene.json";

@@ -6,6 +6,10 @@ import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { rotationY, transpose, inverse, cross3, dot3, normalize3 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
+import {
+    KEY_1, KEY_A, KEY_D, KEY_E, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
+    ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace Bokeh {
     // Test mode: the frames rendered.
@@ -100,21 +104,6 @@ namespace Bokeh {
     const TI_COPY = 3;
     const TIMER_COUNT = 4;
     const TIMER_FRAMES = 3;
-
-    // GLFW keys.
-    const KEY_1 = 49;
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_E = 69;
-    const KEY_Q = 81;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
 
     // The sample's Update runs once per frame on the console, at 60 Hz: its per-frame steps are
     // scaled to the frame's time here.

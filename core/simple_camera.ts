@@ -5,16 +5,7 @@
 // and core/directx_math.ts's listed in the example's add_tslang_example sources.
 
 import { matrixLookToRH, XM_PI } from "./directx_math";
-
-// GLFW values, as passed to the keyboard callback.
-const KEY_A = 65;
-const KEY_D = 68;
-const KEY_S = 83;
-const KEY_W = 87;
-const KEY_RIGHT = 262;
-const KEY_LEFT = 263;
-const KEY_DOWN = 264;
-const KEY_UP = 265;
+import { KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP } from "./glfw_input";
 
 // DirectX-Graphics-Samples' SimpleCamera: WASD move it, the arrow keys turn it (pitch within 45
 // degrees up and down), at its move and turn speeds per second. Escape closes the window, as in

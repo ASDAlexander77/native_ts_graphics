@@ -5,6 +5,10 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { rotationY, transpose, inverse, cross3, dot3 } from "../core/matrix";
+import {
+    KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_PAGE_UP, KEY_PAGE_DOWN,
+    KEY_HOME, KEY_END, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, ACTION_RELEASE,
+} from "../core/glfw_input";
 
 namespace SimplePbr {
     // Test mode: the frames rendered.
@@ -67,23 +71,8 @@ namespace SimplePbr {
     ];
 
     // GLFW keys and mouse buttons.
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const KEY_PAGE_UP = 266;
-    const KEY_PAGE_DOWN = 267;
-    const KEY_HOME = 268;
-    const KEY_END = 269;
-    const KEY_LEFT_SHIFT = 340;
-    const KEY_RIGHT_SHIFT = 344;
     const MOUSE_LEFT = 0;
     const MOUSE_RIGHT = 1;
-    const ACTION_RELEASE = 0;
 
     // --- DirectXMath ----------------------------------------------------------------------------
 

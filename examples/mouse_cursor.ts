@@ -5,6 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { identity } from "../core/matrix";
+import { KEY_ESCAPE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace MouseCursor {
     // Test mode: the frames rendered.
@@ -84,12 +85,7 @@ namespace MouseCursor {
     ];
     const DEFAULT_AMBIENT = [0.05333332, 0.09882354, 0.1819608];
 
-    // GLFW values.
-    const KEY_ESCAPE = 256;
-    const ACTION_PRESS = 1;
-
     // --- Math (DirectXMath's layout: 4 x 4 matrices by rows, for row vectors) ----------------
-
 
     function f(x: number) {
         return Math.fround(x);

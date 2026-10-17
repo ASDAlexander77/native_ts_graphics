@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
+import { KEY_A, KEY_D, KEY_S, KEY_W, ACTION_RELEASE } from "../core/glfw_input";
 
 namespace PatchControlPoints {
     // Test mode: the frames rendered.
@@ -62,12 +63,6 @@ namespace PatchControlPoints {
     const CAMERA_FOV = 60.0;
     const Z_NEAR = 256.0;
     const Z_FAR = 0.1;
-
-    const KEY_W = 87;
-    const KEY_A = 65;
-    const KEY_S = 83;
-    const KEY_D = 68;
-    const ACTION_RELEASE = 0;
 
     // The sample's camera (the framework's vkb::Camera, first person type), with
     // ApiVulkanSample's controls: W, S, A, D move it (1 unit per second), the left mouse button

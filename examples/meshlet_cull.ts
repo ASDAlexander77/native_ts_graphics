@@ -9,26 +9,14 @@ import {
     matrixScaling, matrixTranspose, normalize3, planeNormalize, row, transform3, transformCoord3,
     transformNormal3, vadd, vsub, XM_PI,
 } from "../core/directx_math";
+import {
+    KEY_SPACE, KEY_A, KEY_D, KEY_S, KEY_W, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
+    KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace MeshletCull {
     const WINDOW_TITLE = "D3D12 Mesh Shader Culling";
     const MEDIA_DIR = "media/meshlet_cull/";
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_TAB = 258;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const KEY_LEFT_SHIFT = 340;
-    const KEY_RIGHT_SHIFT = 344;
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // Shared.h.
     const AS_GROUP_SIZE = 32;

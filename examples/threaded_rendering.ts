@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace ThreadedRendering {
     // Test mode: the frames rendered.
@@ -23,10 +24,6 @@ namespace ThreadedRendering {
         return check.share(check.countOtherThan(0x000000, 0, 0, check.width, check.height), total,
             40.0, 58.0, "Scene");
     }
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const ACTION_PRESS = 1;
 
     const WINDOW_TITLE = "Donut Example: Threaded Rendering";
     const DEFAULT_SCENE = "media/glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf";

@@ -3,21 +3,12 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { dot3, matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, XM_PI } from "../core/directx_math";
+import {
+    KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace NBodyGravity {
     const WINDOW_TITLE = "D3D12 n-Body Gravity Simulation";
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // The sample's particles: two groups of 5000 in spheres of radius 400, 200 left and right of the
     // middle. The step's thread groups take 128 each: the buffers have room for 79 groups, the

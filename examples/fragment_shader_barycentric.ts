@@ -4,6 +4,9 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { multiply, rotation, translation, radians, samplePerspective } from "../core/matrix";
+import {
+    ACTION_PRESS, MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE,
+} from "../core/glfw_input";
 
 namespace FragmentShaderBarycentric {
     // Test mode: the frames rendered.
@@ -61,12 +64,6 @@ namespace FragmentShaderBarycentric {
     const ROTATION_SPEED = 1.0;
     const ZOOM_SPEED = 0.005;
     const PAN_SPEED = 0.01;
-
-    // GLFW mouse buttons and actions.
-    const MOUSE_BUTTON_LEFT = 0;
-    const MOUSE_BUTTON_RIGHT = 1;
-    const MOUSE_BUTTON_MIDDLE = 2;
-    const ACTION_PRESS = 1;
 
     // Port of Vulkan-Samples' fragment_shader_barycentric: a cube in front of a skybox, its pixel
     // shader reading the pixel's barycentric coordinates in its triangle (perspective-correct and

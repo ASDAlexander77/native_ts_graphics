@@ -3,16 +3,12 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
+import {
+    KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, ACTION_PRESS, ACTION_REPEAT,
+} from "../core/glfw_input";
 
 namespace ReservedResources {
     const WINDOW_TITLE = "D3D12 Reserved resources sample - Use arrow keys to cycle through resources";
-
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const ACTION_PRESS = 1;
-    const ACTION_REPEAT = 2;
 
     // The sample's reserved texture: 256 x 256 RGBA8, a full mip chain.
     const TEXTURE_WIDTH = 256;

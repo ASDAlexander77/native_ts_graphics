@@ -2,6 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
+import { KEY_H, KEY_M, KEY_U, KEY_PAGE_UP, KEY_PAGE_DOWN, ACTION_PRESS } from "../core/glfw_input";
 
 namespace HdrDisplay {
     const WINDOW_TITLE = "D3D12 HDR sample";
@@ -9,14 +10,6 @@ namespace HdrDisplay {
     // The sample's UI text: Arial at height / 30 and height / 40. OpenSans at an ImGui size 1.278
     // times that (ImGui's size is ascent + descent) matches the glyphs' sizes (as wave_intrinsics).
     const FONT_SCALE = 23.0 / 18.0;
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_H = 72;
-    const KEY_M = 77;
-    const KEY_U = 85;
-    const KEY_PAGE_UP = 266;
-    const KEY_PAGE_DOWN = 267;
-    const ACTION_PRESS = 1;
 
     // The back buffer formats PgUp / PgDn cycle through (SwapChainBitDepth: 8, 10, 16 bits).
     const BIT_DEPTH_8 = 0;

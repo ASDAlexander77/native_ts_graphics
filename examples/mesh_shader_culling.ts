@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
+import { KEY_A, KEY_D, KEY_S, KEY_W, ACTION_RELEASE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace MeshShaderCulling {
     // Test mode: the frames rendered.
@@ -49,14 +50,6 @@ namespace MeshShaderCulling {
 
     // ApiVulkanSample's clear color.
     const CLEAR_COLOR = 0.002;
-
-    // GLFW keys and actions.
-    const KEY_W = 87;
-    const KEY_A = 65;
-    const KEY_S = 83;
-    const KEY_D = 68;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
 
     // Pipeline statistics, as Donut_GetMeshPipelineStatistic numbers them.
     const STAT_PIXEL = 0;

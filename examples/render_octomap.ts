@@ -4,6 +4,10 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiply, rotation, translation, scale, radians, samplePerspective } from "../core/matrix";
+import {
+    KEY_A, KEY_D, KEY_S, KEY_W, KEY_KP_2, KEY_KP_4, KEY_KP_6, KEY_KP_8, ACTION_RELEASE,
+    ACTION_PRESS, MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE,
+} from "../core/glfw_input";
 
 namespace RenderOctomap {
     // Test mode: the frames rendered.
@@ -81,21 +85,6 @@ namespace RenderOctomap {
     const ROTATION_SPEED = 1.0;
     const ZOOM_SPEED = 0.005;
     const PAN_SPEED = 0.01;
-
-    // GLFW keys, mouse buttons and actions.
-    const KEY_W = 87;
-    const KEY_A = 65;
-    const KEY_S = 83;
-    const KEY_D = 68;
-    const KEY_KP_2 = 322;
-    const KEY_KP_4 = 324;
-    const KEY_KP_6 = 326;
-    const KEY_KP_8 = 328;
-    const MOUSE_BUTTON_LEFT = 0;
-    const MOUSE_BUTTON_RIGHT = 1;
-    const MOUSE_BUTTON_MIDDLE = 2;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
 
     // ASCII.
     const CHAR_NEWLINE = 10;

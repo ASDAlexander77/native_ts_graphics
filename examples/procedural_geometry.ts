@@ -7,6 +7,7 @@ import {
     cross3, matrixIdentity, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH,
     matrixRotationY, matrixScaling, matrixTranslation, normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
+import { KEY_C, KEY_G, KEY_L, ACTION_PRESS } from "../core/glfw_input";
 
 namespace ProceduralGeometry {
     // Test mode: the frames rendered.
@@ -39,11 +40,6 @@ namespace ProceduralGeometry {
     }
 
     const WINDOW_TITLE = "D3D12 Raytracing - Procedural Geometry";
-
-    const KEY_C = 67;
-    const KEY_G = 71;
-    const KEY_L = 76;
-    const ACTION_PRESS = 1;
 
     // The sample's RaytracingSceneDefines.h and RaytracingHlslCompat.h.
     // max(sizeof(RayPayload) = float4 + uint, sizeof(ShadowRayPayload)).

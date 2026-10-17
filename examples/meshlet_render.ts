@@ -7,22 +7,13 @@ import { MeshletModel } from "../core/meshlet_model";
 import {
     matrixIdentity, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, matrixTranspose, XM_PI,
 } from "../core/directx_math";
+import {
+    KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace MeshletRender {
     const WINDOW_TITLE = "D3D12 Mesh Shader";
     const MESH_FILE = "media/meshlet_render/Dragon_LOD0.bin";
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // SceneConstantBuffer: World, WorldView, WorldViewProj (float4x4 each), DrawMeshlets (uint),
     // 256-byte aligned.

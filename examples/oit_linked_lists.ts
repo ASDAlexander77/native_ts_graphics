@@ -4,6 +4,9 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiply, rotation, translation, radians, samplePerspective } from "../core/matrix";
+import {
+    ACTION_PRESS, MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE,
+} from "../core/glfw_input";
 
 namespace OitLinkedLists {
     // Test mode: the frames rendered.
@@ -77,12 +80,6 @@ namespace OitLinkedLists {
 
     // The sample's benchmark mode (--benchmark): simulated at 60 frames per second.
     const BENCHMARK_FRAME_TIME = 1.0 / 60.0;
-
-    // GLFW mouse buttons and actions.
-    const MOUSE_BUTTON_LEFT = 0;
-    const MOUSE_BUTTON_RIGHT = 1;
-    const MOUSE_BUTTON_MIDDLE = 2;
-    const ACTION_PRESS = 1;
 
     // MSVC's rand(), from its default seed, which the sample's colors come from: RAND_MAX 32767.
     class MsvcRandom {

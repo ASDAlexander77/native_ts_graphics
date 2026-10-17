@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
+import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace RtParticles {
     // Test mode: the frames rendered.
@@ -25,10 +26,6 @@ namespace RtParticles {
         return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
             0.2, 2.0, "Particles");
     }
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const ACTION_PRESS = 1;
 
     const WINDOW_TITLE = "Donut Example: Ray Traced Particles";
     const SCENE_PATH = "media/rt_particles/ParticleScene.gltf";

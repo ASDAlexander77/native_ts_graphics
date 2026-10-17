@@ -7,11 +7,7 @@
 // that import it, as tslang would load those files twice if they referenced them too.
 
 import { App } from "./donut";
-
-// GLFW values, as passed to the keyboard callback.
-const KEY_V = 86;
-const KEY_ESCAPE = 256;
-const ACTION_PRESS = 1;
+import { KEY_V, KEY_ESCAPE, ACTION_PRESS } from "./glfw_input";
 
 export class InputPass {
     private app: App;

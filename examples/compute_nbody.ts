@@ -4,13 +4,10 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
+import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace ComputeNBody {
     const WINDOW_TITLE = "Donut Example: Compute N-Body";
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const ACTION_PRESS = 1;
 
     const NUM_ATTRACTORS = 6;
     const PARTICLES_PER_ATTRACTOR = 4 * 1024;

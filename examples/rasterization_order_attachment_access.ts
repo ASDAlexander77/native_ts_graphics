@@ -4,6 +4,9 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiply, rotation, translation, radians, samplePerspective } from "../core/matrix";
+import {
+    ACTION_PRESS, MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE,
+} from "../core/glfw_input";
 
 namespace RasterizationOrderAttachmentAccess {
     // Test mode: the frames rendered.
@@ -64,12 +67,6 @@ namespace RasterizationOrderAttachmentAccess {
     const ROTATION_SPEED = 1.0;
     const ZOOM_SPEED = 0.005;
     const PAN_SPEED = 0.01;
-
-    // GLFW mouse buttons and actions.
-    const MOUSE_BUTTON_LEFT = 0;
-    const MOUSE_BUTTON_RIGHT = 1;
-    const MOUSE_BUTTON_MIDDLE = 2;
-    const ACTION_PRESS = 1;
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 

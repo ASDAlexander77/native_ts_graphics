@@ -3,6 +3,10 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import {
+    KEY_1, KEY_4, KEY_A, KEY_D, KEY_S, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
+    KEY_HOME, KEY_END, KEY_F1, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace Collision {
     // Test mode: the frames rendered.
@@ -52,27 +56,10 @@ namespace Collision {
     const MAX_VERTICES = 8192;
 
     // GLFW values.
-    const KEY_1 = 49;
-    const KEY_4 = 52;
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_ESCAPE = 256;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const KEY_HOME = 268;
-    const KEY_END = 269;
-    const KEY_F1 = 290;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
     const MOUSE_LEFT = 0;
     const MOUSE_RIGHT = 1;
 
     // --- Math (DirectXMath's layout: 4 x 4 matrices by rows, for row vectors; float precision) -
-
 
     function f(x: number) {
         return Math.fround(x);

@@ -5,6 +5,9 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
+import {
+    KEY_SPACE, KEY_T, KEY_V, KEY_GRAVE_ACCENT, KEY_ESCAPE, ACTION_PRESS, MOUSE_BUTTON_2,
+} from "../core/glfw_input";
 
 namespace FeatureDemoExample {
     // Test mode: the frames rendered.
@@ -31,15 +34,6 @@ namespace FeatureDemoExample {
         return check.share(check.countInRange(0, 89, 0, 119, 121, 255, 0, 0, check.width, check.height), total,
             2.0, 6.0, "Blue");
     }
-
-    // GLFW values, as passed to the input callbacks.
-    const KEY_SPACE = 32;
-    const KEY_T = 84;
-    const KEY_V = 86;
-    const KEY_GRAVE_ACCENT = 96;
-    const KEY_ESCAPE = 256;
-    const ACTION_PRESS = 1;
-    const MOUSE_BUTTON_2 = 1;
 
     // The SkyParameters colors the UI doesn't edit (donut::render::SkyParameters defaults), for the
     // ambient term.

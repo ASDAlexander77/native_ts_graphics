@@ -8,6 +8,11 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, matrixScaling,
     matrixTranslation, normalize3, radians, transformCoord3, transformNormal3, vadd, vsub,
 } from "../core/directx_math";
+import {
+    KEY_SPACE, KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_A, KEY_C, KEY_D, KEY_E, KEY_H, KEY_J, KEY_K,
+    KEY_L, KEY_M, KEY_Q, KEY_S, KEY_T, KEY_U, KEY_W, KEY_Y, KEY_ENTER, KEY_LEFT_SHIFT,
+    ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace DenoisedRtao {
     const WINDOW_TITLE = "D3D12 Raytracing Real-Time Denoised Ambient Occlusion";
@@ -17,31 +22,6 @@ namespace DenoisedRtao {
     const ASSETS = "media/denoised_rtao/Assets/";
 
     // GLFW values, as passed to the keyboard and mouse callbacks.
-    const KEY_SPACE = 32;
-    const KEY_0 = 48;
-    const KEY_1 = 49;
-    const KEY_2 = 50;
-    const KEY_3 = 51;
-    const KEY_4 = 52;
-    const KEY_A = 65;
-    const KEY_C = 67;
-    const KEY_D = 68;
-    const KEY_E = 69;
-    const KEY_H = 72;
-    const KEY_J = 74;
-    const KEY_K = 75;
-    const KEY_L = 76;
-    const KEY_M = 77;
-    const KEY_Q = 81;
-    const KEY_S = 83;
-    const KEY_T = 84;
-    const KEY_U = 85;
-    const KEY_W = 87;
-    const KEY_Y = 89;
-    const KEY_ENTER = 257;
-    const KEY_LEFT_SHIFT = 340;
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
     const MOUSE_LEFT = 0;
     const MOUSE_RIGHT = 1;
 

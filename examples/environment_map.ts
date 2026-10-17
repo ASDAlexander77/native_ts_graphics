@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { perspProjD3DStyleReverse } from "../core/matrix";
+import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace EnvironmentMap {
     // Test mode: the frames rendered.
@@ -25,10 +26,6 @@ namespace EnvironmentMap {
         return check.share(check.countInRange(221, 255, 221, 255, 221, 255, 0, 0, check.width, check.height), total,
             0.3, 2.0, "White");
     }
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const ACTION_PRESS = 1;
 
     const WINDOW_TITLE = "Donut Example: Environment Map";
     const DEFAULT_SCENE = "media/glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf";

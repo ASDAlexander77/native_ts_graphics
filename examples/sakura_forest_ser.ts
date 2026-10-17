@@ -8,6 +8,10 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationAxis, matrixRotationY, normalize3,
     normalize4, radians, transform3, transformNormal3, vadd, vmul, vsub,
 } from "../core/directx_math";
+import {
+    KEY_A, KEY_B, KEY_D, KEY_E, KEY_H, KEY_M, KEY_P, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT,
+    KEY_DOWN, KEY_UP, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace SakuraForestSER {
     const WINDOW_TITLE = "D3D12 Raytracing - Sakura Scene";
@@ -77,23 +81,6 @@ namespace SakuraForestSER {
     // D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE.
     const INSTANCE_TRIANGLE_CULL_DISABLE = 1;
     const INSTANCE_COUNT = 13525;
-
-    const KEY_A = 65;
-    const KEY_B = 66;
-    const KEY_D = 68;
-    const KEY_E = 69;
-    const KEY_H = 72;
-    const KEY_M = 77;
-    const KEY_P = 80;
-    const KEY_Q = 81;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
 
     // Test mode: the frames rendered, each 1/60 s.
     const TEST_FRAMES = 60;
