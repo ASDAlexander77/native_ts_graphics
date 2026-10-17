@@ -3,7 +3,10 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { radians, cross3, dot3 } from "../core/matrix";
+import { radians, cross3 } from "../core/matrix";
+import {
+    FlameParticleGenerator, Model, ModelBuffer, normalize,
+} from "../core/ray_tracing_extended_scene";
 
 namespace RayTracingInvocationReorder {
     // Test mode: the frames rendered.
@@ -82,151 +85,6 @@ namespace RayTracingInvocationReorder {
     const FOV_DEGREES = 60.0;
     const Z_NEAR = 0.1;
     const Z_FAR = 512.0;
-
-    // --- Math ---------------------------------------------------------------------------------
-
-    // std::default_random_engine with a uniform distribution over [0, 1) replacement: a Park-Miller
-    // generator (tslang's Math.random isn't usable). The sample seeds its engine with the time.
-    let g_RandomSeed = 12345.0;
-    function generateRandom() {
-        g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
-        return g_RandomSeed / 2147483647.0;
-    }
-
-    // glm::normalize: a zero vector gives NaNs, as there.
-    function normalize(v: number[]) {
-        const inverseLength = 1.0 / Math.sqrt(dot3(v, v));
-        return [v[0] * inverseLength, v[1] * inverseLength, v[2] * inverseLength];
-    }
-
-    // --- Flame particles ----------------------------------------------------------------------
-
-    class FlameParticle {
-        position: number[];
-        velocity: number[];
-        duration: number;
-
-        constructor(position: number[], velocity: number[], duration: number) {
-            this.position = position;
-            this.velocity = velocity;
-            this.duration = duration;
-        }
-    }
-
-    class FlameParticleGenerator {
-        particles: FlameParticle[];
-        private origin: number[];
-        private direction: number[];
-        private u: number[];
-        private v: number[];
-        private lifetime: number;
-        private radius: number;
-        private nParticles: int;
-
-        constructor(origin: number[], direction: number[], radius: number, nParticles: int) {
-            this.particles = [];
-            this.origin = origin;
-            this.direction = direction;
-            this.radius = radius;
-            this.nParticles = nParticles;
-            this.lifetime = 5.0;
-            this.u = normalize(Math.abs(dot3(direction, [0.0, 0.0, 1.0])) > 0.9
-                ? cross3(direction, [1.0, 0.0, 0.0]) : cross3(direction, [0.0, 0.0, 1.0]));
-            this.v = normalize(cross3(direction, this.u));
-        }
-
-        generateRandomDirection() {
-            const a = 0.2 * generateRandom();
-            const b = 0.2 * generateRandom();
-            const c = 0.8 * generateRandom();
-            const u = this.u;
-            const v = this.v;
-            const d = this.direction;
-            return normalize([a * u[0] + b * v[0] + c * d[0], a * u[1] + b * v[1] + c * d[1], a * u[2] + b * v[2] + c * d[2]]);
-        }
-
-        generateParticle(lifetime: number) {
-            const theta = 2.0 * 3.14159 * generateRandom();
-            const R = this.radius * generateRandom();
-            const velocityDirection = this.generateRandomDirection();
-            const speed = generateRandom() * 0.2;
-
-            const s = Math.sin(theta);
-            const c = Math.cos(theta);
-            const position: number[] = [];
-            const velocity: number[] = [];
-            for (let i = 0; i < 3; i++) {
-                position.push(this.origin[i] + R * (s * this.u[i] + c * this.v[i]));
-                velocity.push(speed * velocityDirection[i]);
-            }
-            return new FlameParticle(position, velocity, lifetime);
-        }
-
-        // The sample's constructor's particles, at random points of their lifetimes.
-        init() {
-            for (let i = 0; i < this.nParticles; i++) {
-                const startingLifetime = generateRandom() * this.lifetime;
-                this.particles.push(this.generateParticle(startingLifetime));
-            }
-        }
-
-        updateParticles(timeDelta: number) {
-            const remaining = this.particles.filter((particle) => !(particle.duration > generateRandom() * this.lifetime));
-
-            for (const particle of remaining) {
-                for (let k = 0; k < 3; k++) {
-                    particle.position[k] += timeDelta * particle.velocity[k];
-                }
-                particle.duration += timeDelta;
-            }
-
-            while (remaining.length < this.nParticles) {
-                remaining.push(this.generateParticle(0.0));
-            }
-            this.particles = remaining;
-        }
-    }
-
-    // --- Scene ----------------------------------------------------------------------------------
-
-    // Geometry in NewVertex layout, before it goes to the static buffers.
-    class Model {
-        vertices: f32[];
-        triangles: int[];
-        textureIndex: int;
-        objectType: int;
-
-        constructor(vertices: f32[], triangles: int[], textureIndex: int, objectType: int) {
-            this.vertices = vertices;
-            this.triangles = triangles;
-            this.textureIndex = textureIndex;
-            this.objectType = objectType;
-        }
-    }
-
-    // A model's place in the static or dynamic buffers, and its BLAS.
-    class ModelBuffer {
-        vertexOffset: int; // in bytes
-        indexOffset: int;  // in bytes
-        numVertices: int;
-        numTriangles: int;
-        textureIndex: int;
-        objectType: int;
-        isStatic: boolean;
-        blas: TriangleBlas;
-
-        constructor(vertexOffset: int, indexOffset: int, numVertices: int, numTriangles: int, textureIndex: int,
-            objectType: int, isStatic: boolean) {
-            this.vertexOffset = vertexOffset;
-            this.indexOffset = indexOffset;
-            this.numVertices = numVertices;
-            this.numTriangles = numTriangles;
-            this.textureIndex = textureIndex;
-            this.objectType = objectType;
-            this.isStatic = isStatic;
-            this.blas = new TriangleBlas(null);
-        }
-    }
 
     // --- Pass -----------------------------------------------------------------------------------
 

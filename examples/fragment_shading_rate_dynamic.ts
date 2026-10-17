@@ -3,8 +3,8 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
-import { KEY_A, KEY_D, KEY_S, KEY_W, ACTION_RELEASE } from "../core/glfw_input";
+import { radians, perspective } from "../core/matrix";
+import { FirstPersonCamera } from "../core/vulkan_samples_camera";
 
 namespace FragmentShadingRateDynamic {
     // Test mode: the frames rendered.
@@ -69,111 +69,6 @@ namespace FragmentShadingRateDynamic {
     const SUBPASS_RATIOS = "1|2|4|8|16";
     const VISUALIZE_NAMES = "Render output|Shading Rates|Frequency channel";
 
-    // The sample's camera (the framework's vkb::Camera, first person type), with ApiVulkanSample's
-    // controls: the left mouse button turns it, the right one zooms, the middle one pans; W, A, S, D
-    // move it.
-    class SampleCamera {
-        rotation: number[];
-        position: number[];
-        private mouseX: number;
-        private mouseY: number;
-        private buttons: boolean[];
-        // W, S, A, D held.
-        private keys: boolean[];
-
-        constructor() {
-            this.rotation = [0.0, 0.0, 0.0];
-            this.position = [CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]];
-            this.mouseX = 0.0;
-            this.mouseY = 0.0;
-            this.buttons = [false, false, false];
-            this.keys = [false, false, false, false];
-        }
-
-        // vkb::Camera::update_view_matrix: rotations around x, y, z, then translate(position).
-        view() {
-            let r = identity();
-            r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
-            r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
-            r = rotate(r, radians(this.rotation[2]), 0.0, 0.0, 1.0);
-            let t = identity();
-            t[12] = this.position[0];
-            t[13] = this.position[1];
-            t[14] = this.position[2];
-            return multiply(r, t);
-        }
-
-        key(key: int, action: int) {
-            const down = action != ACTION_RELEASE;
-            if (key == KEY_W) {
-                this.keys[0] = down;
-            } else if (key == KEY_S) {
-                this.keys[1] = down;
-            } else if (key == KEY_A) {
-                this.keys[2] = down;
-            } else if (key == KEY_D) {
-                this.keys[3] = down;
-            }
-        }
-
-        // vkb::Camera::update: first person movement, 1 unit per second.
-        update(deltaTime: number) {
-            const rx = radians(this.rotation[0]);
-            const ry = radians(this.rotation[1]);
-            let front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
-            const length = Math.sqrt(front[0] * front[0] + front[1] * front[1] + front[2] * front[2]);
-            for (let i = 0; i < 3; i++) {
-                front[i] /= length;
-            }
-            // normalize(cross(front, (0, 1, 0))).
-            let right = [-front[2], 0.0, front[0]];
-            const rightLength = Math.sqrt(right[0] * right[0] + right[2] * right[2]);
-            for (let i = 0; i < 3; i++) {
-                right[i] /= rightLength;
-            }
-            for (let i = 0; i < 3; i++) {
-                if (this.keys[0]) {
-                    this.position[i] += front[i] * deltaTime;
-                }
-                if (this.keys[1]) {
-                    this.position[i] -= front[i] * deltaTime;
-                }
-                if (this.keys[2]) {
-                    this.position[i] -= right[i] * deltaTime;
-                }
-                if (this.keys[3]) {
-                    this.position[i] += right[i] * deltaTime;
-                }
-            }
-        }
-
-        // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int) {
-            if (button >= 0 && button < 3) {
-                this.buttons[button] = action == 1;
-            }
-        }
-
-        // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number) {
-            const dx = Math.floor(this.mouseX) - Math.floor(x);
-            const dy = Math.floor(this.mouseY) - Math.floor(y);
-            if (this.buttons[0]) {
-                this.rotation[0] += dy;
-                this.rotation[1] -= dx;
-            }
-            if (this.buttons[1]) {
-                this.position[2] += dy * 0.005;
-            }
-            if (this.buttons[2]) {
-                this.position[0] -= dx * 0.01;
-                this.position[1] -= dy * 0.01;
-            }
-            this.mouseX = x;
-            this.mouseY = y;
-        }
-    }
-
     // --- Pass -------------------------------------------------------------------------------
 
     // Port of Vulkan-Samples' fragment_shading_rate_dynamic: a sky sphere and three textured,
@@ -190,7 +85,7 @@ namespace FragmentShadingRateDynamic {
     // copied into the corners. D3D12 (tier 2) or Vulkan (VK_KHR_fragment_shading_rate).
     class FragmentShadingRateDynamicPass {
         private app: App;
-        private camera: SampleCamera;
+        private camera: FirstPersonCamera;
 
         // The sample's settings, from its UI.
         enableAttachmentShadingRate: boolean;
@@ -253,7 +148,7 @@ namespace FragmentShadingRateDynamic {
 
         constructor(app: App) {
             this.app = app;
-            this.camera = new SampleCamera();
+            this.camera = new FirstPersonCamera(CAMERA_POSITION, [0.0, 0.0, 0.0]);
             this.enableAttachmentShadingRate = true;
             this.displaySkySphere = true;
             this.subpassExtentRatio = 4;
