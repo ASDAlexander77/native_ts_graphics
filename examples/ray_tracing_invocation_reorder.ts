@@ -182,12 +182,7 @@ namespace RayTracingInvocationReorder {
         }
 
         updateParticles(timeDelta: number) {
-            const remaining: FlameParticle[] = [];
-            for (const particle of this.particles) {
-                if (!(particle.duration > generateRandom() * this.lifetime)) {
-                    remaining.push(particle);
-                }
-            }
+            const remaining = this.particles.filter((particle) => !(particle.duration > generateRandom() * this.lifetime));
 
             for (const particle of remaining) {
                 for (let k = 0; k < 3; k++) {

@@ -222,12 +222,7 @@ namespace SakuraForestSER {
 
         heldIndex(key: int) {
             const keys = [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT];
-            for (let i = 0; i < keys.length; i++) {
-                if (keys[i] == key) {
-                    return i;
-                }
-            }
-            return -1;
+            return keys.indexOf(key);
         }
 
         isHeld(key: int) {
