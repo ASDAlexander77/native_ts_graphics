@@ -505,14 +505,8 @@ namespace ProceduralGeometry {
         // BuildGeometry and BuildAccelerationStructures: the plane's BLAS, the AABBs' (one geometry
         // per AABB, for a hit group per AABB), and the TLAS's two instances.
         createAccelerationStructures(commandList: CommandList): boolean {
-            let vertices: f32[] = [];
-            for (let i = 0; i < PLANE_VERTICES.length; i++) {
-                vertices.push(PLANE_VERTICES[i]);
-            }
-            let indices: int[] = [];
-            for (let i = 0; i < PLANE_INDICES.length; i++) {
-                indices.push(PLANE_INDICES[i]);
-            }
+            let vertices: f32[] = PLANE_VERTICES.map((v): f32 => v);
+            let indices: int[] = PLANE_INDICES.map((v): int => v);
             this.vertexBuffer = this.app.createAccelStructInputStructuredBuffer(4, vertices.length, "VertexBuffer");
             this.indexBuffer = this.app.createAccelStructInputStructuredBuffer(4, indices.length, "IndexBuffer");
             this.aabbBuffer = this.app.createAccelStructInputBuffer(PRIMITIVE_COUNT * AABB_STRIDE, "AABBBuffer");

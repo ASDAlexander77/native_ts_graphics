@@ -477,10 +477,7 @@ namespace SimpleBezier {
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
 
             // The control points.
-            let points: f32[] = [];
-            for (let i = 0; i < MOBIUS_STRIP.length; i++) {
-                points.push(MOBIUS_STRIP[i]);
-            }
+            let points: f32[] = MOBIUS_STRIP.map((v): f32 => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.controlPointVB = this.app.createStaticVertexBuffer(commandList, Ref(points[0]), CONTROL_POINTS * 12, "Control Point VB");

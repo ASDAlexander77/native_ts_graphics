@@ -217,10 +217,7 @@ namespace RaytracingLibrarySubobjects {
         // the closest hit shader reads too), its BLAS (opaque, preferring fast tracing) and the
         // TLAS's one instance (identity transform).
         createAccelerationStructures(commandList: CommandList): boolean {
-            let vertices: f32[] = [];
-            for (let i = 0; i < CUBE_VERTICES.length; i++) {
-                vertices.push(CUBE_VERTICES[i]);
-            }
+            let vertices: f32[] = CUBE_VERTICES.map((v): f32 => v);
             // Two 16-bit indices per int.
             let indices: int[] = [];
             for (let i = 0; i < CUBE_INDICES.length; i += 2) {

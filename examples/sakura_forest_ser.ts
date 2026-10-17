@@ -463,10 +463,7 @@ namespace SakuraForestSER {
                 cubeVertices.push(0.0);
                 cubeVertices.push(0.0);
             }
-            const cubeIndices: int[] = [];
-            for (let i = 0; i < CUBE_INDICES.length; i++) {
-                cubeIndices.push(CUBE_INDICES[i]);
-            }
+            const cubeIndices: int[] = CUBE_INDICES.map((v): int => v);
             const cube = this.createMesh(commandList, cubeVertices, cubeIndices, cubeIndices.length, "Cube");
             if (!cube) {
                 return false;
