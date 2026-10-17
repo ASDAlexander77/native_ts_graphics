@@ -267,7 +267,7 @@ namespace ReservedResources {
                 0.25, -y, 0.0, 1.0, 1.0,    // Bottom right.
                 0.25, y, 0.0, 1.0, 0.0,     // Top right.
             ];
-            let floats: f32[] = vertices.map((v): f32 => v);
+            let floats = vertices.map((v): f32 => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(floats[0]), floats.length * 4, "Quad");
@@ -368,7 +368,7 @@ namespace ReservedResources {
             return "cannot read the back buffer";
         }
         const background = 0 | (51 << 8) | (102 << 16);
-        const corners: int[] = [0, width - 1, (height - 1) * width, height * width - 1];
+        const corners = [0, width - 1, (height - 1) * width, height * width - 1];
         for (let i = 0; i < corners.length; i++) {
             const p = pixels[corners[i]] & 0xFFFFFF;
             if (p != background) {

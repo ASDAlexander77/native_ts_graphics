@@ -1884,19 +1884,19 @@ namespace ComputeNBodyCollisions {
 
     class NBodyCollisionsArgs extends Args {
         // -attractors <n>: heavy centers, 1 to 6 (6 by default), each with its group of particles.
-        numAttractors: int = NUM_ATTRACTORS;
+        numAttractors = NUM_ATTRACTORS;
         // -particles <n>: particles per attractor, the heavy center first (1024 by default).
-        particlesPerAttractor: int = PARTICLES_PER_ATTRACTOR;
+        particlesPerAttractor = PARTICLES_PER_ATTRACTOR;
         // -merge <speed>: particles touching slower than this merge (0, off, by default).
-        mergeSpeed: number = DEFAULT_MERGE_SPEED;
+        mergeSpeed = DEFAULT_MERGE_SPEED;
         // -nocool: the heat never cools off (for the energy check).
-        noCool: boolean = false;
+        noCool = false;
         // -fullgravity: every pair pulls both ways (see SimulationConstants.fullGravity).
-        fullGravity: boolean = false;
+        fullGravity = false;
         // -fragment <speed>: particles hit harder than this break in two (0, off, by default).
-        fragmentSpeed: number = DEFAULT_FRAGMENT_SPEED;
+        fragmentSpeed = DEFAULT_FRAGMENT_SPEED;
         // -room <percent>: free slots left for fragments at the start, a share of the particles placed.
-        fragmentRoom: number = DEFAULT_FRAGMENT_ROOM;
+        fragmentRoom = DEFAULT_FRAGMENT_ROOM;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

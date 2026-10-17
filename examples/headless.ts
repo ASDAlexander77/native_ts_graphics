@@ -120,7 +120,7 @@ namespace Headless {
         // Read the shader output
 
         const outputData = <Ref<u32>>device.mapBuffer(readbackBuffer, nvrhi.CPU_ACCESS_READ);
-        const computedResult: int = Deref(outputData[0]);
+        const computedResult = Deref(outputData[0]);
         device.unmapBuffer(readbackBuffer);
 
         // The references the create functions returned (headless.cpp's handles release theirs)
@@ -245,7 +245,7 @@ namespace Headless {
         forceDonut = false;
         // --help, --list-adapters and --adapter without its value: the first of them, which ends the
         // program before the test.
-        firstExit: int = EXIT_NONE;
+        firstExit = EXIT_NONE;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

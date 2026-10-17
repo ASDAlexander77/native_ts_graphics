@@ -444,8 +444,8 @@ namespace TextureCompressionBasisu {
             layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_SIZE);
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
 
-            let vertices: f32[] = QUAD_VERTICES.map((v): f32 => v);
-            let indices: int[] = QUAD_INDICES.map((v): int => v);
+            let vertices = QUAD_VERTICES.map((v): f32 => v);
+            let indices = QUAD_INDICES.map((v): int => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
@@ -483,7 +483,7 @@ namespace TextureCompressionBasisu {
 
         constructor(sample: TextureCompressionBasisuPass) {
             this.sample = sample;
-            const names: string[] = sample.targets.map((target): string => TARGET_NAMES[target]);
+            const names = sample.targets.map((target): string => TARGET_NAMES[target]);
             this.targetNames = comboItems(names);
         }
 
@@ -517,8 +517,8 @@ namespace TextureCompressionBasisu {
     class TextureCompressionBasisuArgs extends Args {
         // -image <n>: the input image (0-7, the sample's list), -target <n>: the transcode target
         // (an index into the device's list), both transcoded at start.
-        image: int = 0;
-        target: int = 0;
+        image = 0;
+        target = 0;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

@@ -734,7 +734,7 @@ namespace CalibratedTimestampsSample {
 
     // -object <0..2>, -nobloom, -noskybox: the settings' initial values.
     class CalibratedTimestampsSampleArgs extends Args {
-        objectIndex: int = 0;
+        objectIndex = 0;
         bloom = true;
         displaySkybox = true;
 

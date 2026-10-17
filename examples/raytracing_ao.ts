@@ -763,7 +763,7 @@ namespace RaytracingAo {
 
         // The outputs' share of the frame's width: half when split.
         widthScale(): number {
-            const scale: number = this.isSplit ? 0.5 : 1.0;
+            const scale = this.isSplit ? 0.5 : 1.0;
             return scale;
         }
 

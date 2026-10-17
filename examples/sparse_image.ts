@@ -796,7 +796,7 @@ namespace SparseImage {
                     this.pageInUpdateSet[pageIndex] = true;
 
                     // A stack of pages (by index) whose sources to check.
-                    const required: int[] = [pageIndex];
+                    const required = [pageIndex];
                     while (required.length > 0) {
                         const page = required[required.length - 1];
                         required.pop();

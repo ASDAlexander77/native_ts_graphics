@@ -501,8 +501,8 @@ namespace TextureCompressionComparison {
                         continue;
                     }
                     scene.copyNodeTransform(node, Ref(transform[0]));
-                    let low: number[] = [HUGE, HUGE, HUGE];
-                    let high: number[] = [-HUGE, -HUGE, -HUGE];
+                    let low = [HUGE, HUGE, HUGE];
+                    let high = [-HUGE, -HUGE, -HUGE];
                     for (let corner = 0; corner < 8; corner++) {
                         const x = meshBounds[mesh * 6 + ((corner & 1) != 0 ? 3 : 0)];
                         const y = meshBounds[mesh * 6 + 1 + ((corner & 2) != 0 ? 3 : 0)];
@@ -648,7 +648,7 @@ namespace TextureCompressionComparison {
 
     class TextureCompressionComparisonArgs extends Args {
         // -format <n>: 0 RGBA 32 (the default), 1 BC7, 2 BC3, 3 ASTC 4x4, 4 ETC2.
-        format: int = 0;
+        format = 0;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

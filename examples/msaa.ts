@@ -464,7 +464,7 @@ namespace Msaa {
         }
 
         targetsAreCurrent(width: int, height: int): boolean {
-            const depthResolveMode: int = this.depthResolveMode;
+            const depthResolveMode = this.depthResolveMode;
             if (this.builtDepthResolveMode != depthResolveMode) {
                 return false;
             }
@@ -745,8 +745,8 @@ namespace Msaa {
                         - transform[4] * (transform[1] * transform[10] - transform[9] * transform[2])
                         + transform[8] * (transform[1] * transform[6] - transform[5] * transform[2]);
                     // The mesh's bounds, transformed (their corners), and their center.
-                    let low: number[] = [HUGE, HUGE, HUGE];
-                    let high: number[] = [-HUGE, -HUGE, -HUGE];
+                    let low = [HUGE, HUGE, HUGE];
+                    let high = [-HUGE, -HUGE, -HUGE];
                     for (let corner = 0; corner < 8; corner++) {
                         const x = meshBounds[mesh * 6 + ((corner & 1) != 0 ? 3 : 0)];
                         const y = meshBounds[mesh * 6 + 1 + ((corner & 2) != 0 ? 3 : 0)];
@@ -982,7 +982,7 @@ namespace Msaa {
         // can resolve it.
         noDepthResolve = false;
         // -depthresolve zero|average|min|max: the depth resolve mode.
-        depthResolveMode: ResolveMode = ResolveMode.None;
+        depthResolveMode = ResolveMode.None;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

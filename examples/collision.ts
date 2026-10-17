@@ -1165,7 +1165,7 @@ namespace Collision {
 
     class CollisionArgs extends Args {
         // -group <1..4>: the group looked at first.
-        group: int = 0;
+        group = 0;
         // -time <seconds>: the objects frozen at that time.
         fixedTime = -1.0;
         // -help: start with the help screen.

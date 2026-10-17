@@ -175,7 +175,7 @@ namespace VideoTexture {
         private time: number;
         // -test: the first frame waits for the video's first (it plays in real time, the test's
         // frames much faster), so that the video is on the cube.
-        waitForVideo: boolean = false;
+        waitForVideo = false;
 
         show3D: boolean;
         frameWidth: int;

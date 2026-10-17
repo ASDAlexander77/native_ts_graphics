@@ -1248,7 +1248,7 @@ namespace Bokeh {
 
     class BokehArgs extends Args {
         // -preset N: start with preset scene N (0..3; Down cycles them).
-        preset: int = 0;
+        preset = 0;
         // -slow: start with the full (not the fast) bokeh geometry shader (Up toggles it).
         slow = false;
 

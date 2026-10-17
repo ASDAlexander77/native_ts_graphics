@@ -228,7 +228,7 @@ namespace OpacityMicromaps {
         }
 
         ommSet(subDLevel: int, use4State: boolean): OmmSet {
-            const state: int = use4State ? 1 : 0;
+            const state = use4State ? 1 : 0;
             return this.ommSets[subDLevel * 2 + state];
         }
 
@@ -255,7 +255,7 @@ namespace OpacityMicromaps {
                 this.use4State = !this.use4State;
                 this.rebuildASNextFrame = true;
             } else if (key == KEY_Q || key == KEY_W) {
-                const sign: int = key == KEY_Q ? -1 : 1;
+                const sign = key == KEY_Q ? -1 : 1;
                 // The next level with a set loaded.
                 for (let i = 0; i < MAX_SUBDIVISION_LEVELS; i++) {
                     this.currentSubDLevel = (this.currentSubDLevel + sign + MAX_SUBDIVISION_LEVELS) % MAX_SUBDIVISION_LEVELS;
@@ -278,7 +278,7 @@ namespace OpacityMicromaps {
         // The rest of the sample's OnUpdate, in float as its: the zoom and the camera's rotation
         // about y (360 degrees a minute).
         onAnimate(elapsedSeconds: number): void {
-            const elapsedTime: number = this.benchmark ? Math.fround(1.0 / 60.0) : Math.fround(elapsedSeconds);
+            const elapsedTime = this.benchmark ? Math.fround(1.0 / 60.0) : Math.fround(elapsedSeconds);
             this.updateFrameStats(elapsedSeconds);
 
             if (this.zoomIn) {
@@ -390,7 +390,7 @@ namespace OpacityMicromaps {
             }
 
             // Identity transform, mask 1.
-            const flags: int = this.ommEnabled ? 0 : INSTANCE_FLAG_DISABLE_OMMS;
+            const flags = this.ommEnabled ? 0 : INSTANCE_FLAG_DISABLE_OMMS;
             this.topLevelAS.addInstanceWithHitGroup(this.blas.getAccelStruct(), 1, 0, 0, flags, Ref(this.transform[0]));
             frame.buildTopLevelAS(this.topLevelAS);
             return true;
@@ -561,9 +561,9 @@ namespace OpacityMicromaps {
             // Each geometry's offset in the index buffers (in triangles) and textures: the
             // diffuse texture i + 1, the alpha texture 0 for the leaves (-1: none).
             let geometryInfos: int[] = [];
-            let primitiveOffset: int = 0;
+            let primitiveOffset = 0;
             for (let i = 0; i < numGeoms; i++) {
-                const alphaTextureIndex: int = i == ALPHA_TESTED_GEOMETRY ? 0 : -1;
+                const alphaTextureIndex = i == ALPHA_TESTED_GEOMETRY ? 0 : -1;
                 geometryInfos.push(primitiveOffset);
                 geometryInfos.push(i + 1);
                 geometryInfos.push(alphaTextureIndex);
@@ -710,7 +710,7 @@ namespace OpacityMicromaps {
                 for (let state = 0; state <= 1; state++) {
                     const set = new OmmSet();
                     if (loaded) {
-                        const states: int = state == 0 ? 2 : 4;
+                        const states = state == 0 ? 2 : 4;
                         this.loadOmmSet(commandList, `${MEDIA_DIR}treeOMM_SubD${level + 1}_${states}State.bin`, set);
                     }
                     this.ommSets.push(set);

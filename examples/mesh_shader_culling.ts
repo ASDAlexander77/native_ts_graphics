@@ -272,7 +272,7 @@ namespace MeshShaderCulling {
         // -radius <0.5..2>: the culling circle's radius.
         cullRadius = 1.0;
         // -density <0..2>: 4 x 4, 6 x 6 or 8 x 8.
-        densityLevel: int = 2;
+        densityLevel = 2;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

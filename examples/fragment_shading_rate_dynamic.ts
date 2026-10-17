@@ -702,9 +702,9 @@ namespace FragmentShadingRateDynamic {
 
     class FragmentShadingRateDynamicArgs extends Args {
         // -visualize <n>: 0 the render output, 1 the shading rates, 2 the frequency content.
-        visualize: int = 0;
+        visualize = 0;
         // -ratio <n>: the reduced size pass's ratio (1, 2, 4, 8 or 16).
-        ratio: int = 4;
+        ratio = 4;
         // -noattachment: the full rate everywhere.
         noAttachment = false;
         // -nosky: without the sky sphere.

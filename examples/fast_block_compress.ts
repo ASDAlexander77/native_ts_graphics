@@ -300,9 +300,9 @@ namespace FastBlockCompress {
         viewport(index: int): number[] {
             const sx = this.frameWidth / LAYOUT_WIDTH;
             const sy = this.frameHeight / LAYOUT_HEIGHT;
-            const left: number = this.fullscreen ? 448.0 : index == 0 ? 96.0 : 1014.0;
-            const top: number = this.fullscreen ? 28.0 : 216.0;
-            const size: number = this.fullscreen ? 1024.0 : 810.0;
+            const left = this.fullscreen ? 448.0 : index == 0 ? 96.0 : 1014.0;
+            const top = this.fullscreen ? 28.0 : 216.0;
+            const size = this.fullscreen ? 1024.0 : 810.0;
             const x0 = Math.round(left * sx);
             const y0 = Math.round(top * sy);
             return [x0, y0, Math.round((left + size) * sx) - x0, Math.round((top + size) * sy) - y0];
@@ -854,9 +854,9 @@ namespace FastBlockCompress {
 
     class FastBlockCompressArgs extends Args {
         // -image <n>, -method <n> (0 GPU, 1 CPU, 2 offline, 3 offline BC7), -mip <n>: what is shown.
-        image: int = 0;
-        method: int = 0;
-        mip: int = 0;
+        image = 0;
+        method = 0;
+        mip = 0;
         // -fullscreen [original]: one image full size (the method's, or the original).
         fullscreen = false;
         original = false;

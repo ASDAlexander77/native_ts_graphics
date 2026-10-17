@@ -433,7 +433,7 @@ namespace RayTracingPositionFetch {
 
     class RayTracingPositionFetchArgs extends Args {
         // -mode <n>: display mode 0 (geometric normal) or 1 (vertex position).
-        displayMode: int = 0;
+        displayMode = 0;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

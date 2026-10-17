@@ -430,9 +430,9 @@ namespace LogicOpDynamicState {
             for (let strip = 0; strip < 6; strip++) {
                 for (let t = 0; t < 2; t++) {
                     const v = strip * 4 + t;
-                    const first: int = strips[t % 2 == 0 ? v : v + 1];
-                    const second: int = strips[t % 2 == 0 ? v + 1 : v];
-                    const third: int = strips[v + 2];
+                    const first = strips[t % 2 == 0 ? v : v + 1];
+                    const second = strips[t % 2 == 0 ? v + 1 : v];
+                    const third = strips[v + 2];
                     indices.push(first);
                     indices.push(second);
                     indices.push(third);
@@ -557,7 +557,7 @@ namespace LogicOpDynamicState {
 
     class LogicOpDynamicStateArgs extends Args {
         // -op <0..15>: the logic operation at start (LogicOp, Vulkan's order: 3 is COPY).
-        operation: int = LogicOp.Copy;
+        operation = LogicOp.Copy;
 
         protected parseOptions(): void {
             for (let i = 1; i < this.argc; i++) {

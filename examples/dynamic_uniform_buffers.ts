@@ -387,8 +387,8 @@ namespace DynamicUniformBuffers {
             layoutDesc.addVertexAttribute("COLOR", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
 
-            let vertices: f32[] = CUBE_VERTICES.map((v): f32 => v);
-            let indices: int[] = CUBE_INDICES.map((v): int => v);
+            let vertices = CUBE_VERTICES.map((v): f32 => v);
+            let indices = CUBE_INDICES.map((v): int => v);
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");

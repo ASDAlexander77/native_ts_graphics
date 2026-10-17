@@ -617,7 +617,7 @@ namespace ShaderObjectSample {
         // tested greater: reversed, the polygon mode) with the draw's shaders, cull mode and depth
         // writes; depth clipped, as Vulkan does.
         getPipeline(combo: int, framebuffer: FramebufferHandle): GraphicsPipelineHandle {
-            const wireframe: int = this.wireframeMode ? 1 : 0;
+            const wireframe = this.wireframeMode ? 1 : 0;
             const key = ((combo * this.outputFormats.length + this.currentOutputFormat) * this.depthFormats.length
                 + this.currentDepthFormat) * 2 + wireframe;
             const index = this.pipelineIndex[key];

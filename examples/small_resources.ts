@@ -56,7 +56,7 @@ namespace SmallResources {
 
         next(): int {
             this.state = (this.state * 214013 + 2531011) % 4294967296;
-            const value: int = Math.floor(this.state / 65536) % 32768;
+            const value = Math.floor(this.state / 65536) % 32768;
             return value;
         }
     }

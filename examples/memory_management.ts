@@ -391,7 +391,7 @@ namespace MemoryManagement {
             const d = this.widths[image] / imageScale;
             const dSqr = d * d;
             const logValue = Math.log(dSqr) / Math.log(2.0);
-            const mip: number = 0.5 * logValue;
+            const mip = 0.5 * logValue;
             if (mip < 0.0) {
                 return 0;
             }
@@ -563,7 +563,7 @@ namespace MemoryManagement {
             }
             const frameTime = this.getFrameTime();
             const fps = frameTime > 0.0 ? Math.floor(1.0 / frameTime) : 0;
-            const ms: number = frameTime * 1000.0;
+            const ms = frameTime * 1000.0;
             Donut_ImGuiDrawText(8.0, 8.0, `FPS: ${fps} (${ms.toFixed(2)}ms)`, 1.0, 1.0, 1.0, 1.0, 0);
 
             const usage = this.images.getUsage();

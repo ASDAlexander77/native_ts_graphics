@@ -707,8 +707,8 @@ namespace AsyncComputeBloom {
                     }
                     scene.copyNodeTransform(node, Ref(transform[0]));
                     // The mesh's bounds, transformed (their corners), and their center.
-                    let low: number[] = [HUGE, HUGE, HUGE];
-                    let high: number[] = [-HUGE, -HUGE, -HUGE];
+                    let low = [HUGE, HUGE, HUGE];
+                    let high = [-HUGE, -HUGE, -HUGE];
                     for (let corner = 0; corner < 8; corner++) {
                         const x = meshBounds[mesh * 6 + ((corner & 1) != 0 ? 3 : 0)];
                         const y = meshBounds[mesh * 6 + 1 + ((corner & 2) != 0 ? 3 : 0)];

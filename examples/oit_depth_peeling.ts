@@ -524,7 +524,7 @@ namespace OitDepthPeeling {
 
     class OitDepthPeelingArgs extends Args {
         // -layers <front> <back>: the layers combined (0..7).
-        frontLayer: int = 0;
+        frontLayer = 0;
         backLayer = LAYER_MAX_COUNT - 1;
         // -alpha <value>, -grayscale <value>: the object's opacity, the background's brightness.
         alpha = 0.5;

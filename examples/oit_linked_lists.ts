@@ -569,7 +569,7 @@ namespace OitLinkedLists {
         // -nosort: fragments blended unsorted.
         sortFragments = true;
         // -sorted <1..16>: sorted fragments per pixel.
-        sortedFragmentCount: int = SORTED_FRAGMENT_MAX_COUNT;
+        sortedFragmentCount = SORTED_FRAGMENT_MAX_COUNT;
         // -rotate: camera auto-rotation.
         cameraAutoRotation = false;
         // -grayscale <0..1>: the background's brightness.

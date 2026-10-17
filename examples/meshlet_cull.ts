@@ -786,7 +786,7 @@ namespace MeshletCull {
                     meshletInts.push(0);
                 }
                 model.copyData(i, MeshletModelData.Meshlets, Ref(meshletInts[0]));
-                let meshInfo: int[] = [indexSize, meshletCount, meshletInts[(meshletCount - 1) * 4], meshletInts[(meshletCount - 1) * 4 + 2]];
+                let meshInfo = [indexSize, meshletCount, meshletInts[(meshletCount - 1) * 4], meshletInts[(meshletCount - 1) * 4 + 2]];
                 const meshInfoBuffer = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfo");
                 commandList.writeBuffer(meshInfoBuffer, Ref(meshInfo[0]), 16);
 

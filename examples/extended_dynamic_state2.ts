@@ -651,7 +651,7 @@ namespace ExtendedDynamicState2 {
                 cube.push(0.0);
                 cube.push(0.0);
             }
-            let restartIndices: int[] = RESTART_INDICES.map((v): int => v);
+            let restartIndices = RESTART_INDICES.map((v): int => v);
             this.restartVertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(cube[0]), cube.length * 4, "CubeVertices");
             this.restartIndexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(restartIndices[0]), restartIndices.length * 4,
                 "CubeIndices");
@@ -751,7 +751,7 @@ namespace ExtendedDynamicState2 {
             }
             if (Donut_ImGuiCollapsingHeaderDefaultOpen("Models") != 0) {
                 p.selectionActive = Donut_ImGuiCheckbox("Selection effect active", p.selectionActive ? 1 : 0) != 0;
-                const names: string[] = p.baselineNodes.map((node): string => node.name);
+                const names = p.baselineNodes.map((node): string => node.name);
                 p.selectedObject = Donut_ImGuiCombo("Name", p.selectedObject, comboItems(names));
                 const node = p.baselineNodes[p.selectedObject];
                 node.depthBias = Donut_ImGuiCheckbox("Depth Bias Enable", node.depthBias ? 1 : 0) != 0;
