@@ -3,8 +3,9 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
+import { multiply, radians, perspective, inverseGaussJordan } from "../core/matrix";
 import { comboItems } from "../core/text_format";
+import { LookAtCamera } from "../core/vulkan_samples_camera";
 
 namespace DynamicLineRasterization {
     // Test mode: the frames rendered.
@@ -88,109 +89,6 @@ namespace DynamicLineRasterization {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    // The inverse of m, by Gauss-Jordan elimination with partial pivoting.
-    function inverse(m: number[]) {
-        // Rows of [m | I].
-        let a: number[] = [];
-        for (let row = 0; row < 4; row++) {
-            for (let column = 0; column < 4; column++) {
-                a.push(m[column * 4 + row]);
-            }
-            for (let column = 0; column < 4; column++) {
-                a.push(row == column ? 1.0 : 0.0);
-            }
-        }
-        for (let column = 0; column < 4; column++) {
-            let pivot = column;
-            for (let row = column + 1; row < 4; row++) {
-                if (Math.abs(a[row * 8 + column]) > Math.abs(a[pivot * 8 + column])) {
-                    pivot = row;
-                }
-            }
-            for (let k = 0; k < 8; k++) {
-                const t = a[column * 8 + k];
-                a[column * 8 + k] = a[pivot * 8 + k];
-                a[pivot * 8 + k] = t;
-            }
-            const p = a[column * 8 + column];
-            for (let k = 0; k < 8; k++) {
-                a[column * 8 + k] /= p;
-            }
-            for (let row = 0; row < 4; row++) {
-                if (row != column) {
-                    const f = a[row * 8 + column];
-                    for (let k = 0; k < 8; k++) {
-                        a[row * 8 + k] -= f * a[column * 8 + k];
-                    }
-                }
-            }
-        }
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                result.push(a[row * 8 + 4 + column]);
-            }
-        }
-        return result;
-    }
-
-    // The sample's camera (the framework's vkb::Camera, look-at type), with ApiVulkanSample's mouse
-    // controls: the left button turns it, the right one zooms, the middle one pans.
-    class SampleCamera {
-        rotation: number[];
-        position: number[];
-        private mouseX: number;
-        private mouseY: number;
-        private buttons: boolean[];
-
-        constructor() {
-            this.rotation = [CAMERA_ROTATION[0], CAMERA_ROTATION[1], CAMERA_ROTATION[2]];
-            this.position = [CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]];
-            this.mouseX = 0.0;
-            this.mouseY = 0.0;
-            this.buttons = [false, false, false];
-        }
-
-        // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view() {
-            let r = identity();
-            r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
-            r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
-            r = rotate(r, radians(this.rotation[2]), 0.0, 0.0, 1.0);
-            let t = identity();
-            t[12] = this.position[0];
-            t[13] = this.position[1];
-            t[14] = this.position[2];
-            return multiply(t, r);
-        }
-
-        // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int) {
-            if (button >= 0 && button < 3) {
-                this.buttons[button] = action == 1;
-            }
-        }
-
-        // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number) {
-            const dx = Math.floor(this.mouseX) - Math.floor(x);
-            const dy = Math.floor(this.mouseY) - Math.floor(y);
-            if (this.buttons[0]) {
-                this.rotation[0] += dy;
-                this.rotation[1] -= dx;
-            }
-            if (this.buttons[1]) {
-                this.position[2] += dy * 0.005;
-            }
-            if (this.buttons[2]) {
-                this.position[0] -= dx * 0.01;
-                this.position[1] -= dy * 0.01;
-            }
-            this.mouseX = x;
-            this.mouseY = y;
-        }
-    }
-
     // --- Pass -------------------------------------------------------------------------------
 
     // Port of Vulkan-Samples' dynamic_line_rasterization: a cube, filled faintly, its edges drawn as
@@ -201,7 +99,7 @@ namespace DynamicLineRasterization {
     // aliased, alpha antialiased) and no width or stipple.
     class LineRasterizationPass {
         private app: App;
-        private camera: SampleCamera;
+        private camera: LookAtCamera;
 
         // The sample's settings, from its UI.
         fillEnabled: boolean;
@@ -242,7 +140,7 @@ namespace DynamicLineRasterization {
 
         constructor(app: App) {
             this.app = app;
-            this.camera = new SampleCamera();
+            this.camera = new LookAtCamera(CAMERA_POSITION, CAMERA_ROTATION);
             this.fillEnabled = true;
             this.gridEnabled = true;
             this.rasterizationMode = 0;
@@ -382,7 +280,7 @@ namespace DynamicLineRasterization {
             for (let i = 1; i < 16; i += 4) {
                 viewProj[i] = -viewProj[i];
             }
-            const viewProjInverse = inverse(viewProj);
+            const viewProjInverse = inverseGaussJordan(viewProj);
             for (let i = 0; i < 16; i++) {
                 this.cameraConstants[i] = viewProj[i];
                 this.cameraConstants[16 + i] = viewProjInverse[i];

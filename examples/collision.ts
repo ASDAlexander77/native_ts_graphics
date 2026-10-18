@@ -7,6 +7,7 @@ import {
     KEY_1, KEY_4, KEY_A, KEY_D, KEY_S, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
     KEY_HOME, KEY_END, KEY_F1, ACTION_RELEASE, ACTION_PRESS,
 } from "../core/glfw_input";
+import { multiplyF32, inverse } from "../core/matrix";
 
 namespace Collision {
     // Test mode: the frames rendered.
@@ -63,59 +64,6 @@ namespace Collision {
 
     function f(x: number) {
         return Math.fround(x);
-    }
-
-    function multiply(a: number[], b: number[]) {
-        let result: number[] = [];
-        for (let row = 0; row < 4; row++) {
-            for (let column = 0; column < 4; column++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[row * 4 + k] * b[k * 4 + column];
-                }
-                result.push(f(sum));
-            }
-        }
-        return result;
-    }
-
-    function inverse(m: number[]) {
-        const a00 = m[0]; const a01 = m[1]; const a02 = m[2]; const a03 = m[3];
-        const a10 = m[4]; const a11 = m[5]; const a12 = m[6]; const a13 = m[7];
-        const a20 = m[8]; const a21 = m[9]; const a22 = m[10]; const a23 = m[11];
-        const a30 = m[12]; const a31 = m[13]; const a32 = m[14]; const a33 = m[15];
-        const b00 = a00 * a11 - a01 * a10;
-        const b01 = a00 * a12 - a02 * a10;
-        const b02 = a00 * a13 - a03 * a10;
-        const b03 = a01 * a12 - a02 * a11;
-        const b04 = a01 * a13 - a03 * a11;
-        const b05 = a02 * a13 - a03 * a12;
-        const b06 = a20 * a31 - a21 * a30;
-        const b07 = a20 * a32 - a22 * a30;
-        const b08 = a20 * a33 - a23 * a30;
-        const b09 = a21 * a32 - a22 * a31;
-        const b10 = a21 * a33 - a23 * a31;
-        const b11 = a22 * a33 - a23 * a32;
-        const det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-        const invDet = 1.0 / det;
-        return [
-            f((a11 * b11 - a12 * b10 + a13 * b09) * invDet),
-            f((a02 * b10 - a01 * b11 - a03 * b09) * invDet),
-            f((a31 * b05 - a32 * b04 + a33 * b03) * invDet),
-            f((a22 * b04 - a21 * b05 - a23 * b03) * invDet),
-            f((a12 * b08 - a10 * b11 - a13 * b07) * invDet),
-            f((a00 * b11 - a02 * b08 + a03 * b07) * invDet),
-            f((a32 * b02 - a30 * b05 - a33 * b01) * invDet),
-            f((a20 * b05 - a22 * b02 + a23 * b01) * invDet),
-            f((a10 * b10 - a11 * b08 + a13 * b06) * invDet),
-            f((a01 * b08 - a00 * b10 - a03 * b06) * invDet),
-            f((a30 * b04 - a31 * b02 + a33 * b00) * invDet),
-            f((a21 * b02 - a20 * b04 - a23 * b00) * invDet),
-            f((a11 * b07 - a10 * b09 - a12 * b06) * invDet),
-            f((a00 * b09 - a01 * b07 + a02 * b06) * invDet),
-            f((a31 * b01 - a30 * b03 - a32 * b00) * invDet),
-            f((a20 * b03 - a21 * b01 + a22 * b00) * invDet),
-        ];
     }
 
     function normalize3(v: number[]) {
@@ -861,7 +809,7 @@ namespace Collision {
         drawOrientedBox(box: f32[], color: number[]) {
             const scale: number[] = [box[3], 0.0, 0.0, 0.0, 0.0, box[4], 0.0, 0.0, 0.0, 0.0, box[5], 0.0, 0.0, 0.0, 0.0, 1.0];
             const orientation: number[] = [box[6], box[7], box[8], box[9]];
-            let world = multiply(scale, matrixRotationQuaternion(orientation));
+            let world = multiplyF32(scale, matrixRotationQuaternion(orientation));
             world[12] = box[0];
             world[13] = box[1];
             world[14] = box[2];
@@ -1038,7 +986,7 @@ namespace Collision {
                 this.pipeline = this.app.createGraphicsPipelineFromDescForFrame(desc, frame);
             }
 
-            const viewProjection = multiply(this.camera.getView(), this.camera.getProjection());
+            const viewProjection = multiplyF32(this.camera.getView(), this.camera.getProjection());
             for (let i = 0; i < 16; i++) {
                 this.constants[i] = viewProjection[i];
             }

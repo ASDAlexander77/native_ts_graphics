@@ -141,6 +141,74 @@ export function inverseRigid(m: number[]) {
     return result;
 }
 
+// glm::radians(float) (and Donut's math::radians): in float32, as the samples that use it compute
+// every angle.
+export function radiansF32(degrees: number) {
+    return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
+}
+
+// a * b for row-major matrices (row vectors, as DirectXMath and Donut take them), each element
+// rounded to float32.
+export function multiplyF32(a: number[], b: number[]) {
+    let m: number[] = [];
+    for (let row = 0; row < 4; row++) {
+        for (let column = 0; column < 4; column++) {
+            let sum = 0.0;
+            for (let k = 0; k < 4; k++) {
+                sum += a[row * 4 + k] * b[k * 4 + column];
+            }
+            m.push(Math.fround(sum));
+        }
+    }
+    return m;
+}
+
+// The inverse of m, by Gauss-Jordan elimination with partial pivoting (in doubles).
+export function inverseGaussJordan(m: number[]) {
+    // Rows of [m | I].
+    let a: number[] = [];
+    for (let row = 0; row < 4; row++) {
+        for (let column = 0; column < 4; column++) {
+            a.push(m[column * 4 + row]);
+        }
+        for (let column = 0; column < 4; column++) {
+            a.push(row == column ? 1.0 : 0.0);
+        }
+    }
+    for (let column = 0; column < 4; column++) {
+        let pivot = column;
+        for (let row = column + 1; row < 4; row++) {
+            if (Math.abs(a[row * 8 + column]) > Math.abs(a[pivot * 8 + column])) {
+                pivot = row;
+            }
+        }
+        for (let k = 0; k < 8; k++) {
+            const t = a[column * 8 + k];
+            a[column * 8 + k] = a[pivot * 8 + k];
+            a[pivot * 8 + k] = t;
+        }
+        const p = a[column * 8 + column];
+        for (let k = 0; k < 8; k++) {
+            a[column * 8 + k] /= p;
+        }
+        for (let row = 0; row < 4; row++) {
+            if (row != column) {
+                const f = a[row * 8 + column];
+                for (let k = 0; k < 8; k++) {
+                    a[row * 8 + k] -= f * a[column * 8 + k];
+                }
+            }
+        }
+    }
+    let result: number[] = [];
+    for (let column = 0; column < 4; column++) {
+        for (let row = 0; row < 4; row++) {
+            result.push(a[row * 8 + 4 + column]);
+        }
+    }
+    return result;
+}
+
 // glm::radians.
 export function radians(degrees: number) {
     return degrees * Math.PI / 180.0;

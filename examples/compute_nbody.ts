@@ -5,6 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
 import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
+import { randomFloat } from "../core/random";
 
 namespace ComputeNBody {
     const WINDOW_TITLE = "Donut Example: Compute N-Body";
@@ -23,13 +24,6 @@ namespace ComputeNBody {
     const VERTICES_PER_PARTICLE = 6;
 
     // --- Math ---------------------------------------------------------------------------------
-
-    // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
-    let g_RandomSeed = 12345.0;
-    function randomFloat() {
-        g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
-        return g_RandomSeed / 2147483647.0;
-    }
 
     // std::normal_distribution<float>(0, 1) replacement: Box-Muller over randomFloat, which never
     // returns 0.

@@ -3,8 +3,9 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { perspProjReverse } from "../core/matrix";
+import { perspProjReverse, radiansF32 } from "../core/matrix";
 import { KEY_P, ACTION_PRESS } from "../core/glfw_input";
+import { randomFloat } from "../core/random";
 
 namespace Instancing {
     // Test mode: the frames rendered.
@@ -59,18 +60,6 @@ namespace Instancing {
     const Z_FAR = 256.0;
 
     // --- Math ---------------------------------------------------------------------------------
-
-    // glm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number) {
-        return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
-    }
-
-    // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
-    let g_RandomSeed = 12345.0;
-    function randomFloat() {
-        g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
-        return g_RandomSeed / 2147483647.0;
-    }
 
     // --- Passes -------------------------------------------------------------------------------
 
@@ -220,7 +209,7 @@ namespace Instancing {
         updateConstants(width: int, height: int) {
             const c = this.constants;
 
-            const projection = perspProjReverse(radians(60.0), width / height, Z_NEAR, Z_FAR);
+            const projection = perspProjReverse(radiansF32(60.0), width / height, Z_NEAR, Z_FAR);
             for (let i = 0; i < 16; i++) {
                 this.projMatrix[i] = projection[i];
             }
@@ -418,10 +407,10 @@ namespace Instancing {
         // (5.5, -1.85, -18.5): its view matrix is T * Rx * Ry. The orbit camera starts at its position,
         // looking at the point 18.5 ahead (as far ahead as the world's origin is), in Donut's world.
         lookFromSampleCamera() {
-            const ca = Math.cos(radians(-17.2));
-            const sa = Math.sin(radians(-17.2));
-            const cb = Math.cos(radians(-4.7));
-            const sb = Math.sin(radians(-4.7));
+            const ca = Math.cos(radiansF32(-17.2));
+            const sa = Math.sin(radiansF32(-17.2));
+            const cb = Math.cos(radiansF32(-4.7));
+            const sb = Math.sin(radiansF32(-4.7));
             // R = Rx * Ry (glm::rotate, column vectors), row by row.
             const r = [
                 cb,       0.0, sb,

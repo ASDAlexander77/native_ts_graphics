@@ -3,7 +3,8 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
-import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
+import { rotate, radians, perspective, translation } from "../core/matrix";
+import { LookAtCamera } from "../core/vulkan_samples_camera";
 
 namespace PushDescriptors {
     const WINDOW_TITLE = "Donut Example: Push Descriptors";
@@ -49,74 +50,6 @@ namespace PushDescriptors {
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
-    // glm::translate(identity, (x, y, z)).
-    function translation(x: number, y: number, z: number) {
-        let m = identity();
-        m[12] = x;
-        m[13] = y;
-        m[14] = z;
-        return m;
-    }
-
-    // The sample's camera (the framework's vkb::Camera, look-at type), with ApiVulkanSample's mouse
-    // controls: the left button turns it, the right one zooms, the middle one pans.
-    class SampleCamera {
-        rotation: number[];
-        position: number[];
-        private mouseX: number;
-        private mouseY: number;
-        private buttons: boolean[];
-
-        constructor() {
-            this.rotation = [0.0, 0.0, 0.0];
-            this.position = [CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]];
-            this.mouseX = 0.0;
-            this.mouseY = 0.0;
-            this.buttons = [false, false, false];
-        }
-
-        // vkb::Camera::update_view_matrix: rotations around x, y, z; a look-at camera's view is
-        // translate(position) * rotation.
-        view() {
-            let r = identity();
-            r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
-            r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
-            r = rotate(r, radians(this.rotation[2]), 0.0, 0.0, 1.0);
-            return multiply(translation(this.position[0], this.position[1], this.position[2]), r);
-        }
-
-        // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int) {
-            if (button >= 0 && button < 3) {
-                this.buttons[button] = action == 1;
-            }
-        }
-
-        // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number) {
-            const dx = Math.floor(this.mouseX) - Math.floor(x);
-            const dy = Math.floor(this.mouseY) - Math.floor(y);
-            if (this.buttons[0]) {
-                this.rotation[0] += dy;
-                this.rotation[1] -= dx;
-            }
-            if (this.buttons[1]) {
-                this.position[2] += dy * 0.005;
-            }
-            if (this.buttons[2]) {
-                this.position[0] -= dx * 0.01;
-                this.position[1] -= dy * 0.01;
-            }
-            this.mouseX = x;
-            this.mouseY = y;
-        }
-
-        // ApiVulkanSample's mouse wheel: zoom.
-        mouseScroll(yoffset: number) {
-            this.position[2] += yoffset * 0.005;
-        }
-    }
-
     // --- Pass -------------------------------------------------------------------------------
 
     // Port of Vulkan-Samples' push_descriptors: two textured cubes drawn with one pipeline whose
@@ -127,7 +60,7 @@ namespace PushDescriptors {
     // (Donut_CreatePushDescriptorPipeline). Vulkan only.
     class PushDescriptorsPass {
         private app: App;
-        private camera: SampleCamera;
+        private camera: LookAtCamera;
 
         // The sample's setting, from its UI; the device's limit it shows.
         animate: boolean;
@@ -160,7 +93,7 @@ namespace PushDescriptors {
 
         constructor(app: App) {
             this.app = app;
-            this.camera = new SampleCamera();
+            this.camera = new LookAtCamera(CAMERA_POSITION, [0.0, 0.0, 0.0]);
             this.animate = true;
             this.maxPushDescriptors = 0;
             this.modelBuffers = [];

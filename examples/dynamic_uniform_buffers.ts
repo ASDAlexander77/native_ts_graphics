@@ -3,7 +3,8 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
+import { identity, rotate, radians, perspective } from "../core/matrix";
+import { LookAtCamera } from "../core/vulkan_samples_camera";
 
 namespace DynamicUniformBuffers {
     // Test mode: the frames rendered.
@@ -67,63 +68,6 @@ namespace DynamicUniformBuffers {
     // ApiVulkanSample's default_clear_color.
     const CLEAR_COLOR = 0.002;
 
-    // The sample's camera (the framework's vkb::Camera, look-at type), with ApiVulkanSample's mouse
-    // controls: the left button turns it, the right one zooms, the middle one pans.
-    class SampleCamera {
-        rotation: number[];
-        position: number[];
-        private mouseX: number;
-        private mouseY: number;
-        private buttons: boolean[];
-
-        constructor() {
-            this.rotation = [0.0, 0.0, 0.0];
-            this.position = [CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]];
-            this.mouseX = 0.0;
-            this.mouseY = 0.0;
-            this.buttons = [false, false, false];
-        }
-
-        // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view() {
-            let r = identity();
-            r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
-            r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
-            r = rotate(r, radians(this.rotation[2]), 0.0, 0.0, 1.0);
-            let t = identity();
-            t[12] = this.position[0];
-            t[13] = this.position[1];
-            t[14] = this.position[2];
-            return multiply(t, r);
-        }
-
-        // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int) {
-            if (button >= 0 && button < 3) {
-                this.buttons[button] = action == 1;
-            }
-        }
-
-        // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number) {
-            const dx = Math.floor(this.mouseX) - Math.floor(x);
-            const dy = Math.floor(this.mouseY) - Math.floor(y);
-            if (this.buttons[0]) {
-                this.rotation[0] += dy;
-                this.rotation[1] -= dx;
-            }
-            if (this.buttons[1]) {
-                this.position[2] += dy * 0.005;
-            }
-            if (this.buttons[2]) {
-                this.position[0] -= dx * 0.01;
-                this.position[1] -= dy * 0.01;
-            }
-            this.mouseX = x;
-            this.mouseY = y;
-        }
-    }
-
     // --- Pass -------------------------------------------------------------------------------
 
     // Port of Vulkan-Samples' dynamic_uniform_buffers: 125 spinning colored cubes, one draw each,
@@ -133,7 +77,7 @@ namespace DynamicUniformBuffers {
     // once per update).
     class DynamicUniformBuffersPass {
         private app: App;
-        private camera: SampleCamera;
+        private camera: LookAtCamera;
 
         private vs: ShaderHandle;
         private ps: ShaderHandle;
@@ -172,7 +116,7 @@ namespace DynamicUniformBuffers {
 
         constructor(app: App) {
             this.app = app;
-            this.camera = new SampleCamera();
+            this.camera = new LookAtCamera(CAMERA_POSITION, [0.0, 0.0, 0.0]);
             this.bindingSets = [];
             this.rotations = [];
             this.rotationSpeeds = [];

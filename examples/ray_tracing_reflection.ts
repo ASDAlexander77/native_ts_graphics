@@ -3,7 +3,8 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
+import { radians, perspective, inverseGaussJordan } from "../core/matrix";
+import { LookAtCamera } from "../core/vulkan_samples_camera";
 
 namespace RayTracingReflection {
     // Test mode: the frames rendered.
@@ -122,109 +123,6 @@ namespace RayTracingReflection {
         return [sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, sz, 0.0, tx, ty, tz, 1.0];
     }
 
-    // The inverse of m, by Gauss-Jordan elimination with partial pivoting.
-    function inverse(m: number[]) {
-        // Rows of [m | I].
-        let a: number[] = [];
-        for (let row = 0; row < 4; row++) {
-            for (let column = 0; column < 4; column++) {
-                a.push(m[column * 4 + row]);
-            }
-            for (let column = 0; column < 4; column++) {
-                a.push(row == column ? 1.0 : 0.0);
-            }
-        }
-        for (let column = 0; column < 4; column++) {
-            let pivot = column;
-            for (let row = column + 1; row < 4; row++) {
-                if (Math.abs(a[row * 8 + column]) > Math.abs(a[pivot * 8 + column])) {
-                    pivot = row;
-                }
-            }
-            for (let k = 0; k < 8; k++) {
-                const t = a[column * 8 + k];
-                a[column * 8 + k] = a[pivot * 8 + k];
-                a[pivot * 8 + k] = t;
-            }
-            const p = a[column * 8 + column];
-            for (let k = 0; k < 8; k++) {
-                a[column * 8 + k] /= p;
-            }
-            for (let row = 0; row < 4; row++) {
-                if (row != column) {
-                    const f = a[row * 8 + column];
-                    for (let k = 0; k < 8; k++) {
-                        a[row * 8 + k] -= f * a[column * 8 + k];
-                    }
-                }
-            }
-        }
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                result.push(a[row * 8 + 4 + column]);
-            }
-        }
-        return result;
-    }
-
-    // The sample's camera (the framework's vkb::Camera, look-at type), with ApiVulkanSample's mouse
-    // controls: the left button turns it, the right one zooms, the middle one pans.
-    class SampleCamera {
-        rotation: number[];
-        position: number[];
-        private mouseX: number;
-        private mouseY: number;
-        private buttons: boolean[];
-
-        constructor() {
-            this.rotation = [0.0, 0.0, 0.0];
-            this.position = [CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]];
-            this.mouseX = 0.0;
-            this.mouseY = 0.0;
-            this.buttons = [false, false, false];
-        }
-
-        // vkb::Camera::update_view_matrix: translate(position) * rotations around x, y, z.
-        view() {
-            let r = identity();
-            r = rotate(r, radians(this.rotation[0]), 1.0, 0.0, 0.0);
-            r = rotate(r, radians(this.rotation[1]), 0.0, 1.0, 0.0);
-            r = rotate(r, radians(this.rotation[2]), 0.0, 0.0, 1.0);
-            let t = identity();
-            t[12] = this.position[0];
-            t[13] = this.position[1];
-            t[14] = this.position[2];
-            return multiply(t, r);
-        }
-
-        // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int) {
-            if (button >= 0 && button < 3) {
-                this.buttons[button] = action == 1;
-            }
-        }
-
-        // ApiVulkanSample::handle_mouse_move, with its speeds (1).
-        mouseMove(x: number, y: number) {
-            const dx = Math.floor(this.mouseX) - Math.floor(x);
-            const dy = Math.floor(this.mouseY) - Math.floor(y);
-            if (this.buttons[0]) {
-                this.rotation[0] += dy;
-                this.rotation[1] -= dx;
-            }
-            if (this.buttons[1]) {
-                this.position[2] += dy * 0.005;
-            }
-            if (this.buttons[2]) {
-                this.position[0] -= dx * 0.01;
-                this.position[1] -= dy * 0.01;
-            }
-            this.mouseX = x;
-            this.mouseY = y;
-        }
-    }
-
     // --- Pass -------------------------------------------------------------------------------
 
     // Port of Vulkan-Samples' ray_tracing_reflection: two cubes with a color per face over a
@@ -234,7 +132,7 @@ namespace RayTracingReflection {
     // scene: three models (the colored cube, the plane, the mirror cube), five instances.
     class RayTracingReflectionPass {
         private app: App;
-        private camera: SampleCamera;
+        private camera: LookAtCamera;
 
         private bindingLayout: BindingLayoutHandle;
         private shaderTable: ShaderTable;
@@ -258,7 +156,7 @@ namespace RayTracingReflection {
 
         constructor(app: App) {
             this.app = app;
-            this.camera = new SampleCamera();
+            this.camera = new LookAtCamera(CAMERA_POSITION, [0.0, 0.0, 0.0]);
             this.blases = [];
             this.topLevelASBuilt = false;
             this.storageImage = null;
@@ -329,8 +227,8 @@ namespace RayTracingReflection {
         updateUniformBuffers(width: int, height: int) {
             let projection = perspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR);
             projection[5] = -projection[5];
-            const projInverse = inverse(projection);
-            const viewInverse = inverse(this.camera.view());
+            const projInverse = inverseGaussJordan(projection);
+            const viewInverse = inverseGaussJordan(this.camera.view());
             for (let i = 0; i < 16; i++) {
                 this.ubo[UBO_VIEW_INVERSE + i] = viewInverse[i];
                 this.ubo[UBO_PROJ_INVERSE + i] = projInverse[i];

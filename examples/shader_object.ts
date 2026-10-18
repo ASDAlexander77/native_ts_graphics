@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { identity, multiply, radians, perspective } from "../core/matrix";
+import { identity, multiply, radians, perspective, translation } from "../core/matrix";
 
 namespace ShaderObjectSample {
     // Test mode: the frames rendered.
@@ -151,14 +151,6 @@ namespace ShaderObjectSample {
             0.0,               0.0,               0.0,               1.0,
         ];
         return multiply(m, r);
-    }
-
-    function translation(x: number, y: number, z: number) {
-        let m = identity();
-        m[12] = x;
-        m[13] = y;
-        m[14] = z;
-        return m;
     }
 
     function scale(m: number[], s: number) {
