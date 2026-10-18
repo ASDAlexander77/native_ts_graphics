@@ -73,7 +73,7 @@ namespace ComputeShaderDerivatives {
         init() {
             // Prefer quads when available; otherwise, fall back to linear.
             const support = this.app.getComputeShaderDerivatives();
-            if (support == 0) {
+            if (<int>support == 0) {
                 this.unsupportedReason = "This example needs derivatives in compute shaders (D3D12 shader model 6.6 or Vulkan's VK_KHR_compute_shader_derivatives)";
                 return false;
             }

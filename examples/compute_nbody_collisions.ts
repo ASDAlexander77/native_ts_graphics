@@ -87,8 +87,6 @@ namespace ComputeNBodyCollisions {
     const DEFAULT_FRAGMENT_SLIDER = 10.0;
     const FRAGMENT_SPEED_MAX = 50.0;
     const DEFAULT_FRAGMENT_ROOM = 0.0;
-    // A fragment is smaller than any particle placed at the start (half the volume of the smallest).
-    const FRAGMENT_RADIUS = LIGHT_RADIUS_MIN * 0.7937005;
     // With gravity between all pairs (-fullgravity), the test checks the momentum and the angular
     // momentum drifted by less than this much of the sums of their sizes. The heavy centers alone
     // (-particles 1): merging the six (-merge 20) drifts the angular momentum by 3e-6 of it with the
@@ -131,6 +129,8 @@ namespace ComputeNBodyCollisions {
     // mass of LIGHT_MASS_MIN at the smallest, growing with the volume (20 to 312).
     const HEAVY_RADIUS = 0.5;
     const LIGHT_RADIUS_MIN = 0.04;
+    // A fragment is smaller than any particle placed at the start (half the volume of the smallest).
+    const FRAGMENT_RADIUS = LIGHT_RADIUS_MIN * 0.7937005;
     const LIGHT_RADIUS_MAX = 0.1;
     const LIGHT_MASS_MIN = 20.0;
     // Mass follows volume: LIGHT_MASS_MIN at LIGHT_RADIUS_MIN, HEAVY_MASS at HEAVY_RADIUS, whatever
