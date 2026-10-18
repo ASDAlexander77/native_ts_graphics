@@ -11,8 +11,12 @@ import {
 import { radiansF32 } from "../core/matrix";
 
 namespace FeatureDemoExample {
-    // Test mode: the frames rendered.
+    // Test mode: the frames rendered once the scene has loaded. The scene loads on a thread, slower
+    // under a parallel ctest: the test renders splash screens until then, up to TEST_FRAMES_MAX
+    // frames in all, each waiting TEST_LOADING_WAIT_MS for the thread.
     const TEST_FRAMES = 120;
+    const TEST_FRAMES_MAX = 20000;
+    const TEST_LOADING_WAIT_MS = 1;
 
     // -test: checks the last frame: Donut's renderer draws Sponza and its character all over it,
     // about 11% colored, the blue banners about 4%.
@@ -228,8 +232,9 @@ namespace FeatureDemoExample {
         public lightProbes: LightProbeSet;
 
         private wallclockTime: number;
-        // Frames rendered with a loaded scene, for -screenshot.
+        // Frames rendered with a loaded scene, for -screenshot and -test.
         private readyFrames: int;
+        private testMode: boolean;
 
         // Storage passed to C++ by Ref: matrices (16 floats), vectors, box bounds, a readback pixel.
         private viewMatrix: f32[];
@@ -278,6 +283,7 @@ namespace FeatureDemoExample {
             this.pick = false;
             this.wallclockTime = 0.0;
             this.readyFrames = 0;
+            this.testMode = app.isTestMode() != 0;
 
             this.viewMatrix = [];
             this.rightViewMatrix = [];
@@ -1085,6 +1091,9 @@ namespace FeatureDemoExample {
             const state = this.sceneLoader.update(frame);
             if (state == SceneLoaderState.Loading) {
                 this.renderSplashScreen(frame);
+                if (this.testMode) {
+                    Donut_SleepMilliseconds(TEST_LOADING_WAIT_MS);
+                }
                 return;
             }
 
@@ -1094,8 +1103,11 @@ namespace FeatureDemoExample {
 
             this.renderScene(frame);
 
+            this.readyFrames++;
+            if (this.testMode && this.readyFrames == TEST_FRAMES) {
+                this.app.closeWindow();
+            }
             if (g_ScreenshotPath != "") {
-                this.readyFrames++;
                 if (this.readyFrames == SCREENSHOT_FRAME) {
                     this.ui.screenshotFileName = g_ScreenshotPath;
                 } else if (this.readyFrames > SCREENSHOT_FRAME) {
@@ -1513,7 +1525,7 @@ namespace FeatureDemoExample {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Donut_SetAppName("feature_demo");
 
-        const args = new FeatureDemoExampleArgs(argc, argv, TEST_FRAMES);
+        const args = new FeatureDemoExampleArgs(argc, argv, TEST_FRAMES_MAX);
         args.parseArgs();
 
         g_PrintSceneGraph = args.printSceneGraph;

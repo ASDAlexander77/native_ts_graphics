@@ -359,6 +359,9 @@ export class App {
         return Donut_IsVsyncEnabled(this.handle);
     }
 
+    // Makes Donut_RunApp return after the current frame, in test mode too (before the frames it was to
+    // render: a test waiting for something renders up to an upper bound and stops once it has the
+    // frames it checks).
     closeWindow(): void {
         Donut_CloseWindow(this.handle);
     }
