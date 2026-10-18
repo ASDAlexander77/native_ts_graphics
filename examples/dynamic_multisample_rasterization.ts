@@ -217,6 +217,70 @@ namespace DynamicMultisampleRasterization {
             }
         }
 
+        init() {
+            const shader = "dynamic_multisample_rasterization.hlsl";
+            this.vs = this.app.createShader(shader, "model_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "model_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            // The sample's prepare_supported_sample_count_list.
+            const supported = this.app.getSupportedSampleCounts(this.app.getBackBufferFormat(), DEPTH_FORMAT);
+            for (let i = 0; i < SAMPLE_COUNTS.length; i++) {
+                if ((supported & SAMPLE_COUNTS[i]) != 0) {
+                    this.supportedCounts.push(SAMPLE_COUNTS[i]);
+                }
+            }
+            this.sampleCount = this.supportedCounts.length > 0 ? this.supportedCounts[0] : 1;
+            this.renderPassResolve = this.app.hasRenderPassResolve() != 0;
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
+            for (let t = 0; t < MAX_TEXTURES; t++) {
+                bindingLayoutDesc.layoutTextureSRV(t);
+            }
+            bindingLayoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+
+            // The glTF file's sampler: trilinear, repeating (Donut's common passes, which hold the
+            // samplers, upload on a command list of their own: before ours is open).
+            const sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindPushConstants(1, PUSH_SIZE);
+            setDesc.bindSampler(0, sampler);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.loadScene(commandList, setDesc);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -472,71 +536,6 @@ namespace DynamicMultisampleRasterization {
             this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "dynamic_multisample_rasterization.hlsl";
-            this.vs = this.app.createShader(shader, "model_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "model_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            // The sample's prepare_supported_sample_count_list.
-            const supported = this.app.getSupportedSampleCounts(this.app.getBackBufferFormat(), DEPTH_FORMAT);
-            for (let i = 0; i < SAMPLE_COUNTS.length; i++) {
-                if ((supported & SAMPLE_COUNTS[i]) != 0) {
-                    this.supportedCounts.push(SAMPLE_COUNTS[i]);
-                }
-            }
-            this.sampleCount = this.supportedCounts.length > 0 ? this.supportedCounts[0] : 1;
-            this.renderPassResolve = this.app.hasRenderPassResolve() != 0;
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
-            for (let t = 0; t < MAX_TEXTURES; t++) {
-                bindingLayoutDesc.layoutTextureSRV(t);
-            }
-            bindingLayoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-
-            // The glTF file's sampler: trilinear, repeating (Donut's common passes, which hold the
-            // samplers, upload on a command list of their own: before ours is open).
-            const sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindPushConstants(1, PUSH_SIZE);
-            setDesc.bindSampler(0, sampler);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.loadScene(commandList, setDesc);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -547,6 +546,10 @@ namespace DynamicMultisampleRasterization {
         constructor(sample: DynamicMultisamplePass) {
             this.sample = sample;
             this.names = "";
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -571,11 +574,6 @@ namespace DynamicMultisampleRasterization {
             }
             Donut_ImGuiPopItemWidth();
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

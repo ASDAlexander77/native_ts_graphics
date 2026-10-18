@@ -127,6 +127,54 @@ namespace RayQueries {
             }
         }
 
+        init() {
+            const shader = "ray_queries.hlsl";
+            this.vs = this.app.createShader(shader, "ray_shadow_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "ray_shadow_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.loadScene(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            this.topLevelAS = this.app.createTopLevelAS(1);
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+            // -test's unthrottled frames on Vulkan.
+            this.globalBuffer = this.app.createConstantBuffer(UBO_FLOATS * 4, "GlobalUniform");
+            const layout = BindingLayoutDesc.create();
+            layout.layoutConstantBuffer(0);
+            layout.layoutAccelStruct(0);
+            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.globalBuffer);
+            setDesc.bindAccelStruct(0, this.topLevelAS.getTopLevelAS());
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.key(key, action);
             return 1;
@@ -323,55 +371,6 @@ namespace RayQueries {
             this.blas = this.app.createEmptyTriangleBlas("BLAS");
             this.blas.addGeometry(blasIndices, 0, indices.length, blasVertices, 0, vertexCount, VERTEX_SIZE, null);
             return this.blas.build(this.app, commandList, AccelStructBuildFlags.PreferFastTrace) != 0;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "ray_queries.hlsl";
-            this.vs = this.app.createShader(shader, "ray_shadow_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "ray_shadow_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.loadScene(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            this.topLevelAS = this.app.createTopLevelAS(1);
-            // Static, written in the command list every frame: a volatile one runs out of versions in
-            // -test's unthrottled frames on Vulkan.
-            this.globalBuffer = this.app.createConstantBuffer(UBO_FLOATS * 4, "GlobalUniform");
-            const layout = BindingLayoutDesc.create();
-            layout.layoutConstantBuffer(0);
-            layout.layoutAccelStruct(0);
-            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.globalBuffer);
-            setDesc.bindAccelStruct(0, this.topLevelAS.getTopLevelAS());
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

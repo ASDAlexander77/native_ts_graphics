@@ -129,6 +129,70 @@ namespace BufferDeviceAddress {
             this.fixedTime = -1.0;
         }
 
+        init() {
+            const shader = "buffer_device_address.hlsl";
+            this.computeShader = this.app.createShaderWithDefine(shader, "update_vbo_cs", ShaderType.Compute, "UPDATE_VBO", "1");
+            this.vertexShader = this.app.createShader(shader, "render_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader(shader, "render_ps", ShaderType.Pixel);
+            if (!this.computeShader || !this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+
+            // create_vbo_buffers: the meshes' buffers, which the shaders write and read only through
+            // their device addresses, and the table of those addresses.
+            for (let i = 0; i < MESH_COUNT; i++) {
+                const buffer = this.app.createRWStructuredBuffer(POSITION_SIZE, MESH_WIDTH * MESH_HEIGHT, `Mesh${i}`);
+                this.meshBuffers.push(buffer);
+                Donut_CopyBufferDeviceAddress(buffer, Ref(this.pointers[i * 2]));
+            }
+            this.pointerBuffer = this.app.createRWStructuredBuffer(ADDRESS_SIZE, MESH_COUNT, "PointerBuffer");
+
+            // create_index_buffer: the strips' 16-bit indices, two to an int.
+            const indices16: int[] = [];
+            for (let strip = 0; strip < MESH_STRIPS; strip++) {
+                for (let x = 0; x < MESH_WIDTH; x++) {
+                    indices16.push(strip * MESH_WIDTH + x);
+                    indices16.push((strip + 1) * MESH_WIDTH + x);
+                }
+                indices16.push(PRIMITIVE_RESTART);
+            }
+            if (indices16.length % 2 != 0) {
+                indices16.push(0);
+            }
+            let indices: int[] = [];
+            for (let i = 0; i < indices16.length; i += 2) {
+                indices.push(indices16[i] | (indices16[i + 1] << 16));
+            }
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            // The pipelines' layouts: push constants only.
+            const computeLayoutDesc = BindingLayoutDesc.create();
+            computeLayoutDesc.layoutPushConstants(0, PUSH_COMPUTE_FLOATS * 4);
+            this.computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
+            const computeSetDesc = BindingSetDesc.create();
+            computeSetDesc.bindPushConstants(0, PUSH_COMPUTE_FLOATS * 4);
+            this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, this.computeBindingLayout);
+            this.computePipeline = this.app.createComputePipelineWithLayout(this.computeShader, this.computeBindingLayout);
+
+            const vertexLayoutDesc = BindingLayoutDesc.create();
+            vertexLayoutDesc.layoutPushConstants(0, PUSH_VERTEX_FLOATS * 4);
+            this.vertexBindingLayout = this.app.createBindingLayout(vertexLayoutDesc, ShaderType.Vertex);
+            const vertexSetDesc = BindingSetDesc.create();
+            vertexSetDesc.bindPushConstants(0, PUSH_VERTEX_FLOATS * 4);
+            this.vertexBindingSet = this.app.createBindingSetForLayout(vertexSetDesc, this.vertexBindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // render: the time advances 0.2 a second, kept to a fraction.
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
@@ -200,71 +264,6 @@ namespace BufferDeviceAddress {
             frame.drawAddBindingSet(this.vertexBindingSet);
             frame.drawSetIndexBuffer16(this.indexBuffer);
             frame.drawIndexedInstancedWithPushConstants(MESH_NUM_INDICES, MESH_COUNT, Ref(this.pushVertex[0]), PUSH_VERTEX_FLOATS * 4);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "buffer_device_address.hlsl";
-            this.computeShader = this.app.createShaderWithDefine(shader, "update_vbo_cs", ShaderType.Compute, "UPDATE_VBO", "1");
-            this.vertexShader = this.app.createShader(shader, "render_vs", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader(shader, "render_ps", ShaderType.Pixel);
-            if (!this.computeShader || !this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-
-            // create_vbo_buffers: the meshes' buffers, which the shaders write and read only through
-            // their device addresses, and the table of those addresses.
-            for (let i = 0; i < MESH_COUNT; i++) {
-                const buffer = this.app.createRWStructuredBuffer(POSITION_SIZE, MESH_WIDTH * MESH_HEIGHT, `Mesh${i}`);
-                this.meshBuffers.push(buffer);
-                Donut_CopyBufferDeviceAddress(buffer, Ref(this.pointers[i * 2]));
-            }
-            this.pointerBuffer = this.app.createRWStructuredBuffer(ADDRESS_SIZE, MESH_COUNT, "PointerBuffer");
-
-            // create_index_buffer: the strips' 16-bit indices, two to an int.
-            const indices16: int[] = [];
-            for (let strip = 0; strip < MESH_STRIPS; strip++) {
-                for (let x = 0; x < MESH_WIDTH; x++) {
-                    indices16.push(strip * MESH_WIDTH + x);
-                    indices16.push((strip + 1) * MESH_WIDTH + x);
-                }
-                indices16.push(PRIMITIVE_RESTART);
-            }
-            if (indices16.length % 2 != 0) {
-                indices16.push(0);
-            }
-            let indices: int[] = [];
-            for (let i = 0; i < indices16.length; i += 2) {
-                indices.push(indices16[i] | (indices16[i + 1] << 16));
-            }
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            // The pipelines' layouts: push constants only.
-            const computeLayoutDesc = BindingLayoutDesc.create();
-            computeLayoutDesc.layoutPushConstants(0, PUSH_COMPUTE_FLOATS * 4);
-            this.computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
-            const computeSetDesc = BindingSetDesc.create();
-            computeSetDesc.bindPushConstants(0, PUSH_COMPUTE_FLOATS * 4);
-            this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, this.computeBindingLayout);
-            this.computePipeline = this.app.createComputePipelineWithLayout(this.computeShader, this.computeBindingLayout);
-
-            const vertexLayoutDesc = BindingLayoutDesc.create();
-            vertexLayoutDesc.layoutPushConstants(0, PUSH_VERTEX_FLOATS * 4);
-            this.vertexBindingLayout = this.app.createBindingLayout(vertexLayoutDesc, ShaderType.Vertex);
-            const vertexSetDesc = BindingSetDesc.create();
-            vertexSetDesc.bindPushConstants(0, PUSH_VERTEX_FLOATS * 4);
-            this.vertexBindingSet = this.app.createBindingSetForLayout(vertexSetDesc, this.vertexBindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

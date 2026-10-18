@@ -157,6 +157,70 @@ namespace ConservativeRasterization {
             }
         }
 
+        init() {
+            if (this.app.isFeatureSupported(Feature.ConservativeRasterization) == 0) {
+                this.unsupportedReason = "This example needs conservative rasterization";
+                return false;
+            }
+            this.hasVulkanProperties = this.app.getVulkanConservativeRasterizationProperties(Ref(this.vulkanProperties[0])) != 0;
+            this.d3d12Tier = this.app.getD3D12ConservativeRasterizationTier();
+
+            const shader = "conservative_rasterization.hlsl";
+            this.triangleVS = this.app.createShader(shader, "triangle_vs", ShaderType.Vertex);
+            this.trianglePS = this.app.createShader(shader, "triangle_ps", ShaderType.Pixel);
+            this.overlayGS = this.app.createShader(shader, "overlay_gs", ShaderType.Geometry);
+            this.overlayPS = this.app.createShader(shader, "overlay_ps", ShaderType.Pixel);
+            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
+            this.fullscreenPS = this.app.createShader(shader, "fullscreen_ps", ShaderType.Pixel);
+            if (!this.triangleVS || !this.trianglePS || !this.overlayGS || !this.overlayPS || !this.fullscreenVS || !this.fullscreenPS) {
+                return false;
+            }
+
+            // The triangle's vertex input: positions and colors.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("COLOR", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.triangleVS);
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UboScene");
+            const sceneLayoutDesc = BindingLayoutDesc.create();
+            sceneLayoutDesc.layoutVolatileConstantBuffer(0);
+            this.sceneBindingLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
+            const sceneSetDesc = BindingSetDesc.create();
+            sceneSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+            this.sceneBindingSet = this.app.createBindingSetForLayout(sceneSetDesc, this.sceneBindingLayout);
+
+            // The low resolution image's texels as they are: nearest, clamped to the edges.
+            const fullscreenLayoutDesc = BindingLayoutDesc.create();
+            fullscreenLayoutDesc.layoutTextureSRV(0);
+            fullscreenLayoutDesc.layoutSampler(0);
+            this.fullscreenBindingLayout = this.app.createBindingLayout(fullscreenLayoutDesc, ShaderType.Pixel);
+            this.sampler = this.app.createSampler(0, 1, 0);
+
+            // A single triangle.
+            let vertices: f32[] = [
+                1.0, 1.0, 0.0, 1.0, 0.0, 0.0,
+                -1.0, 1.0, 0.0, 0.0, 1.0, 0.0,
+                0.0, -1.0, 0.0, 0.0, 0.0, 1.0,
+            ];
+            let indices: int[] = [0, 1, 2];
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), 3 * VERTEX_SIZE, "Vertices");
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), 3 * 4, "Indices");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
         onMousePos(x: number, y: number) {
@@ -291,71 +355,6 @@ namespace ConservativeRasterization {
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
             frame.drawVertices(3);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            if (this.app.isFeatureSupported(Feature.ConservativeRasterization) == 0) {
-                this.unsupportedReason = "This example needs conservative rasterization";
-                return false;
-            }
-            this.hasVulkanProperties = this.app.getVulkanConservativeRasterizationProperties(Ref(this.vulkanProperties[0])) != 0;
-            this.d3d12Tier = this.app.getD3D12ConservativeRasterizationTier();
-
-            const shader = "conservative_rasterization.hlsl";
-            this.triangleVS = this.app.createShader(shader, "triangle_vs", ShaderType.Vertex);
-            this.trianglePS = this.app.createShader(shader, "triangle_ps", ShaderType.Pixel);
-            this.overlayGS = this.app.createShader(shader, "overlay_gs", ShaderType.Geometry);
-            this.overlayPS = this.app.createShader(shader, "overlay_ps", ShaderType.Pixel);
-            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
-            this.fullscreenPS = this.app.createShader(shader, "fullscreen_ps", ShaderType.Pixel);
-            if (!this.triangleVS || !this.trianglePS || !this.overlayGS || !this.overlayPS || !this.fullscreenVS || !this.fullscreenPS) {
-                return false;
-            }
-
-            // The triangle's vertex input: positions and colors.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("COLOR", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.triangleVS);
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UboScene");
-            const sceneLayoutDesc = BindingLayoutDesc.create();
-            sceneLayoutDesc.layoutVolatileConstantBuffer(0);
-            this.sceneBindingLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
-            const sceneSetDesc = BindingSetDesc.create();
-            sceneSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-            this.sceneBindingSet = this.app.createBindingSetForLayout(sceneSetDesc, this.sceneBindingLayout);
-
-            // The low resolution image's texels as they are: nearest, clamped to the edges.
-            const fullscreenLayoutDesc = BindingLayoutDesc.create();
-            fullscreenLayoutDesc.layoutTextureSRV(0);
-            fullscreenLayoutDesc.layoutSampler(0);
-            this.fullscreenBindingLayout = this.app.createBindingLayout(fullscreenLayoutDesc, ShaderType.Pixel);
-            this.sampler = this.app.createSampler(0, 1, 0);
-
-            // A single triangle.
-            let vertices: f32[] = [
-                1.0, 1.0, 0.0, 1.0, 0.0, 0.0,
-                -1.0, 1.0, 0.0, 0.0, 1.0, 0.0,
-                0.0, -1.0, 0.0, 0.0, 0.0, 1.0,
-            ];
-            let indices: int[] = [0, 1, 2];
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), 3 * VERTEX_SIZE, "Vertices");
-            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), 3 * 4, "Indices");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -364,6 +363,10 @@ namespace ConservativeRasterization {
 
         constructor(sample: ConservativeRasterizationPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         yesNo(value: number) {
@@ -394,11 +397,6 @@ namespace ConservativeRasterization {
                 }
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

@@ -537,6 +537,193 @@ namespace RaytracingAo {
             this.dHeld = false;
         }
 
+        // Sample::CreateDeviceDependentResources, AO::Setup, SSAO::Setup.
+        init() {
+            // CommonRenderPasses (behind the common samplers and the blits) opens its own command
+            // list: before ours.
+            this.linearClampSampler = this.app.getCommonSampler(CommonSampler.LinearClamp);
+            this.pointClampSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
+            this.pointWrapSampler = this.app.createSamplerWithDesc(0, 0, 0, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, 1.0);
+
+            // AO's global root signature, with its local one's mesh arguments.
+            const aoLayoutDesc = BindingLayoutDesc.create();
+            aoLayoutDesc.layoutTextureUAV(0);
+            aoLayoutDesc.layoutAccelStruct(0);
+            aoLayoutDesc.layoutConstantBuffer(0);
+            aoLayoutDesc.layoutConstantBuffer(1);
+            aoLayoutDesc.layoutConstantBuffer(2);
+            aoLayoutDesc.layoutSampler(0);
+            aoLayoutDesc.layoutSampler(1);
+            aoLayoutDesc.layoutConstantBuffer(3);
+            aoLayoutDesc.layoutRawBufferSRV(1);
+            aoLayoutDesc.layoutRawBufferSRV(2);
+            aoLayoutDesc.layoutTextureSRV(3);
+            aoLayoutDesc.layoutTextureSRV(4);
+            aoLayoutDesc.layoutTextureSRV(5);
+            this.aoLayout = this.app.createBindingLayout(aoLayoutDesc, ShaderType.All);
+
+            // AO::CreateRaytracingPipelineStateObject: payload of a float4, recursion depth 2.
+            const library = this.app.createShaderLibrary("raytracing_ao.hlsl");
+            if (!library) {
+                return false;
+            }
+            const pipelineDesc = RtPipelineDesc.create(16, 2);
+            pipelineDesc.addGlobalBindingLayout(this.aoLayout);
+            pipelineDesc.addShader(library, "AORaygenShader", ShaderType.RayGeneration);
+            pipelineDesc.addShader(library, "AOMissShader", ShaderType.Miss);
+            pipelineDesc.addShader(library, "AOBounceMissShader", ShaderType.Miss);
+            pipelineDesc.addHitGroup(library, "AOHitGroup", "AOClosestHitShader", "", null);
+            pipelineDesc.addHitGroup(library, "AOBounceHitGroup", "AOBounceClosestHitShader", "", null);
+            const pipeline = this.app.createRayTracingPipelineFromDesc(pipelineDesc);
+            if (!pipeline) {
+                return false;
+            }
+            // AO::BuildShaderTables: the primary and bounce entries (GeometryStride 2) of the one part.
+            const shaderTable = this.app.createEmptyShaderTable(pipeline);
+            this.app.releaseResource(pipeline);
+            shaderTable.setRayGeneration("AORaygenShader");
+            shaderTable.addMiss("AOMissShader");
+            shaderTable.addMiss("AOBounceMissShader");
+            shaderTable.addHitGroup("AOHitGroup", null);
+            shaderTable.addHitGroup("AOBounceHitGroup", null);
+            this.shaderTable = shaderTable;
+
+            // SSAO's root signature, as each pass uses it.
+            const gbufferLayoutDesc = BindingLayoutDesc.create();
+            gbufferLayoutDesc.layoutConstantBuffer(0);
+            gbufferLayoutDesc.layoutConstantBuffer(2);
+            gbufferLayoutDesc.layoutTextureSRV(0);
+            gbufferLayoutDesc.layoutTextureSRV(1);
+            gbufferLayoutDesc.layoutTextureSRV(2);
+            gbufferLayoutDesc.layoutSampler(2);
+            this.gbufferLayout = this.app.createBindingLayout(gbufferLayoutDesc, ShaderType.All);
+            const prepare1LayoutDesc = BindingLayoutDesc.create();
+            prepare1LayoutDesc.layoutTextureSRV(0);
+            prepare1LayoutDesc.layoutTextureSRV(1);
+            for (let i = 0; i < 9; i++) {
+                prepare1LayoutDesc.layoutTextureUAV(i);
+            }
+            this.prepare1Layout = this.app.createBindingLayout(prepare1LayoutDesc, ShaderType.Compute);
+            const prepare2LayoutDesc = BindingLayoutDesc.create();
+            prepare2LayoutDesc.layoutTextureSRV(0);
+            prepare2LayoutDesc.layoutTextureSRV(1);
+            for (let i = 0; i < 8; i++) {
+                prepare2LayoutDesc.layoutTextureUAV(i);
+            }
+            this.prepare2Layout = this.app.createBindingLayout(prepare2LayoutDesc, ShaderType.Compute);
+            const renderLayoutDesc = BindingLayoutDesc.create();
+            renderLayoutDesc.layoutConstantBuffer(0);
+            renderLayoutDesc.layoutConstantBuffer(1);
+            renderLayoutDesc.layoutTextureSRV(0);
+            renderLayoutDesc.layoutTextureSRV(1);
+            renderLayoutDesc.layoutTextureUAV(0);
+            renderLayoutDesc.layoutSampler(3);
+            this.renderLayout = this.app.createBindingLayout(renderLayoutDesc, ShaderType.Compute);
+            for (let b = 0; b < 2; b++) {
+                const blurLayoutDesc = BindingLayoutDesc.create();
+                blurLayoutDesc.layoutConstantBuffer(1);
+                blurLayoutDesc.layoutSampler(0);
+                for (let i = 0; i < (b == 0 ? 5 : 4); i++) {
+                    blurLayoutDesc.layoutTextureSRV(i);
+                }
+                blurLayoutDesc.layoutTextureUAV(0);
+                const layout = this.app.createBindingLayout(blurLayoutDesc, ShaderType.Compute);
+                if (b == 0) {
+                    this.blurBlendOutLayout = layout;
+                } else {
+                    this.blurLayout = layout;
+                }
+            }
+            const compositeLayoutDesc = BindingLayoutDesc.create();
+            compositeLayoutDesc.layoutTextureSRV(0);
+            compositeLayoutDesc.layoutTextureSRV(1);
+            compositeLayoutDesc.layoutTextureSRV(2);
+            compositeLayoutDesc.layoutTextureUAV(0);
+            this.compositeLayout = this.app.createBindingLayout(compositeLayoutDesc, ShaderType.Compute);
+
+            // SSAO::SetupPipelines.
+            this.gbufferVS = this.app.createShader("raytracing_ao_gbuffer.hlsl", "gbuffer_vs", ShaderType.Vertex);
+            this.gbufferPS = this.app.createShader("raytracing_ao_gbuffer.hlsl", "gbuffer_ps", ShaderType.Pixel);
+            const prepare1CS = this.app.createShader("raytracing_ao_ssao_prepare1.hlsl", "main", ShaderType.Compute);
+            const prepare2CS = this.app.createShader("raytracing_ao_ssao_prepare2.hlsl", "main", ShaderType.Compute);
+            const render1CS = this.app.createShaderWithDefine("raytracing_ao_ssao_render.hlsl", "main", ShaderType.Compute,
+                "INTERLEAVE_RESULT", "1");
+            const render2CS = this.app.createShaderWithDefine("raytracing_ao_ssao_render.hlsl", "main", ShaderType.Compute,
+                "INTERLEAVE_RESULT", "0");
+            const blurBlendOutCS = this.app.createShaderWithDefine("raytracing_ao_ssao_blur.hlsl", "main", ShaderType.Compute,
+                "BLEND_WITH_HIGHER_RESOLUTION", "1");
+            const blurCS = this.app.createShaderWithDefine("raytracing_ao_ssao_blur.hlsl", "main", ShaderType.Compute,
+                "BLEND_WITH_HIGHER_RESOLUTION", "0");
+            const compositeCS = this.app.createShader("raytracing_ao_ssao_composite.hlsl", "main", ShaderType.Compute);
+            if (!this.gbufferVS || !this.gbufferPS || !prepare1CS || !prepare2CS || !render1CS || !render2CS || !blurBlendOutCS
+                || !blurCS || !compositeCS) {
+                return false;
+            }
+            this.prepare1Pipeline = this.app.createComputePipelineWithLayout(prepare1CS, this.prepare1Layout);
+            this.prepare2Pipeline = this.app.createComputePipelineWithLayout(prepare2CS, this.prepare2Layout);
+            this.render1Pipeline = this.app.createComputePipelineWithLayout(render1CS, this.renderLayout);
+            this.render2Pipeline = this.app.createComputePipelineWithLayout(render2CS, this.renderLayout);
+            this.blurPreMinBlendOutPipeline = this.app.createComputePipelineWithLayout(blurBlendOutCS, this.blurBlendOutLayout);
+            this.blurPreMinPipeline = this.app.createComputePipelineWithLayout(blurCS, this.blurLayout);
+            this.compositePipeline = this.app.createComputePipelineWithLayout(compositeCS, this.compositeLayout);
+
+            // The vertices for the G-buffer pass.
+            const inputLayoutDesc = InputLayoutDesc.create();
+            inputLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            inputLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_STRIDE);
+            inputLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_STRIDE);
+            inputLayoutDesc.addVertexAttribute("TANGENT", Format.RGB32_FLOAT, 32, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(inputLayoutDesc, this.gbufferVS);
+
+            this.sceneBuffer = this.app.createConstantBuffer(512, "SceneConstantBuffer");
+            this.aoBuffer = this.app.createConstantBuffer(MAX_OCCLUSION_RAYS * 16, "AOConstantBuffer");
+            this.aoOptionsBuffer = this.app.createConstantBuffer(256, "AOOptionsConstantBuffer");
+            this.ssaoBuffer = this.app.createConstantBuffer(SSAO_SLICE_FLOATS * SSAO_SLICES * 4, "SSAOConstants");
+
+            // Both meshes up front (the sample loads one at a time, Space reloading); a white
+            // texture where a material has none (the sample leaves those descriptors unwritten).
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.placeholderTexture = this.app.createTextureWithLevels(1, 1, 1, Format.RGBA8_UNORM, "Placeholder");
+            let white: int[] = [-1];
+            commandList.writeTextureLevel(this.placeholderTexture, 0, Ref(white[0]), 4);
+            let loaded = true;
+            for (const meshFile of MESH_FILES) {
+                const mesh = new Mesh();
+                if (!mesh.load(this.app, commandList, meshFile, this.placeholderTexture)) {
+                    loaded = false;
+                }
+                this.meshes.push(mesh);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the sample's meshes: set XBOX_ATG_SAMPLES_DIR when configuring");
+                return false;
+            }
+
+            // SSAO::SetMesh: each mesh's G-buffer pass bindings.
+            for (const mesh of this.meshes) {
+                const desc = BindingSetDesc.create();
+                desc.bindEntireConstantBuffer(0, this.sceneBuffer);
+                desc.bindEntireConstantBuffer(2, mesh.materialBuffer);
+                desc.bindTextureSRV(0, mesh.diffuseTexture);
+                desc.bindTextureSRV(1, mesh.specularTexture);
+                desc.bindTextureSRV(2, mesh.normalTexture);
+                desc.bindSampler(2, this.linearClampSampler);
+                this.meshGBufferSets.push(this.app.createBindingSetForLayout(desc, this.gbufferLayout));
+            }
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // Sample::Update's keys and Menus::ProcessKeys.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_A) {
@@ -1075,194 +1262,6 @@ namespace RaytracingAo {
                 Donut_BlitTexture(this.app.handle, frame.handle, (runAo ? this.aoOutput : this.ssaoOutput) as TextureHandle);
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        // Sample::CreateDeviceDependentResources, AO::Setup, SSAO::Setup.
-        init() {
-            // CommonRenderPasses (behind the common samplers and the blits) opens its own command
-            // list: before ours.
-            this.linearClampSampler = this.app.getCommonSampler(CommonSampler.LinearClamp);
-            this.pointClampSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
-            this.pointWrapSampler = this.app.createSamplerWithDesc(0, 0, 0, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, 1.0);
-
-            // AO's global root signature, with its local one's mesh arguments.
-            const aoLayoutDesc = BindingLayoutDesc.create();
-            aoLayoutDesc.layoutTextureUAV(0);
-            aoLayoutDesc.layoutAccelStruct(0);
-            aoLayoutDesc.layoutConstantBuffer(0);
-            aoLayoutDesc.layoutConstantBuffer(1);
-            aoLayoutDesc.layoutConstantBuffer(2);
-            aoLayoutDesc.layoutSampler(0);
-            aoLayoutDesc.layoutSampler(1);
-            aoLayoutDesc.layoutConstantBuffer(3);
-            aoLayoutDesc.layoutRawBufferSRV(1);
-            aoLayoutDesc.layoutRawBufferSRV(2);
-            aoLayoutDesc.layoutTextureSRV(3);
-            aoLayoutDesc.layoutTextureSRV(4);
-            aoLayoutDesc.layoutTextureSRV(5);
-            this.aoLayout = this.app.createBindingLayout(aoLayoutDesc, ShaderType.All);
-
-            // AO::CreateRaytracingPipelineStateObject: payload of a float4, recursion depth 2.
-            const library = this.app.createShaderLibrary("raytracing_ao.hlsl");
-            if (!library) {
-                return false;
-            }
-            const pipelineDesc = RtPipelineDesc.create(16, 2);
-            pipelineDesc.addGlobalBindingLayout(this.aoLayout);
-            pipelineDesc.addShader(library, "AORaygenShader", ShaderType.RayGeneration);
-            pipelineDesc.addShader(library, "AOMissShader", ShaderType.Miss);
-            pipelineDesc.addShader(library, "AOBounceMissShader", ShaderType.Miss);
-            pipelineDesc.addHitGroup(library, "AOHitGroup", "AOClosestHitShader", "", null);
-            pipelineDesc.addHitGroup(library, "AOBounceHitGroup", "AOBounceClosestHitShader", "", null);
-            const pipeline = this.app.createRayTracingPipelineFromDesc(pipelineDesc);
-            if (!pipeline) {
-                return false;
-            }
-            // AO::BuildShaderTables: the primary and bounce entries (GeometryStride 2) of the one part.
-            const shaderTable = this.app.createEmptyShaderTable(pipeline);
-            this.app.releaseResource(pipeline);
-            shaderTable.setRayGeneration("AORaygenShader");
-            shaderTable.addMiss("AOMissShader");
-            shaderTable.addMiss("AOBounceMissShader");
-            shaderTable.addHitGroup("AOHitGroup", null);
-            shaderTable.addHitGroup("AOBounceHitGroup", null);
-            this.shaderTable = shaderTable;
-
-            // SSAO's root signature, as each pass uses it.
-            const gbufferLayoutDesc = BindingLayoutDesc.create();
-            gbufferLayoutDesc.layoutConstantBuffer(0);
-            gbufferLayoutDesc.layoutConstantBuffer(2);
-            gbufferLayoutDesc.layoutTextureSRV(0);
-            gbufferLayoutDesc.layoutTextureSRV(1);
-            gbufferLayoutDesc.layoutTextureSRV(2);
-            gbufferLayoutDesc.layoutSampler(2);
-            this.gbufferLayout = this.app.createBindingLayout(gbufferLayoutDesc, ShaderType.All);
-            const prepare1LayoutDesc = BindingLayoutDesc.create();
-            prepare1LayoutDesc.layoutTextureSRV(0);
-            prepare1LayoutDesc.layoutTextureSRV(1);
-            for (let i = 0; i < 9; i++) {
-                prepare1LayoutDesc.layoutTextureUAV(i);
-            }
-            this.prepare1Layout = this.app.createBindingLayout(prepare1LayoutDesc, ShaderType.Compute);
-            const prepare2LayoutDesc = BindingLayoutDesc.create();
-            prepare2LayoutDesc.layoutTextureSRV(0);
-            prepare2LayoutDesc.layoutTextureSRV(1);
-            for (let i = 0; i < 8; i++) {
-                prepare2LayoutDesc.layoutTextureUAV(i);
-            }
-            this.prepare2Layout = this.app.createBindingLayout(prepare2LayoutDesc, ShaderType.Compute);
-            const renderLayoutDesc = BindingLayoutDesc.create();
-            renderLayoutDesc.layoutConstantBuffer(0);
-            renderLayoutDesc.layoutConstantBuffer(1);
-            renderLayoutDesc.layoutTextureSRV(0);
-            renderLayoutDesc.layoutTextureSRV(1);
-            renderLayoutDesc.layoutTextureUAV(0);
-            renderLayoutDesc.layoutSampler(3);
-            this.renderLayout = this.app.createBindingLayout(renderLayoutDesc, ShaderType.Compute);
-            for (let b = 0; b < 2; b++) {
-                const blurLayoutDesc = BindingLayoutDesc.create();
-                blurLayoutDesc.layoutConstantBuffer(1);
-                blurLayoutDesc.layoutSampler(0);
-                for (let i = 0; i < (b == 0 ? 5 : 4); i++) {
-                    blurLayoutDesc.layoutTextureSRV(i);
-                }
-                blurLayoutDesc.layoutTextureUAV(0);
-                const layout = this.app.createBindingLayout(blurLayoutDesc, ShaderType.Compute);
-                if (b == 0) {
-                    this.blurBlendOutLayout = layout;
-                } else {
-                    this.blurLayout = layout;
-                }
-            }
-            const compositeLayoutDesc = BindingLayoutDesc.create();
-            compositeLayoutDesc.layoutTextureSRV(0);
-            compositeLayoutDesc.layoutTextureSRV(1);
-            compositeLayoutDesc.layoutTextureSRV(2);
-            compositeLayoutDesc.layoutTextureUAV(0);
-            this.compositeLayout = this.app.createBindingLayout(compositeLayoutDesc, ShaderType.Compute);
-
-            // SSAO::SetupPipelines.
-            this.gbufferVS = this.app.createShader("raytracing_ao_gbuffer.hlsl", "gbuffer_vs", ShaderType.Vertex);
-            this.gbufferPS = this.app.createShader("raytracing_ao_gbuffer.hlsl", "gbuffer_ps", ShaderType.Pixel);
-            const prepare1CS = this.app.createShader("raytracing_ao_ssao_prepare1.hlsl", "main", ShaderType.Compute);
-            const prepare2CS = this.app.createShader("raytracing_ao_ssao_prepare2.hlsl", "main", ShaderType.Compute);
-            const render1CS = this.app.createShaderWithDefine("raytracing_ao_ssao_render.hlsl", "main", ShaderType.Compute,
-                "INTERLEAVE_RESULT", "1");
-            const render2CS = this.app.createShaderWithDefine("raytracing_ao_ssao_render.hlsl", "main", ShaderType.Compute,
-                "INTERLEAVE_RESULT", "0");
-            const blurBlendOutCS = this.app.createShaderWithDefine("raytracing_ao_ssao_blur.hlsl", "main", ShaderType.Compute,
-                "BLEND_WITH_HIGHER_RESOLUTION", "1");
-            const blurCS = this.app.createShaderWithDefine("raytracing_ao_ssao_blur.hlsl", "main", ShaderType.Compute,
-                "BLEND_WITH_HIGHER_RESOLUTION", "0");
-            const compositeCS = this.app.createShader("raytracing_ao_ssao_composite.hlsl", "main", ShaderType.Compute);
-            if (!this.gbufferVS || !this.gbufferPS || !prepare1CS || !prepare2CS || !render1CS || !render2CS || !blurBlendOutCS
-                || !blurCS || !compositeCS) {
-                return false;
-            }
-            this.prepare1Pipeline = this.app.createComputePipelineWithLayout(prepare1CS, this.prepare1Layout);
-            this.prepare2Pipeline = this.app.createComputePipelineWithLayout(prepare2CS, this.prepare2Layout);
-            this.render1Pipeline = this.app.createComputePipelineWithLayout(render1CS, this.renderLayout);
-            this.render2Pipeline = this.app.createComputePipelineWithLayout(render2CS, this.renderLayout);
-            this.blurPreMinBlendOutPipeline = this.app.createComputePipelineWithLayout(blurBlendOutCS, this.blurBlendOutLayout);
-            this.blurPreMinPipeline = this.app.createComputePipelineWithLayout(blurCS, this.blurLayout);
-            this.compositePipeline = this.app.createComputePipelineWithLayout(compositeCS, this.compositeLayout);
-
-            // The vertices for the G-buffer pass.
-            const inputLayoutDesc = InputLayoutDesc.create();
-            inputLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            inputLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_STRIDE);
-            inputLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_STRIDE);
-            inputLayoutDesc.addVertexAttribute("TANGENT", Format.RGB32_FLOAT, 32, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(inputLayoutDesc, this.gbufferVS);
-
-            this.sceneBuffer = this.app.createConstantBuffer(512, "SceneConstantBuffer");
-            this.aoBuffer = this.app.createConstantBuffer(MAX_OCCLUSION_RAYS * 16, "AOConstantBuffer");
-            this.aoOptionsBuffer = this.app.createConstantBuffer(256, "AOOptionsConstantBuffer");
-            this.ssaoBuffer = this.app.createConstantBuffer(SSAO_SLICE_FLOATS * SSAO_SLICES * 4, "SSAOConstants");
-
-            // Both meshes up front (the sample loads one at a time, Space reloading); a white
-            // texture where a material has none (the sample leaves those descriptors unwritten).
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.placeholderTexture = this.app.createTextureWithLevels(1, 1, 1, Format.RGBA8_UNORM, "Placeholder");
-            let white: int[] = [-1];
-            commandList.writeTextureLevel(this.placeholderTexture, 0, Ref(white[0]), 4);
-            let loaded = true;
-            for (const meshFile of MESH_FILES) {
-                const mesh = new Mesh();
-                if (!mesh.load(this.app, commandList, meshFile, this.placeholderTexture)) {
-                    loaded = false;
-                }
-                this.meshes.push(mesh);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the sample's meshes: set XBOX_ATG_SAMPLES_DIR when configuring");
-                return false;
-            }
-
-            // SSAO::SetMesh: each mesh's G-buffer pass bindings.
-            for (const mesh of this.meshes) {
-                const desc = BindingSetDesc.create();
-                desc.bindEntireConstantBuffer(0, this.sceneBuffer);
-                desc.bindEntireConstantBuffer(2, mesh.materialBuffer);
-                desc.bindTextureSRV(0, mesh.diffuseTexture);
-                desc.bindTextureSRV(1, mesh.specularTexture);
-                desc.bindTextureSRV(2, mesh.normalTexture);
-                desc.bindSampler(2, this.linearClampSampler);
-                this.meshGBufferSets.push(this.app.createBindingSetForLayout(desc, this.gbufferLayout));
-            }
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's Menus: the split's labels and center line, the frame rate, the options menu
@@ -1277,6 +1276,19 @@ namespace RaytracingAo {
             this.menuLines = [];
             this.menuColors = [];
             this.menuIndex = 0;
+        }
+
+        init(app: App) {
+            const imguiPass = app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            if (this.font.isNull()) {
+                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                return false;
+            }
+            return true;
         }
 
         box(x0: number, y0: number, x1: number, y1: number, value: number, alpha: number) {
@@ -1414,20 +1426,6 @@ namespace RaytracingAo {
                 this.mainMenu(sample.isSplit);
             }
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            const imguiPass = app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            if (this.font.isNull()) {
-                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                return false;
-            }
-            return true;
         }
     }
 

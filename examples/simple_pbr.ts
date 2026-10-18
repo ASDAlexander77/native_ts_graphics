@@ -620,6 +620,134 @@ namespace SimplePbr {
             this.camera.homeRotation = [rotation[0], rotation[1], rotation[2], rotation[3]];
         }
 
+        // SharedSimplePBR::CreateDeviceDependentResources.
+        init() {
+            // CommonRenderPasses (behind the common samplers) opens its own command list: before ours.
+            this.pointClampSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
+            // CommonStates::AnisotropicClamp (16 samples) and LinearWrap.
+            this.surfaceSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0,
+                Math.min(16.0, this.app.getMaxSamplerAnisotropy()));
+            this.linearWrapSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, 1.0);
+
+            this.pbrVS = this.app.createShader("simple_pbr.hlsl", "pbr_vs", ShaderType.Vertex);
+            this.pbrPS = this.app.createShader("simple_pbr.hlsl", "pbr_ps", ShaderType.Pixel);
+            this.skyVS = this.app.createShader("simple_pbr_sky.hlsl", "sky_vs", ShaderType.Vertex);
+            this.skyPS = this.app.createShader("simple_pbr_sky.hlsl", "sky_ps", ShaderType.Pixel);
+            this.quadVS = this.app.createShader("simple_pbr_tonemap.hlsl", "quad_vs", ShaderType.Vertex);
+            this.acesPS = this.app.createShader("simple_pbr_tonemap.hlsl", "aces_filmic_srgb_ps", ShaderType.Pixel);
+            this.hdr10PS = this.app.createShader("simple_pbr_tonemap.hlsl", "hdr10_ps", ShaderType.Pixel);
+            if (!this.pbrVS || !this.pbrPS || !this.skyVS || !this.skyPS || !this.quadVS || !this.acesPS || !this.hdr10PS) {
+                return false;
+            }
+
+            const pbrLayoutDesc = BindingLayoutDesc.create();
+            for (let i = 0; i < 5; i++) {
+                pbrLayoutDesc.layoutTextureSRV(i);
+            }
+            pbrLayoutDesc.layoutSampler(0);
+            pbrLayoutDesc.layoutSampler(1);
+            pbrLayoutDesc.layoutConstantBuffer(0);
+            this.pbrLayout = this.app.createBindingLayout(pbrLayoutDesc, ShaderType.All);
+            const skyLayoutDesc = BindingLayoutDesc.create();
+            skyLayoutDesc.layoutTextureSRV(0);
+            skyLayoutDesc.layoutSampler(0);
+            skyLayoutDesc.layoutConstantBuffer(0);
+            this.skyLayout = this.app.createBindingLayout(skyLayoutDesc, ShaderType.All);
+            const toneMapLayoutDesc = BindingLayoutDesc.create();
+            toneMapLayoutDesc.layoutTextureSRV(0);
+            toneMapLayoutDesc.layoutSampler(0);
+            toneMapLayoutDesc.layoutConstantBuffer(0);
+            this.toneMapLayout = this.app.createBindingLayout(toneMapLayoutDesc, ShaderType.All);
+
+            this.pbrBuffer = this.app.createConstantBuffer(PBR_FLOATS * 4, "PBR_Constants");
+            this.skyBuffer = this.app.createConstantBuffer(256, "Skybox_Constants");
+            this.toneMapBuffer = this.app.createConstantBuffer(256, "ToneMapParameters");
+
+            // The radiance map's levels: the sample uses three fewer ("The current map has too much
+            // detail removed at last mips, scale back down to match reference."); the count is in the
+            // DDS header.
+            const radianceFile = this.app.loadBinaryFile(MEDIA_DIR + "Stonewall_Ref_radiance.dds");
+            if (!radianceFile.isNull()) {
+                let header: int[] = [0, 0, 0, 0];
+                radianceFile.copyBytes(28, 4, Ref(header[0]));
+                const mips = header[0] + header[1] * 256 + header[2] * 65536 + header[3] * 16777216;
+                this.numRadianceMips = Math.max(mips, 1) - 3;
+                this.app.releaseObject(radianceFile.handle);
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let loaded = true;
+            for (const modelName of MODEL_NAMES) {
+                const model = new Model();
+                if (!model.load(this.app, commandList, modelName)) {
+                    loaded = false;
+                }
+                this.models.push(model);
+            }
+            const radiance = this.app.loadTexture(commandList, MEDIA_DIR + "Stonewall_Ref_radiance.dds", 0);
+            const irradiance = this.app.loadTexture(commandList, MEDIA_DIR + "Stonewall_Ref_irradiance.dds", 0);
+
+            // The sky box's geosphere (GeometricPrimitive::CreateGeoSphere(2.f): tessellation 3).
+            let skyPositions: f32[] = [];
+            let skyIndices: int[] = [];
+            geoSphere(2.0, 3, skyPositions, skyIndices);
+            this.skyVertices = this.app.createStaticVertexBuffer(commandList, Ref(skyPositions[0]), skyPositions.length * 4, "Sky");
+            this.skyIndices = this.app.createStaticIndexBuffer(commandList, Ref(skyIndices[0]), skyIndices.length * 4, "Sky");
+            this.skyIndexCount = skyIndices.length;
+
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded || !radiance || !irradiance) {
+                console.log("Cannot load the sample's models and textures: set XBOX_ATG_SAMPLES_DIR when configuring");
+                return false;
+            }
+            this.radianceTexture = radiance as TextureHandle;
+            this.irradianceTexture = irradiance as TextureHandle;
+
+            // ATG::VertexPositionNormalTextureTangent's input layout; the sky box's positions.
+            const stride = this.models[0].vertexStride;
+            const pbrInput = InputLayoutDesc.create();
+            pbrInput.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, stride);
+            pbrInput.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, stride);
+            pbrInput.addVertexAttribute("TANGENT", Format.RGB32_FLOAT, VERTEX_TANGENT, 0, stride);
+            pbrInput.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, stride);
+            this.pbrInputLayout = this.app.createInputLayout(pbrInput, this.pbrVS);
+            const skyInput = InputLayoutDesc.create();
+            skyInput.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
+            this.skyInputLayout = this.app.createInputLayout(skyInput, this.skyVS);
+
+            for (const model of this.models) {
+                const desc = BindingSetDesc.create();
+                desc.bindTextureSRV(0, model.albedo);
+                desc.bindTextureSRV(1, model.normal);
+                desc.bindTextureSRV(2, model.rma);
+                desc.bindTextureSRV(3, this.radianceTexture);
+                desc.bindTextureSRV(4, this.irradianceTexture);
+                desc.bindSampler(0, this.surfaceSampler);
+                desc.bindSampler(1, this.linearWrapSampler);
+                desc.bindEntireConstantBuffer(0, this.pbrBuffer);
+                this.modelBindingSets.push(this.app.createBindingSetForLayout(desc, this.pbrLayout));
+            }
+            const skyDesc = BindingSetDesc.create();
+            skyDesc.bindTextureSRV(0, this.radianceTexture);
+            skyDesc.bindSampler(0, this.linearWrapSampler);
+            skyDesc.bindEntireConstantBuffer(0, this.skyBuffer);
+            this.skyBindingSet = this.app.createBindingSetForLayout(skyDesc, this.skyLayout);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // DeviceResources::UpdateColorSpace: HDR10 when the window's display is in HDR mode.
         updateColorSpace() {
             const wanted = this.app.isDisplayHdr() != 0 && !this.forceSdr ? SwapChainColorSpace.HDR10 : SwapChainColorSpace.SRGB;
@@ -861,135 +989,6 @@ namespace SimplePbr {
             frame.drawVertices(3);
         }
 
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        // SharedSimplePBR::CreateDeviceDependentResources.
-        init() {
-            // CommonRenderPasses (behind the common samplers) opens its own command list: before ours.
-            this.pointClampSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
-            // CommonStates::AnisotropicClamp (16 samples) and LinearWrap.
-            this.surfaceSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0,
-                Math.min(16.0, this.app.getMaxSamplerAnisotropy()));
-            this.linearWrapSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, 1.0);
-
-            this.pbrVS = this.app.createShader("simple_pbr.hlsl", "pbr_vs", ShaderType.Vertex);
-            this.pbrPS = this.app.createShader("simple_pbr.hlsl", "pbr_ps", ShaderType.Pixel);
-            this.skyVS = this.app.createShader("simple_pbr_sky.hlsl", "sky_vs", ShaderType.Vertex);
-            this.skyPS = this.app.createShader("simple_pbr_sky.hlsl", "sky_ps", ShaderType.Pixel);
-            this.quadVS = this.app.createShader("simple_pbr_tonemap.hlsl", "quad_vs", ShaderType.Vertex);
-            this.acesPS = this.app.createShader("simple_pbr_tonemap.hlsl", "aces_filmic_srgb_ps", ShaderType.Pixel);
-            this.hdr10PS = this.app.createShader("simple_pbr_tonemap.hlsl", "hdr10_ps", ShaderType.Pixel);
-            if (!this.pbrVS || !this.pbrPS || !this.skyVS || !this.skyPS || !this.quadVS || !this.acesPS || !this.hdr10PS) {
-                return false;
-            }
-
-            const pbrLayoutDesc = BindingLayoutDesc.create();
-            for (let i = 0; i < 5; i++) {
-                pbrLayoutDesc.layoutTextureSRV(i);
-            }
-            pbrLayoutDesc.layoutSampler(0);
-            pbrLayoutDesc.layoutSampler(1);
-            pbrLayoutDesc.layoutConstantBuffer(0);
-            this.pbrLayout = this.app.createBindingLayout(pbrLayoutDesc, ShaderType.All);
-            const skyLayoutDesc = BindingLayoutDesc.create();
-            skyLayoutDesc.layoutTextureSRV(0);
-            skyLayoutDesc.layoutSampler(0);
-            skyLayoutDesc.layoutConstantBuffer(0);
-            this.skyLayout = this.app.createBindingLayout(skyLayoutDesc, ShaderType.All);
-            const toneMapLayoutDesc = BindingLayoutDesc.create();
-            toneMapLayoutDesc.layoutTextureSRV(0);
-            toneMapLayoutDesc.layoutSampler(0);
-            toneMapLayoutDesc.layoutConstantBuffer(0);
-            this.toneMapLayout = this.app.createBindingLayout(toneMapLayoutDesc, ShaderType.All);
-
-            this.pbrBuffer = this.app.createConstantBuffer(PBR_FLOATS * 4, "PBR_Constants");
-            this.skyBuffer = this.app.createConstantBuffer(256, "Skybox_Constants");
-            this.toneMapBuffer = this.app.createConstantBuffer(256, "ToneMapParameters");
-
-            // The radiance map's levels: the sample uses three fewer ("The current map has too much
-            // detail removed at last mips, scale back down to match reference."); the count is in the
-            // DDS header.
-            const radianceFile = this.app.loadBinaryFile(MEDIA_DIR + "Stonewall_Ref_radiance.dds");
-            if (!radianceFile.isNull()) {
-                let header: int[] = [0, 0, 0, 0];
-                radianceFile.copyBytes(28, 4, Ref(header[0]));
-                const mips = header[0] + header[1] * 256 + header[2] * 65536 + header[3] * 16777216;
-                this.numRadianceMips = Math.max(mips, 1) - 3;
-                this.app.releaseObject(radianceFile.handle);
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let loaded = true;
-            for (const modelName of MODEL_NAMES) {
-                const model = new Model();
-                if (!model.load(this.app, commandList, modelName)) {
-                    loaded = false;
-                }
-                this.models.push(model);
-            }
-            const radiance = this.app.loadTexture(commandList, MEDIA_DIR + "Stonewall_Ref_radiance.dds", 0);
-            const irradiance = this.app.loadTexture(commandList, MEDIA_DIR + "Stonewall_Ref_irradiance.dds", 0);
-
-            // The sky box's geosphere (GeometricPrimitive::CreateGeoSphere(2.f): tessellation 3).
-            let skyPositions: f32[] = [];
-            let skyIndices: int[] = [];
-            geoSphere(2.0, 3, skyPositions, skyIndices);
-            this.skyVertices = this.app.createStaticVertexBuffer(commandList, Ref(skyPositions[0]), skyPositions.length * 4, "Sky");
-            this.skyIndices = this.app.createStaticIndexBuffer(commandList, Ref(skyIndices[0]), skyIndices.length * 4, "Sky");
-            this.skyIndexCount = skyIndices.length;
-
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded || !radiance || !irradiance) {
-                console.log("Cannot load the sample's models and textures: set XBOX_ATG_SAMPLES_DIR when configuring");
-                return false;
-            }
-            this.radianceTexture = radiance as TextureHandle;
-            this.irradianceTexture = irradiance as TextureHandle;
-
-            // ATG::VertexPositionNormalTextureTangent's input layout; the sky box's positions.
-            const stride = this.models[0].vertexStride;
-            const pbrInput = InputLayoutDesc.create();
-            pbrInput.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, stride);
-            pbrInput.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, stride);
-            pbrInput.addVertexAttribute("TANGENT", Format.RGB32_FLOAT, VERTEX_TANGENT, 0, stride);
-            pbrInput.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, stride);
-            this.pbrInputLayout = this.app.createInputLayout(pbrInput, this.pbrVS);
-            const skyInput = InputLayoutDesc.create();
-            skyInput.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
-            this.skyInputLayout = this.app.createInputLayout(skyInput, this.skyVS);
-
-            for (const model of this.models) {
-                const desc = BindingSetDesc.create();
-                desc.bindTextureSRV(0, model.albedo);
-                desc.bindTextureSRV(1, model.normal);
-                desc.bindTextureSRV(2, model.rma);
-                desc.bindTextureSRV(3, this.radianceTexture);
-                desc.bindTextureSRV(4, this.irradianceTexture);
-                desc.bindSampler(0, this.surfaceSampler);
-                desc.bindSampler(1, this.linearWrapSampler);
-                desc.bindEntireConstantBuffer(0, this.pbrBuffer);
-                this.modelBindingSets.push(this.app.createBindingSetForLayout(desc, this.pbrLayout));
-            }
-            const skyDesc = BindingSetDesc.create();
-            skyDesc.bindTextureSRV(0, this.radianceTexture);
-            skyDesc.bindSampler(0, this.linearWrapSampler);
-            skyDesc.bindEntireConstantBuffer(0, this.skyBuffer);
-            this.skyBindingSet = this.app.createBindingSetForLayout(skyDesc, this.skyLayout);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
-
         // The second pass, after the ImGui one.
         initToneMap() {
             const pass = this.app.addPass();
@@ -1008,6 +1007,20 @@ namespace SimplePbr {
             this.sample = sample;
         }
 
+        init(app: App) {
+            const imguiPass = app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.sample.imguiPass = imguiPass;
+            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            if (this.font.isNull()) {
+                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                return false;
+            }
+            return true;
+        }
+
         buildUI() {
             const sample = this.sample;
             // SimpleMath::Viewport::ComputeTitleSafeArea
@@ -1021,21 +1034,6 @@ namespace SimplePbr {
             Donut_ImGuiDrawText(left, bottom - LINE_SPACING, "Mouse, W,A,S,D: Move Camera   Esc: Exit ", LIGHT_GREY_HDR, LIGHT_GREY_HDR,
                 LIGHT_GREY_HDR, 1.0, 0);
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            const imguiPass = app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.sample.imguiPass = imguiPass;
-            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            if (this.font.isNull()) {
-                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                return false;
-            }
-            return true;
         }
     }
 

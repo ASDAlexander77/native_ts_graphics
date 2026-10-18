@@ -186,6 +186,92 @@ namespace MobileNerfRayQuery {
             }
         }
 
+        init() {
+            const shader = "mobile_nerf_rayquery.hlsl";
+            this.vs = this.app.createShader(shader, "quad_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "rayquery_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            for (const modelName of MODELS) {
+                if (!loadMlp(this.app, MEDIA_DIR + modelName + "/mlp.json", this.weights)) {
+                    console.log("Cannot load the NeRF models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                    return false;
+                }
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let loaded = this.loadModels(commandList);
+            const features0: TextureHandle[] = [];
+            const features1: TextureHandle[] = [];
+            for (let m = 0; m < MODELS.length && loaded; m++) {
+                const dir = MEDIA_DIR + MODELS[m] + "/";
+                const feature0 = this.app.loadTexture(commandList, dir + "shape0.pngfeat0.png", 0);
+                const feature1 = this.app.loadTexture(commandList, dir + "shape0.pngfeat1.png", 0);
+                if (!feature0 || !feature1) {
+                    loaded = false;
+                    break;
+                }
+                features0.push(feature0);
+                features1.push(feature1);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the NeRF models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            this.topLevelAS = this.app.createTopLevelAS(MODELS.length * INSTANCE_DIM[0] * INSTANCE_DIM[1] * INSTANCE_DIM[2]);
+
+            for (let m = 0; m < MODELS.length; m++) {
+                const k = UBO_MODEL_OFFSETS + m * 4;
+                this.ubo[k] = this.modelOffsets[m * 2];
+                this.ubo[k + 1] = this.modelOffsets[m * 2 + 1];
+            }
+
+            // Feature textures: linear (UNORM), filtered bilinearly at their first level only (the
+            // framework uploads PNGs without mip maps), clamped.
+            const sampler = this.app.createSamplerWithDesc(1, 1, 0, SamplerAddressMode.Clamp, 0.0, 0.0, 0.0, 1.0);
+            this.globalBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "GlobalUniform");
+            this.weightsBuffer = this.app.createVolatileConstantBuffer(this.weights.length * 4, "MLP weights");
+            const layout = BindingLayoutDesc.create();
+            layout.layoutVolatileConstantBuffer(0);
+            layout.layoutVolatileConstantBuffer(1);
+            layout.layoutAccelStruct(0);
+            layout.layoutStructuredBufferSRV(1);
+            layout.layoutStructuredBufferSRV(2);
+            layout.layoutTextureSRVArray(3, MODELS.length);
+            layout.layoutTextureSRVArray(7, MODELS.length);
+            layout.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
+
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.globalBuffer);
+            setDesc.bindEntireConstantBuffer(1, this.weightsBuffer);
+            setDesc.bindAccelStruct(0, this.topLevelAS.getTopLevelAS());
+            setDesc.bindStructuredBufferSRV(1, this.vertexBuffer);
+            setDesc.bindStructuredBufferSRV(2, this.indexBuffer);
+            for (let m = 0; m < MODELS.length; m++) {
+                setDesc.bindTextureSRVArrayElement(3, m, features0[m]);
+                setDesc.bindTextureSRVArrayElement(7, m, features1[m]);
+            }
+            setDesc.bindSampler(0, sampler);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -374,93 +460,6 @@ namespace MobileNerfRayQuery {
                 }
                 this.blases.push(blas);
             }
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "mobile_nerf_rayquery.hlsl";
-            this.vs = this.app.createShader(shader, "quad_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "rayquery_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            for (const modelName of MODELS) {
-                if (!loadMlp(this.app, MEDIA_DIR + modelName + "/mlp.json", this.weights)) {
-                    console.log("Cannot load the NeRF models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                    return false;
-                }
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let loaded = this.loadModels(commandList);
-            const features0: TextureHandle[] = [];
-            const features1: TextureHandle[] = [];
-            for (let m = 0; m < MODELS.length && loaded; m++) {
-                const dir = MEDIA_DIR + MODELS[m] + "/";
-                const feature0 = this.app.loadTexture(commandList, dir + "shape0.pngfeat0.png", 0);
-                const feature1 = this.app.loadTexture(commandList, dir + "shape0.pngfeat1.png", 0);
-                if (!feature0 || !feature1) {
-                    loaded = false;
-                    break;
-                }
-                features0.push(feature0);
-                features1.push(feature1);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the NeRF models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            this.topLevelAS = this.app.createTopLevelAS(MODELS.length * INSTANCE_DIM[0] * INSTANCE_DIM[1] * INSTANCE_DIM[2]);
-
-            for (let m = 0; m < MODELS.length; m++) {
-                const k = UBO_MODEL_OFFSETS + m * 4;
-                this.ubo[k] = this.modelOffsets[m * 2];
-                this.ubo[k + 1] = this.modelOffsets[m * 2 + 1];
-            }
-
-            // Feature textures: linear (UNORM), filtered bilinearly at their first level only (the
-            // framework uploads PNGs without mip maps), clamped.
-            const sampler = this.app.createSamplerWithDesc(1, 1, 0, SamplerAddressMode.Clamp, 0.0, 0.0, 0.0, 1.0);
-            this.globalBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "GlobalUniform");
-            this.weightsBuffer = this.app.createVolatileConstantBuffer(this.weights.length * 4, "MLP weights");
-            const layout = BindingLayoutDesc.create();
-            layout.layoutVolatileConstantBuffer(0);
-            layout.layoutVolatileConstantBuffer(1);
-            layout.layoutAccelStruct(0);
-            layout.layoutStructuredBufferSRV(1);
-            layout.layoutStructuredBufferSRV(2);
-            layout.layoutTextureSRVArray(3, MODELS.length);
-            layout.layoutTextureSRVArray(7, MODELS.length);
-            layout.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
-
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.globalBuffer);
-            setDesc.bindEntireConstantBuffer(1, this.weightsBuffer);
-            setDesc.bindAccelStruct(0, this.topLevelAS.getTopLevelAS());
-            setDesc.bindStructuredBufferSRV(1, this.vertexBuffer);
-            setDesc.bindStructuredBufferSRV(2, this.indexBuffer);
-            for (let m = 0; m < MODELS.length; m++) {
-                setDesc.bindTextureSRVArrayElement(3, m, features0[m]);
-                setDesc.bindTextureSRVArrayElement(7, m, features1[m]);
-            }
-            setDesc.bindSampler(0, sampler);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

@@ -403,6 +403,79 @@ namespace MeshletCull {
             this.frameNumber = 0;
         }
 
+        init() {
+            const shader = "meshlet_cull.hlsl";
+            const visualizers = "meshlet_cull_visualizers.hlsl";
+            this.meshPipelineAS = this.app.createShader(shader, "main_as", ShaderType.Amplification);
+            this.meshPipelineMS = this.app.createShader(shader, "main_ms", ShaderType.Mesh);
+            this.meshPipelinePS = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
+            this.frustumMS = this.app.createShader(visualizers, "frustum_ms", ShaderType.Mesh);
+            this.sphereMS = this.app.createShader(visualizers, "sphere_ms", ShaderType.Mesh);
+            this.coneMS = this.app.createShader(visualizers, "cone_ms", ShaderType.Mesh);
+            this.debugPS = this.app.createShader(visualizers, "debug_ps", ShaderType.Pixel);
+            if (!this.meshPipelineAS || !this.meshPipelineMS || !this.meshPipelinePS || !this.frustumMS
+                || !this.sphereMS || !this.coneMS || !this.debugPS) {
+                return false;
+            }
+
+            // The sample's root signatures: CBV(b0), CBV(b1), CBV(b2), SRV(t0) .. SRV(t4); the
+            // frustum's CBV(b0); the culling data's CBV(b0), RootConstants(b1, 2), SRV(t0).
+            const meshLayoutDesc = BindingLayoutDesc.create();
+            meshLayoutDesc.layoutConstantBuffer(0);
+            meshLayoutDesc.layoutConstantBuffer(1);
+            meshLayoutDesc.layoutConstantBuffer(2);
+            meshLayoutDesc.layoutRawBufferSRV(0);
+            meshLayoutDesc.layoutStructuredBufferSRV(1);
+            meshLayoutDesc.layoutRawBufferSRV(2);
+            meshLayoutDesc.layoutStructuredBufferSRV(3);
+            meshLayoutDesc.layoutRawBufferSRV(4);
+            this.meshLayout = this.app.createBindingLayout(meshLayoutDesc, ShaderType.All);
+            const frustumLayoutDesc = BindingLayoutDesc.create();
+            frustumLayoutDesc.layoutConstantBuffer(0);
+            this.frustumLayout = this.app.createBindingLayout(frustumLayoutDesc, ShaderType.All);
+            const cullDataLayoutDesc = BindingLayoutDesc.create();
+            cullDataLayoutDesc.layoutConstantBuffer(0);
+            cullDataLayoutDesc.layoutPushConstants(1, OPTIONS_SIZE);
+            cullDataLayoutDesc.layoutRawBufferSRV(0);
+            this.cullDataLayout = this.app.createBindingLayout(cullDataLayoutDesc, ShaderType.All);
+
+            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "Constants");
+            this.frustumBuffer = this.app.createConstantBuffer(FRUSTUM_CONSTANTS_SIZE, "FrustumConstants");
+            this.cullDataBuffer = this.app.createConstantBuffer(CULL_DATA_CONSTANTS_SIZE, "CullDataConstants");
+            const frustumSetDesc = BindingSetDesc.create();
+            frustumSetDesc.bindEntireConstantBuffer(0, this.frustumBuffer);
+            this.frustumBindingSet = this.app.createBindingSetForLayout(frustumSetDesc, this.frustumLayout);
+
+            // The sample's cameras: the main one at (0, 15, 40), the culling one at (0, 10, 21).
+            this.mainCam.init(0.0, 15.0, 40.0);
+            this.mainCam.setMoveSpeed(25.0);
+            this.debugCam.init(0.0, 10.0, 21.0);
+            this.debugCam.setMoveSpeed(25.0);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let ok = true;
+            for (let i = 0; i < MODEL_FILES.length && ok; i++) {
+                ok = this.loadObject(commandList, i);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!ok) {
+                return false;
+            }
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // OnKeyDown / OnKeyUp.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_PRESS) {
@@ -824,80 +897,6 @@ namespace MeshletCull {
             model.destroy();
             this.objects.push(obj);
             return ok;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "meshlet_cull.hlsl";
-            const visualizers = "meshlet_cull_visualizers.hlsl";
-            this.meshPipelineAS = this.app.createShader(shader, "main_as", ShaderType.Amplification);
-            this.meshPipelineMS = this.app.createShader(shader, "main_ms", ShaderType.Mesh);
-            this.meshPipelinePS = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
-            this.frustumMS = this.app.createShader(visualizers, "frustum_ms", ShaderType.Mesh);
-            this.sphereMS = this.app.createShader(visualizers, "sphere_ms", ShaderType.Mesh);
-            this.coneMS = this.app.createShader(visualizers, "cone_ms", ShaderType.Mesh);
-            this.debugPS = this.app.createShader(visualizers, "debug_ps", ShaderType.Pixel);
-            if (!this.meshPipelineAS || !this.meshPipelineMS || !this.meshPipelinePS || !this.frustumMS
-                || !this.sphereMS || !this.coneMS || !this.debugPS) {
-                return false;
-            }
-
-            // The sample's root signatures: CBV(b0), CBV(b1), CBV(b2), SRV(t0) .. SRV(t4); the
-            // frustum's CBV(b0); the culling data's CBV(b0), RootConstants(b1, 2), SRV(t0).
-            const meshLayoutDesc = BindingLayoutDesc.create();
-            meshLayoutDesc.layoutConstantBuffer(0);
-            meshLayoutDesc.layoutConstantBuffer(1);
-            meshLayoutDesc.layoutConstantBuffer(2);
-            meshLayoutDesc.layoutRawBufferSRV(0);
-            meshLayoutDesc.layoutStructuredBufferSRV(1);
-            meshLayoutDesc.layoutRawBufferSRV(2);
-            meshLayoutDesc.layoutStructuredBufferSRV(3);
-            meshLayoutDesc.layoutRawBufferSRV(4);
-            this.meshLayout = this.app.createBindingLayout(meshLayoutDesc, ShaderType.All);
-            const frustumLayoutDesc = BindingLayoutDesc.create();
-            frustumLayoutDesc.layoutConstantBuffer(0);
-            this.frustumLayout = this.app.createBindingLayout(frustumLayoutDesc, ShaderType.All);
-            const cullDataLayoutDesc = BindingLayoutDesc.create();
-            cullDataLayoutDesc.layoutConstantBuffer(0);
-            cullDataLayoutDesc.layoutPushConstants(1, OPTIONS_SIZE);
-            cullDataLayoutDesc.layoutRawBufferSRV(0);
-            this.cullDataLayout = this.app.createBindingLayout(cullDataLayoutDesc, ShaderType.All);
-
-            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "Constants");
-            this.frustumBuffer = this.app.createConstantBuffer(FRUSTUM_CONSTANTS_SIZE, "FrustumConstants");
-            this.cullDataBuffer = this.app.createConstantBuffer(CULL_DATA_CONSTANTS_SIZE, "CullDataConstants");
-            const frustumSetDesc = BindingSetDesc.create();
-            frustumSetDesc.bindEntireConstantBuffer(0, this.frustumBuffer);
-            this.frustumBindingSet = this.app.createBindingSetForLayout(frustumSetDesc, this.frustumLayout);
-
-            // The sample's cameras: the main one at (0, 15, 40), the culling one at (0, 10, 21).
-            this.mainCam.init(0.0, 15.0, 40.0);
-            this.mainCam.setMoveSpeed(25.0);
-            this.debugCam.init(0.0, 10.0, 21.0);
-            this.debugCam.setMoveSpeed(25.0);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let ok = true;
-            for (let i = 0; i < MODEL_FILES.length && ok; i++) {
-                ok = this.loadObject(commandList, i);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!ok) {
-                return false;
-            }
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

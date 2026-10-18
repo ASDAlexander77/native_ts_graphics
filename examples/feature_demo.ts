@@ -311,6 +311,65 @@ namespace FeatureDemoExample {
             }
         }
 
+        init(sceneName: string) {
+            const app = this.app;
+
+            // The whole media folder (the C++ sample lists media/glTF-Sample-Assets/Models only), so
+            // that the default scene, media/sponza-plus.scene.json, is in the list too.
+            this.sceneDir = `${Donut_GetExecutableDirectory()}/media/`;
+            this.sceneFilesAvailable = app.findScenes(this.sceneDir);
+
+            const sceneCount = this.sceneFilesAvailable.getCount();
+            if (sceneName == "" && sceneCount == 0) {
+                console.log(`No scene file found in media folder '${this.sceneDir}'`);
+                console.log("Please make sure that folder contains valid scene files.");
+                return false;
+            }
+
+            this.shadowMap = app.createCascadedShadowMap(2048, 4);
+            this.shadowDepthPass = app.createShadowDepthPass(100, 4.0);
+
+            this.forwardContext = app.createForwardShadingContext();
+
+            this.firstPersonCamera = app.createFirstPersonCamera();
+            this.thirdPersonCamera = app.createThirdPersonCamera();
+            this.firstPersonCamera.setMoveSpeed(3.0);
+            this.thirdPersonCamera.setMoveSpeed(3.0);
+
+            this.sceneLoader = app.createSceneLoader();
+
+            // DLSS doesn't need to be re-created when shaders reload, so it's created here and not in
+            // createRenderPasses().
+            this.dlss = app.createDlss();
+
+            this.lightProbes = app.createLightProbeSet(4);
+
+            if (sceneName == "") {
+                // app::FindPreferredScene(available, DEFAULT_SCENE): Sponza with two dancing
+                // BrainStem robots, as in rt_bindless (the C++ sample prefers Sponza.gltf).
+                let preferred = this.sceneFilesAvailable.getItem(0);
+                for (let i = 0; i < sceneCount; i++) {
+                    const scene = this.sceneFilesAvailable.getItem(i);
+                    if (scene.indexOf(DEFAULT_SCENE) >= 0) {
+                        preferred = scene;
+                        break;
+                    }
+                }
+                this.setCurrentSceneName(preferred);
+            } else {
+                this.setCurrentSceneName(sceneName);
+            }
+
+            const pass = app.addPass();
+            pass.setKeyboardCallback(this.onKeyboard);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         getActiveCamera() {
             return this.ui.useThirdPersonCamera ? this.thirdPersonCamera : this.firstPersonCamera;
         }
@@ -1115,66 +1174,6 @@ namespace FeatureDemoExample {
                 }
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(sceneName: string) {
-            const app = this.app;
-
-            // The whole media folder (the C++ sample lists media/glTF-Sample-Assets/Models only), so
-            // that the default scene, media/sponza-plus.scene.json, is in the list too.
-            this.sceneDir = `${Donut_GetExecutableDirectory()}/media/`;
-            this.sceneFilesAvailable = app.findScenes(this.sceneDir);
-
-            const sceneCount = this.sceneFilesAvailable.getCount();
-            if (sceneName == "" && sceneCount == 0) {
-                console.log(`No scene file found in media folder '${this.sceneDir}'`);
-                console.log("Please make sure that folder contains valid scene files.");
-                return false;
-            }
-
-            this.shadowMap = app.createCascadedShadowMap(2048, 4);
-            this.shadowDepthPass = app.createShadowDepthPass(100, 4.0);
-
-            this.forwardContext = app.createForwardShadingContext();
-
-            this.firstPersonCamera = app.createFirstPersonCamera();
-            this.thirdPersonCamera = app.createThirdPersonCamera();
-            this.firstPersonCamera.setMoveSpeed(3.0);
-            this.thirdPersonCamera.setMoveSpeed(3.0);
-
-            this.sceneLoader = app.createSceneLoader();
-
-            // DLSS doesn't need to be re-created when shaders reload, so it's created here and not in
-            // createRenderPasses().
-            this.dlss = app.createDlss();
-
-            this.lightProbes = app.createLightProbeSet(4);
-
-            if (sceneName == "") {
-                // app::FindPreferredScene(available, DEFAULT_SCENE): Sponza with two dancing
-                // BrainStem robots, as in rt_bindless (the C++ sample prefers Sponza.gltf).
-                let preferred = this.sceneFilesAvailable.getItem(0);
-                for (let i = 0; i < sceneCount; i++) {
-                    const scene = this.sceneFilesAvailable.getItem(i);
-                    if (scene.indexOf(DEFAULT_SCENE) >= 0) {
-                        preferred = scene;
-                        break;
-                    }
-                }
-                this.setCurrentSceneName(preferred);
-            } else {
-                this.setCurrentSceneName(sceneName);
-            }
-
-            const pass = app.addPass();
-            pass.setKeyboardCallback(this.onKeyboard);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // --- UI ---------------------------------------------------------------------------------
@@ -1198,6 +1197,18 @@ namespace FeatureDemoExample {
             for (let i = 0; i < 4; i++) {
                 this.loadingStats.push(0);
             }
+        }
+
+        init() {
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.imguiPass = imguiPass;
+
+            this.fontOpenSans = imguiPass.createFont("media/fonts/OpenSans/OpenSans-Regular.ttf", 17.0);
+            this.fontDroidMono = imguiPass.createFont("media/fonts/DroidSans/DroidSans-Mono.ttf", 14.0);
+            return !this.fontOpenSans.isNull() && !this.fontDroidMono.isNull();
         }
 
         checkbox(label: string, value: boolean) {
@@ -1435,19 +1446,6 @@ namespace FeatureDemoExample {
             }
 
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init() {
-            const imguiPass = this.app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.imguiPass = imguiPass;
-
-            this.fontOpenSans = imguiPass.createFont("media/fonts/OpenSans/OpenSans-Regular.ttf", 17.0);
-            this.fontDroidMono = imguiPass.createFont("media/fonts/DroidSans/DroidSans-Mono.ttf", 14.0);
-            return !this.fontOpenSans.isNull() && !this.fontDroidMono.isNull();
         }
     }
 

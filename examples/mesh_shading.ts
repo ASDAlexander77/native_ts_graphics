@@ -51,6 +51,23 @@ namespace MeshShading {
             this.unsupportedReason = "";
         }
 
+        init() {
+            if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
+                this.unsupportedReason = "The graphics device does not support mesh shaders";
+                return false;
+            }
+            this.meshShader = this.app.createShader("mesh_shading.hlsl", "triangle_ms", ShaderType.Mesh);
+            this.pixelShader = this.app.createShader("mesh_shading.hlsl", "triangle_ps", ShaderType.Pixel);
+            if (!this.meshShader || !this.pixelShader) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
@@ -69,24 +86,6 @@ namespace MeshShading {
             frame.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
             frame.beginMeshDraw(this.pipeline);
             frame.drawMeshTasks(1);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
-                this.unsupportedReason = "The graphics device does not support mesh shaders";
-                return false;
-            }
-            this.meshShader = this.app.createShader("mesh_shading.hlsl", "triangle_ms", ShaderType.Mesh);
-            this.pixelShader = this.app.createShader("mesh_shading.hlsl", "triangle_ps", ShaderType.Pixel);
-            if (!this.meshShader || !this.pixelShader) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

@@ -264,6 +264,20 @@ namespace DeferredShading {
             }
         }
 
+        init() {
+            this.deferredLightingPass = this.app.createDeferredLightingPass();
+            this.view = this.app.createPlanarView();
+
+            if (!this.scene.init(this.app)) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         setupView(width: int, height: int) {
             const viewMatrix = mul(mul(
                 yawPitchRoll(this.rotation, 0.0, 0.0),
@@ -335,21 +349,6 @@ namespace DeferredShading {
                 ambientColorTop * 0.3, ambientColorTop * 0.4, ambientColorTop * 0.3);
 
             this.app.blitTexture(frame, targets.getShadedColor());
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.deferredLightingPass = this.app.createDeferredLightingPass();
-            this.view = this.app.createPlanarView();
-
-            if (!this.scene.init(this.app)) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

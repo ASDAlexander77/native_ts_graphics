@@ -92,6 +92,74 @@ namespace PredicationQueries {
             this.unsupportedReason = "";
         }
 
+        init() {
+            const occlusion = this.app.createOcclusionPredication(1);
+            if (!occlusion) {
+                this.unsupportedReason = "The graphics device has no predication (D3D12, or Vulkan with VK_EXT_conditional_rendering)";
+                return false;
+            }
+            this.occlusion = occlusion as OcclusionPredicationHandle;
+
+            this.vertexShader = this.app.createShader("predication_queries.hlsl", "VSMain", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("predication_queries.hlsl", "PSMain", ShaderType.Pixel);
+            if (!this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.Vertex);
+            this.farQuadConstants = this.app.createVolatileConstantBuffer(CB_SIZE, "FarQuadConstants");
+            this.nearQuadConstants = this.app.createVolatileConstantBuffer(CB_SIZE, "NearQuadConstants");
+            const farSetDesc = BindingSetDesc.create();
+            farSetDesc.bindEntireConstantBuffer(0, this.farQuadConstants);
+            this.farQuadBindingSet = this.app.createBindingSetForLayout(farSetDesc, this.bindingLayout);
+            const nearSetDesc = BindingSetDesc.create();
+            nearSetDesc.bindEntireConstantBuffer(0, this.nearQuadConstants);
+            this.nearQuadBindingSet = this.app.createBindingSetForLayout(nearSetDesc, this.bindingLayout);
+
+            // Two quads and a bounding box for the occlusion query, in clip space (the window's
+            // aspect ratio applied to y), drawn back to front.
+            const a = Math.fround(1280.0 / 720.0);
+            const far = Math.fround(0.25 * a);
+            const near = Math.fround(0.35 * a);
+            let vertices: f32[] = [
+                // Far quad - in practice this would be a complex geometry.
+                -0.25, -far, 0.5, 1.0, 1.0, 1.0, 1.0,
+                -0.25, far, 0.5, 1.0, 1.0, 1.0, 1.0,
+                0.25, -far, 0.5, 1.0, 1.0, 1.0, 1.0,
+                0.25, far, 0.5, 1.0, 1.0, 1.0, 1.0,
+                // Near quad.
+                -0.5, -near, 0.0, 1.0, 0.0, 0.0, 0.65,
+                -0.5, near, 0.0, 1.0, 0.0, 0.0, 0.65,
+                0.5, -near, 0.0, 1.0, 1.0, 0.0, 0.65,
+                0.5, near, 0.0, 1.0, 1.0, 0.0, 0.65,
+                // Far quad bounding box used for occlusion query (offset slightly to avoid z-fighting).
+                -0.25, -far, 0.4999, 0.0, 0.0, 0.0, 1.0,
+                -0.25, far, 0.4999, 0.0, 0.0, 0.0, 1.0,
+                0.25, -far, 0.4999, 0.0, 0.0, 0.0, 1.0,
+                0.25, far, 0.4999, 0.0, 0.0, 0.0, 1.0,
+            ];
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Quads");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
@@ -190,75 +258,6 @@ namespace PredicationQueries {
             frame.resolveOcclusionQueries(this.occlusion);
 
             this.app.blitTexture(frame, this.colorBuffer);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const occlusion = this.app.createOcclusionPredication(1);
-            if (!occlusion) {
-                this.unsupportedReason = "The graphics device has no predication (D3D12, or Vulkan with VK_EXT_conditional_rendering)";
-                return false;
-            }
-            this.occlusion = occlusion as OcclusionPredicationHandle;
-
-            this.vertexShader = this.app.createShader("predication_queries.hlsl", "VSMain", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader("predication_queries.hlsl", "PSMain", ShaderType.Pixel);
-            if (!this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.Vertex);
-            this.farQuadConstants = this.app.createVolatileConstantBuffer(CB_SIZE, "FarQuadConstants");
-            this.nearQuadConstants = this.app.createVolatileConstantBuffer(CB_SIZE, "NearQuadConstants");
-            const farSetDesc = BindingSetDesc.create();
-            farSetDesc.bindEntireConstantBuffer(0, this.farQuadConstants);
-            this.farQuadBindingSet = this.app.createBindingSetForLayout(farSetDesc, this.bindingLayout);
-            const nearSetDesc = BindingSetDesc.create();
-            nearSetDesc.bindEntireConstantBuffer(0, this.nearQuadConstants);
-            this.nearQuadBindingSet = this.app.createBindingSetForLayout(nearSetDesc, this.bindingLayout);
-
-            // Two quads and a bounding box for the occlusion query, in clip space (the window's
-            // aspect ratio applied to y), drawn back to front.
-            const a = Math.fround(1280.0 / 720.0);
-            const far = Math.fround(0.25 * a);
-            const near = Math.fround(0.35 * a);
-            let vertices: f32[] = [
-                // Far quad - in practice this would be a complex geometry.
-                -0.25, -far, 0.5, 1.0, 1.0, 1.0, 1.0,
-                -0.25, far, 0.5, 1.0, 1.0, 1.0, 1.0,
-                0.25, -far, 0.5, 1.0, 1.0, 1.0, 1.0,
-                0.25, far, 0.5, 1.0, 1.0, 1.0, 1.0,
-                // Near quad.
-                -0.5, -near, 0.0, 1.0, 0.0, 0.0, 0.65,
-                -0.5, near, 0.0, 1.0, 0.0, 0.0, 0.65,
-                0.5, -near, 0.0, 1.0, 1.0, 0.0, 0.65,
-                0.5, near, 0.0, 1.0, 1.0, 0.0, 0.65,
-                // Far quad bounding box used for occlusion query (offset slightly to avoid z-fighting).
-                -0.25, -far, 0.4999, 0.0, 0.0, 0.0, 1.0,
-                -0.25, far, 0.4999, 0.0, 0.0, 0.0, 1.0,
-                0.25, -far, 0.4999, 0.0, 0.0, 0.0, 1.0,
-                0.25, far, 0.4999, 0.0, 0.0, 0.0, 1.0,
-            ];
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Quads");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

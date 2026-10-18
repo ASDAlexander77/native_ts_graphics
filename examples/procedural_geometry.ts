@@ -239,6 +239,65 @@ namespace ProceduralGeometry {
             this.fixedTime = -1.0;
         }
 
+        init() {
+            // CreateRootSignatures' global root signature; the local ones' constants are in t4, t5.
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutTextureUAV(0);
+            layoutDesc.layoutConstantBuffer(0);
+            for (let slot = 1; slot <= 5; slot++) {
+                layoutDesc.layoutStructuredBufferSRV(slot);
+            }
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            if (!this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            // InitializeScene's camera: from (0, 5.3, -17) towards the origin, its up vector
+            // perpendicular to the view direction and x, both turned 45 degrees about y.
+            this.eye = [0.0, Math.fround(5.3), -17.0, 1.0];
+            this.at = [0.0, 0.0, 0.0, 1.0];
+            const direction = normalize4(vsub(this.at, this.eye));
+            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
+            const rotate = matrixRotationY(radians(45.0));
+            this.eye = transform3(this.eye, rotate);
+            this.up = transform3(this.up, rotate);
+
+            this.buildAabbs();
+
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+
+            // -test's unthrottled frames on Vulkan.
+
+            this.sceneConstantBuffer = this.app.createConstantBuffer(SCENE_CB_SIZE, "SceneConstants");
+            this.aabbAttributeBuffer = this.app.createStructuredBuffer(AABB_ATTRIBUTE_FLOATS * 4, PRIMITIVE_COUNT, "AABBPrimitiveAttributes");
+            this.materialBuffer = this.app.createStructuredBuffer(MATERIAL_FLOATS * 4, PRIMITIVE_COUNT + 1, "Materials");
+            this.aabbConstantBuffer = this.app.createStructuredBuffer(8, PRIMITIVE_COUNT, "AABBConstants");
+            this.timerQuery = this.app.createTimerQuery();
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.writeMaterials(commandList);
+            const created = this.createAccelerationStructures(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            // The AABBs are only needed for the build: the command list references them, and the app
+            // holds it until the GPU is done with it.
+            this.app.releaseResource(this.aabbBuffer);
+            this.app.releaseResource(commandList.handle);
+            if (!created) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setKeyboardCallback(this.onKey);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The storage image has the back buffers' size.
         onBackBufferResizing() {
             const bindingSet = this.bindingSet;
@@ -598,66 +657,6 @@ namespace ProceduralGeometry {
                 }
             }
             this.shaderTable = shaderTable;
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // CreateRootSignatures' global root signature; the local ones' constants are in t4, t5.
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutTextureUAV(0);
-            layoutDesc.layoutConstantBuffer(0);
-            for (let slot = 1; slot <= 5; slot++) {
-                layoutDesc.layoutStructuredBufferSRV(slot);
-            }
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            if (!this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            // InitializeScene's camera: from (0, 5.3, -17) towards the origin, its up vector
-            // perpendicular to the view direction and x, both turned 45 degrees about y.
-            this.eye = [0.0, Math.fround(5.3), -17.0, 1.0];
-            this.at = [0.0, 0.0, 0.0, 1.0];
-            const direction = normalize4(vsub(this.at, this.eye));
-            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
-            const rotate = matrixRotationY(radians(45.0));
-            this.eye = transform3(this.eye, rotate);
-            this.up = transform3(this.up, rotate);
-
-            this.buildAabbs();
-
-            // Static, written in the command list every frame: a volatile one runs out of versions in
-
-            // -test's unthrottled frames on Vulkan.
-
-            this.sceneConstantBuffer = this.app.createConstantBuffer(SCENE_CB_SIZE, "SceneConstants");
-            this.aabbAttributeBuffer = this.app.createStructuredBuffer(AABB_ATTRIBUTE_FLOATS * 4, PRIMITIVE_COUNT, "AABBPrimitiveAttributes");
-            this.materialBuffer = this.app.createStructuredBuffer(MATERIAL_FLOATS * 4, PRIMITIVE_COUNT + 1, "Materials");
-            this.aabbConstantBuffer = this.app.createStructuredBuffer(8, PRIMITIVE_COUNT, "AABBConstants");
-            this.timerQuery = this.app.createTimerQuery();
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.writeMaterials(commandList);
-            const created = this.createAccelerationStructures(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            // The AABBs are only needed for the build: the command list references them, and the app
-            // holds it until the GPU is done with it.
-            this.app.releaseResource(this.aabbBuffer);
-            this.app.releaseResource(commandList.handle);
-            if (!created) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setKeyboardCallback(this.onKey);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

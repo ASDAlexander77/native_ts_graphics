@@ -135,6 +135,92 @@ namespace NBodyGravity {
             this.stepConstants = [PARTICLE_COUNT, GROUP_COUNT, 0.0, 0.0, 0.1, 1.0, 0.0, 0.0];
         }
 
+        init() {
+            this.vertexShader = this.app.createShader("n_body_gravity_draw.hlsl", "VSParticleDraw", ShaderType.Vertex);
+            this.geometryShader = this.app.createShader("n_body_gravity_draw.hlsl", "GSParticleDraw", ShaderType.Geometry);
+            this.pixelShader = this.app.createShader("n_body_gravity_draw.hlsl", "PSParticleDraw", ShaderType.Pixel);
+            const computeShader = this.app.createShader("n_body_gravity_cs.hlsl", "CSMain", ShaderType.Compute);
+            if (!this.vertexShader || !this.geometryShader || !this.pixelShader || !computeShader) {
+                return false;
+            }
+
+            const computeCommandList = this.app.createComputeQueueCommandList();
+            if (!computeCommandList.isNull()) {
+                this.computeCommandList = computeCommandList;
+            }
+
+            // The particles' color (the vertex shader turns it red by acceleration).
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 0, 0, 16);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+
+            // The sample's root signatures: the draw's CBV and particle SRV; the step's CBV, SRV and
+            // UAV.
+            const drawLayoutDesc = BindingLayoutDesc.create();
+            drawLayoutDesc.layoutPushConstants(0, DRAW_CONSTANT_FLOATS * 4);
+            drawLayoutDesc.layoutStructuredBufferSRV(0);
+            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.All);
+            const stepLayoutDesc = BindingLayoutDesc.create();
+            stepLayoutDesc.layoutPushConstants(0, STEP_CONSTANT_FLOATS * 4);
+            stepLayoutDesc.layoutStructuredBufferSRV(0);
+            stepLayoutDesc.layoutStructuredBufferUAV(0);
+            const stepBindingLayout = this.app.createBindingLayout(stepLayoutDesc, ShaderType.Compute);
+            this.stepPipeline = this.app.createComputePipelineWithLayout(computeShader, stepBindingLayout);
+
+            // CreateVertexBuffer and CreateParticleBuffers: the particles all yellow; the two groups
+            // moving along z, 20 a second either way, in both particle buffers.
+            let data: f32[] = [];
+            for (let i = 0; i < GROUP_COUNT * BLOCK_SIZE * 8; i++) {
+                data.push(0.0);
+            }
+            const centerSpread = Math.fround(PARTICLE_SPREAD * 0.5);
+            loadParticles(data, 0, PARTICLE_COUNT / 2, centerSpread, -20.0, PARTICLE_SPREAD);
+            loadParticles(data, PARTICLE_COUNT / 2, PARTICLE_COUNT / 2, -centerSpread, 20.0, PARTICLE_SPREAD);
+            let colors: f32[] = [];
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                colors.push(1.0);
+                colors.push(1.0);
+                colors.push(Math.fround(0.2));
+                colors.push(1.0);
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(colors[0]), PARTICLE_COUNT * 16, "ParticleColors");
+            const buffers: BufferHandle[] = [];
+            for (let i = 0; i < 2; i++) {
+                const buffer = this.app.createRWStructuredBuffer(PARTICLE_STRIDE, GROUP_COUNT * BLOCK_SIZE, `Particles${i}`);
+                commandList.writeBuffer(buffer, Ref(data[0]), GROUP_COUNT * BLOCK_SIZE * PARTICLE_STRIDE);
+                buffers.push(buffer);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            for (let i = 0; i < 2; i++) {
+                const stepDesc = BindingSetDesc.create();
+                stepDesc.bindPushConstants(0, STEP_CONSTANT_FLOATS * 4);
+                stepDesc.bindStructuredBufferSRV(0, buffers[i]);
+                stepDesc.bindStructuredBufferUAV(0, buffers[1 - i]);
+                this.stepBindingSets.push(this.app.createBindingSetForLayout(stepDesc, stepBindingLayout));
+                const drawDesc = BindingSetDesc.create();
+                drawDesc.bindPushConstants(0, DRAW_CONSTANT_FLOATS * 4);
+                drawDesc.bindStructuredBufferSRV(0, buffers[i]);
+                this.drawBindingSets.push(this.app.createBindingSetForLayout(drawDesc, this.drawBindingLayout));
+            }
+
+            // The sample's camera: 1500 back from the middle, 250 a second.
+            this.camera.init(0.0, 0.0, 1500.0);
+            this.camera.setMoveSpeed(250.0);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int): int {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
@@ -230,93 +316,6 @@ namespace NBodyGravity {
             frame.drawAddBindingSet(this.drawBindingSets[this.srvIndex]);
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
             frame.drawVerticesWithPushConstants(PARTICLE_COUNT, Ref(this.drawConstants[0]), DRAW_CONSTANT_FLOATS * 4);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.vertexShader = this.app.createShader("n_body_gravity_draw.hlsl", "VSParticleDraw", ShaderType.Vertex);
-            this.geometryShader = this.app.createShader("n_body_gravity_draw.hlsl", "GSParticleDraw", ShaderType.Geometry);
-            this.pixelShader = this.app.createShader("n_body_gravity_draw.hlsl", "PSParticleDraw", ShaderType.Pixel);
-            const computeShader = this.app.createShader("n_body_gravity_cs.hlsl", "CSMain", ShaderType.Compute);
-            if (!this.vertexShader || !this.geometryShader || !this.pixelShader || !computeShader) {
-                return false;
-            }
-
-            const computeCommandList = this.app.createComputeQueueCommandList();
-            if (!computeCommandList.isNull()) {
-                this.computeCommandList = computeCommandList;
-            }
-
-            // The particles' color (the vertex shader turns it red by acceleration).
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 0, 0, 16);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-
-            // The sample's root signatures: the draw's CBV and particle SRV; the step's CBV, SRV and
-            // UAV.
-            const drawLayoutDesc = BindingLayoutDesc.create();
-            drawLayoutDesc.layoutPushConstants(0, DRAW_CONSTANT_FLOATS * 4);
-            drawLayoutDesc.layoutStructuredBufferSRV(0);
-            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.All);
-            const stepLayoutDesc = BindingLayoutDesc.create();
-            stepLayoutDesc.layoutPushConstants(0, STEP_CONSTANT_FLOATS * 4);
-            stepLayoutDesc.layoutStructuredBufferSRV(0);
-            stepLayoutDesc.layoutStructuredBufferUAV(0);
-            const stepBindingLayout = this.app.createBindingLayout(stepLayoutDesc, ShaderType.Compute);
-            this.stepPipeline = this.app.createComputePipelineWithLayout(computeShader, stepBindingLayout);
-
-            // CreateVertexBuffer and CreateParticleBuffers: the particles all yellow; the two groups
-            // moving along z, 20 a second either way, in both particle buffers.
-            let data: f32[] = [];
-            for (let i = 0; i < GROUP_COUNT * BLOCK_SIZE * 8; i++) {
-                data.push(0.0);
-            }
-            const centerSpread = Math.fround(PARTICLE_SPREAD * 0.5);
-            loadParticles(data, 0, PARTICLE_COUNT / 2, centerSpread, -20.0, PARTICLE_SPREAD);
-            loadParticles(data, PARTICLE_COUNT / 2, PARTICLE_COUNT / 2, -centerSpread, 20.0, PARTICLE_SPREAD);
-            let colors: f32[] = [];
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                colors.push(1.0);
-                colors.push(1.0);
-                colors.push(Math.fround(0.2));
-                colors.push(1.0);
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(colors[0]), PARTICLE_COUNT * 16, "ParticleColors");
-            const buffers: BufferHandle[] = [];
-            for (let i = 0; i < 2; i++) {
-                const buffer = this.app.createRWStructuredBuffer(PARTICLE_STRIDE, GROUP_COUNT * BLOCK_SIZE, `Particles${i}`);
-                commandList.writeBuffer(buffer, Ref(data[0]), GROUP_COUNT * BLOCK_SIZE * PARTICLE_STRIDE);
-                buffers.push(buffer);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            for (let i = 0; i < 2; i++) {
-                const stepDesc = BindingSetDesc.create();
-                stepDesc.bindPushConstants(0, STEP_CONSTANT_FLOATS * 4);
-                stepDesc.bindStructuredBufferSRV(0, buffers[i]);
-                stepDesc.bindStructuredBufferUAV(0, buffers[1 - i]);
-                this.stepBindingSets.push(this.app.createBindingSetForLayout(stepDesc, stepBindingLayout));
-                const drawDesc = BindingSetDesc.create();
-                drawDesc.bindPushConstants(0, DRAW_CONSTANT_FLOATS * 4);
-                drawDesc.bindStructuredBufferSRV(0, buffers[i]);
-                this.drawBindingSets.push(this.app.createBindingSetForLayout(drawDesc, this.drawBindingLayout));
-            }
-
-            // The sample's camera: 1500 back from the middle, 250 a second.
-            this.camera.init(0.0, 0.0, 1500.0);
-            this.camera.setMoveSpeed(250.0);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

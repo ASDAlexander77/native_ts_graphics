@@ -89,6 +89,41 @@ namespace MeshletRender {
             this.worldViewProj = matrixIdentity();
         }
 
+        init() {
+            this.meshShader = this.app.createShader("meshlet_render.hlsl", "main_ms", ShaderType.Mesh);
+            this.pixelShader = this.app.createShader("meshlet_render.hlsl", "main_ps", ShaderType.Pixel);
+            if (!this.meshShader || !this.pixelShader) {
+                return false;
+            }
+            // The sample's root signature: CBV(b0), RootConstants(b1, 2), SRV(t0) .. SRV(t3).
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutConstantBuffer(0);
+            layoutDesc.layoutPushConstants(1, MESH_INFO_SIZE);
+            layoutDesc.layoutRawBufferSRV(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutRawBufferSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "SceneConstantBuffer");
+
+            // The sample's camera: at (0, 75, 150) looking down -z, 150 units a second.
+            this.camera.init(0.0, 75.0, 150.0);
+            this.camera.setMoveSpeed(150.0);
+
+            if (!this.loadModel()) {
+                return false;
+            }
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int): int {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
@@ -241,42 +276,6 @@ namespace MeshletRender {
             this.app.executeCommandList(commandList);
             this.app.releaseResource(commandList.handle);
             model.destroy();
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.meshShader = this.app.createShader("meshlet_render.hlsl", "main_ms", ShaderType.Mesh);
-            this.pixelShader = this.app.createShader("meshlet_render.hlsl", "main_ps", ShaderType.Pixel);
-            if (!this.meshShader || !this.pixelShader) {
-                return false;
-            }
-            // The sample's root signature: CBV(b0), RootConstants(b1, 2), SRV(t0) .. SRV(t3).
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutConstantBuffer(0);
-            layoutDesc.layoutPushConstants(1, MESH_INFO_SIZE);
-            layoutDesc.layoutRawBufferSRV(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            layoutDesc.layoutRawBufferSRV(2);
-            layoutDesc.layoutStructuredBufferSRV(3);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "SceneConstantBuffer");
-
-            // The sample's camera: at (0, 75, 150) looking down -z, 150 units a second.
-            this.camera.init(0.0, 75.0, 150.0);
-            this.camera.setMoveSpeed(150.0);
-
-            if (!this.loadModel()) {
-                return false;
-            }
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

@@ -860,6 +860,76 @@ namespace WorkGraphs {
             this.rootConstants = [0, 0, 0];
         }
 
+        init() {
+            // Resources used to fill unused shader binding slots (null resources).
+            this.nullSRVBuffer = this.app.createStructuredBuffer(16, 32, "NullSRVBuffer");
+            this.nullUAVBuffer = this.app.createRWStructuredBuffer(16, 32, "NullUAVBuffer");
+            this.nullSRVTexture = this.app.createUAVTexture(1, 1, "NullSRVTexture");
+            this.nullUAVTexture = this.app.createUAVTexture(1, 1, "NullUAVTexture");
+
+            for (let i = 0; i < QUEUED_FRAMES_COUNT; i++) {
+                this.frameTimers.push(this.app.createTimerQuery());
+                this.shadingTimers.push(this.app.createTimerQuery());
+            }
+
+            // Create the scene procedurally.
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.scene.createAssets(this.app, commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const animateObjectsShader = this.app.createShader("work_graphs_animation.hlsl", "CSMainObjects", ShaderType.Compute);
+            const animateLightsShader = this.app.createShader("work_graphs_animation.hlsl", "CSMainLights", ShaderType.Compute);
+            const gbufferVertexShader = this.app.createShader("work_graphs_gbuffer_fill.hlsl", "VSMain", ShaderType.Vertex);
+            const gbufferPixelShader = this.app.createShader("work_graphs_gbuffer_fill.hlsl", "PSMain", ShaderType.Pixel);
+            const lightCullingShader = this.app.createShader("work_graphs_light_culling.hlsl", "CSMain", ShaderType.Compute);
+            const deferredShadingShader = this.app.createShader("work_graphs_deferred_shading.hlsl", "CSMain", ShaderType.Compute);
+            // The work graph shader library represents a full work graph, and contains all node shaders for that graph.
+            const workGraphLibrary = this.app.createShaderLibrary("work_graphs_broadcasting.hlsl");
+            if (!animateObjectsShader || !animateLightsShader || !gbufferVertexShader || !gbufferPixelShader
+                || !lightCullingShader || !deferredShadingShader || !workGraphLibrary) {
+                console.log("Cannot load the shaders");
+                return false;
+            }
+            this.gbufferVertexShader = gbufferVertexShader;
+            this.gbufferPixelShader = gbufferPixelShader;
+            this.workGraphLibrary = workGraphLibrary;
+
+            // One binding layout for every shader, the work graph included.
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutPushConstants(0, PUSH_CONSTANTS_SIZE);
+            layoutDesc.layoutVolatileConstantBuffer(1);
+            layoutDesc.layoutStructuredBufferSRV(0);
+            layoutDesc.layoutTextureSRV(1);
+            layoutDesc.layoutTextureSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            layoutDesc.layoutStructuredBufferSRV(4);
+            layoutDesc.layoutStructuredBufferUAV(0);
+            layoutDesc.layoutTextureUAV(1);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            const inputLayoutDesc = InputLayoutDesc.create();
+            inputLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            inputLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(inputLayoutDesc, gbufferVertexShader);
+
+            this.animateObjectsPSO = this.app.createComputePipelineWithLayout(animateObjectsShader, this.bindingLayout);
+            this.animateLightsPSO = this.app.createComputePipelineWithLayout(animateLightsShader, this.bindingLayout);
+            this.cullLightsPSO = this.app.createComputePipelineWithLayout(lightCullingShader, this.bindingLayout);
+            this.shadePSO = this.app.createComputePipelineWithLayout(deferredShadingShader, this.bindingLayout);
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(SCENE_CONSTANTS_FLOATS * 4, "SceneConstants");
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The newest GPU time (in ms) of a set of timers that the GPU has finished; -1 if none.
         getLastValidQueryTimer(timers: TimerQueryHandle[]) {
             for (let i = this.nextTimerToUse - 1; i >= 0; i--) {
@@ -1240,77 +1310,6 @@ namespace WorkGraphs {
 
             this.nextTimerToUse = (this.nextTimerToUse + 1) % QUEUED_FRAMES_COUNT;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // Resources used to fill unused shader binding slots (null resources).
-            this.nullSRVBuffer = this.app.createStructuredBuffer(16, 32, "NullSRVBuffer");
-            this.nullUAVBuffer = this.app.createRWStructuredBuffer(16, 32, "NullUAVBuffer");
-            this.nullSRVTexture = this.app.createUAVTexture(1, 1, "NullSRVTexture");
-            this.nullUAVTexture = this.app.createUAVTexture(1, 1, "NullUAVTexture");
-
-            for (let i = 0; i < QUEUED_FRAMES_COUNT; i++) {
-                this.frameTimers.push(this.app.createTimerQuery());
-                this.shadingTimers.push(this.app.createTimerQuery());
-            }
-
-            // Create the scene procedurally.
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.scene.createAssets(this.app, commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const animateObjectsShader = this.app.createShader("work_graphs_animation.hlsl", "CSMainObjects", ShaderType.Compute);
-            const animateLightsShader = this.app.createShader("work_graphs_animation.hlsl", "CSMainLights", ShaderType.Compute);
-            const gbufferVertexShader = this.app.createShader("work_graphs_gbuffer_fill.hlsl", "VSMain", ShaderType.Vertex);
-            const gbufferPixelShader = this.app.createShader("work_graphs_gbuffer_fill.hlsl", "PSMain", ShaderType.Pixel);
-            const lightCullingShader = this.app.createShader("work_graphs_light_culling.hlsl", "CSMain", ShaderType.Compute);
-            const deferredShadingShader = this.app.createShader("work_graphs_deferred_shading.hlsl", "CSMain", ShaderType.Compute);
-            // The work graph shader library represents a full work graph, and contains all node shaders for that graph.
-            const workGraphLibrary = this.app.createShaderLibrary("work_graphs_broadcasting.hlsl");
-            if (!animateObjectsShader || !animateLightsShader || !gbufferVertexShader || !gbufferPixelShader
-                || !lightCullingShader || !deferredShadingShader || !workGraphLibrary) {
-                console.log("Cannot load the shaders");
-                return false;
-            }
-            this.gbufferVertexShader = gbufferVertexShader;
-            this.gbufferPixelShader = gbufferPixelShader;
-            this.workGraphLibrary = workGraphLibrary;
-
-            // One binding layout for every shader, the work graph included.
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutPushConstants(0, PUSH_CONSTANTS_SIZE);
-            layoutDesc.layoutVolatileConstantBuffer(1);
-            layoutDesc.layoutStructuredBufferSRV(0);
-            layoutDesc.layoutTextureSRV(1);
-            layoutDesc.layoutTextureSRV(2);
-            layoutDesc.layoutStructuredBufferSRV(3);
-            layoutDesc.layoutStructuredBufferSRV(4);
-            layoutDesc.layoutStructuredBufferUAV(0);
-            layoutDesc.layoutTextureUAV(1);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            const inputLayoutDesc = InputLayoutDesc.create();
-            inputLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            inputLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(inputLayoutDesc, gbufferVertexShader);
-
-            this.animateObjectsPSO = this.app.createComputePipelineWithLayout(animateObjectsShader, this.bindingLayout);
-            this.animateLightsPSO = this.app.createComputePipelineWithLayout(animateLightsShader, this.bindingLayout);
-            this.cullLightsPSO = this.app.createComputePipelineWithLayout(lightCullingShader, this.bindingLayout);
-            this.shadePSO = this.app.createComputePipelineWithLayout(deferredShadingShader, this.bindingLayout);
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(SCENE_CONSTANTS_FLOATS * 4, "SceneConstants");
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The options and stats window (the sample's UIRenderer).
@@ -1319,6 +1318,10 @@ namespace WorkGraphs {
 
         constructor(ui: UIData) {
             this.ui = ui;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -1333,11 +1336,6 @@ namespace WorkGraphs {
             Donut_ImGuiText(`Frame Time (GPU): ${ui.gpuFrameTime.toFixed(3)} ms`);
             Donut_ImGuiText(`Shading Time (GPU): ${ui.gpuShadingTime.toFixed(3)} ms`);
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

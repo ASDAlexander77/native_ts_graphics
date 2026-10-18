@@ -480,6 +480,87 @@ namespace RenderOctomap {
             }
         }
 
+        init() {
+            const shader = "render_octomap.hlsl";
+            this.renderVS = this.app.createShader(shader, "render_vs", ShaderType.Vertex);
+            this.colorPS = this.app.createShader(shader, "color_ps", ShaderType.Pixel);
+            this.gltfVS = this.app.createShader(shader, "gltf_vs", ShaderType.Vertex);
+            this.splatVS = this.app.createShader(shader, "splat_vs", ShaderType.Vertex);
+            this.splatPS = this.app.createShader(shader, "splat_ps", ShaderType.Pixel);
+            if (!this.renderVS || !this.colorPS || !this.gltfVS || !this.splatVS || !this.splatPS) {
+                return false;
+            }
+
+            // The cube's corners, and the voxels' instances: position, color, size.
+            const octomapLayoutDesc = InputLayoutDesc.create();
+            octomapLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
+            octomapLayoutDesc.addInstanceVertexAttribute("INSTANCE_POSITION", Format.RGB32_FLOAT, 0, 1, INSTANCE_FLOATS * 4);
+            octomapLayoutDesc.addInstanceVertexAttribute("INSTANCE_COLOR", Format.RGBA32_FLOAT, 12, 1, INSTANCE_FLOATS * 4);
+            octomapLayoutDesc.addInstanceVertexAttribute("INSTANCE_SCALE", Format.R32_FLOAT, 28, 1, INSTANCE_FLOATS * 4);
+            this.octomapInputLayout = this.app.createInputLayout(octomapLayoutDesc, this.renderVS);
+            // The glTF map: positions and vertex colors.
+            const gltfLayoutDesc = InputLayoutDesc.create();
+            gltfLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
+            gltfLayoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 0, 1, 16);
+            this.gltfInputLayout = this.app.createInputLayout(gltfLayoutDesc, this.gltfVS);
+            // The splats: per instance.
+            const splatLayoutDesc = InputLayoutDesc.create();
+            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_POSITION", Format.RGB32_FLOAT, 0, 0, SPLAT_FLOATS * 4);
+            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_ROTATION", Format.RGBA32_FLOAT, 12, 0, SPLAT_FLOATS * 4);
+            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_SCALE", Format.RGB32_FLOAT, 28, 0, SPLAT_FLOATS * 4);
+            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_OPACITY", Format.R32_FLOAT, 40, 0, SPLAT_FLOATS * 4);
+            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_COLOR", Format.RGB32_FLOAT, 44, 0, SPLAT_FLOATS * 4);
+            this.splatInputLayout = this.app.createInputLayout(splatLayoutDesc, this.splatVS);
+
+            // The UBO; with the glTF view's push constants.
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+            const gltfLayoutBindingDesc = BindingLayoutDesc.create();
+            gltfLayoutBindingDesc.layoutVolatileConstantBuffer(0);
+            gltfLayoutBindingDesc.layoutPushConstants(1, PUSH_FLOATS * 4);
+            this.gltfBindingLayout = this.app.createBindingLayout(gltfLayoutBindingDesc, ShaderType.All);
+            const gltfSetDesc = BindingSetDesc.create();
+            gltfSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+            gltfSetDesc.bindPushConstants(1, PUSH_FLOATS * 4);
+            this.gltfBindingSet = this.app.createBindingSetForLayout(gltfSetDesc, this.gltfBindingLayout);
+
+            // The blit's common passes, created on first use, upload their textures on a command
+            // list of their own: create them before ours (or the frame's) is open.
+            this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const reader = new OctomapReader();
+            const file = this.app.loadBinaryFile(OCTOMAP_PATH);
+            if (file.isNull() || !reader.read(file)) {
+                console.log("Cannot read the octomap: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.app.releaseObject(file.handle);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.createCube(commandList);
+            this.buildCubes(commandList, reader);
+            const quad: int[] = [0, 1, 2, 3];
+            this.splatQuadIndices = this.app.createStaticIndexBuffer(commandList, Ref(quad[0]), 16, "SplatQuadIndices");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // WASD move the camera, numpad 4/6/8/2 turn it. Seen before the overlay (see main), so
         // they work while it has the keyboard; the other keys go on to it.
         onKey(key: int, scancode: int, action: int, mods: int) {
@@ -1004,88 +1085,6 @@ namespace RenderOctomap {
             }
         }
 
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "render_octomap.hlsl";
-            this.renderVS = this.app.createShader(shader, "render_vs", ShaderType.Vertex);
-            this.colorPS = this.app.createShader(shader, "color_ps", ShaderType.Pixel);
-            this.gltfVS = this.app.createShader(shader, "gltf_vs", ShaderType.Vertex);
-            this.splatVS = this.app.createShader(shader, "splat_vs", ShaderType.Vertex);
-            this.splatPS = this.app.createShader(shader, "splat_ps", ShaderType.Pixel);
-            if (!this.renderVS || !this.colorPS || !this.gltfVS || !this.splatVS || !this.splatPS) {
-                return false;
-            }
-
-            // The cube's corners, and the voxels' instances: position, color, size.
-            const octomapLayoutDesc = InputLayoutDesc.create();
-            octomapLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
-            octomapLayoutDesc.addInstanceVertexAttribute("INSTANCE_POSITION", Format.RGB32_FLOAT, 0, 1, INSTANCE_FLOATS * 4);
-            octomapLayoutDesc.addInstanceVertexAttribute("INSTANCE_COLOR", Format.RGBA32_FLOAT, 12, 1, INSTANCE_FLOATS * 4);
-            octomapLayoutDesc.addInstanceVertexAttribute("INSTANCE_SCALE", Format.R32_FLOAT, 28, 1, INSTANCE_FLOATS * 4);
-            this.octomapInputLayout = this.app.createInputLayout(octomapLayoutDesc, this.renderVS);
-            // The glTF map: positions and vertex colors.
-            const gltfLayoutDesc = InputLayoutDesc.create();
-            gltfLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
-            gltfLayoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 0, 1, 16);
-            this.gltfInputLayout = this.app.createInputLayout(gltfLayoutDesc, this.gltfVS);
-            // The splats: per instance.
-            const splatLayoutDesc = InputLayoutDesc.create();
-            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_POSITION", Format.RGB32_FLOAT, 0, 0, SPLAT_FLOATS * 4);
-            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_ROTATION", Format.RGBA32_FLOAT, 12, 0, SPLAT_FLOATS * 4);
-            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_SCALE", Format.RGB32_FLOAT, 28, 0, SPLAT_FLOATS * 4);
-            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_OPACITY", Format.R32_FLOAT, 40, 0, SPLAT_FLOATS * 4);
-            splatLayoutDesc.addInstanceVertexAttribute("SPLAT_COLOR", Format.RGB32_FLOAT, 44, 0, SPLAT_FLOATS * 4);
-            this.splatInputLayout = this.app.createInputLayout(splatLayoutDesc, this.splatVS);
-
-            // The UBO; with the glTF view's push constants.
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-            const gltfLayoutBindingDesc = BindingLayoutDesc.create();
-            gltfLayoutBindingDesc.layoutVolatileConstantBuffer(0);
-            gltfLayoutBindingDesc.layoutPushConstants(1, PUSH_FLOATS * 4);
-            this.gltfBindingLayout = this.app.createBindingLayout(gltfLayoutBindingDesc, ShaderType.All);
-            const gltfSetDesc = BindingSetDesc.create();
-            gltfSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-            gltfSetDesc.bindPushConstants(1, PUSH_FLOATS * 4);
-            this.gltfBindingSet = this.app.createBindingSetForLayout(gltfSetDesc, this.gltfBindingLayout);
-
-            // The blit's common passes, created on first use, upload their textures on a command
-            // list of their own: create them before ours (or the frame's) is open.
-            this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const reader = new OctomapReader();
-            const file = this.app.loadBinaryFile(OCTOMAP_PATH);
-            if (file.isNull() || !reader.read(file)) {
-                console.log("Cannot read the octomap: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.app.releaseObject(file.handle);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.createCube(commandList);
-            this.buildCubes(commandList, reader);
-            const quad: int[] = [0, 1, 2, 3];
-            this.splatQuadIndices = this.app.createStaticIndexBuffer(commandList, Ref(quad[0]), 16, "SplatQuadIndices");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
-
         // The camera keys, in a pass added after the overlay's (so it sees them first).
         addKeyPass() {
             this.app.addPass().setKeyboardCallback(this.onKey);
@@ -1098,6 +1097,15 @@ namespace RenderOctomap {
 
         constructor(sample: OctomapPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            if (app.addImGuiPass(this.buildUI).isNull()) {
+                return false;
+            }
+            // The overlay works from the keyboard as well (as the framework's).
+            Donut_ImGuiSetKeyboardNavigation(1);
+            return true;
         }
 
         buildUI() {
@@ -1115,16 +1123,6 @@ namespace RenderOctomap {
                 sample.setViewState(VIEW_SPLATS);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            if (app.addImGuiPass(this.buildUI).isNull()) {
-                return false;
-            }
-            // The overlay works from the keyboard as well (as the framework's).
-            Donut_ImGuiSetKeyboardNavigation(1);
-            return true;
         }
     }
 

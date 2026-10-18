@@ -286,6 +286,42 @@ namespace MemoryManagement {
             this.graphTime = 0.0;
         }
 
+        init() {
+            this.visibleMips = [];
+            for (let i = 0; i < this.imageCount; i++) {
+                this.visibleMips.push(UNDEFINED_MIPMAP_INDEX);
+            }
+            const shader = "memory_management.hlsl";
+            this.vs = this.app.createShader(shader, "rect_vs", ShaderType.Vertex);
+            this.texturePS = this.app.createShader(shader, "texture_ps", ShaderType.Pixel);
+            this.colorPS = this.app.createShader(shader, "color_ps", ShaderType.Pixel);
+            if (!this.vs || !this.texturePS || !this.colorPS) {
+                return false;
+            }
+            const textureLayoutDesc = BindingLayoutDesc.create();
+            textureLayoutDesc.layoutTextureSRV(0);
+            textureLayoutDesc.layoutSampler(0);
+            textureLayoutDesc.layoutPushConstants(0, PUSH_SIZE);
+            this.textureLayout = this.app.createBindingLayout(textureLayoutDesc, ShaderType.All);
+            const colorLayoutDesc = BindingLayoutDesc.create();
+            colorLayoutDesc.layoutPushConstants(0, PUSH_SIZE);
+            this.colorLayout = this.app.createBindingLayout(colorLayoutDesc, ShaderType.All);
+            const colorSetDesc = BindingSetDesc.create();
+            colorSetDesc.bindPushConstants(0, PUSH_SIZE);
+            this.colorBindingSet = this.app.createBindingSetForLayout(colorSetDesc, this.colorLayout);
+            // The sample's static sampler: anisotropic (16), clamped.
+            this.sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0, 16.0);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         sceneCamera() {
             return this.sceneIsDebug ? this.debugCamera : this.viewportCamera;
         }
@@ -623,43 +659,6 @@ namespace MemoryManagement {
             Donut_ImGuiDrawRect(left, budgetY, right, budgetY + 1.0, 0.8, 0.0, 0.0, 1.0);
             Donut_ImGuiDrawText(right - 5.0, budgetY - 16.0, `${budgetMB}MB`, 1.0, 1.0, 1.0, 1.0, 1);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.visibleMips = [];
-            for (let i = 0; i < this.imageCount; i++) {
-                this.visibleMips.push(UNDEFINED_MIPMAP_INDEX);
-            }
-            const shader = "memory_management.hlsl";
-            this.vs = this.app.createShader(shader, "rect_vs", ShaderType.Vertex);
-            this.texturePS = this.app.createShader(shader, "texture_ps", ShaderType.Pixel);
-            this.colorPS = this.app.createShader(shader, "color_ps", ShaderType.Pixel);
-            if (!this.vs || !this.texturePS || !this.colorPS) {
-                return false;
-            }
-            const textureLayoutDesc = BindingLayoutDesc.create();
-            textureLayoutDesc.layoutTextureSRV(0);
-            textureLayoutDesc.layoutSampler(0);
-            textureLayoutDesc.layoutPushConstants(0, PUSH_SIZE);
-            this.textureLayout = this.app.createBindingLayout(textureLayoutDesc, ShaderType.All);
-            const colorLayoutDesc = BindingLayoutDesc.create();
-            colorLayoutDesc.layoutPushConstants(0, PUSH_SIZE);
-            this.colorLayout = this.app.createBindingLayout(colorLayoutDesc, ShaderType.All);
-            const colorSetDesc = BindingSetDesc.create();
-            colorSetDesc.bindPushConstants(0, PUSH_SIZE);
-            this.colorBindingSet = this.app.createBindingSetForLayout(colorSetDesc, this.colorLayout);
-            // The sample's static sampler: anisotropic (16), clamped.
-            this.sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0, 16.0);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     class UserInterface {
@@ -671,13 +670,12 @@ namespace MemoryManagement {
             this.app = app;
         }
 
-        buildUI() {
-            this.sample.renderStatistics(this.app.getWindowWidth());
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
         init() {
             return !this.app.addImGuiPass(this.buildUI).isNull();
+        }
+
+        buildUI() {
+            this.sample.renderStatistics(this.app.getWindowWidth());
         }
     }
 

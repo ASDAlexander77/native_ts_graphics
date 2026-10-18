@@ -139,6 +139,55 @@ namespace DescriptorIndexing {
             this.push = [0.0, 0.0, 0.0];
         }
 
+        init() {
+            const shader = "descriptor_indexing.hlsl";
+            this.nonUniformVS = this.app.createShader(shader, "nonuniform_vs", ShaderType.Vertex);
+            this.nonUniformPS = this.app.createShader(shader, "nonuniform_ps", ShaderType.Pixel);
+            this.updateAfterBindVS = this.app.createShader(shader, "update_after_bind_vs", ShaderType.Vertex);
+            this.updateAfterBindPS = this.app.createShader(shader, "update_after_bind_ps", ShaderType.Pixel);
+            if (!this.nonUniformVS || !this.nonUniformPS || !this.updateAfterBindVS || !this.updateAfterBindPS) {
+                return false;
+            }
+
+            // The push constants and the immutable sampler (linear, the nearest level, clamped).
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutPushConstants(0, PUSH_SIZE);
+            layoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindPushConstants(0, PUSH_SIZE);
+            setDesc.bindSampler(0, this.app.createSamplerWithDesc(1, 1, 0, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0, 1.0));
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            // The bindless texture array (register space 1), and the sample's two tables of it.
+            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, NUM_DESCRIPTORS_STREAMING, ShaderType.Pixel);
+            bindlessLayoutDesc.addTextures(1);
+            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
+            this.nonUniformTable = this.app.createDescriptorTable(this.bindlessLayout, NUM_DESCRIPTORS_NON_UNIFORM);
+            this.updateAfterBindTable = this.app.createDescriptorTable(this.bindlessLayout, NUM_DESCRIPTORS_STREAMING);
+            if (!this.nonUniformTable || !this.updateAfterBindTable) {
+                console.log("Cannot create the descriptor tables");
+                return false;
+            }
+
+            // A quad's corners as a triangle strip.
+            let quadIndices: int[] = [0, 1, 2, 3];
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.quadIndexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(quadIndices[0]), 16, "Quad");
+            this.createImages(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The sample's render: the time accumulated in float, wrapped to [0, 1).
         onAnimate(elapsedSeconds: number) {
             const deltaTime = Math.fround(this.benchmark ? 1.0 / 60.0 : elapsedSeconds);
@@ -240,56 +289,6 @@ namespace DescriptorIndexing {
                 this.app.writeDescriptorTableTexture(this.nonUniformTable, i, texture);
                 this.textures.push(texture);
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "descriptor_indexing.hlsl";
-            this.nonUniformVS = this.app.createShader(shader, "nonuniform_vs", ShaderType.Vertex);
-            this.nonUniformPS = this.app.createShader(shader, "nonuniform_ps", ShaderType.Pixel);
-            this.updateAfterBindVS = this.app.createShader(shader, "update_after_bind_vs", ShaderType.Vertex);
-            this.updateAfterBindPS = this.app.createShader(shader, "update_after_bind_ps", ShaderType.Pixel);
-            if (!this.nonUniformVS || !this.nonUniformPS || !this.updateAfterBindVS || !this.updateAfterBindPS) {
-                return false;
-            }
-
-            // The push constants and the immutable sampler (linear, the nearest level, clamped).
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutPushConstants(0, PUSH_SIZE);
-            layoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindPushConstants(0, PUSH_SIZE);
-            setDesc.bindSampler(0, this.app.createSamplerWithDesc(1, 1, 0, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0, 1.0));
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            // The bindless texture array (register space 1), and the sample's two tables of it.
-            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, NUM_DESCRIPTORS_STREAMING, ShaderType.Pixel);
-            bindlessLayoutDesc.addTextures(1);
-            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
-            this.nonUniformTable = this.app.createDescriptorTable(this.bindlessLayout, NUM_DESCRIPTORS_NON_UNIFORM);
-            this.updateAfterBindTable = this.app.createDescriptorTable(this.bindlessLayout, NUM_DESCRIPTORS_STREAMING);
-            if (!this.nonUniformTable || !this.updateAfterBindTable) {
-                console.log("Cannot create the descriptor tables");
-                return false;
-            }
-
-            // A quad's corners as a triangle strip.
-            let quadIndices: int[] = [0, 1, 2, 3];
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.quadIndexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(quadIndices[0]), 16, "Quad");
-            this.createImages(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

@@ -86,6 +86,51 @@ namespace Bundles {
             this.camera = new SimpleCamera();
         }
 
+        init() {
+            const shader = "bundles.hlsl";
+            this.vertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
+            this.altPixelShader = this.app.createShader(shader, "PSAlt", ShaderType.Pixel);
+            if (!this.vertexShader || !this.pixelShader || !this.altPixelShader) {
+                return false;
+            }
+            const layoutDesc = InputLayoutDesc.create();
+            // The vertex shader reads the positions and texture coordinates of the 44-byte vertices.
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+
+            // The sample's root signature: the texture's SRV, the sampler, the city's CBV.
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutConstantBuffer(0);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            this.constantBuffer = this.app.createConstantBuffer(CITY_COUNT * CONSTANTS_STRIDE, "SceneConstantBuffers");
+
+            // The sample's camera: 8 right, 8 up and 30 back, at SimpleCamera's speeds.
+            this.camera.init(8.0, 8.0, 30.0);
+
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const ok = this.loadAssets(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!ok) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int): int {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
@@ -212,52 +257,6 @@ namespace Bundles {
                     this.modelMatrices.push(matrixTranslation(cityOffsetX, cityOffsetY, cityOffsetZ));
                 }
             }
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "bundles.hlsl";
-            this.vertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
-            this.altPixelShader = this.app.createShader(shader, "PSAlt", ShaderType.Pixel);
-            if (!this.vertexShader || !this.pixelShader || !this.altPixelShader) {
-                return false;
-            }
-            const layoutDesc = InputLayoutDesc.create();
-            // The vertex shader reads the positions and texture coordinates of the 44-byte vertices.
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-
-            // The sample's root signature: the texture's SRV, the sampler, the city's CBV.
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutConstantBuffer(0);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            this.constantBuffer = this.app.createConstantBuffer(CITY_COUNT * CONSTANTS_STRIDE, "SceneConstantBuffers");
-
-            // The sample's camera: 8 right, 8 up and 30 back, at SimpleCamera's speeds.
-            this.camera.init(8.0, 8.0, 30.0);
-
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const ok = this.loadAssets(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!ok) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

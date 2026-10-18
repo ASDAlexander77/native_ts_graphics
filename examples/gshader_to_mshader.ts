@@ -289,6 +289,135 @@ namespace GshaderToMshader {
             }
         }
 
+        init() {
+            this.meshShadersSupported = this.app.isFeatureSupported(Feature.Meshlets) != 0;
+            if (!this.meshShadersSupported) {
+                console.log("The device has no mesh shaders: the normals are drawn by the geometry shader only");
+            }
+
+            const shader = "gshader_to_mshader.hlsl";
+            this.modelVS = this.app.createShader(shader, "model_vs", ShaderType.Vertex);
+            this.modelPS = this.app.createShader(shader, "model_ps", ShaderType.Pixel);
+            this.baseVS = this.app.createShader(shader, "base_vs", ShaderType.Vertex);
+            this.normalsGS = this.app.createShader(shader, "normals_gs", ShaderType.Geometry);
+            this.basePS = this.app.createShader(shader, "base_ps", ShaderType.Pixel);
+            if (!this.modelVS || !this.modelPS || !this.baseVS || !this.normalsGS || !this.basePS) {
+                return false;
+            }
+            if (this.meshShadersSupported) {
+                const meshShader = "gshader_to_mshader_mesh.hlsl";
+                this.normalsMS = this.app.createShader(meshShader, "normals_ms", ShaderType.Mesh);
+                this.meshPS = this.app.createShader(meshShader, "mesh_ps", ShaderType.Pixel);
+                if (!this.normalsMS || !this.meshPS) {
+                    return false;
+                }
+            }
+
+            // The model's vertex input: positions and normals.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.modelVS);
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
+
+            // The sample's descriptor set, split by pipeline: the uniforms for the model's and the
+            // geometry shader's; the uniforms, meshlets and vertices for the mesh shader's.
+            const layoutDescModel = BindingLayoutDesc.create();
+            layoutDescModel.layoutVolatileConstantBuffer(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDescModel, ShaderType.All);
+
+            const model = this.app.loadGltfModel(MODEL_PATH);
+            if (model.isNull()) {
+                console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            const vertexCount = model.getVertexCount(0);
+            this.indexCount = model.getIndexCount(0);
+            let gltfVertices: f32[] = [];
+            for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
+                gltfVertices.push(0.0);
+            }
+            let indices: int[] = [];
+            for (let i = 0; i < this.indexCount; i++) {
+                indices.push(0);
+            }
+            model.copyVertices(0, Ref(gltfVertices[0]));
+            model.copyIndices(0, Ref(indices[0]));
+
+            // The framework's glTF loader's vertices: normals normalized.
+            let vertices: f32[] = [];
+            let alignedVertices: f32[] = [];
+            for (let v = 0; v < vertexCount; v++) {
+                const g = v * GLTF_VERTEX_FLOATS;
+                const nx = gltfVertices[g + 3];
+                const ny = gltfVertices[g + 4];
+                const nz = gltfVertices[g + 5];
+                const inverseLength = 1.0 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+                vertices.push(gltfVertices[g + 0]);
+                vertices.push(gltfVertices[g + 1]);
+                vertices.push(gltfVertices[g + 2]);
+                vertices.push(nx * inverseLength);
+                vertices.push(ny * inverseLength);
+                vertices.push(nz * inverseLength);
+                alignedVertices.push(gltfVertices[g + 0]);
+                alignedVertices.push(gltfVertices[g + 1]);
+                alignedVertices.push(gltfVertices[g + 2]);
+                alignedVertices.push(1.0);
+                alignedVertices.push(nx * inverseLength);
+                alignedVertices.push(ny * inverseLength);
+                alignedVertices.push(nz * inverseLength);
+                alignedVertices.push(0.0);
+            }
+
+            // The blit's common passes, created on first use, upload their textures on a command
+            // list of their own: create them before ours (or the frame's) is open.
+            this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]),
+                vertexCount * VERTEX_FLOATS * 4, "VertexBuffer");
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]),
+                this.indexCount * 4, "IndexBuffer");
+            if (this.meshShadersSupported) {
+                const meshlets = prepareMeshlets(indices, this.indexCount, vertexCount);
+                this.meshletCount = meshlets.length / MESHLET_UINTS;
+                const meshletBuffer = this.app.createStructuredBuffer(MESHLET_UINTS * 4, this.meshletCount, "MeshletBuffer");
+                const alignedVertexBuffer = this.app.createStructuredBuffer(ALIGNED_VERTEX_FLOATS * 4, vertexCount, "AlignedVertexBuffer");
+                commandList.writeBuffer(meshletBuffer, Ref(meshlets[0]), meshlets.length * 4);
+                commandList.writeBuffer(alignedVertexBuffer, Ref(alignedVertices[0]), alignedVertices.length * 4);
+
+                const meshLayoutDesc = BindingLayoutDesc.create();
+                meshLayoutDesc.layoutVolatileConstantBuffer(0);
+                meshLayoutDesc.layoutStructuredBufferSRV(0);
+                meshLayoutDesc.layoutStructuredBufferSRV(1);
+                this.meshBindingLayout = this.app.createBindingLayout(meshLayoutDesc, ShaderType.Mesh);
+
+                const meshSetDesc = BindingSetDesc.create();
+                meshSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+                meshSetDesc.bindStructuredBufferSRV(0, meshletBuffer);
+                meshSetDesc.bindStructuredBufferSRV(1, alignedVertexBuffer);
+                this.meshBindingSet = this.app.createBindingSetForLayout(meshSetDesc, this.meshBindingLayout);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
         onMousePos(x: number, y: number) {
@@ -457,136 +586,6 @@ namespace GshaderToMshader {
 
             this.app.blitTexture(frame, colorBuffer);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.meshShadersSupported = this.app.isFeatureSupported(Feature.Meshlets) != 0;
-            if (!this.meshShadersSupported) {
-                console.log("The device has no mesh shaders: the normals are drawn by the geometry shader only");
-            }
-
-            const shader = "gshader_to_mshader.hlsl";
-            this.modelVS = this.app.createShader(shader, "model_vs", ShaderType.Vertex);
-            this.modelPS = this.app.createShader(shader, "model_ps", ShaderType.Pixel);
-            this.baseVS = this.app.createShader(shader, "base_vs", ShaderType.Vertex);
-            this.normalsGS = this.app.createShader(shader, "normals_gs", ShaderType.Geometry);
-            this.basePS = this.app.createShader(shader, "base_ps", ShaderType.Pixel);
-            if (!this.modelVS || !this.modelPS || !this.baseVS || !this.normalsGS || !this.basePS) {
-                return false;
-            }
-            if (this.meshShadersSupported) {
-                const meshShader = "gshader_to_mshader_mesh.hlsl";
-                this.normalsMS = this.app.createShader(meshShader, "normals_ms", ShaderType.Mesh);
-                this.meshPS = this.app.createShader(meshShader, "mesh_ps", ShaderType.Pixel);
-                if (!this.normalsMS || !this.meshPS) {
-                    return false;
-                }
-            }
-
-            // The model's vertex input: positions and normals.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.modelVS);
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
-
-            // The sample's descriptor set, split by pipeline: the uniforms for the model's and the
-            // geometry shader's; the uniforms, meshlets and vertices for the mesh shader's.
-            const layoutDescModel = BindingLayoutDesc.create();
-            layoutDescModel.layoutVolatileConstantBuffer(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDescModel, ShaderType.All);
-
-            const model = this.app.loadGltfModel(MODEL_PATH);
-            if (model.isNull()) {
-                console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            const vertexCount = model.getVertexCount(0);
-            this.indexCount = model.getIndexCount(0);
-            let gltfVertices: f32[] = [];
-            for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
-                gltfVertices.push(0.0);
-            }
-            let indices: int[] = [];
-            for (let i = 0; i < this.indexCount; i++) {
-                indices.push(0);
-            }
-            model.copyVertices(0, Ref(gltfVertices[0]));
-            model.copyIndices(0, Ref(indices[0]));
-
-            // The framework's glTF loader's vertices: normals normalized.
-            let vertices: f32[] = [];
-            let alignedVertices: f32[] = [];
-            for (let v = 0; v < vertexCount; v++) {
-                const g = v * GLTF_VERTEX_FLOATS;
-                const nx = gltfVertices[g + 3];
-                const ny = gltfVertices[g + 4];
-                const nz = gltfVertices[g + 5];
-                const inverseLength = 1.0 / Math.sqrt(nx * nx + ny * ny + nz * nz);
-                vertices.push(gltfVertices[g + 0]);
-                vertices.push(gltfVertices[g + 1]);
-                vertices.push(gltfVertices[g + 2]);
-                vertices.push(nx * inverseLength);
-                vertices.push(ny * inverseLength);
-                vertices.push(nz * inverseLength);
-                alignedVertices.push(gltfVertices[g + 0]);
-                alignedVertices.push(gltfVertices[g + 1]);
-                alignedVertices.push(gltfVertices[g + 2]);
-                alignedVertices.push(1.0);
-                alignedVertices.push(nx * inverseLength);
-                alignedVertices.push(ny * inverseLength);
-                alignedVertices.push(nz * inverseLength);
-                alignedVertices.push(0.0);
-            }
-
-            // The blit's common passes, created on first use, upload their textures on a command
-            // list of their own: create them before ours (or the frame's) is open.
-            this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]),
-                vertexCount * VERTEX_FLOATS * 4, "VertexBuffer");
-            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]),
-                this.indexCount * 4, "IndexBuffer");
-            if (this.meshShadersSupported) {
-                const meshlets = prepareMeshlets(indices, this.indexCount, vertexCount);
-                this.meshletCount = meshlets.length / MESHLET_UINTS;
-                const meshletBuffer = this.app.createStructuredBuffer(MESHLET_UINTS * 4, this.meshletCount, "MeshletBuffer");
-                const alignedVertexBuffer = this.app.createStructuredBuffer(ALIGNED_VERTEX_FLOATS * 4, vertexCount, "AlignedVertexBuffer");
-                commandList.writeBuffer(meshletBuffer, Ref(meshlets[0]), meshlets.length * 4);
-                commandList.writeBuffer(alignedVertexBuffer, Ref(alignedVertices[0]), alignedVertices.length * 4);
-
-                const meshLayoutDesc = BindingLayoutDesc.create();
-                meshLayoutDesc.layoutVolatileConstantBuffer(0);
-                meshLayoutDesc.layoutStructuredBufferSRV(0);
-                meshLayoutDesc.layoutStructuredBufferSRV(1);
-                this.meshBindingLayout = this.app.createBindingLayout(meshLayoutDesc, ShaderType.Mesh);
-
-                const meshSetDesc = BindingSetDesc.create();
-                meshSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-                meshSetDesc.bindStructuredBufferSRV(0, meshletBuffer);
-                meshSetDesc.bindStructuredBufferSRV(1, alignedVertexBuffer);
-                this.meshBindingSet = this.app.createBindingSetForLayout(meshSetDesc, this.meshBindingLayout);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -595,6 +594,10 @@ namespace GshaderToMshader {
 
         constructor(sample: GshaderToMshaderPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -618,11 +621,6 @@ namespace GshaderToMshader {
                 }
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

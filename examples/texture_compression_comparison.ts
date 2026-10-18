@@ -176,6 +176,71 @@ namespace TextureCompressionComparison {
             }
         }
 
+        init() {
+            const shader = "msaa.hlsl";
+            const vs = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
+            const ps = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
+            if (!vs || !ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            const inputLayout = this.app.createInputLayout(layoutDesc, vs);
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutSampler(0);
+            bindingLayoutDesc.layoutPushConstants(1, MODEL_SIZE);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            // The framework's glTF sampler without a sampler in the file: linear, repeating.
+            this.sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.loadScene(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            // The framework's geometry pipeline state: reversed depth (greater), back faces culled,
+            // counter-clockwise front faces.
+            this.createTargets(this.app.getWindowWidth(), this.app.getWindowHeight());
+            const desc = GraphicsPipelineDesc.create(vs, ps);
+            desc.setInputLayout(inputLayout);
+            desc.addBindingLayout(this.bindingLayout);
+            desc.setDepthState(1, 1, ComparisonFunc.Greater);
+            desc.setRasterState(CullMode.Back, FillMode.Solid, 1);
+            this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
+
+            // The scene's camera, as the sample's free camera starts: looking down its node's -z,
+            // its up its node's y.
+            const forward = rotate(CAMERA_ROTATION, [0.0, 0.0, -1.0]);
+            const up = rotate(CAMERA_ROTATION, [0.0, 1.0, 0.0]);
+            const p = CAMERA_POSITION;
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAtWithUp(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2], up[0], up[1], up[2]);
+            this.camera.setMoveSpeed(CAMERA_MOVE_SPEED);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The sample's is_texture_format_supported: a format NVRHI has, that the device samples.
         isFormatSupported(index: int) {
             const format = TEXTURE_FORMATS[index];
@@ -488,72 +553,6 @@ namespace TextureCompressionComparison {
             this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "msaa.hlsl";
-            const vs = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
-            const ps = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
-            if (!vs || !ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            const inputLayout = this.app.createInputLayout(layoutDesc, vs);
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutSampler(0);
-            bindingLayoutDesc.layoutPushConstants(1, MODEL_SIZE);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            // The framework's glTF sampler without a sampler in the file: linear, repeating.
-            this.sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.loadScene(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            // The framework's geometry pipeline state: reversed depth (greater), back faces culled,
-            // counter-clockwise front faces.
-            this.createTargets(this.app.getWindowWidth(), this.app.getWindowHeight());
-            const desc = GraphicsPipelineDesc.create(vs, ps);
-            desc.setInputLayout(inputLayout);
-            desc.addBindingLayout(this.bindingLayout);
-            desc.setDepthState(1, 1, ComparisonFunc.Greater);
-            desc.setRasterState(CullMode.Back, FillMode.Solid, 1);
-            this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
-
-            // The scene's camera, as the sample's free camera starts: looking down its node's -z,
-            // its up its node's y.
-            const forward = rotate(CAMERA_ROTATION, [0.0, 0.0, -1.0]);
-            const up = rotate(CAMERA_ROTATION, [0.0, 1.0, 0.0]);
-            const p = CAMERA_POSITION;
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAtWithUp(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2], up[0], up[1], up[2]);
-            this.camera.setMoveSpeed(CAMERA_MOVE_SPEED);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's options window.
@@ -565,6 +564,10 @@ namespace TextureCompressionComparison {
         constructor(pass: TextureCompressionComparisonPass) {
             this.pass = pass;
             this.items = "";
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -592,11 +595,6 @@ namespace TextureCompressionComparison {
                 Donut_ImGuiText(`${SHORT_NAMES[p.guiFormat]} not supported on this GPU.`);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

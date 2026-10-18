@@ -53,48 +53,6 @@ namespace RtTriangle {
             this.bindingSet = new BindingSet(null);
         }
 
-        onBackBufferResizing() {
-            const bindingSet = this.bindingSet;
-            if (!bindingSet.isNull()) {
-                this.app.releaseResource(bindingSet.handle);
-                this.bindingSet = new BindingSet(null);
-            }
-
-            const renderTarget = this.renderTarget;
-            if (renderTarget) {
-                this.app.releaseResource(renderTarget);
-                this.renderTarget = null;
-            }
-
-            // The blit's cached binding sets still reference the old render target.
-            this.app.clearBindingCache();
-        }
-
-        onAnimate(elapsedSeconds: number) {
-            this.app.setInformativeWindowTitle(WINDOW_TITLE);
-        }
-
-        onRender(frameHandle: FrameHandle) {
-            const frame = new Frame(frameHandle);
-            let renderTarget = this.renderTarget;
-            let bindingSet = this.bindingSet;
-            if (!renderTarget || bindingSet.isNull()) {
-                renderTarget = this.app.createUAVTextureForFrame(frame, "RenderTarget");
-
-                const bindingSetDesc = BindingSetDesc.create();
-                bindingSetDesc.bindAccelStruct(0, this.topLevelAS);
-                bindingSetDesc.bindTextureUAV(0, renderTarget);
-                bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
-
-                this.renderTarget = renderTarget;
-                this.bindingSet = bindingSet;
-            }
-
-            frame.dispatchRays(this.shaderTable, bindingSet, frame.getWidth(), frame.getHeight());
-            this.app.blitTexture(frame, renderTarget);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init() {
             this.shaderLibrary = this.app.createShaderLibrary("rt_triangle.hlsl");
             if (!this.shaderLibrary) {
@@ -149,6 +107,47 @@ namespace RtTriangle {
             pass.setAnimateCallback(this.onAnimate);
             pass.setRenderCallback(this.onRender);
             return true;
+        }
+
+        onBackBufferResizing() {
+            const bindingSet = this.bindingSet;
+            if (!bindingSet.isNull()) {
+                this.app.releaseResource(bindingSet.handle);
+                this.bindingSet = new BindingSet(null);
+            }
+
+            const renderTarget = this.renderTarget;
+            if (renderTarget) {
+                this.app.releaseResource(renderTarget);
+                this.renderTarget = null;
+            }
+
+            // The blit's cached binding sets still reference the old render target.
+            this.app.clearBindingCache();
+        }
+
+        onAnimate(elapsedSeconds: number) {
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
+        }
+
+        onRender(frameHandle: FrameHandle) {
+            const frame = new Frame(frameHandle);
+            let renderTarget = this.renderTarget;
+            let bindingSet = this.bindingSet;
+            if (!renderTarget || bindingSet.isNull()) {
+                renderTarget = this.app.createUAVTextureForFrame(frame, "RenderTarget");
+
+                const bindingSetDesc = BindingSetDesc.create();
+                bindingSetDesc.bindAccelStruct(0, this.topLevelAS);
+                bindingSetDesc.bindTextureUAV(0, renderTarget);
+                bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
+
+                this.renderTarget = renderTarget;
+                this.bindingSet = bindingSet;
+            }
+
+            frame.dispatchRays(this.shaderTable, bindingSet, frame.getWidth(), frame.getHeight());
+            this.app.blitTexture(frame, renderTarget);
         }
     }
 

@@ -275,6 +275,59 @@ namespace SimpleBezier {
             }
         }
 
+        init() {
+            const shader = "simple_bezier.hlsl";
+            this.vs = this.app.createShader(shader, "BezierVS", ShaderType.Vertex);
+            this.ds = this.app.createShader(shader, "BezierDS", ShaderType.Domain);
+            if (!this.vs || !this.ds) {
+                return false;
+            }
+            for (const entryPoint of HULL_SHADERS) {
+                const hs = this.app.createShader(shader, entryPoint, ShaderType.Hull);
+                if (!hs) {
+                    return false;
+                }
+                this.hullShaders.push(hs);
+            }
+            const solidPS = this.app.createShader(shader, "BezierPS", ShaderType.Pixel);
+            const wirePS = this.app.createShader(shader, "SolidColorPS", ShaderType.Pixel);
+            if (!solidPS || !wirePS) {
+                return false;
+            }
+            this.pixelShaders.push(solidPS);
+            this.pixelShaders.push(wirePS);
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            // The control points.
+            let points = MOBIUS_STRIP.map((v): f32 => v);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.controlPointVB = this.app.createStaticVertexBuffer(commandList, Ref(points[0]), CONTROL_POINTS * 12, "Control Point VB");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            // The per frame constant buffer, for every stage.
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CB_FLOATS * 4, "Per Frame CB");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const bindingSetDesc = BindingSetDesc.create();
+            bindingSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+            this.bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // Turns the camera around the strip (positive: to the left), steps times.
         rotateCamera(angle: number, steps: int) {
             for (let i = 0; i < steps; i++) {
@@ -419,60 +472,6 @@ namespace SimpleBezier {
             frame.drawAddVertexBuffer(this.controlPointVB, 0, 0);
             frame.drawVertices(CONTROL_POINTS);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "simple_bezier.hlsl";
-            this.vs = this.app.createShader(shader, "BezierVS", ShaderType.Vertex);
-            this.ds = this.app.createShader(shader, "BezierDS", ShaderType.Domain);
-            if (!this.vs || !this.ds) {
-                return false;
-            }
-            for (const entryPoint of HULL_SHADERS) {
-                const hs = this.app.createShader(shader, entryPoint, ShaderType.Hull);
-                if (!hs) {
-                    return false;
-                }
-                this.hullShaders.push(hs);
-            }
-            const solidPS = this.app.createShader(shader, "BezierPS", ShaderType.Pixel);
-            const wirePS = this.app.createShader(shader, "SolidColorPS", ShaderType.Pixel);
-            if (!solidPS || !wirePS) {
-                return false;
-            }
-            this.pixelShaders.push(solidPS);
-            this.pixelShaders.push(wirePS);
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            // The control points.
-            let points = MOBIUS_STRIP.map((v): f32 => v);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.controlPointVB = this.app.createStaticVertexBuffer(commandList, Ref(points[0]), CONTROL_POINTS * 12, "Control Point VB");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            // The per frame constant buffer, for every stage.
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CB_FLOATS * 4, "Per Frame CB");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const bindingSetDesc = BindingSetDesc.create();
-            bindingSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-            this.bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's HUD (SpriteFont text in the title-safe area): the settings at the top, the
@@ -488,6 +487,20 @@ namespace SimpleBezier {
         constructor(sample: SimpleBezierPass, app: App) {
             this.sample = sample;
             this.app = app;
+        }
+
+        init() {
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            this.titleFont = imguiPass.createFont(FONT_PATH, TITLE_FONT_SIZE);
+            if (this.font.isNull() || this.titleFont.isNull()) {
+                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                return false;
+            }
+            return true;
         }
 
         line(x: number, y: number, text: string) {
@@ -534,21 +547,6 @@ namespace SimpleBezier {
             this.line(left, bottom - 2 * LINE_SPACING, "Left/Right - Rotate   Up/Down - Increase/decrease subdivisions");
             this.line(left, bottom - LINE_SPACING, "1/2/3 - Change partition mode   W - Toggle wireframe   Esc - Exit   F1 - Help");
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init() {
-            const imguiPass = this.app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            this.titleFont = imguiPass.createFont(FONT_PATH, TITLE_FONT_SIZE);
-            if (this.font.isNull() || this.titleFont.isNull()) {
-                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                return false;
-            }
-            return true;
         }
     }
 

@@ -192,6 +192,93 @@ namespace OitLinkedLists {
             }
         }
 
+        init() {
+            if (this.app.hasFragmentStoresAndAtomics() == 0) {
+                console.log("This example requires support for buffers and images stores and atomic operations in the fragment shader stage");
+                return false;
+            }
+
+            const shader = "oit_linked_lists.hlsl";
+            this.gatherVS = this.app.createShader(shader, "gather_vs", ShaderType.Vertex);
+            this.gatherPS = this.app.createShader(shader, "gather_ps", ShaderType.Pixel);
+            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
+            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
+            this.combineVS = this.app.createShader(shader, "combine_vs", ShaderType.Vertex);
+            this.combinePS = this.app.createShader(shader, "combine_ps", ShaderType.Pixel);
+            if (!this.gatherVS || !this.gatherPS || !this.fullscreenVS || !this.backgroundPS || !this.combineVS || !this.combinePS) {
+                return false;
+            }
+
+            // The gather pass's vertex input: positions.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.gatherVS);
+
+            this.sceneConstantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
+            this.instanceConstantBuffer = this.app.createConstantBuffer(INSTANCE_COUNT * INSTANCE_FLOATS * 4, "InstanceData");
+
+            // The sample's descriptor set, split by pass: the gather pass's scene and instance
+            // uniforms, list heads, fragment buffer and counter; the background's scene uniform,
+            // texture and sampler; the combine pass's scene uniform, list heads, fragments and
+            // counter.
+            const gatherLayoutDesc = BindingLayoutDesc.create();
+            gatherLayoutDesc.layoutVolatileConstantBuffer(0);
+            gatherLayoutDesc.layoutConstantBuffer(1);
+            gatherLayoutDesc.layoutTextureUAV(1);
+            gatherLayoutDesc.layoutStructuredBufferUAV(2);
+            gatherLayoutDesc.layoutStructuredBufferUAV(3);
+            this.gatherBindingLayout = this.app.createBindingLayout(gatherLayoutDesc, ShaderType.All);
+
+            const backgroundLayoutDesc = BindingLayoutDesc.create();
+            backgroundLayoutDesc.layoutVolatileConstantBuffer(0);
+            backgroundLayoutDesc.layoutTextureSRV(0);
+            backgroundLayoutDesc.layoutSampler(0);
+            this.backgroundBindingLayout = this.app.createBindingLayout(backgroundLayoutDesc, ShaderType.Pixel);
+
+            const combineLayoutDesc = BindingLayoutDesc.create();
+            combineLayoutDesc.layoutVolatileConstantBuffer(0);
+            combineLayoutDesc.layoutTextureUAV(1);
+            combineLayoutDesc.layoutStructuredBufferUAV(2);
+            combineLayoutDesc.layoutStructuredBufferUAV(3);
+            this.combineBindingLayout = this.app.createBindingLayout(combineLayoutDesc, ShaderType.Pixel);
+
+            // The background's sampler: linear, repeating (one mip level, as the sample's texture).
+            // Donut's common passes, which hold it, upload their textures on a command list of
+            // their own: before ours is open.
+            const sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const mesh = this.app.loadGltfMesh(commandList, MODEL_PATH);
+            const background = this.app.loadTexture(commandList, BACKGROUND_PATH, 1);
+            this.fillInstanceData(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (mesh.isNull() || !background) {
+                console.log("Cannot load the model and the background: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.vertexBuffer = mesh.getVertexBuffer();
+            this.indexBuffer = mesh.getIndexBuffer();
+            this.indexCount = mesh.getIndexCount();
+
+            const backgroundSetDesc = BindingSetDesc.create();
+            backgroundSetDesc.bindEntireConstantBuffer(0, this.sceneConstantBuffer);
+            backgroundSetDesc.bindTextureSRV(0, background);
+            backgroundSetDesc.bindSampler(0, sampler);
+            this.backgroundBindingSet = this.app.createBindingSetForLayout(backgroundSetDesc, this.backgroundBindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
         onMousePos(x: number, y: number) {
@@ -394,94 +481,6 @@ namespace OitLinkedLists {
             }
             commandList.writeBuffer(this.instanceConstantBuffer, Ref(instances[0]), INSTANCE_COUNT * INSTANCE_FLOATS * 4);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            if (this.app.hasFragmentStoresAndAtomics() == 0) {
-                console.log("This example requires support for buffers and images stores and atomic operations in the fragment shader stage");
-                return false;
-            }
-
-            const shader = "oit_linked_lists.hlsl";
-            this.gatherVS = this.app.createShader(shader, "gather_vs", ShaderType.Vertex);
-            this.gatherPS = this.app.createShader(shader, "gather_ps", ShaderType.Pixel);
-            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
-            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
-            this.combineVS = this.app.createShader(shader, "combine_vs", ShaderType.Vertex);
-            this.combinePS = this.app.createShader(shader, "combine_ps", ShaderType.Pixel);
-            if (!this.gatherVS || !this.gatherPS || !this.fullscreenVS || !this.backgroundPS || !this.combineVS || !this.combinePS) {
-                return false;
-            }
-
-            // The gather pass's vertex input: positions.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.gatherVS);
-
-            this.sceneConstantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
-            this.instanceConstantBuffer = this.app.createConstantBuffer(INSTANCE_COUNT * INSTANCE_FLOATS * 4, "InstanceData");
-
-            // The sample's descriptor set, split by pass: the gather pass's scene and instance
-            // uniforms, list heads, fragment buffer and counter; the background's scene uniform,
-            // texture and sampler; the combine pass's scene uniform, list heads, fragments and
-            // counter.
-            const gatherLayoutDesc = BindingLayoutDesc.create();
-            gatherLayoutDesc.layoutVolatileConstantBuffer(0);
-            gatherLayoutDesc.layoutConstantBuffer(1);
-            gatherLayoutDesc.layoutTextureUAV(1);
-            gatherLayoutDesc.layoutStructuredBufferUAV(2);
-            gatherLayoutDesc.layoutStructuredBufferUAV(3);
-            this.gatherBindingLayout = this.app.createBindingLayout(gatherLayoutDesc, ShaderType.All);
-
-            const backgroundLayoutDesc = BindingLayoutDesc.create();
-            backgroundLayoutDesc.layoutVolatileConstantBuffer(0);
-            backgroundLayoutDesc.layoutTextureSRV(0);
-            backgroundLayoutDesc.layoutSampler(0);
-            this.backgroundBindingLayout = this.app.createBindingLayout(backgroundLayoutDesc, ShaderType.Pixel);
-
-            const combineLayoutDesc = BindingLayoutDesc.create();
-            combineLayoutDesc.layoutVolatileConstantBuffer(0);
-            combineLayoutDesc.layoutTextureUAV(1);
-            combineLayoutDesc.layoutStructuredBufferUAV(2);
-            combineLayoutDesc.layoutStructuredBufferUAV(3);
-            this.combineBindingLayout = this.app.createBindingLayout(combineLayoutDesc, ShaderType.Pixel);
-
-            // The background's sampler: linear, repeating (one mip level, as the sample's texture).
-            // Donut's common passes, which hold it, upload their textures on a command list of
-            // their own: before ours is open.
-            const sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const mesh = this.app.loadGltfMesh(commandList, MODEL_PATH);
-            const background = this.app.loadTexture(commandList, BACKGROUND_PATH, 1);
-            this.fillInstanceData(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (mesh.isNull() || !background) {
-                console.log("Cannot load the model and the background: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.vertexBuffer = mesh.getVertexBuffer();
-            this.indexBuffer = mesh.getIndexBuffer();
-            this.indexCount = mesh.getIndexCount();
-
-            const backgroundSetDesc = BindingSetDesc.create();
-            backgroundSetDesc.bindEntireConstantBuffer(0, this.sceneConstantBuffer);
-            backgroundSetDesc.bindTextureSRV(0, background);
-            backgroundSetDesc.bindSampler(0, sampler);
-            this.backgroundBindingSet = this.app.createBindingSetForLayout(backgroundSetDesc, this.backgroundBindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -490,6 +489,10 @@ namespace OitLinkedLists {
 
         constructor(oit: OitLinkedListsPass) {
             this.oit = oit;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -505,11 +508,6 @@ namespace OitLinkedLists {
                 oit.backgroundGrayscale = Donut_ImGuiSliderFloat("Background grayscale", oit.backgroundGrayscale, 0.0, 1.0);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

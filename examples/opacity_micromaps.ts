@@ -204,6 +204,105 @@ namespace OpacityMicromaps {
             this.benchmark = false;
         }
 
+        init() {
+            // The sample's static sampler: anisotropic (16), wrapping. Before any command list is
+            // open: it creates Donut's common passes.
+            this.sampler = this.app.getCommonSampler(CommonSampler.AnisotropicWrap);
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutTextureUAV(0);
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutVolatileConstantBuffer(1);
+            layoutDesc.layoutSampler(0);
+            for (let slot = 1; slot <= 4; slot++) {
+                layoutDesc.layoutTextureSRV(slot);
+            }
+            for (let slot = 5; slot <= 10; slot++) {
+                layoutDesc.layoutRawBufferSRV(slot);
+            }
+            layoutDesc.layoutStructuredBufferSRV(11);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            if (!this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            // InitializeScene's camera: from (0, 7, -24) towards (0, 8.7, 0), its up vector
+            // perpendicular to the view direction and x, both turned 45 degrees about y.
+            this.eye = [0.0, 7.0, -24.0, 1.0];
+            this.at = [0.0, Math.fround(8.7), 0.0, 1.0];
+            const direction = normalize4(vsub(this.at, this.eye));
+            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
+            const rotate = matrixRotationY(radians(45.0));
+            this.eye = transform3(this.eye, rotate);
+            this.up = transform3(this.up, rotate);
+
+            this.sceneBuffer = this.app.createVolatileConstantBuffer(SCENE_CB_SIZE, "SceneConstants");
+            this.paramsBuffer = this.app.createVolatileConstantBuffer(PARAMS_SIZE, "Params");
+            this.topLevelAS = this.app.createTopLevelASWithFlags(1, AccelStructBuildFlags.PreferFastTrace);
+            if (this.topLevelAS.isNull()) {
+                return false;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let loaded = this.loadModel(commandList);
+            // LoadTextures: the leaves' alpha, the trunk's, branches' and leaves' colors (BC4, BC1;
+            // not sRGB).
+            const textureNames = [
+                "jacaranda_tree_leaves_alpha_4k.dds",
+                "jacaranda_tree_trunk_diff_4k.dds",
+                "jacaranda_tree_branches_diff_4k.dds",
+                "jacaranda_tree_leaves_diff_4k.dds",
+            ];
+            for (let i = 0; loaded && i < textureNames.length; i++) {
+                const texture = this.app.loadTexture(commandList, MEDIA_DIR + textureNames[i], 0);
+                if (!texture) {
+                    loaded = false;
+                } else {
+                    this.textures.push(texture);
+                }
+            }
+            // LoadAndBuildAccelerationStructures: every level's 2- and 4-state sets.
+            for (let level = 0; level < MAX_SUBDIVISION_LEVELS; level++) {
+                for (let state = 0; state <= 1; state++) {
+                    const ommSet = new OmmSet();
+                    if (loaded) {
+                        const states = state == 0 ? 2 : 4;
+                        this.loadOmmSet(commandList, `${MEDIA_DIR}treeOMM_SubD${level + 1}_${states}State.bin`, ommSet);
+                    }
+                    this.ommSets.push(ommSet);
+                }
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!loaded || !this.ommSet(this.currentSubDLevel, this.use4State).loaded) {
+                console.log("Cannot load the model, textures or micromaps: set DIRECTX_GRAPHICS_SAMPLES_DIR when configuring");
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setKeyboardCallback(this.onKey);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.imguiPass = imguiPass;
+            const font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            if (font.isNull()) {
+                console.log("Cannot load the font");
+                return false;
+            }
+            this.font = font;
+            return true;
+        }
+
         // The storage image has the back buffers' size.
         onBackBufferResizing() {
             const bindingSet = this.bindingSet;
@@ -631,106 +730,6 @@ namespace OpacityMicromaps {
             shaderTable.addMiss("MyMissShader");
             shaderTable.addHitGroup("MyHitGroup", null);
             this.shaderTable = shaderTable;
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // The sample's static sampler: anisotropic (16), wrapping. Before any command list is
-            // open: it creates Donut's common passes.
-            this.sampler = this.app.getCommonSampler(CommonSampler.AnisotropicWrap);
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutTextureUAV(0);
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutVolatileConstantBuffer(1);
-            layoutDesc.layoutSampler(0);
-            for (let slot = 1; slot <= 4; slot++) {
-                layoutDesc.layoutTextureSRV(slot);
-            }
-            for (let slot = 5; slot <= 10; slot++) {
-                layoutDesc.layoutRawBufferSRV(slot);
-            }
-            layoutDesc.layoutStructuredBufferSRV(11);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            if (!this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            // InitializeScene's camera: from (0, 7, -24) towards (0, 8.7, 0), its up vector
-            // perpendicular to the view direction and x, both turned 45 degrees about y.
-            this.eye = [0.0, 7.0, -24.0, 1.0];
-            this.at = [0.0, Math.fround(8.7), 0.0, 1.0];
-            const direction = normalize4(vsub(this.at, this.eye));
-            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
-            const rotate = matrixRotationY(radians(45.0));
-            this.eye = transform3(this.eye, rotate);
-            this.up = transform3(this.up, rotate);
-
-            this.sceneBuffer = this.app.createVolatileConstantBuffer(SCENE_CB_SIZE, "SceneConstants");
-            this.paramsBuffer = this.app.createVolatileConstantBuffer(PARAMS_SIZE, "Params");
-            this.topLevelAS = this.app.createTopLevelASWithFlags(1, AccelStructBuildFlags.PreferFastTrace);
-            if (this.topLevelAS.isNull()) {
-                return false;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let loaded = this.loadModel(commandList);
-            // LoadTextures: the leaves' alpha, the trunk's, branches' and leaves' colors (BC4, BC1;
-            // not sRGB).
-            const textureNames = [
-                "jacaranda_tree_leaves_alpha_4k.dds",
-                "jacaranda_tree_trunk_diff_4k.dds",
-                "jacaranda_tree_branches_diff_4k.dds",
-                "jacaranda_tree_leaves_diff_4k.dds",
-            ];
-            for (let i = 0; loaded && i < textureNames.length; i++) {
-                const texture = this.app.loadTexture(commandList, MEDIA_DIR + textureNames[i], 0);
-                if (!texture) {
-                    loaded = false;
-                } else {
-                    this.textures.push(texture);
-                }
-            }
-            // LoadAndBuildAccelerationStructures: every level's 2- and 4-state sets.
-            for (let level = 0; level < MAX_SUBDIVISION_LEVELS; level++) {
-                for (let state = 0; state <= 1; state++) {
-                    const ommSet = new OmmSet();
-                    if (loaded) {
-                        const states = state == 0 ? 2 : 4;
-                        this.loadOmmSet(commandList, `${MEDIA_DIR}treeOMM_SubD${level + 1}_${states}State.bin`, ommSet);
-                    }
-                    this.ommSets.push(ommSet);
-                }
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!loaded || !this.ommSet(this.currentSubDLevel, this.use4State).loaded) {
-                console.log("Cannot load the model, textures or micromaps: set DIRECTX_GRAPHICS_SAMPLES_DIR when configuring");
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setKeyboardCallback(this.onKey);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-
-            const imguiPass = this.app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.imguiPass = imguiPass;
-            const font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            if (font.isNull()) {
-                console.log("Cannot load the font");
-                return false;
-            }
-            this.font = font;
             return true;
         }
     }

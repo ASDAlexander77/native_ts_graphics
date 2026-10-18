@@ -40,6 +40,21 @@ namespace BasicTriangle {
             this.pipeline = null;
         }
 
+        init() {
+            this.vertexShader = this.app.createShader("basic_triangle.hlsl", "main_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("basic_triangle.hlsl", "main_ps", ShaderType.Pixel);
+
+            if (!this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onBackBufferResizing() {
             const pipeline = this.pipeline;
             if (pipeline) {
@@ -62,22 +77,6 @@ namespace BasicTriangle {
 
             frame.clearColor(0.0, 0.0, 0.0, 0.0);
             frame.draw(pipeline, 3);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.vertexShader = this.app.createShader("basic_triangle.hlsl", "main_vs", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader("basic_triangle.hlsl", "main_ps", ShaderType.Pixel);
-
-            if (!this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

@@ -200,6 +200,67 @@ namespace SakuraForestSER {
             this.sortByBoth = false;
         }
 
+        init(seed: int, bushSeed: int) {
+            // InitializeScene's camera: from (0, 2.2, -2) turned 45 degrees about y, towards
+            // (1, 2.5, -6), upright.
+            this.eye = [0.0, Math.fround(2.2), -2.0, 1.0];
+            this.at = [1.0, Math.fround(2.5), -6.0, 1.0];
+            const direction = normalize4(vsub(this.at, this.eye));
+            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
+            this.eye = transform3(this.eye, matrixRotationY(radians(45.0)));
+            this.up = [0.0, 1.0, 0.0, 0.0];
+            this.lightPosition = [0.0, Math.fround(15.8), 233.0, 0.0];
+
+            this.sceneConstantBuffer = this.app.createConstantBuffer(CB_SIZE, "SceneConstants");
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const created = this.createGeometry(commandList);
+            if (created) {
+                this.topLevelAS = this.app.createTopLevelASWithFlags(INSTANCE_COUNT, AccelStructBuildFlags.PreferFastTrace);
+                this.createInstances(seed, bushSeed);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!created || this.topLevelAS.isNull()) {
+                return false;
+            }
+
+            // CreateRaytracingPipelineStateObject: the library's shaders and subobjects.
+            const shaderLibrary = this.app.createShaderLibrary("sakura_forest_ser.hlsl");
+            if (!shaderLibrary) {
+                return false;
+            }
+            const pipeline = this.app.createD3D12LibraryRtPipeline(shaderLibrary, LIBRARY_EXPORTS, DESCRIPTOR_COUNT);
+            if (pipeline.isNull()) {
+                return false;
+            }
+            this.pipeline = pipeline;
+            if (!this.createShaderTable()) {
+                return false;
+            }
+
+            // The global root signature's arguments.
+            for (let i = 0; i < this.meshes.length; i++) {
+                this.app.setD3D12LibraryRtDescriptorBufferSRV(pipeline, FIRST_BUFFER_DESCRIPTOR + i * 2, this.meshes[i].indexBuffer, 0);
+                this.app.setD3D12LibraryRtDescriptorBufferSRV(pipeline, FIRST_BUFFER_DESCRIPTOR + i * 2 + 1, this.meshes[i].vertexBuffer, VERTEX_STRIDE);
+            }
+            this.app.setD3D12LibraryRtDescriptorTextureSRV(pipeline, TRUNK_TEXTURE_DESCRIPTOR, this.trunkTexture);
+            this.app.setD3D12LibraryRtDescriptorTextureSRV(pipeline, BUSH_TEXTURE_DESCRIPTOR, this.bushTexture);
+            pipeline.setRootDescriptorTable(OUTPUT_VIEW_SLOT, OUTPUT_DESCRIPTOR);
+            pipeline.setRootAccelStruct(ACCELERATION_STRUCTURE_SLOT, this.topLevelAS.getTopLevelAS());
+            pipeline.setRootConstantBuffer(SCENE_CONSTANT_SLOT, this.sceneConstantBuffer);
+            pipeline.setRootDescriptorTable(VERTEX_BUFFERS_SLOT, FIRST_BUFFER_DESCRIPTOR);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         setSortMode(mode: int) {
             this.serEnabled = mode != SORTMODE_OFF;
             this.sortByHit = mode == SORTMODE_BY_HIT;
@@ -609,68 +670,6 @@ namespace SakuraForestSER {
             return this.app.setD3D12LibraryRtShaderTableRecords(this.pipeline, "MyRaygenShader", Ref(rayGenArgs[0]), OBJECT_CONSTANTS * 4,
                 "MyMissShader", HIT_GROUPS, Ref(recordHitGroups[0]), recordHitGroups.length, Ref(recordArgs[0]), OBJECT_CONSTANTS * 4) != 0;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(seed: int, bushSeed: int) {
-            // InitializeScene's camera: from (0, 2.2, -2) turned 45 degrees about y, towards
-            // (1, 2.5, -6), upright.
-            this.eye = [0.0, Math.fround(2.2), -2.0, 1.0];
-            this.at = [1.0, Math.fround(2.5), -6.0, 1.0];
-            const direction = normalize4(vsub(this.at, this.eye));
-            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
-            this.eye = transform3(this.eye, matrixRotationY(radians(45.0)));
-            this.up = [0.0, 1.0, 0.0, 0.0];
-            this.lightPosition = [0.0, Math.fround(15.8), 233.0, 0.0];
-
-            this.sceneConstantBuffer = this.app.createConstantBuffer(CB_SIZE, "SceneConstants");
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const created = this.createGeometry(commandList);
-            if (created) {
-                this.topLevelAS = this.app.createTopLevelASWithFlags(INSTANCE_COUNT, AccelStructBuildFlags.PreferFastTrace);
-                this.createInstances(seed, bushSeed);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!created || this.topLevelAS.isNull()) {
-                return false;
-            }
-
-            // CreateRaytracingPipelineStateObject: the library's shaders and subobjects.
-            const shaderLibrary = this.app.createShaderLibrary("sakura_forest_ser.hlsl");
-            if (!shaderLibrary) {
-                return false;
-            }
-            const pipeline = this.app.createD3D12LibraryRtPipeline(shaderLibrary, LIBRARY_EXPORTS, DESCRIPTOR_COUNT);
-            if (pipeline.isNull()) {
-                return false;
-            }
-            this.pipeline = pipeline;
-            if (!this.createShaderTable()) {
-                return false;
-            }
-
-            // The global root signature's arguments.
-            for (let i = 0; i < this.meshes.length; i++) {
-                this.app.setD3D12LibraryRtDescriptorBufferSRV(pipeline, FIRST_BUFFER_DESCRIPTOR + i * 2, this.meshes[i].indexBuffer, 0);
-                this.app.setD3D12LibraryRtDescriptorBufferSRV(pipeline, FIRST_BUFFER_DESCRIPTOR + i * 2 + 1, this.meshes[i].vertexBuffer, VERTEX_STRIDE);
-            }
-            this.app.setD3D12LibraryRtDescriptorTextureSRV(pipeline, TRUNK_TEXTURE_DESCRIPTOR, this.trunkTexture);
-            this.app.setD3D12LibraryRtDescriptorTextureSRV(pipeline, BUSH_TEXTURE_DESCRIPTOR, this.bushTexture);
-            pipeline.setRootDescriptorTable(OUTPUT_VIEW_SLOT, OUTPUT_DESCRIPTOR);
-            pipeline.setRootAccelStruct(ACCELERATION_STRUCTURE_SLOT, this.topLevelAS.getTopLevelAS());
-            pipeline.setRootConstantBuffer(SCENE_CONSTANT_SLOT, this.sceneConstantBuffer);
-            pipeline.setRootDescriptorTable(VERTEX_BUFFERS_SLOT, FIRST_BUFFER_DESCRIPTOR);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // RenderUI: yellow SegoeUI_18 text from (30, 30), the title, then the settings and controls.
@@ -681,6 +680,19 @@ namespace SakuraForestSER {
 
         constructor(sample: SakuraForestPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            const imguiPass = app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            if (this.font.isNull()) {
+                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                return false;
+            }
+            return true;
         }
 
         line(y: number, text: string) {
@@ -712,20 +724,6 @@ namespace SakuraForestSER {
             y += LINE_SPACING;
             this.line(y, "Use Arrow keys to look around");
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            const imguiPass = app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            if (this.font.isNull()) {
-                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                return false;
-            }
-            return true;
         }
     }
 

@@ -44,6 +44,41 @@ namespace GenericPrograms {
             this.programs = [];
         }
 
+        init() {
+            this.vertexShader = this.app.createShader("generic_programs.hlsl", "VSMain", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("generic_programs.hlsl", "PSMain", ShaderType.Pixel);
+            this.pixelShader2 = this.app.createShader("generic_programs.hlsl", "PSMain2", ShaderType.Pixel);
+            if (!this.vertexShader || !this.pixelShader || !this.pixelShader2) {
+                return false;
+            }
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+
+            // The triangle, its height scaled by the window's aspect ratio (in float, as the
+            // sample's).
+            const aspectRatio = Math.fround(1280.0 / 720.0);
+            const y = Math.fround(0.25 * aspectRatio);
+            const vertices: number[] = [
+                0.0, y, 0.0, 1.0, 0.0, 0.0, 1.0,
+                0.25, -y, 0.0, 0.0, 1.0, 0.0, 1.0,
+                -0.25, -y, 0.0, 0.0, 0.0, 1.0, 1.0,
+            ];
+            let floats = vertices.map((v): f32 => v);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(floats[0]), floats.length * 4, "Triangle");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         releasePrograms() {
             for (const program of this.programs) {
                 this.app.releaseObject(program);
@@ -108,42 +143,6 @@ namespace GenericPrograms {
                 frame.drawSetViewport(left, 0.0, halfWidth, height);
                 frame.drawD3D12GenericProgram(this.programs[i], 3);
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.vertexShader = this.app.createShader("generic_programs.hlsl", "VSMain", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader("generic_programs.hlsl", "PSMain", ShaderType.Pixel);
-            this.pixelShader2 = this.app.createShader("generic_programs.hlsl", "PSMain2", ShaderType.Pixel);
-            if (!this.vertexShader || !this.pixelShader || !this.pixelShader2) {
-                return false;
-            }
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-
-            // The triangle, its height scaled by the window's aspect ratio (in float, as the
-            // sample's).
-            const aspectRatio = Math.fround(1280.0 / 720.0);
-            const y = Math.fround(0.25 * aspectRatio);
-            const vertices: number[] = [
-                0.0, y, 0.0, 1.0, 0.0, 0.0, 1.0,
-                0.25, -y, 0.0, 0.0, 1.0, 0.0, 1.0,
-                -0.25, -y, 0.0, 0.0, 0.0, 1.0, 1.0,
-            ];
-            let floats = vertices.map((v): f32 => v);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(floats[0]), floats.length * 4, "Triangle");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

@@ -452,6 +452,108 @@ namespace SparseImage {
             }
         }
 
+        init() {
+            if (this.app.hasSparseResidency() == 0) {
+                this.unsupportedReason = "Sparse binding not supported: this example needs tiled textures with residency queries (D3D12 or Vulkan)";
+                return false;
+            }
+
+            const shader = "sparse_image.hlsl";
+            this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
+            this.scenePS = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
+            this.mipVS = this.app.createShader(shader, "mip_vs", ShaderType.Vertex);
+            this.mipPS = this.app.createShader(shader, "mip_ps", ShaderType.Pixel);
+            if (!this.sceneVS || !this.scenePS || !this.mipVS || !this.mipPS) {
+                return false;
+            }
+
+            // The sample's raw_data_image: the texture's first level, on the CPU's side.
+            this.stagingTexture = this.app.loadStagingTexture(TEXTURE_PATH);
+            if (this.stagingTexture.isNull()) {
+                console.log("Cannot load the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.width = this.stagingTexture.getWidth();
+            this.height = this.stagingTexture.getHeight();
+            if (!this.createSparseTexture()) {
+                return false;
+            }
+
+            // The plane: positions (x, y) and texture coordinates.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RG32_FLOAT, 0, 0, 16);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 8, 0, 16);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.sceneVS);
+
+            this.mvpBuffer = this.app.createVolatileConstantBuffer(MVP_FLOATS * 4, "MVP");
+            this.settingsBuffer = this.app.createConstantBuffer(SETTINGS_INTS * 4, "FragSettingsData");
+
+            // The sample's sampler: linear within levels, nearest between them, repeating.
+            const sampler = this.app.createSampler(1, 0, 1);
+
+            const sceneLayoutDesc = BindingLayoutDesc.create();
+            sceneLayoutDesc.layoutVolatileConstantBuffer(0);
+            sceneLayoutDesc.layoutConstantBuffer(1);
+            sceneLayoutDesc.layoutTextureSRV(0);
+            sceneLayoutDesc.layoutSampler(0);
+            this.sceneBindingLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
+
+            const sceneSetDesc = BindingSetDesc.create();
+            sceneSetDesc.bindEntireConstantBuffer(0, this.mvpBuffer);
+            sceneSetDesc.bindEntireConstantBuffer(1, this.settingsBuffer);
+            sceneSetDesc.bindTextureSRV(0, this.texture);
+            sceneSetDesc.bindSampler(0, sampler);
+            this.sceneBindingSet = this.app.createBindingSetForLayout(sceneSetDesc, this.sceneBindingLayout);
+
+            // Mip generation: a framebuffer per level from 1, the level above it read alone.
+            const mipLayoutDesc = BindingLayoutDesc.create();
+            mipLayoutDesc.layoutTextureSRV(0);
+            this.mipBindingLayout = this.app.createBindingLayout(mipLayoutDesc, ShaderType.Pixel);
+            for (let mipLevel = 0; mipLevel < MIP_LEVELS; mipLevel++) {
+                this.mipFramebuffers.push(this.app.createFramebufferForMip(this.texture, mipLevel));
+                if (mipLevel + 1 < MIP_LEVELS) {
+                    const mipSetDesc = BindingSetDesc.create();
+                    mipSetDesc.bindTextureSRVMip(0, this.texture, mipLevel);
+                    this.mipBindingSets.push(this.app.createBindingSetForLayout(mipSetDesc, this.mipBindingLayout));
+                }
+            }
+            const mipDesc = GraphicsPipelineDesc.create(this.mipVS, this.mipPS);
+            mipDesc.addBindingLayout(this.mipBindingLayout);
+            mipDesc.setDepthState(0, 0, ComparisonFunc.Never);
+            mipDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
+            this.mipPipeline = this.app.createGraphicsPipelineFromDesc(mipDesc, this.mipFramebuffers[1]);
+
+            // The plane's vertices and indices.
+            let vertices: f32[] = [
+                -PLANE_HALF_SIZE, -PLANE_HALF_SIZE, 0.0, 0.0,
+                PLANE_HALF_SIZE, -PLANE_HALF_SIZE, 1.0, 0.0,
+                PLANE_HALF_SIZE, PLANE_HALF_SIZE, 1.0, 1.0,
+                -PLANE_HALF_SIZE, PLANE_HALF_SIZE, 0.0, 1.0,
+            ];
+            let indices: int[] = [0, 1, 2, 2, 3, 0];
+
+            // The blit's common passes (for the UI), created on first use, upload their textures on
+            // a command list of their own: create them before ours is open.
+            this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), 4 * 16, "VertexBuffer");
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), 6 * 4, "IndexBuffer");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKeyboard);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // --- Input ------------------------------------------------------------------------------
 
         // ApiVulkanSample's keys: WASD move the camera while held.
@@ -1358,109 +1460,6 @@ namespace SparseImage {
             this.resetMipTable();
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            if (this.app.hasSparseResidency() == 0) {
-                this.unsupportedReason = "Sparse binding not supported: this example needs tiled textures with residency queries (D3D12 or Vulkan)";
-                return false;
-            }
-
-            const shader = "sparse_image.hlsl";
-            this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
-            this.scenePS = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
-            this.mipVS = this.app.createShader(shader, "mip_vs", ShaderType.Vertex);
-            this.mipPS = this.app.createShader(shader, "mip_ps", ShaderType.Pixel);
-            if (!this.sceneVS || !this.scenePS || !this.mipVS || !this.mipPS) {
-                return false;
-            }
-
-            // The sample's raw_data_image: the texture's first level, on the CPU's side.
-            this.stagingTexture = this.app.loadStagingTexture(TEXTURE_PATH);
-            if (this.stagingTexture.isNull()) {
-                console.log("Cannot load the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.width = this.stagingTexture.getWidth();
-            this.height = this.stagingTexture.getHeight();
-            if (!this.createSparseTexture()) {
-                return false;
-            }
-
-            // The plane: positions (x, y) and texture coordinates.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RG32_FLOAT, 0, 0, 16);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 8, 0, 16);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.sceneVS);
-
-            this.mvpBuffer = this.app.createVolatileConstantBuffer(MVP_FLOATS * 4, "MVP");
-            this.settingsBuffer = this.app.createConstantBuffer(SETTINGS_INTS * 4, "FragSettingsData");
-
-            // The sample's sampler: linear within levels, nearest between them, repeating.
-            const sampler = this.app.createSampler(1, 0, 1);
-
-            const sceneLayoutDesc = BindingLayoutDesc.create();
-            sceneLayoutDesc.layoutVolatileConstantBuffer(0);
-            sceneLayoutDesc.layoutConstantBuffer(1);
-            sceneLayoutDesc.layoutTextureSRV(0);
-            sceneLayoutDesc.layoutSampler(0);
-            this.sceneBindingLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
-
-            const sceneSetDesc = BindingSetDesc.create();
-            sceneSetDesc.bindEntireConstantBuffer(0, this.mvpBuffer);
-            sceneSetDesc.bindEntireConstantBuffer(1, this.settingsBuffer);
-            sceneSetDesc.bindTextureSRV(0, this.texture);
-            sceneSetDesc.bindSampler(0, sampler);
-            this.sceneBindingSet = this.app.createBindingSetForLayout(sceneSetDesc, this.sceneBindingLayout);
-
-            // Mip generation: a framebuffer per level from 1, the level above it read alone.
-            const mipLayoutDesc = BindingLayoutDesc.create();
-            mipLayoutDesc.layoutTextureSRV(0);
-            this.mipBindingLayout = this.app.createBindingLayout(mipLayoutDesc, ShaderType.Pixel);
-            for (let mipLevel = 0; mipLevel < MIP_LEVELS; mipLevel++) {
-                this.mipFramebuffers.push(this.app.createFramebufferForMip(this.texture, mipLevel));
-                if (mipLevel + 1 < MIP_LEVELS) {
-                    const mipSetDesc = BindingSetDesc.create();
-                    mipSetDesc.bindTextureSRVMip(0, this.texture, mipLevel);
-                    this.mipBindingSets.push(this.app.createBindingSetForLayout(mipSetDesc, this.mipBindingLayout));
-                }
-            }
-            const mipDesc = GraphicsPipelineDesc.create(this.mipVS, this.mipPS);
-            mipDesc.addBindingLayout(this.mipBindingLayout);
-            mipDesc.setDepthState(0, 0, ComparisonFunc.Never);
-            mipDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
-            this.mipPipeline = this.app.createGraphicsPipelineFromDesc(mipDesc, this.mipFramebuffers[1]);
-
-            // The plane's vertices and indices.
-            let vertices: f32[] = [
-                -PLANE_HALF_SIZE, -PLANE_HALF_SIZE, 0.0, 0.0,
-                PLANE_HALF_SIZE, -PLANE_HALF_SIZE, 1.0, 0.0,
-                PLANE_HALF_SIZE, PLANE_HALF_SIZE, 1.0, 1.0,
-                -PLANE_HALF_SIZE, PLANE_HALF_SIZE, 0.0, 1.0,
-            ];
-            let indices: int[] = [0, 1, 2, 2, 3, 0];
-
-            // The blit's common passes (for the UI), created on first use, upload their textures on
-            // a command list of their own: create them before ours is open.
-            this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), 4 * 16, "VertexBuffer");
-            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), 6 * 4, "IndexBuffer");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKeyboard);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -1469,6 +1468,10 @@ namespace SparseImage {
 
         constructor(sample: SparseImagePass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -1492,11 +1495,6 @@ namespace SparseImage {
                 Donut_ImGuiText(`* Allocated: ${sample.allocatedPages()} `);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

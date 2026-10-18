@@ -206,6 +206,75 @@ namespace FragmentShadingRate {
             }
         }
 
+        init() {
+            this.rateCount = this.app.getFragmentShadingRates(Ref(this.rates[0]));
+            this.tileSize = this.app.getShadingRateTileSize();
+            if (this.rateCount == 0 || this.tileSize == 0) {
+                this.unsupportedReason = "The graphics device has no variable rate shading with shading rate images";
+                return false;
+            }
+
+            const shader = "fragment_shading_rate.hlsl";
+            this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
+            this.scenePS = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
+            if (!this.sceneVS || !this.scenePS) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.sceneVS);
+
+            // ApiVulkanSample::load_texture's sampler: linear, repeating, anisotropic at the device's
+            // most.
+            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
+                this.app.getMaxSamplerAnisotropy());
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.skysphereMesh = this.app.loadGltfMesh(commandList, SKYSPHERE_PATH);
+            this.sceneMesh = this.app.loadGltfMesh(commandList, SCENE_PATH);
+            // As the framework loads KTX 1 color textures: as sRGB.
+            const skysphereTexture = this.app.loadTexture(commandList, SKYSPHERE_TEXTURE_PATH, 1);
+            const sceneTexture = this.app.loadTexture(commandList, SCENE_TEXTURE_PATH, 1);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (this.skysphereMesh.isNull() || this.sceneMesh.isNull() || !skysphereTexture || !sceneTexture) {
+                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBOScene");
+            const layout = BindingLayoutDesc.create();
+            layout.layoutVolatileConstantBuffer(0);
+            layout.layoutTextureSRV(0);
+            layout.layoutSampler(0);
+            layout.layoutTextureSRV(1);
+            layout.layoutSampler(1);
+            layout.layoutPushConstants(1, PUSH_SIZE);
+            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindTextureSRV(0, skysphereTexture);
+            setDesc.bindSampler(0, sampler);
+            setDesc.bindTextureSRV(1, sceneTexture);
+            setDesc.bindSampler(1, sampler);
+            setDesc.bindPushConstants(1, PUSH_SIZE);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // x rounded to float, as the sample computes.
         fround(x: number): number {
             this.scratch[0] = x;
@@ -392,76 +461,6 @@ namespace FragmentShadingRate {
                 frame.drawIndexedWithPushConstants(this.sceneMesh.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.rateCount = this.app.getFragmentShadingRates(Ref(this.rates[0]));
-            this.tileSize = this.app.getShadingRateTileSize();
-            if (this.rateCount == 0 || this.tileSize == 0) {
-                this.unsupportedReason = "The graphics device has no variable rate shading with shading rate images";
-                return false;
-            }
-
-            const shader = "fragment_shading_rate.hlsl";
-            this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
-            this.scenePS = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
-            if (!this.sceneVS || !this.scenePS) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.sceneVS);
-
-            // ApiVulkanSample::load_texture's sampler: linear, repeating, anisotropic at the device's
-            // most.
-            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
-                this.app.getMaxSamplerAnisotropy());
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.skysphereMesh = this.app.loadGltfMesh(commandList, SKYSPHERE_PATH);
-            this.sceneMesh = this.app.loadGltfMesh(commandList, SCENE_PATH);
-            // As the framework loads KTX 1 color textures: as sRGB.
-            const skysphereTexture = this.app.loadTexture(commandList, SKYSPHERE_TEXTURE_PATH, 1);
-            const sceneTexture = this.app.loadTexture(commandList, SCENE_TEXTURE_PATH, 1);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (this.skysphereMesh.isNull() || this.sceneMesh.isNull() || !skysphereTexture || !sceneTexture) {
-                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBOScene");
-            const layout = BindingLayoutDesc.create();
-            layout.layoutVolatileConstantBuffer(0);
-            layout.layoutTextureSRV(0);
-            layout.layoutSampler(0);
-            layout.layoutTextureSRV(1);
-            layout.layoutSampler(1);
-            layout.layoutPushConstants(1, PUSH_SIZE);
-            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindTextureSRV(0, skysphereTexture);
-            setDesc.bindSampler(0, sampler);
-            setDesc.bindTextureSRV(1, sceneTexture);
-            setDesc.bindSampler(1, sampler);
-            setDesc.bindPushConstants(1, PUSH_SIZE);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's settings.
@@ -470,6 +469,10 @@ namespace FragmentShadingRate {
 
         constructor(pass: FragmentShadingRatePass) {
             this.pass = pass;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -483,11 +486,6 @@ namespace FragmentShadingRate {
                 p.displaySkySphere = Donut_ImGuiCheckbox("skysphere", p.displaySkySphere ? 1 : 0) != 0;
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

@@ -456,6 +456,61 @@ namespace DenoisedRtao {
             this.temporalCacheIndex = 0;
         }
 
+        init() {
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            // The camera (SampleScene::Initialize) and the RTAO seed generator (seeded with 1729).
+            this.camera.set([-38.5863, 13.9563, -24.2481, 1.0], [-37.9042, 13.5773, -23.6219, 1.0], [0.351221, 0.877166, 0.32744, 0.0]);
+            for (let k = 0; k < 4; k++) {
+                this.camera.eye[k] = Math.fround(this.camera.eye[k]);
+                this.camera.at[k] = Math.fround(this.camera.at[k]);
+                this.camera.up[k] = Math.fround(this.camera.up[k]);
+            }
+            this.prevCamera.copyFrom(this.camera);
+            this.randomEngine = this.app.createRandomEngine(1729);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const ok = this.loadScenes(commandList);
+            if (ok) {
+                // The grass's wind map, decoded by WIC as the sample's loader does.
+                const windPath = Donut_GetExecutableDirectory() + "/" + ASSETS + "wind/wind2.jpg";
+                const size = Donut_DecodeWicImageRGBA8(windPath, null);
+                const width = size & 0xFFFF;
+                const height = (size >> 16) & 0xFFFF;
+                let pixels: int[] = [];
+                for (let i = 0; i < width * height; i++) {
+                    pixels.push(0);
+                }
+                Donut_DecodeWicImageRGBA8(windPath, Ref(pixels[0]));
+                this.windMap = this.app.createTextureWithLevels(width, height, 1, Format.RGBA8_UNORM, "WindMap");
+                commandList.writeTextureLevel(this.windMap, 0, Ref(pixels[0]), width * 4);
+                this.createTargets(commandList);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!ok) {
+                return false;
+            }
+
+            this.createInstances();
+            this.topLevelAS = this.app.createTopLevelASWithFlags(MAX_INSTANCES, AccelStructBuildFlags.PreferFastTrace);
+            if (!this.createRayTracing()) {
+                return false;
+            }
+            this.createKernels();
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             const held = [KEY_W, KEY_S, KEY_A, KEY_D, KEY_E, KEY_Q];
             for (let i = 0; i < 6; i++) {
@@ -1516,62 +1571,6 @@ namespace DenoisedRtao {
                     this.compositionSets.push(this.app.createBindingSetForLayout(setDesc, this.compositionKernel.layout));
                 }
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            // The camera (SampleScene::Initialize) and the RTAO seed generator (seeded with 1729).
-            this.camera.set([-38.5863, 13.9563, -24.2481, 1.0], [-37.9042, 13.5773, -23.6219, 1.0], [0.351221, 0.877166, 0.32744, 0.0]);
-            for (let k = 0; k < 4; k++) {
-                this.camera.eye[k] = Math.fround(this.camera.eye[k]);
-                this.camera.at[k] = Math.fround(this.camera.at[k]);
-                this.camera.up[k] = Math.fround(this.camera.up[k]);
-            }
-            this.prevCamera.copyFrom(this.camera);
-            this.randomEngine = this.app.createRandomEngine(1729);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const ok = this.loadScenes(commandList);
-            if (ok) {
-                // The grass's wind map, decoded by WIC as the sample's loader does.
-                const windPath = Donut_GetExecutableDirectory() + "/" + ASSETS + "wind/wind2.jpg";
-                const size = Donut_DecodeWicImageRGBA8(windPath, null);
-                const width = size & 0xFFFF;
-                const height = (size >> 16) & 0xFFFF;
-                let pixels: int[] = [];
-                for (let i = 0; i < width * height; i++) {
-                    pixels.push(0);
-                }
-                Donut_DecodeWicImageRGBA8(windPath, Ref(pixels[0]));
-                this.windMap = this.app.createTextureWithLevels(width, height, 1, Format.RGBA8_UNORM, "WindMap");
-                commandList.writeTextureLevel(this.windMap, 0, Ref(pixels[0]), width * 4);
-                this.createTargets(commandList);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!ok) {
-                return false;
-            }
-
-            this.createInstances();
-            this.topLevelAS = this.app.createTopLevelASWithFlags(MAX_INSTANCES, AccelStructBuildFlags.PreferFastTrace);
-            if (!this.createRayTracing()) {
-                return false;
-            }
-            this.createKernels();
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

@@ -129,6 +129,37 @@ namespace RaytracingLibrarySubobjects {
             }
         }
 
+        init() {
+            // InitializeScene's camera: from (0, 2, -5) towards the origin, its up vector
+            // perpendicular to the view direction and x, both turned 45 degrees about y.
+            this.eye = [0.0, 2.0, -5.0, 1.0];
+            this.at = [0.0, 0.0, 0.0, 1.0];
+            const direction = normalize4(vsub(this.at, this.eye));
+            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
+            const rotate = matrixRotationY(radians(45.0));
+            this.eye = transform3(this.eye, rotate);
+            this.up = transform3(this.up, rotate);
+
+            // A static constant buffer, written in the frames' command lists.
+            this.sceneConstantBuffer = this.app.createConstantBuffer(CB_SIZE, "SceneConstants");
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const created = this.createAccelerationStructures(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!created || !this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The output texture has the back buffers' size.
         onBackBufferResizing() {
             const output = this.output;
@@ -277,38 +308,6 @@ namespace RaytracingLibrarySubobjects {
             pipeline.setRootAccelStruct(ACCELERATION_STRUCTURE_SLOT, this.topLevelAS.getTopLevelAS());
             pipeline.setRootConstantBuffer(SCENE_CONSTANT_SLOT, this.sceneConstantBuffer);
             pipeline.setRootDescriptorTable(VERTEX_BUFFERS_SLOT, INDEX_BUFFER_DESCRIPTOR);
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // InitializeScene's camera: from (0, 2, -5) towards the origin, its up vector
-            // perpendicular to the view direction and x, both turned 45 degrees about y.
-            this.eye = [0.0, 2.0, -5.0, 1.0];
-            this.at = [0.0, 0.0, 0.0, 1.0];
-            const direction = normalize4(vsub(this.at, this.eye));
-            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
-            const rotate = matrixRotationY(radians(45.0));
-            this.eye = transform3(this.eye, rotate);
-            this.up = transform3(this.up, rotate);
-
-            // A static constant buffer, written in the frames' command lists.
-            this.sceneConstantBuffer = this.app.createConstantBuffer(CB_SIZE, "SceneConstants");
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const created = this.createAccelerationStructures(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!created || !this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

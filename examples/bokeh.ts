@@ -436,6 +436,144 @@ namespace Bokeh {
             this.setPredefinedScene(0);
         }
 
+        // Sample::CreateDeviceDependentResources and BokehEffect's resources.
+        init() {
+            // CommonRenderPasses (behind the common samplers) opens its own command list: before ours.
+            this.anisotropicSampler = this.app.getCommonSampler(CommonSampler.AnisotropicWrap);
+            // BokehRS's s0: FILTER_MIN_MAG_LINEAR_MIP_POINT, CreateEnergyTexRS's: FILTER_MIN_MAG_MIP_LINEAR,
+            // both bordered in transparent black.
+            this.bokehSampler = this.app.createBorderSampler(1, 1, 0, 0.0, 0.0, 0.0, 0.0);
+            this.bilinearBorderSampler = this.app.createBorderSampler(1, 1, 1, 0.0, 0.0, 0.0, 0.0);
+
+            this.sceneVS = this.app.createShader("bokeh_scene.hlsl", "scene_vs", ShaderType.Vertex);
+            this.scenePS = this.app.createShader("bokeh_scene.hlsl", "scene_ps", ShaderType.Pixel);
+            this.quadVS = this.app.createShader("bokeh.hlsl", "quad_vs", ShaderType.Vertex);
+            this.createRgbzPS = this.app.createShader("bokeh.hlsl", "create_rgbz_ps", ShaderType.Pixel);
+            this.downsampleRgbzPS = this.app.createShader("bokeh.hlsl", "downsample_rgbz_ps", ShaderType.Pixel);
+            this.quadPointVS = this.app.createShader("bokeh.hlsl", "quad_point_vs", ShaderType.Vertex);
+            this.quadPointGS = this.app.createShaderWithDefine("bokeh.hlsl", "quad_point_gs", ShaderType.Geometry, "OPTIMISE", "0");
+            this.quadPointFastGS = this.app.createShaderWithDefine("bokeh.hlsl", "quad_point_gs", ShaderType.Geometry, "OPTIMISE", "1");
+            this.quadPointPS = this.app.createShader("bokeh.hlsl", "quad_point_ps", ShaderType.Pixel);
+            this.recombinePS = this.app.createShader("bokeh.hlsl", "recombine_ps", ShaderType.Pixel);
+            this.copyPS = this.app.createShader("bokeh.hlsl", "copy_ps", ShaderType.Pixel);
+            const energyCS = this.app.createShader("bokeh_energy.hlsl", "create_energy_tex_cs", ShaderType.Compute);
+            if (!this.sceneVS || !this.scenePS || !this.quadVS || !this.createRgbzPS || !this.downsampleRgbzPS || !this.quadPointVS
+                || !this.quadPointGS || !this.quadPointFastGS || !this.quadPointPS || !this.recombinePS || !this.copyPS || !energyCS) {
+                return false;
+            }
+
+            const sceneLayoutDesc = BindingLayoutDesc.create();
+            sceneLayoutDesc.layoutConstantBuffer(0);
+            sceneLayoutDesc.layoutTextureSRV(0);
+            sceneLayoutDesc.layoutSampler(0);
+            this.sceneLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
+
+            const rgbzLayoutDesc = BindingLayoutDesc.create();
+            rgbzLayoutDesc.layoutVolatileConstantBuffer(0);
+            rgbzLayoutDesc.layoutTextureSRV(0);
+            rgbzLayoutDesc.layoutTextureSRV(2);
+            rgbzLayoutDesc.layoutSampler(0);
+            this.rgbzLayout = this.app.createBindingLayout(rgbzLayoutDesc, ShaderType.All);
+
+            const downsampleLayoutDesc = BindingLayoutDesc.create();
+            downsampleLayoutDesc.layoutVolatileConstantBuffer(0);
+            downsampleLayoutDesc.layoutTextureSRV(0);
+            downsampleLayoutDesc.layoutSampler(0);
+            this.downsampleLayout = this.app.createBindingLayout(downsampleLayoutDesc, ShaderType.All);
+
+            const quadPointLayoutDesc = BindingLayoutDesc.create();
+            quadPointLayoutDesc.layoutVolatileConstantBuffer(0);
+            quadPointLayoutDesc.layoutTextureSRV(0);
+            quadPointLayoutDesc.layoutTextureSRV(1);
+            quadPointLayoutDesc.layoutTextureSRV(4);
+            quadPointLayoutDesc.layoutSampler(0);
+            this.quadPointLayout = this.app.createBindingLayout(quadPointLayoutDesc, ShaderType.All);
+
+            const recombineLayoutDesc = BindingLayoutDesc.create();
+            recombineLayoutDesc.layoutVolatileConstantBuffer(0);
+            recombineLayoutDesc.layoutTextureSRV(0);
+            recombineLayoutDesc.layoutTextureSRV(2);
+            recombineLayoutDesc.layoutTextureSRV(3);
+            recombineLayoutDesc.layoutSampler(0);
+            this.recombineLayout = this.app.createBindingLayout(recombineLayoutDesc, ShaderType.All);
+
+            const copyLayoutDesc = BindingLayoutDesc.create();
+            copyLayoutDesc.layoutTextureSRV(0);
+            this.copyLayout = this.app.createBindingLayout(copyLayoutDesc, ShaderType.All);
+
+            const energyLayoutDesc = BindingLayoutDesc.create();
+            energyLayoutDesc.layoutTextureSRV(0);
+            energyLayoutDesc.layoutSampler(0);
+            energyLayoutDesc.layoutStructuredBufferUAV(0);
+            energyLayoutDesc.layoutTextureUAV(1);
+            this.energyLayout = this.app.createBindingLayout(energyLayoutDesc, ShaderType.Compute);
+
+            this.bokehBuffer = this.app.createVolatileConstantBuffer((BOKEH_CB_FLOATS + 4) * 4, "BokehCB");
+            this.parametersBuffer = this.app.createConstantBuffer(PARAMETERS_SLICE_FLOATS * OBJECT_COUNT * 4, "BasicEffect");
+            // The 1D weights texture (64 x 1 here) and the energy shader's 8x8x64 scratch memory.
+            this.energiesTexture = this.app.createUAVTextureWithFormat(NUM_RADII_WEIGHTS, 1, Format.R32_FLOAT, "EnergiesTex");
+            this.scratchBuffer = this.app.createRWStructuredBuffer(4, (NUM_RADII_WEIGHTS / 8) * (NUM_RADII_WEIGHTS / 8) * NUM_RADII_WEIGHTS,
+                "ScratchTex");
+
+            // Load models from disk, and the iris texture.
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let loaded = true;
+            for (const modelFile of MODEL_FILES) {
+                const model = new Model();
+                if (!model.load(this.app, commandList, modelFile)) {
+                    loaded = false;
+                }
+                this.models.push(model);
+            }
+            const irisTexture = this.app.loadTexture(commandList, MEDIA_DIR + "irishexa32.dds", 0);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded || !irisTexture) {
+                console.log("Cannot load the sample's models and textures: set XBOX_ATG_SAMPLES_DIR when configuring");
+                return false;
+            }
+            this.irisTexture = irisTexture as TextureHandle;
+
+            // The models' vertices: position, normal, texture coordinates.
+            const stride = this.models[0].vertexStride;
+            const inputLayoutDesc = InputLayoutDesc.create();
+            inputLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, stride);
+            inputLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, stride);
+            inputLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, stride);
+            this.inputLayout = this.app.createInputLayout(inputLayoutDesc, this.sceneVS);
+
+            // Each object's BasicEffect: its constants and its model's texture.
+            for (let o = 0; o < OBJECT_COUNT; o++) {
+                const desc = BindingSetDesc.create();
+                desc.bindConstantBuffer(0, this.parametersBuffer, o * PARAMETERS_SLICE_FLOATS * 4, PARAMETERS_SLICE_FLOATS * 4);
+                desc.bindTextureSRV(0, this.models[OBJECT_MODELS[o]].materialTextures[0]);
+                desc.bindSampler(0, this.anisotropicSampler);
+                this.objectBindingSets.push(this.app.createBindingSetForLayout(desc, this.sceneLayout));
+            }
+
+            const energyDesc = BindingSetDesc.create();
+            energyDesc.bindTextureSRV(0, this.irisTexture);
+            energyDesc.bindSampler(0, this.bilinearBorderSampler);
+            energyDesc.bindStructuredBufferUAV(0, this.scratchBuffer);
+            energyDesc.bindTextureUAV(1, this.energiesTexture);
+            this.energyBindingSet = this.app.createBindingSetForLayout(energyDesc, this.energyLayout);
+            this.energyPipeline = this.app.createComputePipelineWithLayout(energyCS, this.energyLayout);
+
+            for (let i = 0; i < TIMER_FRAMES * TIMER_COUNT; i++) {
+                this.timers.push(this.app.createTimerQuery());
+            }
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // Sample::SetPredefinedScene.
         setPredefinedScene(index: int) {
             if (index == 1) {
@@ -932,145 +1070,6 @@ namespace Bokeh {
             commandList.endTimerQuery(this.timer(TI_FRAME));
             this.timerFrame = (this.timerFrame + 1) % TIMER_FRAMES;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        // Sample::CreateDeviceDependentResources and BokehEffect's resources.
-        init() {
-            // CommonRenderPasses (behind the common samplers) opens its own command list: before ours.
-            this.anisotropicSampler = this.app.getCommonSampler(CommonSampler.AnisotropicWrap);
-            // BokehRS's s0: FILTER_MIN_MAG_LINEAR_MIP_POINT, CreateEnergyTexRS's: FILTER_MIN_MAG_MIP_LINEAR,
-            // both bordered in transparent black.
-            this.bokehSampler = this.app.createBorderSampler(1, 1, 0, 0.0, 0.0, 0.0, 0.0);
-            this.bilinearBorderSampler = this.app.createBorderSampler(1, 1, 1, 0.0, 0.0, 0.0, 0.0);
-
-            this.sceneVS = this.app.createShader("bokeh_scene.hlsl", "scene_vs", ShaderType.Vertex);
-            this.scenePS = this.app.createShader("bokeh_scene.hlsl", "scene_ps", ShaderType.Pixel);
-            this.quadVS = this.app.createShader("bokeh.hlsl", "quad_vs", ShaderType.Vertex);
-            this.createRgbzPS = this.app.createShader("bokeh.hlsl", "create_rgbz_ps", ShaderType.Pixel);
-            this.downsampleRgbzPS = this.app.createShader("bokeh.hlsl", "downsample_rgbz_ps", ShaderType.Pixel);
-            this.quadPointVS = this.app.createShader("bokeh.hlsl", "quad_point_vs", ShaderType.Vertex);
-            this.quadPointGS = this.app.createShaderWithDefine("bokeh.hlsl", "quad_point_gs", ShaderType.Geometry, "OPTIMISE", "0");
-            this.quadPointFastGS = this.app.createShaderWithDefine("bokeh.hlsl", "quad_point_gs", ShaderType.Geometry, "OPTIMISE", "1");
-            this.quadPointPS = this.app.createShader("bokeh.hlsl", "quad_point_ps", ShaderType.Pixel);
-            this.recombinePS = this.app.createShader("bokeh.hlsl", "recombine_ps", ShaderType.Pixel);
-            this.copyPS = this.app.createShader("bokeh.hlsl", "copy_ps", ShaderType.Pixel);
-            const energyCS = this.app.createShader("bokeh_energy.hlsl", "create_energy_tex_cs", ShaderType.Compute);
-            if (!this.sceneVS || !this.scenePS || !this.quadVS || !this.createRgbzPS || !this.downsampleRgbzPS || !this.quadPointVS
-                || !this.quadPointGS || !this.quadPointFastGS || !this.quadPointPS || !this.recombinePS || !this.copyPS || !energyCS) {
-                return false;
-            }
-
-            const sceneLayoutDesc = BindingLayoutDesc.create();
-            sceneLayoutDesc.layoutConstantBuffer(0);
-            sceneLayoutDesc.layoutTextureSRV(0);
-            sceneLayoutDesc.layoutSampler(0);
-            this.sceneLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
-
-            const rgbzLayoutDesc = BindingLayoutDesc.create();
-            rgbzLayoutDesc.layoutVolatileConstantBuffer(0);
-            rgbzLayoutDesc.layoutTextureSRV(0);
-            rgbzLayoutDesc.layoutTextureSRV(2);
-            rgbzLayoutDesc.layoutSampler(0);
-            this.rgbzLayout = this.app.createBindingLayout(rgbzLayoutDesc, ShaderType.All);
-
-            const downsampleLayoutDesc = BindingLayoutDesc.create();
-            downsampleLayoutDesc.layoutVolatileConstantBuffer(0);
-            downsampleLayoutDesc.layoutTextureSRV(0);
-            downsampleLayoutDesc.layoutSampler(0);
-            this.downsampleLayout = this.app.createBindingLayout(downsampleLayoutDesc, ShaderType.All);
-
-            const quadPointLayoutDesc = BindingLayoutDesc.create();
-            quadPointLayoutDesc.layoutVolatileConstantBuffer(0);
-            quadPointLayoutDesc.layoutTextureSRV(0);
-            quadPointLayoutDesc.layoutTextureSRV(1);
-            quadPointLayoutDesc.layoutTextureSRV(4);
-            quadPointLayoutDesc.layoutSampler(0);
-            this.quadPointLayout = this.app.createBindingLayout(quadPointLayoutDesc, ShaderType.All);
-
-            const recombineLayoutDesc = BindingLayoutDesc.create();
-            recombineLayoutDesc.layoutVolatileConstantBuffer(0);
-            recombineLayoutDesc.layoutTextureSRV(0);
-            recombineLayoutDesc.layoutTextureSRV(2);
-            recombineLayoutDesc.layoutTextureSRV(3);
-            recombineLayoutDesc.layoutSampler(0);
-            this.recombineLayout = this.app.createBindingLayout(recombineLayoutDesc, ShaderType.All);
-
-            const copyLayoutDesc = BindingLayoutDesc.create();
-            copyLayoutDesc.layoutTextureSRV(0);
-            this.copyLayout = this.app.createBindingLayout(copyLayoutDesc, ShaderType.All);
-
-            const energyLayoutDesc = BindingLayoutDesc.create();
-            energyLayoutDesc.layoutTextureSRV(0);
-            energyLayoutDesc.layoutSampler(0);
-            energyLayoutDesc.layoutStructuredBufferUAV(0);
-            energyLayoutDesc.layoutTextureUAV(1);
-            this.energyLayout = this.app.createBindingLayout(energyLayoutDesc, ShaderType.Compute);
-
-            this.bokehBuffer = this.app.createVolatileConstantBuffer((BOKEH_CB_FLOATS + 4) * 4, "BokehCB");
-            this.parametersBuffer = this.app.createConstantBuffer(PARAMETERS_SLICE_FLOATS * OBJECT_COUNT * 4, "BasicEffect");
-            // The 1D weights texture (64 x 1 here) and the energy shader's 8x8x64 scratch memory.
-            this.energiesTexture = this.app.createUAVTextureWithFormat(NUM_RADII_WEIGHTS, 1, Format.R32_FLOAT, "EnergiesTex");
-            this.scratchBuffer = this.app.createRWStructuredBuffer(4, (NUM_RADII_WEIGHTS / 8) * (NUM_RADII_WEIGHTS / 8) * NUM_RADII_WEIGHTS,
-                "ScratchTex");
-
-            // Load models from disk, and the iris texture.
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let loaded = true;
-            for (const modelFile of MODEL_FILES) {
-                const model = new Model();
-                if (!model.load(this.app, commandList, modelFile)) {
-                    loaded = false;
-                }
-                this.models.push(model);
-            }
-            const irisTexture = this.app.loadTexture(commandList, MEDIA_DIR + "irishexa32.dds", 0);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded || !irisTexture) {
-                console.log("Cannot load the sample's models and textures: set XBOX_ATG_SAMPLES_DIR when configuring");
-                return false;
-            }
-            this.irisTexture = irisTexture as TextureHandle;
-
-            // The models' vertices: position, normal, texture coordinates.
-            const stride = this.models[0].vertexStride;
-            const inputLayoutDesc = InputLayoutDesc.create();
-            inputLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, stride);
-            inputLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, stride);
-            inputLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, stride);
-            this.inputLayout = this.app.createInputLayout(inputLayoutDesc, this.sceneVS);
-
-            // Each object's BasicEffect: its constants and its model's texture.
-            for (let o = 0; o < OBJECT_COUNT; o++) {
-                const desc = BindingSetDesc.create();
-                desc.bindConstantBuffer(0, this.parametersBuffer, o * PARAMETERS_SLICE_FLOATS * 4, PARAMETERS_SLICE_FLOATS * 4);
-                desc.bindTextureSRV(0, this.models[OBJECT_MODELS[o]].materialTextures[0]);
-                desc.bindSampler(0, this.anisotropicSampler);
-                this.objectBindingSets.push(this.app.createBindingSetForLayout(desc, this.sceneLayout));
-            }
-
-            const energyDesc = BindingSetDesc.create();
-            energyDesc.bindTextureSRV(0, this.irisTexture);
-            energyDesc.bindSampler(0, this.bilinearBorderSampler);
-            energyDesc.bindStructuredBufferUAV(0, this.scratchBuffer);
-            energyDesc.bindTextureUAV(1, this.energiesTexture);
-            this.energyBindingSet = this.app.createBindingSetForLayout(energyDesc, this.energyLayout);
-            this.energyPipeline = this.app.createComputePipelineWithLayout(energyCS, this.energyLayout);
-
-            for (let i = 0; i < TIMER_FRAMES * TIMER_COUNT; i++) {
-                this.timers.push(this.app.createTimerQuery());
-            }
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's HUD (SpriteFont text in the title-safe area): its timings at the top, its
@@ -1082,6 +1081,19 @@ namespace Bokeh {
 
         constructor(sample: BokehPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            const imguiPass = app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            if (this.font.isNull()) {
+                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                return false;
+            }
+            return true;
         }
 
         line(x: number, y: number, text: string) {
@@ -1117,20 +1129,6 @@ namespace Bokeh {
             this.line(left, y + LINE_SPACING * 6.0, "[A][D] [W][S] [Q][E] Camera");
             this.line(left, y + LINE_SPACING * 7.0, "[Esc] Exit");
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            const imguiPass = app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            if (this.font.isNull()) {
-                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                return false;
-            }
-            return true;
         }
     }
 

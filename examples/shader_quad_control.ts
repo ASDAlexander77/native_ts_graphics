@@ -56,6 +56,22 @@ namespace ShaderQuadControl {
             this.broadcast = false;
         }
 
+        init() {
+            const shader = "shader_quad_control.hlsl";
+            this.vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
+            this.plainPS = this.app.createShaderWithDefine(shader, "main_ps", ShaderType.Pixel, "BROADCAST", "0");
+            this.broadcastPS = this.app.createShaderWithDefine(shader, "main_ps", ShaderType.Pixel, "BROADCAST", "1");
+            if (!this.vs || !this.plainPS || !this.broadcastPS) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
@@ -82,23 +98,6 @@ namespace ShaderQuadControl {
             frame.beginDraw(this.broadcast ? this.broadcastPipeline : this.plainPipeline);
             frame.drawVertices(3);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "shader_quad_control.hlsl";
-            this.vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
-            this.plainPS = this.app.createShaderWithDefine(shader, "main_ps", ShaderType.Pixel, "BROADCAST", "0");
-            this.broadcastPS = this.app.createShaderWithDefine(shader, "main_ps", ShaderType.Pixel, "BROADCAST", "1");
-            if (!this.vs || !this.plainPS || !this.broadcastPS) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The options window.
@@ -109,16 +108,15 @@ namespace ShaderQuadControl {
             this.pass = pass;
         }
 
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
+        }
+
         buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
             this.pass.broadcast = Donut_ImGuiCheckbox("Broadcast from the quad leader", this.pass.broadcast ? 1 : 0) != 0;
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

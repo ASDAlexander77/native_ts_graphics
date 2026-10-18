@@ -129,6 +129,57 @@ namespace RaytracingSimpleLighting {
             }
         }
 
+        init() {
+            // CreateRootSignatures' global root signature, and the local one's constants (b1).
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutTextureUAV(0);
+            layoutDesc.layoutRawBufferSRV(1);
+            layoutDesc.layoutStructuredBufferSRV(2);
+            layoutDesc.layoutConstantBuffer(0);
+            layoutDesc.layoutConstantBuffer(1);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            if (!this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            // InitializeScene's camera: from (0, 2, -5) towards the origin, its up vector
+            // perpendicular to the view direction and x, both turned 45 degrees about y.
+            this.eye = [0.0, 2.0, -5.0, 1.0];
+            this.at = [0.0, 0.0, 0.0, 1.0];
+            const direction = normalize4(vsub(this.at, this.eye));
+            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
+            const rotate = matrixRotationY(radians(45.0));
+            this.eye = transform3(this.eye, rotate);
+            this.up = transform3(this.up, rotate);
+
+            // Static constant buffers, written in the frames' command lists.
+            this.sceneConstantBuffer = this.app.createConstantBuffer(CB_SIZE, "SceneConstants");
+            this.cubeConstantBuffer = this.app.createConstantBuffer(CB_SIZE, "CubeConstants");
+            // The cube's albedo: white.
+            for (let i = 0; i < CUBE_CB_FLOATS; i++) {
+                this.cubeData[i] = 1.0;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            commandList.writeBuffer(this.cubeConstantBuffer, Ref(this.cubeData[0]), CB_SIZE);
+            const created = this.createAccelerationStructures(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!created) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The output texture has the back buffers' size.
         onBackBufferResizing() {
             const bindingSet = this.bindingSet;
@@ -290,58 +341,6 @@ namespace RaytracingSimpleLighting {
             shaderTable.addMiss("MyMissShader");
             shaderTable.addHitGroup("MyHitGroup", null);
             this.shaderTable = shaderTable;
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // CreateRootSignatures' global root signature, and the local one's constants (b1).
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutTextureUAV(0);
-            layoutDesc.layoutRawBufferSRV(1);
-            layoutDesc.layoutStructuredBufferSRV(2);
-            layoutDesc.layoutConstantBuffer(0);
-            layoutDesc.layoutConstantBuffer(1);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            if (!this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            // InitializeScene's camera: from (0, 2, -5) towards the origin, its up vector
-            // perpendicular to the view direction and x, both turned 45 degrees about y.
-            this.eye = [0.0, 2.0, -5.0, 1.0];
-            this.at = [0.0, 0.0, 0.0, 1.0];
-            const direction = normalize4(vsub(this.at, this.eye));
-            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
-            const rotate = matrixRotationY(radians(45.0));
-            this.eye = transform3(this.eye, rotate);
-            this.up = transform3(this.up, rotate);
-
-            // Static constant buffers, written in the frames' command lists.
-            this.sceneConstantBuffer = this.app.createConstantBuffer(CB_SIZE, "SceneConstants");
-            this.cubeConstantBuffer = this.app.createConstantBuffer(CB_SIZE, "CubeConstants");
-            // The cube's albedo: white.
-            for (let i = 0; i < CUBE_CB_FLOATS; i++) {
-                this.cubeData[i] = 1.0;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            commandList.writeBuffer(this.cubeConstantBuffer, Ref(this.cubeData[0]), CB_SIZE);
-            const created = this.createAccelerationStructures(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!created) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

@@ -64,6 +64,35 @@ namespace ThreadedRendering {
             this.useThreads = true;
         }
 
+        init(scenePath: string) {
+            const scene = this.app.loadScene(scenePath);
+            if (scene.isNull()) {
+                console.log(`Cannot load the scene ${scenePath}`);
+                return false;
+            }
+            this.scene = scene;
+
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+            this.camera.setMoveSpeed(3.0);
+
+            for (let face = 0; face < NUM_FACES; face++) {
+                this.faceCommandLists.push(this.app.createDeferredCommandList());
+            }
+
+            this.forwardShadingPass = this.app.createForwardShadingPass(128);
+            this.cubemap = this.app.createCubemapTarget(CUBEMAP_RESOLUTION);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
@@ -123,36 +152,6 @@ namespace ThreadedRendering {
             for (let face = 0; face < NUM_FACES; face++) {
                 this.app.executeCommandList(this.faceCommandLists[face]);
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string) {
-            const scene = this.app.loadScene(scenePath);
-            if (scene.isNull()) {
-                console.log(`Cannot load the scene ${scenePath}`);
-                return false;
-            }
-            this.scene = scene;
-
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            this.camera.setMoveSpeed(3.0);
-
-            for (let face = 0; face < NUM_FACES; face++) {
-                this.faceCommandLists.push(this.app.createDeferredCommandList());
-            }
-
-            this.forwardShadingPass = this.app.createForwardShadingPass(128);
-            this.cubemap = this.app.createCubemapTarget(CUBEMAP_RESOLUTION);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

@@ -120,6 +120,56 @@ namespace DynamicPrimitiveClipping {
             }
         }
 
+        init() {
+            const shader = "dynamic_primitive_clipping.hlsl";
+            this.vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let loaded = true;
+            for (const modelPath of MODEL_PATHS) {
+                const model = this.app.loadGltfMesh(commandList, modelPath);
+                loaded = loaded && !model.isNull();
+                this.models.push(model);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            const layout = BindingLayoutDesc.create();
+            layout.layoutVolatileConstantBuffer(0);
+            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
+            for (let i = 0; i < 2; i++) {
+                const buffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, i == 0 ? "UBO positive" : "UBO negative");
+                this.uniformBuffers.push(buffer);
+                const setDesc = BindingSetDesc.create();
+                setDesc.bindEntireConstantBuffer(0, buffer);
+                this.bindingSets.push(this.app.createBindingSetForLayout(setDesc, this.bindingLayout));
+            }
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -234,57 +284,6 @@ namespace DynamicPrimitiveClipping {
                 frame.drawIndexed(model.getIndexCount());
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "dynamic_primitive_clipping.hlsl";
-            this.vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let loaded = true;
-            for (const modelPath of MODEL_PATHS) {
-                const model = this.app.loadGltfMesh(commandList, modelPath);
-                loaded = loaded && !model.isNull();
-                this.models.push(model);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            const layout = BindingLayoutDesc.create();
-            layout.layoutVolatileConstantBuffer(0);
-            this.bindingLayout = this.app.createBindingLayout(layout, ShaderType.All);
-            for (let i = 0; i < 2; i++) {
-                const buffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, i == 0 ? "UBO positive" : "UBO negative");
-                this.uniformBuffers.push(buffer);
-                const setDesc = BindingSetDesc.create();
-                setDesc.bindEntireConstantBuffer(0, buffer);
-                this.bindingSets.push(this.app.createBindingSetForLayout(setDesc, this.bindingLayout));
-            }
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's settings.
@@ -293,6 +292,10 @@ namespace DynamicPrimitiveClipping {
 
         constructor(pass: PrimitiveClippingPass) {
             this.pass = pass;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -308,11 +311,6 @@ namespace DynamicPrimitiveClipping {
                 p.useDepthClipping = Donut_ImGuiCheckbox("Use depth clipping", p.useDepthClipping ? 1 : 0) != 0;
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

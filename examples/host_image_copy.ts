@@ -88,6 +88,68 @@ namespace HostImageCopy {
             }
         }
 
+        init() {
+            // texture_loading's shaders, as the sample's.
+            const shader = "texture_loading.hlsl";
+            this.vs = this.app.createShader(shader, "texture_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "texture_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            // load_assets: the cube, uploaded the usual way.
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const cube = this.app.loadGltfMesh(commandList, CUBE_PATH);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (cube.isNull()) {
+                console.log("Cannot load the cube: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.cube = cube;
+
+            // load_texture: the texture written by the CPU, no command list involved.
+            const hostCopiedTexture = this.app.createHostCopiedTexture(TEXTURE_PATH, 1, "Texture");
+            if (!hostCopiedTexture) {
+                console.log("Cannot load the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            const texture = Donut_GetHostCopiedTexture(hostCopiedTexture as HostCopiedTextureHandle);
+
+            // The sample's sampler: trilinear, repeating, all the levels, the device's widest
+            // anisotropic filtering.
+            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, MIP_LEVELS,
+                this.app.getMaxSamplerAnisotropy());
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindTextureSRV(0, texture);
+            setDesc.bindSampler(0, sampler);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.view.mouseMove(x, y);
             return 1;
@@ -176,69 +238,6 @@ namespace HostImageCopy {
             frame.drawAddVertexBuffer(this.cube.getVertexBuffer(), 0, 0);
             frame.drawIndexed(this.cube.getIndexCount());
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // texture_loading's shaders, as the sample's.
-            const shader = "texture_loading.hlsl";
-            this.vs = this.app.createShader(shader, "texture_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "texture_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            // load_assets: the cube, uploaded the usual way.
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const cube = this.app.loadGltfMesh(commandList, CUBE_PATH);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (cube.isNull()) {
-                console.log("Cannot load the cube: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.cube = cube;
-
-            // load_texture: the texture written by the CPU, no command list involved.
-            const hostCopiedTexture = this.app.createHostCopiedTexture(TEXTURE_PATH, 1, "Texture");
-            if (!hostCopiedTexture) {
-                console.log("Cannot load the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            const texture = Donut_GetHostCopiedTexture(hostCopiedTexture as HostCopiedTextureHandle);
-
-            // The sample's sampler: trilinear, repeating, all the levels, the device's widest
-            // anisotropic filtering.
-            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, MIP_LEVELS,
-                this.app.getMaxSamplerAnisotropy());
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindTextureSRV(0, texture);
-            setDesc.bindSampler(0, sampler);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -247,6 +246,10 @@ namespace HostImageCopy {
 
         constructor(sample: HostImageCopyPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -259,11 +262,6 @@ namespace HostImageCopy {
             }
             Donut_ImGuiPopItemWidth();
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

@@ -131,6 +131,67 @@ namespace TerrainTessellation {
             }
         }
 
+        init() {
+            this.terrainVS = this.app.createShader("terrain_tessellation.hlsl", "main_vs", ShaderType.Vertex);
+            this.terrainHS = this.app.createShader("terrain_tessellation.hlsl", "main_hs", ShaderType.Hull);
+            this.terrainDS = this.app.createShader("terrain_tessellation.hlsl", "main_ds", ShaderType.Domain);
+            this.terrainPS = this.app.createShader("terrain_tessellation.hlsl", "main_ps", ShaderType.Pixel);
+            this.skyVS = this.app.createShader("terrain_tessellation.hlsl", "sky_vs", ShaderType.Vertex);
+            this.skyPS = this.app.createShader("terrain_tessellation.hlsl", "sky_ps", ShaderType.Pixel);
+            if (!this.terrainVS || !this.terrainHS || !this.terrainDS || !this.terrainPS || !this.skyVS || !this.skyPS) {
+                return false;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            // As the sample (vkb) loads KTX 1 files: color as sRGB, the heightmap as is.
+            const heightmap = this.app.loadTexture(commandList, HEIGHTMAP_PATH, 0);
+            const terrainLayers = this.app.loadTexture(commandList, TERRAIN_LAYERS_PATH, 1);
+            const sky = this.app.loadTexture(commandList, SKY_PATH, 1);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!heightmap || !terrainLayers || !sky) {
+                console.log("Cannot load the terrain textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.heightmap = heightmap;
+            this.terrainLayers = terrainLayers;
+            this.sky = sky;
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "TerrainConstants");
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutTextureSRV(0);
+            layoutDesc.layoutTextureSRV(1);
+            layoutDesc.layoutTextureSRV(2);
+            layoutDesc.layoutSampler(0);
+            layoutDesc.layoutSampler(1);
+            layoutDesc.layoutSampler(2);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            this.skyBindingSet = this.createBindingSet();
+            this.terrainBindingSet = this.createBindingSet();
+
+            // The sample's first person camera at (18, 22.5, 57.5), rotated (-12, 159) degrees: in
+            // Donut's world (see updateConstants), at (18, 22.5, -57.5) looking down the direction below.
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(18.0, 22.5, -57.5, 18.0 - 0.3505, 22.5 - 0.2079, -57.5 + 0.9132);
+            this.camera.setMoveSpeed(7.5);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
@@ -323,68 +384,6 @@ namespace TerrainTessellation {
             setDesc.bindSampler(2, this.app.getCommonSampler(CommonSampler.LinearWrap));
             return this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.terrainVS = this.app.createShader("terrain_tessellation.hlsl", "main_vs", ShaderType.Vertex);
-            this.terrainHS = this.app.createShader("terrain_tessellation.hlsl", "main_hs", ShaderType.Hull);
-            this.terrainDS = this.app.createShader("terrain_tessellation.hlsl", "main_ds", ShaderType.Domain);
-            this.terrainPS = this.app.createShader("terrain_tessellation.hlsl", "main_ps", ShaderType.Pixel);
-            this.skyVS = this.app.createShader("terrain_tessellation.hlsl", "sky_vs", ShaderType.Vertex);
-            this.skyPS = this.app.createShader("terrain_tessellation.hlsl", "sky_ps", ShaderType.Pixel);
-            if (!this.terrainVS || !this.terrainHS || !this.terrainDS || !this.terrainPS || !this.skyVS || !this.skyPS) {
-                return false;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            // As the sample (vkb) loads KTX 1 files: color as sRGB, the heightmap as is.
-            const heightmap = this.app.loadTexture(commandList, HEIGHTMAP_PATH, 0);
-            const terrainLayers = this.app.loadTexture(commandList, TERRAIN_LAYERS_PATH, 1);
-            const sky = this.app.loadTexture(commandList, SKY_PATH, 1);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!heightmap || !terrainLayers || !sky) {
-                console.log("Cannot load the terrain textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.heightmap = heightmap;
-            this.terrainLayers = terrainLayers;
-            this.sky = sky;
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "TerrainConstants");
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutTextureSRV(0);
-            layoutDesc.layoutTextureSRV(1);
-            layoutDesc.layoutTextureSRV(2);
-            layoutDesc.layoutSampler(0);
-            layoutDesc.layoutSampler(1);
-            layoutDesc.layoutSampler(2);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            this.skyBindingSet = this.createBindingSet();
-            this.terrainBindingSet = this.createBindingSet();
-
-            // The sample's first person camera at (18, 22.5, 57.5), rotated (-12, 159) degrees: in
-            // Donut's world (see updateConstants), at (18, 22.5, -57.5) looking down the direction below.
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(18.0, 22.5, -57.5, 18.0 - 0.3505, 22.5 - 0.2079, -57.5 + 0.9132);
-            this.camera.setMoveSpeed(7.5);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's settings window.
@@ -393,6 +392,10 @@ namespace TerrainTessellation {
 
         constructor(ui: UIData) {
             this.ui = ui;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         checkbox(label: string, value: boolean) {
@@ -408,11 +411,6 @@ namespace TerrainTessellation {
             ui.tessellationFactor = Donut_ImGuiDragFloat("Factor", ui.tessellationFactor, 0.05, 0.0, 4.0);
             ui.wireframe = this.checkbox("Wireframe", ui.wireframe);
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

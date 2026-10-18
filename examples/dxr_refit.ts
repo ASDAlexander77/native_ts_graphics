@@ -134,6 +134,43 @@ namespace DxrRefit {
             this.rebuild = false;
         }
 
+        init() {
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutTextureUAV(0);
+            layoutDesc.layoutConstantBuffer(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            if (!this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            this.colorBuffer = this.app.createConstantBuffer(INSTANCE_COLORS.length * 4, "InstanceColors");
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let colors = INSTANCE_COLORS.map((v): f32 => v);
+            commandList.writeBuffer(this.colorBuffer, Ref(colors[0]), INSTANCE_COLORS.length / 4 * FLOAT4_SIZE);
+            const created = this.createAccelerationStructures(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            // Only needed for the builds: the command list references them, and the app holds it
+            // until the GPU is done with it.
+            for (const inputBuffer of this.inputBuffers) {
+                this.app.releaseResource(inputBuffer);
+            }
+            this.app.releaseResource(commandList.handle);
+            if (!created) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The storage image has the back buffers' size.
         onBackBufferResizing() {
             const bindingSet = this.bindingSet;
@@ -293,44 +330,6 @@ namespace DxrRefit {
                 shaderTable.addHitGroup(hitGroup, null);
             }
             this.shaderTable = shaderTable;
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutTextureUAV(0);
-            layoutDesc.layoutConstantBuffer(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            if (!this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            this.colorBuffer = this.app.createConstantBuffer(INSTANCE_COLORS.length * 4, "InstanceColors");
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let colors = INSTANCE_COLORS.map((v): f32 => v);
-            commandList.writeBuffer(this.colorBuffer, Ref(colors[0]), INSTANCE_COLORS.length / 4 * FLOAT4_SIZE);
-            const created = this.createAccelerationStructures(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            // Only needed for the builds: the command list references them, and the app holds it
-            // until the GPU is done with it.
-            for (const inputBuffer of this.inputBuffers) {
-                this.app.releaseResource(inputBuffer);
-            }
-            this.app.releaseResource(commandList.handle);
-            if (!created) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

@@ -224,6 +224,130 @@ namespace MultiDrawIndirect {
             }
         }
 
+        init() {
+            this.support = this.app.getIndirectDrawSupport();
+
+            this.drawVS = this.app.createShader("multi_draw_indirect.hlsl", "mdi_vs", ShaderType.Vertex);
+            this.drawPS = this.app.createShader("multi_draw_indirect.hlsl", "mdi_ps", ShaderType.Pixel);
+            const cullCS = this.app.createShader("multi_draw_indirect.hlsl", "cull_cs", ShaderType.Compute);
+            if (!this.drawVS || !this.drawPS || !cullCS) {
+                return false;
+            }
+
+            // Vertex bindings and attributes: the vertices at per-vertex rate, the models'
+            // information at per-instance rate (the sample also reads its bounding sphere, which its
+            // vertex shader ignores).
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            layoutDesc.addInstanceVertexAttribute("TEXTURE_INDEX", Format.R32_UINT, 16, 1, MODEL_INFORMATION_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.drawVS);
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneUniform");
+
+            // The render pipeline: the scene uniform, the array of textures (accessed via the
+            // instance's texture index) and their sampler.
+            const drawLayoutDesc = BindingLayoutDesc.create();
+            drawLayoutDesc.layoutVolatileConstantBuffer(0);
+            drawLayoutDesc.layoutTextureSRVArray(0, TEXTURE_COUNT);
+            drawLayoutDesc.layoutSampler(0);
+            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.All);
+
+            // The sample's linear sampler (repeat). Donut's common passes, which hold it, upload their
+            // textures on a command list of their own: before ours is open.
+            const sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            if (!this.loadScene(commandList, sampler)) {
+                // Nothing to draw: no buffer of no commands (Vulkan's device address of it crashed).
+                commandList.close();
+                this.app.releaseResource(commandList.handle);
+                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.indirectCallBuffer = this.app.createDrawIndexedIndirectBuffer(this.modelCount, "Indirect Calls");
+            // initialize buffer: the draws, all visible until culled
+            commandList.writeBuffer(this.indirectCallBuffer, Ref(this.commands[0]), this.modelCount * COMMAND_SIZE);
+
+            // The address of the commands' buffer, in a buffer of its own, for the device address
+            // culling.
+            let addressBuffer: BufferHandle | null = null;
+            if ((this.support & IndirectDrawSupport.BufferDeviceAddress) != 0) {
+                let address: f32[] = [0.0, 0.0];
+                Donut_StoreBufferDeviceAddress(Ref(address[0]), this.indirectCallBuffer);
+                addressBuffer = this.app.createStructuredBuffer(8, 1, "Device Address");
+                commandList.writeBuffer(addressBuffer, Ref(address[0]), 8);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            // The compute pipeline: the models' information, the scene uniform and the commands.
+            const cullLayoutDesc = BindingLayoutDesc.create();
+            cullLayoutDesc.layoutVolatileConstantBuffer(0);
+            cullLayoutDesc.layoutRawBufferSRV(0);
+            cullLayoutDesc.layoutRawBufferUAV(0);
+            const cullLayout = this.app.createBindingLayout(cullLayoutDesc, ShaderType.Compute);
+            const cullSetDesc = BindingSetDesc.create();
+            cullSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+            cullSetDesc.bindRawBufferSRV(0, this.modelInformationBuffer);
+            cullSetDesc.bindRawBufferUAV(0, this.indirectCallBuffer);
+            this.cullBindingSet = this.app.createBindingSetForLayout(cullSetDesc, cullLayout);
+            this.cullPipeline = this.app.createComputePipelineWithLayout(cullCS, cullLayout);
+
+            // The device address pipeline: the commands through the references from the device
+            // addresses, instead of their binding.
+            if (addressBuffer) {
+                const addressCS = this.app.createShader("multi_draw_indirect.hlsl", "cull_address_cs", ShaderType.Compute);
+                if (!addressCS) {
+                    return false;
+                }
+                const addressLayoutDesc = BindingLayoutDesc.create();
+                addressLayoutDesc.layoutVolatileConstantBuffer(0);
+                addressLayoutDesc.layoutRawBufferSRV(0);
+                addressLayoutDesc.layoutStructuredBufferSRV(1);
+                const addressLayout = this.app.createBindingLayout(addressLayoutDesc, ShaderType.Compute);
+                const addressSetDesc = BindingSetDesc.create();
+                addressSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+                addressSetDesc.bindRawBufferSRV(0, this.modelInformationBuffer);
+                addressSetDesc.bindStructuredBufferSRV(1, addressBuffer);
+                this.addressBindingSet = this.app.createBindingSetForLayout(addressSetDesc, addressLayout);
+                this.addressPipeline = this.app.createComputePipelineWithLayout(addressCS, addressLayout);
+            }
+
+            for (let i = 0; i < READBACK_BUFFERS; i++) {
+                this.readbackBuffers.push(this.app.createReadbackBuffer(this.modelCount * COMMAND_SIZE, `Readback ${i}`));
+                this.readbackValid.push(false);
+            }
+
+            // The sample's first person camera, rotated (-23.5, -45, 0) degrees and translated by
+            // (0, 0.5, -0.2): its view matrix is Rx * Ry * T, so it's at -(0, 0.5, -0.2), looking down
+            // R^T * (0, 0, -1). In Donut's world (see updateSceneUniform), y negated. One degree per
+            // pixel of mouse movement and one unit per second, as its camera.
+            const sa = Math.sin(radians(-23.5));
+            const ca = Math.cos(radians(-23.5));
+            const sb = Math.sin(radians(-45.0));
+            const cb = Math.cos(radians(-45.0));
+            const position = [0.0, -0.5, 0.2];
+            const forward = [ca * sb, -sa, -ca * cb];
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(position[0], -position[1], position[2],
+                position[0] + forward[0], -(position[1] + forward[1]), position[2] + forward[2]);
+            this.camera.setMoveSpeed(1.0);
+            this.camera.setRotateSpeed(radians(1.0));
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
@@ -536,131 +660,6 @@ namespace MultiDrawIndirect {
                 this.modelCount * MODEL_INFORMATION_SIZE, "Model Information");
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.support = this.app.getIndirectDrawSupport();
-
-            this.drawVS = this.app.createShader("multi_draw_indirect.hlsl", "mdi_vs", ShaderType.Vertex);
-            this.drawPS = this.app.createShader("multi_draw_indirect.hlsl", "mdi_ps", ShaderType.Pixel);
-            const cullCS = this.app.createShader("multi_draw_indirect.hlsl", "cull_cs", ShaderType.Compute);
-            if (!this.drawVS || !this.drawPS || !cullCS) {
-                return false;
-            }
-
-            // Vertex bindings and attributes: the vertices at per-vertex rate, the models'
-            // information at per-instance rate (the sample also reads its bounding sphere, which its
-            // vertex shader ignores).
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            layoutDesc.addInstanceVertexAttribute("TEXTURE_INDEX", Format.R32_UINT, 16, 1, MODEL_INFORMATION_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.drawVS);
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneUniform");
-
-            // The render pipeline: the scene uniform, the array of textures (accessed via the
-            // instance's texture index) and their sampler.
-            const drawLayoutDesc = BindingLayoutDesc.create();
-            drawLayoutDesc.layoutVolatileConstantBuffer(0);
-            drawLayoutDesc.layoutTextureSRVArray(0, TEXTURE_COUNT);
-            drawLayoutDesc.layoutSampler(0);
-            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.All);
-
-            // The sample's linear sampler (repeat). Donut's common passes, which hold it, upload their
-            // textures on a command list of their own: before ours is open.
-            const sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            if (!this.loadScene(commandList, sampler)) {
-                // Nothing to draw: no buffer of no commands (Vulkan's device address of it crashed).
-                commandList.close();
-                this.app.releaseResource(commandList.handle);
-                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.indirectCallBuffer = this.app.createDrawIndexedIndirectBuffer(this.modelCount, "Indirect Calls");
-            // initialize buffer: the draws, all visible until culled
-            commandList.writeBuffer(this.indirectCallBuffer, Ref(this.commands[0]), this.modelCount * COMMAND_SIZE);
-
-            // The address of the commands' buffer, in a buffer of its own, for the device address
-            // culling.
-            let addressBuffer: BufferHandle | null = null;
-            if ((this.support & IndirectDrawSupport.BufferDeviceAddress) != 0) {
-                let address: f32[] = [0.0, 0.0];
-                Donut_StoreBufferDeviceAddress(Ref(address[0]), this.indirectCallBuffer);
-                addressBuffer = this.app.createStructuredBuffer(8, 1, "Device Address");
-                commandList.writeBuffer(addressBuffer, Ref(address[0]), 8);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            // The compute pipeline: the models' information, the scene uniform and the commands.
-            const cullLayoutDesc = BindingLayoutDesc.create();
-            cullLayoutDesc.layoutVolatileConstantBuffer(0);
-            cullLayoutDesc.layoutRawBufferSRV(0);
-            cullLayoutDesc.layoutRawBufferUAV(0);
-            const cullLayout = this.app.createBindingLayout(cullLayoutDesc, ShaderType.Compute);
-            const cullSetDesc = BindingSetDesc.create();
-            cullSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-            cullSetDesc.bindRawBufferSRV(0, this.modelInformationBuffer);
-            cullSetDesc.bindRawBufferUAV(0, this.indirectCallBuffer);
-            this.cullBindingSet = this.app.createBindingSetForLayout(cullSetDesc, cullLayout);
-            this.cullPipeline = this.app.createComputePipelineWithLayout(cullCS, cullLayout);
-
-            // The device address pipeline: the commands through the references from the device
-            // addresses, instead of their binding.
-            if (addressBuffer) {
-                const addressCS = this.app.createShader("multi_draw_indirect.hlsl", "cull_address_cs", ShaderType.Compute);
-                if (!addressCS) {
-                    return false;
-                }
-                const addressLayoutDesc = BindingLayoutDesc.create();
-                addressLayoutDesc.layoutVolatileConstantBuffer(0);
-                addressLayoutDesc.layoutRawBufferSRV(0);
-                addressLayoutDesc.layoutStructuredBufferSRV(1);
-                const addressLayout = this.app.createBindingLayout(addressLayoutDesc, ShaderType.Compute);
-                const addressSetDesc = BindingSetDesc.create();
-                addressSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-                addressSetDesc.bindRawBufferSRV(0, this.modelInformationBuffer);
-                addressSetDesc.bindStructuredBufferSRV(1, addressBuffer);
-                this.addressBindingSet = this.app.createBindingSetForLayout(addressSetDesc, addressLayout);
-                this.addressPipeline = this.app.createComputePipelineWithLayout(addressCS, addressLayout);
-            }
-
-            for (let i = 0; i < READBACK_BUFFERS; i++) {
-                this.readbackBuffers.push(this.app.createReadbackBuffer(this.modelCount * COMMAND_SIZE, `Readback ${i}`));
-                this.readbackValid.push(false);
-            }
-
-            // The sample's first person camera, rotated (-23.5, -45, 0) degrees and translated by
-            // (0, 0.5, -0.2): its view matrix is Rx * Ry * T, so it's at -(0, 0.5, -0.2), looking down
-            // R^T * (0, 0, -1). In Donut's world (see updateSceneUniform), y negated. One degree per
-            // pixel of mouse movement and one unit per second, as its camera.
-            const sa = Math.sin(radians(-23.5));
-            const ca = Math.cos(radians(-23.5));
-            const sb = Math.sin(radians(-45.0));
-            const cb = Math.cos(radians(-45.0));
-            const position = [0.0, -0.5, 0.2];
-            const forward = [ca * sb, -sa, -ca * cb];
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(position[0], -position[1], position[2],
-                position[0] + forward[0], -(position[1] + forward[1]), position[2] + forward[2]);
-            this.camera.setMoveSpeed(1.0);
-            this.camera.setRotateSpeed(radians(1.0));
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     function supportText(supported: boolean) {
@@ -673,6 +672,10 @@ namespace MultiDrawIndirect {
 
         constructor(mdi: MultiDrawIndirectPass) {
             this.mdi = mdi;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -693,11 +696,6 @@ namespace MultiDrawIndirect {
                 mdi.renderMode = Donut_ImGuiCombo("Cull mode", mdi.renderMode, RENDER_MODE_NAMES);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

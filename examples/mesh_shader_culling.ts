@@ -114,6 +114,40 @@ namespace MeshShaderCulling {
             }
         }
 
+        init() {
+            if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
+                this.unsupportedReason = "This example needs task and mesh shaders (D3D12 or Vulkan)";
+                return false;
+            }
+
+            const shader = "mesh_shader_culling.hlsl";
+            this.amplificationShader = this.app.createShader(shader, "cull_as", ShaderType.Amplification);
+            this.meshShader = this.app.createShader(shader, "cull_ms", ShaderType.Mesh);
+            this.pixelShader = this.app.createShader(shader, "cull_ps", ShaderType.Pixel);
+            if (!this.amplificationShader || !this.meshShader || !this.pixelShader) {
+                return false;
+            }
+
+            // The sample's descriptor set: the UBO, for the task shader.
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.Amplification);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            // Pipeline statistics, where the device counts mesh shader work.
+            this.statistics = this.app.createMeshPipelineStatistics();
+            this.hasStatistics = !this.statistics.isNull();
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKeyboard);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // ApiVulkanSample's keys: WASD move the camera while held.
         onKeyboard(key: int, scancode: int, action: int, mods: int) {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
@@ -190,41 +224,6 @@ namespace MeshShaderCulling {
                 frame.drawMeshTasks2D(groups, groups);
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
-                this.unsupportedReason = "This example needs task and mesh shaders (D3D12 or Vulkan)";
-                return false;
-            }
-
-            const shader = "mesh_shader_culling.hlsl";
-            this.amplificationShader = this.app.createShader(shader, "cull_as", ShaderType.Amplification);
-            this.meshShader = this.app.createShader(shader, "cull_ms", ShaderType.Mesh);
-            this.pixelShader = this.app.createShader(shader, "cull_ps", ShaderType.Pixel);
-            if (!this.amplificationShader || !this.meshShader || !this.pixelShader) {
-                return false;
-            }
-
-            // The sample's descriptor set: the UBO, for the task shader.
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.Amplification);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            // Pipeline statistics, where the device counts mesh shader work.
-            this.statistics = this.app.createMeshPipelineStatistics();
-            this.hasStatistics = !this.statistics.isNull();
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKeyboard);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -233,6 +232,10 @@ namespace MeshShaderCulling {
 
         constructor(sample: MeshShaderCullingPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -253,11 +256,6 @@ namespace MeshShaderCulling {
                 }
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

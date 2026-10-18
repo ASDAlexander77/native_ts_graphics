@@ -184,6 +184,49 @@ namespace RayTracingPositionFetch {
             }
         }
 
+        init() {
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutTextureUAV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            const shaderLibrary = this.app.createShaderLibrary("ray_tracing_position_fetch.hlsl");
+            if (!shaderLibrary) {
+                return false;
+            }
+            const pipeline = this.app.createRayTracingPipeline(shaderLibrary, this.bindingLayout, "raygen", "miss", "HitGroup",
+                "closesthit", PAYLOAD_SIZE);
+            if (!pipeline) {
+                return false;
+            }
+            this.shaderTable = this.app.createShaderTable(pipeline, "raygen", "HitGroup", "miss");
+            // The shader table keeps the pipeline alive.
+            this.app.releaseResource(pipeline);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.createBottomLevelAccelerationStructure(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.topLevelAS = this.app.createTopLevelAS(1);
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -310,50 +353,6 @@ namespace RayTracingPositionFetch {
             }
             return this.blas.build(this.app, commandList, AccelStructBuildFlags.AllowDataAccess | AccelStructBuildFlags.PreferFastTrace) != 0;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutTextureUAV(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            const shaderLibrary = this.app.createShaderLibrary("ray_tracing_position_fetch.hlsl");
-            if (!shaderLibrary) {
-                return false;
-            }
-            const pipeline = this.app.createRayTracingPipeline(shaderLibrary, this.bindingLayout, "raygen", "miss", "HitGroup",
-                "closesthit", PAYLOAD_SIZE);
-            if (!pipeline) {
-                return false;
-            }
-            this.shaderTable = this.app.createShaderTable(pipeline, "raygen", "HitGroup", "miss");
-            // The shader table keeps the pipeline alive.
-            this.app.releaseResource(pipeline);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.createBottomLevelAccelerationStructure(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.topLevelAS = this.app.createTopLevelAS(1);
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's display mode choice.
@@ -364,16 +363,15 @@ namespace RayTracingPositionFetch {
             this.pass = pass;
         }
 
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
+        }
+
         buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Options", 1);
             this.pass.displayMode = Donut_ImGuiCombo("Display mode", this.pass.displayMode, DISPLAY_MODE_NAMES);
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

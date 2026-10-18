@@ -158,6 +158,79 @@ namespace Khr16BitArithmetic {
             this.timerQueryInFlight = false;
         }
 
+        init() {
+            this.native16Bit = this.app.hasNative16BitShaderOps() != 0;
+            this.native16BitConstants = this.app.hasNative16BitConstants() != 0;
+
+            const shader = "16bit_arithmetic.hlsl";
+            const computeFP32 = this.app.createShader(shader, "compute_fp32", ShaderType.Compute);
+            this.visualizeVS = this.app.createShader(shader, "visualize_vs", ShaderType.Vertex);
+            this.visualizePS = this.app.createShader(shader, "visualize_ps", ShaderType.Pixel);
+            if (!computeFP32 || !this.visualizeVS || !this.visualizePS) {
+                return false;
+            }
+            this.computeBindingLayout = this.createComputeBindingLayout(PUSH32_SIZE);
+            this.computeFP32 = this.app.createComputePipelineWithLayout(computeFP32, this.computeBindingLayout);
+
+            // The FP16 shader, with 16-bit push constants if the device takes them, 32-bit ones if not.
+            if (this.native16Bit) {
+                const computeFP16 = this.app.createShaderWithDefine("16bit_arithmetic_fp16.hlsl", "compute_fp16", ShaderType.Compute,
+                    "PUSH_CONSTANT_16", this.native16BitConstants ? "1" : "0");
+                if (!computeFP16) {
+                    return false;
+                }
+                this.computeBindingLayoutFP16 = this.createComputeBindingLayout(this.native16BitConstants ? PUSH16_SIZE : PUSH32_SIZE);
+                this.computeFP16 = this.app.createComputePipelineWithLayout(computeFP16, this.computeBindingLayoutFP16);
+            }
+
+            // The blobs, and the image the compute shader renders.
+            this.blobBuffer = this.app.createStructuredBuffer(8, NUM_BLOBS, "BlobBuffer");
+            this.image = this.app.createUAVTextureWithFormat(WIDTH, HEIGHT, Format.RGBA16_FLOAT, "Image");
+
+            // The blit's common passes, created on first use, upload their textures on a command
+            // list of their own: create them before ours (or the frame's) is open.
+            this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            // Two 16-bit floats to a 32-bit word.
+            const blobs: int[] = [];
+            for (let i = 0; i < BLOBS.length; i += 2) {
+                const low = BLOBS[i];
+                const high = BLOBS[i + 1];
+                blobs.push(low | (high << 16));
+            }
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            commandList.writeBuffer(this.blobBuffer, Ref(blobs[0]), blobs.length * 4);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            this.computeBindingSet = this.createComputeBindingSet(this.computeBindingLayout, PUSH32_SIZE);
+            if (this.computeFP16) {
+                this.computeBindingSetFP16 = this.createComputeBindingSet(this.computeBindingLayoutFP16,
+                    this.native16BitConstants ? PUSH16_SIZE : PUSH32_SIZE);
+            }
+
+            // The visualization: the image through a linear, clamped sampler.
+            const visualizeLayoutDesc = BindingLayoutDesc.create();
+            visualizeLayoutDesc.layoutTextureSRV(0);
+            visualizeLayoutDesc.layoutSampler(0);
+            this.visualizeBindingLayout = this.app.createBindingLayout(visualizeLayoutDesc, ShaderType.Pixel);
+            const visualizeSetDesc = BindingSetDesc.create();
+            visualizeSetDesc.bindTextureSRV(0, this.image);
+            visualizeSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.LinearClamp));
+            this.visualizeBindingSet = this.app.createBindingSetForLayout(visualizeSetDesc, this.visualizeBindingLayout);
+
+            this.timerQuery = this.app.createTimerQuery();
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
@@ -282,80 +355,6 @@ namespace Khr16BitArithmetic {
             layoutDesc.layoutPushConstants(0, pushConstantsSize);
             return this.app.createBindingLayout(layoutDesc, ShaderType.Compute);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.native16Bit = this.app.hasNative16BitShaderOps() != 0;
-            this.native16BitConstants = this.app.hasNative16BitConstants() != 0;
-
-            const shader = "16bit_arithmetic.hlsl";
-            const computeFP32 = this.app.createShader(shader, "compute_fp32", ShaderType.Compute);
-            this.visualizeVS = this.app.createShader(shader, "visualize_vs", ShaderType.Vertex);
-            this.visualizePS = this.app.createShader(shader, "visualize_ps", ShaderType.Pixel);
-            if (!computeFP32 || !this.visualizeVS || !this.visualizePS) {
-                return false;
-            }
-            this.computeBindingLayout = this.createComputeBindingLayout(PUSH32_SIZE);
-            this.computeFP32 = this.app.createComputePipelineWithLayout(computeFP32, this.computeBindingLayout);
-
-            // The FP16 shader, with 16-bit push constants if the device takes them, 32-bit ones if not.
-            if (this.native16Bit) {
-                const computeFP16 = this.app.createShaderWithDefine("16bit_arithmetic_fp16.hlsl", "compute_fp16", ShaderType.Compute,
-                    "PUSH_CONSTANT_16", this.native16BitConstants ? "1" : "0");
-                if (!computeFP16) {
-                    return false;
-                }
-                this.computeBindingLayoutFP16 = this.createComputeBindingLayout(this.native16BitConstants ? PUSH16_SIZE : PUSH32_SIZE);
-                this.computeFP16 = this.app.createComputePipelineWithLayout(computeFP16, this.computeBindingLayoutFP16);
-            }
-
-            // The blobs, and the image the compute shader renders.
-            this.blobBuffer = this.app.createStructuredBuffer(8, NUM_BLOBS, "BlobBuffer");
-            this.image = this.app.createUAVTextureWithFormat(WIDTH, HEIGHT, Format.RGBA16_FLOAT, "Image");
-
-            // The blit's common passes, created on first use, upload their textures on a command
-            // list of their own: create them before ours (or the frame's) is open.
-            this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            // Two 16-bit floats to a 32-bit word.
-            const blobs: int[] = [];
-            for (let i = 0; i < BLOBS.length; i += 2) {
-                const low = BLOBS[i];
-                const high = BLOBS[i + 1];
-                blobs.push(low | (high << 16));
-            }
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            commandList.writeBuffer(this.blobBuffer, Ref(blobs[0]), blobs.length * 4);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            this.computeBindingSet = this.createComputeBindingSet(this.computeBindingLayout, PUSH32_SIZE);
-            if (this.computeFP16) {
-                this.computeBindingSetFP16 = this.createComputeBindingSet(this.computeBindingLayoutFP16,
-                    this.native16BitConstants ? PUSH16_SIZE : PUSH32_SIZE);
-            }
-
-            // The visualization: the image through a linear, clamped sampler.
-            const visualizeLayoutDesc = BindingLayoutDesc.create();
-            visualizeLayoutDesc.layoutTextureSRV(0);
-            visualizeLayoutDesc.layoutSampler(0);
-            this.visualizeBindingLayout = this.app.createBindingLayout(visualizeLayoutDesc, ShaderType.Pixel);
-            const visualizeSetDesc = BindingSetDesc.create();
-            visualizeSetDesc.bindTextureSRV(0, this.image);
-            visualizeSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.LinearClamp));
-            this.visualizeBindingSet = this.app.createBindingSetForLayout(visualizeSetDesc, this.visualizeBindingLayout);
-
-            this.timerQuery = this.app.createTimerQuery();
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's options window.
@@ -364,6 +363,10 @@ namespace Khr16BitArithmetic {
 
         constructor(sample: ArithmeticPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -379,11 +382,6 @@ namespace Khr16BitArithmetic {
                 Donut_ImGuiText(`Compute shader: ${sample.gpuTimeMs.toFixed(3)} ms`);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

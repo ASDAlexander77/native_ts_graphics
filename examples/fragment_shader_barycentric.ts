@@ -131,6 +131,68 @@ namespace FragmentShaderBarycentric {
             this.pushConstants = [0];
         }
 
+        init() {
+            if (this.app.hasBarycentrics() == 0) {
+                this.unsupportedReason = "This example needs barycentrics in pixel shaders (D3D12 shader model 6.1 or Vulkan's VK_KHR_fragment_shader_barycentric)";
+                return false;
+            }
+
+            const shader = "fragment_shader_barycentric.hlsl";
+            this.skyboxVS = this.app.createShader(shader, "skybox_vs", ShaderType.Vertex);
+            this.skyboxPS = this.app.createShader(shader, "skybox_ps", ShaderType.Pixel);
+            this.objectVS = this.app.createShader(shader, "object_vs", ShaderType.Vertex);
+            this.objectPS = this.app.createShader(shader, "object_ps", ShaderType.Pixel);
+            if (!this.skyboxVS || !this.skyboxPS || !this.objectVS || !this.objectPS) {
+                return false;
+            }
+
+            // Vertex bindings and attributes for model rendering: the position.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.skyboxVS);
+
+            // The blit's common passes, created on first use, upload their textures on a command
+            // list of their own: create them before ours (or the frame's) is open.
+            this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
+            const mesh = this.app.loadGltfMesh(commandList, OBJECT_PATH);
+            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
+            // KTX 1 files have no color space: the framework takes color textures as sRGB.
+            const cubeTexture = this.app.loadTexture(commandList, CUBE_TEXTURE_PATH, 1);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (skybox.isNull() || mesh.isNull() || !envmap || !cubeTexture) {
+                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.skybox = skybox;
+            this.object = mesh;
+
+            // The sample's descriptor sets (the UBO and a texture) and push constants (the effect).
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
+            const layoutBindingDesc = BindingLayoutDesc.create();
+            layoutBindingDesc.layoutVolatileConstantBuffer(0);
+            layoutBindingDesc.layoutPushConstants(1, 4);
+            layoutBindingDesc.layoutTextureSRV(0);
+            layoutBindingDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutBindingDesc, ShaderType.All);
+            this.skyboxBindingSet = this.createBindingSet(envmap);
+            this.objectBindingSet = this.createBindingSet(cubeTexture);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
         onMousePos(x: number, y: number) {
@@ -277,69 +339,6 @@ namespace FragmentShaderBarycentric {
             setDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
             return this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            if (this.app.hasBarycentrics() == 0) {
-                this.unsupportedReason = "This example needs barycentrics in pixel shaders (D3D12 shader model 6.1 or Vulkan's VK_KHR_fragment_shader_barycentric)";
-                return false;
-            }
-
-            const shader = "fragment_shader_barycentric.hlsl";
-            this.skyboxVS = this.app.createShader(shader, "skybox_vs", ShaderType.Vertex);
-            this.skyboxPS = this.app.createShader(shader, "skybox_ps", ShaderType.Pixel);
-            this.objectVS = this.app.createShader(shader, "object_vs", ShaderType.Vertex);
-            this.objectPS = this.app.createShader(shader, "object_ps", ShaderType.Pixel);
-            if (!this.skyboxVS || !this.skyboxPS || !this.objectVS || !this.objectPS) {
-                return false;
-            }
-
-            // Vertex bindings and attributes for model rendering: the position.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.skyboxVS);
-
-            // The blit's common passes, created on first use, upload their textures on a command
-            // list of their own: create them before ours (or the frame's) is open.
-            this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
-            const mesh = this.app.loadGltfMesh(commandList, OBJECT_PATH);
-            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
-            // KTX 1 files have no color space: the framework takes color textures as sRGB.
-            const cubeTexture = this.app.loadTexture(commandList, CUBE_TEXTURE_PATH, 1);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (skybox.isNull() || mesh.isNull() || !envmap || !cubeTexture) {
-                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.skybox = skybox;
-            this.object = mesh;
-
-            // The sample's descriptor sets (the UBO and a texture) and push constants (the effect).
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
-            const layoutBindingDesc = BindingLayoutDesc.create();
-            layoutBindingDesc.layoutVolatileConstantBuffer(0);
-            layoutBindingDesc.layoutPushConstants(1, 4);
-            layoutBindingDesc.layoutTextureSRV(0);
-            layoutBindingDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutBindingDesc, ShaderType.All);
-            this.skyboxBindingSet = this.createBindingSet(envmap);
-            this.objectBindingSet = this.createBindingSet(cubeTexture);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -348,6 +347,10 @@ namespace FragmentShaderBarycentric {
 
         constructor(sample: BarycentricPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -359,11 +362,6 @@ namespace FragmentShaderBarycentric {
                 sample.selectedEffect = Donut_ImGuiCombo("Effects", sample.selectedEffect, EFFECT_NAMES);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

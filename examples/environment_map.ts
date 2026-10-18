@@ -98,6 +98,58 @@ namespace EnvironmentMap {
             }
         }
 
+        init(scenePath: string) {
+            const scene = this.app.loadScene(scenePath);
+            if (scene.isNull()) {
+                console.log(`Cannot load the scene ${scenePath}`);
+                return false;
+            }
+            this.scene = scene;
+            const sceneGraph = scene.getSceneGraph();
+            this.sceneGraph = sceneGraph;
+
+            this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
+                0.35, -1.0, 0.2, 0.53, 2.0);
+            this.app.refreshSceneGraph(sceneGraph);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const environmentMapPath = this.useKtx2 ? ENVIRONMENT_MAP_KTX2 : ENVIRONMENT_MAP_DDS;
+            const environmentMap = this.app.loadTexture(commandList, environmentMapPath, 0);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!environmentMap) {
+                console.log(`Cannot load the environment map ${environmentMapPath}`);
+                return false;
+            }
+            this.environmentMap = environmentMap;
+
+            this.shadowMap = this.app.createPlanarShadowMap(SHADOW_MAP_RESOLUTION);
+            this.shadowDepthPass = this.app.createShadowDepthPass(100, 4.0);
+
+            this.forwardPass = this.app.createForwardShadingPassWithOptions(0, 0);
+            this.forwardContext = this.app.createForwardShadingContext();
+
+            // Under the open roof, looking up past the arches at the sky.
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(-6.0, 1.8, -0.5, 4.0, 7.0, 0.5);
+            this.camera.setMoveSpeed(3.0);
+
+            this.view = this.app.createPlanarView();
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
@@ -217,59 +269,6 @@ namespace EnvironmentMap {
             commandList.renderToneMapping(this.toneMappingPass, this.view, targets.getTexture(SceneTexture.HdrColor), 0);
 
             this.app.blitTexture(frame, targets.getTexture(SceneTexture.LdrColor));
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string) {
-            const scene = this.app.loadScene(scenePath);
-            if (scene.isNull()) {
-                console.log(`Cannot load the scene ${scenePath}`);
-                return false;
-            }
-            this.scene = scene;
-            const sceneGraph = scene.getSceneGraph();
-            this.sceneGraph = sceneGraph;
-
-            this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
-                0.35, -1.0, 0.2, 0.53, 2.0);
-            this.app.refreshSceneGraph(sceneGraph);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const environmentMapPath = this.useKtx2 ? ENVIRONMENT_MAP_KTX2 : ENVIRONMENT_MAP_DDS;
-            const environmentMap = this.app.loadTexture(commandList, environmentMapPath, 0);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!environmentMap) {
-                console.log(`Cannot load the environment map ${environmentMapPath}`);
-                return false;
-            }
-            this.environmentMap = environmentMap;
-
-            this.shadowMap = this.app.createPlanarShadowMap(SHADOW_MAP_RESOLUTION);
-            this.shadowDepthPass = this.app.createShadowDepthPass(100, 4.0);
-
-            this.forwardPass = this.app.createForwardShadingPassWithOptions(0, 0);
-            this.forwardContext = this.app.createForwardShadingContext();
-
-            // Under the open roof, looking up past the arches at the sky.
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(-6.0, 1.8, -0.5, 4.0, 7.0, 0.5);
-            this.camera.setMoveSpeed(3.0);
-
-            this.view = this.app.createPlanarView();
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

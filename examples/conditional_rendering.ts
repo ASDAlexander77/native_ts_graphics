@@ -138,6 +138,67 @@ namespace ConditionalRendering {
             }
         }
 
+        init() {
+            if (this.app.hasConditionalRendering() == 0) {
+                this.unsupportedReason = "This example needs conditional rendering (D3D12 predication or Vulkan's VK_EXT_conditional_rendering)";
+                return false;
+            }
+
+            const shader = "conditional_rendering.hlsl";
+            this.vertexShader = this.app.createShader(shader, "model_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader(shader, "model_ps", ShaderType.Pixel);
+            if (!this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+
+            // Positions and normals.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+
+            // The sample's descriptor set (the UBO) and push constants.
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
+            const layoutBindingDesc = BindingLayoutDesc.create();
+            layoutBindingDesc.layoutVolatileConstantBuffer(0);
+            layoutBindingDesc.layoutPushConstants(1, NODE_FLOATS * 4);
+            this.bindingLayout = this.app.createBindingLayout(layoutBindingDesc, ShaderType.Vertex);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
+            setDesc.bindPushConstants(1, NODE_FLOATS * 4);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            // The blit's common passes, created on first use, upload their textures on a command
+            // list of their own: create them before ours (or the frame's) is open.
+            this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.loadModel(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            // One value per node, all 1 (visible).
+            this.predication = this.app.createPredicationBuffer(this.names.length);
+            if (this.predication.isNull()) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // A node's visibility: written to the predication buffer, read by the GPU.
         setVisible(index: int, visible: boolean) {
             this.visible[index] = visible;
@@ -363,68 +424,6 @@ namespace ConditionalRendering {
             this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "IndexBuffer");
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            if (this.app.hasConditionalRendering() == 0) {
-                this.unsupportedReason = "This example needs conditional rendering (D3D12 predication or Vulkan's VK_EXT_conditional_rendering)";
-                return false;
-            }
-
-            const shader = "conditional_rendering.hlsl";
-            this.vertexShader = this.app.createShader(shader, "model_vs", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader(shader, "model_ps", ShaderType.Pixel);
-            if (!this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-
-            // Positions and normals.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-
-            // The sample's descriptor set (the UBO) and push constants.
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
-            const layoutBindingDesc = BindingLayoutDesc.create();
-            layoutBindingDesc.layoutVolatileConstantBuffer(0);
-            layoutBindingDesc.layoutPushConstants(1, NODE_FLOATS * 4);
-            this.bindingLayout = this.app.createBindingLayout(layoutBindingDesc, ShaderType.Vertex);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.constantBuffer);
-            setDesc.bindPushConstants(1, NODE_FLOATS * 4);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            // The blit's common passes, created on first use, upload their textures on a command
-            // list of their own: create them before ours (or the frame's) is open.
-            this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.loadModel(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            // One value per node, all 1 (visible).
-            this.predication = this.app.createPredicationBuffer(this.names.length);
-            if (this.predication.isNull()) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -433,6 +432,10 @@ namespace ConditionalRendering {
 
         constructor(sample: ConditionalRenderingPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -464,11 +467,6 @@ namespace ConditionalRendering {
                 Donut_ImGuiEndChild();
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

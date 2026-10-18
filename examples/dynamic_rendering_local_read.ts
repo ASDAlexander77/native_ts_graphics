@@ -245,6 +245,87 @@ namespace DynamicRenderingLocalRead {
             }
         }
 
+        init() {
+            const shader = "dynamic_rendering_local_read.hlsl";
+            this.opaqueVS = this.app.createShader(shader, "opaque_vs", ShaderType.Vertex);
+            this.opaquePS = this.app.createShader(shader, "opaque_ps", ShaderType.Pixel);
+            this.compositionVS = this.app.createShader(shader, "composition_vs", ShaderType.Vertex);
+            this.compositionPS = this.app.createShader(shader, "composition_ps", ShaderType.Pixel);
+            this.transparentVS = this.app.createShader(shader, "transparent_vs", ShaderType.Vertex);
+            this.transparentPS = this.app.createShader(shader, "transparent_ps", ShaderType.Pixel);
+            if (!this.opaqueVS || !this.opaquePS || !this.compositionVS || !this.compositionPS || !this.transparentVS
+                || !this.transparentPS) {
+                return false;
+            }
+
+            // The opaque pipeline reads positions and normals, the transparent one positions and
+            // texture coordinates.
+            const opaqueLayoutDesc = InputLayoutDesc.create();
+            opaqueLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            opaqueLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.opaqueInputLayout = this.app.createInputLayout(opaqueLayoutDesc, this.opaqueVS);
+            const transparentLayoutDesc = InputLayoutDesc.create();
+            transparentLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            transparentLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.transparentInputLayout = this.app.createInputLayout(transparentLayoutDesc, this.transparentVS);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.opaqueScene.load(this.app, commandList, OPAQUE_SCENE_PATH)
+                && this.transparentScene.load(this.app, commandList, TRANSPARENT_SCENE_PATH);
+            const glass = this.app.loadTexture(commandList, GLASS_TEXTURE_PATH, 1);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded || !glass) {
+                console.log("Cannot load the scenes and the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.glassTexture = glass;
+            // The framework's load_texture sampler: trilinear, repeating, the device's widest
+            // anisotropic filtering.
+            this.glassSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
+                this.app.getMaxSamplerAnisotropy());
+
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            this.lightsBuffer = this.app.createStructuredBuffer(LIGHT_FLOATS * 4, LIGHT_COUNT, "Lights");
+            this.randomizeLights();
+
+            const opaqueLayoutDescB = BindingLayoutDesc.create();
+            opaqueLayoutDescB.layoutVolatileConstantBuffer(0);
+            opaqueLayoutDescB.layoutPushConstants(1, PUSH_SIZE);
+            this.opaqueBindingLayout = this.app.createBindingLayout(opaqueLayoutDescB, ShaderType.All);
+            const opaqueSetDesc = BindingSetDesc.create();
+            opaqueSetDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            opaqueSetDesc.bindPushConstants(1, PUSH_SIZE);
+            this.opaqueBindingSet = this.app.createBindingSetForLayout(opaqueSetDesc, this.opaqueBindingLayout);
+
+            const compositionLayoutDesc = BindingLayoutDesc.create();
+            compositionLayoutDesc.layoutTextureSRV(0);
+            compositionLayoutDesc.layoutTextureSRV(1);
+            compositionLayoutDesc.layoutTextureSRV(2);
+            compositionLayoutDesc.layoutStructuredBufferSRV(3);
+            this.compositionBindingLayout = this.app.createBindingLayout(compositionLayoutDesc, ShaderType.Pixel);
+
+            const transparentLayoutDescB = BindingLayoutDesc.create();
+            transparentLayoutDescB.layoutVolatileConstantBuffer(0);
+            transparentLayoutDescB.layoutPushConstants(1, PUSH_SIZE);
+            transparentLayoutDescB.layoutTextureSRV(0);
+            transparentLayoutDescB.layoutTextureSRV(4);
+            transparentLayoutDescB.layoutSampler(0);
+            this.transparentBindingLayout = this.app.createBindingLayout(transparentLayoutDescB, ShaderType.All);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.key(key, action);
             return 1;
@@ -435,88 +516,6 @@ namespace DynamicRenderingLocalRead {
             this.drawScene(frame, this.transparentScene, this.transparentPipeline, this.transparentFramebuffers[index],
                 this.transparentBindingSet);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "dynamic_rendering_local_read.hlsl";
-            this.opaqueVS = this.app.createShader(shader, "opaque_vs", ShaderType.Vertex);
-            this.opaquePS = this.app.createShader(shader, "opaque_ps", ShaderType.Pixel);
-            this.compositionVS = this.app.createShader(shader, "composition_vs", ShaderType.Vertex);
-            this.compositionPS = this.app.createShader(shader, "composition_ps", ShaderType.Pixel);
-            this.transparentVS = this.app.createShader(shader, "transparent_vs", ShaderType.Vertex);
-            this.transparentPS = this.app.createShader(shader, "transparent_ps", ShaderType.Pixel);
-            if (!this.opaqueVS || !this.opaquePS || !this.compositionVS || !this.compositionPS || !this.transparentVS
-                || !this.transparentPS) {
-                return false;
-            }
-
-            // The opaque pipeline reads positions and normals, the transparent one positions and
-            // texture coordinates.
-            const opaqueLayoutDesc = InputLayoutDesc.create();
-            opaqueLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            opaqueLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.opaqueInputLayout = this.app.createInputLayout(opaqueLayoutDesc, this.opaqueVS);
-            const transparentLayoutDesc = InputLayoutDesc.create();
-            transparentLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            transparentLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.transparentInputLayout = this.app.createInputLayout(transparentLayoutDesc, this.transparentVS);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.opaqueScene.load(this.app, commandList, OPAQUE_SCENE_PATH)
-                && this.transparentScene.load(this.app, commandList, TRANSPARENT_SCENE_PATH);
-            const glass = this.app.loadTexture(commandList, GLASS_TEXTURE_PATH, 1);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded || !glass) {
-                console.log("Cannot load the scenes and the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.glassTexture = glass;
-            // The framework's load_texture sampler: trilinear, repeating, the device's widest
-            // anisotropic filtering.
-            this.glassSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
-                this.app.getMaxSamplerAnisotropy());
-
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            this.lightsBuffer = this.app.createStructuredBuffer(LIGHT_FLOATS * 4, LIGHT_COUNT, "Lights");
-            this.randomizeLights();
-
-            const opaqueLayoutDescB = BindingLayoutDesc.create();
-            opaqueLayoutDescB.layoutVolatileConstantBuffer(0);
-            opaqueLayoutDescB.layoutPushConstants(1, PUSH_SIZE);
-            this.opaqueBindingLayout = this.app.createBindingLayout(opaqueLayoutDescB, ShaderType.All);
-            const opaqueSetDesc = BindingSetDesc.create();
-            opaqueSetDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            opaqueSetDesc.bindPushConstants(1, PUSH_SIZE);
-            this.opaqueBindingSet = this.app.createBindingSetForLayout(opaqueSetDesc, this.opaqueBindingLayout);
-
-            const compositionLayoutDesc = BindingLayoutDesc.create();
-            compositionLayoutDesc.layoutTextureSRV(0);
-            compositionLayoutDesc.layoutTextureSRV(1);
-            compositionLayoutDesc.layoutTextureSRV(2);
-            compositionLayoutDesc.layoutStructuredBufferSRV(3);
-            this.compositionBindingLayout = this.app.createBindingLayout(compositionLayoutDesc, ShaderType.Pixel);
-
-            const transparentLayoutDescB = BindingLayoutDesc.create();
-            transparentLayoutDescB.layoutVolatileConstantBuffer(0);
-            transparentLayoutDescB.layoutPushConstants(1, PUSH_SIZE);
-            transparentLayoutDescB.layoutTextureSRV(0);
-            transparentLayoutDescB.layoutTextureSRV(4);
-            transparentLayoutDescB.layoutSampler(0);
-            this.transparentBindingLayout = this.app.createBindingLayout(transparentLayoutDescB, ShaderType.All);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -527,6 +526,10 @@ namespace DynamicRenderingLocalRead {
             this.sample = sample;
         }
 
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
+        }
+
         buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Dynamic Rendering Local Read", 1);
@@ -535,11 +538,6 @@ namespace DynamicRenderingLocalRead {
                 this.sample.randomizeLights();
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

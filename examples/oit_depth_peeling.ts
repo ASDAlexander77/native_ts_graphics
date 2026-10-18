@@ -150,6 +150,72 @@ namespace OitDepthPeeling {
             }
         }
 
+        init() {
+            const shader = "oit_depth_peeling.hlsl";
+            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
+            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
+            this.combinePS = this.app.createShader(shader, "combine_ps", ShaderType.Pixel);
+            this.gatherVS = this.app.createShader(shader, "gather_vs", ShaderType.Vertex);
+            this.gatherFirstPS = this.app.createShader(shader, "gather_first_ps", ShaderType.Pixel);
+            this.gatherPS = this.app.createShader(shader, "gather_ps", ShaderType.Pixel);
+            if (!this.fullscreenVS || !this.backgroundPS || !this.combinePS || !this.gatherVS || !this.gatherFirstPS
+                || !this.gatherPS) {
+                return false;
+            }
+
+            // Positions and texture coordinates.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.gatherVS);
+
+            // The blit's common passes, created on first use, upload their textures on a command
+            // list of their own: create them before ours (or the frame's) is open.
+            this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const mesh = this.app.loadGltfMesh(commandList, OBJECT_PATH);
+            // KTX 1 files have no color space: the framework takes color textures as sRGB.
+            const background = this.app.loadTexture(commandList, BACKGROUND_PATH, 1);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (mesh.isNull() || !background) {
+                console.log("Cannot load the model and the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.object = mesh;
+            this.background = background;
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
+
+            // The gather passes: the constants and the other depth target.
+            const gatherLayoutDesc = BindingLayoutDesc.create();
+            gatherLayoutDesc.layoutVolatileConstantBuffer(0);
+            gatherLayoutDesc.layoutTextureSRV(0);
+            this.gatherBindingLayout = this.app.createBindingLayout(gatherLayoutDesc, ShaderType.All);
+
+            // The background and combine passes: the constants, the background texture and the
+            // layers.
+            const combineLayoutDesc = BindingLayoutDesc.create();
+            combineLayoutDesc.layoutVolatileConstantBuffer(0);
+            combineLayoutDesc.layoutTextureSRV(1);
+            combineLayoutDesc.layoutSampler(1);
+            combineLayoutDesc.layoutTextureSRVArray(2, LAYER_MAX_COUNT);
+            combineLayoutDesc.layoutSampler(0);
+            this.combineBindingLayout = this.app.createBindingLayout(combineLayoutDesc, ShaderType.Pixel);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
         onMousePos(x: number, y: number) {
@@ -363,73 +429,6 @@ namespace OitDepthPeeling {
 
             this.app.blitTexture(frame, colorBuffer);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "oit_depth_peeling.hlsl";
-            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
-            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
-            this.combinePS = this.app.createShader(shader, "combine_ps", ShaderType.Pixel);
-            this.gatherVS = this.app.createShader(shader, "gather_vs", ShaderType.Vertex);
-            this.gatherFirstPS = this.app.createShader(shader, "gather_first_ps", ShaderType.Pixel);
-            this.gatherPS = this.app.createShader(shader, "gather_ps", ShaderType.Pixel);
-            if (!this.fullscreenVS || !this.backgroundPS || !this.combinePS || !this.gatherVS || !this.gatherFirstPS
-                || !this.gatherPS) {
-                return false;
-            }
-
-            // Positions and texture coordinates.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.gatherVS);
-
-            // The blit's common passes, created on first use, upload their textures on a command
-            // list of their own: create them before ours (or the frame's) is open.
-            this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const mesh = this.app.loadGltfMesh(commandList, OBJECT_PATH);
-            // KTX 1 files have no color space: the framework takes color textures as sRGB.
-            const background = this.app.loadTexture(commandList, BACKGROUND_PATH, 1);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (mesh.isNull() || !background) {
-                console.log("Cannot load the model and the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.object = mesh;
-            this.background = background;
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
-
-            // The gather passes: the constants and the other depth target.
-            const gatherLayoutDesc = BindingLayoutDesc.create();
-            gatherLayoutDesc.layoutVolatileConstantBuffer(0);
-            gatherLayoutDesc.layoutTextureSRV(0);
-            this.gatherBindingLayout = this.app.createBindingLayout(gatherLayoutDesc, ShaderType.All);
-
-            // The background and combine passes: the constants, the background texture and the
-            // layers.
-            const combineLayoutDesc = BindingLayoutDesc.create();
-            combineLayoutDesc.layoutVolatileConstantBuffer(0);
-            combineLayoutDesc.layoutTextureSRV(1);
-            combineLayoutDesc.layoutSampler(1);
-            combineLayoutDesc.layoutTextureSRVArray(2, LAYER_MAX_COUNT);
-            combineLayoutDesc.layoutSampler(0);
-            this.combineBindingLayout = this.app.createBindingLayout(combineLayoutDesc, ShaderType.Pixel);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -438,6 +437,10 @@ namespace OitDepthPeeling {
 
         constructor(sample: DepthPeelingPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -451,11 +454,6 @@ namespace OitDepthPeeling {
             sample.frontLayerIndex = Donut_ImGuiSliderInt("Front layer index", sample.frontLayerIndex, 0, sample.backLayerIndex);
             sample.backLayerIndex = Donut_ImGuiSliderInt("Back layer index", sample.backLayerIndex, sample.frontLayerIndex, LAYER_MAX_COUNT - 1);
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

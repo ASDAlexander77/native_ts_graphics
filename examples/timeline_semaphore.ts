@@ -95,6 +95,74 @@ namespace TimelineSemaphore {
             this.push = [0.0];
         }
 
+        init() {
+            const shader = "timeline_semaphore.hlsl";
+            const initCS = this.app.createShader(shader, "init_cs", ShaderType.Compute);
+            const mutateCS = this.app.createShader(shader, "mutate_cs", ShaderType.Compute);
+            const updateCS = this.app.createShader(shader, "update_cs", ShaderType.Compute);
+            this.renderVS = this.app.createShader(shader, "render_vs", ShaderType.Vertex);
+            this.renderPS = this.app.createShader(shader, "render_ps", ShaderType.Pixel);
+            if (!initCS || !mutateCS || !updateCS || !this.renderVS || !this.renderPS) {
+                return false;
+            }
+
+            const computeCommandList = this.app.createComputeQueueCommandList();
+            if (!computeCommandList.isNull()) {
+                this.computeCommandList = computeCommandList;
+            }
+
+            // The sample's shared resources: the images, and an immutable sampler (nearest,
+            // repeating).
+            for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
+                this.images.push(this.app.createUAVTexture(GRID_WIDTH, GRID_HEIGHT, `Game of Life ${i}`));
+            }
+            const sampler = this.app.createSamplerWithDesc(0, 0, 0, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, 1.0);
+
+            const computeLayoutDesc = BindingLayoutDesc.create();
+            computeLayoutDesc.layoutTextureUAV(0);
+            computeLayoutDesc.layoutTextureSRV(0);
+            computeLayoutDesc.layoutSampler(0);
+            computeLayoutDesc.layoutPushConstants(0, PUSH_SIZE);
+            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
+            const graphicsLayoutDesc = BindingLayoutDesc.create();
+            graphicsLayoutDesc.layoutTextureSRV(0);
+            graphicsLayoutDesc.layoutSampler(0);
+            this.graphicsBindingLayout = this.app.createBindingLayout(graphicsLayoutDesc, ShaderType.Pixel);
+            for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
+                const storageDesc = BindingSetDesc.create();
+                storageDesc.bindTextureUAV(0, this.images[i]);
+                storageDesc.bindTextureSRV(0, this.images[(i + NUM_ASYNC_FRAMES - 1) % NUM_ASYNC_FRAMES]);
+                storageDesc.bindSampler(0, sampler);
+                storageDesc.bindPushConstants(0, PUSH_SIZE);
+                this.storageBindingSets.push(this.app.createBindingSetForLayout(storageDesc, computeBindingLayout));
+                const sampledDesc = BindingSetDesc.create();
+                sampledDesc.bindTextureSRV(0, this.images[i]);
+                sampledDesc.bindSampler(0, sampler);
+                this.sampledBindingSets.push(this.app.createBindingSetForLayout(sampledDesc, this.graphicsBindingLayout));
+            }
+            this.initPipeline = this.app.createComputePipelineWithLayout(initCS, computeBindingLayout);
+            this.mutatePipeline = this.app.createComputePipelineWithLayout(mutateCS, computeBindingLayout);
+            this.updatePipeline = this.app.createComputePipelineWithLayout(updateCS, computeBindingLayout);
+
+            // The sample's setup_game_of_life: both images get the starting pattern.
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
+                commandList.dispatchWithPushConstants(this.initPipeline, this.storageBindingSets[i], Ref(this.push[0]), PUSH_SIZE,
+                    GRID_WIDTH / 8, GRID_HEIGHT / 8, 1);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onAnimate(elapsedSeconds: number) {
             this.computeElapsed += this.benchmark ? 1.0 / 60.0 : elapsedSeconds;
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
@@ -190,75 +258,6 @@ namespace TimelineSemaphore {
             frame.drawVertices(3);
 
             this.frameNumber++;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "timeline_semaphore.hlsl";
-            const initCS = this.app.createShader(shader, "init_cs", ShaderType.Compute);
-            const mutateCS = this.app.createShader(shader, "mutate_cs", ShaderType.Compute);
-            const updateCS = this.app.createShader(shader, "update_cs", ShaderType.Compute);
-            this.renderVS = this.app.createShader(shader, "render_vs", ShaderType.Vertex);
-            this.renderPS = this.app.createShader(shader, "render_ps", ShaderType.Pixel);
-            if (!initCS || !mutateCS || !updateCS || !this.renderVS || !this.renderPS) {
-                return false;
-            }
-
-            const computeCommandList = this.app.createComputeQueueCommandList();
-            if (!computeCommandList.isNull()) {
-                this.computeCommandList = computeCommandList;
-            }
-
-            // The sample's shared resources: the images, and an immutable sampler (nearest,
-            // repeating).
-            for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
-                this.images.push(this.app.createUAVTexture(GRID_WIDTH, GRID_HEIGHT, `Game of Life ${i}`));
-            }
-            const sampler = this.app.createSamplerWithDesc(0, 0, 0, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, 1.0);
-
-            const computeLayoutDesc = BindingLayoutDesc.create();
-            computeLayoutDesc.layoutTextureUAV(0);
-            computeLayoutDesc.layoutTextureSRV(0);
-            computeLayoutDesc.layoutSampler(0);
-            computeLayoutDesc.layoutPushConstants(0, PUSH_SIZE);
-            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
-            const graphicsLayoutDesc = BindingLayoutDesc.create();
-            graphicsLayoutDesc.layoutTextureSRV(0);
-            graphicsLayoutDesc.layoutSampler(0);
-            this.graphicsBindingLayout = this.app.createBindingLayout(graphicsLayoutDesc, ShaderType.Pixel);
-            for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
-                const storageDesc = BindingSetDesc.create();
-                storageDesc.bindTextureUAV(0, this.images[i]);
-                storageDesc.bindTextureSRV(0, this.images[(i + NUM_ASYNC_FRAMES - 1) % NUM_ASYNC_FRAMES]);
-                storageDesc.bindSampler(0, sampler);
-                storageDesc.bindPushConstants(0, PUSH_SIZE);
-                this.storageBindingSets.push(this.app.createBindingSetForLayout(storageDesc, computeBindingLayout));
-                const sampledDesc = BindingSetDesc.create();
-                sampledDesc.bindTextureSRV(0, this.images[i]);
-                sampledDesc.bindSampler(0, sampler);
-                this.sampledBindingSets.push(this.app.createBindingSetForLayout(sampledDesc, this.graphicsBindingLayout));
-            }
-            this.initPipeline = this.app.createComputePipelineWithLayout(initCS, computeBindingLayout);
-            this.mutatePipeline = this.app.createComputePipelineWithLayout(mutateCS, computeBindingLayout);
-            this.updatePipeline = this.app.createComputePipelineWithLayout(updateCS, computeBindingLayout);
-
-            // The sample's setup_game_of_life: both images get the starting pattern.
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
-                commandList.dispatchWithPushConstants(this.initPipeline, this.storageBindingSets[i], Ref(this.push[0]), PUSH_SIZE,
-                    GRID_WIDTH / 8, GRID_HEIGHT / 8, 1);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

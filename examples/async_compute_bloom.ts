@@ -288,6 +288,179 @@ namespace AsyncComputeBloom {
             }
         }
 
+        init() {
+            const shader = "async_compute_bloom.hlsl";
+            const shadowVS = this.app.createShader(shader, "shadow_vs", ShaderType.Vertex);
+            const shadowPS = this.app.createShader(shader, "shadow_ps", ShaderType.Pixel);
+            const forwardVS = this.app.createShader(shader, "forward_vs", ShaderType.Vertex);
+            const forwardPS = this.app.createShader(shader, "forward_ps", ShaderType.Pixel);
+            const postShader = "async_compute_bloom_post.hlsl";
+            const thresholdCS = this.app.createShader(postShader, "threshold_cs", ShaderType.Compute);
+            const blurDownCS = this.app.createShader(postShader, "blur_down_cs", ShaderType.Compute);
+            const blurUpCS = this.app.createShader(postShader, "blur_up_cs", ShaderType.Compute);
+            this.compositeVS = this.app.createShader(shader, "composite_vs", ShaderType.Vertex);
+            this.compositePS = this.app.createShader(shader, "composite_ps", ShaderType.Pixel);
+            if (!shadowVS || !shadowPS || !forwardVS || !forwardPS || !thresholdCS || !blurDownCS || !blurUpCS
+                || !this.compositeVS || !this.compositePS) {
+                return false;
+            }
+
+            this.computeCommandList = null;
+            const computeCommandList = this.app.createComputeQueueCommandList();
+            if (!computeCommandList.isNull()) {
+                this.computeCommandList = computeCommandList;
+            }
+
+            // The vertices: positions for the shadow pass, all of them for the forward pass.
+            const shadowLayoutDesc = InputLayoutDesc.create();
+            shadowLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            this.shadowInputLayout = this.app.createInputLayout(shadowLayoutDesc, shadowVS);
+            const forwardLayoutDesc = InputLayoutDesc.create();
+            forwardLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            forwardLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            forwardLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.forwardInputLayout = this.app.createInputLayout(forwardLayoutDesc, forwardVS);
+
+            this.shadowConstantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "Shadow SceneConstants");
+            this.forwardConstantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "Forward SceneConstants");
+
+            // The shadow map: 16-bit depth (8K, "overkill to stress devices"), reversed.
+            this.shadowMap = this.app.createDepthTexture(SHADOW_RESOLUTION, SHADOW_RESOLUTION, Format.D16, 0.0, "Shadow Map");
+            this.shadowFramebuffer = this.app.createDepthFramebuffer(this.shadowMap);
+            const shadowLayoutBindingDesc = BindingLayoutDesc.create();
+            shadowLayoutBindingDesc.layoutVolatileConstantBuffer(0);
+            shadowLayoutBindingDesc.layoutPushConstants(1, MODEL_SIZE);
+            const shadowBindingLayout = this.app.createBindingLayout(shadowLayoutBindingDesc, ShaderType.All);
+            const shadowSetDesc = BindingSetDesc.create();
+            shadowSetDesc.bindEntireConstantBuffer(0, this.shadowConstantBuffer);
+            shadowSetDesc.bindPushConstants(1, MODEL_SIZE);
+            this.shadowBindingSet = this.app.createBindingSetForLayout(shadowSetDesc, shadowBindingLayout);
+            // The framework's geometry pipeline state: reversed depth (greater), back faces culled,
+            // counter-clockwise front faces; plus the sample's depth bias against shadow acne.
+            const shadowDesc = GraphicsPipelineDesc.create(shadowVS, shadowPS);
+            shadowDesc.setInputLayout(this.shadowInputLayout);
+            shadowDesc.addBindingLayout(shadowBindingLayout);
+            shadowDesc.setDepthState(1, 1, ComparisonFunc.Greater);
+            shadowDesc.setRasterState(CullMode.Back, FillMode.Solid, 1);
+            shadowDesc.setDepthBias(SHADOW_DEPTH_BIAS, 0.0, SHADOW_SLOPE_SCALED_DEPTH_BIAS);
+            this.shadowPipeline = this.app.createGraphicsPipelineFromDesc(shadowDesc, this.shadowFramebuffer);
+
+            // The HDR targets, the compute post's input: RGBA16F, two for double buffering, with one
+            // depth buffer (reversed).
+            this.hdrDepth = this.app.createDepthTexture(HDR_WIDTH, HDR_HEIGHT, Format.D32, 0.0, "HDR Depth");
+            for (let i = 0; i < 2; i++) {
+                const target = this.app.createComputeReadableRenderTarget(HDR_WIDTH, HDR_HEIGHT, Format.RGBA16_FLOAT, `HDR Color ${i}`);
+                this.hdrTargets.push(target);
+                this.hdrFramebuffers.push(this.app.createFramebuffer(target, this.hdrDepth));
+            }
+
+            // The forward pass: the scene uniform, the base color texture and its sampler, the
+            // shadow map and its comparison sampler, the node transform.
+            const forwardLayoutBindingDesc = BindingLayoutDesc.create();
+            forwardLayoutBindingDesc.layoutVolatileConstantBuffer(0);
+            forwardLayoutBindingDesc.layoutTextureSRV(0);
+            forwardLayoutBindingDesc.layoutSampler(0);
+            forwardLayoutBindingDesc.layoutTextureSRV(1);
+            forwardLayoutBindingDesc.layoutSampler(1);
+            forwardLayoutBindingDesc.layoutPushConstants(1, MODEL_SIZE);
+            const forwardBindingLayout = this.app.createBindingLayout(forwardLayoutBindingDesc, ShaderType.All);
+            for (let blend = 0; blend < 2; blend++) {
+                const desc = GraphicsPipelineDesc.create(forwardVS, forwardPS);
+                desc.setInputLayout(this.forwardInputLayout);
+                desc.addBindingLayout(forwardBindingLayout);
+                desc.setDepthState(1, 1, ComparisonFunc.Greater);
+                desc.setRasterState(CullMode.Back, FillMode.Solid, 1);
+                // The framework blends the materials in blend mode.
+                if (blend == 1) {
+                    desc.setBlendMode(BlendMode.AlphaBlend);
+                }
+                const pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.hdrFramebuffers[0]);
+                if (blend == 1) {
+                    this.forwardBlendPipeline = pipeline;
+                } else {
+                    this.forwardPipeline = pipeline;
+                }
+            }
+
+            // The sample's samplers: linear and clamped for the post passes, a comparison one for
+            // the shadow map; the scene's (linear, repeating) for its textures. Donut's common passes,
+            // which hold theirs, upload their textures on a command list of their own: before ours is
+            // open.
+            const linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
+            const linearWrap = this.app.getCommonSampler(CommonSampler.LinearWrap);
+            const comparisonSampler = this.app.createComparisonSampler();
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.loadScene(commandList, linearWrap, comparisonSampler, forwardBindingLayout);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            // The bloom: the blur chain, levels 1 to BLUR_LEVELS of the HDR size, RGBA16F.
+            for (let level = 1; level <= BLUR_LEVELS; level++) {
+                this.blurChain.push(this.app.createComputeTexture(levelWidth(level), levelHeight(level), Format.RGBA16_FLOAT,
+                    `Blur Chain ${level}`));
+            }
+            // Each pass: its input and sampler, its output, the resolutions.
+            const blurLayoutDesc = BindingLayoutDesc.create();
+            blurLayoutDesc.layoutTextureSRV(0);
+            blurLayoutDesc.layoutSampler(0);
+            blurLayoutDesc.layoutTextureUAV(0);
+            blurLayoutDesc.layoutPushConstants(0, BLUR_SIZE);
+            const blurBindingLayout = this.app.createBindingLayout(blurLayoutDesc, ShaderType.Compute);
+            this.thresholdPipeline = this.app.createComputePipelineWithLayout(thresholdCS, blurBindingLayout);
+            this.blurDownPipeline = this.app.createComputePipelineWithLayout(blurDownCS, blurBindingLayout);
+            this.blurUpPipeline = this.app.createComputePipelineWithLayout(blurUpCS, blurBindingLayout);
+            for (let i = 0; i < 2; i++) {
+                this.thresholdBindingSets.push(this.createBlurBindingSet(blurBindingLayout, linearClamp, this.hdrTargets[i], this.blurChain[0]));
+            }
+            for (let index = 1; index < BLUR_LEVELS; index++) {
+                this.blurDownBindingSets.push(this.createBlurBindingSet(blurBindingLayout, linearClamp,
+                    this.blurChain[index - 1], this.blurChain[index]));
+            }
+            for (let index = BLUR_LEVELS - 2; index >= 1; index--) {
+                this.blurUpBindingSets.push(this.createBlurBindingSet(blurBindingLayout, linearClamp,
+                    this.blurChain[index + 1], this.blurChain[index]));
+            }
+
+            // The composite: the HDR frame and the bloom, through the linear sampler.
+            const compositeLayoutDesc = BindingLayoutDesc.create();
+            compositeLayoutDesc.layoutTextureSRV(0);
+            compositeLayoutDesc.layoutTextureSRV(1);
+            compositeLayoutDesc.layoutSampler(0);
+            this.compositeBindingLayout = this.app.createBindingLayout(compositeLayoutDesc, ShaderType.Pixel);
+            for (let i = 0; i < 2; i++) {
+                const setDesc = BindingSetDesc.create();
+                setDesc.bindTextureSRV(0, this.hdrTargets[i]);
+                setDesc.bindTextureSRV(1, this.blurChain[BLOOM_INDEX]);
+                setDesc.bindSampler(0, linearClamp);
+                this.compositeBindingSets.push(this.app.createBindingSetForLayout(setDesc, this.compositeBindingLayout));
+            }
+
+            // The scene's camera, as the sample's free camera starts.
+            const q = CAMERA_ROTATION;
+            const forward = [-2.0 * (q[0] * q[2] + q[3] * q[1]), -2.0 * (q[1] * q[2] - q[3] * q[0]), -(1.0 - 2.0 * (q[0] * q[0] + q[1] * q[1]))];
+            const p = CAMERA_POSITION;
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2]);
+            this.camera.setMoveSpeed(CAMERA_MOVE_SPEED);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         hasComputeQueue() {
             return this.computeCommandList != null;
         }
@@ -690,180 +863,6 @@ namespace AsyncComputeBloom {
             return true;
         }
 
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "async_compute_bloom.hlsl";
-            const shadowVS = this.app.createShader(shader, "shadow_vs", ShaderType.Vertex);
-            const shadowPS = this.app.createShader(shader, "shadow_ps", ShaderType.Pixel);
-            const forwardVS = this.app.createShader(shader, "forward_vs", ShaderType.Vertex);
-            const forwardPS = this.app.createShader(shader, "forward_ps", ShaderType.Pixel);
-            const postShader = "async_compute_bloom_post.hlsl";
-            const thresholdCS = this.app.createShader(postShader, "threshold_cs", ShaderType.Compute);
-            const blurDownCS = this.app.createShader(postShader, "blur_down_cs", ShaderType.Compute);
-            const blurUpCS = this.app.createShader(postShader, "blur_up_cs", ShaderType.Compute);
-            this.compositeVS = this.app.createShader(shader, "composite_vs", ShaderType.Vertex);
-            this.compositePS = this.app.createShader(shader, "composite_ps", ShaderType.Pixel);
-            if (!shadowVS || !shadowPS || !forwardVS || !forwardPS || !thresholdCS || !blurDownCS || !blurUpCS
-                || !this.compositeVS || !this.compositePS) {
-                return false;
-            }
-
-            this.computeCommandList = null;
-            const computeCommandList = this.app.createComputeQueueCommandList();
-            if (!computeCommandList.isNull()) {
-                this.computeCommandList = computeCommandList;
-            }
-
-            // The vertices: positions for the shadow pass, all of them for the forward pass.
-            const shadowLayoutDesc = InputLayoutDesc.create();
-            shadowLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            this.shadowInputLayout = this.app.createInputLayout(shadowLayoutDesc, shadowVS);
-            const forwardLayoutDesc = InputLayoutDesc.create();
-            forwardLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            forwardLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            forwardLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.forwardInputLayout = this.app.createInputLayout(forwardLayoutDesc, forwardVS);
-
-            this.shadowConstantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "Shadow SceneConstants");
-            this.forwardConstantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "Forward SceneConstants");
-
-            // The shadow map: 16-bit depth (8K, "overkill to stress devices"), reversed.
-            this.shadowMap = this.app.createDepthTexture(SHADOW_RESOLUTION, SHADOW_RESOLUTION, Format.D16, 0.0, "Shadow Map");
-            this.shadowFramebuffer = this.app.createDepthFramebuffer(this.shadowMap);
-            const shadowLayoutBindingDesc = BindingLayoutDesc.create();
-            shadowLayoutBindingDesc.layoutVolatileConstantBuffer(0);
-            shadowLayoutBindingDesc.layoutPushConstants(1, MODEL_SIZE);
-            const shadowBindingLayout = this.app.createBindingLayout(shadowLayoutBindingDesc, ShaderType.All);
-            const shadowSetDesc = BindingSetDesc.create();
-            shadowSetDesc.bindEntireConstantBuffer(0, this.shadowConstantBuffer);
-            shadowSetDesc.bindPushConstants(1, MODEL_SIZE);
-            this.shadowBindingSet = this.app.createBindingSetForLayout(shadowSetDesc, shadowBindingLayout);
-            // The framework's geometry pipeline state: reversed depth (greater), back faces culled,
-            // counter-clockwise front faces; plus the sample's depth bias against shadow acne.
-            const shadowDesc = GraphicsPipelineDesc.create(shadowVS, shadowPS);
-            shadowDesc.setInputLayout(this.shadowInputLayout);
-            shadowDesc.addBindingLayout(shadowBindingLayout);
-            shadowDesc.setDepthState(1, 1, ComparisonFunc.Greater);
-            shadowDesc.setRasterState(CullMode.Back, FillMode.Solid, 1);
-            shadowDesc.setDepthBias(SHADOW_DEPTH_BIAS, 0.0, SHADOW_SLOPE_SCALED_DEPTH_BIAS);
-            this.shadowPipeline = this.app.createGraphicsPipelineFromDesc(shadowDesc, this.shadowFramebuffer);
-
-            // The HDR targets, the compute post's input: RGBA16F, two for double buffering, with one
-            // depth buffer (reversed).
-            this.hdrDepth = this.app.createDepthTexture(HDR_WIDTH, HDR_HEIGHT, Format.D32, 0.0, "HDR Depth");
-            for (let i = 0; i < 2; i++) {
-                const target = this.app.createComputeReadableRenderTarget(HDR_WIDTH, HDR_HEIGHT, Format.RGBA16_FLOAT, `HDR Color ${i}`);
-                this.hdrTargets.push(target);
-                this.hdrFramebuffers.push(this.app.createFramebuffer(target, this.hdrDepth));
-            }
-
-            // The forward pass: the scene uniform, the base color texture and its sampler, the
-            // shadow map and its comparison sampler, the node transform.
-            const forwardLayoutBindingDesc = BindingLayoutDesc.create();
-            forwardLayoutBindingDesc.layoutVolatileConstantBuffer(0);
-            forwardLayoutBindingDesc.layoutTextureSRV(0);
-            forwardLayoutBindingDesc.layoutSampler(0);
-            forwardLayoutBindingDesc.layoutTextureSRV(1);
-            forwardLayoutBindingDesc.layoutSampler(1);
-            forwardLayoutBindingDesc.layoutPushConstants(1, MODEL_SIZE);
-            const forwardBindingLayout = this.app.createBindingLayout(forwardLayoutBindingDesc, ShaderType.All);
-            for (let blend = 0; blend < 2; blend++) {
-                const desc = GraphicsPipelineDesc.create(forwardVS, forwardPS);
-                desc.setInputLayout(this.forwardInputLayout);
-                desc.addBindingLayout(forwardBindingLayout);
-                desc.setDepthState(1, 1, ComparisonFunc.Greater);
-                desc.setRasterState(CullMode.Back, FillMode.Solid, 1);
-                // The framework blends the materials in blend mode.
-                if (blend == 1) {
-                    desc.setBlendMode(BlendMode.AlphaBlend);
-                }
-                const pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.hdrFramebuffers[0]);
-                if (blend == 1) {
-                    this.forwardBlendPipeline = pipeline;
-                } else {
-                    this.forwardPipeline = pipeline;
-                }
-            }
-
-            // The sample's samplers: linear and clamped for the post passes, a comparison one for
-            // the shadow map; the scene's (linear, repeating) for its textures. Donut's common passes,
-            // which hold theirs, upload their textures on a command list of their own: before ours is
-            // open.
-            const linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
-            const linearWrap = this.app.getCommonSampler(CommonSampler.LinearWrap);
-            const comparisonSampler = this.app.createComparisonSampler();
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.loadScene(commandList, linearWrap, comparisonSampler, forwardBindingLayout);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            // The bloom: the blur chain, levels 1 to BLUR_LEVELS of the HDR size, RGBA16F.
-            for (let level = 1; level <= BLUR_LEVELS; level++) {
-                this.blurChain.push(this.app.createComputeTexture(levelWidth(level), levelHeight(level), Format.RGBA16_FLOAT,
-                    `Blur Chain ${level}`));
-            }
-            // Each pass: its input and sampler, its output, the resolutions.
-            const blurLayoutDesc = BindingLayoutDesc.create();
-            blurLayoutDesc.layoutTextureSRV(0);
-            blurLayoutDesc.layoutSampler(0);
-            blurLayoutDesc.layoutTextureUAV(0);
-            blurLayoutDesc.layoutPushConstants(0, BLUR_SIZE);
-            const blurBindingLayout = this.app.createBindingLayout(blurLayoutDesc, ShaderType.Compute);
-            this.thresholdPipeline = this.app.createComputePipelineWithLayout(thresholdCS, blurBindingLayout);
-            this.blurDownPipeline = this.app.createComputePipelineWithLayout(blurDownCS, blurBindingLayout);
-            this.blurUpPipeline = this.app.createComputePipelineWithLayout(blurUpCS, blurBindingLayout);
-            for (let i = 0; i < 2; i++) {
-                this.thresholdBindingSets.push(this.createBlurBindingSet(blurBindingLayout, linearClamp, this.hdrTargets[i], this.blurChain[0]));
-            }
-            for (let index = 1; index < BLUR_LEVELS; index++) {
-                this.blurDownBindingSets.push(this.createBlurBindingSet(blurBindingLayout, linearClamp,
-                    this.blurChain[index - 1], this.blurChain[index]));
-            }
-            for (let index = BLUR_LEVELS - 2; index >= 1; index--) {
-                this.blurUpBindingSets.push(this.createBlurBindingSet(blurBindingLayout, linearClamp,
-                    this.blurChain[index + 1], this.blurChain[index]));
-            }
-
-            // The composite: the HDR frame and the bloom, through the linear sampler.
-            const compositeLayoutDesc = BindingLayoutDesc.create();
-            compositeLayoutDesc.layoutTextureSRV(0);
-            compositeLayoutDesc.layoutTextureSRV(1);
-            compositeLayoutDesc.layoutSampler(0);
-            this.compositeBindingLayout = this.app.createBindingLayout(compositeLayoutDesc, ShaderType.Pixel);
-            for (let i = 0; i < 2; i++) {
-                const setDesc = BindingSetDesc.create();
-                setDesc.bindTextureSRV(0, this.hdrTargets[i]);
-                setDesc.bindTextureSRV(1, this.blurChain[BLOOM_INDEX]);
-                setDesc.bindSampler(0, linearClamp);
-                this.compositeBindingSets.push(this.app.createBindingSetForLayout(setDesc, this.compositeBindingLayout));
-            }
-
-            // The scene's camera, as the sample's free camera starts.
-            const q = CAMERA_ROTATION;
-            const forward = [-2.0 * (q[0] * q[2] + q[3] * q[1]), -2.0 * (q[1] * q[2] - q[3] * q[0]), -(1.0 - 2.0 * (q[0] * q[0] + q[1] * q[1]))];
-            const p = CAMERA_POSITION;
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2]);
-            this.camera.setMoveSpeed(CAMERA_MOVE_SPEED);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
-
         createBlurBindingSet(layout: BindingLayoutHandle, sampler: SamplerHandle, input: TextureHandle, output: TextureHandle) {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, input);
@@ -882,6 +881,10 @@ namespace AsyncComputeBloom {
             this.post = post;
         }
 
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
+        }
+
         buildUI() {
             const post = this.post;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
@@ -894,11 +897,6 @@ namespace AsyncComputeBloom {
             post.doubleBufferHdr = Donut_ImGuiCheckbox("Double buffer HDR", post.doubleBufferHdr ? 1 : 0) != 0;
             post.rotateShadows = Donut_ImGuiCheckbox("Rotate shadows", post.rotateShadows ? 1 : 0) != 0;
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

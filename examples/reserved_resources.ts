@@ -117,6 +117,112 @@ namespace ReservedResources {
             this.rootConstants = [0.0];
         }
 
+        init() {
+            // The sample's static sampler: linear, a transparent black border. Before any command
+            // list is open: it creates Donut's common passes.
+            this.sampler = this.app.createBorderSampler(1, 1, 1, 0.0, 0.0, 0.0, 0.0);
+
+            this.vertexShader = this.app.createShader("reserved_resources.hlsl", "VSMain", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("reserved_resources.hlsl", "PSMain", ShaderType.Pixel);
+            if (!this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutPushConstants(0, 4);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+
+            // LoadAssets: the quad, its height scaled by the window's aspect ratio (in float, as
+            // the sample's).
+            const aspectRatio = Math.fround(1280.0 / 720.0);
+            const y = Math.fround(0.25 * aspectRatio);
+            const vertices: number[] = [
+                -0.25, -y, 0.0, 0.0, 1.0,   // Bottom left.
+                -0.25, y, 0.0, 0.0, 0.0,    // Top left.
+                0.25, -y, 0.0, 1.0, 1.0,    // Bottom right.
+                0.25, y, 0.0, 1.0, 0.0,     // Top right.
+            ];
+            let floats = vertices.map((v): f32 => v);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(floats[0]), floats.length * 4, "Quad");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            // The reserved texture: no memory behind it until tiles are mapped.
+            let mipLevels = 0;
+            let w = TEXTURE_WIDTH;
+            let h = TEXTURE_HEIGHT;
+            while (w > 0 && h > 0) {
+                mipLevels++;
+                w = w >> 1;
+                h = h >> 1;
+            }
+            this.texture = this.app.createTiledTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, mipLevels, Format.RGBA8_UNORM, "Reserved Texture");
+
+            // Its tiling (GetResourceTiling: driver dependent): the tile's size, the levels of
+            // whole tiles, and the packed ones after them.
+            let tiling: int[] = [0, 0, 0, 0];
+            this.app.getTextureTiling(this.texture, Ref(tiling[0]));
+            const tileWidth = tiling[0];
+            const tileHeight = tiling[1];
+            this.numStandardMips = tiling[2];
+            this.numPackedMips = tiling[3];
+            this.packedMipTiles = this.app.getTexturePackedMipTileCount(this.texture);
+            console.log(`Tiles of ${tileWidth} x ${tileHeight} texels, ${this.numStandardMips} levels of whole tiles, ${this.numPackedMips} packed levels in ${this.packedMipTiles} tile(s)`);
+
+            let heapCount = this.numStandardMips;
+            if (this.numPackedMips > 0) {
+                heapCount++;
+            }
+            for (let n = 0; n < mipLevels; n++) {
+                const mip = new MipInfo();
+                if (n < this.numStandardMips) {
+                    mip.heapIndex = n;
+                    mip.widthInTiles = Math.floor(((TEXTURE_WIDTH >> n) + tileWidth - 1) / tileWidth);
+                    mip.heightInTiles = Math.floor(((TEXTURE_HEIGHT >> n) + tileHeight - 1) / tileHeight);
+                } else {
+                    // All of the packed levels go into the last heap.
+                    mip.heapIndex = heapCount - 1;
+                    mip.packedMip = true;
+                }
+                this.mips.push(mip);
+            }
+
+            // A heap per level of whole tiles, one for the packed levels: the sample's
+            // illustration of mapping tiles from several heaps into one reserved resource.
+            for (let n = 0; n < heapCount; n++) {
+                let tiles = this.packedMipTiles;
+                if (n < this.numStandardMips) {
+                    tiles = this.mips[n].widthInTiles * this.mips[n].heightInTiles;
+                }
+                this.heaps.push(this.app.createTileHeap(tiles * TILE_SIZE, `Heap ${n}`));
+            }
+
+            // Show the least detailed level first.
+            this.activeMip = mipLevels - 1;
+            this.updateTileMapping();
+
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindPushConstants(0, 4);
+            setDesc.bindTextureSRV(0, this.texture);
+            setDesc.bindSampler(0, this.sampler);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         mipCount(): int {
             return this.mips.length;
         }
@@ -230,113 +336,6 @@ namespace ReservedResources {
                 this.app.releaseResource(this.pipeline);
                 this.hasPipeline = false;
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // The sample's static sampler: linear, a transparent black border. Before any command
-            // list is open: it creates Donut's common passes.
-            this.sampler = this.app.createBorderSampler(1, 1, 1, 0.0, 0.0, 0.0, 0.0);
-
-            this.vertexShader = this.app.createShader("reserved_resources.hlsl", "VSMain", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader("reserved_resources.hlsl", "PSMain", ShaderType.Pixel);
-            if (!this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutPushConstants(0, 4);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-
-            // LoadAssets: the quad, its height scaled by the window's aspect ratio (in float, as
-            // the sample's).
-            const aspectRatio = Math.fround(1280.0 / 720.0);
-            const y = Math.fround(0.25 * aspectRatio);
-            const vertices: number[] = [
-                -0.25, -y, 0.0, 0.0, 1.0,   // Bottom left.
-                -0.25, y, 0.0, 0.0, 0.0,    // Top left.
-                0.25, -y, 0.0, 1.0, 1.0,    // Bottom right.
-                0.25, y, 0.0, 1.0, 0.0,     // Top right.
-            ];
-            let floats = vertices.map((v): f32 => v);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(floats[0]), floats.length * 4, "Quad");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            // The reserved texture: no memory behind it until tiles are mapped.
-            let mipLevels = 0;
-            let w = TEXTURE_WIDTH;
-            let h = TEXTURE_HEIGHT;
-            while (w > 0 && h > 0) {
-                mipLevels++;
-                w = w >> 1;
-                h = h >> 1;
-            }
-            this.texture = this.app.createTiledTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, mipLevels, Format.RGBA8_UNORM, "Reserved Texture");
-
-            // Its tiling (GetResourceTiling: driver dependent): the tile's size, the levels of
-            // whole tiles, and the packed ones after them.
-            let tiling: int[] = [0, 0, 0, 0];
-            this.app.getTextureTiling(this.texture, Ref(tiling[0]));
-            const tileWidth = tiling[0];
-            const tileHeight = tiling[1];
-            this.numStandardMips = tiling[2];
-            this.numPackedMips = tiling[3];
-            this.packedMipTiles = this.app.getTexturePackedMipTileCount(this.texture);
-            console.log(`Tiles of ${tileWidth} x ${tileHeight} texels, ${this.numStandardMips} levels of whole tiles, ${this.numPackedMips} packed levels in ${this.packedMipTiles} tile(s)`);
-
-            let heapCount = this.numStandardMips;
-            if (this.numPackedMips > 0) {
-                heapCount++;
-            }
-            for (let n = 0; n < mipLevels; n++) {
-                const mip = new MipInfo();
-                if (n < this.numStandardMips) {
-                    mip.heapIndex = n;
-                    mip.widthInTiles = Math.floor(((TEXTURE_WIDTH >> n) + tileWidth - 1) / tileWidth);
-                    mip.heightInTiles = Math.floor(((TEXTURE_HEIGHT >> n) + tileHeight - 1) / tileHeight);
-                } else {
-                    // All of the packed levels go into the last heap.
-                    mip.heapIndex = heapCount - 1;
-                    mip.packedMip = true;
-                }
-                this.mips.push(mip);
-            }
-
-            // A heap per level of whole tiles, one for the packed levels: the sample's
-            // illustration of mapping tiles from several heaps into one reserved resource.
-            for (let n = 0; n < heapCount; n++) {
-                let tiles = this.packedMipTiles;
-                if (n < this.numStandardMips) {
-                    tiles = this.mips[n].widthInTiles * this.mips[n].heightInTiles;
-                }
-                this.heaps.push(this.app.createTileHeap(tiles * TILE_SIZE, `Heap ${n}`));
-            }
-
-            // Show the least detailed level first.
-            this.activeMip = mipLevels - 1;
-            this.updateTileMapping();
-
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindPushConstants(0, 4);
-            setDesc.bindTextureSRV(0, this.texture);
-            setDesc.bindSampler(0, this.sampler);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
 
         destroy() {

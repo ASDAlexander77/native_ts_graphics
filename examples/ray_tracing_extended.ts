@@ -149,6 +149,68 @@ namespace RayTracingExtended {
             this.flameGenerator = new FlameParticleGenerator([-0.15, -1.5, -2.3], [0.0, -1.0, 0.0], 0.5, FLAME_PARTICLE_COUNT);
         }
 
+        init() {
+            // The scene's textures, as an array indexed by their descriptor indices.
+            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
+            bindlessLayoutDesc.addTextures(1);
+            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutStructuredBufferSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            layoutDesc.layoutStructuredBufferSRV(4);
+            layoutDesc.layoutStructuredBufferSRV(5);
+            layoutDesc.layoutSampler(0);
+            layoutDesc.layoutTextureUAV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
+            this.descriptorTable = descriptorTableManager.getDescriptorTable();
+
+            // The textures load on command lists of their own: before ours is open.
+            if (!this.loadScene(descriptorTableManager) || !this.createFlameModel(descriptorTableManager)) {
+                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            if (!this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.createBuffersAndBlases(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            // Every model but the flame once, and each flame particle.
+            this.topLevelAS = this.app.createTopLevelAS(this.modelBuffers.length - 1 + FLAME_PARTICLE_COUNT);
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "CameraProperties");
+
+            // The sample's first person camera at (0, 1.5, 0), not turned: at (0, -1.5, 0) looking
+            // down -z in its world, (0, 1.5, 0) in Donut's (see updateUniformBuffers). One degree
+            // per pixel of mouse movement and one unit per second, as its camera.
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.5, 0.0, 0.0, 1.5, -1.0);
+            this.camera.setMoveSpeed(1.0);
+            this.camera.setRotateSpeed(radians(1.0));
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
@@ -570,69 +632,6 @@ namespace RayTracingExtended {
             this.shaderTable = this.app.createShaderTable(pipeline, "raygen", "HitGroup", "miss");
             // The shader table keeps the pipeline alive.
             this.app.releaseResource(pipeline);
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // The scene's textures, as an array indexed by their descriptor indices.
-            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
-            bindlessLayoutDesc.addTextures(1);
-            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            layoutDesc.layoutStructuredBufferSRV(2);
-            layoutDesc.layoutStructuredBufferSRV(3);
-            layoutDesc.layoutStructuredBufferSRV(4);
-            layoutDesc.layoutStructuredBufferSRV(5);
-            layoutDesc.layoutSampler(0);
-            layoutDesc.layoutTextureUAV(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
-            this.descriptorTable = descriptorTableManager.getDescriptorTable();
-
-            // The textures load on command lists of their own: before ours is open.
-            if (!this.loadScene(descriptorTableManager) || !this.createFlameModel(descriptorTableManager)) {
-                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            if (!this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.createBuffersAndBlases(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            // Every model but the flame once, and each flame particle.
-            this.topLevelAS = this.app.createTopLevelAS(this.modelBuffers.length - 1 + FLAME_PARTICLE_COUNT);
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "CameraProperties");
-
-            // The sample's first person camera at (0, 1.5, 0), not turned: at (0, -1.5, 0) looking
-            // down -z in its world, (0, 1.5, 0) in Donut's (see updateUniformBuffers). One degree
-            // per pixel of mouse movement and one unit per second, as its camera.
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(0.0, 1.5, 0.0, 0.0, 1.5, -1.0);
-            this.camera.setMoveSpeed(1.0);
-            this.camera.setRotateSpeed(radians(1.0));
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

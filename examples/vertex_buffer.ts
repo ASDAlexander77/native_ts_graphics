@@ -181,73 +181,6 @@ namespace VertexBuffer {
             }
         }
 
-        onAnimate(seconds: number) {
-            this.rotation += seconds * 1.1;
-            this.app.setInformativeWindowTitle(WINDOW_TITLE);
-        }
-
-        onBackBufferResizing() {
-            const pipeline = this.pipeline;
-            if (pipeline) {
-                this.app.releaseResource(pipeline);
-                this.pipeline = null;
-            }
-        }
-
-        onRender(frameHandle: FrameHandle) {
-            const frame = new Frame(frameHandle);
-            const width = frame.getWidth();
-            const height = frame.getHeight();
-
-            let pipeline = this.pipeline;
-            if (!pipeline) {
-                pipeline = this.app.createGraphicsPipelineWithLayouts(frame, this.vertexShader, this.pixelShader,
-                    this.inputLayout, this.bindingLayout);
-                this.pipeline = pipeline;
-            }
-
-            frame.clearColor(0.0, 0.0, 0.0, 0.0);
-
-            // Fill out the constant buffer slices for multiple views of the model.
-            for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
-                const viewMatrix = mul(mul(
-                    rotation(g_RotationAxes[viewIndex * 3], g_RotationAxes[viewIndex * 3 + 1], g_RotationAxes[viewIndex * 3 + 2], this.rotation),
-                    yawPitchRoll(0.0, radiansF32(-30.0), 0.0)),
-                    translation(0.0, 0.0, 2.0));
-                const projMatrix = perspProjD3DStyle(radiansF32(60.0), width / height, 0.1, 10.0);
-                const viewProjMatrix = mul(viewMatrix, projMatrix);
-
-                for (let i = 0; i < 16; i++) {
-                    this.constants[viewIndex * CONSTANT_BUFFER_ENTRY_FLOATS + i] = viewProjMatrix[i];
-                }
-            }
-
-            // Upload all constant buffer slices at once.
-            frame.getCommandList().writeBuffer(this.constantBuffer, Ref(this.constants[0]),
-                NUM_VIEWS * CONSTANT_BUFFER_ENTRY_SIZE);
-
-            for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
-                frame.beginDraw(pipeline);
-                // Pick the right binding set for this view.
-                frame.drawAddBindingSet(this.bindingSets[viewIndex]);
-                frame.drawSetIndexBuffer(this.indexBuffer);
-                // Bind the vertex buffers in reverse order to test the NVRHI implementation of binding slots
-                frame.drawAddVertexBuffer(this.vertexBuffer, 1, UV_OFFSET);
-                frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
-
-                // Construct the viewport so that all viewports form a grid.
-                const viewWidth = width * 0.5;
-                const viewHeight = height * 0.5;
-                const left = viewWidth * (viewIndex % 2);
-                const top = viewHeight * Math.floor(viewIndex / 2);
-                frame.drawSetViewport(left, top, viewWidth, viewHeight);
-
-                // Draw the model.
-                frame.drawIndexed(INDEX_COUNT);
-            }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init() {
             this.vertexShader = this.app.createShader("vertex_buffer.hlsl", "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("vertex_buffer.hlsl", "main_ps", ShaderType.Pixel);
@@ -313,6 +246,72 @@ namespace VertexBuffer {
             pass.setBackBufferResizingCallback(this.onBackBufferResizing);
             pass.setRenderCallback(this.onRender);
             return true;
+        }
+
+        onAnimate(seconds: number) {
+            this.rotation += seconds * 1.1;
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
+        }
+
+        onBackBufferResizing() {
+            const pipeline = this.pipeline;
+            if (pipeline) {
+                this.app.releaseResource(pipeline);
+                this.pipeline = null;
+            }
+        }
+
+        onRender(frameHandle: FrameHandle) {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
+
+            let pipeline = this.pipeline;
+            if (!pipeline) {
+                pipeline = this.app.createGraphicsPipelineWithLayouts(frame, this.vertexShader, this.pixelShader,
+                    this.inputLayout, this.bindingLayout);
+                this.pipeline = pipeline;
+            }
+
+            frame.clearColor(0.0, 0.0, 0.0, 0.0);
+
+            // Fill out the constant buffer slices for multiple views of the model.
+            for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
+                const viewMatrix = mul(mul(
+                    rotation(g_RotationAxes[viewIndex * 3], g_RotationAxes[viewIndex * 3 + 1], g_RotationAxes[viewIndex * 3 + 2], this.rotation),
+                    yawPitchRoll(0.0, radiansF32(-30.0), 0.0)),
+                    translation(0.0, 0.0, 2.0));
+                const projMatrix = perspProjD3DStyle(radiansF32(60.0), width / height, 0.1, 10.0);
+                const viewProjMatrix = mul(viewMatrix, projMatrix);
+
+                for (let i = 0; i < 16; i++) {
+                    this.constants[viewIndex * CONSTANT_BUFFER_ENTRY_FLOATS + i] = viewProjMatrix[i];
+                }
+            }
+
+            // Upload all constant buffer slices at once.
+            frame.getCommandList().writeBuffer(this.constantBuffer, Ref(this.constants[0]),
+                NUM_VIEWS * CONSTANT_BUFFER_ENTRY_SIZE);
+
+            for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
+                frame.beginDraw(pipeline);
+                // Pick the right binding set for this view.
+                frame.drawAddBindingSet(this.bindingSets[viewIndex]);
+                frame.drawSetIndexBuffer(this.indexBuffer);
+                // Bind the vertex buffers in reverse order to test the NVRHI implementation of binding slots
+                frame.drawAddVertexBuffer(this.vertexBuffer, 1, UV_OFFSET);
+                frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
+
+                // Construct the viewport so that all viewports form a grid.
+                const viewWidth = width * 0.5;
+                const viewHeight = height * 0.5;
+                const left = viewWidth * (viewIndex % 2);
+                const top = viewHeight * Math.floor(viewIndex / 2);
+                frame.drawSetViewport(left, top, viewWidth, viewHeight);
+
+                // Draw the model.
+                frame.drawIndexed(INDEX_COUNT);
+            }
         }
     }
 

@@ -494,6 +494,88 @@ namespace MouseCursor {
             }
         }
 
+        init() {
+            const shader = "mouse_cursor.hlsl";
+            this.spriteVS = this.app.createShader(shader, "sprite_vs", ShaderType.Vertex);
+            this.spritePS = this.app.createShader(shader, "sprite_ps", ShaderType.Pixel);
+            this.dualVS = this.app.createShader(shader, "dual_texture_vs", ShaderType.Vertex);
+            this.dualPS = this.app.createShader(shader, "dual_texture_ps", ShaderType.Pixel);
+            this.basicVS = this.app.createShader(shader, "basic_vs", ShaderType.Vertex);
+            this.basicPS = this.app.createShader(shader, "basic_ps", ShaderType.Pixel);
+            if (!this.spriteVS || !this.spritePS || !this.dualVS || !this.dualPS || !this.basicVS || !this.basicPS) {
+                return false;
+            }
+
+            // The models' vertices: the FPS room's position, normal, two texture coordinates,
+            // tangent, binormal (64 bytes); the RTS map's position, normal, texture coordinates,
+            // tangent, binormal (56 bytes).
+            const dualLayoutDesc = InputLayoutDesc.create();
+            dualLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 64);
+            dualLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, 64);
+            dualLayoutDesc.addVertexAttribute("LIGHTMAPCOORD", Format.RG32_FLOAT, 32, 0, 64);
+            this.dualInputLayout = this.app.createInputLayout(dualLayoutDesc, this.dualVS);
+            const basicLayoutDesc = InputLayoutDesc.create();
+            basicLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 56);
+            basicLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, 56);
+            basicLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, 56);
+            this.basicInputLayout = this.app.createInputLayout(basicLayoutDesc, this.basicVS);
+
+            // Before any command list is open (it creates Donut's CommonRenderPasses).
+            const linearWrap = this.app.getCommonSampler(CommonSampler.LinearWrap);
+            // SpriteBatch's LinearClamp; WIC-loaded textures have one level (Donut makes PNGs a
+            // chain), so only the first is sampled.
+            this.spriteSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 0.0, 1.0);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let ok = this.modelFPS.load(this.app, commandList, "FPSRoom.sdkmesh", 64, true);
+            // Note that this model uses 32-bit index buffers so it can't be used w/ Feature Level 9.1
+            ok = this.modelRTS.load(this.app, commandList, "3DRTSMap.sdkmesh", 56, false) && ok;
+            const background = this.loadSprite(commandList, "background_flat.png");
+            const tile = this.loadSprite(commandList, "green_tile.png");
+            const tileBorder = this.loadSprite(commandList, "green_tile_border.png");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!ok || !background || !tile || !tileBorder) {
+                return false;
+            }
+            this.backgroundTexture = background as TextureHandle;
+            this.tileTexture = tile as TextureHandle;
+            this.tileBorderTexture = tileBorder as TextureHandle;
+
+            const spriteLayoutDesc = BindingLayoutDesc.create();
+            spriteLayoutDesc.layoutPushConstants(0, SPRITE_FLOATS * 4);
+            spriteLayoutDesc.layoutTextureSRV(0);
+            spriteLayoutDesc.layoutSampler(0);
+            this.spriteLayout = this.app.createBindingLayout(spriteLayoutDesc, ShaderType.All);
+            this.backgroundBindingSet = this.spriteBindingSet(this.backgroundTexture);
+            this.tileBindingSet = this.spriteBindingSet(this.tileTexture);
+            this.tileBorderBindingSet = this.spriteBindingSet(this.tileBorderTexture);
+
+            this.parametersBuffer = this.app.createVolatileConstantBuffer(PARAMETERS_FLOATS * 4, "Parameters");
+            const modelLayoutDesc = BindingLayoutDesc.create();
+            modelLayoutDesc.layoutVolatileConstantBuffer(0);
+            modelLayoutDesc.layoutTextureSRV(0);
+            modelLayoutDesc.layoutTextureSRV(1);
+            modelLayoutDesc.layoutSampler(0);
+            this.modelLayout = this.app.createBindingLayout(modelLayoutDesc, ShaderType.All);
+            this.createMaterialBindingSets(this.modelFPS, linearWrap, true);
+            this.createMaterialBindingSets(this.modelRTS, linearWrap, false);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            // Animate runs unfocused too, to see the focus go (the sample's capture lost).
+            pass.setRunWhenUnfocused(1);
+            return true;
+        }
+
         // --- Sample: mouse cursor camera and target updates -------------------------------------
 
         // Update the pointer location in clip cursor mode
@@ -953,89 +1035,6 @@ namespace MouseCursor {
                 model.materialBindingSets.push(this.app.createBindingSetForLayout(desc, this.modelLayout));
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "mouse_cursor.hlsl";
-            this.spriteVS = this.app.createShader(shader, "sprite_vs", ShaderType.Vertex);
-            this.spritePS = this.app.createShader(shader, "sprite_ps", ShaderType.Pixel);
-            this.dualVS = this.app.createShader(shader, "dual_texture_vs", ShaderType.Vertex);
-            this.dualPS = this.app.createShader(shader, "dual_texture_ps", ShaderType.Pixel);
-            this.basicVS = this.app.createShader(shader, "basic_vs", ShaderType.Vertex);
-            this.basicPS = this.app.createShader(shader, "basic_ps", ShaderType.Pixel);
-            if (!this.spriteVS || !this.spritePS || !this.dualVS || !this.dualPS || !this.basicVS || !this.basicPS) {
-                return false;
-            }
-
-            // The models' vertices: the FPS room's position, normal, two texture coordinates,
-            // tangent, binormal (64 bytes); the RTS map's position, normal, texture coordinates,
-            // tangent, binormal (56 bytes).
-            const dualLayoutDesc = InputLayoutDesc.create();
-            dualLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 64);
-            dualLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, 64);
-            dualLayoutDesc.addVertexAttribute("LIGHTMAPCOORD", Format.RG32_FLOAT, 32, 0, 64);
-            this.dualInputLayout = this.app.createInputLayout(dualLayoutDesc, this.dualVS);
-            const basicLayoutDesc = InputLayoutDesc.create();
-            basicLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 56);
-            basicLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, 56);
-            basicLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, 56);
-            this.basicInputLayout = this.app.createInputLayout(basicLayoutDesc, this.basicVS);
-
-            // Before any command list is open (it creates Donut's CommonRenderPasses).
-            const linearWrap = this.app.getCommonSampler(CommonSampler.LinearWrap);
-            // SpriteBatch's LinearClamp; WIC-loaded textures have one level (Donut makes PNGs a
-            // chain), so only the first is sampled.
-            this.spriteSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 0.0, 1.0);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let ok = this.modelFPS.load(this.app, commandList, "FPSRoom.sdkmesh", 64, true);
-            // Note that this model uses 32-bit index buffers so it can't be used w/ Feature Level 9.1
-            ok = this.modelRTS.load(this.app, commandList, "3DRTSMap.sdkmesh", 56, false) && ok;
-            const background = this.loadSprite(commandList, "background_flat.png");
-            const tile = this.loadSprite(commandList, "green_tile.png");
-            const tileBorder = this.loadSprite(commandList, "green_tile_border.png");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!ok || !background || !tile || !tileBorder) {
-                return false;
-            }
-            this.backgroundTexture = background as TextureHandle;
-            this.tileTexture = tile as TextureHandle;
-            this.tileBorderTexture = tileBorder as TextureHandle;
-
-            const spriteLayoutDesc = BindingLayoutDesc.create();
-            spriteLayoutDesc.layoutPushConstants(0, SPRITE_FLOATS * 4);
-            spriteLayoutDesc.layoutTextureSRV(0);
-            spriteLayoutDesc.layoutSampler(0);
-            this.spriteLayout = this.app.createBindingLayout(spriteLayoutDesc, ShaderType.All);
-            this.backgroundBindingSet = this.spriteBindingSet(this.backgroundTexture);
-            this.tileBindingSet = this.spriteBindingSet(this.tileTexture);
-            this.tileBorderBindingSet = this.spriteBindingSet(this.tileBorderTexture);
-
-            this.parametersBuffer = this.app.createVolatileConstantBuffer(PARAMETERS_FLOATS * 4, "Parameters");
-            const modelLayoutDesc = BindingLayoutDesc.create();
-            modelLayoutDesc.layoutVolatileConstantBuffer(0);
-            modelLayoutDesc.layoutTextureSRV(0);
-            modelLayoutDesc.layoutTextureSRV(1);
-            modelLayoutDesc.layoutSampler(0);
-            this.modelLayout = this.app.createBindingLayout(modelLayoutDesc, ShaderType.All);
-            this.createMaterialBindingSets(this.modelFPS, linearWrap, true);
-            this.createMaterialBindingSets(this.modelRTS, linearWrap, false);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            // Animate runs unfocused too, to see the focus go (the sample's capture lost).
-            pass.setRunWhenUnfocused(1);
-            return true;
-        }
     }
 
     // The sample's SpriteFont text (centered on its positions, white): the menu's title, subtitle
@@ -1053,6 +1052,21 @@ namespace MouseCursor {
         constructor(sample: MouseCursorPass, app: App) {
             this.sample = sample;
             this.app = app;
+        }
+
+        init() {
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.titleFont = imguiPass.createFont(FONT_PATH, TITLE_FONT_SIZE);
+            this.subtitleFont = imguiPass.createFont(FONT_PATH, SUBTITLE_FONT_SIZE);
+            this.tileFont = imguiPass.createFont(FONT_PATH, TILE_FONT_SIZE);
+            if (this.titleFont.isNull() || this.subtitleFont.isNull() || this.tileFont.isNull()) {
+                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                return false;
+            }
+            return true;
         }
 
         // SpriteFont::DrawString with its origin at MeasureString / 2: the lines' block centered
@@ -1097,22 +1111,6 @@ namespace MouseCursor {
             } else {
                 this.cursor(sample.screenX, sample.screenY);
             }
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init() {
-            const imguiPass = this.app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.titleFont = imguiPass.createFont(FONT_PATH, TITLE_FONT_SIZE);
-            this.subtitleFont = imguiPass.createFont(FONT_PATH, SUBTITLE_FONT_SIZE);
-            this.tileFont = imguiPass.createFont(FONT_PATH, TILE_FONT_SIZE);
-            if (this.titleFont.isNull() || this.subtitleFont.isNull() || this.tileFont.isNull()) {
-                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                return false;
-            }
-            return true;
         }
     }
 

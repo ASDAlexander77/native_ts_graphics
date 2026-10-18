@@ -114,6 +114,64 @@ namespace PushDescriptors {
             }
         }
 
+        init() {
+            this.maxPushDescriptors = this.app.getMaxPushDescriptors();
+            const shader = "push_descriptors.hlsl";
+            this.vs = this.app.createShader(shader, "cube_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "cube_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            // The position and texture coordinates (locations 0 and 1).
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            // load_assets.
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.cube = this.app.loadGltfMesh(commandList, CUBE_PATH);
+            for (let i = 0; i < 2; i++) {
+                this.textures.push(this.app.loadTexture(commandList, TEXTURE_PATHS[i], 1));
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (this.cube.isNull() || !this.textures[0] || !this.textures[1]) {
+                console.log("Cannot load the cube and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            // ApiVulkanSample::load_texture's sampler: trilinear, repeating, all the levels, the
+            // device's widest anisotropic filtering.
+            this.sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
+                this.app.getMaxSamplerAnisotropy());
+
+            // prepare_uniform_buffers: the scene's and each cube's (static: a pushed descriptor
+            // points at a fixed buffer).
+            this.sceneBuffer = this.app.createConstantBuffer(SCENE_FLOATS * 4, "UBOScene");
+            for (let i = 0; i < 2; i++) {
+                this.modelBuffers.push(this.app.createConstantBuffer(MODEL_FLOATS * 4, `UBOModel ${i}`));
+            }
+
+            if (!this.createTargets(this.app.getWindowWidth(), this.app.getWindowHeight())) {
+                console.log("Cannot create the push descriptor pipeline");
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -246,65 +304,6 @@ namespace PushDescriptors {
             }
             p.end();
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.maxPushDescriptors = this.app.getMaxPushDescriptors();
-            const shader = "push_descriptors.hlsl";
-            this.vs = this.app.createShader(shader, "cube_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "cube_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            // The position and texture coordinates (locations 0 and 1).
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            // load_assets.
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.cube = this.app.loadGltfMesh(commandList, CUBE_PATH);
-            for (let i = 0; i < 2; i++) {
-                this.textures.push(this.app.loadTexture(commandList, TEXTURE_PATHS[i], 1));
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (this.cube.isNull() || !this.textures[0] || !this.textures[1]) {
-                console.log("Cannot load the cube and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            // ApiVulkanSample::load_texture's sampler: trilinear, repeating, all the levels, the
-            // device's widest anisotropic filtering.
-            this.sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
-                this.app.getMaxSamplerAnisotropy());
-
-            // prepare_uniform_buffers: the scene's and each cube's (static: a pushed descriptor
-            // points at a fixed buffer).
-            this.sceneBuffer = this.app.createConstantBuffer(SCENE_FLOATS * 4, "UBOScene");
-            for (let i = 0; i < 2; i++) {
-                this.modelBuffers.push(this.app.createConstantBuffer(MODEL_FLOATS * 4, `UBOModel ${i}`));
-            }
-
-            if (!this.createTargets(this.app.getWindowWidth(), this.app.getWindowHeight())) {
-                console.log("Cannot create the push descriptor pipeline");
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -313,6 +312,10 @@ namespace PushDescriptors {
 
         constructor(sample: PushDescriptorsPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -326,11 +329,6 @@ namespace PushDescriptors {
                 Donut_ImGuiText(`maxPushDescriptors: ${sample.maxPushDescriptors}`);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

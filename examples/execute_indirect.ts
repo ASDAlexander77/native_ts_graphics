@@ -116,6 +116,62 @@ namespace ExecuteIndirect {
             this.enableCulling = true;
         }
 
+        init() {
+            const shader = "execute_indirect.hlsl";
+            this.vertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
+            this.computeShader = this.app.createShader(shader, "CSMain", ShaderType.Compute);
+            if (!this.vertexShader || !this.pixelShader || !this.computeShader) {
+                return false;
+            }
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
+            layoutDesc.addInstanceVertexAttribute("TRIANGLE", Format.R32_UINT, 0, 1, 4);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.createResources(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            // The vertex shader's constants; the culling's constants, commands and outputs.
+            const layoutDescG = BindingLayoutDesc.create();
+            layoutDescG.layoutStructuredBufferSRV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDescG, ShaderType.Vertex);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindStructuredBufferSRV(0, this.constantBuffer);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const computeLayoutDesc = BindingLayoutDesc.create();
+            computeLayoutDesc.layoutPushConstants(0, ROOT_CONSTANTS_SIZE);
+            computeLayoutDesc.layoutStructuredBufferSRV(0);
+            computeLayoutDesc.layoutRawBufferSRV(1);
+            computeLayoutDesc.layoutRawBufferUAV(0);
+            computeLayoutDesc.layoutRawBufferUAV(1);
+            this.computeLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
+            for (let f = 0; f < FRAME_COUNT; f++) {
+                const computeSetDesc = BindingSetDesc.create();
+                computeSetDesc.bindPushConstants(0, ROOT_CONSTANTS_SIZE);
+                computeSetDesc.bindStructuredBufferSRV(0, this.constantBuffer);
+                computeSetDesc.bindRawBufferSRV(1, this.commandBuffer);
+                computeSetDesc.bindRawBufferUAV(0, this.processedCommandBuffers[f]);
+                computeSetDesc.bindRawBufferUAV(1, this.countBuffers[f]);
+                this.computeSets.push(this.app.createBindingSetForLayout(computeSetDesc, this.computeLayout));
+            }
+            this.computePipeline = this.app.createComputePipelineWithLayout(this.computeShader, this.computeLayout);
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_SPACE && action == ACTION_PRESS) {
                 this.enableCulling = !this.enableCulling;
@@ -294,63 +350,6 @@ namespace ExecuteIndirect {
                 this.processedCommandBuffers.push(this.app.createDrawIndexedIndirectBuffer(TRIANGLE_COUNT, "ProcessedCommands"));
                 this.countBuffers.push(this.app.createDrawIndexedIndirectBuffer(1, "ProcessedCommandCount"));
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "execute_indirect.hlsl";
-            this.vertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
-            this.computeShader = this.app.createShader(shader, "CSMain", ShaderType.Compute);
-            if (!this.vertexShader || !this.pixelShader || !this.computeShader) {
-                return false;
-            }
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
-            layoutDesc.addInstanceVertexAttribute("TRIANGLE", Format.R32_UINT, 0, 1, 4);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.createResources(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            // The vertex shader's constants; the culling's constants, commands and outputs.
-            const layoutDescG = BindingLayoutDesc.create();
-            layoutDescG.layoutStructuredBufferSRV(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDescG, ShaderType.Vertex);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindStructuredBufferSRV(0, this.constantBuffer);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const computeLayoutDesc = BindingLayoutDesc.create();
-            computeLayoutDesc.layoutPushConstants(0, ROOT_CONSTANTS_SIZE);
-            computeLayoutDesc.layoutStructuredBufferSRV(0);
-            computeLayoutDesc.layoutRawBufferSRV(1);
-            computeLayoutDesc.layoutRawBufferUAV(0);
-            computeLayoutDesc.layoutRawBufferUAV(1);
-            this.computeLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
-            for (let f = 0; f < FRAME_COUNT; f++) {
-                const computeSetDesc = BindingSetDesc.create();
-                computeSetDesc.bindPushConstants(0, ROOT_CONSTANTS_SIZE);
-                computeSetDesc.bindStructuredBufferSRV(0, this.constantBuffer);
-                computeSetDesc.bindRawBufferSRV(1, this.commandBuffer);
-                computeSetDesc.bindRawBufferUAV(0, this.processedCommandBuffers[f]);
-                computeSetDesc.bindRawBufferUAV(1, this.countBuffers[f]);
-                this.computeSets.push(this.app.createBindingSetForLayout(computeSetDesc, this.computeLayout));
-            }
-            this.computePipeline = this.app.createComputePipelineWithLayout(this.computeShader, this.computeLayout);
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

@@ -164,6 +164,57 @@ namespace DynamicLineRasterization {
             this.colorConstants = [0.0, 0.0, 0.0, 0.0];
         }
 
+        init() {
+            const shader = "dynamic_line_rasterization.hlsl";
+            this.baseVS = this.app.createShader(shader, "base_vs", ShaderType.Vertex);
+            this.basePS = this.app.createShader(shader, "base_ps", ShaderType.Pixel);
+            this.gridVS = this.app.createShader(shader, "grid_vs", ShaderType.Vertex);
+            this.gridPS = this.app.createShader(shader, "grid_ps", ShaderType.Pixel);
+            if (!this.baseVS || !this.basePS || !this.gridVS || !this.gridPS) {
+                return false;
+            }
+            this.modes = this.app.getLineRasterizationModes();
+            this.maxLineWidth = this.app.getMaxLineWidth();
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.baseVS);
+
+            this.cameraBuffer = this.app.createVolatileConstantBuffer(CAMERA_FLOATS * 4, "CameraUbo");
+            this.colorBuffer = this.app.createVolatileConstantBuffer(4 * 4, "Color");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutVolatileConstantBuffer(1);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.cameraBuffer);
+            setDesc.bindEntireConstantBuffer(1, this.colorBuffer);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            let vertices = VERTICES.map((v): f32 => v);
+            let cubeIndices = CUBE_INDICES.map((v): int => v);
+            let edgeIndices = EDGE_INDICES.map((v): int => v);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
+            this.cubeIndexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(cubeIndices[0]), cubeIndices.length * 4,
+                "CubeIndices");
+            this.edgeIndexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(edgeIndices[0]), edgeIndices.length * 4,
+                "EdgeIndices");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The stipple pattern's bits, the first checkbox the lowest.
         pattern() {
             let result = 0;
@@ -315,58 +366,6 @@ namespace DynamicLineRasterization {
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
             frame.drawIndexedRange(EDGE_INDICES.length, 0, 0);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "dynamic_line_rasterization.hlsl";
-            this.baseVS = this.app.createShader(shader, "base_vs", ShaderType.Vertex);
-            this.basePS = this.app.createShader(shader, "base_ps", ShaderType.Pixel);
-            this.gridVS = this.app.createShader(shader, "grid_vs", ShaderType.Vertex);
-            this.gridPS = this.app.createShader(shader, "grid_ps", ShaderType.Pixel);
-            if (!this.baseVS || !this.basePS || !this.gridVS || !this.gridPS) {
-                return false;
-            }
-            this.modes = this.app.getLineRasterizationModes();
-            this.maxLineWidth = this.app.getMaxLineWidth();
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.baseVS);
-
-            this.cameraBuffer = this.app.createVolatileConstantBuffer(CAMERA_FLOATS * 4, "CameraUbo");
-            this.colorBuffer = this.app.createVolatileConstantBuffer(4 * 4, "Color");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutVolatileConstantBuffer(1);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.cameraBuffer);
-            setDesc.bindEntireConstantBuffer(1, this.colorBuffer);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            let vertices = VERTICES.map((v): f32 => v);
-            let cubeIndices = CUBE_INDICES.map((v): int => v);
-            let edgeIndices = EDGE_INDICES.map((v): int => v);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
-            this.cubeIndexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(cubeIndices[0]), cubeIndices.length * 4,
-                "CubeIndices");
-            this.edgeIndexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(edgeIndices[0]), edgeIndices.length * 4,
-                "EdgeIndices");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's options.
@@ -375,6 +374,10 @@ namespace DynamicLineRasterization {
 
         constructor(lines: LineRasterizationPass) {
             this.lines = lines;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -409,11 +412,6 @@ namespace DynamicLineRasterization {
                 }
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 
