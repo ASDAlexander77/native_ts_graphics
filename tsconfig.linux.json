@@ -1,0 +1,9 @@
+{
+    // The same project checked for the Linux/Android targets: nvrhi_abi.linux.ts and
+    // nvrhi_classes.linux.ts instead of the .win32 ones. Run `tsc -p tsconfig.linux.json`.
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+      "moduleSuffixes": [".linux", ""],
+      "tsBuildInfoFile": "./tsconfig.linux.tsbuildinfo"
+    }
+}

@@ -12,6 +12,9 @@
       "esModuleInterop": true,
       "module": "esnext",
       "moduleResolution": "bundler",
+      // tslang picks lib.<os>.ts / nvrhi_abi.<os>.ts for its target; the editor checks the
+      // Windows ones (the files are the same API, only the C++ ABI details differ).
+      "moduleSuffixes": [".win32", ""],
       "resolveJsonModule": true,
       "isolatedModules": true,
       "jsx": "preserve",
