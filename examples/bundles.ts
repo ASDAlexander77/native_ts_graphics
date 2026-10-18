@@ -4,14 +4,11 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose } from "../core/directx_math";
 import { SimpleCamera } from "../core/simple_camera";
+import { ACTION_RELEASE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace Bundles {
     const WINDOW_TITLE = "D3D12 Bundles Sample";
     const DATA_FILE = "media/bundles/occcity.bin";
-
-    // GLFW values, as passed to the keyboard callback.
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // The sample's cities: 10 rows of 3, 8 units apart.
     const CITY_ROW_COUNT = 10;

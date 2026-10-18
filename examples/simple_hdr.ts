@@ -4,6 +4,11 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
+import {
+    KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_ENTER, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
+    KEY_KP_SUBTRACT, KEY_KP_ADD, KEY_KP_ENTER, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, ACTION_RELEASE,
+    ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace SimpleHdr {
     // Test mode: the frames rendered.
@@ -70,23 +75,6 @@ namespace SimpleHdr {
     const DRAW_CONSTANTS_FLOATS = 12;
     // The curve's lines (outline, ticks, graph, selection) for target heights up to 4320 pixels.
     const MAX_LINE_VERTICES = 16384;
-
-    // GLFW keys.
-    const KEY_SPACE = 32;
-    const KEY_MINUS = 45;
-    const KEY_EQUAL = 61;
-    const KEY_ENTER = 257;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const KEY_KP_SUBTRACT = 333;
-    const KEY_KP_ADD = 334;
-    const KEY_KP_ENTER = 335;
-    const KEY_LEFT_SHIFT = 340;
-    const KEY_RIGHT_SHIFT = 344;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
 
     // HDRCommon.h (float arithmetic as the sample's): the ST.2084 curve of a normalized linear
     // value (1.0 = 10,000 nits).

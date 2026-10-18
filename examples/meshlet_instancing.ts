@@ -7,27 +7,14 @@ import { MeshletModel } from "../core/meshlet_model";
 import {
     matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose, XM_PI,
 } from "../core/directx_math";
+import {
+    KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN,
+    KEY_UP, KEY_KP_SUBTRACT, KEY_KP_ADD, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace MeshletInstancing {
     const WINDOW_TITLE = "D3D12 Mesh Shader Instancing";
     const MESH_FILE = "media/meshlet_instancing/ToyRobot.bin";
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const KEY_MINUS = 45;
-    const KEY_EQUAL = 61;
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const KEY_KP_SUBTRACT = 333;
-    const KEY_KP_ADD = 334;
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // Shared.h: what a mesh shader group outputs at most.
     const MAX_VERTS = 64;

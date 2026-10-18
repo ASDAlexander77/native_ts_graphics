@@ -4,6 +4,10 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
+import {
+    KEY_SPACE, KEY_A, KEY_D, KEY_S, KEY_W, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_LEFT_SHIFT,
+    KEY_RIGHT_SHIFT, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace SimpleCompute {
     // Test mode: the frames rendered.
@@ -62,20 +66,6 @@ namespace SimpleCompute {
 
     // ATG::Colors::Background (#414141), stored as is in the UNORM back buffer as the sample's.
     const BACKGROUND = 0.254901975;
-
-    // GLFW keys.
-    const KEY_SPACE = 32;
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_PAGE_UP = 266;
-    const KEY_PAGE_DOWN = 267;
-    const KEY_HOME = 268;
-    const KEY_LEFT_SHIFT = 340;
-    const KEY_RIGHT_SHIFT = 344;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
 
     // An R8G8B8A8_UNORM texel (the sample's 0xAABBGGRR values), opaque.
     function texel(r: int, g: int, b: int) {

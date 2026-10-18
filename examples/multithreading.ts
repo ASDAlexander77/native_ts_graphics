@@ -11,19 +11,13 @@ import {
     SQUID_ROOM_TEXTURE_FIELDS, SQUID_ROOM_TEXTURES, SQUID_ROOM_VERTEX_DATA_OFFSET, SQUID_ROOM_VERTEX_DATA_SIZE,
     SQUID_ROOM_VERTEX_STRIDE,
 } from "../core/squid_room";
+import {
+    KEY_SPACE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace Multithreading {
     const WINDOW_TITLE = "D3D12 Multithreading Sample";
     const DATA_FILE = "media/multithreading/SquidRoom.bin";
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // The sample's worker threads ("contexts"), each recording every third draw of both passes,
     // and its lights (keep in sync with multithreading.hlsl).

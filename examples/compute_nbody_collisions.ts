@@ -4,18 +4,12 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, absolute, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
+import {
+    KEY_SPACE, KEY_C, KEY_H, KEY_P, KEY_T, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace ComputeNBodyCollisions {
     const WINDOW_TITLE = "Donut Example: Compute N-Body Collisions";
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const KEY_C = 67;
-    const KEY_H = 72;
-    const KEY_P = 80;
-    const KEY_T = 84;
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // Seconds without input before the camera starts to orbit the center by itself, the seconds it
     // takes to reach full speed, and that speed in radians per second (a turn in about 70 s).

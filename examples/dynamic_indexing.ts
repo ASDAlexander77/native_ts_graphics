@@ -6,14 +6,11 @@ import {
     matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
 } from "../core/directx_math";
 import { SimpleCamera } from "../core/simple_camera";
+import { ACTION_RELEASE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace DynamicIndexing {
     const WINDOW_TITLE = "D3D12 Dynamic Indexing Sample";
     const DATA_FILE = "media/dynamic_indexing/occcity.bin";
-
-    // GLFW values, as passed to the keyboard callback.
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // The sample's cities: 15 rows of 8, each with a material texture of its own (a 64 x 64 slice of
     // a rainbow), 16 units apart.

@@ -5,6 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { perspProjReverse } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
+import { KEY_P, ACTION_PRESS } from "../core/glfw_input";
 
 namespace MemoryBudget {
     // Test mode: the frames rendered.
@@ -58,9 +59,6 @@ namespace MemoryBudget {
     // The sample's camera: reversed depth from 0.1 to 256.
     const Z_NEAR = 0.1;
     const Z_FAR = 256.0;
-
-    const KEY_P = 80;
-    const ACTION_PRESS = 1;
 
     // The sample's units: bytes, then KB, MB, GB as each is reached (1024 of the one before).
     const KILOBYTE = 1024.0;

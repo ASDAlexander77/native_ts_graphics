@@ -8,28 +8,15 @@ import {
     matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
     planeNormalize, row, vadd, vsub, XM_PI,
 } from "../core/directx_math";
+import {
+    KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN,
+    KEY_UP, KEY_KP_SUBTRACT, KEY_KP_ADD, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace DynamicLod {
     const WINDOW_TITLE = "D3D12 Mesh Shader Dynamic LOD";
     const MEDIA_DIR = "media/dynamic_lod/";
     const LOD_FILES = ["Dragon_LOD0.bin", "Dragon_LOD1.bin", "Dragon_LOD2.bin", "Dragon_LOD3.bin", "Dragon_LOD4.bin", "Dragon_LOD5.bin"];
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const KEY_MINUS = 45;
-    const KEY_EQUAL = 61;
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_S = 83;
-    const KEY_W = 87;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const KEY_KP_SUBTRACT = 333;
-    const KEY_KP_ADD = 334;
-    const ACTION_PRESS = 1;
-    const ACTION_RELEASE = 0;
 
     // Shared.h.
     const MAX_LOD_LEVELS = 8;

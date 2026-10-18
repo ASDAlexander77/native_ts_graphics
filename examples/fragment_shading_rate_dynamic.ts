@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
+import { KEY_A, KEY_D, KEY_S, KEY_W, ACTION_RELEASE } from "../core/glfw_input";
 
 namespace FragmentShadingRateDynamic {
     // Test mode: the frames rendered.
@@ -67,13 +68,6 @@ namespace FragmentShadingRateDynamic {
 
     const SUBPASS_RATIOS = "1|2|4|8|16";
     const VISUALIZE_NAMES = "Render output|Shading Rates|Frequency channel";
-
-    // GLFW's keys and actions.
-    const KEY_W = 87;
-    const KEY_A = 65;
-    const KEY_S = 83;
-    const KEY_D = 68;
-    const ACTION_RELEASE = 0;
 
     // The sample's camera (the framework's vkb::Camera, first person type), with ApiVulkanSample's
     // controls: the left mouse button turns it, the right one zooms, the middle one pans; W, A, S, D

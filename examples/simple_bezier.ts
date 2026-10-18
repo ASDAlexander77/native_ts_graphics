@@ -4,6 +4,10 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
+import {
+    KEY_1, KEY_2, KEY_3, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_F1, KEY_KP_1,
+    KEY_KP_2, KEY_KP_3, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace SimpleBezier {
     // Test mode: the frames rendered.
@@ -137,24 +141,6 @@ namespace SimpleBezier {
     const CAMERA_EYE = [0.0, 0.45, 2.7];
     const CAMERA_AT = [0.0, 0.0, 0.0];
     const CAMERA_UP = [0.0, 1.0, 0.0];
-
-    // GLFW keys.
-    const KEY_W = 87;
-    const KEY_1 = 49;
-    const KEY_2 = 50;
-    const KEY_3 = 51;
-    const KEY_ESCAPE = 256;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const KEY_F1 = 290;
-    const KEY_KP_1 = 321;
-    const KEY_KP_2 = 322;
-    const KEY_KP_3 = 323;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
-
 
     // --- Math (DirectXMath's layout: 4 x 4 matrices by rows, for row vectors; float precision) -
 

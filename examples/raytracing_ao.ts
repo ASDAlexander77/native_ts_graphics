@@ -6,6 +6,10 @@ import { TestCheck, unsupported } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { transpose, inverse, cross3, dot3, normalize3 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
+import {
+    KEY_SPACE, KEY_A, KEY_D, KEY_F, KEY_R, KEY_S, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
+    KEY_F1, ACTION_RELEASE, ACTION_PRESS,
+} from "../core/glfw_input";
 
 namespace RaytracingAo {
     // Test mode: the frames rendered.
@@ -81,22 +85,6 @@ namespace RaytracingAo {
     const DARK_GREY = 0.200000003;
     const GREEN = [0.062745102, 0.486274511, 0.062745102];
     const ORANGE = [0.764705896, 0.176470593, 0.019607844];
-
-    // GLFW keys.
-    const KEY_SPACE = 32;
-    const KEY_A = 65;
-    const KEY_D = 68;
-    const KEY_F = 70;
-    const KEY_R = 82;
-    const KEY_S = 83;
-    const KEY_TAB = 258;
-    const KEY_RIGHT = 262;
-    const KEY_LEFT = 263;
-    const KEY_DOWN = 264;
-    const KEY_UP = 265;
-    const KEY_F1 = 290;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
 
     // The sample updates once per frame (its timer isn't fixed-step): its per-frame steps are
     // scaled to the frame's time at 60 Hz here.

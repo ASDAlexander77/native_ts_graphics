@@ -3,13 +3,10 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { matrixPerspectiveFovLH, matrixTranspose } from "../core/directx_math";
+import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace ExecuteIndirect {
     const WINDOW_TITLE = "D3D12 Execute Indirect sample - Press the SPACE bar to toggle GPU primitive culling";
-
-    // GLFW values, as passed to the keyboard callback.
-    const KEY_SPACE = 32;
-    const ACTION_PRESS = 1;
 
     // The sample's frames in flight: each has its own copy of the triangles' constants and commands.
     const FRAME_COUNT = 3;

@@ -634,6 +634,7 @@ set(TSLANG_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/core/input_pass.ts"
     "${CMAKE_CURRENT_SOURCE_DIR}/core/args.ts"
     "${CMAKE_CURRENT_SOURCE_DIR}/core/test_check.ts"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/glfw_input.ts"
     "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts")
 set(TSLANG_CORE_SOURCES_WITH_DECLARATIONS
     ${TSLANG_CORE_SOURCES}

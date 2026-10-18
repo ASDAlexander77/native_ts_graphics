@@ -5,6 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { VideoPlayer } from "../core/video_player";
 import { rotationY, cross3, dot3, normalize3 } from "../core/matrix";
+import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace VideoTexture {
     // Test mode: the frames rendered.
@@ -72,10 +73,6 @@ namespace VideoTexture {
         0.3231373, 0.3607844, 0.3937255,
     ];
     const DEFAULT_AMBIENT = [0.05333332, 0.09882354, 0.1819608];
-
-    // GLFW keys.
-    const KEY_SPACE = 32;
-    const ACTION_PRESS = 1;
 
     // --- DirectXMath, row-major for mul(vector, matrix) --------------------------------------
 

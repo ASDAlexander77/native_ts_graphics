@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
+import { KEY_1, KEY_9, ACTION_RELEASE, ACTION_PRESS, MOUSE_BUTTON_LEFT } from "../core/glfw_input";
 
 namespace WaveIntrinsics {
     // Test mode: the frames rendered.
@@ -31,12 +32,6 @@ namespace WaveIntrinsics {
     // descent) matches the glyphs' sizes.
     const FONT_SIZE_PER_HEIGHT = 23.0 / 720.0;
     const LINE_SPACING_PER_HEIGHT = 20.7 / 720.0;
-
-    const KEY_1 = 49;
-    const KEY_9 = 57;
-    const ACTION_RELEASE = 0;
-    const ACTION_PRESS = 1;
-    const MOUSE_BUTTON_LEFT = 0;
 
     // SceneConstantBuffer: orthProjMatrix, mousePosition, resolution, time, renderMode, laneSize,
     // padding to 256 bytes.

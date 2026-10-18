@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
 
 namespace SmallResources {
     // Test mode: the frames rendered.
@@ -30,9 +31,6 @@ namespace SmallResources {
     }
 
     const WINDOW_TITLE = "D3D12 Small Resources Sample";
-
-    const KEY_SPACE = 32;
-    const ACTION_PRESS = 1;
 
     // The sample's grid of textures, each 32 x 32 RGBA8.
     const GRID_WIDTH = 11;
