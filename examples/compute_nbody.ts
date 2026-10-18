@@ -245,7 +245,7 @@ namespace ComputeNBody {
             ];
             this.numParticles = NUM_ATTRACTORS * PARTICLES_PER_ATTRACTOR;
 
-            let particles: f32[] = [];
+            const particles: f32[] = [];
             for (let i = 0; i < this.numParticles * PARTICLE_FLOATS; i++) {
                 particles.push(0.0);
             }

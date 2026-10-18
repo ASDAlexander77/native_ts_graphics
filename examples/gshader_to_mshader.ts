@@ -96,7 +96,7 @@ namespace GshaderToMshader {
         // Rows of [m | identity].
         let rows: number[][] = [];
         for (let row = 0; row < 4; row++) {
-            let r: number[] = [];
+            const r: number[] = [];
             for (let column = 0; column < 4; column++) {
                 r.push(m[column * 4 + row]);
             }
@@ -145,7 +145,7 @@ namespace GshaderToMshader {
     // increasing order, the triangle cut short's included. One meshlet record is reused all along:
     // what lies past its counts is the previous meshlets'. Returns the meshlets' uints.
     function prepareMeshlets(indices: int[], indexCount: int, vertexCount: int) {
-        let meshlet: int[] = [];
+        const meshlet: int[] = [];
         for (let i = 0; i < MESHLET_UINTS; i++) {
             meshlet.push(0);
         }
@@ -153,7 +153,7 @@ namespace GshaderToMshader {
         let meshletIndexCount = 0;
 
         // The meshlet's different vertices (std::set): marked with the meshlet's number.
-        let vertexMeshlet: int[] = [];
+        const vertexMeshlet: int[] = [];
         for (let v = 0; v < vertexCount; v++) {
             vertexMeshlet.push(-1);
         }
@@ -161,7 +161,7 @@ namespace GshaderToMshader {
         // Each meshlet needs to contain full primitives.
         let triangleCheck = 0;
 
-        let meshlets: int[] = [];
+        const meshlets: int[] = [];
         let meshletNumber = 0;
         for (let i = 0; i < indexCount; i++) {
             const index = indices[i];
@@ -334,11 +334,11 @@ namespace GshaderToMshader {
             }
             const vertexCount = model.getVertexCount(0);
             this.indexCount = model.getIndexCount(0);
-            let gltfVertices: f32[] = [];
+            const gltfVertices: f32[] = [];
             for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
                 gltfVertices.push(0.0);
             }
-            let indices: int[] = [];
+            const indices: int[] = [];
             for (let i = 0; i < this.indexCount; i++) {
                 indices.push(0);
             }
@@ -347,7 +347,7 @@ namespace GshaderToMshader {
 
             // The framework's glTF loader's vertices: normals normalized.
             let vertices: f32[] = [];
-            let alignedVertices: f32[] = [];
+            const alignedVertices: f32[] = [];
             for (let v = 0; v < vertexCount; v++) {
                 const g = v * GLTF_VERTEX_FLOATS;
                 const nx = gltfVertices[g + 3];

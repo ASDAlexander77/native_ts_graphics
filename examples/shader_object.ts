@@ -907,7 +907,7 @@ namespace ShaderObjectSample {
             }
             const scaleFactor = HEIGHTMAP_DIM / TERRAIN_RESOLUTION;
             const heights: number[] = [];
-            let row: int[] = [];
+            const row: int[] = [];
             for (let i = 0; i < HEIGHTMAP_DIM * 2; i++) {
                 row.push(0);
             }
@@ -920,8 +920,8 @@ namespace ShaderObjectSample {
             }
             this.app.releaseObject(file.handle);
 
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             const vertexCount = TERRAIN_RESOLUTION * TERRAIN_RESOLUTION;
             for (let i = 0; i < vertexCount * 8; i++) {
                 vertices.push(0.0);

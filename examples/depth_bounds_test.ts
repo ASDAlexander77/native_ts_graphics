@@ -78,7 +78,7 @@ namespace DepthBoundsTest {
             // 0.1, right green at 0.9, left blue at 0.5.
             const aspectRatio = Math.fround(1280.0 / 720.0);
             const y = Math.fround(0.25 * aspectRatio);
-            let vertices: f32[] = [
+            const vertices: f32[] = [
                 0.0, y, 0.1, 1.0, 0.0, 0.0, 1.0,
                 0.25, -y, 0.9, 0.0, 1.0, 0.0, 1.0,
                 -0.25, -y, 0.5, 0.0, 0.0, 1.0, 1.0,

@@ -478,11 +478,11 @@ namespace SakuraForestSER {
                 console.log(`The OBJ models have no object ${objectName}`);
                 return null;
             }
-            let vertices: f32[] = [];
+            const vertices: f32[] = [];
             for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                 vertices.push(0.0);
             }
-            let indices: int[] = [];
+            const indices: int[] = [];
             const indexCount = model.getMeshIndexCount();
             for (let i = 0; i < indexCount; i++) {
                 indices.push(0);
@@ -559,7 +559,7 @@ namespace SakuraForestSER {
 
         // An instance: a uniform scale and a translation, its index as instance ID and hit group.
         addInstance(mesh: Mesh, index: int, scale: number, x: number, y: number, z: number, flags: int) {
-            let transform: f32[] = [
+            const transform: f32[] = [
                 scale, 0.0, 0.0, x,
                 0.0, scale, 0.0, y,
                 0.0, 0.0, scale, z,
@@ -654,8 +654,8 @@ namespace SakuraForestSER {
         createShaderTable() {
             const counts: int[] = [441, 961, 961, 961, 10201];
             const materials = [MATERIAL_FLOOR, MATERIAL_REFLECTIVE_CUBE, MATERIAL_TRUNK, MATERIAL_LEAVES, MATERIAL_BUSH];
-            let recordHitGroups: int[] = [];
-            let recordArgs: int[] = [];
+            const recordHitGroups: int[] = [];
+            const recordArgs: int[] = [];
             for (let m = 0; m < counts.length; m++) {
                 for (let i = 0; i < counts[m]; i++) {
                     recordHitGroups.push(materials[m]);
@@ -666,7 +666,7 @@ namespace SakuraForestSER {
                     recordArgs.push(materials[m]);
                 }
             }
-            let rayGenArgs: int[] = [0, 0, 0, 0, 0];
+            const rayGenArgs: int[] = [0, 0, 0, 0, 0];
             return this.app.setD3D12LibraryRtShaderTableRecords(this.pipeline, "MyRaygenShader", Ref(rayGenArgs[0]), OBJECT_CONSTANTS * 4,
                 "MyMissShader", HIT_GROUPS, Ref(recordHitGroups[0]), recordHitGroups.length, Ref(recordArgs[0]), OBJECT_CONSTANTS * 4) != 0;
         }
@@ -732,7 +732,7 @@ namespace SakuraForestSER {
     function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

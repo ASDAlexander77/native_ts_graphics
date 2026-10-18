@@ -208,7 +208,7 @@ export class MobileNerfCamera {
             const j = (i + 1) % 3;
             const k = (j + 1) % 3;
             let root = Math.sqrt(rows[i][i] - rows[j][j] - rows[k][k] + 1.0);
-            let q = [0.0, 0.0, 0.0];
+            const q = [0.0, 0.0, 0.0];
             q[i] = 0.5 * root;
             root = 0.5 / root;
             q[j] = root * (rows[i][j] + rows[j][i]);

@@ -207,7 +207,7 @@ namespace MobileNerf {
             this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
 
             // The sample's prepare_instance_data: a grid of offsets around the origin.
-            let offsets: f32[] = [];
+            const offsets: f32[] = [];
             for (let x = 0; x < INSTANCE_DIM[0]; x++) {
                 for (let y = 0; y < INSTANCE_DIM[1]; y++) {
                     for (let z = 0; z < INSTANCE_DIM[2]; z++) {

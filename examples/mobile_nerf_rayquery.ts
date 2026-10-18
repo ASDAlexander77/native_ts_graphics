@@ -324,7 +324,7 @@ namespace MobileNerfRayQuery {
         // instancing grid, its custom index the model's (for its buffers, textures and weights).
         buildTopLevelAS(frame: Frame) {
             const tlas = this.topLevelAS;
-            let offset = [0.0, 0.0, 0.0];
+            const offset = [0.0, 0.0, 0.0];
             for (let x = 0; x < INSTANCE_DIM[0]; x++) {
                 offset[0] = -INSTANCE_INTERVAL[0] * 0.5 * (INSTANCE_DIM[0] - 1) + INSTANCE_INTERVAL[0] * x;
                 for (let y = 0; y < INSTANCE_DIM[1]; y++) {
@@ -390,8 +390,8 @@ namespace MobileNerfRayQuery {
         // flipped, v flipped) and triangles, appended to one vertex and one index buffer, and a BLAS
         // of them with the model's combo transform (y negated, as the sample's vertices are).
         loadModels(commandList: CommandList) {
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             const firstVertices: int[] = [];
             const firstIndices: int[] = [];
             const counts: int[] = [];
@@ -407,11 +407,11 @@ namespace MobileNerfRayQuery {
                     const vertexStart = vertices.length / VERTEX_FLOATS - firstVertex;
                     const vertexCount = scene.getVertexCount(p);
                     const indexCount = scene.getIndexCount(p);
-                    let gltfVertices: f32[] = [];
+                    const gltfVertices: f32[] = [];
                     for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
                         gltfVertices.push(0.0);
                     }
-                    let gltfIndices: int[] = [];
+                    const gltfIndices: int[] = [];
                     for (let i = 0; i < indexCount; i++) {
                         gltfIndices.push(0);
                     }
@@ -444,7 +444,7 @@ namespace MobileNerfRayQuery {
             commandList.writeBuffer(this.vertexBuffer, Ref(vertices[0]), vertexCount * VERTEX_SIZE);
             commandList.writeBuffer(this.indexBuffer, Ref(indices[0]), indices.length * 4);
 
-            let geometryTransform: f32[] = [];
+            const geometryTransform: f32[] = [];
             for (let i = 0; i < 12; i++) {
                 geometryTransform.push(i % 5 == 0 ? 1.0 : 0.0);
             }

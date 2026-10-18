@@ -394,18 +394,18 @@ namespace DynamicLod {
                 }
                 // The finest LOD's bounding sphere spaces the instances.
                 if (l == 0) {
-                    let sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
+                    const sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
                     model.copyBoundingSphere(-1, Ref(sphere[0]));
                     this.radius = sphere[3];
                 }
 
                 const meshletCount = model.getDataCount(0, MeshletModelData.Meshlets);
-                let meshlets: int[] = [];
+                const meshlets: int[] = [];
                 for (let j = 0; j < meshletCount * 4; j++) {
                     meshlets.push(0);
                 }
                 model.copyData(0, MeshletModelData.Meshlets, Ref(meshlets[0]));
-                let meshInfo: int[] = [model.getIndexSize(0), meshletCount,
+                const meshInfo: int[] = [model.getIndexSize(0), meshletCount,
                     meshlets[(meshletCount - 1) * 4], meshlets[(meshletCount - 1) * 4 + 2]];
                 const meshInfoBuffer = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfo");
                 commandList.writeBuffer(meshInfoBuffer, Ref(meshInfo[0]), 16);
@@ -418,7 +418,7 @@ namespace DynamicLod {
                 // The unique vertex indices, rounded up to whole uints, as the sample's buffer.
                 const uniqueSize = model.getDataSize(0, MeshletModelData.UniqueVertexIndices);
                 const uniqueInts = Math.floor((uniqueSize + 3) / 4);
-                let unique: int[] = [];
+                const unique: int[] = [];
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
                 }
@@ -431,7 +431,7 @@ namespace DynamicLod {
             }
 
             // Placeholders: a zeroed MeshInfo, raw buffer, meshlet and primitive.
-            let zeros: int[] = [0, 0, 0, 0];
+            const zeros: int[] = [0, 0, 0, 0];
             const placeholderInfo = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfoPlaceholder");
             commandList.writeBuffer(placeholderInfo, Ref(zeros[0]), 16);
             this.placeholders.push(placeholderInfo);
@@ -448,7 +448,7 @@ namespace DynamicLod {
     function checkFrame(app: App, pass: DynamicLodPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

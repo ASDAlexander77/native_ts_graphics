@@ -131,7 +131,7 @@ namespace SmallResources {
             const offsetY = Math.fround(offsetX * aspectRatio);
             const marginY = Math.fround(offsetY / 10.0);
             let y = Math.fround(Math.fround(Math.fround(GRID_HEIGHT / 2.0) * Math.fround(offsetY + marginY)) - Math.fround(marginY / 2.0));
-            let vertices: f32[] = [];
+            const vertices: f32[] = [];
             for (let row = 0; row < GRID_HEIGHT; row++) {
                 let x = startX;
                 for (let column = 0; column < GRID_WIDTH; column++) {
@@ -219,7 +219,7 @@ namespace SmallResources {
             const b = random.next() & 0xff;
             const color = r | (g << 8) | (b << 16) | (0xff << 24);
             const black = 0xff << 24;
-            let data: int[] = [];
+            const data: int[] = [];
             for (let y = 0; y < TEXTURE_HEIGHT; y++) {
                 for (let x = 0; x < TEXTURE_WIDTH; x++) {
                     // The sample's cells: 16 bytes (4 pixels) wide, 4 rows high.

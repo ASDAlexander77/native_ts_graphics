@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck, absolute, isFinite32 } from "../core/test_check";
+import { TestCheck, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
 import {
     KEY_SPACE, KEY_C, KEY_H, KEY_P, KEY_T, ACTION_RELEASE, ACTION_PRESS,
@@ -211,7 +211,7 @@ namespace ComputeNBodyCollisions {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
+    // std::default_random_engine replacement: a Park-Miller generator, from a seed so runs repeat.
     let g_RandomSeed = DEFAULT_SEED * 1.0;
     function randomFloat() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
@@ -1608,8 +1608,8 @@ namespace ComputeNBodyCollisions {
                 if (merging && !breaking && gone == 0) {
                     return "no particles merged";
                 }
-                if (absolute(mass - this.initialMass) > this.initialMass * 1.0e-4
-                    || absolute(volume - this.initialVolume) > this.initialVolume * 1.0e-3) {
+                if (Math.abs(mass - this.initialMass) > this.initialMass * 1.0e-4
+                    || Math.abs(volume - this.initialVolume) > this.initialVolume * 1.0e-3) {
                     return `the merges or breaks did not keep the mass (${mass} of ${this.initialMass}) or the volume (${volume} of ${this.initialVolume})`;
                 }
             }
@@ -1625,8 +1625,8 @@ namespace ComputeNBodyCollisions {
                 let momentumDrift = 0.0;
                 let angularDrift = 0.0;
                 for (let k = 0; k < 3; k++) {
-                    momentumDrift = Math.max(momentumDrift, absolute(momentum[k] - this.initialMomentum[k]));
-                    angularDrift = Math.max(angularDrift, absolute(angular[k] - this.initialAngular[k]));
+                    momentumDrift = Math.max(momentumDrift, Math.abs(momentum[k] - this.initialMomentum[k]));
+                    angularDrift = Math.max(angularDrift, Math.abs(angular[k] - this.initialAngular[k]));
                 }
                 const momentumLimit = Math.max(this.initialMomentum[3], momentum[3]) * MOMENTUM_DRIFT_LIMIT;
                 const angularLimit = Math.max(this.initialAngular[3], angular[3])
@@ -1661,7 +1661,7 @@ namespace ComputeNBodyCollisions {
             // merges and the breaks lose is heat, so the total stays.
             if (this.fullGravity && this.simulationConstants[CONSTANT_COOL_SECONDS] >= NO_COOLING_SECONDS) {
                 const energy = this.totalEnergy(particles);
-                const drift = absolute(energy - this.initialEnergy) / this.initialEnergy;
+                const drift = Math.abs(energy - this.initialEnergy) / this.initialEnergy;
                 console.log(`Energy: ${energy} of ${this.initialEnergy}, drift ${drift} (limit ${ENERGY_DRIFT_LIMIT})`);
                 if (drift > ENERGY_DRIFT_LIMIT) {
                     return `the total energy drifted by ${drift} of it (${energy} of ${this.initialEnergy})`;
@@ -1676,7 +1676,7 @@ namespace ComputeNBodyCollisions {
                     + particles[q + 14] * particles[q + 14]);
                 const marker = Math.sqrt(particles[q + 16] * particles[q + 16] + particles[q + 17] * particles[q + 17]
                     + particles[q + 18] * particles[q + 18]);
-                if (!isFinite32(spin) || !isFinite32(marker) || absolute(marker - 1.0) > 0.001) {
+                if (!isFinite32(spin) || !isFinite32(marker) || Math.abs(marker - 1.0) > 0.001) {
                     return `particle ${i}: spin ${spin} or marker length ${marker} is not finite or 1`;
                 }
                 maxSpin = Math.max(maxSpin, spin);
@@ -1693,12 +1693,12 @@ namespace ComputeNBodyCollisions {
                 const v1 = particles[PARTICLE_FLOATS + 4];
                 console.log(`Head on: x ${x0}, ${x1}; v ${v0}, ${v1}`);
                 // Symmetric to float precision: a race of the passes broke the momentum by tens.
-                if (absolute(x0 + x1) > 0.01 || absolute(v0 + v1) > 0.01) {
+                if (Math.abs(x0 + x1) > 0.01 || Math.abs(v0 + v1) > 0.01) {
                     return `positions ${x0}, ${x1} and velocities ${v0}, ${v1} are not symmetric: momentum not kept`;
                 }
                 // The CPU run (the same steps: softened by their size, 0.5^2, and the hit's bounciness
                 // falling with its speed): x 0.568, v 5.622 (3.773, 5.698 without either).
-                if (absolute(x0 - 0.568) > 0.1 || absolute(v0 - 5.622) > 0.1) {
+                if (Math.abs(x0 - 0.568) > 0.1 || Math.abs(v0 - 5.622) > 0.1) {
                     return `position ${x0}, velocity ${v0}: not the CPU run's 0.568, 5.622 after one bounce`;
                 }
             }

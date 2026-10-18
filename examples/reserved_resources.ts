@@ -59,7 +59,7 @@ namespace ReservedResources {
         }
         const red = 0xff | (0xff << 24);
         const white = 0xff | (0xff << 8) | (0xff << 16) | (0xff << 24);
-        let data: int[] = [];
+        const data: int[] = [];
         for (let y = 0; y < height; y++) {
             const j = Math.floor(y / cellHeight);
             for (let x = 0; x < width; x++) {
@@ -168,7 +168,7 @@ namespace ReservedResources {
 
             // Its tiling (GetResourceTiling: driver dependent): the tile's size, the levels of
             // whole tiles, and the packed ones after them.
-            let tiling: int[] = [0, 0, 0, 0];
+            const tiling: int[] = [0, 0, 0, 0];
             this.app.getTextureTiling(this.texture, Ref(tiling[0]));
             const tileWidth = tiling[0];
             const tileHeight = tiling[1];
@@ -355,7 +355,7 @@ namespace ReservedResources {
     function checkFrame(app: App, mip: int) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

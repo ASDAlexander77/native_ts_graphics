@@ -310,18 +310,18 @@ namespace RayTracingPositionFetch {
                 return false;
             }
             const primitiveCount = scene.getPrimitiveCount();
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             const firstVertex: int[] = [];
             const firstIndex: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
+                const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
                 }
-                let primitiveIndices: int[] = [];
+                const primitiveIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
@@ -342,7 +342,7 @@ namespace RayTracingPositionFetch {
             commandList.writeBuffer(vertexBuffer, Ref(vertices[0]), vertices.length * 4);
             commandList.writeBuffer(indexBuffer, Ref(indices[0]), indices.length * 4);
 
-            let geometryTransform: f32[] = [];
+            const geometryTransform: f32[] = [];
             for (let i = 0; i < 12; i++) {
                 geometryTransform.push(GEOMETRY_TRANSFORM[i]);
             }

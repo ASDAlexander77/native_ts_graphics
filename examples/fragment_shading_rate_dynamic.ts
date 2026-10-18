@@ -354,7 +354,7 @@ namespace FragmentShadingRateDynamic {
                 maxRateX = Math.max(maxRateX, this.rates[r * 2]);
                 maxRateY = Math.max(maxRateY, this.rates[r * 2 + 1]);
             }
-            let params: int[] = [this.subpassWidth, this.subpassHeight, this.shadingRateWidth, this.shadingRateHeight,
+            const params: int[] = [this.subpassWidth, this.subpassHeight, this.shadingRateWidth, this.shadingRateHeight,
                 maxRateX, maxRateY, this.rateCount, 0];
             for (let r = 0; r < this.rateCount * 2; r++) {
                 params.push(this.rates[r]);

@@ -198,12 +198,12 @@ namespace ConservativeRasterization {
             this.sampler = this.app.createSampler(0, 1, 0);
 
             // A single triangle.
-            let vertices: f32[] = [
+            const vertices: f32[] = [
                 1.0, 1.0, 0.0, 1.0, 0.0, 0.0,
                 -1.0, 1.0, 0.0, 0.0, 1.0, 0.0,
                 0.0, -1.0, 0.0, 0.0, 0.0, 1.0,
             ];
-            let indices: int[] = [0, 1, 2];
+            const indices: int[] = [0, 1, 2];
             const commandList = this.app.createCommandList();
             commandList.open();
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), 3 * VERTEX_SIZE, "Vertices");

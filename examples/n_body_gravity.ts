@@ -169,14 +169,14 @@ namespace NBodyGravity {
 
             // CreateVertexBuffer and CreateParticleBuffers: the particles all yellow; the two groups
             // moving along z, 20 a second either way, in both particle buffers.
-            let data: f32[] = [];
+            const data: f32[] = [];
             for (let i = 0; i < GROUP_COUNT * BLOCK_SIZE * 8; i++) {
                 data.push(0.0);
             }
             const centerSpread = Math.fround(PARTICLE_SPREAD * 0.5);
             loadParticles(data, 0, PARTICLE_COUNT / 2, centerSpread, -20.0, PARTICLE_SPREAD);
             loadParticles(data, PARTICLE_COUNT / 2, PARTICLE_COUNT / 2, -centerSpread, 20.0, PARTICLE_SPREAD);
-            let colors: f32[] = [];
+            const colors: f32[] = [];
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 colors.push(1.0);
                 colors.push(1.0);
@@ -324,7 +324,7 @@ namespace NBodyGravity {
     function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

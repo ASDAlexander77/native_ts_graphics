@@ -565,7 +565,7 @@ namespace Msaa {
         updateConstants(commandList: CommandList, width: int, height: int) {
             // Donut's camera, in Donut's view space (z forward), into the sample's (-z forward).
             this.camera.getWorldToView(Ref(this.viewMatrix[0]));
-            let view: number[] = [];
+            const view: number[] = [];
             for (let i = 0; i < 16; i++) {
                 view.push(i % 4 == 2 ? -this.viewMatrix[i] : this.viewMatrix[i]);
             }
@@ -631,7 +631,7 @@ namespace Msaa {
 
             const view = this.viewMatrix;
             // The camera's position: -R^T t of its view [R t].
-            let position: number[] = [0.0, 0.0, 0.0];
+            const position: number[] = [0.0, 0.0, 0.0];
             for (let column = 0; column < 3; column++) {
                 for (let row = 0; row < 3; row++) {
                     position[column] -= view[column * 4 + row] * view[12 + row];
@@ -677,10 +677,10 @@ namespace Msaa {
             const primitiveTexture: int[] = [];
             const primitiveFirstIndex: int[] = [];
             const primitiveBaseVertex: int[] = [];
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             // Per mesh: its bounds (min x, y, z, max x, y, z) and first primitive.
-            let meshBounds: number[] = [];
+            const meshBounds: number[] = [];
             const meshFirstPrimitive: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const image = scene.getBaseColorImage(p);
@@ -709,11 +709,11 @@ namespace Msaa {
 
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
+                const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
                 }
-                let primitiveIndices: int[] = [];
+                const primitiveIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
@@ -758,7 +758,7 @@ namespace Msaa {
             // The draws: by mesh, then node, then primitive, as the framework's meshes list their
             // nodes and submeshes.
             const nodeCount = scene.getNodeCount();
-            let transform: f32[] = [];
+            const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }
@@ -774,8 +774,8 @@ namespace Msaa {
                         - transform[4] * (transform[1] * transform[10] - transform[9] * transform[2])
                         + transform[8] * (transform[1] * transform[6] - transform[5] * transform[2]);
                     // The mesh's bounds, transformed (their corners), and their center.
-                    let low = [HUGE, HUGE, HUGE];
-                    let high = [-HUGE, -HUGE, -HUGE];
+                    const low = [HUGE, HUGE, HUGE];
+                    const high = [-HUGE, -HUGE, -HUGE];
                     for (let corner = 0; corner < 8; corner++) {
                         const x = meshBounds[mesh * 6 + ((corner & 1) != 0 ? 3 : 0)];
                         const y = meshBounds[mesh * 6 + 1 + ((corner & 2) != 0 ? 3 : 0)];

@@ -142,7 +142,7 @@ namespace SimplePbr {
         for (let subdivision = 0; subdivision < tessellation; subdivision++) {
             // The edges divided so far (larger index first) and their midpoints.
             const edgeA: int[] = [];
-            let edgeB: int[] = [];
+            const edgeB: int[] = [];
             const edgeMid: int[] = [];
             const next: int[] = [];
             const triangleCount = current.length / 3;
@@ -416,7 +416,7 @@ namespace SimplePbr {
 
             if (!input.relative && !this.dragging) {
                 // Arrow keys & WASD control translation of camera focus
-                let move = [0.0, 0.0, 0.0];
+                const move = [0.0, 0.0, 0.0];
                 let scale = this.radius;
                 if (input.held[KEY_LEFT_SHIFT] || input.held[KEY_RIGHT_SHIFT]) {
                     scale = Math.fround(scale * 0.5);
@@ -668,7 +668,7 @@ namespace SimplePbr {
             // DDS header.
             const radianceFile = this.app.loadBinaryFile(MEDIA_DIR + "Stonewall_Ref_radiance.dds");
             if (!radianceFile.isNull()) {
-                let header: int[] = [0, 0, 0, 0];
+                const header: int[] = [0, 0, 0, 0];
                 radianceFile.copyBytes(28, 4, Ref(header[0]));
                 const mips = header[0] + header[1] * 256 + header[2] * 65536 + header[3] * 16777216;
                 this.numRadianceMips = Math.max(mips, 1) - 3;
@@ -689,8 +689,8 @@ namespace SimplePbr {
             const irradiance = this.app.loadTexture(commandList, MEDIA_DIR + "Stonewall_Ref_irradiance.dds", 0);
 
             // The sky box's geosphere (GeometricPrimitive::CreateGeoSphere(2.f): tessellation 3).
-            let skyPositions: f32[] = [];
-            let skyIndices: int[] = [];
+            const skyPositions: f32[] = [];
+            const skyIndices: int[] = [];
             geoSphere(2.0, 3, skyPositions, skyIndices);
             this.skyVertices = this.app.createStaticVertexBuffer(commandList, Ref(skyPositions[0]), skyPositions.length * 4, "Sky");
             this.skyIndices = this.app.createStaticIndexBuffer(commandList, Ref(skyIndices[0]), skyIndices.length * 4, "Sky");

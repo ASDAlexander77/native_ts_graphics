@@ -171,8 +171,7 @@ namespace MeshletCull {
             if (k[7] != 0) {
                 this.pitch = Math.fround(this.pitch - rotateInterval);
             }
-            // Prevent looking too far up or down. Not Math.max: tslang's starts from
-            // Number.MIN_VALUE, above any negative number.
+            // Prevent looking too far up or down.
             const quarterPi = Math.fround(XM_PI / 4.0);
             if (this.pitch > quarterPi) {
                 this.pitch = quarterPi;
@@ -834,7 +833,7 @@ namespace MeshletCull {
                 const cullData = this.app.createStaticShaderBuffer(commandList, model.getData(i, MeshletModelData.CullData),
                     meshletCount * CULL_DATA_STRIDE, 0, "CullData");
 
-                let unique: int[] = [];
+                const unique: int[] = [];
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
                 }
@@ -842,12 +841,12 @@ namespace MeshletCull {
                 const uniqueVertexIndices = this.app.createStaticShaderBuffer(commandList, Ref(unique[0]), uniqueInts * 4, 0, "UniqueVertexIndices");
 
                 // MeshInfo: index size, meshlet count, the last meshlet's vertex and primitive counts.
-                let meshletInts: int[] = [];
+                const meshletInts: int[] = [];
                 for (let j = 0; j < meshletCount * 4; j++) {
                     meshletInts.push(0);
                 }
                 model.copyData(i, MeshletModelData.Meshlets, Ref(meshletInts[0]));
-                let meshInfo = [indexSize, meshletCount, meshletInts[(meshletCount - 1) * 4], meshletInts[(meshletCount - 1) * 4 + 2]];
+                const meshInfo = [indexSize, meshletCount, meshletInts[(meshletCount - 1) * 4], meshletInts[(meshletCount - 1) * 4 + 2]];
                 const meshInfoBuffer = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfo");
                 commandList.writeBuffer(meshInfoBuffer, Ref(meshInfo[0]), 16);
 
@@ -873,19 +872,19 @@ namespace MeshletCull {
                 if (index == VIEW_MODEL && i == 0) {
                     mesh.meshlets = meshletInts;
                     mesh.uniqueIndices = unique;
-                    let prims: int[] = [];
+                    const prims: int[] = [];
                     for (let j = 0; j < primitiveCount; j++) {
                         prims.push(0);
                     }
                     model.copyData(i, MeshletModelData.PrimitiveIndices, Ref(prims[0]));
                     mesh.primitives = prims;
-                    let verts: f32[] = [];
+                    const verts: f32[] = [];
                     for (let j = 0; j < vertexSize / 4; j++) {
                         verts.push(0.0);
                     }
                     model.copyVertexBuffer(i, 0, Ref(verts[0]));
                     mesh.vertices = verts;
-                    let cull: f32[] = [];
+                    const cull: f32[] = [];
                     for (let j = 0; j < meshletCount * 6; j++) {
                         cull.push(0.0);
                     }
@@ -907,7 +906,7 @@ namespace MeshletCull {
     function checkFrame(app: App, pass: MeshletCullPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

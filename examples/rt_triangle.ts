@@ -84,10 +84,9 @@ namespace RtTriangle {
             const indexBuffer = this.app.createAccelStructInputBuffer(UINT_SIZE * 3, "IndexBuffer");
             const vertexBuffer = this.app.createAccelStructInputBuffer(FLOAT3_SIZE * 3, "VertexBuffer");
 
-            // `let`, not `const`: tslang takes the address of the array's storage only for non-const arrays.
-            let indices: int[] = [0, 1, 2];
+            const indices: int[] = [0, 1, 2];
             commandList.writeBuffer(indexBuffer, Ref(indices[0]), UINT_SIZE * 3);
-            let vertices: f32[] = [0.0, -1.0, 1.0,   -1.0, 1.0, 1.0,   1.0, 1.0, 1.0];
+            const vertices: f32[] = [0.0, -1.0, 1.0,   -1.0, 1.0, 1.0,   1.0, 1.0, 1.0];
             commandList.writeBuffer(vertexBuffer, Ref(vertices[0]), FLOAT3_SIZE * 3);
 
             this.bottomLevelAS = this.app.buildTriangleBLAS(commandList, indexBuffer, 3, vertexBuffer, 3);

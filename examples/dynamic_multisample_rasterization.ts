@@ -453,19 +453,19 @@ namespace DynamicMultisampleRasterization {
             }
 
             const primitiveCount = scene.getPrimitiveCount();
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             const firstIndex: int[] = [];
             const baseVertex: int[] = [];
             let meshCount: int = 0;
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
+                const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
                 }
-                let primitiveIndices: int[] = [];
+                const primitiveIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
@@ -482,8 +482,8 @@ namespace DynamicMultisampleRasterization {
                 meshCount = Math.max(meshCount, scene.getPrimitiveMesh(p) + 1);
             }
 
-            let transform: f32[] = [];
-            let factor: f32[] = [0.0, 0.0, 0.0, 0.0];
+            const transform: f32[] = [];
+            const factor: f32[] = [0.0, 0.0, 0.0, 0.0];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }

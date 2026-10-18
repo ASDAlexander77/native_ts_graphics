@@ -205,7 +205,7 @@ namespace Bokeh {
             }
 
             // InitMaterial: a material whose colors are all zero is white.
-            let colors: f32[] = [];
+            const colors: f32[] = [];
             for (let i = 0; i < 17; i++) {
                 colors.push(0.0);
             }

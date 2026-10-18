@@ -346,14 +346,14 @@ namespace ConditionalRendering {
             }
             const primitiveCount = model.getPrimitiveCount();
 
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             const primitiveFirstIndex: int[] = [];
             const primitiveIndexCount: int[] = [];
             const primitiveBaseVertex: int[] = [];
             const primitiveColor: f32[] = [];
             const meshFirstPrimitive: int[] = [];
-            let color: f32[] = [0.0, 0.0, 0.0, 0.0];
+            const color: f32[] = [0.0, 0.0, 0.0, 0.0];
             for (let p = 0; p < primitiveCount; p++) {
                 const mesh = model.getPrimitiveMesh(p);
                 while (meshFirstPrimitive.length <= mesh) {
@@ -362,11 +362,11 @@ namespace ConditionalRendering {
 
                 const vertexCount = model.getVertexCount(p);
                 const indexCount = model.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
+                const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
                 }
-                let primitiveIndices: int[] = [];
+                const primitiveIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
@@ -394,7 +394,7 @@ namespace ConditionalRendering {
             meshFirstPrimitive.push(primitiveCount);
 
             const nodeCount = model.getNodeCount();
-            let transform: f32[] = [];
+            const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }

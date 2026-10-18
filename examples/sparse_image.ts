@@ -524,13 +524,13 @@ namespace SparseImage {
             this.mipPipeline = this.app.createGraphicsPipelineFromDesc(mipDesc, this.mipFramebuffers[1]);
 
             // The plane's vertices and indices.
-            let vertices: f32[] = [
+            const vertices: f32[] = [
                 -PLANE_HALF_SIZE, -PLANE_HALF_SIZE, 0.0, 0.0,
                 PLANE_HALF_SIZE, -PLANE_HALF_SIZE, 1.0, 0.0,
                 PLANE_HALF_SIZE, PLANE_HALF_SIZE, 1.0, 1.0,
                 -PLANE_HALF_SIZE, PLANE_HALF_SIZE, 0.0, 1.0,
             ];
-            let indices: int[] = [0, 1, 2, 2, 3, 0];
+            const indices: int[] = [0, 1, 2, 2, 3, 0];
 
             // The blit's common passes (for the UI), created on first use, upload their textures on
             // a command list of their own: create them before ours is open.
@@ -1398,7 +1398,7 @@ namespace SparseImage {
             if (!this.texture) {
                 return false;
             }
-            let tiling: int[] = [0, 0, 0, 0];
+            const tiling: int[] = [0, 0, 0, 0];
             this.app.getTextureTiling(this.texture, Ref(tiling[0]));
             this.tileWidth = tiling[0];
             this.tileHeight = tiling[1];

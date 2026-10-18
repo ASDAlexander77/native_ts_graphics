@@ -330,11 +330,11 @@ namespace RayTracingReflection {
                 [MAT_MIRROR],
             ];
 
-            let vertices: f32[] = [];
-            let indices: int[] = [];
-            let matIndices: int[] = [];
-            let materials: f32[] = [];
-            let objDesc: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
+            const matIndices: int[] = [];
+            const materials: f32[] = [];
+            const objDesc: int[] = [];
             for (let o = 0; o < vertexLists.length; o++) {
                 objDesc.push(vertices.length / VERTEX_FLOATS);
                 objDesc.push(indices.length);

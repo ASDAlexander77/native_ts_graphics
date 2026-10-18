@@ -256,7 +256,7 @@ namespace DxrRefit {
         // of the triangle alone (the tutorial's geometries have no index buffers; here they index
         // their vertices in order).
         createAccelerationStructures(commandList: CommandList) {
-            let vertices: f32[] = [];
+            const vertices: f32[] = [];
             for (const coordinate of TRIANGLE_VERTICES) {
                 vertices.push(coordinate);
             }
@@ -265,7 +265,7 @@ namespace DxrRefit {
             }
             const triangleVertexCount = TRIANGLE_VERTICES.length / 3;
             const planeVertexCount = PLANE_VERTICES.length / 3;
-            let indices: int[] = [];
+            const indices: int[] = [];
             for (let i = 0; i < triangleVertexCount; i++) {
                 indices.push(i);
             }

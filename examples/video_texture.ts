@@ -189,7 +189,7 @@ namespace VideoTexture {
 
         init(muted: boolean) {
             // The sample's MediaEnginePlayer on the app's GPU.
-            let luid: int[] = [0, 0];
+            const luid: int[] = [0, 0];
             this.app.getAdapterLuid(Ref(luid[0]));
             const player = VideoPlayer.create(VIDEO_PATH, luid[0], luid[1], muted ? 1 : 0);
             if (player.isNull()) {
@@ -425,8 +425,8 @@ namespace VideoTexture {
         createCube(commandList: CommandList) {
             const faceNormals = [0, 0, 1, 0, 0, -1, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0];
             const textureCoordinates = [1, 0, 1, 1, 0, 1, 0, 0];
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             for (let face = 0; face < 6; face++) {
                 const normal = [faceNormals[face * 3], faceNormals[face * 3 + 1], faceNormals[face * 3 + 2]];
                 // Get two vectors perpendicular both to the face normal and to each other.

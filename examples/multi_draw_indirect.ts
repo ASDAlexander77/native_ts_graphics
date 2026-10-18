@@ -274,7 +274,7 @@ namespace MultiDrawIndirect {
             // culling.
             let addressBuffer: BufferHandle | null = null;
             if ((this.support & IndirectDrawSupport.BufferDeviceAddress) != 0) {
-                let address: f32[] = [0.0, 0.0];
+                const address: f32[] = [0.0, 0.0];
                 Donut_StoreBufferDeviceAddress(Ref(address[0]), this.indirectCallBuffer);
                 addressBuffer = this.app.createStructuredBuffer(8, 1, "Device Address");
                 commandList.writeBuffer(addressBuffer, Ref(address[0]), 8);
@@ -476,7 +476,7 @@ namespace MultiDrawIndirect {
             const slot = this.frameIndex % READBACK_BUFFERS;
             const oldest = (this.frameIndex + 1) % READBACK_BUFFERS;
             if (this.readbackValid[oldest]) {
-                let commands: int[] = [];
+                const commands: int[] = [];
                 for (let i = 0; i < this.modelCount * COMMAND_INTS; i++) {
                     commands.push(0);
                 }
@@ -569,9 +569,9 @@ namespace MultiDrawIndirect {
             textureSetDesc.bindEntireConstantBuffer(0, this.constantBuffer);
             textureSetDesc.bindSampler(0, sampler);
 
-            let vertices: f32[] = [];
-            let indices: int[] = [];
-            let modelInformation: f32[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
+            const modelInformation: f32[] = [];
             for (let p = 0; p < this.modelCount; p++) {
                 // As the sample (vkb) loads KTX 1 color textures: as sRGB. One mip level, as the sample's.
                 const texture = this.app.loadTexture(commandList, SCENE_DIR + scene.getMeshName(p) + ".dds", 1);
@@ -582,11 +582,11 @@ namespace MultiDrawIndirect {
 
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);
-                let modelVertices: f32[] = [];
+                const modelVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     modelVertices.push(0.0);
                 }
-                let modelIndices: int[] = [];
+                const modelIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     modelIndices.push(0);
                 }

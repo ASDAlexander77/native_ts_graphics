@@ -600,7 +600,7 @@ namespace OpacityMicromaps {
             if (file.isNull()) {
                 return false;
             }
-            let header: int[] = [0, 0, 0];
+            const header: int[] = [0, 0, 0];
             file.copyUInts(0, 3, Ref(header[0]));
             const positionCount = header[0];
             const normalCount = header[1];
@@ -621,11 +621,11 @@ namespace OpacityMicromaps {
             offset += texCoordSize;
             this.vertexCount = positionCount;
 
-            let count: int[] = [0];
+            const count: int[] = [0];
             file.copyUInts(offset, 1, Ref(count[0]));
             offset += 4;
             const numGeoms = count[0];
-            let perGeometry: int[] = [];
+            const perGeometry: int[] = [];
             for (let i = 0; i < numGeoms; i++) {
                 perGeometry.push(0);
             }
@@ -649,7 +649,7 @@ namespace OpacityMicromaps {
 
             // Each geometry's offset in the index buffers (in triangles) and textures: the
             // diffuse texture i + 1, the alpha texture 0 for the leaves (-1: none).
-            let geometryInfos: int[] = [];
+            const geometryInfos: int[] = [];
             let primitiveOffset = 0;
             for (let i = 0; i < numGeoms; i++) {
                 const alphaTextureIndex = i == ALPHA_TESTED_GEOMETRY ? 0 : -1;
@@ -670,7 +670,7 @@ namespace OpacityMicromaps {
             if (file.isNull()) {
                 return;
             }
-            let counts: int[] = [0, 0, 0, 0, 0];
+            const counts: int[] = [0, 0, 0, 0, 0];
             file.copyUInts(0, 5, Ref(counts[0]));
             const arrayDataSize = counts[0];
             const descCount = counts[1];

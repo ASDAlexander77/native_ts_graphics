@@ -300,9 +300,9 @@ namespace RayQueries {
             if (scene.isNull()) {
                 return false;
             }
-            let vertices: f32[] = [];
-            let indices: int[] = [];
-            let m: f32[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
+            const m: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 m.push(0.0);
             }
@@ -324,11 +324,11 @@ namespace RayQueries {
                     const vertexStart = vertices.length / VERTEX_FLOATS;
                     const vertexCount = scene.getVertexCount(p);
                     const indexCount = scene.getIndexCount(p);
-                    let gltfVertices: f32[] = [];
+                    const gltfVertices: f32[] = [];
                     for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
                         gltfVertices.push(0.0);
                     }
-                    let gltfIndices: int[] = [];
+                    const gltfIndices: int[] = [];
                     for (let i = 0; i < indexCount; i++) {
                         gltfIndices.push(0);
                     }

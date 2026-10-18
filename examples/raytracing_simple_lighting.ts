@@ -286,7 +286,7 @@ namespace RaytracingSimpleLighting {
         createAccelerationStructures(commandList: CommandList) {
             let vertices = CUBE_VERTICES.map((v): f32 => v);
             // Two 16-bit indices per int.
-            let indices: int[] = [];
+            const indices: int[] = [];
             for (let i = 0; i < CUBE_INDICES.length; i += 2) {
                 indices.push(CUBE_INDICES[i] | (CUBE_INDICES[i + 1] << 16));
             }
@@ -307,7 +307,7 @@ namespace RaytracingSimpleLighting {
             if (this.topLevelAS.isNull()) {
                 return false;
             }
-            let transform: f32[] = [
+            const transform: f32[] = [
                 1.0, 0.0, 0.0, 0.0,
                 0.0, 1.0, 0.0, 0.0,
                 0.0, 0.0, 1.0, 0.0,
@@ -351,7 +351,7 @@ namespace RaytracingSimpleLighting {
     function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

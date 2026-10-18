@@ -758,7 +758,7 @@ export namespace nvrhi {
     // IDevice::executeCommandList: one command list on the graphics queue; returns its submission
     // fence value.
     export function executeCommandList(device: IDevice, commandList: ICommandList): u64 {
-        let lists: ICommandList[] = [commandList];
+        const lists: ICommandList[] = [commandList];
         return device.executeCommandLists(Ref(lists[0]), 1, COMMAND_QUEUE_GRAPHICS);
     }
 
@@ -766,7 +766,7 @@ export namespace nvrhi {
     // made for, CommandListParameters::queueType); returns its submission fence value, which
     // queueWaitForCommandList takes.
     export function executeCommandListOn(device: IDevice, commandList: ICommandList, queue: u8): u64 {
-        let lists: ICommandList[] = [commandList];
+        const lists: ICommandList[] = [commandList];
         return device.executeCommandLists(Ref(lists[0]), 1, queue);
     }
 

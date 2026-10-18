@@ -1,6 +1,6 @@
 // The random numbers the examples use in place of the samples' C++ engines (std::rand,
 // std::default_random_engine): a Park-Miller generator from a fixed seed, so every run, and every
-// test, draws the same numbers. tslang's Math.random isn't usable here.
+// test, draws the same numbers (Math.random doesn't repeat).
 //
 // Imported with `import { randomFloat } from "../core/random";` (from examples/), and listed in the
 // example's add_tslang_example sources.

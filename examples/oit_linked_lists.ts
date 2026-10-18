@@ -348,7 +348,7 @@ namespace OitLinkedLists {
             this.fragmentCounter = this.app.createRWStructuredBuffer(4, 1, "Fragment Counter");
 
             commandList.clearTextureUInt(this.linkedListHead, LINKED_LIST_END_SENTINEL);
-            let zero: int[] = [0];
+            const zero: int[] = [0];
             commandList.writeBuffer(this.fragmentCounter, Ref(zero[0]), 4);
 
             const gatherSetDesc = BindingSetDesc.create();
@@ -459,7 +459,7 @@ namespace OitLinkedLists {
         // The sample's fill_instance_data: the grid's transforms and random colors (alpha 0.2 to 1).
         fillInstanceData(commandList: CommandList) {
             const random = new MsvcRandom();
-            let instances: f32[] = [];
+            const instances: f32[] = [];
             for (let l = 0; l < INSTANCE_LAYER_COUNT; l++) {
                 for (let c = 0; c < INSTANCE_COLUMN_COUNT; c++) {
                     for (let r = 0; r < INSTANCE_ROW_COUNT; r++) {

@@ -332,7 +332,7 @@ namespace FragmentShadingRate {
                 current = this.fround(current + range);
             }
             // The texels, 4 to an int (little-endian bytes).
-            let packed: int[] = [];
+            const packed: int[] = [];
             for (let i = 0; i < Math.floor((width * height + 3) / 4); i++) {
                 packed.push(0);
             }

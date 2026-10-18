@@ -40,8 +40,7 @@ namespace VertexBuffer {
     const VERTEX_SIZE = VERTEX_FLOATS * 4;
     const UV_OFFSET = 3 * 4;
 
-    // `let`, not `const`: tslang takes the address of the array's storage only for non-const arrays.
-    let g_Vertices: f32[] = [
+    const g_Vertices: f32[] = [
         -0.5,  0.5, -0.5,   0.0, 0.0, // front face
          0.5, -0.5, -0.5,   1.0, 1.0,
         -0.5, -0.5, -0.5,   0.0, 1.0,
@@ -73,7 +72,7 @@ namespace VertexBuffer {
         -0.5, -0.5,  0.5,   0.0, 1.0,
     ];
 
-    let g_Indices: int[] = [
+    const g_Indices: int[] = [
          0,  1,  2,   0,  3,  1, // front face
          4,  5,  6,   4,  7,  5, // left face
          8,  9, 10,   8, 11,  9, // right face
@@ -103,7 +102,6 @@ namespace VertexBuffer {
     // Donut's row-vector convention: `mul(a, b)` applies a, then b.
 
     function mul(a: number[], b: number[]) {
-        // `let`: tslang's push needs a non-const array.
         const r: number[] = [];
         for (let i = 0; i < 4; i++) {
             for (let j = 0; j < 4; j++) {

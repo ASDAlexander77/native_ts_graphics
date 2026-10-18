@@ -261,12 +261,12 @@ namespace RaytracingAo {
             // DirectXTK's InitMaterial (material colors not sRGB) into MaterialConstantBuffer:
             // ambient, isDiffuseTexture, diffuse, isSpecularTexture, specular, isNormalTexture.
             const material = mesh.getSubsetMaterial(subset);
-            let colors: f32[] = [];
+            const colors: f32[] = [];
             for (let i = 0; i < 17; i++) {
                 colors.push(0.0);
             }
             mesh.copyMaterialColors(material, Ref(colors[0]));
-            let constants: f32[] = [];
+            const constants: f32[] = [];
             for (let i = 0; i < 12; i++) {
                 constants.push(0.0);
             }
@@ -331,7 +331,7 @@ namespace RaytracingAo {
             if (this.builtTopLevelAS) {
                 return;
             }
-            let transform: f32[] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+            const transform: f32[] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
             this.topLevelAS.addInstanceWithTransform(this.blas.getAccelStruct(), 1, 0, 0, Ref(transform[0]));
             frame.buildTopLevelAS(this.topLevelAS);
             this.builtTopLevelAS = true;
@@ -685,7 +685,7 @@ namespace RaytracingAo {
             const commandList = this.app.createCommandList();
             commandList.open();
             this.placeholderTexture = this.app.createTextureWithLevels(1, 1, 1, Format.RGBA8_UNORM, "Placeholder");
-            let white: int[] = [-1];
+            const white: int[] = [-1];
             commandList.writeTextureLevel(this.placeholderTexture, 0, Ref(white[0]), 4);
             let loaded = true;
             for (const meshFile of MESH_FILES) {
@@ -920,7 +920,7 @@ namespace RaytracingAo {
                 c[base + i] = Math.fround(inverseRangeFactor / this.sampleThickness[i]);
             }
             const t = this.sampleThickness;
-            let weights = [
+            const weights = [
                 Math.fround(4.0 * t[0]), Math.fround(4.0 * t[1]), Math.fround(4.0 * t[2]), Math.fround(4.0 * t[3]),
                 Math.fround(4.0 * t[4]), Math.fround(8.0 * t[5]), Math.fround(8.0 * t[6]), Math.fround(8.0 * t[7]),
                 Math.fround(4.0 * t[8]), Math.fround(8.0 * t[9]), Math.fround(8.0 * t[10]), Math.fround(4.0 * t[11]),

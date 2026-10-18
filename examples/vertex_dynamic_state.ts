@@ -288,7 +288,7 @@ namespace VertexDynamicState {
                 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0,
                 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0,
             ];
-            let vertices: f32[] = [];
+            const vertices: f32[] = [];
             const invSqrt3 = 1.0 / Math.sqrt(3.0);
             for (let i = 0; i < 8; i++) {
                 const x = corners[i * 3];
@@ -305,7 +305,7 @@ namespace VertexDynamicState {
                 vertices.push((y > 0.5 ? 1.0 : -1.0) * invSqrt3);
                 vertices.push((z > 0.5 ? 1.0 : -1.0) * invSqrt3);
             }
-            let indices: int[] = [
+            const indices: int[] = [
                 0, 4, 3, 4, 7, 3,
                 0, 3, 2, 0, 2, 1,
                 1, 2, 6, 6, 5, 1,

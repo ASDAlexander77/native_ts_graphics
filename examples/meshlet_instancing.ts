@@ -343,7 +343,7 @@ namespace MeshletInstancing {
                 return false;
             }
             const model = loaded;
-            let sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
+            const sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
             model.copyBoundingSphere(-1, Ref(sphere[0]));
             this.radius = sphere[3];
 
@@ -365,7 +365,7 @@ namespace MeshletInstancing {
                 // The unique vertex indices, rounded up to whole uints, as the sample's buffer.
                 const uniqueSize = model.getDataSize(i, MeshletModelData.UniqueVertexIndices);
                 const uniqueInts = Math.floor((uniqueSize + 3) / 4);
-                let unique: int[] = [];
+                const unique: int[] = [];
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
                 }
@@ -376,13 +376,13 @@ namespace MeshletInstancing {
                     primitiveCount * 4, 4, "PrimitiveIndices"));
 
                 const mesh = new GpuMesh(new BindingSet(null), model.getIndexSize(i));
-                let meshlets: int[] = [];
+                const meshlets: int[] = [];
                 for (let j = 0; j < meshletCount * 4; j++) {
                     meshlets.push(0);
                 }
                 model.copyData(i, MeshletModelData.Meshlets, Ref(meshlets[0]));
                 const subsetCount = model.getDataCount(i, MeshletModelData.MeshletSubsets);
-                let subsets: int[] = [];
+                const subsets: int[] = [];
                 for (let j = 0; j < subsetCount * 2; j++) {
                     subsets.push(0);
                 }
@@ -411,7 +411,7 @@ namespace MeshletInstancing {
     function checkFrame(app: App, pass: MeshletInstancingPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

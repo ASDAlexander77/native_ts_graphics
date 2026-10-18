@@ -91,16 +91,6 @@ namespace MouseCursor {
         return Math.fround(x);
     }
 
-    // std::max and std::min. (tslang's Math.max starts from Number.MIN_VALUE, the smallest
-    // positive number: it gives that for negative arguments.)
-    function maxf(a: number, b: number) {
-        return a > b ? a : b;
-    }
-
-    function minf(a: number, b: number) {
-        return a < b ? a : b;
-    }
-
     function transpose(a: number[]) {
         let result: number[] = [];
         for (let row = 0; row < 4; row++) {
@@ -263,7 +253,7 @@ namespace MouseCursor {
 
             // LoadMaterial: a material whose ambient and diffuse colors are all zero is white; the
             // specular color only with a positive power.
-            let colors: f32[] = [];
+            const colors: f32[] = [];
             for (let i = 0; i < 17; i++) {
                 colors.push(0.0);
             }
@@ -592,7 +582,7 @@ namespace MouseCursor {
 
             // Limit to avoid looking directly up or down
             const limit = f(PI / 2.0 - 0.01);
-            this.pitch = maxf(-limit, minf(limit, this.pitch));
+            this.pitch = Math.max(-limit, Math.min(limit, this.pitch));
 
             if (this.yaw > PI) {
                 this.yaw = f(this.yaw - PI * 2.0);
@@ -736,8 +726,8 @@ namespace MouseCursor {
             this.app.setCursorMode(CursorMode.Disabled);
             this.resyncMouse = true;
             // Save the pointers position
-            this.virtualX = maxf(0.0, minf(x, this.frameWidth));
-            this.virtualY = maxf(0.0, minf(y, this.frameHeight));
+            this.virtualX = Math.max(0.0, Math.min(x, this.frameWidth));
+            this.virtualY = Math.max(0.0, Math.min(y, this.frameHeight));
         }
 
         // Back to the menu: the system cursor returns where the sample's was.
@@ -764,8 +754,8 @@ namespace MouseCursor {
             } else if (resync) {
                 return 1;
             } else if (this.clipCursor) {
-                this.virtualX = maxf(0.0, minf(this.virtualX + dx, this.frameWidth));
-                this.virtualY = maxf(0.0, minf(this.virtualY + dy, this.frameHeight));
+                this.virtualX = Math.max(0.0, Math.min(this.virtualX + dx, this.frameWidth));
+                this.virtualY = Math.max(0.0, Math.min(this.virtualY + dy, this.frameHeight));
                 this.updatePointer(this.virtualX, this.virtualY);
             } else if (this.relative) {
                 this.updateCamera(dx, dy);

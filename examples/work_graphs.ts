@@ -137,7 +137,7 @@ namespace WorkGraphs {
     // --- Math ---------------------------------------------------------------------------------
 
     // srand(0) / rand() of the MSVC runtime the sample is built with, so that the scene comes out the
-    // same. (tslang's Math.random isn't usable, and a function named rand clashes with the CRT's.)
+    // same. (A function named rand would clash with the CRT's.)
     const RAND_MAX = 32767.0;
     let g_RandomSeed = 0.0;
     function msvcRand(): int {
@@ -229,8 +229,8 @@ namespace WorkGraphs {
 
     // Gauss-Jordan elimination with partial pivoting; m must be invertible.
     function invertMatrix(m: number[]) {
-        let a: number[] = [];
-        let inverse: number[] = [];
+        const a: number[] = [];
+        const inverse: number[] = [];
         for (let i = 0; i < 16; i++) {
             a.push(m[i]);
             inverse.push(i % 5 == 0 ? 1.0 : 0.0);

@@ -479,7 +479,7 @@ namespace DenoisedRtao {
                 const size = Donut_DecodeWicImageRGBA8(windPath, null);
                 const width = size & 0xFFFF;
                 const height = (size >> 16) & 0xFFFF;
-                let pixels: int[] = [];
+                const pixels: int[] = [];
                 for (let i = 0; i < width * height; i++) {
                     pixels.push(0);
                 }
@@ -759,7 +759,7 @@ namespace DenoisedRtao {
         // Scene::UpdateAccelerationStructure: the TLAS from this frame's instances, and the
         // previous frame's instance transforms for the motion vectors.
         updateAccelerationStructure(frame: Frame, commandList: CommandList) {
-            let transform: f32[] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+            const transform: f32[] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             const count = this.instanceScenes.length;
             for (let i = 0; i < count; i++) {
                 toTransform3x4(this.instanceTransforms[i], transform);
@@ -1006,18 +1006,18 @@ namespace DenoisedRtao {
             const grassIndexCount = numStraws * N_GRASS_TRIANGLES * 3;
             this.grassIndexOffset = totalIndices;
 
-            let vertices: f32[] = [];
+            const vertices: f32[] = [];
             for (let i = 0; i < totalVertices * VERTEX_FLOATS; i++) {
                 vertices.push(0.0);
             }
-            let indices: int[] = [];
+            const indices: int[] = [];
             for (let i = 0; i < totalIndices + grassIndexCount; i++) {
                 indices.push(0);
             }
-            let materials: f32[] = [];
-            let records: int[] = [];
+            const materials: f32[] = [];
+            const records: int[] = [];
             const textureNames: string[] = [];
-            let material: f32[] = [];
+            const material: f32[] = [];
             for (let i = 0; i < MATERIAL_VALUES; i++) {
                 material.push(0.0);
             }
@@ -1364,7 +1364,7 @@ namespace DenoisedRtao {
             this.rtaoCB = this.app.createConstantBuffer(constantBufferSize(80), "RTAOConstants");
 
             // The sample sets (AlignedHemisphereSample3D).
-            let samples: f32[] = [];
+            const samples: f32[] = [];
             for (let i = 0; i < SAMPLES_PER_SET * NUM_SAMPLE_SETS * 4; i++) {
                 samples.push(0.0);
             }
@@ -1581,7 +1581,7 @@ namespace DenoisedRtao {
     function checkFrame(app: App, mode: int) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

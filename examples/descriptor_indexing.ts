@@ -56,7 +56,7 @@ namespace DescriptorIndexing {
     // stripes or diagonals of 4-texel cells) in the color, the dark cells at a quarter, each
     // channel plus noise in [0, 0.1) from the sample's random engine; packed 4 bytes per int.
     function createImageData(rgb: number[], imageSeed: int, rng: RandomEngine) {
-        let texels: int[] = [];
+        const texels: int[] = [];
         for (let y = 0; y < IMAGE_SIZE; y++) {
             for (let x = 0; x < IMAGE_SIZE; x++) {
                 let pattern = 0;
@@ -171,7 +171,7 @@ namespace DescriptorIndexing {
             }
 
             // A quad's corners as a triangle strip.
-            let quadIndices: int[] = [0, 1, 2, 3];
+            const quadIndices: int[] = [0, 1, 2, 3];
             const commandList = this.app.createCommandList();
             commandList.open();
             this.quadIndexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(quadIndices[0]), 16, "Quad");

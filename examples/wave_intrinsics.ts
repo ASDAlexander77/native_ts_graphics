@@ -247,7 +247,7 @@ namespace WaveIntrinsics {
         createTargets(frame: Frame, commandList: CommandList) {
             const aspectRatio = Math.fround(this.width / this.height);
             const a = aspectRatio;
-            let quad: f32[] = [
+            const quad: f32[] = [
                 -a, -1.0, 0.0, 0.0, 1.0,
                 -a, 1.0, 0.0, 0.0, 0.0,
                 a, 1.0, 0.0, 1.0, 0.0,

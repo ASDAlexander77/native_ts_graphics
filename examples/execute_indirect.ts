@@ -294,15 +294,15 @@ namespace ExecuteIndirect {
         // every frame and the buffers the culling writes.
         createResources(commandList: CommandList) {
             const h = TRIANGLE_HALF_WIDTH;
-            let vertices: f32[] = [
+            const vertices: f32[] = [
                 0.0, h, TRIANGLE_DEPTH,
                 h, -h, TRIANGLE_DEPTH,
                 -h, -h, TRIANGLE_DEPTH,
             ];
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Triangle");
-            let indices: int[] = [0, 1, 2];
+            const indices: int[] = [0, 1, 2];
             this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), 12, "Indices");
-            let triangleIndices: int[] = [];
+            const triangleIndices: int[] = [];
             for (let i = 0; i < TRIANGLE_RESOURCE_COUNT; i++) {
                 triangleIndices.push(i);
             }
@@ -336,7 +336,7 @@ namespace ExecuteIndirect {
             this.constantBuffer = this.app.createStructuredBuffer(CONSTANTS_STRIDE, TRIANGLE_RESOURCE_COUNT, "Constants");
 
             // Every frame's commands: a triangle each, its constants by its start instance.
-            let commands: int[] = [];
+            const commands: int[] = [];
             for (let i = 0; i < TRIANGLE_RESOURCE_COUNT; i++) {
                 commands.push(3);
                 commands.push(1);
@@ -358,7 +358,7 @@ namespace ExecuteIndirect {
     function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

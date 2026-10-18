@@ -416,7 +416,7 @@ namespace TextureCompressionComparison {
             }
             // The camera's position: -R^T t of its view [R t].
             const v = this.viewMatrix;
-            let position: number[] = [0.0, 0.0, 0.0];
+            const position: number[] = [0.0, 0.0, 0.0];
             for (let column = 0; column < 3; column++) {
                 for (let row = 0; row < 3; row++) {
                     position[column] -= v[column * 4 + row] * v[12 + row];
@@ -450,9 +450,9 @@ namespace TextureCompressionComparison {
             const primitiveTexture: int[] = [];
             const primitiveFirstIndex: int[] = [];
             const primitiveBaseVertex: int[] = [];
-            let vertices: f32[] = [];
-            let indices: int[] = [];
-            let meshBounds: number[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
+            const meshBounds: number[] = [];
             const meshFirstPrimitive: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const image = scene.getBaseColorImage(p);
@@ -481,11 +481,11 @@ namespace TextureCompressionComparison {
 
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
+                const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
                 }
-                let primitiveIndices: int[] = [];
+                const primitiveIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
@@ -510,7 +510,7 @@ namespace TextureCompressionComparison {
             meshFirstPrimitive.push(primitiveCount);
 
             const nodeCount = scene.getNodeCount();
-            let transform: f32[] = [];
+            const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }
@@ -520,8 +520,8 @@ namespace TextureCompressionComparison {
                         continue;
                     }
                     scene.copyNodeTransform(node, Ref(transform[0]));
-                    let low = [HUGE, HUGE, HUGE];
-                    let high = [-HUGE, -HUGE, -HUGE];
+                    const low = [HUGE, HUGE, HUGE];
+                    const high = [-HUGE, -HUGE, -HUGE];
                     for (let corner = 0; corner < 8; corner++) {
                         const x = meshBounds[mesh * 6 + ((corner & 1) != 0 ? 3 : 0)];
                         const y = meshBounds[mesh * 6 + 1 + ((corner & 2) != 0 ? 3 : 0)];

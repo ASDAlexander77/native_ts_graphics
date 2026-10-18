@@ -181,7 +181,7 @@ namespace DynamicUniformBuffers {
             // -benchmark). MSVC evaluates the sample's vec3(rnd, rnd, rnd) from the last argument:
             // z, y, x.
             const rng = this.app.createRandomEngine(this.benchmark ? 0 : -1);
-            let values: f32[] = [];
+            const values: f32[] = [];
             for (let i = 0; i < OBJECT_INSTANCES * 6; i++) {
                 values.push(0.0);
             }

@@ -16,7 +16,7 @@ export class TestCheck {
     constructor(private app: App) {
         this.width = app.getWindowWidth();
         this.height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < this.width * this.height; i++) {
             pixels.push(0);
         }
@@ -152,7 +152,7 @@ export class TestCheck {
         this.app.executeCommandList(commandList);
         this.app.waitForIdle();
         this.app.releaseResource(commandList.handle);
-        let values: f32[] = [];
+        const values: f32[] = [];
         for (let i = 0; i < byteSize / 4; i++) {
             values.push(0.0);
         }
@@ -179,11 +179,6 @@ export function unsupported(test: boolean, why: string): int {
     }
     console.log(why);
     return 1;
-}
-
-// |x| (tslang's Math.max is wrong for negative numbers, so the checks don't use Math).
-export function absolute(x: number): number {
-    return x < 0.0 ? -x : x;
 }
 
 // Neither NaN nor infinite.

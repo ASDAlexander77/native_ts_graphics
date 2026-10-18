@@ -115,8 +115,7 @@ namespace ProceduralGeometry {
         1.0, 1.5, 1.0,
         3.0, 3.0, 3.0,
     ];
-    // (1 if it rotates: an array of booleans read false in tslang.)
-    const AABB_ROTATES = [0, 1, 1, 0, 0, 0, 1, 1, 0, 0];
+    const AABB_ROTATES = [false, true, true, false, false, false, true, true, false, false];
 
     // InitializeScene's materials (PrimitiveConstantBuffer: albedo, reflectanceCoef, diffuseCoef,
     // specularCoef, specularPower, stepScale), the AABB geometries' then the plane's.
@@ -417,7 +416,7 @@ namespace ProceduralGeometry {
                 ];
                 const scale = matrixScaling(AABB_SCALES[i * 3], AABB_SCALES[i * 3 + 1], AABB_SCALES[i * 3 + 2]);
                 let rotated = matrixMultiply(scale, identity);
-                if (AABB_ROTATES[i] != 0) {
+                if (AABB_ROTATES[i]) {
                     rotated = matrixMultiply(scale, rotation);
                 }
                 const transform = matrixMultiply(rotated, matrixTranslation(center[0], center[1], center[2]));
@@ -527,7 +526,7 @@ namespace ProceduralGeometry {
         }
 
         writeMaterials(commandList: CommandList) {
-            let materials: f32[] = [];
+            const materials: f32[] = [];
             // SetAttributes' defaults: reflectanceCoef 0, diffuseCoef 0.9, specularCoef 0.7,
             // specularPower 50, stepScale 1.
             this.addMaterial(materials, RED, 0.0, 0.9, 0.7, 50.0, 1.0);                     // AABB
@@ -545,7 +544,7 @@ namespace ProceduralGeometry {
 
             // BuildShaderTables' rootArgs.aabbCB: the AABB's index, and its primitive type within
             // its intersection shader's.
-            let aabbConstants: int[] = [];
+            const aabbConstants: int[] = [];
             let instanceIndex = 0;
             for (const primitiveCount of PRIMITIVES_PER_INTERSECTION_SHADER) {
                 for (let primitive = 0; primitive < primitiveCount; primitive++) {
@@ -597,13 +596,13 @@ namespace ProceduralGeometry {
             const planeWidthX = 700.0 * AABB_WIDTH + 699.0 * AABB_DISTANCE;
             const planeWidthY = 1.0 * AABB_WIDTH;
             const planeWidthZ = 700.0 * AABB_WIDTH + 699.0 * AABB_DISTANCE;
-            let transform: f32[] = [
+            const transform: f32[] = [
                 planeWidthX, 0.0, 0.0, Math.fround(planeWidthX * Math.fround(-0.35)),
                 0.0, planeWidthY, 0.0, 0.0,
                 0.0, 0.0, planeWidthZ, Math.fround(planeWidthZ * Math.fround(-0.35)),
             ];
             this.topLevelAS.addInstanceWithHitGroup(planeBlas.getAccelStruct(), 1, 0, 0, 0, Ref(transform[0]));
-            let aabbTransform: f32[] = [
+            const aabbTransform: f32[] = [
                 1.0, 0.0, 0.0, 0.0,
                 0.0, 1.0, 0.0, AABB_WIDTH / 2.0,
                 0.0, 0.0, 1.0, 0.0,

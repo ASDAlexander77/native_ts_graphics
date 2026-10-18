@@ -392,7 +392,7 @@ namespace MemoryBudget {
         // The sample's prepare_instance_data: the rocks distributed randomly on two rings, half on
         // each, uploaded once.
         createInstanceBuffer(commandList: CommandList) {
-            let instanceData: f32[] = [];
+            const instanceData: f32[] = [];
             for (let i = 0; i < INSTANCE_COUNT * INSTANCE_FLOATS; i++) {
                 instanceData.push(0.0);
             }

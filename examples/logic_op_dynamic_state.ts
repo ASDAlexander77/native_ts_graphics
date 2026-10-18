@@ -435,8 +435,8 @@ namespace LogicOpDynamicState {
                 1.0, 1.0, 1.0,
                 0.0, 1.0, 1.0,
             ];
-            let positions: f32[] = [];
-            let normals: f32[] = [];
+            const positions: f32[] = [];
+            const normals: f32[] = [];
             for (let i = 0; i < 8; i++) {
                 const x = corners[i * 3];
                 const y = corners[i * 3 + 1];
@@ -459,7 +459,7 @@ namespace LogicOpDynamicState {
                 4, 5, 7, 6,
                 2, 3, 6, 7,
             ];
-            let indices: int[] = [];
+            const indices: int[] = [];
             for (let strip = 0; strip < 6; strip++) {
                 for (let t = 0; t < 2; t++) {
                     const v = strip * 4 + t;

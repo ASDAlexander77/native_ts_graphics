@@ -127,7 +127,7 @@ namespace PredicationQueries {
             const a = Math.fround(1280.0 / 720.0);
             const far = Math.fround(0.25 * a);
             const near = Math.fround(0.35 * a);
-            let vertices: f32[] = [
+            const vertices: f32[] = [
                 // Far quad - in practice this would be a complex geometry.
                 -0.25, -far, 0.5, 1.0, 1.0, 1.0, 1.0,
                 -0.25, far, 0.5, 1.0, 1.0, 1.0, 1.0,

@@ -245,7 +245,7 @@ namespace MeshletRender {
                     model.getDataSize(i, MeshletModelData.Meshlets), MESHLET_STRIDE, "Meshlets");
                 // The unique vertex indices, rounded up to whole uints, as the sample's buffer.
                 const uniqueSize = model.getDataSize(i, MeshletModelData.UniqueVertexIndices);
-                let unique: int[] = [];
+                const unique: int[] = [];
                 const uniqueInts = Math.floor((uniqueSize + 3) / 4);
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
@@ -264,7 +264,7 @@ namespace MeshletRender {
                 setDesc.bindStructuredBufferSRV(3, primitiveIndices);
                 const bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
 
-                let subsets: int[] = [];
+                const subsets: int[] = [];
                 const subsetCount = model.getDataCount(i, MeshletModelData.MeshletSubsets);
                 for (let j = 0; j < subsetCount * 2; j++) {
                     subsets.push(0);
@@ -287,7 +287,7 @@ namespace MeshletRender {
     function checkFrame(app: App, pass: MeshletRenderPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

@@ -715,7 +715,7 @@ namespace MemoryManagement {
         // The frame: the background, and the images (not the gray of an image with nothing).
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

@@ -477,7 +477,7 @@ namespace RasterizationOrderAttachmentAccess {
         // The sample's instance data: the grid's transforms and random colors (alpha 0.2 to 1).
         createInstanceBuffer(commandList: CommandList) {
             const random = new MsvcRandom(RANDOM_SEED);
-            let instances: f32[] = [];
+            const instances: f32[] = [];
             for (let z = 0; z < INSTANCE_LAYER_COUNT; z++) {
                 for (let y = 0; y < INSTANCE_COLUMN_COUNT; y++) {
                     for (let x = 0; x < INSTANCE_ROW_COUNT; x++) {

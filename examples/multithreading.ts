@@ -458,7 +458,7 @@ namespace Multithreading {
             this.shadowBatch.addBindingSet(shadowSet);
             // The materials' binding sets by diffuse texture, made as draws need them.
             const materialSets: BindingSet[] = [];
-            let materialSetIndices: int[] = [];
+            const materialSetIndices: int[] = [];
             for (let i = 0; i < textureCount; i++) {
                 materialSetIndices.push(-1);
             }
@@ -489,7 +489,7 @@ namespace Multithreading {
     function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

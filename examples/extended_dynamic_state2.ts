@@ -524,19 +524,19 @@ namespace ExtendedDynamicState2 {
 
             // Every primitive in the shared buffers, then the nodes in the framework's order.
             const primitiveCount = model.getPrimitiveCount();
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             const firstIndex: int[] = [];
             const indexCounts: int[] = [];
             const baseVertex: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = model.getVertexCount(p);
                 const indexCount = model.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
+                const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
                 }
-                let primitiveIndices: int[] = [];
+                const primitiveIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
@@ -553,11 +553,11 @@ namespace ExtendedDynamicState2 {
                 }
             }
 
-            let transform: f32[] = [];
+            const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }
-            let color: f32[] = [0.0, 0.0, 0.0, 0.0];
+            const color: f32[] = [0.0, 0.0, 0.0, 0.0];
             const nodeCount = model.getNodeCount();
             for (let o = 0; o < SCENE_ORDER.length; o++) {
                 for (let p = 0; p < primitiveCount; p++) {
@@ -595,7 +595,7 @@ namespace ExtendedDynamicState2 {
             this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
 
             // The restarting cube: its 8 corners, normals the sum of their faces'.
-            let cube: f32[] = [];
+            const cube: f32[] = [];
             for (let v = 0; v < 8; v++) {
                 const x = v == 1 || v == 2 || v == 5 || v == 6 ? 1.0 : 0.0;
                 const y = v == 2 || v == 3 || v == 6 || v == 7 ? 1.0 : 0.0;

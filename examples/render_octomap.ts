@@ -851,7 +851,7 @@ namespace RenderOctomap {
             }
             const zRange = maxZ - minZ;
 
-            let instances: f32[] = [];
+            const instances: f32[] = [];
             const rgb: number[] = [0.0, 0.0, 0.0];
             for (let i = 0; i < leafCount; i++) {
                 if (!reader.occupied[i]) {
@@ -921,14 +921,14 @@ namespace RenderOctomap {
                 return;
             }
             const primitiveCount = model.getPrimitiveCount();
-            let positions: f32[] = [];
-            let colors: f32[] = [];
-            let indices: int[] = [];
+            const positions: f32[] = [];
+            const colors: f32[] = [];
+            const indices: int[] = [];
             const primitiveFirstIndex: int[] = [];
             const primitiveIndexCount: int[] = [];
             const primitiveBaseVertex: int[] = [];
             const primitiveColor: f32[] = [];
-            let color: f32[] = [1.0, 1.0, 1.0, 1.0];
+            const color: f32[] = [1.0, 1.0, 1.0, 1.0];
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = model.getAttributeCount(p, "POSITION");
                 const indexCount = model.getIndexCount(p);
@@ -969,7 +969,7 @@ namespace RenderOctomap {
             }
 
             const flipY = scale(1.0, -1.0, 1.0);
-            let transform: f32[] = [];
+            const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }
@@ -1016,7 +1016,7 @@ namespace RenderOctomap {
                 return false;
             }
             const stride = model.getAttributeComponents(0, name);
-            let values: f32[] = [];
+            const values: f32[] = [];
             for (let i = 0; i < count * stride; i++) {
                 values.push(0.0);
             }

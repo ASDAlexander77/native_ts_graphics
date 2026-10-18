@@ -159,7 +159,7 @@ namespace BufferDeviceAddress {
             if (indices16.length % 2 != 0) {
                 indices16.push(0);
             }
-            let indices: int[] = [];
+            const indices: int[] = [];
             for (let i = 0; i < indices16.length; i += 2) {
                 indices.push(indices16[i] | (indices16[i + 1] << 16));
             }
@@ -272,7 +272,7 @@ namespace BufferDeviceAddress {
     function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

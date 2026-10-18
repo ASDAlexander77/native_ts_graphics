@@ -174,13 +174,13 @@ namespace Collision {
 
     // DirectXMath's (exact) XMQuaternionRotationRollPitchYaw and XMMatrixRotationRollPitchYaw.
     function quaternionRollPitchYaw(pitch: number, yaw: number, roll: number): number[] {
-        let q: f32[] = [0.0, 0.0, 0.0, 1.0];
+        const q: f32[] = [0.0, 0.0, 0.0, 1.0];
         Donut_QuaternionRotationRollPitchYaw(pitch, yaw, roll, Ref(q[0]));
         return [q[0], q[1], q[2], q[3]];
     }
 
     function matrixRollPitchYaw(pitch: number, yaw: number, roll: number) {
-        let m: f32[] = [];
+        const m: f32[] = [];
         for (let i = 0; i < 16; i++) {
             m.push(0.0);
         }
@@ -517,7 +517,7 @@ namespace Collision {
             // Set up the primary frustum object from a D3D projection matrix
             // NOTE: This can also be done on your camera's projection matrix.  The projection
             // matrix built here is somewhat contrived so it renders well.
-            let projection: f32[] = [];
+            const projection: f32[] = [];
             const xmProj = perspectiveFov(f(PI / 4.0), 1.77778, 0.5, 10.0, false);
             for (let i = 0; i < 16; i++) {
                 projection.push(xmProj[i]);

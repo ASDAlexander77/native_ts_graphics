@@ -141,7 +141,7 @@ namespace HdrDisplay {
 
             // The gradients: the SDR one [0, 1] at the top, the HDR one [0, 3] (9 perceptually) at
             // the bottom; and one triangle over the whole window for presenting.
-            let gradients: f32[] = [
+            const gradients: f32[] = [
                 -1.0, 0.45, 0.0, 0.0, 0.0, 0.0,
                 -1.0, 0.55, 0.0, 0.0, 0.0, 0.0,
                 0.0, 0.45, 0.0, 1.0, 1.0, 1.0,
@@ -151,7 +151,7 @@ namespace HdrDisplay {
                 0.0, -0.55, 0.0, 3.0, 3.0, 3.0,
                 0.0, -0.45, 0.0, 3.0, 3.0, 3.0,
             ];
-            let present: f32[] = [
+            const present: f32[] = [
                 -1.0, -3.0, 0.0, 0.0, 2.0,
                 -1.0, 1.0, 0.0, 0.0, 0.0,
                 3.0, 1.0, 0.0, 2.0, 0.0,
@@ -322,7 +322,7 @@ namespace HdrDisplay {
             const primaries2020 = [[0.708, 0.292], [0.170, 0.797], [0.131, 0.046], [0.3127, 0.3290]];
             // Each gamut's triangles: B G W, G R W, R B W.
             const order = [2, 1, 3, 1, 0, 3, 0, 2, 3];
-            let vertices: f32[] = [];
+            const vertices: f32[] = [];
             for (let g = 0; g < 2; g++) {
                 const primaries = g == 0 ? primaries709 : primaries2020;
                 const offsetY = g == 0 ? 0.0 : -1.0;
@@ -488,7 +488,7 @@ namespace HdrDisplay {
         const height = app.getWindowHeight();
         const format = app.getBackBufferFormat();
         const wide = format == Format.RGBA16_FLOAT;
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height * (wide ? 2 : 1); i++) {
             pixels.push(0);
         }

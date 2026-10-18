@@ -523,11 +523,11 @@ namespace RayTracingInvocationReorder {
 
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);
-                let vertices: f32[] = [];
+                const vertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     vertices.push(0.0);
                 }
-                let triangles: int[] = [];
+                const triangles: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     triangles.push(0);
                 }
@@ -585,8 +585,8 @@ namespace RayTracingInvocationReorder {
         // models' vertices and triangles in one vertex and one index buffer, the refraction model
         // in its own pair, a BLAS for each.
         createBuffersAndBlases(commandList: CommandList) {
-            let staticVertices: f32[] = [];
-            let staticTriangles: int[] = [];
+            const staticVertices: f32[] = [];
+            const staticTriangles: int[] = [];
             for (const model of this.models) {
                 const modelBuffer = new ModelBuffer(staticVertices.length / VERTEX_FLOATS * VERTEX_SIZE,
                     staticTriangles.length / 3 * TRIANGLE_SIZE, model.vertices.length / VERTEX_FLOATS,
@@ -629,7 +629,7 @@ namespace RayTracingInvocationReorder {
 
             // This buffer is used to correlate the instance information with model information:
             // struct SceneInstanceData { vertex_index, indices_index, image_index, object_type }.
-            let modelInstanceData: int[] = [];
+            const modelInstanceData: int[] = [];
             for (const modelBuffer of this.modelBuffers) {
                 modelInstanceData.push(modelBuffer.vertexOffset / VERTEX_SIZE);
                 modelInstanceData.push(modelBuffer.indexOffset / TRIANGLE_SIZE);
