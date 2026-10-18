@@ -51,7 +51,7 @@ function withFields(type) {
     const elements = splitTop(text.slice(1, -1)).map(e => /^(\w+)(\??):\s*([\s\S]*)$/.exec(e));
     if (!elements.length || elements.some(e => !e)) return text;
     const inner = elements.map(e => `${e[1]}${e[2]}: ${withFields(e[3])}`);
-    const fields = elements.map(e => `${e[1]}${OPTIONAL ? "?" : e[2]}: ${withFields(e[3])};`);
+    const fields = elements.map(e => `${e[1]}?: any;`);
     return `[${inner.join(", ")}] & { ${fields.join(" ")} }`;
 }
 
@@ -59,7 +59,7 @@ function withFields(type) {
 // index signature's brackets)
 function namedTuplesAsFields(source) {
     let out = "", at = 0;
-    const start = /([=:<,|&(])\s*\[(?=\w+\??:\s)/g;
+    const start = /([=:<,|&(])\s*\[(?=\s*\w+\??:\s)/g;
     for (let m; (m = start.exec(source)); ) {
         const open = m.index + m[0].length - 1;
         const close = matching(source, open);
