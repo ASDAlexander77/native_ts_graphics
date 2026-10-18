@@ -48,8 +48,3 @@ declare function cpp(target: any, context?: any): any;
 declare function cppnontrivial(target: any, context?: any): any;
 declare function slot(index: number): (target: any, context?: any) => any;
 declare function linkname(symbol: string): (target: any, context?: any) => any;
-
-// The C++ library types NVRHI's descs hold (core/nvrhi_classes.<os>.ts, core/nvrhi_abi.<os>.ts):
-// tslang lays them out for its target (MSVC's or libc++'s), so the editor takes them loosely.
-declare type basic_string_char = any;
-declare type vector<T> = T[];

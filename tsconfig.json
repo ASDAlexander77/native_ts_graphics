@@ -23,7 +23,10 @@
       "types": ["./types/tslang", "I:/tslang/defaultlib/lib.d.ts"]
     },
     "include": ["core/*.ts", "examples/*.ts"],
-    // core/nvrhi.editor.<os>.ts (tools/gen_nvrhi_editor.mjs) stands for these: tslang merges their
-    // `nvrhi` namespaces, TypeScript does not.
-    "exclude": ["core/nvrhi.ts", "core/nvrhi_types.ts", "core/nvrhi_classes.*.ts", "core/nvrhi_abi.*.ts", "core/nvrhi.editor.linux.ts"]
+    // tslang merges the `nvrhi` namespaces of core/nvrhi*.ts, TypeScript does not:
+    // tools/gen_nvrhi_editor.mjs writes core/nvrhi.editor.<os>.ts, the merged namespace the examples
+    // import, and core/nvrhi.globals.<os>.d.ts, its members as globals for the sources, which
+    // tsconfig.nvrhi.json checks (apart: the globals would meet core/donut_globals.d.ts's).
+    "exclude": ["core/nvrhi.ts", "core/nvrhi_types.ts", "core/nvrhi_classes.*.ts", "core/nvrhi_abi.*.ts", "core/nvrhi.globals.*.d.ts", "core/nvrhi.editor.linux.ts"],
+    "references": [{ "path": "./tsconfig.nvrhi.json" }]
 }

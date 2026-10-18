@@ -1,0 +1,25 @@
+{
+    // core/nvrhi*.ts, the files tslang merges into the `nvrhi` namespace, checked by TypeScript with
+    // core/nvrhi.globals.win32.d.ts (tools/gen_nvrhi_editor.mjs): each sees the others' members as
+    // globals. A project of its own, referenced by tsconfig.json: core/donut_globals.d.ts has
+    // globals of the same names.
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+      // A referenced project emits: its declarations go to build/tsc (ignored by git)
+      "composite": true,
+      "noEmit": false,
+      "emitDeclarationOnly": true,
+      "outDir": "./build/tsc/nvrhi.win32",
+      "tsBuildInfoFile": "./build/tsc/nvrhi.win32.tsbuildinfo"
+    },
+    "include": [],
+    "exclude": [],
+    "files": [
+      "core/donut_interop.d.ts",
+      "core/nvrhi_types.ts",
+      "core/nvrhi_classes.win32.ts",
+      "core/nvrhi_abi.win32.ts",
+      "core/nvrhi.ts",
+      "core/nvrhi.globals.win32.d.ts"
+    ]
+}

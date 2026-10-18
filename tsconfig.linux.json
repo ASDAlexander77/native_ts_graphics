@@ -6,5 +6,6 @@
       "moduleSuffixes": [".editor.linux", ".linux", ""],
       "tsBuildInfoFile": "./tsconfig.linux.tsbuildinfo"
     },
-    "exclude": ["core/nvrhi.ts", "core/nvrhi_types.ts", "core/nvrhi_classes.*.ts", "core/nvrhi_abi.*.ts", "core/nvrhi.editor.win32.ts"]
+    "exclude": ["core/nvrhi.ts", "core/nvrhi_types.ts", "core/nvrhi_classes.*.ts", "core/nvrhi_abi.*.ts", "core/nvrhi.globals.*.d.ts", "core/nvrhi.editor.win32.ts"],
+    "references": [{ "path": "./tsconfig.nvrhi.linux.json" }]
 }
