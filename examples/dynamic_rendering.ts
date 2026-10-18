@@ -105,6 +105,62 @@ namespace DynamicRendering {
             }
         }
 
+        init() {
+            const shader = "vertex_dynamic_state.hlsl";
+            this.skyboxVS = this.app.createShaderWithDefine(shader, "gbuffer_vs", ShaderType.Vertex, "TYPE", "0");
+            this.skyboxPS = this.app.createShaderWithDefine(shader, "gbuffer_ps", ShaderType.Pixel, "TYPE", "0");
+            this.objectVS = this.app.createShaderWithDefine(shader, "gbuffer_vs", ShaderType.Vertex, "TYPE", "1");
+            this.objectPS = this.app.createShaderWithDefine(shader, "gbuffer_ps", ShaderType.Pixel, "TYPE", "1");
+            if (!this.skyboxVS || !this.skyboxPS || !this.objectVS || !this.objectPS) {
+                return false;
+            }
+
+            // The vertex layout: position and normal.
+            const gltfLayoutDesc = InputLayoutDesc.create();
+            gltfLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            gltfLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, NORMAL_OFFSET, 0, VERTEX_SIZE);
+            this.gltfLayout = this.app.createInputLayout(gltfLayoutDesc, this.skyboxVS);
+
+            // The cube map's sampler, as the framework's load_texture_cubemap: trilinear, clamped,
+            // the device's widest anisotropic filtering.
+            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0,
+                this.app.getMaxSamplerAnisotropy());
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.skybox = this.app.loadGltfMesh(commandList, CUBE_PATH);
+            this.object = this.app.loadGltfMesh(commandList, OBJECT_PATH);
+            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (this.skybox.isNull() || this.object.isNull() || !envmap) {
+                console.log("Cannot load the models and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutTextureSRV(0);
+            layoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindTextureSRV(0, envmap);
+            setDesc.bindSampler(0, sampler);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -207,63 +263,6 @@ namespace DynamicRendering {
                 this.skybox.getIndexCount());
             this.draw(frame, this.modelPipeline, framebuffer, this.object.getVertexBuffer(), this.object.getIndexBuffer(),
                 this.object.getIndexCount());
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "vertex_dynamic_state.hlsl";
-            this.skyboxVS = this.app.createShaderWithDefine(shader, "gbuffer_vs", ShaderType.Vertex, "TYPE", "0");
-            this.skyboxPS = this.app.createShaderWithDefine(shader, "gbuffer_ps", ShaderType.Pixel, "TYPE", "0");
-            this.objectVS = this.app.createShaderWithDefine(shader, "gbuffer_vs", ShaderType.Vertex, "TYPE", "1");
-            this.objectPS = this.app.createShaderWithDefine(shader, "gbuffer_ps", ShaderType.Pixel, "TYPE", "1");
-            if (!this.skyboxVS || !this.skyboxPS || !this.objectVS || !this.objectPS) {
-                return false;
-            }
-
-            // The vertex layout: position and normal.
-            const gltfLayoutDesc = InputLayoutDesc.create();
-            gltfLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            gltfLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, NORMAL_OFFSET, 0, VERTEX_SIZE);
-            this.gltfLayout = this.app.createInputLayout(gltfLayoutDesc, this.skyboxVS);
-
-            // The cube map's sampler, as the framework's load_texture_cubemap: trilinear, clamped,
-            // the device's widest anisotropic filtering.
-            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0,
-                this.app.getMaxSamplerAnisotropy());
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.skybox = this.app.loadGltfMesh(commandList, CUBE_PATH);
-            this.object = this.app.loadGltfMesh(commandList, OBJECT_PATH);
-            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (this.skybox.isNull() || this.object.isNull() || !envmap) {
-                console.log("Cannot load the models and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutTextureSRV(0);
-            layoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindTextureSRV(0, envmap);
-            setDesc.bindSampler(0, sampler);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

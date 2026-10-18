@@ -114,7 +114,6 @@ export class SimpleCamera {
         }
         // Prevent looking too far up or down.
         const quarterPi = Math.fround(XM_PI / 4.0);
-        // Not Math.max: tslang's starts from Number.MIN_VALUE, above any negative number.
         if (this.pitch > quarterPi) {
             this.pitch = quarterPi;
         }

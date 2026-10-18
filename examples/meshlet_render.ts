@@ -89,6 +89,41 @@ namespace MeshletRender {
             this.worldViewProj = matrixIdentity();
         }
 
+        init() {
+            this.meshShader = this.app.createShader("meshlet_render.hlsl", "main_ms", ShaderType.Mesh);
+            this.pixelShader = this.app.createShader("meshlet_render.hlsl", "main_ps", ShaderType.Pixel);
+            if (!this.meshShader || !this.pixelShader) {
+                return false;
+            }
+            // The sample's root signature: CBV(b0), RootConstants(b1, 2), SRV(t0) .. SRV(t3).
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutConstantBuffer(0);
+            layoutDesc.layoutPushConstants(1, MESH_INFO_SIZE);
+            layoutDesc.layoutRawBufferSRV(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutRawBufferSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "SceneConstantBuffer");
+
+            // The sample's camera: at (0, 75, 150) looking down -z, 150 units a second.
+            this.camera.init(0.0, 75.0, 150.0);
+            this.camera.setMoveSpeed(150.0);
+
+            if (!this.loadModel()) {
+                return false;
+            }
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int): int {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
@@ -210,7 +245,7 @@ namespace MeshletRender {
                     model.getDataSize(i, MeshletModelData.Meshlets), MESHLET_STRIDE, "Meshlets");
                 // The unique vertex indices, rounded up to whole uints, as the sample's buffer.
                 const uniqueSize = model.getDataSize(i, MeshletModelData.UniqueVertexIndices);
-                let unique: int[] = [];
+                const unique: int[] = [];
                 const uniqueInts = Math.floor((uniqueSize + 3) / 4);
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
@@ -229,7 +264,7 @@ namespace MeshletRender {
                 setDesc.bindStructuredBufferSRV(3, primitiveIndices);
                 const bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
 
-                let subsets: int[] = [];
+                const subsets: int[] = [];
                 const subsetCount = model.getDataCount(i, MeshletModelData.MeshletSubsets);
                 for (let j = 0; j < subsetCount * 2; j++) {
                     subsets.push(0);
@@ -243,42 +278,6 @@ namespace MeshletRender {
             model.destroy();
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.meshShader = this.app.createShader("meshlet_render.hlsl", "main_ms", ShaderType.Mesh);
-            this.pixelShader = this.app.createShader("meshlet_render.hlsl", "main_ps", ShaderType.Pixel);
-            if (!this.meshShader || !this.pixelShader) {
-                return false;
-            }
-            // The sample's root signature: CBV(b0), RootConstants(b1, 2), SRV(t0) .. SRV(t3).
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutConstantBuffer(0);
-            layoutDesc.layoutPushConstants(1, MESH_INFO_SIZE);
-            layoutDesc.layoutRawBufferSRV(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            layoutDesc.layoutRawBufferSRV(2);
-            layoutDesc.layoutStructuredBufferSRV(3);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "SceneConstantBuffer");
-
-            // The sample's camera: at (0, 75, 150) looking down -z, 150 units a second.
-            this.camera.init(0.0, 75.0, 150.0);
-            this.camera.setMoveSpeed(150.0);
-
-            if (!this.loadModel()) {
-                return false;
-            }
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // -test: checks the last frame. The background is the clear color at the corners; the dragon
@@ -288,7 +287,7 @@ namespace MeshletRender {
     function checkFrame(app: App, pass: MeshletRenderPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

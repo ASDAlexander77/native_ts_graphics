@@ -202,6 +202,38 @@ namespace SimpleHdr {
             this.shiftHeld = false;
         }
 
+        init() {
+            this.pointSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const sceneLayoutDesc = BindingLayoutDesc.create();
+            sceneLayoutDesc.layoutPushConstants(0, DRAW_CONSTANTS_FLOATS * 4);
+            sceneLayoutDesc.layoutStructuredBufferSRV(0);
+            this.sceneLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
+            const convertLayoutDesc = BindingLayoutDesc.create();
+            convertLayoutDesc.layoutPushConstants(0, 16);
+            convertLayoutDesc.layoutTextureSRV(0);
+            convertLayoutDesc.layoutSampler(0);
+            this.convertLayout = this.app.createBindingLayout(convertLayoutDesc, ShaderType.All);
+
+            this.rectVS = this.app.createShader("simple_hdr_scene.hlsl", "rect_vs", ShaderType.Vertex);
+            this.lineVS = this.app.createShader("simple_hdr_scene.hlsl", "line_vs", ShaderType.Vertex);
+            this.colorPS = this.app.createShader("simple_hdr_scene.hlsl", "color_ps", ShaderType.Pixel);
+            this.quadVS = this.app.createShader("simple_hdr_convert.hlsl", "quad_vs", ShaderType.Vertex);
+            this.hdr10PS = this.app.createShader("simple_hdr_convert.hlsl", "prepare_hdr10_ps", ShaderType.Pixel);
+            this.sdrPS = this.app.createShader("simple_hdr_convert.hlsl", "tonemap_sdr_ps", ShaderType.Pixel);
+            if (!this.rectVS || !this.lineVS || !this.colorPS || !this.quadVS || !this.hdr10PS || !this.sdrPS) {
+                return false;
+            }
+            this.lineBuffer = this.app.createStructuredBuffer(8, MAX_LINE_VERTICES, "Lines");
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The sample's DeviceResources::UpdateColorSpace: HDR10 when the window's display is in HDR
         // mode (the swap chain takes it from the next frame on), sRGB otherwise.
         updateColorSpace() {
@@ -502,39 +534,6 @@ namespace SimpleHdr {
             frame.drawVerticesWithPushConstants(3, Ref(this.convertConstants[0]), 16);
         }
 
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.pointSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const sceneLayoutDesc = BindingLayoutDesc.create();
-            sceneLayoutDesc.layoutPushConstants(0, DRAW_CONSTANTS_FLOATS * 4);
-            sceneLayoutDesc.layoutStructuredBufferSRV(0);
-            this.sceneLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
-            const convertLayoutDesc = BindingLayoutDesc.create();
-            convertLayoutDesc.layoutPushConstants(0, 16);
-            convertLayoutDesc.layoutTextureSRV(0);
-            convertLayoutDesc.layoutSampler(0);
-            this.convertLayout = this.app.createBindingLayout(convertLayoutDesc, ShaderType.All);
-
-            this.rectVS = this.app.createShader("simple_hdr_scene.hlsl", "rect_vs", ShaderType.Vertex);
-            this.lineVS = this.app.createShader("simple_hdr_scene.hlsl", "line_vs", ShaderType.Vertex);
-            this.colorPS = this.app.createShader("simple_hdr_scene.hlsl", "color_ps", ShaderType.Pixel);
-            this.quadVS = this.app.createShader("simple_hdr_convert.hlsl", "quad_vs", ShaderType.Vertex);
-            this.hdr10PS = this.app.createShader("simple_hdr_convert.hlsl", "prepare_hdr10_ps", ShaderType.Pixel);
-            this.sdrPS = this.app.createShader("simple_hdr_convert.hlsl", "tonemap_sdr_ps", ShaderType.Pixel);
-            if (!this.rectVS || !this.lineVS || !this.colorPS || !this.quadVS || !this.hdr10PS || !this.sdrPS) {
-                return false;
-            }
-            this.lineBuffer = this.app.createStructuredBuffer(8, MAX_LINE_VERTICES, "Lines");
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
-
         // The second pass, after the ImGui one.
         initPrepareSwapChain() {
             const pass = this.app.addPass();
@@ -548,6 +547,23 @@ namespace SimpleHdr {
 
         constructor(sample: SimpleHdrPass) {
             this.sample = sample;
+        }
+
+        init(app: App, height: int) {
+            const imguiPass = app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.sample.imguiPass = imguiPass;
+            for (const fontScale of FONT_SCALES) {
+                const font = imguiPass.createFont(FONT_PATH, FONT_LAYOUT_SIZE * fontScale * height / LAYOUT_HEIGHT);
+                if (font.isNull()) {
+                    console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                    return false;
+                }
+                this.sample.fonts.push(font);
+            }
+            return true;
         }
 
         // Text at the sample's layout position, in one of its font scales; right-aligned at x if
@@ -654,24 +670,6 @@ namespace SimpleHdr {
             if (sample.countDownToBright >= 0.0) {
                 this.text(FONT_COUNTDOWN, 1170.0, 550.0, formatFixed(sample.countDownToBright, 0), false);
             }
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App, height: int) {
-            const imguiPass = app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.sample.imguiPass = imguiPass;
-            for (const fontScale of FONT_SCALES) {
-                const font = imguiPass.createFont(FONT_PATH, FONT_LAYOUT_SIZE * fontScale * height / LAYOUT_HEIGHT);
-                if (font.isNull()) {
-                    console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                    return false;
-                }
-                this.sample.fonts.push(font);
-            }
-            return true;
         }
     }
 

@@ -465,7 +465,7 @@ namespace NvrhiDirect {
 
         // two DrawIndirectArguments (vertexCount, instanceCount, startVertexLocation,
         // startInstanceLocation): no instance, then one
-        let drawArguments: u32[] = [3, 0, 0, 0, 3, 1, 0, 0];
+        const drawArguments: u32[] = [3, 0, 0, 0, 3, 1, 0, 0];
         commandList.open();
         nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
         commandList.writeBuffer(argumentsBuffer, <Opaque>Ref(drawArguments[0]), 32, 0);
@@ -555,7 +555,7 @@ namespace NvrhiDirect {
         }
 
         // two DispatchIndirectArguments (groupsX, groupsY, groupsZ): no group, then one
-        let dispatchArguments: u32[] = [0, 1, 1, 1, 1, 1];
+        const dispatchArguments: u32[] = [0, 1, 1, 1, 1, 1];
         commandList.open();
         commandList.clearBufferUInt(dispatched, CLEAR_VALUE);
         commandList.clearBufferUInt(skipped, CLEAR_VALUE);
@@ -1184,7 +1184,7 @@ namespace NvrhiDirect {
         }
 
         // item i: a = i, b = 2 i + 1
-        let itemData: u32[] = [];
+        const itemData: u32[] = [];
         for (let i = 0; i < ITEMS; i++) {
             itemData.push(i);
             itemData.push(2 * i + 1);
@@ -1504,7 +1504,7 @@ namespace NvrhiDirect {
         }
         check(!Deref(buffer.getDesc()).keepInitialState, "IBuffer::getDesc's keepInitialState");
 
-        let values: u32[] = [];
+        const values: u32[] = [];
         for (let i = 0; i < VALUES; i++) {
             values.push(3 * i + 1);
         }
@@ -1598,7 +1598,7 @@ namespace NvrhiDirect {
         check(device.bindBufferMemory(buffer, bufferHeap, bufferOffset), "IDevice::bindBufferMemory");
         check(device.bindTextureMemory(texture, textureHeap, 0), "IDevice::bindTextureMemory");
 
-        let values: u32[] = [];
+        const values: u32[] = [];
         for (let i = 0; i < VALUES; i++) {
             values.push(1000 + 7 * i);
         }
@@ -1678,8 +1678,8 @@ namespace NvrhiDirect {
             return;
         }
 
-        let indices: u32[] = [0, 1, 2];
-        let drawArguments: u32[] = [3, 0, 0, 0, 0, 3, 1, 0, 0, 0];
+        const indices: u32[] = [0, 1, 2];
+        const drawArguments: u32[] = [3, 0, 0, 0, 0, 3, 1, 0, 0, 0];
         commandList.open();
         nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
         commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
@@ -2014,7 +2014,7 @@ namespace NvrhiDirect {
 
         commandList.open();
         for (let i = 0; i < BUFFERS; i++) {
-            let value = [100 + 11 * i];
+            const value = [100 + 11 * i];
             commandList.writeBuffer(buffers[i], <Opaque>Ref(value[0]), 4, 0);
             commandList.setBufferState(buffers[i], nvrhi.RESOURCE_STATE_SHADER_RESOURCE);
         }
@@ -2125,7 +2125,7 @@ namespace NvrhiDirect {
             && nvrhi.stdStringIs(Deref(bufferHandle.getDesc()).debugName, "Buffer handle"),
             "IDevice::createHandleForNativeBuffer's buffer: the API object, the desc given");
 
-        let values: u32[] = [];
+        const values: u32[] = [];
         for (let i = 0; i < VALUES; i++) {
             values.push(500 + 3 * i);
         }
@@ -2459,9 +2459,9 @@ namespace NvrhiDirect {
             return;
         }
 
-        let indices: u32[] = [0, 1, 2];
-        let drawArguments: u32[] = [3, 1, 0, 0, 0];
-        let counts: u32[] = [1, 0];
+        const indices: u32[] = [0, 1, 2];
+        const drawArguments: u32[] = [3, 1, 0, 0, 0];
+        const counts: u32[] = [1, 0];
         commandList.open();
         nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
         commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
@@ -2584,8 +2584,8 @@ namespace NvrhiDirect {
             && keptInfo.sampleCount == 1, "IMeshletPipeline::getFramebufferInfo");
 
         // DispatchIndirectArguments (groupsX, groupsY, groupsZ): no group, then one; counts 0, 1
-        let meshArguments: u32[] = [0, 1, 1, 1, 1, 1];
-        let counts: u32[] = [0, 1];
+        const meshArguments: u32[] = [0, 1, 1, 1, 1, 1];
+        const counts: u32[] = [0, 1];
         const half = TEXTURE_SIZE / 2;
         commandList.open();
         nvrhi.clearTextureFloat(commandList, color, nvrhi.allSubresources(), [0.0, 0.0, 0.0, 1.0]);
@@ -2685,7 +2685,7 @@ namespace NvrhiDirect {
         let packedMips: nvrhi.PackedMipDesc = [0, 0, 0, 0];
         let tileShape: nvrhi.TileShape = [0, 0, 0];
         let subresourceTilingsNum = 1;
-        let subresourceTilings: nvrhi.SubresourceTiling[] = [[0, 0, 0, 0]];
+        const subresourceTilings: nvrhi.SubresourceTiling[] = [[0, 0, 0, 0]];
         device.getTextureTiling(texture, Ref(numTiles), Ref(packedMips), Ref(tileShape), Ref(subresourceTilingsNum),
             Ref(subresourceTilings[0]));
         const tiling = subresourceTilings[0];
@@ -2698,9 +2698,9 @@ namespace NvrhiDirect {
 
         // the top right tile (column 1, row 0 of level 0) at the heap's start: a region of one tile
         // (D3D12 reads its size in texels rounded up to tiles, Vulkan in tiles)
-        let coordinates: nvrhi.TiledTextureCoordinate[] = [[0, 0, 1, 0, 0]];
-        let regions: nvrhi.TiledTextureRegion[] = [[0, 1, 1, 1]];
-        let byteOffsets: u64[] = [0];
+        const coordinates: nvrhi.TiledTextureCoordinate[] = [[0, 0, 1, 0, 0]];
+        const regions: nvrhi.TiledTextureRegion[] = [[0, 1, 1, 1]];
+        const byteOffsets: u64[] = [0];
         let mapping: nvrhi.TextureTilesMapping = [Ref(coordinates[0]), Ref(regions[0]), Ref(byteOffsets[0]), 1, heap];
         device.updateTextureTileMappings(texture, Ref(mapping), 1, nvrhi.COMMAND_QUEUE_GRAPHICS);
 
@@ -3093,7 +3093,7 @@ namespace NvrhiDirect {
 
         // the builds: the bottom level structure, then the top level one of an InstanceDesc and its
         // copy; the one from the buffer once the bottom level one's address is known
-        let indices: u32[] = [0, 1, 2];
+        const indices: u32[] = [0, 1, 2];
         let vertices = RT_VERTICES;
         buildList.open();
         buildList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
@@ -3118,9 +3118,9 @@ namespace NvrhiDirect {
         // contribution and flags, the bottom level structure's address
         const blasAddress = blas.getDeviceAddress();
         check(blasAddress != 0, "IAccelStruct::getDeviceAddress");
-        let transform: f32[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
-        let instanceWords: u32[] = [0xff000000, 0];
-        let address = [blasAddress];
+        const transform: f32[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+        const instanceWords: u32[] = [0xff000000, 0];
+        const address = [blasAddress];
         traceList.open();
         traceList.writeBuffer(instanceBuffer, <Opaque>Ref(transform[0]), 48, 0);
         traceList.writeBuffer(instanceBuffer, <Opaque>Ref(instanceWords[0]), 8, 48);
@@ -3212,7 +3212,7 @@ namespace NvrhiDirect {
 
         // two OMMs of level 0 and two states: their one micro-triangle's state bit (0
         // transparent, 1 opaque), 4 bytes apart; their descs (data offset, then level and format)
-        let usage: nvrhi.OpacityMicromapUsageCount[] = [[2, 0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE]];
+        const usage: nvrhi.OpacityMicromapUsageCount[] = [[2, 0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE]];
         const ommDesc = nvrhi.opacityMicromapDesc(ommData, ommDescs, usage, "OMM array");
         const omm = nvrhi.createOpacityMicromap(device, ommDesc);
         if (!omm) {
@@ -3247,11 +3247,11 @@ namespace NvrhiDirect {
             return;
         }
 
-        let indices: u32[] = [0, 1, 2, 3, 4, 5];
+        const indices: u32[] = [0, 1, 2, 3, 4, 5];
         let vertices = OMM_VERTICES;
-        let states: u8[] = [0, 0, 0, 0, 1, 0, 0, 0];
-        let descs = [0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000, 4, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000];
-        let triangleOmms: u32[] = [0, 1];
+        const states: u8[] = [0, 0, 0, 0, 1, 0, 0, 0];
+        const descs = [0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000, 4, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000];
+        const triangleOmms: u32[] = [0, 1];
         let instances = [nvrhi.instanceDesc(blas)];
         let ommDescValue = ommDesc;
         commandList.open();
@@ -3351,13 +3351,13 @@ namespace NvrhiDirect {
         }
 
         // the matrix: 16 float16 values from 1 up (0x3c00 is 1.0)
-        let values: u16[] = [];
+        const values: u16[] = [];
         for (let i = 0; i < 16; i++) {
             values.push(0x3c00 + i);
         }
-        let toOptimal: nvrhi.ConvertMatrixLayoutDesc[] = [convertDesc(rowMajor, nvrhi.COOPVEC_LAYOUT_ROW_MAJOR, rowMajorSize,
+        const toOptimal: nvrhi.ConvertMatrixLayoutDesc[] = [convertDesc(rowMajor, nvrhi.COOPVEC_LAYOUT_ROW_MAJOR, rowMajorSize,
             optimal, nvrhi.COOPVEC_LAYOUT_INFERENCING_OPTIMAL, optimalSize)];
-        let back: nvrhi.ConvertMatrixLayoutDesc[] = [convertDesc(optimal, nvrhi.COOPVEC_LAYOUT_INFERENCING_OPTIMAL, optimalSize,
+        const back: nvrhi.ConvertMatrixLayoutDesc[] = [convertDesc(optimal, nvrhi.COOPVEC_LAYOUT_INFERENCING_OPTIMAL, optimalSize,
             again, nvrhi.COOPVEC_LAYOUT_ROW_MAJOR, rowMajorSize)];
         commandList.open();
         commandList.writeBuffer(rowMajor, <Opaque>Ref(values[0]), 32, 0);
@@ -3430,12 +3430,12 @@ namespace NvrhiDirect {
         // count (9), position truncation (6), index format (4: 32-bit) and OMM index format (4); base
         // geometry index and flags; the index, vertex, geometry index and OMM index strides (16 bits
         // each); then the index, vertex, geometry index, OMM array and OMM index buffers' addresses
-        let header = [0, 0, 1 + 3 * 0x200 + nvrhi.CLUSTER_INDEX_FORMAT_32BIT * 0x1000000, 0, 4 + 12 * 0x10000, 0];
-        let addresses = [indexBuffer.getGpuVirtualAddress(), vertexBuffer.getGpuVirtualAddress(), 0, 0, 0];
-        let indices: u32[] = [0, 1, 2];
+        const header = [0, 0, 1 + 3 * 0x200 + nvrhi.CLUSTER_INDEX_FORMAT_32BIT * 0x1000000, 0, 4 + 12 * 0x10000, 0];
+        const addresses = [indexBuffer.getGpuVirtualAddress(), vertexBuffer.getGpuVirtualAddress(), 0, 0, 0];
+        const indices: u32[] = [0, 1, 2];
         let vertices = RT_VERTICES;
-        let count: u32[] = [1];
-        let noSize: u32[] = [0];
+        const count: u32[] = [1];
+        const noSize: u32[] = [0];
         let desc: nvrhi.OperationDesc = [params, sizeInfo.scratchSizeInBytes, countBuffer, 0, argsBuffer, 0, null, 0,
             sizesBuffer, 0, null, 0];
         commandList.open();
@@ -3726,7 +3726,7 @@ namespace NvrhiDirect {
             check(messageLog.provoked == 1, "NVRHI calls the IMessageCallback implemented here");
         }
 
-        let data: u32[] = [];
+        const data: u32[] = [];
         for (let i = 0; i < COUNT; i++) {
             data.push(i * 3 + 1);
         }
@@ -3760,8 +3760,8 @@ namespace NvrhiDirect {
         // writeTexture of the 2 x 2 texels; setGraphicsState with the vertex and index buffers,
         // drawIndexed: the quad over the top right quarter, a texel a pixel
         let vertices: f32[] = [-1, -1, 0, 1, -1, 1, 0, 0, 1, 1, 1, 0, 1, -1, 1, 1];
-        let indices: u16[] = [0, 1, 2, 0, 2, 3];
-        let scale: f32[] = [1, 0.5, 1, 1];
+        const indices: u16[] = [0, 1, 2, 0, 2, 3];
+        const scale: f32[] = [1, 0.5, 1, 1];
         commandList.writeBuffer(vertexBuffer, <Opaque>Ref(vertices[0]), 4 * QUAD_VERTEX_SIZE, 0);
         commandList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 6 * 2, 0);
         commandList.writeBuffer(constantBuffer, <Opaque>Ref(scale[0]), 4 * 4, 0);

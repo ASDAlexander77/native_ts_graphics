@@ -126,6 +126,64 @@ namespace PatchControlPoints {
             this.push = [0.0, 0.0, 0.0];
         }
 
+        init() {
+            const shader = "patch_control_points.hlsl";
+            this.vs = this.app.createShader(shader, "tess_vs", ShaderType.Vertex);
+            this.hs = this.app.createShader(shader, "tess_hs", ShaderType.Hull);
+            this.ds = this.app.createShader(shader, "tess_ds", ShaderType.Domain);
+            this.ps = this.app.createShader(shader, "tess_ps", ShaderType.Pixel);
+            if (!this.vs || !this.hs || !this.ds || !this.ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const model = this.app.loadGltfMesh(commandList, MODEL_PATH);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (model.isNull()) {
+                console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.model = model;
+
+            // The sample's two descriptor sets: the common matrices, and each pipeline's own
+            // tessellation buffer; the push constants.
+            this.commonBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            this.staticTessBuffer = this.app.createVolatileConstantBuffer(TESS_FLOATS * 4, "Static UBOTessellation");
+            this.dynamicTessBuffer = this.app.createVolatileConstantBuffer(TESS_FLOATS * 4, "Dynamic UBOTessellation");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutVolatileConstantBuffer(1);
+            bindingLayoutDesc.layoutPushConstants(2, PUSH_FLOATS * 4);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const staticDesc = BindingSetDesc.create();
+            staticDesc.bindEntireConstantBuffer(0, this.commonBuffer);
+            staticDesc.bindEntireConstantBuffer(1, this.staticTessBuffer);
+            staticDesc.bindPushConstants(2, PUSH_FLOATS * 4);
+            this.staticBindingSet = this.app.createBindingSetForLayout(staticDesc, this.bindingLayout);
+            const dynamicDesc = BindingSetDesc.create();
+            dynamicDesc.bindEntireConstantBuffer(0, this.commonBuffer);
+            dynamicDesc.bindEntireConstantBuffer(1, this.dynamicTessBuffer);
+            dynamicDesc.bindPushConstants(2, PUSH_FLOATS * 4);
+            this.dynamicBindingSet = this.app.createBindingSetForLayout(dynamicDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.key(key, action);
             return 1;
@@ -236,65 +294,6 @@ namespace PatchControlPoints {
             this.drawModel(frame, this.staticPipeline, framebuffer, this.staticBindingSet, 0);
             this.drawModel(frame, this.dynamicPipeline, framebuffer, this.dynamicBindingSet, 1);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "patch_control_points.hlsl";
-            this.vs = this.app.createShader(shader, "tess_vs", ShaderType.Vertex);
-            this.hs = this.app.createShader(shader, "tess_hs", ShaderType.Hull);
-            this.ds = this.app.createShader(shader, "tess_ds", ShaderType.Domain);
-            this.ps = this.app.createShader(shader, "tess_ps", ShaderType.Pixel);
-            if (!this.vs || !this.hs || !this.ds || !this.ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const model = this.app.loadGltfMesh(commandList, MODEL_PATH);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (model.isNull()) {
-                console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.model = model;
-
-            // The sample's two descriptor sets: the common matrices, and each pipeline's own
-            // tessellation buffer; the push constants.
-            this.commonBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            this.staticTessBuffer = this.app.createVolatileConstantBuffer(TESS_FLOATS * 4, "Static UBOTessellation");
-            this.dynamicTessBuffer = this.app.createVolatileConstantBuffer(TESS_FLOATS * 4, "Dynamic UBOTessellation");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutVolatileConstantBuffer(1);
-            bindingLayoutDesc.layoutPushConstants(2, PUSH_FLOATS * 4);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const staticDesc = BindingSetDesc.create();
-            staticDesc.bindEntireConstantBuffer(0, this.commonBuffer);
-            staticDesc.bindEntireConstantBuffer(1, this.staticTessBuffer);
-            staticDesc.bindPushConstants(2, PUSH_FLOATS * 4);
-            this.staticBindingSet = this.app.createBindingSetForLayout(staticDesc, this.bindingLayout);
-            const dynamicDesc = BindingSetDesc.create();
-            dynamicDesc.bindEntireConstantBuffer(0, this.commonBuffer);
-            dynamicDesc.bindEntireConstantBuffer(1, this.dynamicTessBuffer);
-            dynamicDesc.bindPushConstants(2, PUSH_FLOATS * 4);
-            this.dynamicBindingSet = this.app.createBindingSetForLayout(dynamicDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -303,6 +302,10 @@ namespace PatchControlPoints {
 
         constructor(sample: PatchControlPointsPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -317,11 +320,6 @@ namespace PatchControlPoints {
             }
             Donut_ImGuiPopItemWidth();
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

@@ -268,6 +268,82 @@ namespace Msaa {
             }
         }
 
+        init() {
+            const shader = "msaa.hlsl";
+            const postShader = "msaa_post.hlsl";
+            this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
+            this.scenePS = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
+            this.postVS = this.app.createShader(postShader, "post_vs", ShaderType.Vertex);
+            this.outlinePS = this.app.createShaderWithDefine(postShader, "outline_ps", ShaderType.Pixel, "MS_DEPTH", "0");
+            this.outlineMSPS = this.app.createShaderWithDefine(postShader, "outline_ps", ShaderType.Pixel, "MS_DEPTH", "1");
+            if (!this.sceneVS || !this.scenePS || !this.postVS || !this.outlinePS || !this.outlineMSPS) {
+                return false;
+            }
+
+            this.querySupport();
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.sceneInputLayout = this.app.createInputLayout(layoutDesc, this.sceneVS);
+
+            this.sceneConstantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
+            this.postConstantBuffer = this.app.createVolatileConstantBuffer(POST_FLOATS * 4, "PostConstants");
+
+            // The scene pass: the scene uniform, the base color texture and its sampler, the node
+            // transform.
+            const sceneLayoutDesc = BindingLayoutDesc.create();
+            sceneLayoutDesc.layoutVolatileConstantBuffer(0);
+            sceneLayoutDesc.layoutTextureSRV(0);
+            sceneLayoutDesc.layoutSampler(0);
+            sceneLayoutDesc.layoutPushConstants(1, MODEL_SIZE);
+            this.sceneBindingLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
+
+            // The post-processing: its uniform, the color and its sampler, the depth.
+            const postLayoutDesc = BindingLayoutDesc.create();
+            postLayoutDesc.layoutVolatileConstantBuffer(0);
+            postLayoutDesc.layoutTextureSRV(0);
+            postLayoutDesc.layoutTextureSRV(1);
+            postLayoutDesc.layoutSampler(0);
+            this.postBindingLayout = this.app.createBindingLayout(postLayoutDesc, ShaderType.Pixel);
+
+            // Donut's common passes, which hold the samplers, upload their textures on a command
+            // list of their own: before ours is open.
+            this.linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
+            const linearWrap = this.app.getCommonSampler(CommonSampler.LinearWrap);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.loadScene(commandList, linearWrap);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            // The scene's camera, as the sample's free camera starts: looking down its node's -z,
+            // its up its node's y (the node rolls it a little).
+            const forward = rotate(CAMERA_ROTATION, [0.0, 0.0, -1.0]);
+            const up = rotate(CAMERA_ROTATION, [0.0, 1.0, 0.0]);
+            const p = CAMERA_POSITION;
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAtWithUp(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2], up[0], up[1], up[2]);
+            this.camera.setMoveSpeed(CAMERA_MOVE_SPEED);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // Whether render passes can resolve the depth (for the post-processing).
         canResolveDepthOnWriteback() {
             return this.depthResolveModes != 0;
@@ -489,7 +565,7 @@ namespace Msaa {
         updateConstants(commandList: CommandList, width: int, height: int) {
             // Donut's camera, in Donut's view space (z forward), into the sample's (-z forward).
             this.camera.getWorldToView(Ref(this.viewMatrix[0]));
-            let view: number[] = [];
+            const view: number[] = [];
             for (let i = 0; i < 16; i++) {
                 view.push(i % 4 == 2 ? -this.viewMatrix[i] : this.viewMatrix[i]);
             }
@@ -555,7 +631,7 @@ namespace Msaa {
 
             const view = this.viewMatrix;
             // The camera's position: -R^T t of its view [R t].
-            let position: number[] = [0.0, 0.0, 0.0];
+            const position: number[] = [0.0, 0.0, 0.0];
             for (let column = 0; column < 3; column++) {
                 for (let row = 0; row < 3; row++) {
                     position[column] -= view[column * 4 + row] * view[12 + row];
@@ -601,10 +677,10 @@ namespace Msaa {
             const primitiveTexture: int[] = [];
             const primitiveFirstIndex: int[] = [];
             const primitiveBaseVertex: int[] = [];
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             // Per mesh: its bounds (min x, y, z, max x, y, z) and first primitive.
-            let meshBounds: number[] = [];
+            const meshBounds: number[] = [];
             const meshFirstPrimitive: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const image = scene.getBaseColorImage(p);
@@ -633,11 +709,11 @@ namespace Msaa {
 
                 const vertexCount = scene.getVertexCount(p);
                 const indexCount = scene.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
+                const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
                 }
-                let primitiveIndices: int[] = [];
+                const primitiveIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
@@ -682,7 +758,7 @@ namespace Msaa {
             // The draws: by mesh, then node, then primitive, as the framework's meshes list their
             // nodes and submeshes.
             const nodeCount = scene.getNodeCount();
-            let transform: f32[] = [];
+            const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }
@@ -698,8 +774,8 @@ namespace Msaa {
                         - transform[4] * (transform[1] * transform[10] - transform[9] * transform[2])
                         + transform[8] * (transform[1] * transform[6] - transform[5] * transform[2]);
                     // The mesh's bounds, transformed (their corners), and their center.
-                    let low = [HUGE, HUGE, HUGE];
-                    let high = [-HUGE, -HUGE, -HUGE];
+                    const low = [HUGE, HUGE, HUGE];
+                    const high = [-HUGE, -HUGE, -HUGE];
                     for (let corner = 0; corner < 8; corner++) {
                         const x = meshBounds[mesh * 6 + ((corner & 1) != 0 ? 3 : 0)];
                         const y = meshBounds[mesh * 6 + 1 + ((corner & 2) != 0 ? 3 : 0)];
@@ -758,83 +834,6 @@ namespace Msaa {
                 this.colorResolveMethod = RESOLVE_SEPARATE;
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "msaa.hlsl";
-            const postShader = "msaa_post.hlsl";
-            this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
-            this.scenePS = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
-            this.postVS = this.app.createShader(postShader, "post_vs", ShaderType.Vertex);
-            this.outlinePS = this.app.createShaderWithDefine(postShader, "outline_ps", ShaderType.Pixel, "MS_DEPTH", "0");
-            this.outlineMSPS = this.app.createShaderWithDefine(postShader, "outline_ps", ShaderType.Pixel, "MS_DEPTH", "1");
-            if (!this.sceneVS || !this.scenePS || !this.postVS || !this.outlinePS || !this.outlineMSPS) {
-                return false;
-            }
-
-            this.querySupport();
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.sceneInputLayout = this.app.createInputLayout(layoutDesc, this.sceneVS);
-
-            this.sceneConstantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
-            this.postConstantBuffer = this.app.createVolatileConstantBuffer(POST_FLOATS * 4, "PostConstants");
-
-            // The scene pass: the scene uniform, the base color texture and its sampler, the node
-            // transform.
-            const sceneLayoutDesc = BindingLayoutDesc.create();
-            sceneLayoutDesc.layoutVolatileConstantBuffer(0);
-            sceneLayoutDesc.layoutTextureSRV(0);
-            sceneLayoutDesc.layoutSampler(0);
-            sceneLayoutDesc.layoutPushConstants(1, MODEL_SIZE);
-            this.sceneBindingLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
-
-            // The post-processing: its uniform, the color and its sampler, the depth.
-            const postLayoutDesc = BindingLayoutDesc.create();
-            postLayoutDesc.layoutVolatileConstantBuffer(0);
-            postLayoutDesc.layoutTextureSRV(0);
-            postLayoutDesc.layoutTextureSRV(1);
-            postLayoutDesc.layoutSampler(0);
-            this.postBindingLayout = this.app.createBindingLayout(postLayoutDesc, ShaderType.Pixel);
-
-            // Donut's common passes, which hold the samplers, upload their textures on a command
-            // list of their own: before ours is open.
-            this.linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
-            const linearWrap = this.app.getCommonSampler(CommonSampler.LinearWrap);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.loadScene(commandList, linearWrap);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            // The scene's camera, as the sample's free camera starts: looking down its node's -z,
-            // its up its node's y (the node rolls it a little).
-            const forward = rotate(CAMERA_ROTATION, [0.0, 0.0, -1.0]);
-            const up = rotate(CAMERA_ROTATION, [0.0, 1.0, 0.0]);
-            const p = CAMERA_POSITION;
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAtWithUp(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2], up[0], up[1], up[2]);
-            this.camera.setMoveSpeed(CAMERA_MOVE_SPEED);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's options window.
@@ -843,6 +842,10 @@ namespace Msaa {
 
         constructor(msaa: MsaaPass) {
             this.msaa = msaa;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -916,11 +919,6 @@ namespace Msaa {
                 Donut_ImGuiText("Not supported");
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

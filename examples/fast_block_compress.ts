@@ -273,6 +273,108 @@ namespace FastBlockCompress {
             this.frameHeight = 720;
         }
 
+        init() {
+            this.pointSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            for (let kind = 0; kind < 3; kind++) {
+                const layoutDesc = BindingLayoutDesc.create();
+                layoutDesc.layoutPushConstants(0, COMPRESS_CONSTANTS_SIZE);
+                layoutDesc.layoutTextureSRV(0);
+                for (let i = 0; i < KIND_OUTPUTS[kind]; i++) {
+                    layoutDesc.layoutTextureUAV(i);
+                }
+                layoutDesc.layoutSampler(0);
+                this.compressLayouts.push(this.app.createBindingLayout(layoutDesc, ShaderType.Compute));
+            }
+            const formats = ["1", "3", "5"];
+            for (let f = 0; f < 3; f++) {
+                for (let kind = 0; kind < 3; kind++) {
+                    const shader = this.app.createShaderWithDefine("fast_block_compress.hlsl", KIND_ENTRIES[kind], ShaderType.Compute,
+                        "FORMAT", formats[f]);
+                    if (!shader) {
+                        return false;
+                    }
+                    this.compressPipelines.push(this.app.createComputePipelineWithLayout(shader, this.compressLayouts[kind]));
+                }
+            }
+
+            const rmsLayoutDesc = BindingLayoutDesc.create();
+            rmsLayoutDesc.layoutPushConstants(0, RMS_CONSTANTS_SIZE);
+            rmsLayoutDesc.layoutTextureSRV(0);
+            rmsLayoutDesc.layoutTextureSRV(1);
+            rmsLayoutDesc.layoutStructuredBufferUAV(0);
+            this.rmsLayout = this.app.createBindingLayout(rmsLayoutDesc, ShaderType.Compute);
+            const reduceLayoutDesc = BindingLayoutDesc.create();
+            reduceLayoutDesc.layoutStructuredBufferUAV(0);
+            reduceLayoutDesc.layoutStructuredBufferUAV(1);
+            this.rmsReduceLayout = this.app.createBindingLayout(reduceLayoutDesc, ShaderType.Compute);
+            const rmsErrorShader = this.app.createShader("fast_block_compress_rms.hlsl", "rms_error_cs", ShaderType.Compute);
+            const rmsReduceShader = this.app.createShader("fast_block_compress_rms.hlsl", "rms_reduce_cs", ShaderType.Compute);
+            this.quadVS = this.app.createShader("fast_block_compress_quad.hlsl", "quad_vs", ShaderType.Vertex);
+            this.quadPS = this.app.createShader("fast_block_compress_quad.hlsl", "quad_ps", ShaderType.Pixel);
+            if (!rmsErrorShader || !rmsReduceShader || !this.quadVS || !this.quadPS) {
+                return false;
+            }
+            this.rmsErrorPipeline = this.app.createComputePipelineWithLayout(rmsErrorShader, this.rmsLayout);
+            this.rmsReducePipeline = this.app.createComputePipelineWithLayout(rmsReduceShader, this.rmsReduceLayout);
+
+            const quadLayoutDesc = BindingLayoutDesc.create();
+            quadLayoutDesc.layoutPushConstants(0, QUAD_CONSTANTS_FLOATS * 4);
+            quadLayoutDesc.layoutSampler(0);
+            quadLayoutDesc.layoutTextureSRV(0);
+            quadLayoutDesc.layoutTextureSRV(1);
+            this.quadLayout = this.app.createBindingLayout(quadLayoutDesc, ShaderType.All);
+
+            // The reduce buffers: a float2 per 4 texels, then a quarter of that.
+            const numElements = MAX_TEXTURE_WIDTH * MAX_TEXTURE_WIDTH / 4;
+            this.reduceBufferA = this.app.createRWStructuredBuffer(8, numElements, "RMS Reduce A");
+            this.reduceBufferB = this.app.createRWStructuredBuffer(8, Math.max(numElements / 4, 1), "RMS Reduce B");
+            for (let i = 0; i < 2; i++) {
+                const desc = BindingSetDesc.create();
+                desc.bindStructuredBufferUAV(0, i == 0 ? this.reduceBufferA : this.reduceBufferB);
+                desc.bindStructuredBufferUAV(1, i == 0 ? this.reduceBufferB : this.reduceBufferA);
+                this.reduceSets.push(this.app.createBindingSetForLayout(desc, this.rmsReduceLayout));
+            }
+            for (let i = 0; i < READBACK_FRAMES; i++) {
+                this.rmsReadbacks.push(this.app.createReadbackBuffer(8, "RMS Result"));
+                this.rmsReadbackWidth.push(0);
+            }
+            for (let i = 0; i < TIMER_FRAMES; i++) {
+                this.timers.push(this.app.createTimerQuery());
+                this.timers.push(this.app.createTimerQuery());
+                this.timerPending.push(false);
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let loaded = true;
+            for (let i = 0; i < IMAGE_NAMES.length && loaded; i++) {
+                const image = this.loadImage(commandList, i);
+                if (image) {
+                    this.images.push(image as Image);
+                } else {
+                    loaded = false;
+                }
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded) {
+                console.log("Cannot load the sample's images: set XBOX_ATG_SAMPLES_DIR when configuring");
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The texture the current method shows.
         compressedTexture(image: Image) {
             const method = this.currentMethod;
@@ -622,109 +724,6 @@ namespace FastBlockCompress {
                 image.passes.push(this.compressPass(image, twoMips ? KIND_TWO_MIPS : KIND_ONE_MIP, i, dispatchWidth, 1.0 / mipWidth));
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.pointSampler = this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            for (let kind = 0; kind < 3; kind++) {
-                const layoutDesc = BindingLayoutDesc.create();
-                layoutDesc.layoutPushConstants(0, COMPRESS_CONSTANTS_SIZE);
-                layoutDesc.layoutTextureSRV(0);
-                for (let i = 0; i < KIND_OUTPUTS[kind]; i++) {
-                    layoutDesc.layoutTextureUAV(i);
-                }
-                layoutDesc.layoutSampler(0);
-                this.compressLayouts.push(this.app.createBindingLayout(layoutDesc, ShaderType.Compute));
-            }
-            const formats = ["1", "3", "5"];
-            for (let f = 0; f < 3; f++) {
-                for (let kind = 0; kind < 3; kind++) {
-                    const shader = this.app.createShaderWithDefine("fast_block_compress.hlsl", KIND_ENTRIES[kind], ShaderType.Compute,
-                        "FORMAT", formats[f]);
-                    if (!shader) {
-                        return false;
-                    }
-                    this.compressPipelines.push(this.app.createComputePipelineWithLayout(shader, this.compressLayouts[kind]));
-                }
-            }
-
-            const rmsLayoutDesc = BindingLayoutDesc.create();
-            rmsLayoutDesc.layoutPushConstants(0, RMS_CONSTANTS_SIZE);
-            rmsLayoutDesc.layoutTextureSRV(0);
-            rmsLayoutDesc.layoutTextureSRV(1);
-            rmsLayoutDesc.layoutStructuredBufferUAV(0);
-            this.rmsLayout = this.app.createBindingLayout(rmsLayoutDesc, ShaderType.Compute);
-            const reduceLayoutDesc = BindingLayoutDesc.create();
-            reduceLayoutDesc.layoutStructuredBufferUAV(0);
-            reduceLayoutDesc.layoutStructuredBufferUAV(1);
-            this.rmsReduceLayout = this.app.createBindingLayout(reduceLayoutDesc, ShaderType.Compute);
-            const rmsErrorShader = this.app.createShader("fast_block_compress_rms.hlsl", "rms_error_cs", ShaderType.Compute);
-            const rmsReduceShader = this.app.createShader("fast_block_compress_rms.hlsl", "rms_reduce_cs", ShaderType.Compute);
-            this.quadVS = this.app.createShader("fast_block_compress_quad.hlsl", "quad_vs", ShaderType.Vertex);
-            this.quadPS = this.app.createShader("fast_block_compress_quad.hlsl", "quad_ps", ShaderType.Pixel);
-            if (!rmsErrorShader || !rmsReduceShader || !this.quadVS || !this.quadPS) {
-                return false;
-            }
-            this.rmsErrorPipeline = this.app.createComputePipelineWithLayout(rmsErrorShader, this.rmsLayout);
-            this.rmsReducePipeline = this.app.createComputePipelineWithLayout(rmsReduceShader, this.rmsReduceLayout);
-
-            const quadLayoutDesc = BindingLayoutDesc.create();
-            quadLayoutDesc.layoutPushConstants(0, QUAD_CONSTANTS_FLOATS * 4);
-            quadLayoutDesc.layoutSampler(0);
-            quadLayoutDesc.layoutTextureSRV(0);
-            quadLayoutDesc.layoutTextureSRV(1);
-            this.quadLayout = this.app.createBindingLayout(quadLayoutDesc, ShaderType.All);
-
-            // The reduce buffers: a float2 per 4 texels, then a quarter of that.
-            const numElements = MAX_TEXTURE_WIDTH * MAX_TEXTURE_WIDTH / 4;
-            this.reduceBufferA = this.app.createRWStructuredBuffer(8, numElements, "RMS Reduce A");
-            this.reduceBufferB = this.app.createRWStructuredBuffer(8, Math.max(numElements / 4, 1), "RMS Reduce B");
-            for (let i = 0; i < 2; i++) {
-                const desc = BindingSetDesc.create();
-                desc.bindStructuredBufferUAV(0, i == 0 ? this.reduceBufferA : this.reduceBufferB);
-                desc.bindStructuredBufferUAV(1, i == 0 ? this.reduceBufferB : this.reduceBufferA);
-                this.reduceSets.push(this.app.createBindingSetForLayout(desc, this.rmsReduceLayout));
-            }
-            for (let i = 0; i < READBACK_FRAMES; i++) {
-                this.rmsReadbacks.push(this.app.createReadbackBuffer(8, "RMS Result"));
-                this.rmsReadbackWidth.push(0);
-            }
-            for (let i = 0; i < TIMER_FRAMES; i++) {
-                this.timers.push(this.app.createTimerQuery());
-                this.timers.push(this.app.createTimerQuery());
-                this.timerPending.push(false);
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let loaded = true;
-            for (let i = 0; i < IMAGE_NAMES.length && loaded; i++) {
-                const image = this.loadImage(commandList, i);
-                if (image) {
-                    this.images.push(image as Image);
-                } else {
-                    loaded = false;
-                }
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded) {
-                console.log("Cannot load the sample's images: set XBOX_ATG_SAMPLES_DIR when configuring");
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's controls (gamepad buttons there) and text.
@@ -733,6 +732,10 @@ namespace FastBlockCompress {
 
         constructor(sample: FastBlockCompressPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         label(text: string, x: number, y: number) {
@@ -836,11 +839,6 @@ namespace FastBlockCompress {
                 this.label("Original Image", 96.0 * sx, 216.0 * sy - lineHeight);
                 this.label(sample.methodLabel(sample.currentMethod), 1014.0 * sx, 216.0 * sy - lineHeight);
             }
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

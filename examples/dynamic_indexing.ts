@@ -118,6 +118,53 @@ namespace DynamicIndexing {
             this.camera = new SimpleCamera();
         }
 
+        init() {
+            const shader = "dynamic_indexing.hlsl";
+            this.vertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
+            if (!this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+            const layoutDesc = InputLayoutDesc.create();
+            // The vertex shader reads the positions and texture coordinates of the 44-byte vertices.
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+
+            // The sample's root signature: the materials' SRVs (t0, and t1 onwards), the sampler,
+            // the city's CBV and the material index (one block of push constants here).
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutPushConstants(0, DRAW_CONSTANT_FLOATS * 4);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutTextureSRVArray(1, CITY_MATERIAL_COUNT);
+            bindingLayoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+
+            // The sample's camera: over the middle of the first row's cities, 15 up and 50 back,
+            // twice the city spacing a second.
+            this.camera.init(Math.fround(Math.fround(CITY_COLUMN_COUNT / 2.0) * CITY_SPACING_INTERVAL - CITY_SPACING_INTERVAL / 2.0), 15.0, 50.0);
+            this.camera.setMoveSpeed(CITY_SPACING_INTERVAL * 2.0);
+
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const ok = this.loadAssets(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!ok) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int): int {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
@@ -201,20 +248,20 @@ namespace DynamicIndexing {
                 console.log(`Cannot load ${DATA_FILE} (the sample's data: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                 return false;
             }
-            let vertices: int[] = [];
+            const vertices: int[] = [];
             for (let i = 0; i < VERTEX_DATA_SIZE / 4; i++) {
                 vertices.push(0);
             }
             binaryFile.copyUInts(VERTEX_DATA_OFFSET, VERTEX_DATA_SIZE / 4, Ref(vertices[0]));
             this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), VERTEX_DATA_SIZE, "City");
-            let indices: int[] = [];
+            const indices: int[] = [];
             for (let i = 0; i < INDEX_DATA_SIZE / 4; i++) {
                 indices.push(0);
             }
             binaryFile.copyUInts(INDEX_DATA_OFFSET, INDEX_DATA_SIZE / 4, Ref(indices[0]));
             this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), INDEX_DATA_SIZE, "City");
             this.indexCount = INDEX_DATA_SIZE / 4;
-            let texels: int[] = [];
+            const texels: int[] = [];
             for (let i = 0; i < TEXTURE_DATA_SIZE / 4; i++) {
                 texels.push(0);
             }
@@ -230,7 +277,7 @@ namespace DynamicIndexing {
             const size = CITY_MATERIAL_TEXTURE_SIZE;
             for (let i = 0; i < CITY_MATERIAL_COUNT; i++) {
                 const t = Math.fround(i * step);
-                let pixels: int[] = [];
+                const pixels: int[] = [];
                 for (let y = 0; y < size; y++) {
                     const tPrime = Math.fround(t + Math.fround(Math.fround(Math.fround(y) / Math.fround(size)) * step));
                     const rgb = hslToRgb(tPrime, 0.5, 0.5);
@@ -261,54 +308,6 @@ namespace DynamicIndexing {
             }
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "dynamic_indexing.hlsl";
-            this.vertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
-            if (!this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-            const layoutDesc = InputLayoutDesc.create();
-            // The vertex shader reads the positions and texture coordinates of the 44-byte vertices.
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-
-            // The sample's root signature: the materials' SRVs (t0, and t1 onwards), the sampler,
-            // the city's CBV and the material index (one block of push constants here).
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutPushConstants(0, DRAW_CONSTANT_FLOATS * 4);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutTextureSRVArray(1, CITY_MATERIAL_COUNT);
-            bindingLayoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-
-            // The sample's camera: over the middle of the first row's cities, 15 up and 50 back,
-            // twice the city spacing a second.
-            this.camera.init(Math.fround(Math.fround(CITY_COLUMN_COUNT / 2.0) * CITY_SPACING_INTERVAL - CITY_SPACING_INTERVAL / 2.0), 15.0, 50.0);
-            this.camera.setMoveSpeed(CITY_SPACING_INTERVAL * 2.0);
-
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const ok = this.loadAssets(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!ok) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // -test: checks the last frame. The sky (the frame's top row) is the clear color; the cities
@@ -316,7 +315,7 @@ namespace DynamicIndexing {
     function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }
@@ -332,7 +331,7 @@ namespace DynamicIndexing {
         }
         // Covered pixels by which channel dominates: red, green, blue, or two of them.
         let covered = 0;
-        let hues: int[] = [0, 0, 0, 0, 0, 0];
+        const hues: int[] = [0, 0, 0, 0, 0, 0];
         for (let i = 0; i < width * height; i++) {
             const p = pixels[i] & 0xFFFFFF;
             if (p == background) {

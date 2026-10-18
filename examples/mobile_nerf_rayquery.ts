@@ -186,198 +186,6 @@ namespace MobileNerfRayQuery {
             }
         }
 
-        onMousePos(x: number, y: number) {
-            this.camera.mouseMove(x, y);
-            return 1;
-        }
-
-        onMouseButton(button: int, action: int, mods: int) {
-            this.camera.mouseButton(button, action);
-            return 1;
-        }
-
-        onAnimate(elapsedSeconds: number) {
-            this.app.setInformativeWindowTitle(WINDOW_TITLE);
-        }
-
-        // The framebuffers of the back buffers go before the back buffers do.
-        onBackBufferResizing() {
-            this.releaseTargets();
-        }
-
-        releaseTargets() {
-            for (const framebuffer of this.framebuffers) {
-                this.app.releaseResource(framebuffer);
-            }
-            this.framebuffers = [];
-            this.targetWidth = 0;
-            this.targetHeight = 0;
-        }
-
-        createTargets(width: int, height: int) {
-            this.releaseTargets();
-            const count = this.app.getBackBufferCount();
-            for (let i = 0; i < count; i++) {
-                this.framebuffers.push(this.app.createFramebuffer(this.app.getBackBuffer(i), null));
-            }
-            // The sample's pipeline draws a triangle over the screen: no culling, nothing blended
-            // (its depth test passes everywhere, the triangle's depth being 0).
-            if (!this.pipelineCreated) {
-                const desc = GraphicsPipelineDesc.create(this.vs, this.ps);
-                desc.addBindingLayout(this.bindingLayout);
-                desc.setDepthState(0, 0, ComparisonFunc.Always);
-                desc.setRasterState(CullMode.None, FillMode.Solid, 1);
-                this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
-                this.pipelineCreated = true;
-            }
-            this.targetWidth = width;
-            this.targetHeight = height;
-        }
-
-        // The sample's create_top_level_acceleration_structure: each model in each place of the
-        // instancing grid, its custom index the model's (for its buffers, textures and weights).
-        buildTopLevelAS(frame: Frame) {
-            const tlas = this.topLevelAS;
-            let offset = [0.0, 0.0, 0.0];
-            for (let x = 0; x < INSTANCE_DIM[0]; x++) {
-                offset[0] = -INSTANCE_INTERVAL[0] * 0.5 * (INSTANCE_DIM[0] - 1) + INSTANCE_INTERVAL[0] * x;
-                for (let y = 0; y < INSTANCE_DIM[1]; y++) {
-                    offset[1] = -INSTANCE_INTERVAL[1] * 0.5 * (INSTANCE_DIM[1] - 1) + INSTANCE_INTERVAL[1] * y;
-                    for (let z = 0; z < INSTANCE_DIM[2]; z++) {
-                        offset[2] = -INSTANCE_INTERVAL[2] * 0.5 * (INSTANCE_DIM[2] - 1) + INSTANCE_INTERVAL[2] * z;
-                        // Rows of a 3 x 4 matrix: identity, translated.
-                        for (let i = 0; i < 12; i++) {
-                            this.transform[i] = i % 5 == 0 ? 1.0 : 0.0;
-                        }
-                        this.transform[3] = offset[0];
-                        this.transform[7] = offset[1];
-                        this.transform[11] = offset[2];
-                        for (let m = 0; m < this.blases.length; m++) {
-                            tlas.addInstanceWithTransform(this.blases[m].getAccelStruct(), 0xFF, m, INSTANCE_FLAGS_CULL_DISABLE,
-                                Ref(this.transform[0]));
-                        }
-                    }
-                }
-            }
-            frame.buildTopLevelAS(tlas);
-        }
-
-        onRender(frameHandle: FrameHandle) {
-            const frame = new Frame(frameHandle);
-            const width = frame.getWidth();
-            const height = frame.getHeight();
-            const commandList = frame.getCommandList();
-
-            if (this.targetWidth != width || this.targetHeight != height) {
-                this.createTargets(width, height);
-            }
-
-            if (!this.topLevelASBuilt) {
-                this.buildTopLevelAS(frame);
-                this.topLevelASBuilt = true;
-            }
-
-            // The sample's update_uniform_buffer: the inverses of its view and projection (glm's,
-            // no y flip: the shader takes SV_Position's y as the sample's gl_FragCoord's).
-            const viewInverse = inverseGaussJordan(this.camera.view());
-            const projInverse = inverseGaussJordan(perspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR));
-            const u = this.ubo;
-            for (let i = 0; i < 16; i++) {
-                u[UBO_VIEW_INVERSE + i] = viewInverse[i];
-                u[UBO_PROJ_INVERSE + i] = projInverse[i];
-            }
-            u[UBO_IMG_DIM] = width;
-            u[UBO_IMG_DIM + 1] = height;
-            u[UBO_TAN_HALF_FOV] = Math.tan(0.5 * radians(CAMERA_FOV));
-            commandList.writeBuffer(this.globalBuffer, Ref(u[0]), UBO_FLOATS * 4);
-            commandList.writeBuffer(this.weightsBuffer, Ref(this.weights[0]), this.weights.length * 4);
-
-            const index = this.app.getCurrentBackBufferIndex();
-            commandList.clearTextureFloat(this.app.getBackBuffer(index), CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
-            frame.beginDrawToFramebuffer(this.pipeline, this.framebuffers[index]);
-            frame.drawAddBindingSet(this.bindingSet);
-            frame.drawVertices(3);
-        }
-
-        // The sample's load_scene, create_static_object_buffers and
-        // create_bottom_level_acceleration_structure for every model: its meshes' vertices (y
-        // flipped, v flipped) and triangles, appended to one vertex and one index buffer, and a BLAS
-        // of them with the model's combo transform (y negated, as the sample's vertices are).
-        loadModels(commandList: CommandList) {
-            let vertices: f32[] = [];
-            let indices: int[] = [];
-            const firstVertices: int[] = [];
-            const firstIndices: int[] = [];
-            const counts: int[] = [];
-            for (const modelName of MODELS) {
-                const path = MEDIA_DIR + modelName + "/shape0.gltf";
-                const scene = this.app.loadGltfModel(path);
-                if (scene.isNull()) {
-                    return false;
-                }
-                const firstVertex = vertices.length / VERTEX_FLOATS;
-                const firstIndex = indices.length;
-                for (let p = 0; p < scene.getPrimitiveCount(); p++) {
-                    const vertexStart = vertices.length / VERTEX_FLOATS - firstVertex;
-                    const vertexCount = scene.getVertexCount(p);
-                    const indexCount = scene.getIndexCount(p);
-                    let gltfVertices: f32[] = [];
-                    for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
-                        gltfVertices.push(0.0);
-                    }
-                    let gltfIndices: int[] = [];
-                    for (let i = 0; i < indexCount; i++) {
-                        gltfIndices.push(0);
-                    }
-                    scene.copyVertices(p, Ref(gltfVertices[0]));
-                    scene.copyIndices(p, Ref(gltfIndices[0]));
-                    for (let v = 0; v < vertexCount; v++) {
-                        const g = v * GLTF_VERTEX_FLOATS;
-                        vertices.push(gltfVertices[g]);
-                        vertices.push(-gltfVertices[g + 1]);
-                        vertices.push(gltfVertices[g + 2]);
-                        vertices.push(gltfVertices[g + 6]);
-                        vertices.push(1.0 - gltfVertices[g + 7]);
-                    }
-                    for (let i = 0; i < indexCount; i++) {
-                        indices.push(vertexStart + gltfIndices[i]);
-                    }
-                }
-                this.app.releaseObject(scene.handle);
-                firstVertices.push(firstVertex);
-                firstIndices.push(firstIndex);
-                counts.push(vertices.length / VERTEX_FLOATS - firstVertex);
-                counts.push(indices.length - firstIndex);
-                this.modelOffsets.push(firstVertex);
-                this.modelOffsets.push(firstIndex);
-            }
-
-            const vertexCount = vertices.length / VERTEX_FLOATS;
-            this.vertexBuffer = this.app.createAccelStructInputStructuredBuffer(4, vertexCount * VERTEX_FLOATS, "Vertices");
-            this.indexBuffer = this.app.createAccelStructInputStructuredBuffer(4, indices.length, "Indices");
-            commandList.writeBuffer(this.vertexBuffer, Ref(vertices[0]), vertexCount * VERTEX_SIZE);
-            commandList.writeBuffer(this.indexBuffer, Ref(indices[0]), indices.length * 4);
-
-            let geometryTransform: f32[] = [];
-            for (let i = 0; i < 12; i++) {
-                geometryTransform.push(i % 5 == 0 ? 1.0 : 0.0);
-            }
-            for (let m = 0; m < MODELS.length; m++) {
-                geometryTransform[3] = COMBO_TRANSLATIONS[m * 3];
-                geometryTransform[7] = -COMBO_TRANSLATIONS[m * 3 + 1];
-                geometryTransform[11] = COMBO_TRANSLATIONS[m * 3 + 2];
-                const blas = this.app.createEmptyTriangleBlas(`Model #${m} BLAS`);
-                blas.addGeometry(this.indexBuffer, firstIndices[m] * 4, counts[m * 2 + 1], this.vertexBuffer,
-                    firstVertices[m] * VERTEX_SIZE, counts[m * 2], VERTEX_SIZE, Ref(geometryTransform[0]));
-                if (blas.build(this.app, commandList, AccelStructBuildFlags.PreferFastTrace) == 0) {
-                    return false;
-                }
-                this.blases.push(blas);
-            }
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init() {
             const shader = "mobile_nerf_rayquery.hlsl";
             this.vs = this.app.createShader(shader, "quad_vs", ShaderType.Vertex);
@@ -461,6 +269,197 @@ namespace MobileNerfRayQuery {
             pass.setAnimateCallback(this.onAnimate);
             pass.setBackBufferResizingCallback(this.onBackBufferResizing);
             pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
+        onMousePos(x: number, y: number) {
+            this.camera.mouseMove(x, y);
+            return 1;
+        }
+
+        onMouseButton(button: int, action: int, mods: int) {
+            this.camera.mouseButton(button, action);
+            return 1;
+        }
+
+        onAnimate(elapsedSeconds: number) {
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
+        }
+
+        // The framebuffers of the back buffers go before the back buffers do.
+        onBackBufferResizing() {
+            this.releaseTargets();
+        }
+
+        releaseTargets() {
+            for (const framebuffer of this.framebuffers) {
+                this.app.releaseResource(framebuffer);
+            }
+            this.framebuffers = [];
+            this.targetWidth = 0;
+            this.targetHeight = 0;
+        }
+
+        createTargets(width: int, height: int) {
+            this.releaseTargets();
+            const count = this.app.getBackBufferCount();
+            for (let i = 0; i < count; i++) {
+                this.framebuffers.push(this.app.createFramebuffer(this.app.getBackBuffer(i), null));
+            }
+            // The sample's pipeline draws a triangle over the screen: no culling, nothing blended
+            // (its depth test passes everywhere, the triangle's depth being 0).
+            if (!this.pipelineCreated) {
+                const desc = GraphicsPipelineDesc.create(this.vs, this.ps);
+                desc.addBindingLayout(this.bindingLayout);
+                desc.setDepthState(0, 0, ComparisonFunc.Always);
+                desc.setRasterState(CullMode.None, FillMode.Solid, 1);
+                this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
+                this.pipelineCreated = true;
+            }
+            this.targetWidth = width;
+            this.targetHeight = height;
+        }
+
+        // The sample's create_top_level_acceleration_structure: each model in each place of the
+        // instancing grid, its custom index the model's (for its buffers, textures and weights).
+        buildTopLevelAS(frame: Frame) {
+            const tlas = this.topLevelAS;
+            const offset = [0.0, 0.0, 0.0];
+            for (let x = 0; x < INSTANCE_DIM[0]; x++) {
+                offset[0] = -INSTANCE_INTERVAL[0] * 0.5 * (INSTANCE_DIM[0] - 1) + INSTANCE_INTERVAL[0] * x;
+                for (let y = 0; y < INSTANCE_DIM[1]; y++) {
+                    offset[1] = -INSTANCE_INTERVAL[1] * 0.5 * (INSTANCE_DIM[1] - 1) + INSTANCE_INTERVAL[1] * y;
+                    for (let z = 0; z < INSTANCE_DIM[2]; z++) {
+                        offset[2] = -INSTANCE_INTERVAL[2] * 0.5 * (INSTANCE_DIM[2] - 1) + INSTANCE_INTERVAL[2] * z;
+                        // Rows of a 3 x 4 matrix: identity, translated.
+                        for (let i = 0; i < 12; i++) {
+                            this.transform[i] = i % 5 == 0 ? 1.0 : 0.0;
+                        }
+                        this.transform[3] = offset[0];
+                        this.transform[7] = offset[1];
+                        this.transform[11] = offset[2];
+                        for (let m = 0; m < this.blases.length; m++) {
+                            tlas.addInstanceWithTransform(this.blases[m].getAccelStruct(), 0xFF, m, INSTANCE_FLAGS_CULL_DISABLE,
+                                Ref(this.transform[0]));
+                        }
+                    }
+                }
+            }
+            frame.buildTopLevelAS(tlas);
+        }
+
+        onRender(frameHandle: FrameHandle) {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
+            const commandList = frame.getCommandList();
+
+            if (this.targetWidth != width || this.targetHeight != height) {
+                this.createTargets(width, height);
+            }
+
+            if (!this.topLevelASBuilt) {
+                this.buildTopLevelAS(frame);
+                this.topLevelASBuilt = true;
+            }
+
+            // The sample's update_uniform_buffer: the inverses of its view and projection (glm's,
+            // no y flip: the shader takes SV_Position's y as the sample's gl_FragCoord's).
+            const viewInverse = inverseGaussJordan(this.camera.view());
+            const projInverse = inverseGaussJordan(perspective(radians(CAMERA_FOV), width / height, Z_NEAR, Z_FAR));
+            const u = this.ubo;
+            for (let i = 0; i < 16; i++) {
+                u[UBO_VIEW_INVERSE + i] = viewInverse[i];
+                u[UBO_PROJ_INVERSE + i] = projInverse[i];
+            }
+            u[UBO_IMG_DIM] = width;
+            u[UBO_IMG_DIM + 1] = height;
+            u[UBO_TAN_HALF_FOV] = Math.tan(0.5 * radians(CAMERA_FOV));
+            commandList.writeBuffer(this.globalBuffer, Ref(u[0]), UBO_FLOATS * 4);
+            commandList.writeBuffer(this.weightsBuffer, Ref(this.weights[0]), this.weights.length * 4);
+
+            const index = this.app.getCurrentBackBufferIndex();
+            commandList.clearTextureFloat(this.app.getBackBuffer(index), CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
+            frame.beginDrawToFramebuffer(this.pipeline, this.framebuffers[index]);
+            frame.drawAddBindingSet(this.bindingSet);
+            frame.drawVertices(3);
+        }
+
+        // The sample's load_scene, create_static_object_buffers and
+        // create_bottom_level_acceleration_structure for every model: its meshes' vertices (y
+        // flipped, v flipped) and triangles, appended to one vertex and one index buffer, and a BLAS
+        // of them with the model's combo transform (y negated, as the sample's vertices are).
+        loadModels(commandList: CommandList) {
+            const vertices: f32[] = [];
+            const indices: int[] = [];
+            const firstVertices: int[] = [];
+            const firstIndices: int[] = [];
+            const counts: int[] = [];
+            for (const modelName of MODELS) {
+                const path = MEDIA_DIR + modelName + "/shape0.gltf";
+                const scene = this.app.loadGltfModel(path);
+                if (scene.isNull()) {
+                    return false;
+                }
+                const firstVertex = vertices.length / VERTEX_FLOATS;
+                const firstIndex = indices.length;
+                for (let p = 0; p < scene.getPrimitiveCount(); p++) {
+                    const vertexStart = vertices.length / VERTEX_FLOATS - firstVertex;
+                    const vertexCount = scene.getVertexCount(p);
+                    const indexCount = scene.getIndexCount(p);
+                    const gltfVertices: f32[] = [];
+                    for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
+                        gltfVertices.push(0.0);
+                    }
+                    const gltfIndices: int[] = [];
+                    for (let i = 0; i < indexCount; i++) {
+                        gltfIndices.push(0);
+                    }
+                    scene.copyVertices(p, Ref(gltfVertices[0]));
+                    scene.copyIndices(p, Ref(gltfIndices[0]));
+                    for (let v = 0; v < vertexCount; v++) {
+                        const g = v * GLTF_VERTEX_FLOATS;
+                        vertices.push(gltfVertices[g]);
+                        vertices.push(-gltfVertices[g + 1]);
+                        vertices.push(gltfVertices[g + 2]);
+                        vertices.push(gltfVertices[g + 6]);
+                        vertices.push(1.0 - gltfVertices[g + 7]);
+                    }
+                    for (let i = 0; i < indexCount; i++) {
+                        indices.push(vertexStart + gltfIndices[i]);
+                    }
+                }
+                this.app.releaseObject(scene.handle);
+                firstVertices.push(firstVertex);
+                firstIndices.push(firstIndex);
+                counts.push(vertices.length / VERTEX_FLOATS - firstVertex);
+                counts.push(indices.length - firstIndex);
+                this.modelOffsets.push(firstVertex);
+                this.modelOffsets.push(firstIndex);
+            }
+
+            const vertexCount = vertices.length / VERTEX_FLOATS;
+            this.vertexBuffer = this.app.createAccelStructInputStructuredBuffer(4, vertexCount * VERTEX_FLOATS, "Vertices");
+            this.indexBuffer = this.app.createAccelStructInputStructuredBuffer(4, indices.length, "Indices");
+            commandList.writeBuffer(this.vertexBuffer, Ref(vertices[0]), vertexCount * VERTEX_SIZE);
+            commandList.writeBuffer(this.indexBuffer, Ref(indices[0]), indices.length * 4);
+
+            const geometryTransform: f32[] = [];
+            for (let i = 0; i < 12; i++) {
+                geometryTransform.push(i % 5 == 0 ? 1.0 : 0.0);
+            }
+            for (let m = 0; m < MODELS.length; m++) {
+                geometryTransform[3] = COMBO_TRANSLATIONS[m * 3];
+                geometryTransform[7] = -COMBO_TRANSLATIONS[m * 3 + 1];
+                geometryTransform[11] = COMBO_TRANSLATIONS[m * 3 + 2];
+                const blas = this.app.createEmptyTriangleBlas(`Model #${m} BLAS`);
+                blas.addGeometry(this.indexBuffer, firstIndices[m] * 4, counts[m * 2 + 1], this.vertexBuffer,
+                    firstVertices[m] * VERTEX_SIZE, counts[m * 2], VERTEX_SIZE, Ref(geometryTransform[0]));
+                if (blas.build(this.app, commandList, AccelStructBuildFlags.PreferFastTrace) == 0) {
+                    return false;
+                }
+                this.blases.push(blas);
+            }
             return true;
         }
     }

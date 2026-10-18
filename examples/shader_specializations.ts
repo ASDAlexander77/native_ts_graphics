@@ -57,6 +57,21 @@ namespace ShaderSpecializations {
             this.pipelines = [];
         }
 
+        init() {
+            this.vertexShader = this.app.createShader("shader_specializations.hlsl", "main_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("shader_specializations.hlsl", "main_ps", ShaderType.Pixel);
+
+            if (!this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onBackBufferResizing() {
             for (const pipeline of this.pipelines) {
                 this.app.releaseResource(pipeline);
@@ -94,22 +109,6 @@ namespace ShaderSpecializations {
             for (const pipeline of this.pipelines) {
                 frame.draw(pipeline, 3);
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.vertexShader = this.app.createShader("shader_specializations.hlsl", "main_vs", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader("shader_specializations.hlsl", "main_ps", ShaderType.Pixel);
-
-            if (!this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

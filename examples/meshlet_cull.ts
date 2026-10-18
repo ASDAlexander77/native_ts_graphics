@@ -171,8 +171,7 @@ namespace MeshletCull {
             if (k[7] != 0) {
                 this.pitch = Math.fround(this.pitch - rotateInterval);
             }
-            // Prevent looking too far up or down. Not Math.max: tslang's starts from
-            // Number.MIN_VALUE, above any negative number.
+            // Prevent looking too far up or down.
             const quarterPi = Math.fround(XM_PI / 4.0);
             if (this.pitch > quarterPi) {
                 this.pitch = quarterPi;
@@ -401,6 +400,79 @@ namespace MeshletCull {
             this.mouseY = -1.0;
             this.selectBeforeFrame = 0;
             this.frameNumber = 0;
+        }
+
+        init() {
+            const shader = "meshlet_cull.hlsl";
+            const visualizers = "meshlet_cull_visualizers.hlsl";
+            this.meshPipelineAS = this.app.createShader(shader, "main_as", ShaderType.Amplification);
+            this.meshPipelineMS = this.app.createShader(shader, "main_ms", ShaderType.Mesh);
+            this.meshPipelinePS = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
+            this.frustumMS = this.app.createShader(visualizers, "frustum_ms", ShaderType.Mesh);
+            this.sphereMS = this.app.createShader(visualizers, "sphere_ms", ShaderType.Mesh);
+            this.coneMS = this.app.createShader(visualizers, "cone_ms", ShaderType.Mesh);
+            this.debugPS = this.app.createShader(visualizers, "debug_ps", ShaderType.Pixel);
+            if (!this.meshPipelineAS || !this.meshPipelineMS || !this.meshPipelinePS || !this.frustumMS
+                || !this.sphereMS || !this.coneMS || !this.debugPS) {
+                return false;
+            }
+
+            // The sample's root signatures: CBV(b0), CBV(b1), CBV(b2), SRV(t0) .. SRV(t4); the
+            // frustum's CBV(b0); the culling data's CBV(b0), RootConstants(b1, 2), SRV(t0).
+            const meshLayoutDesc = BindingLayoutDesc.create();
+            meshLayoutDesc.layoutConstantBuffer(0);
+            meshLayoutDesc.layoutConstantBuffer(1);
+            meshLayoutDesc.layoutConstantBuffer(2);
+            meshLayoutDesc.layoutRawBufferSRV(0);
+            meshLayoutDesc.layoutStructuredBufferSRV(1);
+            meshLayoutDesc.layoutRawBufferSRV(2);
+            meshLayoutDesc.layoutStructuredBufferSRV(3);
+            meshLayoutDesc.layoutRawBufferSRV(4);
+            this.meshLayout = this.app.createBindingLayout(meshLayoutDesc, ShaderType.All);
+            const frustumLayoutDesc = BindingLayoutDesc.create();
+            frustumLayoutDesc.layoutConstantBuffer(0);
+            this.frustumLayout = this.app.createBindingLayout(frustumLayoutDesc, ShaderType.All);
+            const cullDataLayoutDesc = BindingLayoutDesc.create();
+            cullDataLayoutDesc.layoutConstantBuffer(0);
+            cullDataLayoutDesc.layoutPushConstants(1, OPTIONS_SIZE);
+            cullDataLayoutDesc.layoutRawBufferSRV(0);
+            this.cullDataLayout = this.app.createBindingLayout(cullDataLayoutDesc, ShaderType.All);
+
+            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "Constants");
+            this.frustumBuffer = this.app.createConstantBuffer(FRUSTUM_CONSTANTS_SIZE, "FrustumConstants");
+            this.cullDataBuffer = this.app.createConstantBuffer(CULL_DATA_CONSTANTS_SIZE, "CullDataConstants");
+            const frustumSetDesc = BindingSetDesc.create();
+            frustumSetDesc.bindEntireConstantBuffer(0, this.frustumBuffer);
+            this.frustumBindingSet = this.app.createBindingSetForLayout(frustumSetDesc, this.frustumLayout);
+
+            // The sample's cameras: the main one at (0, 15, 40), the culling one at (0, 10, 21).
+            this.mainCam.init(0.0, 15.0, 40.0);
+            this.mainCam.setMoveSpeed(25.0);
+            this.debugCam.init(0.0, 10.0, 21.0);
+            this.debugCam.setMoveSpeed(25.0);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let ok = true;
+            for (let i = 0; i < MODEL_FILES.length && ok; i++) {
+                ok = this.loadObject(commandList, i);
+            }
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!ok) {
+                return false;
+            }
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
         }
 
         // OnKeyDown / OnKeyUp.
@@ -761,7 +833,7 @@ namespace MeshletCull {
                 const cullData = this.app.createStaticShaderBuffer(commandList, model.getData(i, MeshletModelData.CullData),
                     meshletCount * CULL_DATA_STRIDE, 0, "CullData");
 
-                let unique: int[] = [];
+                const unique: int[] = [];
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
                 }
@@ -769,12 +841,12 @@ namespace MeshletCull {
                 const uniqueVertexIndices = this.app.createStaticShaderBuffer(commandList, Ref(unique[0]), uniqueInts * 4, 0, "UniqueVertexIndices");
 
                 // MeshInfo: index size, meshlet count, the last meshlet's vertex and primitive counts.
-                let meshletInts: int[] = [];
+                const meshletInts: int[] = [];
                 for (let j = 0; j < meshletCount * 4; j++) {
                     meshletInts.push(0);
                 }
                 model.copyData(i, MeshletModelData.Meshlets, Ref(meshletInts[0]));
-                let meshInfo = [indexSize, meshletCount, meshletInts[(meshletCount - 1) * 4], meshletInts[(meshletCount - 1) * 4 + 2]];
+                const meshInfo = [indexSize, meshletCount, meshletInts[(meshletCount - 1) * 4], meshletInts[(meshletCount - 1) * 4 + 2]];
                 const meshInfoBuffer = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfo");
                 commandList.writeBuffer(meshInfoBuffer, Ref(meshInfo[0]), 16);
 
@@ -800,19 +872,19 @@ namespace MeshletCull {
                 if (index == VIEW_MODEL && i == 0) {
                     mesh.meshlets = meshletInts;
                     mesh.uniqueIndices = unique;
-                    let prims: int[] = [];
+                    const prims: int[] = [];
                     for (let j = 0; j < primitiveCount; j++) {
                         prims.push(0);
                     }
                     model.copyData(i, MeshletModelData.PrimitiveIndices, Ref(prims[0]));
                     mesh.primitives = prims;
-                    let verts: f32[] = [];
+                    const verts: f32[] = [];
                     for (let j = 0; j < vertexSize / 4; j++) {
                         verts.push(0.0);
                     }
                     model.copyVertexBuffer(i, 0, Ref(verts[0]));
                     mesh.vertices = verts;
-                    let cull: f32[] = [];
+                    const cull: f32[] = [];
                     for (let j = 0; j < meshletCount * 6; j++) {
                         cull.push(0.0);
                     }
@@ -825,80 +897,6 @@ namespace MeshletCull {
             this.objects.push(obj);
             return ok;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "meshlet_cull.hlsl";
-            const visualizers = "meshlet_cull_visualizers.hlsl";
-            this.meshPipelineAS = this.app.createShader(shader, "main_as", ShaderType.Amplification);
-            this.meshPipelineMS = this.app.createShader(shader, "main_ms", ShaderType.Mesh);
-            this.meshPipelinePS = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
-            this.frustumMS = this.app.createShader(visualizers, "frustum_ms", ShaderType.Mesh);
-            this.sphereMS = this.app.createShader(visualizers, "sphere_ms", ShaderType.Mesh);
-            this.coneMS = this.app.createShader(visualizers, "cone_ms", ShaderType.Mesh);
-            this.debugPS = this.app.createShader(visualizers, "debug_ps", ShaderType.Pixel);
-            if (!this.meshPipelineAS || !this.meshPipelineMS || !this.meshPipelinePS || !this.frustumMS
-                || !this.sphereMS || !this.coneMS || !this.debugPS) {
-                return false;
-            }
-
-            // The sample's root signatures: CBV(b0), CBV(b1), CBV(b2), SRV(t0) .. SRV(t4); the
-            // frustum's CBV(b0); the culling data's CBV(b0), RootConstants(b1, 2), SRV(t0).
-            const meshLayoutDesc = BindingLayoutDesc.create();
-            meshLayoutDesc.layoutConstantBuffer(0);
-            meshLayoutDesc.layoutConstantBuffer(1);
-            meshLayoutDesc.layoutConstantBuffer(2);
-            meshLayoutDesc.layoutRawBufferSRV(0);
-            meshLayoutDesc.layoutStructuredBufferSRV(1);
-            meshLayoutDesc.layoutRawBufferSRV(2);
-            meshLayoutDesc.layoutStructuredBufferSRV(3);
-            meshLayoutDesc.layoutRawBufferSRV(4);
-            this.meshLayout = this.app.createBindingLayout(meshLayoutDesc, ShaderType.All);
-            const frustumLayoutDesc = BindingLayoutDesc.create();
-            frustumLayoutDesc.layoutConstantBuffer(0);
-            this.frustumLayout = this.app.createBindingLayout(frustumLayoutDesc, ShaderType.All);
-            const cullDataLayoutDesc = BindingLayoutDesc.create();
-            cullDataLayoutDesc.layoutConstantBuffer(0);
-            cullDataLayoutDesc.layoutPushConstants(1, OPTIONS_SIZE);
-            cullDataLayoutDesc.layoutRawBufferSRV(0);
-            this.cullDataLayout = this.app.createBindingLayout(cullDataLayoutDesc, ShaderType.All);
-
-            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "Constants");
-            this.frustumBuffer = this.app.createConstantBuffer(FRUSTUM_CONSTANTS_SIZE, "FrustumConstants");
-            this.cullDataBuffer = this.app.createConstantBuffer(CULL_DATA_CONSTANTS_SIZE, "CullDataConstants");
-            const frustumSetDesc = BindingSetDesc.create();
-            frustumSetDesc.bindEntireConstantBuffer(0, this.frustumBuffer);
-            this.frustumBindingSet = this.app.createBindingSetForLayout(frustumSetDesc, this.frustumLayout);
-
-            // The sample's cameras: the main one at (0, 15, 40), the culling one at (0, 10, 21).
-            this.mainCam.init(0.0, 15.0, 40.0);
-            this.mainCam.setMoveSpeed(25.0);
-            this.debugCam.init(0.0, 10.0, 21.0);
-            this.debugCam.setMoveSpeed(25.0);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let ok = true;
-            for (let i = 0; i < MODEL_FILES.length && ok; i++) {
-                ok = this.loadObject(commandList, i);
-            }
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!ok) {
-                return false;
-            }
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // -test: checks the last frame, with the meshlet under the window's center selected. The
@@ -908,7 +906,7 @@ namespace MeshletCull {
     function checkFrame(app: App, pass: MeshletCullPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

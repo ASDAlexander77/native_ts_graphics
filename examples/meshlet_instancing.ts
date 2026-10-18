@@ -116,6 +116,44 @@ namespace MeshletInstancing {
             this.drawMeshlets = true;
         }
 
+        init() {
+            this.meshShader = this.app.createShader("meshlet_instancing.hlsl", "main_ms", ShaderType.Mesh);
+            this.pixelShader = this.app.createShader("meshlet_instancing.hlsl", "main_ps", ShaderType.Pixel);
+            if (!this.meshShader || !this.pixelShader) {
+                return false;
+            }
+            // The sample's root signature: CBV(b0), RootConstants(b1, 2), RootConstants(b2, 3),
+            // SRV(t0) .. SRV(t4); its root constants one block of push constants.
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutConstantBuffer(0);
+            layoutDesc.layoutPushConstants(1, PARAMS_SIZE);
+            layoutDesc.layoutRawBufferSRV(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutRawBufferSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            layoutDesc.layoutStructuredBufferSRV(4);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "SceneConstantBuffer");
+
+            // The sample's camera: at (0, 5, 35), 60 units a second.
+            this.camera.init(0.0, 5.0, 35.0);
+            this.camera.setMoveSpeed(60.0);
+
+            if (!this.loadModel()) {
+                return false;
+            }
+            this.regenerateInstances();
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // OnKeyDown / OnKeyUp.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_PRESS) {
@@ -305,7 +343,7 @@ namespace MeshletInstancing {
                 return false;
             }
             const model = loaded;
-            let sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
+            const sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
             model.copyBoundingSphere(-1, Ref(sphere[0]));
             this.radius = sphere[3];
 
@@ -327,7 +365,7 @@ namespace MeshletInstancing {
                 // The unique vertex indices, rounded up to whole uints, as the sample's buffer.
                 const uniqueSize = model.getDataSize(i, MeshletModelData.UniqueVertexIndices);
                 const uniqueInts = Math.floor((uniqueSize + 3) / 4);
-                let unique: int[] = [];
+                const unique: int[] = [];
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
                 }
@@ -338,13 +376,13 @@ namespace MeshletInstancing {
                     primitiveCount * 4, 4, "PrimitiveIndices"));
 
                 const mesh = new GpuMesh(new BindingSet(null), model.getIndexSize(i));
-                let meshlets: int[] = [];
+                const meshlets: int[] = [];
                 for (let j = 0; j < meshletCount * 4; j++) {
                     meshlets.push(0);
                 }
                 model.copyData(i, MeshletModelData.Meshlets, Ref(meshlets[0]));
                 const subsetCount = model.getDataCount(i, MeshletModelData.MeshletSubsets);
-                let subsets: int[] = [];
+                const subsets: int[] = [];
                 for (let j = 0; j < subsetCount * 2; j++) {
                     subsets.push(0);
                 }
@@ -365,45 +403,6 @@ namespace MeshletInstancing {
             model.destroy();
             return ok;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.meshShader = this.app.createShader("meshlet_instancing.hlsl", "main_ms", ShaderType.Mesh);
-            this.pixelShader = this.app.createShader("meshlet_instancing.hlsl", "main_ps", ShaderType.Pixel);
-            if (!this.meshShader || !this.pixelShader) {
-                return false;
-            }
-            // The sample's root signature: CBV(b0), RootConstants(b1, 2), RootConstants(b2, 3),
-            // SRV(t0) .. SRV(t4); its root constants one block of push constants.
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutConstantBuffer(0);
-            layoutDesc.layoutPushConstants(1, PARAMS_SIZE);
-            layoutDesc.layoutRawBufferSRV(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            layoutDesc.layoutRawBufferSRV(2);
-            layoutDesc.layoutStructuredBufferSRV(3);
-            layoutDesc.layoutStructuredBufferSRV(4);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "SceneConstantBuffer");
-
-            // The sample's camera: at (0, 5, 35), 60 units a second.
-            this.camera.init(0.0, 5.0, 35.0);
-            this.camera.setMoveSpeed(60.0);
-
-            if (!this.loadModel()) {
-                return false;
-            }
-            this.regenerateInstances();
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // -test: checks the last frame, at instance level 2 (125 robots around the camera). They cover
@@ -412,7 +411,7 @@ namespace MeshletInstancing {
     function checkFrame(app: App, pass: MeshletInstancingPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

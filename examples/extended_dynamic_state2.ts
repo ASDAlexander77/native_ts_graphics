@@ -216,6 +216,78 @@ namespace ExtendedDynamicState2 {
             }
         }
 
+        init() {
+            const shader = "extended_dynamic_state2.hlsl";
+            this.baselineVS = this.app.createShader(shader, "baseline_vs", ShaderType.Vertex);
+            this.baselinePS = this.app.createShader(shader, "baseline_ps", ShaderType.Pixel);
+            this.backgroundVS = this.app.createShader(shader, "background_vs", ShaderType.Vertex);
+            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
+            this.tessVS = this.app.createShader(shader, "tess_vs", ShaderType.Vertex);
+            this.tessHS = this.app.createShader(shader, "tess_hs", ShaderType.Hull);
+            this.tessDS = this.app.createShader(shader, "tess_ds", ShaderType.Domain);
+            this.tessPS = this.app.createShader(shader, "tess_ps", ShaderType.Pixel);
+            if (!this.baselineVS || !this.baselinePS || !this.backgroundVS || !this.backgroundPS || !this.tessVS || !this.tessHS
+                || !this.tessDS || !this.tessPS) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.baselineVS);
+            // The background's and the tessellation's vertex shaders take positions only.
+            const positionLayoutDesc = InputLayoutDesc.create();
+            positionLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
+            this.positionInputLayout = this.app.createInputLayout(positionLayoutDesc, this.backgroundVS);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const loaded = this.loadModels(commandList);
+            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!loaded || !envmap) {
+                console.log("Cannot load the models and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.previousSelected = this.selectedObject;
+            this.updateAlphaDirection();
+
+            this.commonBuffer = this.app.createVolatileConstantBuffer(32 * 4, "UBOCOMM");
+            this.baselineBuffer = this.app.createVolatileConstantBuffer(BASELINE_CONSTANTS.length * 4, "UBOBAS");
+            this.tessBuffer = this.app.createVolatileConstantBuffer(4 * 4, "UBOTESS");
+            // The sample's cube map sampler: trilinear and anisotropic, clamped.
+            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0,
+                this.app.getMaxSamplerAnisotropy());
+
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutVolatileConstantBuffer(1);
+            bindingLayoutDesc.layoutPushConstants(2, NODE_FLOATS * 4);
+            bindingLayoutDesc.layoutVolatileConstantBuffer(3);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.commonBuffer);
+            setDesc.bindEntireConstantBuffer(1, this.baselineBuffer);
+            setDesc.bindPushConstants(2, NODE_FLOATS * 4);
+            setDesc.bindEntireConstantBuffer(3, this.tessBuffer);
+            setDesc.bindTextureSRV(0, envmap);
+            setDesc.bindSampler(0, sampler);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -452,19 +524,19 @@ namespace ExtendedDynamicState2 {
 
             // Every primitive in the shared buffers, then the nodes in the framework's order.
             const primitiveCount = model.getPrimitiveCount();
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             const firstIndex: int[] = [];
             const indexCounts: int[] = [];
             const baseVertex: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
                 const vertexCount = model.getVertexCount(p);
                 const indexCount = model.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
+                const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
                 }
-                let primitiveIndices: int[] = [];
+                const primitiveIndices: int[] = [];
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
@@ -481,11 +553,11 @@ namespace ExtendedDynamicState2 {
                 }
             }
 
-            let transform: f32[] = [];
+            const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }
-            let color: f32[] = [0.0, 0.0, 0.0, 0.0];
+            const color: f32[] = [0.0, 0.0, 0.0, 0.0];
             const nodeCount = model.getNodeCount();
             for (let o = 0; o < SCENE_ORDER.length; o++) {
                 for (let p = 0; p < primitiveCount; p++) {
@@ -523,7 +595,7 @@ namespace ExtendedDynamicState2 {
             this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
 
             // The restarting cube: its 8 corners, normals the sum of their faces'.
-            let cube: f32[] = [];
+            const cube: f32[] = [];
             for (let v = 0; v < 8; v++) {
                 const x = v == 1 || v == 2 || v == 5 || v == 6 ? 1.0 : 0.0;
                 const y = v == 2 || v == 3 || v == 6 || v == 7 ? 1.0 : 0.0;
@@ -544,79 +616,6 @@ namespace ExtendedDynamicState2 {
                 "CubeIndices");
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "extended_dynamic_state2.hlsl";
-            this.baselineVS = this.app.createShader(shader, "baseline_vs", ShaderType.Vertex);
-            this.baselinePS = this.app.createShader(shader, "baseline_ps", ShaderType.Pixel);
-            this.backgroundVS = this.app.createShader(shader, "background_vs", ShaderType.Vertex);
-            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
-            this.tessVS = this.app.createShader(shader, "tess_vs", ShaderType.Vertex);
-            this.tessHS = this.app.createShader(shader, "tess_hs", ShaderType.Hull);
-            this.tessDS = this.app.createShader(shader, "tess_ds", ShaderType.Domain);
-            this.tessPS = this.app.createShader(shader, "tess_ps", ShaderType.Pixel);
-            if (!this.baselineVS || !this.baselinePS || !this.backgroundVS || !this.backgroundPS || !this.tessVS || !this.tessHS
-                || !this.tessDS || !this.tessPS) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.baselineVS);
-            // The background's and the tessellation's vertex shaders take positions only.
-            const positionLayoutDesc = InputLayoutDesc.create();
-            positionLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
-            this.positionInputLayout = this.app.createInputLayout(positionLayoutDesc, this.backgroundVS);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const loaded = this.loadModels(commandList);
-            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!loaded || !envmap) {
-                console.log("Cannot load the models and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.previousSelected = this.selectedObject;
-            this.updateAlphaDirection();
-
-            this.commonBuffer = this.app.createVolatileConstantBuffer(32 * 4, "UBOCOMM");
-            this.baselineBuffer = this.app.createVolatileConstantBuffer(BASELINE_CONSTANTS.length * 4, "UBOBAS");
-            this.tessBuffer = this.app.createVolatileConstantBuffer(4 * 4, "UBOTESS");
-            // The sample's cube map sampler: trilinear and anisotropic, clamped.
-            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1000.0,
-                this.app.getMaxSamplerAnisotropy());
-
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutVolatileConstantBuffer(1);
-            bindingLayoutDesc.layoutPushConstants(2, NODE_FLOATS * 4);
-            bindingLayoutDesc.layoutVolatileConstantBuffer(3);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.commonBuffer);
-            setDesc.bindEntireConstantBuffer(1, this.baselineBuffer);
-            setDesc.bindPushConstants(2, NODE_FLOATS * 4);
-            setDesc.bindEntireConstantBuffer(3, this.tessBuffer);
-            setDesc.bindTextureSRV(0, envmap);
-            setDesc.bindSampler(0, sampler);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's options.
@@ -625,6 +624,10 @@ namespace ExtendedDynamicState2 {
 
         constructor(pass: ExtendedDynamicState2Pass) {
             this.pass = pass;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -645,11 +648,6 @@ namespace ExtendedDynamicState2 {
                 node.rasterizerDiscard = Donut_ImGuiCheckbox("Rasterizer Discard", node.rasterizerDiscard ? 1 : 0) != 0;
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

@@ -134,6 +134,64 @@ namespace GraphicsPipelineLibrary {
             this.push = [0.0, 0.0, 0.0, 0.0];
         }
 
+        init(seed: int) {
+            const shader = "graphics_pipeline_library.hlsl";
+            this.vs = this.app.createShader(shader, "shared_vs", ShaderType.Vertex);
+            if (!this.vs) {
+                return false;
+            }
+            for (let m = 0; m < LIGHTING_MODELS; m++) {
+                const ps = this.app.createShaderWithDefine(shader, "uber_ps", ShaderType.Pixel, "LIGHTING_MODEL", `${m}`);
+                if (!ps) {
+                    return false;
+                }
+                this.ps.push(ps);
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.model = this.app.loadGltfMesh(commandList, MODEL_PATH);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (this.model.isNull()) {
+                console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindPushConstants(1, PUSH_SIZE);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            // The sample's random colors (its engine seeded from std::random_device unless -seed),
+            // and its first pipeline.
+            this.rng = this.app.createRandomEngine(seed);
+            for (let i = 0; i < COLOR_COUNT * 3; i++) {
+                this.colors.push(this.rng.uniformFloat(0.2, 0.8));
+            }
+            this.pendingPipelines++;
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -255,65 +313,6 @@ namespace GraphicsPipelineLibrary {
                 }
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(seed: int) {
-            const shader = "graphics_pipeline_library.hlsl";
-            this.vs = this.app.createShader(shader, "shared_vs", ShaderType.Vertex);
-            if (!this.vs) {
-                return false;
-            }
-            for (let m = 0; m < LIGHTING_MODELS; m++) {
-                const ps = this.app.createShaderWithDefine(shader, "uber_ps", ShaderType.Pixel, "LIGHTING_MODEL", `${m}`);
-                if (!ps) {
-                    return false;
-                }
-                this.ps.push(ps);
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.model = this.app.loadGltfMesh(commandList, MODEL_PATH);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (this.model.isNull()) {
-                console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindPushConstants(1, PUSH_SIZE);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            // The sample's random colors (its engine seeded from std::random_device unless -seed),
-            // and its first pipeline.
-            this.rng = this.app.createRandomEngine(seed);
-            for (let i = 0; i < COLOR_COUNT * 3; i++) {
-                this.colors.push(this.rng.uniformFloat(0.2, 0.8));
-            }
-            this.pendingPipelines++;
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -322,6 +321,10 @@ namespace GraphicsPipelineLibrary {
 
         constructor(sample: GraphicsPipelineLibraryPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -334,11 +337,6 @@ namespace GraphicsPipelineLibrary {
                 }
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

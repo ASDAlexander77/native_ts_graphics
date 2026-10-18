@@ -89,6 +89,75 @@ namespace RtBindless {
             }
         }
 
+        init(scenePath: string) {
+            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
+            bindlessLayoutDesc.addRawBuffers(1);
+            bindlessLayoutDesc.addTextures(2);
+            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutStructuredBufferSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            layoutDesc.layoutSampler(0);
+            layoutDesc.layoutTextureUAV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
+            this.descriptorTable = descriptorTableManager.getDescriptorTable();
+
+            const scene = this.app.loadSceneWithDescriptorTable(scenePath, descriptorTableManager);
+            if (scene.isNull()) {
+                console.log(`Cannot load the scene ${scenePath}`);
+                return false;
+            }
+            this.scene = scene;
+
+            const sceneGraph = scene.getSceneGraph();
+            this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
+                0.1, -1.0, -0.15, 0.53, 5.0);
+            this.app.refreshSceneGraph(sceneGraph);
+
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+            this.camera.setMoveSpeed(3.0);
+
+            this.view = this.app.createPlanarView();
+
+            this.viewOffset = LIGHT_OFFSET + Donut_GetLightConstantsSize() / 4;
+            this.constantsSize = this.viewOffset * 4 + Donut_GetPlanarViewConstantsSize();
+            for (let i = 0; i < this.constantsSize / 4; i++) {
+                this.constants.push(0.0);
+            }
+            this.constantBuffer = this.app.createVolatileConstantBuffer(this.constantsSize, "LightingConstants");
+
+            if (this.useRayQuery ? !this.createComputePipeline() : !this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+
+            this.accelStructs = this.app.createAnimatedSceneAccelStructs(commandList, scene);
+
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
@@ -241,76 +310,6 @@ namespace RtBindless {
                 return false;
             }
             this.computePipeline = pipeline;
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string) {
-            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
-            bindlessLayoutDesc.addRawBuffers(1);
-            bindlessLayoutDesc.addTextures(2);
-            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            layoutDesc.layoutStructuredBufferSRV(2);
-            layoutDesc.layoutStructuredBufferSRV(3);
-            layoutDesc.layoutSampler(0);
-            layoutDesc.layoutTextureUAV(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
-            this.descriptorTable = descriptorTableManager.getDescriptorTable();
-
-            const scene = this.app.loadSceneWithDescriptorTable(scenePath, descriptorTableManager);
-            if (scene.isNull()) {
-                console.log(`Cannot load the scene ${scenePath}`);
-                return false;
-            }
-            this.scene = scene;
-
-            const sceneGraph = scene.getSceneGraph();
-            this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
-                0.1, -1.0, -0.15, 0.53, 5.0);
-            this.app.refreshSceneGraph(sceneGraph);
-
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            this.camera.setMoveSpeed(3.0);
-
-            this.view = this.app.createPlanarView();
-
-            this.viewOffset = LIGHT_OFFSET + Donut_GetLightConstantsSize() / 4;
-            this.constantsSize = this.viewOffset * 4 + Donut_GetPlanarViewConstantsSize();
-            for (let i = 0; i < this.constantsSize / 4; i++) {
-                this.constants.push(0.0);
-            }
-            this.constantBuffer = this.app.createVolatileConstantBuffer(this.constantsSize, "LightingConstants");
-
-            if (this.useRayQuery ? !this.createComputePipeline() : !this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-
-            this.accelStructs = this.app.createAnimatedSceneAccelStructs(commandList, scene);
-
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

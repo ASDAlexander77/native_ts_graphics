@@ -107,6 +107,94 @@ namespace HdrDisplay {
             this.metaDataIndex = 0;
         }
 
+        init() {
+            // The sample's static sampler: point filtering (its border addressing only ever reached
+            // outside the window).
+            this.sampler = this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const shader = "hdr_display.hlsl";
+            this.gradientVS = this.app.createShader(shader, "GradientVS", ShaderType.Vertex);
+            this.gradientPS = this.app.createShader(shader, "GradientPS", ShaderType.Pixel);
+            this.paletteVS = this.app.createShader(shader, "PaletteVS", ShaderType.Vertex);
+            this.palettePS = this.app.createShader(shader, "PalettePS", ShaderType.Pixel);
+            this.presentVS = this.app.createShader(shader, "PresentVS", ShaderType.Vertex);
+            this.presentPS = this.app.createShader(shader, "PresentPS", ShaderType.Pixel);
+            if (!this.gradientVS || !this.gradientPS || !this.paletteVS || !this.palettePS || !this.presentVS || !this.presentPS) {
+                return false;
+            }
+            const gradientLayoutDesc = InputLayoutDesc.create();
+            gradientLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, GRADIENT_STRIDE);
+            gradientLayoutDesc.addVertexAttribute("COLOR", Format.RGB32_FLOAT, 12, 0, GRADIENT_STRIDE);
+            this.gradientLayout = this.app.createInputLayout(gradientLayoutDesc, this.gradientVS);
+            const uvLayoutDesc = InputLayoutDesc.create();
+            uvLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, UV_STRIDE);
+            uvLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, UV_STRIDE);
+            this.uvLayout = this.app.createInputLayout(uvLayoutDesc, this.paletteVS);
+
+            // The sample's root signature: the root constants, the scene's and UI's SRVs, the sampler.
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutPushConstants(0, ROOT_CONSTANTS_SIZE);
+            layoutDesc.layoutTextureSRV(0);
+            layoutDesc.layoutTextureSRV(1);
+            layoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            // The gradients: the SDR one [0, 1] at the top, the HDR one [0, 3] (9 perceptually) at
+            // the bottom; and one triangle over the whole window for presenting.
+            const gradients: f32[] = [
+                -1.0, 0.45, 0.0, 0.0, 0.0, 0.0,
+                -1.0, 0.55, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.45, 0.0, 1.0, 1.0, 1.0,
+                0.0, 0.55, 0.0, 1.0, 1.0, 1.0,
+                -1.0, -0.55, 0.0, 0.0, 0.0, 0.0,
+                -1.0, -0.45, 0.0, 0.0, 0.0, 0.0,
+                0.0, -0.55, 0.0, 3.0, 3.0, 3.0,
+                0.0, -0.45, 0.0, 3.0, 3.0, 3.0,
+            ];
+            const present: f32[] = [
+                -1.0, -3.0, 0.0, 0.0, 2.0,
+                -1.0, 1.0, 0.0, 0.0, 0.0,
+                3.0, 1.0, 0.0, 2.0, 0.0,
+            ];
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.gradientBuffer = this.app.createStaticVertexBuffer(commandList, Ref(gradients[0]), gradients.length * 4, "Gradients");
+            this.presentBuffer = this.app.createStaticVertexBuffer(commandList, Ref(present[0]), present.length * 4, "Present");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            // CheckDisplayHDRSupport: ST.2084 on where the display is in HDR mode.
+            this.hdrSupport = this.app.isDisplayHdr() != 0;
+            this.enableST2084 = this.hdrSupport;
+            this.ensureColorSpace();
+
+            // The scene, the UI (into its texture), presenting.
+            const scenePass = this.app.addPass();
+            scenePass.setKeyboardCallback(this.onKey);
+            scenePass.setAnimateCallback(this.onAnimate);
+            scenePass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            scenePass.setRenderCallback(this.onRenderScene);
+
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.imguiPass = imguiPass;
+            const font = imguiPass.createFont(FONT_PATH, FONT_SCALE * this.height / 30.0);
+            const smallFont = imguiPass.createFont(FONT_PATH, FONT_SCALE * this.height / 40.0);
+            if (font.isNull() || smallFont.isNull()) {
+                console.log("Cannot load the font");
+                return false;
+            }
+            this.font = font;
+            this.smallFont = smallFont;
+
+            const presentPass = this.app.addPass();
+            presentPass.setRenderCallback(this.onRenderPresent);
+            return true;
+        }
+
         // EnsureSwapChainColorSpace: the display curve for the format (and ST.2084 switch), and the
         // swap chain's color space where it can present it.
         ensureColorSpace() {
@@ -234,7 +322,7 @@ namespace HdrDisplay {
             const primaries2020 = [[0.708, 0.292], [0.170, 0.797], [0.131, 0.046], [0.3127, 0.3290]];
             // Each gamut's triangles: B G W, G R W, R B W.
             const order = [2, 1, 3, 1, 0, 3, 0, 2, 3];
-            let vertices: f32[] = [];
+            const vertices: f32[] = [];
             for (let g = 0; g < 2; g++) {
                 const primaries = g == 0 ? primaries709 : primaries2020;
                 const offsetY = g == 0 ? 0.0 : -1.0;
@@ -357,95 +445,6 @@ namespace HdrDisplay {
                 smallFontSize, w, h - fontSize, false);
             Donut_ImGuiPopFont();
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // The sample's static sampler: point filtering (its border addressing only ever reached
-            // outside the window).
-            this.sampler = this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const shader = "hdr_display.hlsl";
-            this.gradientVS = this.app.createShader(shader, "GradientVS", ShaderType.Vertex);
-            this.gradientPS = this.app.createShader(shader, "GradientPS", ShaderType.Pixel);
-            this.paletteVS = this.app.createShader(shader, "PaletteVS", ShaderType.Vertex);
-            this.palettePS = this.app.createShader(shader, "PalettePS", ShaderType.Pixel);
-            this.presentVS = this.app.createShader(shader, "PresentVS", ShaderType.Vertex);
-            this.presentPS = this.app.createShader(shader, "PresentPS", ShaderType.Pixel);
-            if (!this.gradientVS || !this.gradientPS || !this.paletteVS || !this.palettePS || !this.presentVS || !this.presentPS) {
-                return false;
-            }
-            const gradientLayoutDesc = InputLayoutDesc.create();
-            gradientLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, GRADIENT_STRIDE);
-            gradientLayoutDesc.addVertexAttribute("COLOR", Format.RGB32_FLOAT, 12, 0, GRADIENT_STRIDE);
-            this.gradientLayout = this.app.createInputLayout(gradientLayoutDesc, this.gradientVS);
-            const uvLayoutDesc = InputLayoutDesc.create();
-            uvLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, UV_STRIDE);
-            uvLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, UV_STRIDE);
-            this.uvLayout = this.app.createInputLayout(uvLayoutDesc, this.paletteVS);
-
-            // The sample's root signature: the root constants, the scene's and UI's SRVs, the sampler.
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutPushConstants(0, ROOT_CONSTANTS_SIZE);
-            layoutDesc.layoutTextureSRV(0);
-            layoutDesc.layoutTextureSRV(1);
-            layoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            // The gradients: the SDR one [0, 1] at the top, the HDR one [0, 3] (9 perceptually) at
-            // the bottom; and one triangle over the whole window for presenting.
-            let gradients: f32[] = [
-                -1.0, 0.45, 0.0, 0.0, 0.0, 0.0,
-                -1.0, 0.55, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.45, 0.0, 1.0, 1.0, 1.0,
-                0.0, 0.55, 0.0, 1.0, 1.0, 1.0,
-                -1.0, -0.55, 0.0, 0.0, 0.0, 0.0,
-                -1.0, -0.45, 0.0, 0.0, 0.0, 0.0,
-                0.0, -0.55, 0.0, 3.0, 3.0, 3.0,
-                0.0, -0.45, 0.0, 3.0, 3.0, 3.0,
-            ];
-            let present: f32[] = [
-                -1.0, -3.0, 0.0, 0.0, 2.0,
-                -1.0, 1.0, 0.0, 0.0, 0.0,
-                3.0, 1.0, 0.0, 2.0, 0.0,
-            ];
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.gradientBuffer = this.app.createStaticVertexBuffer(commandList, Ref(gradients[0]), gradients.length * 4, "Gradients");
-            this.presentBuffer = this.app.createStaticVertexBuffer(commandList, Ref(present[0]), present.length * 4, "Present");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            // CheckDisplayHDRSupport: ST.2084 on where the display is in HDR mode.
-            this.hdrSupport = this.app.isDisplayHdr() != 0;
-            this.enableST2084 = this.hdrSupport;
-            this.ensureColorSpace();
-
-            // The scene, the UI (into its texture), presenting.
-            const scenePass = this.app.addPass();
-            scenePass.setKeyboardCallback(this.onKey);
-            scenePass.setAnimateCallback(this.onAnimate);
-            scenePass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            scenePass.setRenderCallback(this.onRenderScene);
-
-            const imguiPass = this.app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.imguiPass = imguiPass;
-            const font = imguiPass.createFont(FONT_PATH, FONT_SCALE * this.height / 30.0);
-            const smallFont = imguiPass.createFont(FONT_PATH, FONT_SCALE * this.height / 40.0);
-            if (font.isNull() || smallFont.isNull()) {
-                console.log("Cannot load the font");
-                return false;
-            }
-            this.font = font;
-            this.smallFont = smallFont;
-
-            const presentPass = this.app.addPass();
-            presentPass.setRenderCallback(this.onRenderPresent);
-            return true;
-        }
     }
 
     // A half float's value.
@@ -489,7 +488,7 @@ namespace HdrDisplay {
         const height = app.getWindowHeight();
         const format = app.getBackBufferFormat();
         const wide = format == Format.RGBA16_FLOAT;
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height * (wide ? 2 : 1); i++) {
             pixels.push(0);
         }

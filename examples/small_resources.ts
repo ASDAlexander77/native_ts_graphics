@@ -103,6 +103,70 @@ namespace SmallResources {
             this.usePlacedResources = true;
         }
 
+        init() {
+            // The sample's static sampler: linear, wrapping. Before any command list is open: it
+            // creates Donut's common passes.
+            this.sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
+
+            this.vertexShader = this.app.createShader("small_resources.hlsl", "VSMain", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("small_resources.hlsl", "PSMain", ShaderType.Pixel);
+            if (!this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.Pixel);
+
+            // LoadAssets: a quad per texture, on a grid centered on the screen (the window's aspect
+            // ratio applied to y), in float as the sample's.
+            const aspectRatio = Math.fround(1280.0 / 720.0);
+            const offsetX = Math.fround(0.15);
+            const marginX = Math.fround(offsetX / 10.0);
+            const startX = Math.fround(Math.fround(Math.fround(GRID_WIDTH / 2.0) * -Math.fround(offsetX + marginX)) + Math.fround(marginX / 2.0));
+            const offsetY = Math.fround(offsetX * aspectRatio);
+            const marginY = Math.fround(offsetY / 10.0);
+            let y = Math.fround(Math.fround(Math.fround(GRID_HEIGHT / 2.0) * Math.fround(offsetY + marginY)) - Math.fround(marginY / 2.0));
+            const vertices: f32[] = [];
+            for (let row = 0; row < GRID_HEIGHT; row++) {
+                let x = startX;
+                for (let column = 0; column < GRID_WIDTH; column++) {
+                    const right = Math.fround(x + offsetX);
+                    const bottom = Math.fround(y - offsetY);
+                    const quad: number[] = [
+                        x, bottom, 0.0, 0.0, 0.0,
+                        x, y, 0.0, 0.0, 1.0,
+                        right, bottom, 0.0, 1.0, 0.0,
+                        right, y, 0.0, 1.0, 1.0,
+                    ];
+                    for (const value of quad) {
+                        vertices.push(value);
+                    }
+                    x = Math.fround(x + Math.fround(offsetX + marginX));
+                }
+                y = Math.fround(y - Math.fround(offsetY + marginY));
+            }
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Quads");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            this.createTextures();
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_SPACE && action == ACTION_PRESS) {
                 this.usePlacedResources = !this.usePlacedResources;
@@ -155,7 +219,7 @@ namespace SmallResources {
             const b = random.next() & 0xff;
             const color = r | (g << 8) | (b << 16) | (0xff << 24);
             const black = 0xff << 24;
-            let data: int[] = [];
+            const data: int[] = [];
             for (let y = 0; y < TEXTURE_HEIGHT; y++) {
                 for (let x = 0; x < TEXTURE_WIDTH; x++) {
                     // The sample's cells: 16 bytes (4 pixels) wide, 4 rows high.
@@ -234,71 +298,6 @@ namespace SmallResources {
                 this.app.releaseResource(this.pipeline);
                 this.hasPipeline = false;
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // The sample's static sampler: linear, wrapping. Before any command list is open: it
-            // creates Donut's common passes.
-            this.sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
-
-            this.vertexShader = this.app.createShader("small_resources.hlsl", "VSMain", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader("small_resources.hlsl", "PSMain", ShaderType.Pixel);
-            if (!this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.Pixel);
-
-            // LoadAssets: a quad per texture, on a grid centered on the screen (the window's aspect
-            // ratio applied to y), in float as the sample's.
-            const aspectRatio = Math.fround(1280.0 / 720.0);
-            const offsetX = Math.fround(0.15);
-            const marginX = Math.fround(offsetX / 10.0);
-            const startX = Math.fround(Math.fround(Math.fround(GRID_WIDTH / 2.0) * -Math.fround(offsetX + marginX)) + Math.fround(marginX / 2.0));
-            const offsetY = Math.fround(offsetX * aspectRatio);
-            const marginY = Math.fround(offsetY / 10.0);
-            let y = Math.fround(Math.fround(Math.fround(GRID_HEIGHT / 2.0) * Math.fround(offsetY + marginY)) - Math.fround(marginY / 2.0));
-            let vertices: f32[] = [];
-            for (let row = 0; row < GRID_HEIGHT; row++) {
-                let x = startX;
-                for (let column = 0; column < GRID_WIDTH; column++) {
-                    const right = Math.fround(x + offsetX);
-                    const bottom = Math.fround(y - offsetY);
-                    const quad: number[] = [
-                        x, bottom, 0.0, 0.0, 0.0,
-                        x, y, 0.0, 0.0, 1.0,
-                        right, bottom, 0.0, 1.0, 0.0,
-                        right, y, 0.0, 1.0, 1.0,
-                    ];
-                    for (const value of quad) {
-                        vertices.push(value);
-                    }
-                    x = Math.fround(x + Math.fround(offsetX + marginX));
-                }
-                y = Math.fround(y - Math.fround(offsetY + marginY));
-            }
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Quads");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            this.createTextures();
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

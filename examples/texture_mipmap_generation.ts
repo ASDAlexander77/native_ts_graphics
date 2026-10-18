@@ -110,13 +110,13 @@ namespace TextureMipmapGeneration {
         update(deltaTime: number) {
             const rx = radians(this.rotation[0]);
             const ry = radians(this.rotation[1]);
-            let front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
+            const front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
             const length = Math.sqrt(front[0] * front[0] + front[1] * front[1] + front[2] * front[2]);
             for (let i = 0; i < 3; i++) {
                 front[i] /= length;
             }
             // normalize(cross(front, (0, 1, 0))).
-            let right = [-front[2], 0.0, front[0]];
+            const right = [-front[2], 0.0, front[0]];
             const rightLength = Math.sqrt(right[0] * right[0] + right[2] * right[2]);
             for (let i = 0; i < 3; i++) {
                 right[i] /= rightLength;
@@ -211,6 +211,76 @@ namespace TextureMipmapGeneration {
             for (let i = 0; i < UBO_FLOATS; i++) {
                 this.ubo.push(0.0);
             }
+        }
+
+        init() {
+            const shader = "texture_mipmap_generation.hlsl";
+            const vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
+            const ps = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
+            if (!vs || !ps) {
+                return false;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const texture = this.loadTextureGenerateMipmaps(commandList);
+            this.mesh = this.app.loadGltfMesh(commandList, MODEL_PATH);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!texture || this.mesh.isNull()) {
+                console.log("Cannot load the model and texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            // The sample's samplers: linear, repeating; without mip maps (levels of detail up to 0),
+            // with mip maps (up to the mip level count), and with anisotropic filtering too, at the
+            // device's most.
+            const maxLod = this.mipLevels;
+            const noMipMaps = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 0.0, 1.0);
+            const mipMaps = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, maxLod, 1.0);
+            const anisotropic = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, maxLod,
+                this.app.getMaxSamplerAnisotropy());
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            const inputLayout = this.app.createInputLayout(layoutDesc, vs);
+
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutSampler(0);
+            bindingLayoutDesc.layoutSampler(1);
+            bindingLayoutDesc.layoutSampler(2);
+            const bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindTextureSRV(0, texture as TextureHandle);
+            setDesc.bindSampler(0, noMipMaps);
+            setDesc.bindSampler(1, mipMaps);
+            setDesc.bindSampler(2, anisotropic);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, bindingLayout);
+
+            // The sample's pipeline: depth test (less or equal) and write, no culling.
+            this.createTargets(this.app.getWindowWidth(), this.app.getWindowHeight());
+            const desc = GraphicsPipelineDesc.create(vs, ps);
+            desc.setInputLayout(inputLayout);
+            desc.addBindingLayout(bindingLayout);
+            desc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
+            desc.setRasterState(CullMode.None, FillMode.Solid, 1);
+            this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
@@ -353,77 +423,6 @@ namespace TextureMipmapGeneration {
             }
             return texture;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "texture_mipmap_generation.hlsl";
-            const vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
-            const ps = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
-            if (!vs || !ps) {
-                return false;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const texture = this.loadTextureGenerateMipmaps(commandList);
-            this.mesh = this.app.loadGltfMesh(commandList, MODEL_PATH);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!texture || this.mesh.isNull()) {
-                console.log("Cannot load the model and texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            // The sample's samplers: linear, repeating; without mip maps (levels of detail up to 0),
-            // with mip maps (up to the mip level count), and with anisotropic filtering too, at the
-            // device's most.
-            const maxLod = this.mipLevels;
-            const noMipMaps = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 0.0, 1.0);
-            const mipMaps = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, maxLod, 1.0);
-            const anisotropic = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, maxLod,
-                this.app.getMaxSamplerAnisotropy());
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            const inputLayout = this.app.createInputLayout(layoutDesc, vs);
-
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutSampler(0);
-            bindingLayoutDesc.layoutSampler(1);
-            bindingLayoutDesc.layoutSampler(2);
-            const bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindTextureSRV(0, texture as TextureHandle);
-            setDesc.bindSampler(0, noMipMaps);
-            setDesc.bindSampler(1, mipMaps);
-            setDesc.bindSampler(2, anisotropic);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, bindingLayout);
-
-            // The sample's pipeline: depth test (less or equal) and write, no culling.
-            this.createTargets(this.app.getWindowWidth(), this.app.getWindowHeight());
-            const desc = GraphicsPipelineDesc.create(vs, ps);
-            desc.setInputLayout(inputLayout);
-            desc.addBindingLayout(bindingLayout);
-            desc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
-            desc.setRasterState(CullMode.None, FillMode.Solid, 1);
-            this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's settings.
@@ -432,6 +431,10 @@ namespace TextureMipmapGeneration {
 
         constructor(pass: TextureMipmapGenerationPass) {
             this.pass = pass;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -444,11 +447,6 @@ namespace TextureMipmapGeneration {
                 p.samplerIndex = Donut_ImGuiCombo("Sampler type", p.samplerIndex, SAMPLER_NAMES);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

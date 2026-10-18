@@ -177,6 +177,62 @@ namespace ShaderDebugPrintf {
             }
         }
 
+        init() {
+            const shader = "shader_debugprintf.hlsl";
+            this.vs = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.geosphere = this.app.loadGltfMesh(commandList, GEOSPHERE_PATH);
+            // As the framework loads KTX 1 color textures: as sRGB.
+            const texture = this.app.loadTexture(commandList, SKYSPHERE_TEXTURE_PATH, 1);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (this.geosphere.isNull() || !texture) {
+                console.log("Cannot load the model and texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            // ApiVulkanSample::load_texture's sampler: linear, repeating, anisotropic at the device's
+            // most.
+            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
+                this.app.getMaxSamplerAnisotropy());
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            bindingLayoutDesc.layoutSampler(0);
+            bindingLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindTextureSRV(0, texture);
+            setDesc.bindSampler(0, sampler);
+            setDesc.bindPushConstants(1, PUSH_SIZE);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -314,63 +370,6 @@ namespace ShaderDebugPrintf {
                 frame.drawIndexedWithPushConstants(this.geosphere.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "shader_debugprintf.hlsl";
-            this.vs = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.geosphere = this.app.loadGltfMesh(commandList, GEOSPHERE_PATH);
-            // As the framework loads KTX 1 color textures: as sRGB.
-            const texture = this.app.loadTexture(commandList, SKYSPHERE_TEXTURE_PATH, 1);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (this.geosphere.isNull() || !texture) {
-                console.log("Cannot load the model and texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            // ApiVulkanSample::load_texture's sampler: linear, repeating, anisotropic at the device's
-            // most.
-            const sampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
-                this.app.getMaxSamplerAnisotropy());
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            bindingLayoutDesc.layoutSampler(0);
-            bindingLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindTextureSRV(0, texture);
-            setDesc.bindSampler(0, sampler);
-            setDesc.bindPushConstants(1, PUSH_SIZE);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay: its setting and the shader's output of the last frame.
@@ -379,6 +378,10 @@ namespace ShaderDebugPrintf {
 
         constructor(sample: ShaderDebugPrintfPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -394,11 +397,6 @@ namespace ShaderDebugPrintf {
                 }
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

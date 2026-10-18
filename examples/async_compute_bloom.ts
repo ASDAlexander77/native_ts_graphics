@@ -288,409 +288,6 @@ namespace AsyncComputeBloom {
             }
         }
 
-        hasComputeQueue() {
-            return this.computeCommandList != null;
-        }
-
-        onKey(key: int, scancode: int, action: int, mods: int) {
-            this.camera.keyboardUpdate(key, scancode, action, mods);
-            return 1;
-        }
-
-        onMousePos(x: number, y: number) {
-            this.camera.mousePosUpdate(x, y);
-            return 1;
-        }
-
-        onMouseButton(button: int, action: int, mods: int) {
-            this.camera.mouseButtonUpdate(button, action, mods);
-            return 1;
-        }
-
-        onAnimate(elapsedSeconds: number) {
-            this.camera.animate(elapsedSeconds);
-            this.elapsedTime += this.benchmark ? BENCHMARK_FRAME_TIME : elapsedSeconds;
-            const queues = this.asyncEnabled && this.hasComputeQueue() ? "async compute" : "one queue";
-            this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, queues);
-        }
-
-        onBackBufferResizing() {
-            const compositePipeline = this.compositePipeline;
-            if (compositePipeline) {
-                this.app.releaseResource(compositePipeline);
-            }
-            this.compositePipeline = null;
-        }
-
-        // The sample's update: the directional light's (and shadow camera's) orientation, "lots of
-        // random jank to get a desired orientation quaternion", turning once every 20 seconds when
-        // the shadows rotate.
-        lightOrientation() {
-            let orientation = quatMultiply(angleAxis(Math.PI, 0.0, -1.0, 0.0), angleAxis(-0.2 * 0.5 * Math.PI, 1.0, 0.0, 0.0));
-            if (this.rotateShadows) {
-                const turns = this.elapsedTime * 0.05;
-                orientation = quatMultiply(orientation, angleAxis(2.0 * Math.PI * (turns - Math.floor(turns)), 0.0, 0.0, -1.0));
-                orientation = quatMultiply(orientation, angleAxis(-0.05 * 0.5 * Math.PI, 1.0, 0.0, 0.0));
-            }
-            return quatNormalize(orientation);
-        }
-
-        // The scene uniforms of both passes: the shadow camera's (on the light's node, at the
-        // origin) and the main camera's view-projections, in Donut's clip space; the sample's
-        // shadow matrix (its shadow clip space to texture coordinates); the light.
-        updateConstants(commandList: CommandList, width: int, height: int) {
-            const light = quatToMatrix(this.lightOrientation());
-            // The shadow camera's view: the inverse of its node's rotation.
-            const shadowView = transpose(light);
-            const shadowClip = multiply(vulkanStyleProjection(reversedOrtho(SHADOW_LEFT, SHADOW_RIGHT, SHADOW_BOTTOM, SHADOW_TOP,
-                SHADOW_NEAR, SHADOW_FAR)), shadowView);
-            // translate(0.5, 0.5, 0) * scale(0.5, 0.5, 1) * shadowClip
-            let bias = identity();
-            bias[0] = 0.5;
-            bias[5] = 0.5;
-            bias[12] = 0.5;
-            bias[13] = 0.5;
-            const shadowMatrix = multiply(bias, shadowClip);
-
-            // Donut's camera, in Donut's view space (z forward), into the sample's (-z forward).
-            this.camera.getWorldToView(Ref(this.viewMatrix[0]));
-            let view: number[] = [];
-            for (let i = 0; i < 16; i++) {
-                view.push(i % 4 == 2 ? -this.viewMatrix[i] : this.viewMatrix[i]);
-            }
-            const viewProj = multiply(vulkanStyleProjection(reversedPerspective(CAMERA_FOV, width / height, Z_NEAR, Z_FAR)), view);
-
-            const c = this.constants;
-            const donutShadowClip = toDonutClip(shadowClip);
-            for (let i = 0; i < 16; i++) {
-                c[CONST_VIEW_PROJ + i] = donutShadowClip[i];
-                c[CONST_SHADOW_MATRIX + i] = shadowMatrix[i];
-            }
-            for (let i = 0; i < 4; i++) {
-                c[CONST_LIGHT_COLOR + i] = LIGHT_COLOR[i];
-            }
-            // The light's direction: its node's rotation of (0, 0, -1).
-            c[CONST_LIGHT_DIRECTION] = -light[8];
-            c[CONST_LIGHT_DIRECTION + 1] = -light[9];
-            c[CONST_LIGHT_DIRECTION + 2] = -light[10];
-            c[CONST_LIGHT_DIRECTION + 3] = 0.0;
-            commandList.writeBuffer(this.shadowConstantBuffer, Ref(c[0]), CONST_FLOATS * 4);
-
-            const donutViewProj = toDonutClip(viewProj);
-            for (let i = 0; i < 16; i++) {
-                c[CONST_VIEW_PROJ + i] = donutViewProj[i];
-            }
-            commandList.writeBuffer(this.forwardConstantBuffer, Ref(c[0]), CONST_FLOATS * 4);
-        }
-
-        // The framework's GeometrySubpass order, from a camera at (x, y, z): opaque draws front to
-        // back, then the blended ones back to front, by the distance to their node's bounds;
-        // stable, as its multimap.
-        sortDraws(x: number, y: number, z: number) {
-            const count = this.drawIndexCount.length;
-            for (let d = 0; d < count; d++) {
-                const dx = this.drawCenters[d * 3] - x;
-                const dy = this.drawCenters[d * 3 + 1] - y;
-                const dz = this.drawCenters[d * 3 + 2] - z;
-                this.distances[d] = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            }
-            // Opaque draws, then blended ones; each in the framework's order.
-            let n = 0;
-            for (let pass = 0; pass < 2; pass++) {
-                const first = n;
-                for (let d = 0; d < count; d++) {
-                    if (this.drawBlend[d] != (pass == 1)) {
-                        continue;
-                    }
-                    // Insertion sort: nearest first for opaque draws, farthest first for blended ones.
-                    let i = n;
-                    while (i > first) {
-                        const previous = this.distances[this.order[i - 1]];
-                        const after = pass == 0 ? previous > this.distances[d] : previous < this.distances[d];
-                        if (!after) {
-                            break;
-                        }
-                        this.order[i] = this.order[i - 1];
-                        i--;
-                    }
-                    this.order[i] = d;
-                    n++;
-                }
-            }
-        }
-
-        drawScene(frame: Frame, pipeline: GraphicsPipelineHandle, blendPipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, forward: boolean) {
-            // The draw state's blending (-1 before the first draw) and texture.
-            let currentBlend = -1;
-            let currentTexture = -1;
-            for (const d of this.order) {
-                const blend = this.drawBlend[d] ? 1 : 0;
-                const texture = forward ? this.drawTexture[d] : 0;
-                // A new draw state for another pipeline or binding set.
-                if (blend != currentBlend || texture != currentTexture) {
-                    frame.beginDrawToFramebuffer(blend == 1 ? blendPipeline : pipeline, framebuffer);
-                    if (forward) {
-                        frame.drawAddBindingSet(this.forwardBindingSets[texture]);
-                    } else {
-                        frame.drawAddBindingSet(this.shadowBindingSet);
-                    }
-                    frame.drawSetIndexBuffer(this.indexBuffer);
-                    frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
-                    currentBlend = blend;
-                    currentTexture = texture;
-                }
-                frame.drawIndexedRangeWithPushConstants(this.drawIndexCount[d], this.drawFirstIndex[d], this.drawBaseVertex[d],
-                    Ref(this.models[d * MODEL_FLOATS]), MODEL_SIZE);
-            }
-        }
-
-        // The sample's render_shadow_pass: the scene's depth from the light, into the shadow map
-        // (reversed depth, cleared to 0).
-        renderShadowPass(frame: Frame, commandList: CommandList) {
-            commandList.beginMarker("Shadow pass");
-            commandList.clearDepth(this.shadowMap, 0.0);
-            // The shadow camera's node is at the origin.
-            this.sortDraws(0.0, 0.0, 0.0);
-            this.drawScene(frame, this.shadowPipeline, this.shadowPipeline, this.shadowFramebuffer, false);
-            commandList.endMarker();
-        }
-
-        // The sample's render_forward_offscreen_pass: the lit and shadowed scene into the HDR target.
-        renderForwardPass(frame: Frame, commandList: CommandList) {
-            commandList.beginMarker("Forward offscreen pass");
-            commandList.clearTextureFloat(this.hdrTargets[this.hdrIndex], 0.0, 0.0, 0.0, 1.0);
-            commandList.clearDepth(this.hdrDepth, 0.0);
-            const view = this.viewMatrix;
-            // The camera's position: -R^T t of its view [R t].
-            let position: number[] = [0.0, 0.0, 0.0];
-            for (let column = 0; column < 3; column++) {
-                for (let row = 0; row < 3; row++) {
-                    position[column] -= view[column * 4 + row] * view[12 + row];
-                }
-            }
-            this.sortDraws(position[0], position[1], position[2]);
-            this.drawScene(frame, this.forwardPipeline, this.forwardBlendPipeline, this.hdrFramebuffers[this.hdrIndex], true);
-            commandList.endMarker();
-        }
-
-        // One bloom pass: a thread per texel of the destination.
-        dispatchBlurPass(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet,
-            width: int, height: int, inputWidth: int, inputHeight: int) {
-            const b = this.blurConstants;
-            Donut_StoreInt32(Ref(b[0]), width);
-            Donut_StoreInt32(Ref(b[1]), height);
-            b[2] = 1.0 / width;
-            b[3] = 1.0 / height;
-            b[4] = 1.0 / inputWidth;
-            b[5] = 1.0 / inputHeight;
-            commandList.dispatchWithPushConstants(pipeline, bindingSet, Ref(b[0]), BLUR_SIZE,
-                Math.floor((width + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), Math.floor((height + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), 1);
-        }
-
-        // The sample's render_compute_post: "a very basic and dumb HDR Bloom pipeline", a threshold
-        // pass into the first blur level, then blurring down the levels and back up to the second.
-        renderComputePost(commandList: CommandList) {
-            commandList.beginMarker("Compute post");
-            this.dispatchBlurPass(commandList, this.thresholdPipeline, this.thresholdBindingSets[this.hdrIndex],
-                levelWidth(1), levelHeight(1), HDR_WIDTH, HDR_HEIGHT);
-            for (let index = 1; index < BLUR_LEVELS; index++) {
-                this.dispatchBlurPass(commandList, this.blurDownPipeline, this.blurDownBindingSets[index - 1],
-                    levelWidth(index + 1), levelHeight(index + 1), levelWidth(index), levelHeight(index));
-            }
-            for (let index = BLUR_LEVELS - 2; index >= 1; index--) {
-                this.dispatchBlurPass(commandList, this.blurUpPipeline, this.blurUpBindingSets[BLUR_LEVELS - 2 - index],
-                    levelWidth(index + 1), levelHeight(index + 1), levelWidth(index + 2), levelHeight(index + 2));
-            }
-            commandList.endMarker();
-        }
-
-        onRender(frameHandle: FrameHandle) {
-            const frame = new Frame(frameHandle);
-            const width = frame.getWidth();
-            const height = frame.getHeight();
-            const commandList = frame.getCommandList();
-
-            if (!this.compositePipeline) {
-                this.compositePipeline = this.app.createGraphicsPipelineWithTopology(frame, this.compositeVS, this.compositePS,
-                    null, this.compositeBindingLayout, PrimitiveType.TriangleList);
-            }
-            const compositePipeline = this.compositePipeline;
-            if (!compositePipeline) {
-                return;
-            }
-
-            // Double buffered HDR: the next frame can run ahead a little further before it needs to
-            // block.
-            this.hdrIndex = this.doubleBufferHdr ? 1 - this.hdrIndex : 0;
-
-            this.updateConstants(commandList, width, height);
-            this.renderShadowPass(frame, commandList);
-            this.renderForwardPass(frame, commandList);
-
-            let computed = false;
-            const computeCommandList = this.computeCommandList;
-            if (this.asyncEnabled) {
-                if (computeCommandList) {
-                    computeCommandList.open();
-                    this.renderComputePost(computeCommandList);
-                    computeCommandList.close();
-                    this.app.executeFrameComputeWork(frame, computeCommandList);
-                    computed = true;
-                }
-            }
-            if (!computed) {
-                this.renderComputePost(commandList);
-            }
-
-            // The sample's render_swapchain: the composite (its UI comes after, in the ImGui pass).
-            frame.beginDraw(compositePipeline);
-            frame.drawAddBindingSet(this.compositeBindingSets[this.hdrIndex]);
-            frame.drawVertices(3);
-        }
-
-        // The scene's base color textures and its draws: every node's primitives, their vertices and
-        // indices in one vertex and one index buffer, recorded into an open command list.
-        loadScene(commandList: CommandList, linearWrap: SamplerHandle, comparisonSampler: SamplerHandle, forwardBindingLayout: BindingLayoutHandle) {
-            const scene = this.app.loadGltfModel(SCENE_PATH);
-            if (scene.isNull()) {
-                return false;
-            }
-            const primitiveCount = scene.getPrimitiveCount();
-
-            // The primitives' textures (by image URI) and vertices.
-            const imageNames: string[] = [];
-            const primitiveTexture: int[] = [];
-            const primitiveFirstIndex: int[] = [];
-            const primitiveBaseVertex: int[] = [];
-            let vertices: f32[] = [];
-            let indices: int[] = [];
-            // Per mesh: its bounds (min x, y, z, max x, y, z) and first primitive.
-            let meshBounds: number[] = [];
-            const meshFirstPrimitive: int[] = [];
-            for (let p = 0; p < primitiveCount; p++) {
-                const image = scene.getBaseColorImage(p);
-                let texture = -1;
-                for (let t = 0; t < imageNames.length; t++) {
-                    if (imageNames[t] == image) {
-                        texture = t;
-                    }
-                }
-                if (texture < 0) {
-                    texture = imageNames.length;
-                    imageNames.push(image);
-                }
-                primitiveTexture.push(texture);
-
-                const mesh = scene.getPrimitiveMesh(p);
-                if (mesh == meshFirstPrimitive.length) {
-                    meshFirstPrimitive.push(p);
-                    for (let k = 0; k < 3; k++) {
-                        meshBounds.push(HUGE);
-                    }
-                    for (let k = 0; k < 3; k++) {
-                        meshBounds.push(-HUGE);
-                    }
-                }
-
-                const vertexCount = scene.getVertexCount(p);
-                const indexCount = scene.getIndexCount(p);
-                let primitiveVertices: f32[] = [];
-                for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
-                    primitiveVertices.push(0.0);
-                }
-                let primitiveIndices: int[] = [];
-                for (let i = 0; i < indexCount; i++) {
-                    primitiveIndices.push(0);
-                }
-                scene.copyVertices(p, Ref(primitiveVertices[0]));
-                scene.copyIndices(p, Ref(primitiveIndices[0]));
-
-                primitiveBaseVertex.push(vertices.length / VERTEX_FLOATS);
-                primitiveFirstIndex.push(indices.length);
-                for (let v = 0; v < vertexCount * VERTEX_FLOATS; v++) {
-                    vertices.push(primitiveVertices[v]);
-                }
-                for (let i = 0; i < indexCount; i++) {
-                    indices.push(primitiveIndices[i]);
-                }
-                for (let v = 0; v < vertexCount * VERTEX_FLOATS; v += VERTEX_FLOATS) {
-                    for (let k = 0; k < 3; k++) {
-                        meshBounds[mesh * 6 + k] = Math.min(meshBounds[mesh * 6 + k], primitiveVertices[v + k]);
-                        meshBounds[mesh * 6 + 3 + k] = Math.max(meshBounds[mesh * 6 + 3 + k], primitiveVertices[v + k]);
-                    }
-                }
-            }
-            meshFirstPrimitive.push(primitiveCount);
-
-            // As the framework loads ASTC textures on GPUs without ASTC: level 0 decoded (to DDS
-            // here), the mip levels generated.
-            for (const name of imageNames) {
-                const dot = name.lastIndexOf(".");
-                const path = SCENE_DIR + (dot >= 0 ? name.substring(0, dot) : name) + ".dds";
-                const texture = this.app.loadTexture(commandList, path, 1);
-                if (!texture) {
-                    return false;
-                }
-                const setDesc = BindingSetDesc.create();
-                setDesc.bindEntireConstantBuffer(0, this.forwardConstantBuffer);
-                setDesc.bindTextureSRV(0, texture);
-                setDesc.bindSampler(0, linearWrap);
-                setDesc.bindTextureSRV(1, this.shadowMap);
-                setDesc.bindSampler(1, comparisonSampler);
-                setDesc.bindPushConstants(1, MODEL_SIZE);
-                this.forwardBindingSets.push(this.app.createBindingSetForLayout(setDesc, forwardBindingLayout));
-            }
-
-            // The draws: by mesh, then node, then primitive, as the framework's meshes list their
-            // nodes and submeshes.
-            const nodeCount = scene.getNodeCount();
-            let transform: f32[] = [];
-            for (let i = 0; i < 16; i++) {
-                transform.push(0.0);
-            }
-            for (let mesh = 0; mesh + 1 < meshFirstPrimitive.length; mesh++) {
-                for (let node = 0; node < nodeCount; node++) {
-                    if (scene.getNodeMesh(node) != mesh) {
-                        continue;
-                    }
-                    scene.copyNodeTransform(node, Ref(transform[0]));
-                    // The mesh's bounds, transformed (their corners), and their center.
-                    let low = [HUGE, HUGE, HUGE];
-                    let high = [-HUGE, -HUGE, -HUGE];
-                    for (let corner = 0; corner < 8; corner++) {
-                        const x = meshBounds[mesh * 6 + ((corner & 1) != 0 ? 3 : 0)];
-                        const y = meshBounds[mesh * 6 + 1 + ((corner & 2) != 0 ? 3 : 0)];
-                        const z = meshBounds[mesh * 6 + 2 + ((corner & 4) != 0 ? 3 : 0)];
-                        for (let k = 0; k < 3; k++) {
-                            const value = transform[k] * x + transform[4 + k] * y + transform[8 + k] * z + transform[12 + k];
-                            low[k] = Math.min(low[k], value);
-                            high[k] = Math.max(high[k], value);
-                        }
-                    }
-                    for (let p = meshFirstPrimitive[mesh]; p < meshFirstPrimitive[mesh + 1]; p++) {
-                        this.drawFirstIndex.push(primitiveFirstIndex[p]);
-                        this.drawIndexCount.push(scene.getIndexCount(p));
-                        this.drawBaseVertex.push(primitiveBaseVertex[p]);
-                        this.drawTexture.push(primitiveTexture[p]);
-                        this.drawBlend.push(scene.getPrimitiveAlphaMode(p) == AlphaMode.Blend);
-                        for (let k = 0; k < 3; k++) {
-                            this.drawCenters.push(0.5 * (low[k] + high[k]));
-                        }
-                        for (let i = 0; i < 16; i++) {
-                            this.models.push(transform[i]);
-                        }
-                        this.order.push(this.order.length);
-                        this.distances.push(0.0);
-                    }
-                }
-            }
-
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
-            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init() {
             const shader = "async_compute_bloom.hlsl";
             const shadowVS = this.app.createShader(shader, "shadow_vs", ShaderType.Vertex);
@@ -864,6 +461,408 @@ namespace AsyncComputeBloom {
             return true;
         }
 
+        hasComputeQueue() {
+            return this.computeCommandList != null;
+        }
+
+        onKey(key: int, scancode: int, action: int, mods: int) {
+            this.camera.keyboardUpdate(key, scancode, action, mods);
+            return 1;
+        }
+
+        onMousePos(x: number, y: number) {
+            this.camera.mousePosUpdate(x, y);
+            return 1;
+        }
+
+        onMouseButton(button: int, action: int, mods: int) {
+            this.camera.mouseButtonUpdate(button, action, mods);
+            return 1;
+        }
+
+        onAnimate(elapsedSeconds: number) {
+            this.camera.animate(elapsedSeconds);
+            this.elapsedTime += this.benchmark ? BENCHMARK_FRAME_TIME : elapsedSeconds;
+            const queues = this.asyncEnabled && this.hasComputeQueue() ? "async compute" : "one queue";
+            this.app.setInformativeWindowTitleWithInfo(WINDOW_TITLE, queues);
+        }
+
+        onBackBufferResizing() {
+            const compositePipeline = this.compositePipeline;
+            if (compositePipeline) {
+                this.app.releaseResource(compositePipeline);
+            }
+            this.compositePipeline = null;
+        }
+
+        // The sample's update: the directional light's (and shadow camera's) orientation, "lots of
+        // random jank to get a desired orientation quaternion", turning once every 20 seconds when
+        // the shadows rotate.
+        lightOrientation() {
+            let orientation = quatMultiply(angleAxis(Math.PI, 0.0, -1.0, 0.0), angleAxis(-0.2 * 0.5 * Math.PI, 1.0, 0.0, 0.0));
+            if (this.rotateShadows) {
+                const turns = this.elapsedTime * 0.05;
+                orientation = quatMultiply(orientation, angleAxis(2.0 * Math.PI * (turns - Math.floor(turns)), 0.0, 0.0, -1.0));
+                orientation = quatMultiply(orientation, angleAxis(-0.05 * 0.5 * Math.PI, 1.0, 0.0, 0.0));
+            }
+            return quatNormalize(orientation);
+        }
+
+        // The scene uniforms of both passes: the shadow camera's (on the light's node, at the
+        // origin) and the main camera's view-projections, in Donut's clip space; the sample's
+        // shadow matrix (its shadow clip space to texture coordinates); the light.
+        updateConstants(commandList: CommandList, width: int, height: int) {
+            const light = quatToMatrix(this.lightOrientation());
+            // The shadow camera's view: the inverse of its node's rotation.
+            const shadowView = transpose(light);
+            const shadowClip = multiply(vulkanStyleProjection(reversedOrtho(SHADOW_LEFT, SHADOW_RIGHT, SHADOW_BOTTOM, SHADOW_TOP,
+                SHADOW_NEAR, SHADOW_FAR)), shadowView);
+            // translate(0.5, 0.5, 0) * scale(0.5, 0.5, 1) * shadowClip
+            let bias = identity();
+            bias[0] = 0.5;
+            bias[5] = 0.5;
+            bias[12] = 0.5;
+            bias[13] = 0.5;
+            const shadowMatrix = multiply(bias, shadowClip);
+
+            // Donut's camera, in Donut's view space (z forward), into the sample's (-z forward).
+            this.camera.getWorldToView(Ref(this.viewMatrix[0]));
+            const view: number[] = [];
+            for (let i = 0; i < 16; i++) {
+                view.push(i % 4 == 2 ? -this.viewMatrix[i] : this.viewMatrix[i]);
+            }
+            const viewProj = multiply(vulkanStyleProjection(reversedPerspective(CAMERA_FOV, width / height, Z_NEAR, Z_FAR)), view);
+
+            const c = this.constants;
+            const donutShadowClip = toDonutClip(shadowClip);
+            for (let i = 0; i < 16; i++) {
+                c[CONST_VIEW_PROJ + i] = donutShadowClip[i];
+                c[CONST_SHADOW_MATRIX + i] = shadowMatrix[i];
+            }
+            for (let i = 0; i < 4; i++) {
+                c[CONST_LIGHT_COLOR + i] = LIGHT_COLOR[i];
+            }
+            // The light's direction: its node's rotation of (0, 0, -1).
+            c[CONST_LIGHT_DIRECTION] = -light[8];
+            c[CONST_LIGHT_DIRECTION + 1] = -light[9];
+            c[CONST_LIGHT_DIRECTION + 2] = -light[10];
+            c[CONST_LIGHT_DIRECTION + 3] = 0.0;
+            commandList.writeBuffer(this.shadowConstantBuffer, Ref(c[0]), CONST_FLOATS * 4);
+
+            const donutViewProj = toDonutClip(viewProj);
+            for (let i = 0; i < 16; i++) {
+                c[CONST_VIEW_PROJ + i] = donutViewProj[i];
+            }
+            commandList.writeBuffer(this.forwardConstantBuffer, Ref(c[0]), CONST_FLOATS * 4);
+        }
+
+        // The framework's GeometrySubpass order, from a camera at (x, y, z): opaque draws front to
+        // back, then the blended ones back to front, by the distance to their node's bounds;
+        // stable, as its multimap.
+        sortDraws(x: number, y: number, z: number) {
+            const count = this.drawIndexCount.length;
+            for (let d = 0; d < count; d++) {
+                const dx = this.drawCenters[d * 3] - x;
+                const dy = this.drawCenters[d * 3 + 1] - y;
+                const dz = this.drawCenters[d * 3 + 2] - z;
+                this.distances[d] = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            }
+            // Opaque draws, then blended ones; each in the framework's order.
+            let n = 0;
+            for (let pass = 0; pass < 2; pass++) {
+                const first = n;
+                for (let d = 0; d < count; d++) {
+                    if (this.drawBlend[d] != (pass == 1)) {
+                        continue;
+                    }
+                    // Insertion sort: nearest first for opaque draws, farthest first for blended ones.
+                    let i = n;
+                    while (i > first) {
+                        const previous = this.distances[this.order[i - 1]];
+                        const after = pass == 0 ? previous > this.distances[d] : previous < this.distances[d];
+                        if (!after) {
+                            break;
+                        }
+                        this.order[i] = this.order[i - 1];
+                        i--;
+                    }
+                    this.order[i] = d;
+                    n++;
+                }
+            }
+        }
+
+        drawScene(frame: Frame, pipeline: GraphicsPipelineHandle, blendPipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, forward: boolean) {
+            // The draw state's blending (-1 before the first draw) and texture.
+            let currentBlend = -1;
+            let currentTexture = -1;
+            for (const d of this.order) {
+                const blend = this.drawBlend[d] ? 1 : 0;
+                const texture = forward ? this.drawTexture[d] : 0;
+                // A new draw state for another pipeline or binding set.
+                if (blend != currentBlend || texture != currentTexture) {
+                    frame.beginDrawToFramebuffer(blend == 1 ? blendPipeline : pipeline, framebuffer);
+                    if (forward) {
+                        frame.drawAddBindingSet(this.forwardBindingSets[texture]);
+                    } else {
+                        frame.drawAddBindingSet(this.shadowBindingSet);
+                    }
+                    frame.drawSetIndexBuffer(this.indexBuffer);
+                    frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
+                    currentBlend = blend;
+                    currentTexture = texture;
+                }
+                frame.drawIndexedRangeWithPushConstants(this.drawIndexCount[d], this.drawFirstIndex[d], this.drawBaseVertex[d],
+                    Ref(this.models[d * MODEL_FLOATS]), MODEL_SIZE);
+            }
+        }
+
+        // The sample's render_shadow_pass: the scene's depth from the light, into the shadow map
+        // (reversed depth, cleared to 0).
+        renderShadowPass(frame: Frame, commandList: CommandList) {
+            commandList.beginMarker("Shadow pass");
+            commandList.clearDepth(this.shadowMap, 0.0);
+            // The shadow camera's node is at the origin.
+            this.sortDraws(0.0, 0.0, 0.0);
+            this.drawScene(frame, this.shadowPipeline, this.shadowPipeline, this.shadowFramebuffer, false);
+            commandList.endMarker();
+        }
+
+        // The sample's render_forward_offscreen_pass: the lit and shadowed scene into the HDR target.
+        renderForwardPass(frame: Frame, commandList: CommandList) {
+            commandList.beginMarker("Forward offscreen pass");
+            commandList.clearTextureFloat(this.hdrTargets[this.hdrIndex], 0.0, 0.0, 0.0, 1.0);
+            commandList.clearDepth(this.hdrDepth, 0.0);
+            const view = this.viewMatrix;
+            // The camera's position: -R^T t of its view [R t].
+            const position: number[] = [0.0, 0.0, 0.0];
+            for (let column = 0; column < 3; column++) {
+                for (let row = 0; row < 3; row++) {
+                    position[column] -= view[column * 4 + row] * view[12 + row];
+                }
+            }
+            this.sortDraws(position[0], position[1], position[2]);
+            this.drawScene(frame, this.forwardPipeline, this.forwardBlendPipeline, this.hdrFramebuffers[this.hdrIndex], true);
+            commandList.endMarker();
+        }
+
+        // One bloom pass: a thread per texel of the destination.
+        dispatchBlurPass(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet,
+            width: int, height: int, inputWidth: int, inputHeight: int) {
+            const b = this.blurConstants;
+            Donut_StoreInt32(Ref(b[0]), width);
+            Donut_StoreInt32(Ref(b[1]), height);
+            b[2] = 1.0 / width;
+            b[3] = 1.0 / height;
+            b[4] = 1.0 / inputWidth;
+            b[5] = 1.0 / inputHeight;
+            commandList.dispatchWithPushConstants(pipeline, bindingSet, Ref(b[0]), BLUR_SIZE,
+                Math.floor((width + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), Math.floor((height + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), 1);
+        }
+
+        // The sample's render_compute_post: "a very basic and dumb HDR Bloom pipeline", a threshold
+        // pass into the first blur level, then blurring down the levels and back up to the second.
+        renderComputePost(commandList: CommandList) {
+            commandList.beginMarker("Compute post");
+            this.dispatchBlurPass(commandList, this.thresholdPipeline, this.thresholdBindingSets[this.hdrIndex],
+                levelWidth(1), levelHeight(1), HDR_WIDTH, HDR_HEIGHT);
+            for (let index = 1; index < BLUR_LEVELS; index++) {
+                this.dispatchBlurPass(commandList, this.blurDownPipeline, this.blurDownBindingSets[index - 1],
+                    levelWidth(index + 1), levelHeight(index + 1), levelWidth(index), levelHeight(index));
+            }
+            for (let index = BLUR_LEVELS - 2; index >= 1; index--) {
+                this.dispatchBlurPass(commandList, this.blurUpPipeline, this.blurUpBindingSets[BLUR_LEVELS - 2 - index],
+                    levelWidth(index + 1), levelHeight(index + 1), levelWidth(index + 2), levelHeight(index + 2));
+            }
+            commandList.endMarker();
+        }
+
+        onRender(frameHandle: FrameHandle) {
+            const frame = new Frame(frameHandle);
+            const width = frame.getWidth();
+            const height = frame.getHeight();
+            const commandList = frame.getCommandList();
+
+            if (!this.compositePipeline) {
+                this.compositePipeline = this.app.createGraphicsPipelineWithTopology(frame, this.compositeVS, this.compositePS,
+                    null, this.compositeBindingLayout, PrimitiveType.TriangleList);
+            }
+            const compositePipeline = this.compositePipeline;
+            if (!compositePipeline) {
+                return;
+            }
+
+            // Double buffered HDR: the next frame can run ahead a little further before it needs to
+            // block.
+            this.hdrIndex = this.doubleBufferHdr ? 1 - this.hdrIndex : 0;
+
+            this.updateConstants(commandList, width, height);
+            this.renderShadowPass(frame, commandList);
+            this.renderForwardPass(frame, commandList);
+
+            let computed = false;
+            const computeCommandList = this.computeCommandList;
+            if (this.asyncEnabled) {
+                if (computeCommandList) {
+                    computeCommandList.open();
+                    this.renderComputePost(computeCommandList);
+                    computeCommandList.close();
+                    this.app.executeFrameComputeWork(frame, computeCommandList);
+                    computed = true;
+                }
+            }
+            if (!computed) {
+                this.renderComputePost(commandList);
+            }
+
+            // The sample's render_swapchain: the composite (its UI comes after, in the ImGui pass).
+            frame.beginDraw(compositePipeline);
+            frame.drawAddBindingSet(this.compositeBindingSets[this.hdrIndex]);
+            frame.drawVertices(3);
+        }
+
+        // The scene's base color textures and its draws: every node's primitives, their vertices and
+        // indices in one vertex and one index buffer, recorded into an open command list.
+        loadScene(commandList: CommandList, linearWrap: SamplerHandle, comparisonSampler: SamplerHandle, forwardBindingLayout: BindingLayoutHandle) {
+            const scene = this.app.loadGltfModel(SCENE_PATH);
+            if (scene.isNull()) {
+                return false;
+            }
+            const primitiveCount = scene.getPrimitiveCount();
+
+            // The primitives' textures (by image URI) and vertices.
+            const imageNames: string[] = [];
+            const primitiveTexture: int[] = [];
+            const primitiveFirstIndex: int[] = [];
+            const primitiveBaseVertex: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
+            // Per mesh: its bounds (min x, y, z, max x, y, z) and first primitive.
+            const meshBounds: number[] = [];
+            const meshFirstPrimitive: int[] = [];
+            for (let p = 0; p < primitiveCount; p++) {
+                const image = scene.getBaseColorImage(p);
+                let texture = -1;
+                for (let t = 0; t < imageNames.length; t++) {
+                    if (imageNames[t] == image) {
+                        texture = t;
+                    }
+                }
+                if (texture < 0) {
+                    texture = imageNames.length;
+                    imageNames.push(image);
+                }
+                primitiveTexture.push(texture);
+
+                const mesh = scene.getPrimitiveMesh(p);
+                if (mesh == meshFirstPrimitive.length) {
+                    meshFirstPrimitive.push(p);
+                    for (let k = 0; k < 3; k++) {
+                        meshBounds.push(HUGE);
+                    }
+                    for (let k = 0; k < 3; k++) {
+                        meshBounds.push(-HUGE);
+                    }
+                }
+
+                const vertexCount = scene.getVertexCount(p);
+                const indexCount = scene.getIndexCount(p);
+                const primitiveVertices: f32[] = [];
+                for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
+                    primitiveVertices.push(0.0);
+                }
+                const primitiveIndices: int[] = [];
+                for (let i = 0; i < indexCount; i++) {
+                    primitiveIndices.push(0);
+                }
+                scene.copyVertices(p, Ref(primitiveVertices[0]));
+                scene.copyIndices(p, Ref(primitiveIndices[0]));
+
+                primitiveBaseVertex.push(vertices.length / VERTEX_FLOATS);
+                primitiveFirstIndex.push(indices.length);
+                for (let v = 0; v < vertexCount * VERTEX_FLOATS; v++) {
+                    vertices.push(primitiveVertices[v]);
+                }
+                for (let i = 0; i < indexCount; i++) {
+                    indices.push(primitiveIndices[i]);
+                }
+                for (let v = 0; v < vertexCount * VERTEX_FLOATS; v += VERTEX_FLOATS) {
+                    for (let k = 0; k < 3; k++) {
+                        meshBounds[mesh * 6 + k] = Math.min(meshBounds[mesh * 6 + k], primitiveVertices[v + k]);
+                        meshBounds[mesh * 6 + 3 + k] = Math.max(meshBounds[mesh * 6 + 3 + k], primitiveVertices[v + k]);
+                    }
+                }
+            }
+            meshFirstPrimitive.push(primitiveCount);
+
+            // As the framework loads ASTC textures on GPUs without ASTC: level 0 decoded (to DDS
+            // here), the mip levels generated.
+            for (const name of imageNames) {
+                const dot = name.lastIndexOf(".");
+                const path = SCENE_DIR + (dot >= 0 ? name.substring(0, dot) : name) + ".dds";
+                const texture = this.app.loadTexture(commandList, path, 1);
+                if (!texture) {
+                    return false;
+                }
+                const setDesc = BindingSetDesc.create();
+                setDesc.bindEntireConstantBuffer(0, this.forwardConstantBuffer);
+                setDesc.bindTextureSRV(0, texture);
+                setDesc.bindSampler(0, linearWrap);
+                setDesc.bindTextureSRV(1, this.shadowMap);
+                setDesc.bindSampler(1, comparisonSampler);
+                setDesc.bindPushConstants(1, MODEL_SIZE);
+                this.forwardBindingSets.push(this.app.createBindingSetForLayout(setDesc, forwardBindingLayout));
+            }
+
+            // The draws: by mesh, then node, then primitive, as the framework's meshes list their
+            // nodes and submeshes.
+            const nodeCount = scene.getNodeCount();
+            const transform: f32[] = [];
+            for (let i = 0; i < 16; i++) {
+                transform.push(0.0);
+            }
+            for (let mesh = 0; mesh + 1 < meshFirstPrimitive.length; mesh++) {
+                for (let node = 0; node < nodeCount; node++) {
+                    if (scene.getNodeMesh(node) != mesh) {
+                        continue;
+                    }
+                    scene.copyNodeTransform(node, Ref(transform[0]));
+                    // The mesh's bounds, transformed (their corners), and their center.
+                    const low = [HUGE, HUGE, HUGE];
+                    const high = [-HUGE, -HUGE, -HUGE];
+                    for (let corner = 0; corner < 8; corner++) {
+                        const x = meshBounds[mesh * 6 + ((corner & 1) != 0 ? 3 : 0)];
+                        const y = meshBounds[mesh * 6 + 1 + ((corner & 2) != 0 ? 3 : 0)];
+                        const z = meshBounds[mesh * 6 + 2 + ((corner & 4) != 0 ? 3 : 0)];
+                        for (let k = 0; k < 3; k++) {
+                            const value = transform[k] * x + transform[4 + k] * y + transform[8 + k] * z + transform[12 + k];
+                            low[k] = Math.min(low[k], value);
+                            high[k] = Math.max(high[k], value);
+                        }
+                    }
+                    for (let p = meshFirstPrimitive[mesh]; p < meshFirstPrimitive[mesh + 1]; p++) {
+                        this.drawFirstIndex.push(primitiveFirstIndex[p]);
+                        this.drawIndexCount.push(scene.getIndexCount(p));
+                        this.drawBaseVertex.push(primitiveBaseVertex[p]);
+                        this.drawTexture.push(primitiveTexture[p]);
+                        this.drawBlend.push(scene.getPrimitiveAlphaMode(p) == AlphaMode.Blend);
+                        for (let k = 0; k < 3; k++) {
+                            this.drawCenters.push(0.5 * (low[k] + high[k]));
+                        }
+                        for (let i = 0; i < 16; i++) {
+                            this.models.push(transform[i]);
+                        }
+                        this.order.push(this.order.length);
+                        this.distances.push(0.0);
+                    }
+                }
+            }
+
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
+            return true;
+        }
+
         createBlurBindingSet(layout: BindingLayoutHandle, sampler: SamplerHandle, input: TextureHandle, output: TextureHandle) {
             const setDesc = BindingSetDesc.create();
             setDesc.bindTextureSRV(0, input);
@@ -882,6 +881,10 @@ namespace AsyncComputeBloom {
             this.post = post;
         }
 
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
+        }
+
         buildUI() {
             const post = this.post;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
@@ -894,11 +897,6 @@ namespace AsyncComputeBloom {
             post.doubleBufferHdr = Donut_ImGuiCheckbox("Double buffer HDR", post.doubleBufferHdr ? 1 : 0) != 0;
             post.rotateShadows = Donut_ImGuiCheckbox("Rotate shadows", post.rotateShadows ? 1 : 0) != 0;
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

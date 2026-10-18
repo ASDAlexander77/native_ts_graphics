@@ -135,6 +135,74 @@ namespace SimpleCompute {
             this.resetWindow();
         }
 
+        init() {
+            const computeShader = this.app.createShader("simple_compute.hlsl", "fractal_cs", ShaderType.Compute);
+            if (!computeShader) {
+                return false;
+            }
+
+            const gradientTexels: int[] = [
+                texel(0x40, 0x00, 0x00), texel(0x80, 0x00, 0x00), texel(0xC0, 0x00, 0x00), texel(0xFF, 0x00, 0x00),
+                texel(0xFF, 0x40, 0x00), texel(0xFF, 0x80, 0x00), texel(0xFF, 0xC0, 0x00), texel(0xFF, 0xFF, 0x00),
+            ];
+            const rainbowTexels: int[] = [
+                texel(0xFF, 0x00, 0x00), texel(0xFF, 0x80, 0x00), texel(0xFF, 0xFF, 0x00), texel(0x00, 0xFF, 0x00),
+                texel(0x00, 0xFF, 0xFF), texel(0x00, 0x00, 0xFF), texel(0x00, 0x00, 0x80), texel(0xFF, 0x00, 0xFF),
+            ];
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const gradient = this.createColorMap(commandList, gradientTexels, "Fractal Color Map 0");
+            const rainbow = this.createColorMap(commandList, rainbowTexels, "Fractal Color Map 1");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+
+            // MinMagMipPointUVWClamp.
+            const sampler = this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutPushConstants(0, PUSH_CONSTANTS_SIZE);
+            layoutDesc.layoutTextureUAV(0);
+            layoutDesc.layoutTextureSRV(0);
+            layoutDesc.layoutSampler(0);
+            const bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.Compute);
+            this.computePipeline = this.app.createComputePipelineWithLayout(computeShader, bindingLayout);
+
+            this.syncTexture = this.app.createUAVTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, "Fractal Texture");
+            const syncDesc = BindingSetDesc.create();
+            syncDesc.bindPushConstants(0, PUSH_CONSTANTS_SIZE);
+            syncDesc.bindTextureUAV(0, this.syncTexture);
+            syncDesc.bindTextureSRV(0, gradient);
+            syncDesc.bindSampler(0, sampler);
+            this.syncBindingSet = this.app.getCachedBindingSet(syncDesc, bindingLayout);
+
+            const computeLoop = this.app.createAsyncComputeLoop(this.computePipeline, bindingLayout,
+                TEXTURE_WIDTH / NUM_SHADER_THREADS, TEXTURE_HEIGHT / NUM_SHADER_THREADS, 0);
+            this.computeLoop = computeLoop;
+            this.hasAsyncCompute = !computeLoop.isNull();
+            if (this.hasAsyncCompute) {
+                for (let i = 0; i < NUM_ASYNC_TEXTURES; i++) {
+                    const texture = this.app.createUAVTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, `Async Fractal Texture ${i}`);
+                    const asyncDesc = BindingSetDesc.create();
+                    asyncDesc.bindPushConstants(0, PUSH_CONSTANTS_SIZE);
+                    asyncDesc.bindTextureUAV(0, texture);
+                    asyncDesc.bindTextureSRV(0, rainbow);
+                    asyncDesc.bindSampler(0, sampler);
+                    computeLoop.addTextureWithBindingSet(texture, this.app.getCachedBindingSet(asyncDesc, bindingLayout));
+                }
+                computeLoop.setPushConstants(Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
+                computeLoop.setPaused(1);
+                computeLoop.start();
+            } else {
+                console.log("The graphics device has no compute queue: synchronous compute only");
+            }
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         resetWindow() {
             this.constants[4] = 4.0;
             this.constants[5] = 2.25;
@@ -277,75 +345,6 @@ namespace SimpleCompute {
             commandList.writeTextureLevel(texture, 0, Ref(texels[0]), COLOR_MAP_SIZE * 4);
             return texture;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const computeShader = this.app.createShader("simple_compute.hlsl", "fractal_cs", ShaderType.Compute);
-            if (!computeShader) {
-                return false;
-            }
-
-            const gradientTexels: int[] = [
-                texel(0x40, 0x00, 0x00), texel(0x80, 0x00, 0x00), texel(0xC0, 0x00, 0x00), texel(0xFF, 0x00, 0x00),
-                texel(0xFF, 0x40, 0x00), texel(0xFF, 0x80, 0x00), texel(0xFF, 0xC0, 0x00), texel(0xFF, 0xFF, 0x00),
-            ];
-            const rainbowTexels: int[] = [
-                texel(0xFF, 0x00, 0x00), texel(0xFF, 0x80, 0x00), texel(0xFF, 0xFF, 0x00), texel(0x00, 0xFF, 0x00),
-                texel(0x00, 0xFF, 0xFF), texel(0x00, 0x00, 0xFF), texel(0x00, 0x00, 0x80), texel(0xFF, 0x00, 0xFF),
-            ];
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const gradient = this.createColorMap(commandList, gradientTexels, "Fractal Color Map 0");
-            const rainbow = this.createColorMap(commandList, rainbowTexels, "Fractal Color Map 1");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-
-            // MinMagMipPointUVWClamp.
-            const sampler = this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutPushConstants(0, PUSH_CONSTANTS_SIZE);
-            layoutDesc.layoutTextureUAV(0);
-            layoutDesc.layoutTextureSRV(0);
-            layoutDesc.layoutSampler(0);
-            const bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.Compute);
-            this.computePipeline = this.app.createComputePipelineWithLayout(computeShader, bindingLayout);
-
-            this.syncTexture = this.app.createUAVTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, "Fractal Texture");
-            const syncDesc = BindingSetDesc.create();
-            syncDesc.bindPushConstants(0, PUSH_CONSTANTS_SIZE);
-            syncDesc.bindTextureUAV(0, this.syncTexture);
-            syncDesc.bindTextureSRV(0, gradient);
-            syncDesc.bindSampler(0, sampler);
-            this.syncBindingSet = this.app.getCachedBindingSet(syncDesc, bindingLayout);
-
-            const computeLoop = this.app.createAsyncComputeLoop(this.computePipeline, bindingLayout,
-                TEXTURE_WIDTH / NUM_SHADER_THREADS, TEXTURE_HEIGHT / NUM_SHADER_THREADS, 0);
-            this.computeLoop = computeLoop;
-            this.hasAsyncCompute = !computeLoop.isNull();
-            if (this.hasAsyncCompute) {
-                for (let i = 0; i < NUM_ASYNC_TEXTURES; i++) {
-                    const texture = this.app.createUAVTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, `Async Fractal Texture ${i}`);
-                    const asyncDesc = BindingSetDesc.create();
-                    asyncDesc.bindPushConstants(0, PUSH_CONSTANTS_SIZE);
-                    asyncDesc.bindTextureUAV(0, texture);
-                    asyncDesc.bindTextureSRV(0, rainbow);
-                    asyncDesc.bindSampler(0, sampler);
-                    computeLoop.addTextureWithBindingSet(texture, this.app.getCachedBindingSet(asyncDesc, bindingLayout));
-                }
-                computeLoop.setPushConstants(Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
-                computeLoop.setPaused(1);
-                computeLoop.start();
-            } else {
-                console.log("The graphics device has no compute queue: synchronous compute only");
-            }
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's HUD (SpriteFont text in the title-safe area): the rates at the top, the controls
@@ -359,6 +358,19 @@ namespace SimpleCompute {
         constructor(sample: SimpleComputePass, app: App) {
             this.sample = sample;
             this.app = app;
+        }
+
+        init() {
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            if (this.font.isNull()) {
+                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                return false;
+            }
+            return true;
         }
 
         line(x: number, y: number, text: string) {
@@ -386,20 +398,6 @@ namespace SimpleCompute {
             this.line(left, bottom - LINE_SPACING,
                 "WASD: Pan viewport   PageUp/Down: Zoom viewport    Space: Toggle async   Esc: Exit");
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init() {
-            const imguiPass = this.app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            if (this.font.isNull()) {
-                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                return false;
-            }
-            return true;
         }
     }
 

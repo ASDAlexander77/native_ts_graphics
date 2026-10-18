@@ -87,6 +87,74 @@ namespace BindlessRendering {
             }
         }
 
+        init(scenePath: string) {
+            const vertexShader = this.app.createShader("bindless_rendering.hlsl", "vs_main", ShaderType.Vertex);
+            const pixelShader = this.app.createShader("bindless_rendering.hlsl", "ps_main", ShaderType.Pixel);
+            if (!vertexShader || !pixelShader) {
+                return false;
+            }
+            this.vertexShader = vertexShader;
+            this.pixelShader = pixelShader;
+
+            // t_BindlessBuffers in space1, t_BindlessTextures in space2.
+            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
+            bindlessLayoutDesc.addRawBuffers(1);
+            bindlessLayoutDesc.addTextures(2);
+            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
+
+            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
+            this.descriptorTable = descriptorTableManager.getDescriptorTable();
+
+            const scene = this.app.loadSceneWithDescriptorTable(scenePath, descriptorTableManager);
+            if (scene.isNull()) {
+                console.log(`Cannot load the scene ${scenePath}`);
+                return false;
+            }
+            this.scene = scene;
+            this.sceneGraph = scene.getSceneGraph();
+
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+            this.camera.setMoveSpeed(3.0);
+
+            this.view = this.app.createPlanarView();
+
+            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
+            for (let i = 0; i < this.viewConstantsSize / 4; i++) {
+                this.viewConstantsData.push(0.0);
+            }
+            this.viewConstants = this.app.createVolatileConstantBuffer(this.viewConstantsSize, "ViewConstants");
+
+            this.app.waitForIdle();
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutPushConstants(1, INSTANCE_CONSTANTS_SIZE);
+            layoutDesc.layoutStructuredBufferSRV(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutStructuredBufferSRV(2);
+            layoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            const bindingSetDesc = BindingSetDesc.create();
+            bindingSetDesc.bindEntireConstantBuffer(0, this.viewConstants);
+            bindingSetDesc.bindPushConstants(1, INSTANCE_CONSTANTS_SIZE);
+            bindingSetDesc.bindStructuredBufferSRV(0, scene.getBuffer(SceneBuffer.Instances));
+            bindingSetDesc.bindStructuredBufferSRV(1, scene.getBuffer(SceneBuffer.Geometries));
+            bindingSetDesc.bindStructuredBufferSRV(2, scene.getBuffer(SceneBuffer.Materials));
+            bindingSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
+            this.bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
@@ -187,75 +255,6 @@ namespace BindlessRendering {
                         Ref(constants[0]), INSTANCE_CONSTANTS_SIZE);
                 }
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string) {
-            const vertexShader = this.app.createShader("bindless_rendering.hlsl", "vs_main", ShaderType.Vertex);
-            const pixelShader = this.app.createShader("bindless_rendering.hlsl", "ps_main", ShaderType.Pixel);
-            if (!vertexShader || !pixelShader) {
-                return false;
-            }
-            this.vertexShader = vertexShader;
-            this.pixelShader = pixelShader;
-
-            // t_BindlessBuffers in space1, t_BindlessTextures in space2.
-            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
-            bindlessLayoutDesc.addRawBuffers(1);
-            bindlessLayoutDesc.addTextures(2);
-            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
-
-            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
-            this.descriptorTable = descriptorTableManager.getDescriptorTable();
-
-            const scene = this.app.loadSceneWithDescriptorTable(scenePath, descriptorTableManager);
-            if (scene.isNull()) {
-                console.log(`Cannot load the scene ${scenePath}`);
-                return false;
-            }
-            this.scene = scene;
-            this.sceneGraph = scene.getSceneGraph();
-
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            this.camera.setMoveSpeed(3.0);
-
-            this.view = this.app.createPlanarView();
-
-            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
-            for (let i = 0; i < this.viewConstantsSize / 4; i++) {
-                this.viewConstantsData.push(0.0);
-            }
-            this.viewConstants = this.app.createVolatileConstantBuffer(this.viewConstantsSize, "ViewConstants");
-
-            this.app.waitForIdle();
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutPushConstants(1, INSTANCE_CONSTANTS_SIZE);
-            layoutDesc.layoutStructuredBufferSRV(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            layoutDesc.layoutStructuredBufferSRV(2);
-            layoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            const bindingSetDesc = BindingSetDesc.create();
-            bindingSetDesc.bindEntireConstantBuffer(0, this.viewConstants);
-            bindingSetDesc.bindPushConstants(1, INSTANCE_CONSTANTS_SIZE);
-            bindingSetDesc.bindStructuredBufferSRV(0, scene.getBuffer(SceneBuffer.Instances));
-            bindingSetDesc.bindStructuredBufferSRV(1, scene.getBuffer(SceneBuffer.Geometries));
-            bindingSetDesc.bindStructuredBufferSRV(2, scene.getBuffer(SceneBuffer.Materials));
-            bindingSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
-            this.bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

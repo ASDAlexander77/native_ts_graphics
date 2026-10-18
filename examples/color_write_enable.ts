@@ -81,6 +81,33 @@ namespace ColorWriteEnable {
             this.compositionPipelineMade = false;
         }
 
+        init() {
+            const shader = "color_write_enable.hlsl";
+            this.triangleVS = this.app.createShader(shader, "triangle_vs", ShaderType.Vertex);
+            this.trianglePS = this.app.createShader(shader, "triangle_ps", ShaderType.Pixel);
+            this.compositionVS = this.app.createShader(shader, "composition_vs", ShaderType.Vertex);
+            this.compositionPS = this.app.createShader(shader, "composition_ps", ShaderType.Pixel);
+            if (!this.triangleVS || !this.trianglePS || !this.compositionVS || !this.compositionPS) {
+                return false;
+            }
+            for (let i = 0; i < 8; i++) {
+                this.trianglePipelineMade.push(false);
+                this.trianglePipelines.push(null);
+            }
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutTextureSRV(0);
+            layoutDesc.layoutTextureSRV(1);
+            layoutDesc.layoutTextureSRV(2);
+            this.compositionBindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.Pixel);
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
@@ -178,34 +205,6 @@ namespace ColorWriteEnable {
             frame.drawAddBindingSet(this.compositionBindingSet);
             frame.drawVertices(3);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "color_write_enable.hlsl";
-            this.triangleVS = this.app.createShader(shader, "triangle_vs", ShaderType.Vertex);
-            this.trianglePS = this.app.createShader(shader, "triangle_ps", ShaderType.Pixel);
-            this.compositionVS = this.app.createShader(shader, "composition_vs", ShaderType.Vertex);
-            this.compositionPS = this.app.createShader(shader, "composition_ps", ShaderType.Pixel);
-            if (!this.triangleVS || !this.trianglePS || !this.compositionVS || !this.compositionPS) {
-                return false;
-            }
-            for (let i = 0; i < 8; i++) {
-                this.trianglePipelineMade.push(false);
-                this.trianglePipelines.push(null);
-            }
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutTextureSRV(0);
-            layoutDesc.layoutTextureSRV(1);
-            layoutDesc.layoutTextureSRV(2);
-            this.compositionBindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.Pixel);
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -214,6 +213,10 @@ namespace ColorWriteEnable {
 
         constructor(sample: ColorWriteEnablePass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -231,11 +234,6 @@ namespace ColorWriteEnable {
             }
             Donut_ImGuiPopItemWidth();
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

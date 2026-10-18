@@ -391,6 +391,171 @@ namespace ShaderObjectSample {
             }
         }
 
+        init() {
+            // The sample's request_gpu_features: the supported output and depth formats, in order.
+            for (let i = 0; i < OUTPUT_FORMATS.length; i++) {
+                const support = OUTPUT_FORMATS[i] == Format.UNKNOWN ? 0 : this.app.queryFormatSupport(OUTPUT_FORMATS[i]);
+                if ((support & SUPPORT_RENDER_TARGET) != 0 && (support & SUPPORT_SHADER_SAMPLE) != 0) {
+                    this.outputFormats.push(i);
+                }
+            }
+            for (let i = 0; i < DEPTH_FORMATS.length; i++) {
+                if ((this.app.queryFormatSupport(DEPTH_FORMATS[i]) & SUPPORT_DEPTH_STENCIL) != 0) {
+                    this.depthFormats.push(i);
+                }
+            }
+            if (this.outputFormats.length == 0 || this.depthFormats.length == 0) {
+                console.log("No supported output or depth format");
+                return false;
+            }
+            const pipelineKeys = COMBO_COUNT * this.outputFormats.length * this.depthFormats.length * 2;
+            for (let i = 0; i < pipelineKeys; i++) {
+                this.pipelineIndex.push(-1);
+            }
+
+            const shader = "shader_object.hlsl";
+            this.skyboxVS = this.app.createShader(shader, "skybox_vs", ShaderType.Vertex);
+            this.skyboxPS = this.app.createShader(shader, "skybox_ps", ShaderType.Pixel);
+            this.terrainVS = this.app.createShader(shader, "terrain_vs", ShaderType.Vertex);
+            this.terrainPS = this.app.createShader(shader, "terrain_ps", ShaderType.Pixel);
+            this.fsqVS = this.app.createShader(shader, "fsq_vs", ShaderType.Vertex);
+            let ok = true;
+            if (!this.skyboxVS || !this.skyboxPS || !this.terrainVS || !this.terrainPS || !this.fsqVS) {
+                ok = false;
+            }
+            for (let i = 0; i < BASIC_VS.length; i++) {
+                const vs = this.app.createShader(shader, BASIC_VS[i], ShaderType.Vertex);
+                const ps = this.app.createShader(shader, BASIC_PS[i], ShaderType.Pixel);
+                if (!vs || !ps) {
+                    ok = false;
+                }
+                this.basicVS.push(vs);
+                this.basicPS.push(ps);
+            }
+            for (const entryPoint of MATERIAL_VS) {
+                const vs = this.app.createShader(shader, entryPoint, ShaderType.Vertex);
+                if (!vs) {
+                    ok = false;
+                }
+                this.materialVS.push(vs);
+            }
+            for (const entryPoint of MATERIAL_GS) {
+                const gs = this.app.createShader(shader, entryPoint, ShaderType.Geometry);
+                if (!gs) {
+                    ok = false;
+                }
+                this.materialGS.push(gs);
+            }
+            for (const entryPoint of MATERIAL_PS) {
+                const ps = this.app.createShader(shader, entryPoint, ShaderType.Pixel);
+                if (!ps) {
+                    ok = false;
+                }
+                this.materialPS.push(ps);
+            }
+            for (const entryPoint of POST_PS) {
+                const ps = this.app.createShader(shader, entryPoint, ShaderType.Pixel);
+                if (!ps) {
+                    ok = false;
+                }
+                this.postPS.push(ps);
+            }
+            if (!ok) {
+                return false;
+            }
+
+            // The sample's vertex input: position, normal, texture coordinates.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, NORMAL_OFFSET, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, UV_OFFSET, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.skyboxVS);
+            const noUVLayoutDesc = InputLayoutDesc.create();
+            noUVLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            noUVLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, NORMAL_OFFSET, 0, VERTEX_SIZE);
+            this.noUVInputLayout = this.app.createInputLayout(noUVLayoutDesc, this.basicVS[0]);
+
+            // The sample's samplers: the framework's load_texture's (trilinear, repeating, the
+            // device's widest anisotropic filtering), a mirroring one for the heightmap, a repeating
+            // one for the terrain's layers, and its standard sampler for post-processing (clamped,
+            // levels 0 and 1).
+            const maxAnisotropy = this.app.getMaxSamplerAnisotropy();
+            const textureSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, maxAnisotropy);
+            const heightmapSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Mirror, 0.0, 0.0, 1000.0, 1.0);
+            const layersSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, 1.0);
+            this.postSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1.0, maxAnisotropy);
+
+            // Donut's common passes (the blit's), made before a command list is open: they upload
+            // their textures with an immediate command list of their own.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            // As the sample (vkb) loads KTX 1 files: color as sRGB, the heightmap as is.
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.torus = this.app.loadGltfMesh(commandList, TORUS_PATH);
+            this.rock = this.app.loadGltfMesh(commandList, ROCK_PATH);
+            this.cube = this.app.loadGltfMesh(commandList, CUBE_PATH);
+            this.skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
+            this.teapot = this.app.loadGltfMesh(commandList, TEAPOT_PATH);
+            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 1);
+            const checkerboard = this.app.loadTexture(commandList, CHECKERBOARD_PATH, 1);
+            const terrainLayers = this.app.loadTexture(commandList, TERRAIN_LAYERS_PATH, 1);
+            const heightmap = this.app.loadTexture(commandList, HEIGHTMAP_PATH, 0);
+            const terrainMade = this.generateTerrain(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (this.torus.isNull() || this.rock.isNull() || this.cube.isNull() || this.skybox.isNull() || this.teapot.isNull()
+                || !envmap || !checkerboard || !terrainLayers || !heightmap || !terrainMade) {
+                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            // The scene's bindings (the sample's basic and material descriptor sets in one): the
+            // cameras' matrices, the push constants, the textures.
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            const sceneLayoutDesc = BindingLayoutDesc.create();
+            sceneLayoutDesc.layoutVolatileConstantBuffer(0);
+            sceneLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
+            for (let i = 1; i <= 4; i++) {
+                sceneLayoutDesc.layoutTextureSRV(i);
+            }
+            for (let i = 1; i <= 3; i++) {
+                sceneLayoutDesc.layoutSampler(i);
+            }
+            this.sceneLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindPushConstants(1, PUSH_SIZE);
+            setDesc.bindTextureSRV(1, envmap);
+            setDesc.bindTextureSRV(2, heightmap);
+            setDesc.bindTextureSRV(3, terrainLayers);
+            setDesc.bindTextureSRV(4, checkerboard);
+            setDesc.bindSampler(1, textureSampler);
+            setDesc.bindSampler(2, heightmapSampler);
+            setDesc.bindSampler(3, layersSampler);
+            this.sceneBindingSet = this.app.createBindingSetForLayout(setDesc, this.sceneLayout);
+
+            // Post-processing's: the output image (one set per image, see createTargets).
+            const postLayoutDesc = BindingLayoutDesc.create();
+            postLayoutDesc.layoutVolatileConstantBuffer(0);
+            postLayoutDesc.layoutTextureSRV(0);
+            postLayoutDesc.layoutSampler(0);
+            this.postLayout = this.app.createBindingLayout(postLayoutDesc, ShaderType.All);
+
+            // Its random numbers: a fixed seed.
+            this.rng = this.app.createRandomEngine(12345);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -742,7 +907,7 @@ namespace ShaderObjectSample {
             }
             const scaleFactor = HEIGHTMAP_DIM / TERRAIN_RESOLUTION;
             const heights: number[] = [];
-            let row: int[] = [];
+            const row: int[] = [];
             for (let i = 0; i < HEIGHTMAP_DIM * 2; i++) {
                 row.push(0);
             }
@@ -755,8 +920,8 @@ namespace ShaderObjectSample {
             }
             this.app.releaseObject(file.handle);
 
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             const vertexCount = TERRAIN_RESOLUTION * TERRAIN_RESOLUTION;
             for (let i = 0; i < vertexCount * 8; i++) {
                 vertices.push(0.0);
@@ -811,172 +976,6 @@ namespace ShaderObjectSample {
             this.terrainIndexCount = indices.length;
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // The sample's request_gpu_features: the supported output and depth formats, in order.
-            for (let i = 0; i < OUTPUT_FORMATS.length; i++) {
-                const support = OUTPUT_FORMATS[i] == Format.UNKNOWN ? 0 : this.app.queryFormatSupport(OUTPUT_FORMATS[i]);
-                if ((support & SUPPORT_RENDER_TARGET) != 0 && (support & SUPPORT_SHADER_SAMPLE) != 0) {
-                    this.outputFormats.push(i);
-                }
-            }
-            for (let i = 0; i < DEPTH_FORMATS.length; i++) {
-                if ((this.app.queryFormatSupport(DEPTH_FORMATS[i]) & SUPPORT_DEPTH_STENCIL) != 0) {
-                    this.depthFormats.push(i);
-                }
-            }
-            if (this.outputFormats.length == 0 || this.depthFormats.length == 0) {
-                console.log("No supported output or depth format");
-                return false;
-            }
-            const pipelineKeys = COMBO_COUNT * this.outputFormats.length * this.depthFormats.length * 2;
-            for (let i = 0; i < pipelineKeys; i++) {
-                this.pipelineIndex.push(-1);
-            }
-
-            const shader = "shader_object.hlsl";
-            this.skyboxVS = this.app.createShader(shader, "skybox_vs", ShaderType.Vertex);
-            this.skyboxPS = this.app.createShader(shader, "skybox_ps", ShaderType.Pixel);
-            this.terrainVS = this.app.createShader(shader, "terrain_vs", ShaderType.Vertex);
-            this.terrainPS = this.app.createShader(shader, "terrain_ps", ShaderType.Pixel);
-            this.fsqVS = this.app.createShader(shader, "fsq_vs", ShaderType.Vertex);
-            let ok = true;
-            if (!this.skyboxVS || !this.skyboxPS || !this.terrainVS || !this.terrainPS || !this.fsqVS) {
-                ok = false;
-            }
-            for (let i = 0; i < BASIC_VS.length; i++) {
-                const vs = this.app.createShader(shader, BASIC_VS[i], ShaderType.Vertex);
-                const ps = this.app.createShader(shader, BASIC_PS[i], ShaderType.Pixel);
-                if (!vs || !ps) {
-                    ok = false;
-                }
-                this.basicVS.push(vs);
-                this.basicPS.push(ps);
-            }
-            for (const entryPoint of MATERIAL_VS) {
-                const vs = this.app.createShader(shader, entryPoint, ShaderType.Vertex);
-                if (!vs) {
-                    ok = false;
-                }
-                this.materialVS.push(vs);
-            }
-            for (const entryPoint of MATERIAL_GS) {
-                const gs = this.app.createShader(shader, entryPoint, ShaderType.Geometry);
-                if (!gs) {
-                    ok = false;
-                }
-                this.materialGS.push(gs);
-            }
-            for (const entryPoint of MATERIAL_PS) {
-                const ps = this.app.createShader(shader, entryPoint, ShaderType.Pixel);
-                if (!ps) {
-                    ok = false;
-                }
-                this.materialPS.push(ps);
-            }
-            for (const entryPoint of POST_PS) {
-                const ps = this.app.createShader(shader, entryPoint, ShaderType.Pixel);
-                if (!ps) {
-                    ok = false;
-                }
-                this.postPS.push(ps);
-            }
-            if (!ok) {
-                return false;
-            }
-
-            // The sample's vertex input: position, normal, texture coordinates.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, NORMAL_OFFSET, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, UV_OFFSET, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.skyboxVS);
-            const noUVLayoutDesc = InputLayoutDesc.create();
-            noUVLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            noUVLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, NORMAL_OFFSET, 0, VERTEX_SIZE);
-            this.noUVInputLayout = this.app.createInputLayout(noUVLayoutDesc, this.basicVS[0]);
-
-            // The sample's samplers: the framework's load_texture's (trilinear, repeating, the
-            // device's widest anisotropic filtering), a mirroring one for the heightmap, a repeating
-            // one for the terrain's layers, and its standard sampler for post-processing (clamped,
-            // levels 0 and 1).
-            const maxAnisotropy = this.app.getMaxSamplerAnisotropy();
-            const textureSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, maxAnisotropy);
-            const heightmapSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Mirror, 0.0, 0.0, 1000.0, 1.0);
-            const layersSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0, 1.0);
-            this.postSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Clamp, 0.0, 0.0, 1.0, maxAnisotropy);
-
-            // Donut's common passes (the blit's), made before a command list is open: they upload
-            // their textures with an immediate command list of their own.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            // As the sample (vkb) loads KTX 1 files: color as sRGB, the heightmap as is.
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.torus = this.app.loadGltfMesh(commandList, TORUS_PATH);
-            this.rock = this.app.loadGltfMesh(commandList, ROCK_PATH);
-            this.cube = this.app.loadGltfMesh(commandList, CUBE_PATH);
-            this.skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
-            this.teapot = this.app.loadGltfMesh(commandList, TEAPOT_PATH);
-            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 1);
-            const checkerboard = this.app.loadTexture(commandList, CHECKERBOARD_PATH, 1);
-            const terrainLayers = this.app.loadTexture(commandList, TERRAIN_LAYERS_PATH, 1);
-            const heightmap = this.app.loadTexture(commandList, HEIGHTMAP_PATH, 0);
-            const terrainMade = this.generateTerrain(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (this.torus.isNull() || this.rock.isNull() || this.cube.isNull() || this.skybox.isNull() || this.teapot.isNull()
-                || !envmap || !checkerboard || !terrainLayers || !heightmap || !terrainMade) {
-                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            // The scene's bindings (the sample's basic and material descriptor sets in one): the
-            // cameras' matrices, the push constants, the textures.
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            const sceneLayoutDesc = BindingLayoutDesc.create();
-            sceneLayoutDesc.layoutVolatileConstantBuffer(0);
-            sceneLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
-            for (let i = 1; i <= 4; i++) {
-                sceneLayoutDesc.layoutTextureSRV(i);
-            }
-            for (let i = 1; i <= 3; i++) {
-                sceneLayoutDesc.layoutSampler(i);
-            }
-            this.sceneLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindPushConstants(1, PUSH_SIZE);
-            setDesc.bindTextureSRV(1, envmap);
-            setDesc.bindTextureSRV(2, heightmap);
-            setDesc.bindTextureSRV(3, terrainLayers);
-            setDesc.bindTextureSRV(4, checkerboard);
-            setDesc.bindSampler(1, textureSampler);
-            setDesc.bindSampler(2, heightmapSampler);
-            setDesc.bindSampler(3, layersSampler);
-            this.sceneBindingSet = this.app.createBindingSetForLayout(setDesc, this.sceneLayout);
-
-            // Post-processing's: the output image (one set per image, see createTargets).
-            const postLayoutDesc = BindingLayoutDesc.create();
-            postLayoutDesc.layoutVolatileConstantBuffer(0);
-            postLayoutDesc.layoutTextureSRV(0);
-            postLayoutDesc.layoutSampler(0);
-            this.postLayout = this.app.createBindingLayout(postLayoutDesc, ShaderType.All);
-
-            // Its random numbers: a fixed seed.
-            this.rng = this.app.createRandomEngine(12345);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay: its options, and the CPU frame time graph along the bottom.
@@ -990,6 +989,10 @@ namespace ShaderObjectSample {
             this.sample = sample;
             this.app = app;
             this.sliderValue = 0;
+        }
+
+        init() {
+            return !this.app.addImGuiPass(this.buildUI).isNull();
         }
 
         checkbox(label: string, value: boolean) {
@@ -1090,11 +1093,6 @@ namespace ShaderObjectSample {
             Donut_ImGuiText(`CPU Frame Time: ${formatFixed(s.timestampValues[s.currentTimestamp], 6)} ms (max ${formatFixed(maxValue, 6)} ms)`);
             Donut_ImGuiEnd();
             s.currentTimestamp = (s.currentTimestamp + 1) % TIMESTAMP_COUNT;
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init() {
-            return !this.app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

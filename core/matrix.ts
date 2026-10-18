@@ -15,7 +15,7 @@ export function identity() {
 
 // a * b.
 export function multiply(a: number[], b: number[]) {
-    let result: number[] = [];
+    const result: number[] = [];
     for (let column = 0; column < 4; column++) {
         for (let row = 0; row < 4; row++) {
             let sum = 0.0;
@@ -74,7 +74,7 @@ export function scale(x: number, y: number, z: number) {
 
 // glm::transpose.
 export function transpose(a: number[]) {
-    let m: number[] = [];
+    const m: number[] = [];
     for (let row = 0; row < 4; row++) {
         for (let column = 0; column < 4; column++) {
             m.push(a[column * 4 + row]);
@@ -125,7 +125,7 @@ export function inverse(m: number[]) {
 
 // The inverse of a rotation and translation [R t]: [R^T -R^T t].
 export function inverseRigid(m: number[]) {
-    let result = identity();
+    const result = identity();
     for (let row = 0; row < 3; row++) {
         for (let column = 0; column < 3; column++) {
             result[column * 4 + row] = m[row * 4 + column];
@@ -150,7 +150,7 @@ export function radiansF32(degrees: number) {
 // a * b for row-major matrices (row vectors, as DirectXMath and Donut take them), each element
 // rounded to float32.
 export function multiplyF32(a: number[], b: number[]) {
-    let m: number[] = [];
+    const m: number[] = [];
     for (let row = 0; row < 4; row++) {
         for (let column = 0; column < 4; column++) {
             let sum = 0.0;
@@ -166,7 +166,7 @@ export function multiplyF32(a: number[], b: number[]) {
 // The inverse of m, by Gauss-Jordan elimination with partial pivoting (in doubles).
 export function inverseGaussJordan(m: number[]) {
     // Rows of [m | I].
-    let a: number[] = [];
+    const a: number[] = [];
     for (let row = 0; row < 4; row++) {
         for (let column = 0; column < 4; column++) {
             a.push(m[column * 4 + row]);
@@ -200,7 +200,7 @@ export function inverseGaussJordan(m: number[]) {
             }
         }
     }
-    let result: number[] = [];
+    const result: number[] = [];
     for (let column = 0; column < 4; column++) {
         for (let row = 0; row < 4; row++) {
             result.push(a[row * 8 + 4 + column]);
@@ -254,7 +254,7 @@ export function reversedPerspective(fov: number, aspect: number, zNear: number, 
 // Vulkan-Samples' vulkan_style_projection: [1][1] negated (only that element), for Vulkan's
 // clip space, y down on the screen.
 export function vulkanStyleProjection(m: number[]) {
-    let result: number[] = [];
+    const result: number[] = [];
     for (let i = 0; i < 16; i++) {
         result.push(i == 5 ? -m[i] : m[i]);
     }

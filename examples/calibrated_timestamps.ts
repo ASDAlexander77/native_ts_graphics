@@ -261,6 +261,94 @@ namespace CalibratedTimestampsSample {
             }
         }
 
+        init() {
+            // Get the optimal time domain as soon as possible.
+            this.timestamps = new Timestamps(this.app);
+
+            this.skyboxVS = this.app.createShader("hdr.hlsl", "skybox_vs", ShaderType.Vertex);
+            this.skyboxPS = this.app.createShader("hdr.hlsl", "skybox_ps", ShaderType.Pixel);
+            this.reflectVS = this.app.createShader("hdr.hlsl", "reflect_vs", ShaderType.Vertex);
+            this.reflectPS = this.app.createShader("hdr.hlsl", "reflect_ps", ShaderType.Pixel);
+            this.fullscreenVS = this.app.createShader("hdr.hlsl", "fullscreen_vs", ShaderType.Vertex);
+            this.compositionPS = this.app.createShader("hdr.hlsl", "composition_ps", ShaderType.Pixel);
+            this.bloomFilterPS = this.app.createShader("hdr.hlsl", "bloom_filter_ps", ShaderType.Pixel);
+            this.bloomCompositePS = this.app.createShader("hdr.hlsl", "bloom_composite_ps", ShaderType.Pixel);
+            if (!this.skyboxVS || !this.skyboxPS || !this.reflectVS || !this.reflectPS || !this.fullscreenVS
+                || !this.compositionPS || !this.bloomFilterPS || !this.bloomCompositePS) {
+                return false;
+            }
+
+            // Vertex bindings and attributes for model rendering: position and normal.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.skyboxVS);
+
+            this.timestamps.begin(TAG_LOAD_ASSETS);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
+            let objectsLoaded = !skybox.isNull();
+            for (const objectPath of OBJECT_PATHS) {
+                const mesh = this.app.loadGltfMesh(commandList, objectPath);
+                objectsLoaded = objectsLoaded && !mesh.isNull();
+                this.objects.push(mesh);
+            }
+            // Load HDR cube map
+            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            this.timestamps.end(TAG_LOAD_ASSETS);
+            if (!objectsLoaded || !envmap) {
+                console.log("Cannot load the models and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.skybox = skybox;
+
+            this.matricesBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBOMatrices");
+            this.paramsBuffer = this.app.createVolatileConstantBuffer(PARAMS_FLOATS * 4, "UBOParams");
+
+            const modelsLayoutDesc = BindingLayoutDesc.create();
+            modelsLayoutDesc.layoutVolatileConstantBuffer(0);
+            modelsLayoutDesc.layoutVolatileConstantBuffer(1);
+            modelsLayoutDesc.layoutTextureSRV(0);
+            modelsLayoutDesc.layoutSampler(0);
+            this.modelsBindingLayout = this.app.createBindingLayout(modelsLayoutDesc, ShaderType.All);
+
+            const modelsSetDesc = BindingSetDesc.create();
+            modelsSetDesc.bindEntireConstantBuffer(0, this.matricesBuffer);
+            modelsSetDesc.bindEntireConstantBuffer(1, this.paramsBuffer);
+            modelsSetDesc.bindTextureSRV(0, envmap);
+            modelsSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
+            this.modelsBindingSet = this.app.createBindingSetForLayout(modelsSetDesc, this.modelsBindingLayout);
+
+            // The composition and bloom passes: two textures and a point sampler, as the sample's
+            // offscreen sampler (nearest, clamped).
+            const postLayoutDesc = BindingLayoutDesc.create();
+            postLayoutDesc.layoutTextureSRV(0);
+            postLayoutDesc.layoutTextureSRV(1);
+            postLayoutDesc.layoutSampler(0);
+            this.postBindingLayout = this.app.createBindingLayout(postLayoutDesc, ShaderType.Pixel);
+
+            // The sample's look-at camera, at (0, 0, -4) and turned 180 degrees around y: looking at
+            // the world's origin from (0, 0, -4), in either world (see updateConstants).
+            this.camera = this.app.createThirdPersonCamera();
+            this.camera.thirdPersonLookAt(0.0, 0.0, -4.0, 0.0, 0.0, 0.0);
+            this.view = this.app.createPlanarView();
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
@@ -522,95 +610,6 @@ namespace CalibratedTimestampsSample {
             // Donut submits and presents the frame after the passes.
             this.timestamps.begin(TAG_DRAW);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // Get the optimal time domain as soon as possible.
-            this.timestamps = new Timestamps(this.app);
-
-            this.skyboxVS = this.app.createShader("hdr.hlsl", "skybox_vs", ShaderType.Vertex);
-            this.skyboxPS = this.app.createShader("hdr.hlsl", "skybox_ps", ShaderType.Pixel);
-            this.reflectVS = this.app.createShader("hdr.hlsl", "reflect_vs", ShaderType.Vertex);
-            this.reflectPS = this.app.createShader("hdr.hlsl", "reflect_ps", ShaderType.Pixel);
-            this.fullscreenVS = this.app.createShader("hdr.hlsl", "fullscreen_vs", ShaderType.Vertex);
-            this.compositionPS = this.app.createShader("hdr.hlsl", "composition_ps", ShaderType.Pixel);
-            this.bloomFilterPS = this.app.createShader("hdr.hlsl", "bloom_filter_ps", ShaderType.Pixel);
-            this.bloomCompositePS = this.app.createShader("hdr.hlsl", "bloom_composite_ps", ShaderType.Pixel);
-            if (!this.skyboxVS || !this.skyboxPS || !this.reflectVS || !this.reflectPS || !this.fullscreenVS
-                || !this.compositionPS || !this.bloomFilterPS || !this.bloomCompositePS) {
-                return false;
-            }
-
-            // Vertex bindings and attributes for model rendering: position and normal.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.skyboxVS);
-
-            this.timestamps.begin(TAG_LOAD_ASSETS);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const skybox = this.app.loadGltfMesh(commandList, SKYBOX_PATH);
-            let objectsLoaded = !skybox.isNull();
-            for (const objectPath of OBJECT_PATHS) {
-                const mesh = this.app.loadGltfMesh(commandList, objectPath);
-                objectsLoaded = objectsLoaded && !mesh.isNull();
-                this.objects.push(mesh);
-            }
-            // Load HDR cube map
-            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            this.timestamps.end(TAG_LOAD_ASSETS);
-            if (!objectsLoaded || !envmap) {
-                console.log("Cannot load the models and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.skybox = skybox;
-
-            this.matricesBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBOMatrices");
-            this.paramsBuffer = this.app.createVolatileConstantBuffer(PARAMS_FLOATS * 4, "UBOParams");
-
-            const modelsLayoutDesc = BindingLayoutDesc.create();
-            modelsLayoutDesc.layoutVolatileConstantBuffer(0);
-            modelsLayoutDesc.layoutVolatileConstantBuffer(1);
-            modelsLayoutDesc.layoutTextureSRV(0);
-            modelsLayoutDesc.layoutSampler(0);
-            this.modelsBindingLayout = this.app.createBindingLayout(modelsLayoutDesc, ShaderType.All);
-
-            const modelsSetDesc = BindingSetDesc.create();
-            modelsSetDesc.bindEntireConstantBuffer(0, this.matricesBuffer);
-            modelsSetDesc.bindEntireConstantBuffer(1, this.paramsBuffer);
-            modelsSetDesc.bindTextureSRV(0, envmap);
-            modelsSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
-            this.modelsBindingSet = this.app.createBindingSetForLayout(modelsSetDesc, this.modelsBindingLayout);
-
-            // The composition and bloom passes: two textures and a point sampler, as the sample's
-            // offscreen sampler (nearest, clamped).
-            const postLayoutDesc = BindingLayoutDesc.create();
-            postLayoutDesc.layoutTextureSRV(0);
-            postLayoutDesc.layoutTextureSRV(1);
-            postLayoutDesc.layoutSampler(0);
-            this.postBindingLayout = this.app.createBindingLayout(postLayoutDesc, ShaderType.Pixel);
-
-            // The sample's look-at camera, at (0, 0, -4) and turned 180 degrees around y: looking at
-            // the world's origin from (0, 0, -4), in either world (see updateConstants).
-            this.camera = this.app.createThirdPersonCamera();
-            this.camera.thirdPersonLookAt(0.0, 0.0, -4.0, 0.0, 0.0, 0.0);
-            this.view = this.app.createPlanarView();
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -621,6 +620,10 @@ namespace CalibratedTimestampsSample {
         constructor(hdr: HdrPass, timestampPeriod: number) {
             this.hdr = hdr;
             this.timestampPeriod = timestampPeriod;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         // on_update_ui_overlay: the timestamp period, the settings, the time domain and the times
@@ -654,11 +657,6 @@ namespace CalibratedTimestampsSample {
             Donut_ImGuiPopItemWidth();
             Donut_ImGuiEnd();
         }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
-        }
     }
 
     // -test: checks the last frame and the times. The object in the middle and the environment
@@ -667,7 +665,7 @@ namespace CalibratedTimestampsSample {
     function checkFrame(app: App, timestamps: Timestamps, timestampPeriod: number) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

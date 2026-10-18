@@ -116,6 +116,54 @@ namespace DynamicLod {
             this.renderMode = RENDER_MODE_LOD;
         }
 
+        init() {
+            const shader = "dynamic_lod.hlsl";
+            this.ampShader = this.app.createShader(shader, "main_as", ShaderType.Amplification);
+            this.meshShader = this.app.createShader(shader, "main_ms", ShaderType.Mesh);
+            this.pixelShader = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
+            if (!this.ampShader || !this.meshShader || !this.pixelShader) {
+                return false;
+            }
+            // The sample's root signature: CBV(b0), RootConstants(b1, 2), a descriptor table of
+            // CBV(b2, 8) and SRV(t0, 32) (vertices, meshlets, unique vertex indices, primitives:
+            // 8 each), SRV(t32).
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutConstantBuffer(0);
+            layoutDesc.layoutPushConstants(1, DRAW_PARAMS_SIZE);
+            layoutDesc.layoutConstantBufferArray(2, MAX_LOD_LEVELS);
+            layoutDesc.layoutRawBufferSRVArray(0, MAX_LOD_LEVELS);
+            layoutDesc.layoutStructuredBufferSRVArray(8, MAX_LOD_LEVELS);
+            layoutDesc.layoutRawBufferSRVArray(16, MAX_LOD_LEVELS);
+            layoutDesc.layoutStructuredBufferSRVArray(24, MAX_LOD_LEVELS);
+            layoutDesc.layoutStructuredBufferSRV(32);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "Constants");
+
+            // The sample's camera: at (0, 75, 150), 150 units a second.
+            this.camera.init(0.0, 75.0, 150.0);
+            this.camera.setMoveSpeed(150.0);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const ok = this.loadLods(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!ok) {
+                return false;
+            }
+            this.regenerateInstances();
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // OnKeyDown / OnKeyUp.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == ACTION_PRESS) {
@@ -346,18 +394,18 @@ namespace DynamicLod {
                 }
                 // The finest LOD's bounding sphere spaces the instances.
                 if (l == 0) {
-                    let sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
+                    const sphere: f32[] = [0.0, 0.0, 0.0, 0.0];
                     model.copyBoundingSphere(-1, Ref(sphere[0]));
                     this.radius = sphere[3];
                 }
 
                 const meshletCount = model.getDataCount(0, MeshletModelData.Meshlets);
-                let meshlets: int[] = [];
+                const meshlets: int[] = [];
                 for (let j = 0; j < meshletCount * 4; j++) {
                     meshlets.push(0);
                 }
                 model.copyData(0, MeshletModelData.Meshlets, Ref(meshlets[0]));
-                let meshInfo: int[] = [model.getIndexSize(0), meshletCount,
+                const meshInfo: int[] = [model.getIndexSize(0), meshletCount,
                     meshlets[(meshletCount - 1) * 4], meshlets[(meshletCount - 1) * 4 + 2]];
                 const meshInfoBuffer = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfo");
                 commandList.writeBuffer(meshInfoBuffer, Ref(meshInfo[0]), 16);
@@ -370,7 +418,7 @@ namespace DynamicLod {
                 // The unique vertex indices, rounded up to whole uints, as the sample's buffer.
                 const uniqueSize = model.getDataSize(0, MeshletModelData.UniqueVertexIndices);
                 const uniqueInts = Math.floor((uniqueSize + 3) / 4);
-                let unique: int[] = [];
+                const unique: int[] = [];
                 for (let j = 0; j < uniqueInts; j++) {
                     unique.push(0);
                 }
@@ -383,62 +431,13 @@ namespace DynamicLod {
             }
 
             // Placeholders: a zeroed MeshInfo, raw buffer, meshlet and primitive.
-            let zeros: int[] = [0, 0, 0, 0];
+            const zeros: int[] = [0, 0, 0, 0];
             const placeholderInfo = this.app.createConstantBuffer(MESH_INFO_SIZE, "MeshInfoPlaceholder");
             commandList.writeBuffer(placeholderInfo, Ref(zeros[0]), 16);
             this.placeholders.push(placeholderInfo);
             this.placeholders.push(this.app.createStaticShaderBuffer(commandList, Ref(zeros[0]), 16, 0, "RawPlaceholder"));
             this.placeholders.push(this.app.createStaticShaderBuffer(commandList, Ref(zeros[0]), 16, MESHLET_STRIDE, "MeshletPlaceholder"));
             this.placeholders.push(this.app.createStaticShaderBuffer(commandList, Ref(zeros[0]), 16, 4, "PrimitivePlaceholder"));
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "dynamic_lod.hlsl";
-            this.ampShader = this.app.createShader(shader, "main_as", ShaderType.Amplification);
-            this.meshShader = this.app.createShader(shader, "main_ms", ShaderType.Mesh);
-            this.pixelShader = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
-            if (!this.ampShader || !this.meshShader || !this.pixelShader) {
-                return false;
-            }
-            // The sample's root signature: CBV(b0), RootConstants(b1, 2), a descriptor table of
-            // CBV(b2, 8) and SRV(t0, 32) (vertices, meshlets, unique vertex indices, primitives:
-            // 8 each), SRV(t32).
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutConstantBuffer(0);
-            layoutDesc.layoutPushConstants(1, DRAW_PARAMS_SIZE);
-            layoutDesc.layoutConstantBufferArray(2, MAX_LOD_LEVELS);
-            layoutDesc.layoutRawBufferSRVArray(0, MAX_LOD_LEVELS);
-            layoutDesc.layoutStructuredBufferSRVArray(8, MAX_LOD_LEVELS);
-            layoutDesc.layoutRawBufferSRVArray(16, MAX_LOD_LEVELS);
-            layoutDesc.layoutStructuredBufferSRVArray(24, MAX_LOD_LEVELS);
-            layoutDesc.layoutStructuredBufferSRV(32);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-            this.constantBuffer = this.app.createConstantBuffer(CONSTANTS_SIZE, "Constants");
-
-            // The sample's camera: at (0, 75, 150), 150 units a second.
-            this.camera.init(0.0, 75.0, 150.0);
-            this.camera.setMoveSpeed(150.0);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const ok = this.loadLods(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!ok) {
-                return false;
-            }
-            this.regenerateInstances();
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }
@@ -449,7 +448,7 @@ namespace DynamicLod {
     function checkFrame(app: App, pass: DynamicLodPass) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

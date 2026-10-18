@@ -174,13 +174,13 @@ namespace Collision {
 
     // DirectXMath's (exact) XMQuaternionRotationRollPitchYaw and XMMatrixRotationRollPitchYaw.
     function quaternionRollPitchYaw(pitch: number, yaw: number, roll: number): number[] {
-        let q: f32[] = [0.0, 0.0, 0.0, 1.0];
+        const q: f32[] = [0.0, 0.0, 0.0, 1.0];
         Donut_QuaternionRotationRollPitchYaw(pitch, yaw, roll, Ref(q[0]));
         return [q[0], q[1], q[2], q[3]];
     }
 
     function matrixRollPitchYaw(pitch: number, yaw: number, roll: number) {
-        let m: f32[] = [];
+        const m: f32[] = [];
         for (let i = 0; i < 16; i++) {
             m.push(0.0);
         }
@@ -484,11 +484,40 @@ namespace Collision {
             this.setViewForGroup(0);
         }
 
+        init() {
+            this.vs = this.app.createShader("collision.hlsl", "line_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader("collision.hlsl", "line_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
+            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+            this.vertexBuffer = this.app.createDynamicVertexBuffer(MAX_VERTICES * VERTEX_FLOATS * 4, "Lines");
+
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutPushConstants(0, 64);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const bindingSetDesc = BindingSetDesc.create();
+            bindingSetDesc.bindPushConstants(0, 64);
+            this.bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         initializeObjects() {
             // Set up the primary frustum object from a D3D projection matrix
             // NOTE: This can also be done on your camera's projection matrix.  The projection
             // matrix built here is somewhat contrived so it renders well.
-            let projection: f32[] = [];
+            const projection: f32[] = [];
             const xmProj = perspectiveFov(f(PI / 4.0), 1.77778, 0.5, 10.0, false);
             for (let i = 0; i < 16; i++) {
                 projection.push(xmProj[i]);
@@ -996,36 +1025,6 @@ namespace Collision {
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
             frame.drawVerticesWithPushConstants(this.vertexCount, Ref(this.constants[0]), 64);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.vs = this.app.createShader("collision.hlsl", "line_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader("collision.hlsl", "line_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_FLOATS * 4);
-            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, VERTEX_FLOATS * 4);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-            this.vertexBuffer = this.app.createDynamicVertexBuffer(MAX_VERTICES * VERTEX_FLOATS * 4, "Lines");
-
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutPushConstants(0, 64);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const bindingSetDesc = BindingSetDesc.create();
-            bindingSetDesc.bindPushConstants(0, 64);
-            this.bindingSet = this.app.createBindingSetForLayout(bindingSetDesc, this.bindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's HUD (SpriteFont text in the title-safe area): the group's name at the top, the
@@ -1041,6 +1040,20 @@ namespace Collision {
         constructor(sample: CollisionPass, app: App) {
             this.sample = sample;
             this.app = app;
+        }
+
+        init() {
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            this.titleFont = imguiPass.createFont(FONT_PATH, TITLE_FONT_SIZE);
+            if (this.font.isNull() || this.titleFont.isNull()) {
+                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
+                return false;
+            }
+            return true;
         }
 
         buildUI() {
@@ -1080,21 +1093,6 @@ namespace Collision {
             Donut_ImGuiDrawText(left, top, sample.name, WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
             Donut_ImGuiDrawText(left, bottom - LINE_SPACING, "Esc - Exit   F1 - Help", LIGHT_GREY[0], LIGHT_GREY[1], LIGHT_GREY[2], 1.0, 0);
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init() {
-            const imguiPass = this.app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            this.titleFont = imguiPass.createFont(FONT_PATH, TITLE_FONT_SIZE);
-            if (this.font.isNull() || this.titleFont.isNull()) {
-                console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
-                return false;
-            }
-            return true;
         }
     }
 

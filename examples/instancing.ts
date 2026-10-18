@@ -124,6 +124,81 @@ namespace Instancing {
             }
         }
 
+        init() {
+            this.rocksVS = this.app.createShader("instancing.hlsl", "instancing_vs", ShaderType.Vertex);
+            this.rocksPS = this.app.createShader("instancing.hlsl", "instancing_ps", ShaderType.Pixel);
+            this.planetVS = this.app.createShader("instancing.hlsl", "planet_vs", ShaderType.Vertex);
+            this.planetPS = this.app.createShader("instancing.hlsl", "planet_ps", ShaderType.Pixel);
+            this.starfieldVS = this.app.createShader("instancing.hlsl", "starfield_vs", ShaderType.Vertex);
+            this.starfieldPS = this.app.createShader("instancing.hlsl", "starfield_ps", ShaderType.Pixel);
+            if (!this.rocksVS || !this.rocksPS || !this.planetVS || !this.planetPS || !this.starfieldVS || !this.starfieldPS) {
+                return false;
+            }
+
+            // The instancing pipeline uses a vertex input state with two bindings: the mesh's vertices
+            // at per-vertex rate, the instance data at per-instance rate. The planet uses the first.
+            const rocksLayoutDesc = InputLayoutDesc.create();
+            rocksLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            rocksLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            rocksLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            rocksLayoutDesc.addInstanceVertexAttribute("INSTANCE_POSITION", Format.RGB32_FLOAT, 0, 1, INSTANCE_SIZE);
+            rocksLayoutDesc.addInstanceVertexAttribute("INSTANCE_ROTATION", Format.RGB32_FLOAT, 12, 1, INSTANCE_SIZE);
+            rocksLayoutDesc.addInstanceVertexAttribute("INSTANCE_SCALE", Format.R32_FLOAT, 24, 1, INSTANCE_SIZE);
+            rocksLayoutDesc.addInstanceVertexAttribute("INSTANCE_TEXINDEX", Format.R32_SINT, 28, 1, INSTANCE_SIZE);
+            this.rocksInputLayout = this.app.createInputLayout(rocksLayoutDesc, this.rocksVS);
+
+            const planetLayoutDesc = InputLayoutDesc.create();
+            planetLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            planetLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            planetLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.planetInputLayout = this.app.createInputLayout(planetLayoutDesc, this.planetVS);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const rock = this.app.loadGltfMesh(commandList, ROCK_PATH);
+            const planet = this.app.loadGltfMesh(commandList, PLANET_PATH);
+            // As the sample (vkb) loads KTX 1 color textures: as sRGB.
+            const rockTextures = this.app.loadTexture(commandList, ROCK_TEXTURES_PATH, 1);
+            const planetTexture = this.app.loadTexture(commandList, PLANET_TEXTURE_PATH, 1);
+            this.instanceBuffer = this.createInstanceBuffer(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (rock.isNull() || planet.isNull() || !rockTextures || !planetTexture) {
+                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.rock = rock;
+            this.planet = planet;
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutTextureSRV(0);
+            layoutDesc.layoutSampler(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            this.rocksBindingSet = this.createBindingSet(rockTextures);
+            this.planetBindingSet = this.createBindingSet(planetTexture);
+
+            this.camera = this.app.createThirdPersonCamera();
+            this.lookFromSampleCamera();
+            this.camera.setMoveSpeed(5.0);
+            this.view = this.app.createPlanarView();
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
@@ -285,7 +360,7 @@ namespace Instancing {
         // The sample's prepare_instance_data: the rocks distributed randomly on two rings, half on
         // each, uploaded once.
         createInstanceBuffer(commandList: CommandList) {
-            let instanceData: f32[] = [];
+            const instanceData: f32[] = [];
             for (let i = 0; i < INSTANCE_COUNT * INSTANCE_FLOATS; i++) {
                 instanceData.push(0.0);
             }
@@ -327,82 +402,6 @@ namespace Instancing {
             return this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
         }
 
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.rocksVS = this.app.createShader("instancing.hlsl", "instancing_vs", ShaderType.Vertex);
-            this.rocksPS = this.app.createShader("instancing.hlsl", "instancing_ps", ShaderType.Pixel);
-            this.planetVS = this.app.createShader("instancing.hlsl", "planet_vs", ShaderType.Vertex);
-            this.planetPS = this.app.createShader("instancing.hlsl", "planet_ps", ShaderType.Pixel);
-            this.starfieldVS = this.app.createShader("instancing.hlsl", "starfield_vs", ShaderType.Vertex);
-            this.starfieldPS = this.app.createShader("instancing.hlsl", "starfield_ps", ShaderType.Pixel);
-            if (!this.rocksVS || !this.rocksPS || !this.planetVS || !this.planetPS || !this.starfieldVS || !this.starfieldPS) {
-                return false;
-            }
-
-            // The instancing pipeline uses a vertex input state with two bindings: the mesh's vertices
-            // at per-vertex rate, the instance data at per-instance rate. The planet uses the first.
-            const rocksLayoutDesc = InputLayoutDesc.create();
-            rocksLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            rocksLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            rocksLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            rocksLayoutDesc.addInstanceVertexAttribute("INSTANCE_POSITION", Format.RGB32_FLOAT, 0, 1, INSTANCE_SIZE);
-            rocksLayoutDesc.addInstanceVertexAttribute("INSTANCE_ROTATION", Format.RGB32_FLOAT, 12, 1, INSTANCE_SIZE);
-            rocksLayoutDesc.addInstanceVertexAttribute("INSTANCE_SCALE", Format.R32_FLOAT, 24, 1, INSTANCE_SIZE);
-            rocksLayoutDesc.addInstanceVertexAttribute("INSTANCE_TEXINDEX", Format.R32_SINT, 28, 1, INSTANCE_SIZE);
-            this.rocksInputLayout = this.app.createInputLayout(rocksLayoutDesc, this.rocksVS);
-
-            const planetLayoutDesc = InputLayoutDesc.create();
-            planetLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            planetLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            planetLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.planetInputLayout = this.app.createInputLayout(planetLayoutDesc, this.planetVS);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const rock = this.app.loadGltfMesh(commandList, ROCK_PATH);
-            const planet = this.app.loadGltfMesh(commandList, PLANET_PATH);
-            // As the sample (vkb) loads KTX 1 color textures: as sRGB.
-            const rockTextures = this.app.loadTexture(commandList, ROCK_TEXTURES_PATH, 1);
-            const planetTexture = this.app.loadTexture(commandList, PLANET_TEXTURE_PATH, 1);
-            this.instanceBuffer = this.createInstanceBuffer(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (rock.isNull() || planet.isNull() || !rockTextures || !planetTexture) {
-                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.rock = rock;
-            this.planet = planet;
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBO");
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutTextureSRV(0);
-            layoutDesc.layoutSampler(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            this.rocksBindingSet = this.createBindingSet(rockTextures);
-            this.planetBindingSet = this.createBindingSet(planetTexture);
-
-            this.camera = this.app.createThirdPersonCamera();
-            this.lookFromSampleCamera();
-            this.camera.setMoveSpeed(5.0);
-            this.view = this.app.createPlanarView();
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
-
         // The sample's look-at camera, rotated (-17.2, -4.7) degrees and translated by
         // (5.5, -1.85, -18.5): its view matrix is T * Rx * Ry. The orbit camera starts at its position,
         // looking at the point 18.5 ahead (as far ahead as the world's origin is), in Donut's world.
@@ -437,16 +436,15 @@ namespace Instancing {
 
     // The sample's overlay.
     class UserInterface {
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
+        }
+
         buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             Donut_ImGuiBegin("Statistics", 1);
             Donut_ImGuiText(`Instances: ${INSTANCE_COUNT}`);
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

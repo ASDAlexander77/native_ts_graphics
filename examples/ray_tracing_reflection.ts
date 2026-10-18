@@ -171,6 +171,45 @@ namespace RayTracingReflection {
             }
         }
 
+        init() {
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutStructuredBufferSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            layoutDesc.layoutStructuredBufferSRV(4);
+            layoutDesc.layoutStructuredBufferSRV(5);
+            layoutDesc.layoutTextureUAV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            if (!this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const created = this.createModels(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!created) {
+                return false;
+            }
+
+            this.topLevelAS = this.app.createTopLevelAS(5);
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "CameraProperties");
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -291,11 +330,11 @@ namespace RayTracingReflection {
                 [MAT_MIRROR],
             ];
 
-            let vertices: f32[] = [];
-            let indices: int[] = [];
-            let matIndices: int[] = [];
-            let materials: f32[] = [];
-            let objDesc: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
+            const matIndices: int[] = [];
+            const materials: f32[] = [];
+            const objDesc: int[] = [];
             for (let o = 0; o < vertexLists.length; o++) {
                 objDesc.push(vertices.length / VERTEX_FLOATS);
                 objDesc.push(indices.length);
@@ -374,46 +413,6 @@ namespace RayTracingReflection {
             shaderTable.addMiss("missShadow");
             shaderTable.addHitGroup("HitGroup", null);
             this.shaderTable = shaderTable;
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            layoutDesc.layoutStructuredBufferSRV(2);
-            layoutDesc.layoutStructuredBufferSRV(3);
-            layoutDesc.layoutStructuredBufferSRV(4);
-            layoutDesc.layoutStructuredBufferSRV(5);
-            layoutDesc.layoutTextureUAV(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            if (!this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const created = this.createModels(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!created) {
-                return false;
-            }
-
-            this.topLevelAS = this.app.createTopLevelAS(5);
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "CameraProperties");
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

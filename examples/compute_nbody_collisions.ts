@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { TestCheck, absolute, isFinite32 } from "../core/test_check";
+import { TestCheck, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
 import {
     KEY_SPACE, KEY_C, KEY_H, KEY_P, KEY_T, ACTION_RELEASE, ACTION_PRESS,
@@ -211,7 +211,7 @@ namespace ComputeNBodyCollisions {
 
     // --- Math ---------------------------------------------------------------------------------
 
-    // std::default_random_engine replacement: a Park-Miller generator (tslang's Math.random isn't usable).
+    // std::default_random_engine replacement: a Park-Miller generator, from a seed so runs repeat.
     let g_RandomSeed = DEFAULT_SEED * 1.0;
     function randomFloat() {
         g_RandomSeed = (g_RandomSeed * 16807.0) % 2147483647.0;
@@ -480,6 +480,138 @@ namespace ComputeNBodyCollisions {
                 this.viewMatrix.push(0.0);
                 this.projMatrix.push(0.0);
             }
+        }
+
+        init() {
+            const shaderFile = "compute_nbody_collisions.hlsl";
+            this.vertexShader = this.app.createShader(shaderFile, "main_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader(shaderFile, "main_ps", ShaderType.Pixel);
+            const calculateShader = this.app.createShaderWithDefine(shaderFile, "calculate_cs", ShaderType.Compute, "SIMULATION", "1");
+            const countShader = this.app.createShaderWithDefine(shaderFile, "count_cs", ShaderType.Compute, "SIMULATION", "1");
+            const collideShader = this.app.createShaderWithDefine(shaderFile, "collide_cs", ShaderType.Compute, "SIMULATION", "1");
+            const absorbShader = this.app.createShaderWithDefine(shaderFile, "absorb_cs", ShaderType.Compute, "SIMULATION", "1");
+            const killShader = this.app.createShaderWithDefine(shaderFile, "kill_cs", ShaderType.Compute, "SIMULATION", "1");
+            const collectFreeShader = this.app.createShaderWithDefine(shaderFile, "collect_free_cs", ShaderType.Compute, "SIMULATION", "1");
+            const fragmentShader = this.app.createShaderWithDefine(shaderFile, "fragment_cs", ShaderType.Compute, "SIMULATION", "1");
+            this.compositeVertexShader = this.app.createShader(shaderFile, "composite_vs", ShaderType.Vertex);
+            this.compositePixelShader = this.app.createShader(shaderFile, "composite_ps", ShaderType.Pixel);
+            const postFile = "compute_nbody_collisions_post.hlsl";
+            const thresholdShader = this.app.createShader(postFile, "threshold_cs", ShaderType.Compute);
+            const blurDownShader = this.app.createShader(postFile, "blur_down_cs", ShaderType.Compute);
+            const blurUpShader = this.app.createShader(postFile, "blur_up_cs", ShaderType.Compute);
+            const integrateShader = this.app.createShaderWithDefine(shaderFile, "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
+            this.axisVertexShader = this.app.createShader(shaderFile, "axis_vs", ShaderType.Vertex);
+            this.axisPixelShader = this.app.createShader(shaderFile, "axis_ps", ShaderType.Pixel);
+            this.planeVertexShader = this.app.createShader(shaderFile, "plane_vs", ShaderType.Vertex);
+            this.trailVertexShader = this.app.createShader(shaderFile, "trail_vs", ShaderType.Vertex);
+            // The gizmo's pixel shader: a plain color.
+            this.planePixelShader = this.axisPixelShader;
+            if (!this.compositeVertexShader || !this.compositePixelShader || !thresholdShader || !blurDownShader || !blurUpShader
+                || !this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !collectFreeShader || !fragmentShader || !integrateShader) {
+                return false;
+            }
+
+            // Donut's common passes, which hold the samplers, upload their textures on a command list of
+            // their own: before ours is open.
+            this.linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            this.createParticles();
+
+            // The bloom's passes: each reads a texture through the sampler, writes another, and has
+            // its resolutions as push constants; the composite reads the scene and the bloom.
+            const blurLayoutDesc = BindingLayoutDesc.create();
+            blurLayoutDesc.layoutTextureSRV(0);
+            blurLayoutDesc.layoutSampler(0);
+            blurLayoutDesc.layoutTextureUAV(0);
+            blurLayoutDesc.layoutPushConstants(0, BLUR_SIZE);
+            this.blurBindingLayout = this.app.createBindingLayout(blurLayoutDesc, ShaderType.Compute);
+            this.thresholdPipeline = this.app.createComputePipelineWithLayout(thresholdShader, this.blurBindingLayout);
+            this.blurDownPipeline = this.app.createComputePipelineWithLayout(blurDownShader, this.blurBindingLayout);
+            this.blurUpPipeline = this.app.createComputePipelineWithLayout(blurUpShader, this.blurBindingLayout);
+            const compositeLayoutDesc = BindingLayoutDesc.create();
+            compositeLayoutDesc.layoutTextureSRV(4);
+            compositeLayoutDesc.layoutTextureSRV(5);
+            compositeLayoutDesc.layoutSampler(0);
+            this.compositeBindingLayout = this.app.createBindingLayout(compositeLayoutDesc, ShaderType.Pixel);
+
+            // Compute: the particles, their contacts and the SimulationConstants push constants.
+            const computeLayoutDesc = BindingLayoutDesc.create();
+            computeLayoutDesc.layoutPushConstants(0, SIMULATION_CONSTANTS_SIZE);
+            computeLayoutDesc.layoutStructuredBufferUAV(0);
+            computeLayoutDesc.layoutStructuredBufferUAV(1);
+            computeLayoutDesc.layoutStructuredBufferUAV(2);
+            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
+            this.computeBindingLayout = computeBindingLayout;
+
+            this.calculatePipeline = this.app.createComputePipelineWithLayout(calculateShader, computeBindingLayout);
+            this.countPipeline = this.app.createComputePipelineWithLayout(countShader, computeBindingLayout);
+            this.collidePipeline = this.app.createComputePipelineWithLayout(collideShader, computeBindingLayout);
+            this.absorbPipeline = this.app.createComputePipelineWithLayout(absorbShader, computeBindingLayout);
+            this.killPipeline = this.app.createComputePipelineWithLayout(killShader, computeBindingLayout);
+            this.collectFreePipeline = this.app.createComputePipelineWithLayout(collectFreeShader, computeBindingLayout);
+            this.fragmentPipeline = this.app.createComputePipelineWithLayout(fragmentShader, computeBindingLayout);
+            this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
+
+            Donut_StoreInt32(Ref(this.simulationConstants[2]), 1);
+            Donut_StoreInt32(Ref(this.simulationConstants[3]), 1);
+
+            // Drawing: the view constants and the particles, read by the vertex shader.
+            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
+            for (let i = 0; i < this.viewConstantsSize / 4; i++) {
+                this.viewConstants.push(0.0);
+            }
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+            // -test's unthrottled frames on Vulkan.
+            this.viewConstantBuffer = this.app.createConstantBuffer(this.viewConstantsSize, "ViewConstants");
+
+            const drawLayoutDesc = BindingLayoutDesc.create();
+            drawLayoutDesc.layoutConstantBuffer(1);
+            drawLayoutDesc.layoutStructuredBufferSRV(0);
+            drawLayoutDesc.layoutConstantBuffer(3);
+            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
+
+            // The trails' length and opacity, written in the command list every frame.
+            this.trailBuffer = this.app.createConstantBuffer(TRAIL_CONSTANTS_SIZE, "Trail");
+            const trailLayoutDesc = BindingLayoutDesc.create();
+            trailLayoutDesc.layoutConstantBuffer(1);
+            trailLayoutDesc.layoutStructuredBufferSRV(0);
+            trailLayoutDesc.layoutConstantBuffer(3);
+            this.trailBindingLayout = this.app.createBindingLayout(trailLayoutDesc, ShaderType.Vertex);
+
+            this.createParticleBindings();
+
+            // The axis gizmo's segments, written in the command list every frame.
+            this.gizmoBuffer = this.app.createConstantBuffer(GIZMO_FLOATS * 4, "Gizmo");
+            const gizmoLayoutDesc = BindingLayoutDesc.create();
+            gizmoLayoutDesc.layoutConstantBuffer(2);
+            this.gizmoBindingLayout = this.app.createBindingLayout(gizmoLayoutDesc, ShaderType.Vertex);
+            const gizmoSetDesc = BindingSetDesc.create();
+            gizmoSetDesc.bindEntireConstantBuffer(2, this.gizmoBuffer);
+            this.gizmoBindingSet = this.app.createBindingSetForLayout(gizmoSetDesc, this.gizmoBindingLayout);
+
+            // compute_nbody's look-at camera: 14 units from the origin, rotated (-26, 75) degrees.
+            this.camera = this.app.createThirdPersonCamera();
+            this.camera.thirdPersonSetTarget(0.0, 0.0, 0.0);
+            this.camera.thirdPersonSetDistance(14.0);
+            this.camera.thirdPersonSetRotation(radians(75.0), radians(26.0));
+            this.camera.setMoveSpeed(2.5);
+
+            this.view = this.app.createPlanarView();
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+
+            // Drawn after (over) the scene, and sees the mouse first.
+            if (this.showUI && this.app.addImGuiPass(this.buildUI).isNull()) {
+                return false;
+            }
+            return true;
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
@@ -1476,8 +1608,8 @@ namespace ComputeNBodyCollisions {
                 if (merging && !breaking && gone == 0) {
                     return "no particles merged";
                 }
-                if (absolute(mass - this.initialMass) > this.initialMass * 1.0e-4
-                    || absolute(volume - this.initialVolume) > this.initialVolume * 1.0e-3) {
+                if (Math.abs(mass - this.initialMass) > this.initialMass * 1.0e-4
+                    || Math.abs(volume - this.initialVolume) > this.initialVolume * 1.0e-3) {
                     return `the merges or breaks did not keep the mass (${mass} of ${this.initialMass}) or the volume (${volume} of ${this.initialVolume})`;
                 }
             }
@@ -1493,8 +1625,8 @@ namespace ComputeNBodyCollisions {
                 let momentumDrift = 0.0;
                 let angularDrift = 0.0;
                 for (let k = 0; k < 3; k++) {
-                    momentumDrift = Math.max(momentumDrift, absolute(momentum[k] - this.initialMomentum[k]));
-                    angularDrift = Math.max(angularDrift, absolute(angular[k] - this.initialAngular[k]));
+                    momentumDrift = Math.max(momentumDrift, Math.abs(momentum[k] - this.initialMomentum[k]));
+                    angularDrift = Math.max(angularDrift, Math.abs(angular[k] - this.initialAngular[k]));
                 }
                 const momentumLimit = Math.max(this.initialMomentum[3], momentum[3]) * MOMENTUM_DRIFT_LIMIT;
                 const angularLimit = Math.max(this.initialAngular[3], angular[3])
@@ -1529,7 +1661,7 @@ namespace ComputeNBodyCollisions {
             // merges and the breaks lose is heat, so the total stays.
             if (this.fullGravity && this.simulationConstants[CONSTANT_COOL_SECONDS] >= NO_COOLING_SECONDS) {
                 const energy = this.totalEnergy(particles);
-                const drift = absolute(energy - this.initialEnergy) / this.initialEnergy;
+                const drift = Math.abs(energy - this.initialEnergy) / this.initialEnergy;
                 console.log(`Energy: ${energy} of ${this.initialEnergy}, drift ${drift} (limit ${ENERGY_DRIFT_LIMIT})`);
                 if (drift > ENERGY_DRIFT_LIMIT) {
                     return `the total energy drifted by ${drift} of it (${energy} of ${this.initialEnergy})`;
@@ -1544,7 +1676,7 @@ namespace ComputeNBodyCollisions {
                     + particles[q + 14] * particles[q + 14]);
                 const marker = Math.sqrt(particles[q + 16] * particles[q + 16] + particles[q + 17] * particles[q + 17]
                     + particles[q + 18] * particles[q + 18]);
-                if (!isFinite32(spin) || !isFinite32(marker) || absolute(marker - 1.0) > 0.001) {
+                if (!isFinite32(spin) || !isFinite32(marker) || Math.abs(marker - 1.0) > 0.001) {
                     return `particle ${i}: spin ${spin} or marker length ${marker} is not finite or 1`;
                 }
                 maxSpin = Math.max(maxSpin, spin);
@@ -1561,12 +1693,12 @@ namespace ComputeNBodyCollisions {
                 const v1 = particles[PARTICLE_FLOATS + 4];
                 console.log(`Head on: x ${x0}, ${x1}; v ${v0}, ${v1}`);
                 // Symmetric to float precision: a race of the passes broke the momentum by tens.
-                if (absolute(x0 + x1) > 0.01 || absolute(v0 + v1) > 0.01) {
+                if (Math.abs(x0 + x1) > 0.01 || Math.abs(v0 + v1) > 0.01) {
                     return `positions ${x0}, ${x1} and velocities ${v0}, ${v1} are not symmetric: momentum not kept`;
                 }
                 // The CPU run (the same steps: softened by their size, 0.5^2, and the hit's bounciness
                 // falling with its speed): x 0.568, v 5.622 (3.773, 5.698 without either).
-                if (absolute(x0 - 0.568) > 0.1 || absolute(v0 - 5.622) > 0.1) {
+                if (Math.abs(x0 - 0.568) > 0.1 || Math.abs(v0 - 5.622) > 0.1) {
                     return `position ${x0}, velocity ${v0}: not the CPU run's 0.568, 5.622 after one bounce`;
                 }
             }
@@ -1718,139 +1850,6 @@ namespace ComputeNBodyCollisions {
 
             Donut_ImGuiPopItemWidth();
             Donut_ImGuiEnd();
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shaderFile = "compute_nbody_collisions.hlsl";
-            this.vertexShader = this.app.createShader(shaderFile, "main_vs", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader(shaderFile, "main_ps", ShaderType.Pixel);
-            const calculateShader = this.app.createShaderWithDefine(shaderFile, "calculate_cs", ShaderType.Compute, "SIMULATION", "1");
-            const countShader = this.app.createShaderWithDefine(shaderFile, "count_cs", ShaderType.Compute, "SIMULATION", "1");
-            const collideShader = this.app.createShaderWithDefine(shaderFile, "collide_cs", ShaderType.Compute, "SIMULATION", "1");
-            const absorbShader = this.app.createShaderWithDefine(shaderFile, "absorb_cs", ShaderType.Compute, "SIMULATION", "1");
-            const killShader = this.app.createShaderWithDefine(shaderFile, "kill_cs", ShaderType.Compute, "SIMULATION", "1");
-            const collectFreeShader = this.app.createShaderWithDefine(shaderFile, "collect_free_cs", ShaderType.Compute, "SIMULATION", "1");
-            const fragmentShader = this.app.createShaderWithDefine(shaderFile, "fragment_cs", ShaderType.Compute, "SIMULATION", "1");
-            this.compositeVertexShader = this.app.createShader(shaderFile, "composite_vs", ShaderType.Vertex);
-            this.compositePixelShader = this.app.createShader(shaderFile, "composite_ps", ShaderType.Pixel);
-            const postFile = "compute_nbody_collisions_post.hlsl";
-            const thresholdShader = this.app.createShader(postFile, "threshold_cs", ShaderType.Compute);
-            const blurDownShader = this.app.createShader(postFile, "blur_down_cs", ShaderType.Compute);
-            const blurUpShader = this.app.createShader(postFile, "blur_up_cs", ShaderType.Compute);
-            const integrateShader = this.app.createShaderWithDefine(shaderFile, "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
-            this.axisVertexShader = this.app.createShader(shaderFile, "axis_vs", ShaderType.Vertex);
-            this.axisPixelShader = this.app.createShader(shaderFile, "axis_ps", ShaderType.Pixel);
-            this.planeVertexShader = this.app.createShader(shaderFile, "plane_vs", ShaderType.Vertex);
-            this.trailVertexShader = this.app.createShader(shaderFile, "trail_vs", ShaderType.Vertex);
-            // The gizmo's pixel shader: a plain color.
-            this.planePixelShader = this.axisPixelShader;
-            if (!this.compositeVertexShader || !this.compositePixelShader || !thresholdShader || !blurDownShader || !blurUpShader
-                || !this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !collectFreeShader || !fragmentShader || !integrateShader) {
-                return false;
-            }
-
-            // Donut's common passes, which hold the samplers, upload their textures on a command list of
-            // their own: before ours is open.
-            this.linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            this.createParticles();
-
-            // The bloom's passes: each reads a texture through the sampler, writes another, and has
-            // its resolutions as push constants; the composite reads the scene and the bloom.
-            const blurLayoutDesc = BindingLayoutDesc.create();
-            blurLayoutDesc.layoutTextureSRV(0);
-            blurLayoutDesc.layoutSampler(0);
-            blurLayoutDesc.layoutTextureUAV(0);
-            blurLayoutDesc.layoutPushConstants(0, BLUR_SIZE);
-            this.blurBindingLayout = this.app.createBindingLayout(blurLayoutDesc, ShaderType.Compute);
-            this.thresholdPipeline = this.app.createComputePipelineWithLayout(thresholdShader, this.blurBindingLayout);
-            this.blurDownPipeline = this.app.createComputePipelineWithLayout(blurDownShader, this.blurBindingLayout);
-            this.blurUpPipeline = this.app.createComputePipelineWithLayout(blurUpShader, this.blurBindingLayout);
-            const compositeLayoutDesc = BindingLayoutDesc.create();
-            compositeLayoutDesc.layoutTextureSRV(4);
-            compositeLayoutDesc.layoutTextureSRV(5);
-            compositeLayoutDesc.layoutSampler(0);
-            this.compositeBindingLayout = this.app.createBindingLayout(compositeLayoutDesc, ShaderType.Pixel);
-
-            // Compute: the particles, their contacts and the SimulationConstants push constants.
-            const computeLayoutDesc = BindingLayoutDesc.create();
-            computeLayoutDesc.layoutPushConstants(0, SIMULATION_CONSTANTS_SIZE);
-            computeLayoutDesc.layoutStructuredBufferUAV(0);
-            computeLayoutDesc.layoutStructuredBufferUAV(1);
-            computeLayoutDesc.layoutStructuredBufferUAV(2);
-            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
-            this.computeBindingLayout = computeBindingLayout;
-
-            this.calculatePipeline = this.app.createComputePipelineWithLayout(calculateShader, computeBindingLayout);
-            this.countPipeline = this.app.createComputePipelineWithLayout(countShader, computeBindingLayout);
-            this.collidePipeline = this.app.createComputePipelineWithLayout(collideShader, computeBindingLayout);
-            this.absorbPipeline = this.app.createComputePipelineWithLayout(absorbShader, computeBindingLayout);
-            this.killPipeline = this.app.createComputePipelineWithLayout(killShader, computeBindingLayout);
-            this.collectFreePipeline = this.app.createComputePipelineWithLayout(collectFreeShader, computeBindingLayout);
-            this.fragmentPipeline = this.app.createComputePipelineWithLayout(fragmentShader, computeBindingLayout);
-            this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
-
-            Donut_StoreInt32(Ref(this.simulationConstants[2]), 1);
-            Donut_StoreInt32(Ref(this.simulationConstants[3]), 1);
-
-            // Drawing: the view constants and the particles, read by the vertex shader.
-            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
-            for (let i = 0; i < this.viewConstantsSize / 4; i++) {
-                this.viewConstants.push(0.0);
-            }
-            // Static, written in the command list every frame: a volatile one runs out of versions in
-            // -test's unthrottled frames on Vulkan.
-            this.viewConstantBuffer = this.app.createConstantBuffer(this.viewConstantsSize, "ViewConstants");
-
-            const drawLayoutDesc = BindingLayoutDesc.create();
-            drawLayoutDesc.layoutConstantBuffer(1);
-            drawLayoutDesc.layoutStructuredBufferSRV(0);
-            drawLayoutDesc.layoutConstantBuffer(3);
-            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
-
-            // The trails' length and opacity, written in the command list every frame.
-            this.trailBuffer = this.app.createConstantBuffer(TRAIL_CONSTANTS_SIZE, "Trail");
-            const trailLayoutDesc = BindingLayoutDesc.create();
-            trailLayoutDesc.layoutConstantBuffer(1);
-            trailLayoutDesc.layoutStructuredBufferSRV(0);
-            trailLayoutDesc.layoutConstantBuffer(3);
-            this.trailBindingLayout = this.app.createBindingLayout(trailLayoutDesc, ShaderType.Vertex);
-
-            this.createParticleBindings();
-
-            // The axis gizmo's segments, written in the command list every frame.
-            this.gizmoBuffer = this.app.createConstantBuffer(GIZMO_FLOATS * 4, "Gizmo");
-            const gizmoLayoutDesc = BindingLayoutDesc.create();
-            gizmoLayoutDesc.layoutConstantBuffer(2);
-            this.gizmoBindingLayout = this.app.createBindingLayout(gizmoLayoutDesc, ShaderType.Vertex);
-            const gizmoSetDesc = BindingSetDesc.create();
-            gizmoSetDesc.bindEntireConstantBuffer(2, this.gizmoBuffer);
-            this.gizmoBindingSet = this.app.createBindingSetForLayout(gizmoSetDesc, this.gizmoBindingLayout);
-
-            // compute_nbody's look-at camera: 14 units from the origin, rotated (-26, 75) degrees.
-            this.camera = this.app.createThirdPersonCamera();
-            this.camera.thirdPersonSetTarget(0.0, 0.0, 0.0);
-            this.camera.thirdPersonSetDistance(14.0);
-            this.camera.thirdPersonSetRotation(radians(75.0), radians(26.0));
-            this.camera.setMoveSpeed(2.5);
-
-            this.view = this.app.createPlanarView();
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-
-            // Drawn after (over) the scene, and sees the mouse first.
-            if (this.showUI && this.app.addImGuiPass(this.buildUI).isNull()) {
-                return false;
-            }
-            return true;
         }
     }
 

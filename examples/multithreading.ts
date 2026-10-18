@@ -181,6 +181,96 @@ namespace Multithreading {
             this.singleThreaded = false;
         }
 
+        init() {
+            const shader = "multithreading.hlsl";
+            this.sceneVertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
+            this.shadowVertexShader = this.app.createShader(shader, "VSShadow", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
+            if (!this.sceneVertexShader || !this.shadowVertexShader || !this.pixelShader) {
+                return false;
+            }
+            // The sample's 44-byte vertices: position, normal, texture coordinates, tangent. The
+            // shadow pass reads the positions only.
+            const sceneLayoutDesc = InputLayoutDesc.create();
+            sceneLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, SQUID_ROOM_VERTEX_STRIDE);
+            sceneLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, SQUID_ROOM_VERTEX_STRIDE);
+            sceneLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, SQUID_ROOM_VERTEX_STRIDE);
+            sceneLayoutDesc.addVertexAttribute("TANGENT", Format.RGB32_FLOAT, 32, 0, SQUID_ROOM_VERTEX_STRIDE);
+            this.sceneInputLayout = this.app.createInputLayout(sceneLayoutDesc, this.sceneVertexShader);
+            const shadowLayoutDesc = InputLayoutDesc.create();
+            shadowLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, SQUID_ROOM_VERTEX_STRIDE);
+            this.shadowInputLayout = this.app.createInputLayout(shadowLayoutDesc, this.shadowVertexShader);
+
+            // The sample's root signature: the pass's constant buffer, the shadow map and the
+            // samplers (register space 0), and the draw's diffuse and normal maps (space 1). The
+            // shadow pass reads its constant buffer only.
+            const sceneLayout = BindingLayoutDesc.create();
+            sceneLayout.setDescriptorSet(0);
+            sceneLayout.layoutConstantBuffer(0);
+            sceneLayout.layoutTextureSRV(0);
+            sceneLayout.layoutSampler(0);
+            sceneLayout.layoutSampler(1);
+            this.sceneBindingLayout = this.app.createBindingLayout(sceneLayout, ShaderType.All);
+            const materialLayout = BindingLayoutDesc.create();
+            materialLayout.setDescriptorSet(1);
+            materialLayout.layoutTextureSRV(1);
+            materialLayout.layoutTextureSRV(2);
+            this.materialBindingLayout = this.app.createBindingLayout(materialLayout, ShaderType.Pixel);
+            const shadowLayout = BindingLayoutDesc.create();
+            shadowLayout.layoutConstantBuffer(0);
+            this.shadowBindingLayout = this.app.createBindingLayout(shadowLayout, ShaderType.Vertex);
+
+            this.sceneConstantBuffer = this.app.createConstantBuffer(CONSTANTS_FLOATS * 4, "SceneConstantBuffer");
+            this.shadowConstantBuffer = this.app.createConstantBuffer(CONSTANTS_FLOATS * 4, "ShadowConstantBuffer");
+
+            this.colorBuffer = this.app.createRenderTargetTexture(WIDTH, HEIGHT, Format.RGBA8_UNORM, "ColorBuffer");
+            this.depthBuffer = this.app.createRenderTargetTexture(WIDTH, HEIGHT, Format.D32, "DepthBuffer");
+            this.shadowMap = this.app.createRenderTargetTexture(WIDTH, HEIGHT, Format.D32, "ShadowMap");
+            this.sceneFramebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
+            this.shadowFramebuffer = this.app.createDepthFramebuffer(this.shadowMap);
+
+            // The sample's pipeline states: back faces culled, depth tested (less or equal) and
+            // written, clipped at the near and far planes (D3D12's default); the shadow pass's
+            // without a pixel shader.
+            const sceneDesc = GraphicsPipelineDesc.create(this.sceneVertexShader, this.pixelShader);
+            sceneDesc.setInputLayout(this.sceneInputLayout);
+            sceneDesc.addBindingLayout(this.sceneBindingLayout);
+            sceneDesc.addBindingLayout(this.materialBindingLayout);
+            sceneDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
+            sceneDesc.setDepthClip(1);
+            const scenePipeline = this.app.createGraphicsPipelineFromDesc(sceneDesc, this.sceneFramebuffer);
+            const shadowDesc = GraphicsPipelineDesc.create(this.shadowVertexShader, null);
+            shadowDesc.setInputLayout(this.shadowInputLayout);
+            shadowDesc.addBindingLayout(this.shadowBindingLayout);
+            shadowDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
+            shadowDesc.setDepthClip(1);
+            const shadowPipeline = this.app.createGraphicsPipelineFromDesc(shadowDesc, this.shadowFramebuffer);
+
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const ok = this.loadAssets(commandList, scenePipeline, shadowPipeline);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+            if (!ok) {
+                return false;
+            }
+
+            this.preCommandList = this.app.createDeferredCommandList();
+            for (let i = 0; i < NUM_CONTEXTS; i++) {
+                this.shadowCommandLists.push(this.app.createDeferredCommandList());
+                this.sceneCommandLists.push(this.app.createDeferredCommandList());
+            }
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (action != ACTION_PRESS && action != ACTION_RELEASE) {
                 return 0;
@@ -368,7 +458,7 @@ namespace Multithreading {
             this.shadowBatch.addBindingSet(shadowSet);
             // The materials' binding sets by diffuse texture, made as draws need them.
             const materialSets: BindingSet[] = [];
-            let materialSetIndices: int[] = [];
+            const materialSetIndices: int[] = [];
             for (let i = 0; i < textureCount; i++) {
                 materialSetIndices.push(-1);
             }
@@ -391,97 +481,6 @@ namespace Multithreading {
             }
             return true;
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "multithreading.hlsl";
-            this.sceneVertexShader = this.app.createShader(shader, "VSMain", ShaderType.Vertex);
-            this.shadowVertexShader = this.app.createShader(shader, "VSShadow", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader(shader, "PSMain", ShaderType.Pixel);
-            if (!this.sceneVertexShader || !this.shadowVertexShader || !this.pixelShader) {
-                return false;
-            }
-            // The sample's 44-byte vertices: position, normal, texture coordinates, tangent. The
-            // shadow pass reads the positions only.
-            const sceneLayoutDesc = InputLayoutDesc.create();
-            sceneLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, SQUID_ROOM_VERTEX_STRIDE);
-            sceneLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, SQUID_ROOM_VERTEX_STRIDE);
-            sceneLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, SQUID_ROOM_VERTEX_STRIDE);
-            sceneLayoutDesc.addVertexAttribute("TANGENT", Format.RGB32_FLOAT, 32, 0, SQUID_ROOM_VERTEX_STRIDE);
-            this.sceneInputLayout = this.app.createInputLayout(sceneLayoutDesc, this.sceneVertexShader);
-            const shadowLayoutDesc = InputLayoutDesc.create();
-            shadowLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, SQUID_ROOM_VERTEX_STRIDE);
-            this.shadowInputLayout = this.app.createInputLayout(shadowLayoutDesc, this.shadowVertexShader);
-
-            // The sample's root signature: the pass's constant buffer, the shadow map and the
-            // samplers (register space 0), and the draw's diffuse and normal maps (space 1). The
-            // shadow pass reads its constant buffer only.
-            const sceneLayout = BindingLayoutDesc.create();
-            sceneLayout.setDescriptorSet(0);
-            sceneLayout.layoutConstantBuffer(0);
-            sceneLayout.layoutTextureSRV(0);
-            sceneLayout.layoutSampler(0);
-            sceneLayout.layoutSampler(1);
-            this.sceneBindingLayout = this.app.createBindingLayout(sceneLayout, ShaderType.All);
-            const materialLayout = BindingLayoutDesc.create();
-            materialLayout.setDescriptorSet(1);
-            materialLayout.layoutTextureSRV(1);
-            materialLayout.layoutTextureSRV(2);
-            this.materialBindingLayout = this.app.createBindingLayout(materialLayout, ShaderType.Pixel);
-            const shadowLayout = BindingLayoutDesc.create();
-            shadowLayout.layoutConstantBuffer(0);
-            this.shadowBindingLayout = this.app.createBindingLayout(shadowLayout, ShaderType.Vertex);
-
-            this.sceneConstantBuffer = this.app.createConstantBuffer(CONSTANTS_FLOATS * 4, "SceneConstantBuffer");
-            this.shadowConstantBuffer = this.app.createConstantBuffer(CONSTANTS_FLOATS * 4, "ShadowConstantBuffer");
-
-            this.colorBuffer = this.app.createRenderTargetTexture(WIDTH, HEIGHT, Format.RGBA8_UNORM, "ColorBuffer");
-            this.depthBuffer = this.app.createRenderTargetTexture(WIDTH, HEIGHT, Format.D32, "DepthBuffer");
-            this.shadowMap = this.app.createRenderTargetTexture(WIDTH, HEIGHT, Format.D32, "ShadowMap");
-            this.sceneFramebuffer = this.app.createFramebuffer(this.colorBuffer, this.depthBuffer);
-            this.shadowFramebuffer = this.app.createDepthFramebuffer(this.shadowMap);
-
-            // The sample's pipeline states: back faces culled, depth tested (less or equal) and
-            // written, clipped at the near and far planes (D3D12's default); the shadow pass's
-            // without a pixel shader.
-            const sceneDesc = GraphicsPipelineDesc.create(this.sceneVertexShader, this.pixelShader);
-            sceneDesc.setInputLayout(this.sceneInputLayout);
-            sceneDesc.addBindingLayout(this.sceneBindingLayout);
-            sceneDesc.addBindingLayout(this.materialBindingLayout);
-            sceneDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
-            sceneDesc.setDepthClip(1);
-            const scenePipeline = this.app.createGraphicsPipelineFromDesc(sceneDesc, this.sceneFramebuffer);
-            const shadowDesc = GraphicsPipelineDesc.create(this.shadowVertexShader, null);
-            shadowDesc.setInputLayout(this.shadowInputLayout);
-            shadowDesc.addBindingLayout(this.shadowBindingLayout);
-            shadowDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
-            shadowDesc.setDepthClip(1);
-            const shadowPipeline = this.app.createGraphicsPipelineFromDesc(shadowDesc, this.shadowFramebuffer);
-
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const ok = this.loadAssets(commandList, scenePipeline, shadowPipeline);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-            if (!ok) {
-                return false;
-            }
-
-            this.preCommandList = this.app.createDeferredCommandList();
-            for (let i = 0; i < NUM_CONTEXTS; i++) {
-                this.shadowCommandLists.push(this.app.createDeferredCommandList());
-                this.sceneCommandLists.push(this.app.createDeferredCommandList());
-            }
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // -test: checks the last frame: the room, textured and lit (ambient light alone leaves it dark:
@@ -490,7 +489,7 @@ namespace Multithreading {
     function checkFrame(app: App) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
-        let pixels: int[] = [];
+        const pixels: int[] = [];
         for (let i = 0; i < width * height; i++) {
             pixels.push(0);
         }

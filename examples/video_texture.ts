@@ -187,6 +187,82 @@ namespace VideoTexture {
             this.frameHeight = 720;
         }
 
+        init(muted: boolean) {
+            // The sample's MediaEnginePlayer on the app's GPU.
+            const luid: int[] = [0, 0];
+            this.app.getAdapterLuid(Ref(luid[0]));
+            const player = VideoPlayer.create(VIDEO_PATH, luid[0], luid[1], muted ? 1 : 0);
+            if (player.isNull()) {
+                console.log("Cannot play the sample's video: set XBOX_ATG_SAMPLES_DIR when configuring");
+                return false;
+            }
+            this.player = player;
+            this.videoWidth = this.player.getWidth();
+            this.videoHeight = this.player.getHeight();
+            console.log(`Video Size ${this.videoWidth} x ${this.videoHeight}`);
+
+            // B8G8R8A8_UNORM, the Media Engine's output format.
+            const shared = this.app.createSharedTexture(this.videoWidth, this.videoHeight, Format.BGRA8_UNORM, "Video");
+            if (!shared.isNull()) {
+                this.sharedTexture = shared;
+                this.videoTexture = shared.get();
+            } else {
+                this.videoTexture = this.app.createTextureWithLevels(this.videoWidth, this.videoHeight, 1, Format.BGRA8_UNORM, "Video");
+            }
+
+            this.cubeVS = this.app.createShader("video_texture.hlsl", "cube_vs", ShaderType.Vertex);
+            this.cubePS = this.app.createShader("video_texture.hlsl", "cube_ps", ShaderType.Pixel);
+            this.spriteVS = this.app.createShader("video_texture.hlsl", "sprite_vs", ShaderType.Vertex);
+            this.spritePS = this.app.createShader("video_texture.hlsl", "sprite_ps", ShaderType.Pixel);
+            if (!this.cubeVS || !this.cubePS || !this.spriteVS || !this.spritePS) {
+                return false;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.createCube(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            this.parametersBuffer = this.app.createVolatileConstantBuffer(PARAMETERS_FLOATS * 4, "BasicEffect Parameters");
+            // CommonStates::AnisotropicWrap (16 samples); SpriteBatch's CommonStates::LinearClamp.
+            const anisotropicWrap = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
+                Math.min(16.0, this.app.getMaxSamplerAnisotropy()));
+            const linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const cubeLayoutDesc = BindingLayoutDesc.create();
+            cubeLayoutDesc.layoutVolatileConstantBuffer(0);
+            cubeLayoutDesc.layoutRawBufferSRV(0);
+            cubeLayoutDesc.layoutTextureSRV(1);
+            cubeLayoutDesc.layoutSampler(0);
+            this.cubeLayout = this.app.createBindingLayout(cubeLayoutDesc, ShaderType.All);
+            const cubeDesc = BindingSetDesc.create();
+            cubeDesc.bindEntireConstantBuffer(0, this.parametersBuffer);
+            cubeDesc.bindRawBufferSRV(0, this.cubeVertices);
+            cubeDesc.bindTextureSRV(1, this.videoTexture);
+            cubeDesc.bindSampler(0, anisotropicWrap);
+            this.cubeBindingSet = this.app.createBindingSetForLayout(cubeDesc, this.cubeLayout);
+
+            const spriteLayoutDesc = BindingLayoutDesc.create();
+            spriteLayoutDesc.layoutPushConstants(1, SPRITE_CONSTANTS_FLOATS * 4);
+            spriteLayoutDesc.layoutTextureSRV(1);
+            spriteLayoutDesc.layoutSampler(0);
+            this.spriteLayout = this.app.createBindingLayout(spriteLayoutDesc, ShaderType.All);
+            const spriteDesc = BindingSetDesc.create();
+            spriteDesc.bindPushConstants(1, SPRITE_CONSTANTS_FLOATS * 4);
+            spriteDesc.bindTextureSRV(1, this.videoTexture);
+            spriteDesc.bindSampler(0, linearClamp);
+            this.spriteBindingSet = this.app.createBindingSetForLayout(spriteDesc, this.spriteLayout);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_SPACE && action == ACTION_PRESS) {
                 this.show3D = !this.show3D;
@@ -349,8 +425,8 @@ namespace VideoTexture {
         createCube(commandList: CommandList) {
             const faceNormals = [0, 0, 1, 0, 0, -1, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0];
             const textureCoordinates = [1, 0, 1, 1, 0, 1, 0, 0];
-            let vertices: f32[] = [];
-            let indices: int[] = [];
+            const vertices: f32[] = [];
+            const indices: int[] = [];
             for (let face = 0; face < 6; face++) {
                 const normal = [faceNormals[face * 3], faceNormals[face * 3 + 1], faceNormals[face * 3 + 2]];
                 // Get two vectors perpendicular both to the face normal and to each other.
@@ -385,83 +461,6 @@ namespace VideoTexture {
             this.cubeIndexCount = indices.length;
         }
 
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(muted: boolean) {
-            // The sample's MediaEnginePlayer on the app's GPU.
-            let luid: int[] = [0, 0];
-            this.app.getAdapterLuid(Ref(luid[0]));
-            const player = VideoPlayer.create(VIDEO_PATH, luid[0], luid[1], muted ? 1 : 0);
-            if (player.isNull()) {
-                console.log("Cannot play the sample's video: set XBOX_ATG_SAMPLES_DIR when configuring");
-                return false;
-            }
-            this.player = player;
-            this.videoWidth = this.player.getWidth();
-            this.videoHeight = this.player.getHeight();
-            console.log(`Video Size ${this.videoWidth} x ${this.videoHeight}`);
-
-            // B8G8R8A8_UNORM, the Media Engine's output format.
-            const shared = this.app.createSharedTexture(this.videoWidth, this.videoHeight, Format.BGRA8_UNORM, "Video");
-            if (!shared.isNull()) {
-                this.sharedTexture = shared;
-                this.videoTexture = shared.get();
-            } else {
-                this.videoTexture = this.app.createTextureWithLevels(this.videoWidth, this.videoHeight, 1, Format.BGRA8_UNORM, "Video");
-            }
-
-            this.cubeVS = this.app.createShader("video_texture.hlsl", "cube_vs", ShaderType.Vertex);
-            this.cubePS = this.app.createShader("video_texture.hlsl", "cube_ps", ShaderType.Pixel);
-            this.spriteVS = this.app.createShader("video_texture.hlsl", "sprite_vs", ShaderType.Vertex);
-            this.spritePS = this.app.createShader("video_texture.hlsl", "sprite_ps", ShaderType.Pixel);
-            if (!this.cubeVS || !this.cubePS || !this.spriteVS || !this.spritePS) {
-                return false;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.createCube(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            this.parametersBuffer = this.app.createVolatileConstantBuffer(PARAMETERS_FLOATS * 4, "BasicEffect Parameters");
-            // CommonStates::AnisotropicWrap (16 samples); SpriteBatch's CommonStates::LinearClamp.
-            const anisotropicWrap = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
-                Math.min(16.0, this.app.getMaxSamplerAnisotropy()));
-            const linearClamp = this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const cubeLayoutDesc = BindingLayoutDesc.create();
-            cubeLayoutDesc.layoutVolatileConstantBuffer(0);
-            cubeLayoutDesc.layoutRawBufferSRV(0);
-            cubeLayoutDesc.layoutTextureSRV(1);
-            cubeLayoutDesc.layoutSampler(0);
-            this.cubeLayout = this.app.createBindingLayout(cubeLayoutDesc, ShaderType.All);
-            const cubeDesc = BindingSetDesc.create();
-            cubeDesc.bindEntireConstantBuffer(0, this.parametersBuffer);
-            cubeDesc.bindRawBufferSRV(0, this.cubeVertices);
-            cubeDesc.bindTextureSRV(1, this.videoTexture);
-            cubeDesc.bindSampler(0, anisotropicWrap);
-            this.cubeBindingSet = this.app.createBindingSetForLayout(cubeDesc, this.cubeLayout);
-
-            const spriteLayoutDesc = BindingLayoutDesc.create();
-            spriteLayoutDesc.layoutPushConstants(1, SPRITE_CONSTANTS_FLOATS * 4);
-            spriteLayoutDesc.layoutTextureSRV(1);
-            spriteLayoutDesc.layoutSampler(0);
-            this.spriteLayout = this.app.createBindingLayout(spriteLayoutDesc, ShaderType.All);
-            const spriteDesc = BindingSetDesc.create();
-            spriteDesc.bindPushConstants(1, SPRITE_CONSTANTS_FLOATS * 4);
-            spriteDesc.bindTextureSRV(1, this.videoTexture);
-            spriteDesc.bindSampler(0, linearClamp);
-            this.spriteBindingSet = this.app.createBindingSetForLayout(spriteDesc, this.spriteLayout);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
-
         destroy() {
             this.player.destroy();
         }
@@ -475,6 +474,15 @@ namespace VideoTexture {
             this.sample = sample;
         }
 
+        init(app: App) {
+            const imguiPass = app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.sample.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
+            return !this.sample.font.isNull();
+        }
+
         buildUI() {
             const sample = this.sample;
             const left = Math.floor((sample.frameWidth + 19.0) / 20.0);
@@ -484,16 +492,6 @@ namespace VideoTexture {
             Donut_ImGuiDrawText(left, bottom - FONT_SIZE, "Esc  Exit   Space  Toggle texture vs. cutscene",
                 LIGHT_GREY, LIGHT_GREY, LIGHT_GREY, 1.0, 0);
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            const imguiPass = app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.sample.font = imguiPass.createFont(FONT_PATH, FONT_SIZE);
-            return !this.sample.font.isNull();
         }
     }
 

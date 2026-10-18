@@ -46,6 +46,22 @@ namespace Meshlets {
             this.pipeline = null;
         }
 
+        init() {
+            this.amplificationShader = this.app.createShader("meshlets.hlsl", "main_as", ShaderType.Amplification);
+            this.meshShader = this.app.createShader("meshlets.hlsl", "main_ms", ShaderType.Mesh);
+            this.pixelShader = this.app.createShader("meshlets.hlsl", "main_ps", ShaderType.Pixel);
+
+            if (!this.amplificationShader || !this.meshShader || !this.pixelShader) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onBackBufferResizing() {
             const pipeline = this.pipeline;
             if (pipeline) {
@@ -68,23 +84,6 @@ namespace Meshlets {
 
             frame.clearColor(0.0, 0.0, 0.0, 0.0);
             frame.dispatchMesh(pipeline, 1);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.amplificationShader = this.app.createShader("meshlets.hlsl", "main_as", ShaderType.Amplification);
-            this.meshShader = this.app.createShader("meshlets.hlsl", "main_ms", ShaderType.Mesh);
-            this.pixelShader = this.app.createShader("meshlets.hlsl", "main_ps", ShaderType.Pixel);
-
-            if (!this.amplificationShader || !this.meshShader || !this.pixelShader) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

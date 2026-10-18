@@ -138,6 +138,71 @@ namespace DynamicUniformBuffers {
             }
         }
 
+        init() {
+            const shader = "dynamic_uniform_buffers.hlsl";
+            this.vs = this.app.createShader(shader, "base_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "base_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("COLOR", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            let vertices = CUBE_VERTICES.map((v): f32 => v);
+            let indices = CUBE_INDICES.map((v): int => v);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            // The view's buffer, and the cubes' (a slice each), with a binding set per cube.
+            this.viewBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UboView");
+            this.dynamicBuffer = this.app.createConstantBuffer(OBJECT_INSTANCES * DYNAMIC_ALIGNMENT, "UboInstance");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutConstantBuffer(1);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.Vertex);
+            for (let j = 0; j < OBJECT_INSTANCES; j++) {
+                const setDesc = BindingSetDesc.create();
+                setDesc.bindEntireConstantBuffer(0, this.viewBuffer);
+                setDesc.bindConstantBuffer(1, this.dynamicBuffer, j * DYNAMIC_ALIGNMENT, DYNAMIC_ALIGNMENT);
+                this.bindingSets.push(this.app.createBindingSetForLayout(setDesc, this.bindingLayout));
+            }
+
+            // The sample's prepare_uniform_buffers: random rotations and speeds, from a normal
+            // distribution of mean -1 and deviation 1 (the engine seeded with the time, or 0 with
+            // -benchmark). MSVC evaluates the sample's vec3(rnd, rnd, rnd) from the last argument:
+            // z, y, x.
+            const rng = this.app.createRandomEngine(this.benchmark ? 0 : -1);
+            const values: f32[] = [];
+            for (let i = 0; i < OBJECT_INSTANCES * 6; i++) {
+                values.push(0.0);
+            }
+            rng.normalFloats(-1.0, 1.0, values.length, Ref(values[0]));
+            for (let i = 0; i < OBJECT_INSTANCES; i++) {
+                for (let k = 0; k < 3; k++) {
+                    this.rotations.push(Math.fround(Math.fround(values[i * 6 + 2 - k] * 2.0) * Math.fround(Math.PI)));
+                    this.rotationSpeeds.push(values[i * 6 + 5 - k]);
+                }
+            }
+            this.updateModels(0.0);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -265,72 +330,6 @@ namespace DynamicUniformBuffers {
                 frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
                 frame.drawIndexed(CUBE_INDICES.length);
             }
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "dynamic_uniform_buffers.hlsl";
-            this.vs = this.app.createShader(shader, "base_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "base_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("COLOR", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            let vertices = CUBE_VERTICES.map((v): f32 => v);
-            let indices = CUBE_INDICES.map((v): int => v);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
-            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            // The view's buffer, and the cubes' (a slice each), with a binding set per cube.
-            this.viewBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UboView");
-            this.dynamicBuffer = this.app.createConstantBuffer(OBJECT_INSTANCES * DYNAMIC_ALIGNMENT, "UboInstance");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutConstantBuffer(1);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.Vertex);
-            for (let j = 0; j < OBJECT_INSTANCES; j++) {
-                const setDesc = BindingSetDesc.create();
-                setDesc.bindEntireConstantBuffer(0, this.viewBuffer);
-                setDesc.bindConstantBuffer(1, this.dynamicBuffer, j * DYNAMIC_ALIGNMENT, DYNAMIC_ALIGNMENT);
-                this.bindingSets.push(this.app.createBindingSetForLayout(setDesc, this.bindingLayout));
-            }
-
-            // The sample's prepare_uniform_buffers: random rotations and speeds, from a normal
-            // distribution of mean -1 and deviation 1 (the engine seeded with the time, or 0 with
-            // -benchmark). MSVC evaluates the sample's vec3(rnd, rnd, rnd) from the last argument:
-            // z, y, x.
-            const rng = this.app.createRandomEngine(this.benchmark ? 0 : -1);
-            let values: f32[] = [];
-            for (let i = 0; i < OBJECT_INSTANCES * 6; i++) {
-                values.push(0.0);
-            }
-            rng.normalFloats(-1.0, 1.0, values.length, Ref(values[0]));
-            for (let i = 0; i < OBJECT_INSTANCES; i++) {
-                for (let k = 0; k < 3; k++) {
-                    this.rotations.push(Math.fround(Math.fround(values[i * 6 + 2 - k] * 2.0) * Math.fround(Math.PI)));
-                    this.rotationSpeeds.push(values[i * 6 + 5 - k]);
-                }
-            }
-            this.updateModels(0.0);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

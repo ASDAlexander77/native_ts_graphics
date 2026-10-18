@@ -227,6 +227,51 @@ namespace DynamicBlending {
             }
         }
 
+        init() {
+            const shader = "dynamic_blending.hlsl";
+            this.vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+            this.advancedBlendOperations = this.app.getAdvancedBlendOperations();
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            this.cameraBuffer = this.app.createVolatileConstantBuffer(16 * 4, "CameraUbo");
+            this.colorBuffer = this.app.createVolatileConstantBuffer(COLOR_FLOATS * 4, "ColorUbo");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutVolatileConstantBuffer(1);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.cameraBuffer);
+            setDesc.bindEntireConstantBuffer(1, this.colorBuffer);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            let vertices = VERTICES.map((v): f32 => v);
+            let indices = INDICES.map((v): int => v);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.camera.mouseMove(x, y);
             return 1;
@@ -364,52 +409,6 @@ namespace DynamicBlending {
                 frame.drawIndexedRange(FACE_INDEX_COUNT, face.indexOffset, 0);
             }
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "dynamic_blending.hlsl";
-            this.vs = this.app.createShader(shader, "main_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "main_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-            this.advancedBlendOperations = this.app.getAdvancedBlendOperations();
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            this.cameraBuffer = this.app.createVolatileConstantBuffer(16 * 4, "CameraUbo");
-            this.colorBuffer = this.app.createVolatileConstantBuffer(COLOR_FLOATS * 4, "ColorUbo");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutVolatileConstantBuffer(1);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.cameraBuffer);
-            setDesc.bindEntireConstantBuffer(1, this.colorBuffer);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            let vertices = VERTICES.map((v): f32 => v);
-            let indices = INDICES.map((v): int => v);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
-            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's options.
@@ -418,6 +417,10 @@ namespace DynamicBlending {
 
         constructor(blending: DynamicBlendingPass) {
             this.blending = blending;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         // A color editor (as the sample's, 200 pixels wide).
@@ -519,11 +522,6 @@ namespace DynamicBlending {
                 }
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

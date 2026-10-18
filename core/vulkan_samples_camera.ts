@@ -115,13 +115,13 @@ export class FirstPersonCamera {
     update(deltaTime: number) {
         const rx = radians(this.rotation[0]);
         const ry = radians(this.rotation[1]);
-        let front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
+        const front = [-Math.cos(rx) * Math.sin(ry), Math.sin(rx), Math.cos(rx) * Math.cos(ry)];
         const length = Math.sqrt(front[0] * front[0] + front[1] * front[1] + front[2] * front[2]);
         for (let i = 0; i < 3; i++) {
             front[i] /= length;
         }
         // normalize(cross(front, (0, 1, 0))).
-        let right = [-front[2], 0.0, front[0]];
+        const right = [-front[2], 0.0, front[0]];
         const rightLength = Math.sqrt(right[0] * right[0] + right[2] * right[2]);
         for (let i = 0; i < 3; i++) {
             right[i] /= rightLength;

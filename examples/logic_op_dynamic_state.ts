@@ -172,6 +172,89 @@ namespace LogicOpDynamicState {
             ];
         }
 
+        init() {
+            if (this.app.hasLogicOps() == 0) {
+                console.log("This example needs logic operations in blend states (OutputMergerLogicOp, Vulkan's logicOp)");
+                return false;
+            }
+
+            const shader = "logic_op_dynamic_state.hlsl";
+            this.backgroundVS = this.app.createShader(shader, "background_vs", ShaderType.Vertex);
+            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
+            this.baselineVS = this.app.createShader(shader, "baseline_vs", ShaderType.Vertex);
+            this.baselinePS = this.app.createShaderWithDefine(shader, "baseline_ps", ShaderType.Pixel, "UINT_OUTPUT",
+                this.uintLogicOps ? "1" : "0");
+            if (!this.backgroundVS || !this.backgroundPS || !this.baselineVS || !this.baselinePS) {
+                return false;
+            }
+
+            // The blit's common passes, created on first use, upload their textures on a command
+            // list of their own: create them before ours (or the frame's) is open.
+            this.app.getCommonSampler(CommonSampler.PointClamp);
+
+            // The background: the glTF loader's interleaved vertices; the cube: positions and
+            // normals in buffers of their own.
+            const backgroundLayoutDesc = InputLayoutDesc.create();
+            backgroundLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            this.backgroundInputLayout = this.app.createInputLayout(backgroundLayoutDesc, this.backgroundVS);
+            const baselineLayoutDesc = InputLayoutDesc.create();
+            baselineLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
+            baselineLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 0, 1, 12);
+            this.baselineInputLayout = this.app.createInputLayout(baselineLayoutDesc, this.baselineVS);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const background = this.app.loadGltfMesh(commandList, BACKGROUND_PATH);
+            // Load HDR cube map
+            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
+            this.createCube(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (background.isNull() || !envmap) {
+                console.log("Cannot load the model and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.background = background;
+
+            // The sample's descriptor sets: the common UBO with the cube map (background), with the
+            // lighting UBO and the push constants (cube).
+            this.commonBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBOCommon");
+            this.baselineBuffer = this.app.createVolatileConstantBuffer(BASELINE_FLOATS * 4, "UBOBaseline");
+
+            const backgroundLayoutBindingDesc = BindingLayoutDesc.create();
+            backgroundLayoutBindingDesc.layoutVolatileConstantBuffer(0);
+            backgroundLayoutBindingDesc.layoutTextureSRV(0);
+            backgroundLayoutBindingDesc.layoutSampler(0);
+            this.backgroundBindingLayout = this.app.createBindingLayout(backgroundLayoutBindingDesc, ShaderType.All);
+            const backgroundSetDesc = BindingSetDesc.create();
+            backgroundSetDesc.bindEntireConstantBuffer(0, this.commonBuffer);
+            backgroundSetDesc.bindTextureSRV(0, envmap);
+            // The framework's cube map sampler: trilinear, the device's maximum anisotropy (16).
+            backgroundSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
+            this.backgroundBindingSet = this.app.createBindingSetForLayout(backgroundSetDesc, this.backgroundBindingLayout);
+
+            const baselineLayoutBindingDesc = BindingLayoutDesc.create();
+            baselineLayoutBindingDesc.layoutVolatileConstantBuffer(0);
+            baselineLayoutBindingDesc.layoutVolatileConstantBuffer(1);
+            baselineLayoutBindingDesc.layoutPushConstants(2, PUSH_FLOATS * 4);
+            this.baselineBindingLayout = this.app.createBindingLayout(baselineLayoutBindingDesc, ShaderType.Vertex);
+            const baselineSetDesc = BindingSetDesc.create();
+            baselineSetDesc.bindEntireConstantBuffer(0, this.commonBuffer);
+            baselineSetDesc.bindEntireConstantBuffer(1, this.baselineBuffer);
+            baselineSetDesc.bindPushConstants(2, PUSH_FLOATS * 4);
+            this.baselineBindingSet = this.app.createBindingSetForLayout(baselineSetDesc, this.baselineBindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // ApiVulkanSample's mouse handling: dragging with the left button rotates the camera, with
         // the right one zooms, with the middle one pans.
         onMousePos(x: number, y: number) {
@@ -352,8 +435,8 @@ namespace LogicOpDynamicState {
                 1.0, 1.0, 1.0,
                 0.0, 1.0, 1.0,
             ];
-            let positions: f32[] = [];
-            let normals: f32[] = [];
+            const positions: f32[] = [];
+            const normals: f32[] = [];
             for (let i = 0; i < 8; i++) {
                 const x = corners[i * 3];
                 const y = corners[i * 3 + 1];
@@ -376,7 +459,7 @@ namespace LogicOpDynamicState {
                 4, 5, 7, 6,
                 2, 3, 6, 7,
             ];
-            let indices: int[] = [];
+            const indices: int[] = [];
             for (let strip = 0; strip < 6; strip++) {
                 for (let t = 0; t < 2; t++) {
                     const v = strip * 4 + t;
@@ -394,90 +477,6 @@ namespace LogicOpDynamicState {
             this.cubeNormals = this.app.createStaticVertexBuffer(commandList, Ref(normals[0]), normals.length * 4, "CubeNormals");
             this.cubeIndices = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "CubeIndices");
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            if (this.app.hasLogicOps() == 0) {
-                console.log("This example needs logic operations in blend states (OutputMergerLogicOp, Vulkan's logicOp)");
-                return false;
-            }
-
-            const shader = "logic_op_dynamic_state.hlsl";
-            this.backgroundVS = this.app.createShader(shader, "background_vs", ShaderType.Vertex);
-            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
-            this.baselineVS = this.app.createShader(shader, "baseline_vs", ShaderType.Vertex);
-            this.baselinePS = this.app.createShaderWithDefine(shader, "baseline_ps", ShaderType.Pixel, "UINT_OUTPUT",
-                this.uintLogicOps ? "1" : "0");
-            if (!this.backgroundVS || !this.backgroundPS || !this.baselineVS || !this.baselinePS) {
-                return false;
-            }
-
-            // The blit's common passes, created on first use, upload their textures on a command
-            // list of their own: create them before ours (or the frame's) is open.
-            this.app.getCommonSampler(CommonSampler.PointClamp);
-
-            // The background: the glTF loader's interleaved vertices; the cube: positions and
-            // normals in buffers of their own.
-            const backgroundLayoutDesc = InputLayoutDesc.create();
-            backgroundLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            this.backgroundInputLayout = this.app.createInputLayout(backgroundLayoutDesc, this.backgroundVS);
-            const baselineLayoutDesc = InputLayoutDesc.create();
-            baselineLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 12);
-            baselineLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 0, 1, 12);
-            this.baselineInputLayout = this.app.createInputLayout(baselineLayoutDesc, this.baselineVS);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const background = this.app.loadGltfMesh(commandList, BACKGROUND_PATH);
-            // Load HDR cube map
-            const envmap = this.app.loadTexture(commandList, ENVMAP_PATH, 0);
-            this.createCube(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (background.isNull() || !envmap) {
-                console.log("Cannot load the model and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.background = background;
-
-            // The sample's descriptor sets: the common UBO with the cube map (background), with the
-            // lighting UBO and the push constants (cube).
-            this.commonBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "UBOCommon");
-            this.baselineBuffer = this.app.createVolatileConstantBuffer(BASELINE_FLOATS * 4, "UBOBaseline");
-
-            const backgroundLayoutBindingDesc = BindingLayoutDesc.create();
-            backgroundLayoutBindingDesc.layoutVolatileConstantBuffer(0);
-            backgroundLayoutBindingDesc.layoutTextureSRV(0);
-            backgroundLayoutBindingDesc.layoutSampler(0);
-            this.backgroundBindingLayout = this.app.createBindingLayout(backgroundLayoutBindingDesc, ShaderType.All);
-            const backgroundSetDesc = BindingSetDesc.create();
-            backgroundSetDesc.bindEntireConstantBuffer(0, this.commonBuffer);
-            backgroundSetDesc.bindTextureSRV(0, envmap);
-            // The framework's cube map sampler: trilinear, the device's maximum anisotropy (16).
-            backgroundSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
-            this.backgroundBindingSet = this.app.createBindingSetForLayout(backgroundSetDesc, this.backgroundBindingLayout);
-
-            const baselineLayoutBindingDesc = BindingLayoutDesc.create();
-            baselineLayoutBindingDesc.layoutVolatileConstantBuffer(0);
-            baselineLayoutBindingDesc.layoutVolatileConstantBuffer(1);
-            baselineLayoutBindingDesc.layoutPushConstants(2, PUSH_FLOATS * 4);
-            this.baselineBindingLayout = this.app.createBindingLayout(baselineLayoutBindingDesc, ShaderType.Vertex);
-            const baselineSetDesc = BindingSetDesc.create();
-            baselineSetDesc.bindEntireConstantBuffer(0, this.commonBuffer);
-            baselineSetDesc.bindEntireConstantBuffer(1, this.baselineBuffer);
-            baselineSetDesc.bindPushConstants(2, PUSH_FLOATS * 4);
-            this.baselineBindingSet = this.app.createBindingSetForLayout(baselineSetDesc, this.baselineBindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -486,6 +485,10 @@ namespace LogicOpDynamicState {
 
         constructor(sample: LogicOpPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -497,11 +500,6 @@ namespace LogicOpDynamicState {
                 sample.selectedOperation = Donut_ImGuiCombo("Logic operation", sample.selectedOperation, LOGIC_OP_NAMES);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

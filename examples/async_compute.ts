@@ -61,49 +61,6 @@ namespace AsyncCompute {
             this.graphicsPipeline = null;
         }
 
-        onBackBufferResizing() {
-            const graphicsPipeline = this.graphicsPipeline;
-            if (graphicsPipeline) {
-                this.app.releaseResource(graphicsPipeline);
-                this.graphicsPipeline = null;
-            }
-        }
-
-        onAnimate(elapsedSeconds: number) {
-            this.app.setInformativeWindowTitle(WINDOW_TITLE);
-        }
-
-        onRender(frameHandle: FrameHandle) {
-            const frame = new Frame(frameHandle);
-            let graphicsPipeline = this.graphicsPipeline;
-            if (!graphicsPipeline) {
-                graphicsPipeline = this.app.createGraphicsPipelineWithTopology(frame, this.vertexShader, this.pixelShader,
-                    null, this.drawBindingLayout, PrimitiveType.TriangleStrip);
-                this.graphicsPipeline = graphicsPipeline;
-            }
-
-            const texture = this.computeLoop.acquireTexture(frame);
-
-            frame.clearColor(0.0, 0.0, 0.0, 0.0);
-
-            if (texture) {
-                const bindingSetDesc = BindingSetDesc.create();
-                bindingSetDesc.bindTextureSRV(0, texture);
-                bindingSetDesc.bindSampler(0, this.sampler);
-                const bindingSet = this.app.getCachedBindingSet(bindingSetDesc, this.drawBindingLayout);
-
-                frame.beginDraw(graphicsPipeline);
-                frame.drawAddBindingSet(bindingSet);
-                frame.drawVertices(4);
-            }
-        }
-
-        // Joins the worker thread; before Donut_DestroyApp.
-        stop() {
-            this.computeLoop.stop();
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
         init() {
             this.vertexShader = this.app.createShader("async_compute.hlsl", "main_vs", ShaderType.Vertex);
             this.pixelShader = this.app.createShader("async_compute.hlsl", "main_ps", ShaderType.Pixel);
@@ -147,6 +104,48 @@ namespace AsyncCompute {
             pass.setAnimateCallback(this.onAnimate);
             pass.setRenderCallback(this.onRender);
             return true;
+        }
+
+        onBackBufferResizing() {
+            const graphicsPipeline = this.graphicsPipeline;
+            if (graphicsPipeline) {
+                this.app.releaseResource(graphicsPipeline);
+                this.graphicsPipeline = null;
+            }
+        }
+
+        onAnimate(elapsedSeconds: number) {
+            this.app.setInformativeWindowTitle(WINDOW_TITLE);
+        }
+
+        onRender(frameHandle: FrameHandle) {
+            const frame = new Frame(frameHandle);
+            let graphicsPipeline = this.graphicsPipeline;
+            if (!graphicsPipeline) {
+                graphicsPipeline = this.app.createGraphicsPipelineWithTopology(frame, this.vertexShader, this.pixelShader,
+                    null, this.drawBindingLayout, PrimitiveType.TriangleStrip);
+                this.graphicsPipeline = graphicsPipeline;
+            }
+
+            const texture = this.computeLoop.acquireTexture(frame);
+
+            frame.clearColor(0.0, 0.0, 0.0, 0.0);
+
+            if (texture) {
+                const bindingSetDesc = BindingSetDesc.create();
+                bindingSetDesc.bindTextureSRV(0, texture);
+                bindingSetDesc.bindSampler(0, this.sampler);
+                const bindingSet = this.app.getCachedBindingSet(bindingSetDesc, this.drawBindingLayout);
+
+                frame.beginDraw(graphicsPipeline);
+                frame.drawAddBindingSet(bindingSet);
+                frame.drawVertices(4);
+            }
+        }
+
+        // Joins the worker thread; before Donut_DestroyApp.
+        stop() {
+            this.computeLoop.stop();
         }
     }
 

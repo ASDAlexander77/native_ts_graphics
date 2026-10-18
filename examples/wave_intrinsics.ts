@@ -124,6 +124,75 @@ namespace WaveIntrinsics {
             this.fontHeight = 0;
         }
 
+        init() {
+            // The sample's static sampler: point filtering, wrapping. Before any command list is
+            // open: it creates Donut's common passes.
+            this.sampler = this.app.createSampler(0, 0, 1);
+
+            this.waveVS = this.app.createShader("wave_intrinsics.hlsl", "VSMain", ShaderType.Vertex);
+            this.wavePS = this.app.createShader("wave_intrinsics.hlsl", "PSMain", ShaderType.Pixel);
+            this.magnifyVS = this.app.createShader("wave_intrinsics_magnify.hlsl", "VSMain", ShaderType.Vertex);
+            this.magnifyPS = this.app.createShader("wave_intrinsics_magnify.hlsl", "PSMain", ShaderType.Pixel);
+            if (!this.waveVS || !this.wavePS || !this.magnifyVS || !this.magnifyPS) {
+                return false;
+            }
+
+            const waveLayoutDesc = InputLayoutDesc.create();
+            waveLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, TRIANGLE_STRIDE);
+            waveLayoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, TRIANGLE_STRIDE);
+            this.waveInputLayout = this.app.createInputLayout(waveLayoutDesc, this.waveVS);
+            const magnifyLayoutDesc = InputLayoutDesc.create();
+            magnifyLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 20);
+            magnifyLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, 20);
+            this.magnifyInputLayout = this.app.createInputLayout(magnifyLayoutDesc, this.magnifyVS);
+
+            const sceneLayoutDesc = BindingLayoutDesc.create();
+            sceneLayoutDesc.layoutConstantBuffer(0);
+            this.sceneLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
+            const composeLayoutDesc = BindingLayoutDesc.create();
+            composeLayoutDesc.layoutConstantBuffer(0);
+            composeLayoutDesc.layoutTextureSRV(0);
+            composeLayoutDesc.layoutTextureSRV(1);
+            composeLayoutDesc.layoutSampler(0);
+            this.composeLayout = this.app.createBindingLayout(composeLayoutDesc, ShaderType.All);
+
+            // Written in two parts (floats, then uints): not volatile.
+            this.constantBuffer = this.app.createConstantBuffer(CB_SIZE, "SceneConstantBuffer");
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            let vertices = TRIANGLE_VERTICES.map((v): f32 => v);
+            this.triangleBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Triangle");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            // Pass 1, the UI (into its texture), pass 2.
+            const scenePass = this.app.addPass();
+            scenePass.setKeyboardCallback(this.onKey);
+            scenePass.setMouseButtonCallback(this.onMouseButton);
+            scenePass.setMousePosCallback(this.onMousePos);
+            scenePass.setAnimateCallback(this.onAnimate);
+            scenePass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            scenePass.setRenderCallback(this.onRenderScene);
+
+            const imguiPass = this.app.addImGuiPass(this.buildUI);
+            if (imguiPass.isNull()) {
+                return false;
+            }
+            this.imguiPass = imguiPass;
+            const font = imguiPass.createFont(FONT_PATH, FONT_SIZE_PER_HEIGHT * this.height);
+            if (font.isNull()) {
+                console.log("Cannot load the font");
+                return false;
+            }
+            this.font = font;
+
+            const composePass = this.app.addPass();
+            composePass.setRenderCallback(this.onRenderCompose);
+            return true;
+        }
+
         onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
@@ -178,7 +247,7 @@ namespace WaveIntrinsics {
         createTargets(frame: Frame, commandList: CommandList) {
             const aspectRatio = Math.fround(this.width / this.height);
             const a = aspectRatio;
-            let quad: f32[] = [
+            const quad: f32[] = [
                 -a, -1.0, 0.0, 0.0, 1.0,
                 -a, 1.0, 0.0, 0.0, 0.0,
                 a, 1.0, 0.0, 1.0, 0.0,
@@ -299,76 +368,6 @@ namespace WaveIntrinsics {
                 Donut_ImGuiDrawText(0.0, i * lineSpacing, label, 1.0, 1.0, 1.0, 1.0, 0);
             }
             Donut_ImGuiPopFont();
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // The sample's static sampler: point filtering, wrapping. Before any command list is
-            // open: it creates Donut's common passes.
-            this.sampler = this.app.createSampler(0, 0, 1);
-
-            this.waveVS = this.app.createShader("wave_intrinsics.hlsl", "VSMain", ShaderType.Vertex);
-            this.wavePS = this.app.createShader("wave_intrinsics.hlsl", "PSMain", ShaderType.Pixel);
-            this.magnifyVS = this.app.createShader("wave_intrinsics_magnify.hlsl", "VSMain", ShaderType.Vertex);
-            this.magnifyPS = this.app.createShader("wave_intrinsics_magnify.hlsl", "PSMain", ShaderType.Pixel);
-            if (!this.waveVS || !this.wavePS || !this.magnifyVS || !this.magnifyPS) {
-                return false;
-            }
-
-            const waveLayoutDesc = InputLayoutDesc.create();
-            waveLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, TRIANGLE_STRIDE);
-            waveLayoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, TRIANGLE_STRIDE);
-            this.waveInputLayout = this.app.createInputLayout(waveLayoutDesc, this.waveVS);
-            const magnifyLayoutDesc = InputLayoutDesc.create();
-            magnifyLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, 20);
-            magnifyLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, 20);
-            this.magnifyInputLayout = this.app.createInputLayout(magnifyLayoutDesc, this.magnifyVS);
-
-            const sceneLayoutDesc = BindingLayoutDesc.create();
-            sceneLayoutDesc.layoutConstantBuffer(0);
-            this.sceneLayout = this.app.createBindingLayout(sceneLayoutDesc, ShaderType.All);
-            const composeLayoutDesc = BindingLayoutDesc.create();
-            composeLayoutDesc.layoutConstantBuffer(0);
-            composeLayoutDesc.layoutTextureSRV(0);
-            composeLayoutDesc.layoutTextureSRV(1);
-            composeLayoutDesc.layoutSampler(0);
-            this.composeLayout = this.app.createBindingLayout(composeLayoutDesc, ShaderType.All);
-
-            // Written in two parts (floats, then uints): not volatile.
-            this.constantBuffer = this.app.createConstantBuffer(CB_SIZE, "SceneConstantBuffer");
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            let vertices = TRIANGLE_VERTICES.map((v): f32 => v);
-            this.triangleBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Triangle");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            // Pass 1, the UI (into its texture), pass 2.
-            const scenePass = this.app.addPass();
-            scenePass.setKeyboardCallback(this.onKey);
-            scenePass.setMouseButtonCallback(this.onMouseButton);
-            scenePass.setMousePosCallback(this.onMousePos);
-            scenePass.setAnimateCallback(this.onAnimate);
-            scenePass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            scenePass.setRenderCallback(this.onRenderScene);
-
-            const imguiPass = this.app.addImGuiPass(this.buildUI);
-            if (imguiPass.isNull()) {
-                return false;
-            }
-            this.imguiPass = imguiPass;
-            const font = imguiPass.createFont(FONT_PATH, FONT_SIZE_PER_HEIGHT * this.height);
-            if (font.isNull()) {
-                console.log("Cannot load the font");
-                return false;
-            }
-            this.font = font;
-
-            const composePass = this.app.addPass();
-            composePass.setRenderCallback(this.onRenderCompose);
-            return true;
         }
     }
 

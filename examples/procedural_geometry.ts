@@ -115,8 +115,7 @@ namespace ProceduralGeometry {
         1.0, 1.5, 1.0,
         3.0, 3.0, 3.0,
     ];
-    // (1 if it rotates: an array of booleans read false in tslang.)
-    const AABB_ROTATES = [0, 1, 1, 0, 0, 0, 1, 1, 0, 0];
+    const AABB_ROTATES = [false, true, true, false, false, false, true, true, false, false];
 
     // InitializeScene's materials (PrimitiveConstantBuffer: albedo, reflectanceCoef, diffuseCoef,
     // specularCoef, specularPower, stepScale), the AABB geometries' then the plane's.
@@ -239,6 +238,65 @@ namespace ProceduralGeometry {
             this.fixedTime = -1.0;
         }
 
+        init() {
+            // CreateRootSignatures' global root signature; the local ones' constants are in t4, t5.
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutTextureUAV(0);
+            layoutDesc.layoutConstantBuffer(0);
+            for (let slot = 1; slot <= 5; slot++) {
+                layoutDesc.layoutStructuredBufferSRV(slot);
+            }
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            if (!this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            // InitializeScene's camera: from (0, 5.3, -17) towards the origin, its up vector
+            // perpendicular to the view direction and x, both turned 45 degrees about y.
+            this.eye = [0.0, Math.fround(5.3), -17.0, 1.0];
+            this.at = [0.0, 0.0, 0.0, 1.0];
+            const direction = normalize4(vsub(this.at, this.eye));
+            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
+            const rotate = matrixRotationY(radians(45.0));
+            this.eye = transform3(this.eye, rotate);
+            this.up = transform3(this.up, rotate);
+
+            this.buildAabbs();
+
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+
+            // -test's unthrottled frames on Vulkan.
+
+            this.sceneConstantBuffer = this.app.createConstantBuffer(SCENE_CB_SIZE, "SceneConstants");
+            this.aabbAttributeBuffer = this.app.createStructuredBuffer(AABB_ATTRIBUTE_FLOATS * 4, PRIMITIVE_COUNT, "AABBPrimitiveAttributes");
+            this.materialBuffer = this.app.createStructuredBuffer(MATERIAL_FLOATS * 4, PRIMITIVE_COUNT + 1, "Materials");
+            this.aabbConstantBuffer = this.app.createStructuredBuffer(8, PRIMITIVE_COUNT, "AABBConstants");
+            this.timerQuery = this.app.createTimerQuery();
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.writeMaterials(commandList);
+            const created = this.createAccelerationStructures(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            // The AABBs are only needed for the build: the command list references them, and the app
+            // holds it until the GPU is done with it.
+            this.app.releaseResource(this.aabbBuffer);
+            this.app.releaseResource(commandList.handle);
+            if (!created) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setKeyboardCallback(this.onKey);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The storage image has the back buffers' size.
         onBackBufferResizing() {
             const bindingSet = this.bindingSet;
@@ -358,7 +416,7 @@ namespace ProceduralGeometry {
                 ];
                 const scale = matrixScaling(AABB_SCALES[i * 3], AABB_SCALES[i * 3 + 1], AABB_SCALES[i * 3 + 2]);
                 let rotated = matrixMultiply(scale, identity);
-                if (AABB_ROTATES[i] != 0) {
+                if (AABB_ROTATES[i]) {
                     rotated = matrixMultiply(scale, rotation);
                 }
                 const transform = matrixMultiply(rotated, matrixTranslation(center[0], center[1], center[2]));
@@ -468,7 +526,7 @@ namespace ProceduralGeometry {
         }
 
         writeMaterials(commandList: CommandList) {
-            let materials: f32[] = [];
+            const materials: f32[] = [];
             // SetAttributes' defaults: reflectanceCoef 0, diffuseCoef 0.9, specularCoef 0.7,
             // specularPower 50, stepScale 1.
             this.addMaterial(materials, RED, 0.0, 0.9, 0.7, 50.0, 1.0);                     // AABB
@@ -486,7 +544,7 @@ namespace ProceduralGeometry {
 
             // BuildShaderTables' rootArgs.aabbCB: the AABB's index, and its primitive type within
             // its intersection shader's.
-            let aabbConstants: int[] = [];
+            const aabbConstants: int[] = [];
             let instanceIndex = 0;
             for (const primitiveCount of PRIMITIVES_PER_INTERSECTION_SHADER) {
                 for (let primitive = 0; primitive < primitiveCount; primitive++) {
@@ -538,13 +596,13 @@ namespace ProceduralGeometry {
             const planeWidthX = 700.0 * AABB_WIDTH + 699.0 * AABB_DISTANCE;
             const planeWidthY = 1.0 * AABB_WIDTH;
             const planeWidthZ = 700.0 * AABB_WIDTH + 699.0 * AABB_DISTANCE;
-            let transform: f32[] = [
+            const transform: f32[] = [
                 planeWidthX, 0.0, 0.0, Math.fround(planeWidthX * Math.fround(-0.35)),
                 0.0, planeWidthY, 0.0, 0.0,
                 0.0, 0.0, planeWidthZ, Math.fround(planeWidthZ * Math.fround(-0.35)),
             ];
             this.topLevelAS.addInstanceWithHitGroup(planeBlas.getAccelStruct(), 1, 0, 0, 0, Ref(transform[0]));
-            let aabbTransform: f32[] = [
+            const aabbTransform: f32[] = [
                 1.0, 0.0, 0.0, 0.0,
                 0.0, 1.0, 0.0, AABB_WIDTH / 2.0,
                 0.0, 0.0, 1.0, 0.0,
@@ -598,66 +656,6 @@ namespace ProceduralGeometry {
                 }
             }
             this.shaderTable = shaderTable;
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // CreateRootSignatures' global root signature; the local ones' constants are in t4, t5.
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutTextureUAV(0);
-            layoutDesc.layoutConstantBuffer(0);
-            for (let slot = 1; slot <= 5; slot++) {
-                layoutDesc.layoutStructuredBufferSRV(slot);
-            }
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            if (!this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            // InitializeScene's camera: from (0, 5.3, -17) towards the origin, its up vector
-            // perpendicular to the view direction and x, both turned 45 degrees about y.
-            this.eye = [0.0, Math.fround(5.3), -17.0, 1.0];
-            this.at = [0.0, 0.0, 0.0, 1.0];
-            const direction = normalize4(vsub(this.at, this.eye));
-            this.up = normalize3(cross3(direction, [1.0, 0.0, 0.0, 0.0]));
-            const rotate = matrixRotationY(radians(45.0));
-            this.eye = transform3(this.eye, rotate);
-            this.up = transform3(this.up, rotate);
-
-            this.buildAabbs();
-
-            // Static, written in the command list every frame: a volatile one runs out of versions in
-
-            // -test's unthrottled frames on Vulkan.
-
-            this.sceneConstantBuffer = this.app.createConstantBuffer(SCENE_CB_SIZE, "SceneConstants");
-            this.aabbAttributeBuffer = this.app.createStructuredBuffer(AABB_ATTRIBUTE_FLOATS * 4, PRIMITIVE_COUNT, "AABBPrimitiveAttributes");
-            this.materialBuffer = this.app.createStructuredBuffer(MATERIAL_FLOATS * 4, PRIMITIVE_COUNT + 1, "Materials");
-            this.aabbConstantBuffer = this.app.createStructuredBuffer(8, PRIMITIVE_COUNT, "AABBConstants");
-            this.timerQuery = this.app.createTimerQuery();
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.writeMaterials(commandList);
-            const created = this.createAccelerationStructures(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            // The AABBs are only needed for the build: the command list references them, and the app
-            // holds it until the GPU is done with it.
-            this.app.releaseResource(this.aabbBuffer);
-            this.app.releaseResource(commandList.handle);
-            if (!created) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setKeyboardCallback(this.onKey);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

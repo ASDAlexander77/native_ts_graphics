@@ -35,8 +35,7 @@ namespace DeferredShading {
     const VERTEX_COUNT = 24;
     const INDEX_COUNT = 36;
 
-    // `let`, not `const`: tslang takes the address of the array's storage only for non-const arrays.
-    let g_Positions: f32[] = [
+    const g_Positions: f32[] = [
         -0.5,  0.5, -0.5, // front face
          0.5, -0.5, -0.5,
         -0.5, -0.5, -0.5,
@@ -68,7 +67,7 @@ namespace DeferredShading {
         -0.5, -0.5,  0.5,
     ];
 
-    let g_TexCoords: f32[] = [
+    const g_TexCoords: f32[] = [
         0.0, 0.0, // front face
         1.0, 1.0,
         0.0, 1.0,
@@ -120,10 +119,10 @@ namespace DeferredShading {
          1.0,  0.0,  0.0, 1.0, // bottom face
     ];
 
-    let g_Normals: int[] = [];
-    let g_Tangents: int[] = [];
+    const g_Normals: int[] = [];
+    const g_Tangents: int[] = [];
 
-    let g_Indices: int[] = [
+    const g_Indices: int[] = [
          0,  1,  2,   0,  3,  1, // front face
          4,  5,  6,   4,  7,  5, // left face
          8,  9, 10,   8, 11,  9, // right face
@@ -157,7 +156,6 @@ namespace DeferredShading {
     // Donut's row-vector convention: `mul(a, b)` applies a, then b.
 
     function mul(a: number[], b: number[]) {
-        // `let`: tslang's push needs a non-const array.
         const r: number[] = [];
         for (let i = 0; i < 4; i++) {
             for (let j = 0; j < 4; j++) {
@@ -264,6 +262,20 @@ namespace DeferredShading {
             }
         }
 
+        init() {
+            this.deferredLightingPass = this.app.createDeferredLightingPass();
+            this.view = this.app.createPlanarView();
+
+            if (!this.scene.init(this.app)) {
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         setupView(width: int, height: int) {
             const viewMatrix = mul(mul(
                 yawPitchRoll(this.rotation, 0.0, 0.0),
@@ -335,21 +347,6 @@ namespace DeferredShading {
                 ambientColorTop * 0.3, ambientColorTop * 0.4, ambientColorTop * 0.3);
 
             this.app.blitTexture(frame, targets.getShadedColor());
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.deferredLightingPass = this.app.createDeferredLightingPass();
-            this.view = this.app.createPlanarView();
-
-            if (!this.scene.init(this.app)) {
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

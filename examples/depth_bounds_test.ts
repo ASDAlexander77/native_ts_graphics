@@ -63,6 +63,42 @@ namespace DepthBoundsTest {
             this.benchmark = false;
         }
 
+        init() {
+            this.vertexShader = this.app.createShader("depth_bounds_test.hlsl", "VSMain", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("depth_bounds_test.hlsl", "PSMain", ShaderType.Pixel);
+            if (!this.vertexShader || !this.pixelShader) {
+                return false;
+            }
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
+            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, VERTEX_STRIDE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
+
+            // The triangle in clip space (the window's aspect ratio applied to y): top red at depth
+            // 0.1, right green at 0.9, left blue at 0.5.
+            const aspectRatio = Math.fround(1280.0 / 720.0);
+            const y = Math.fround(0.25 * aspectRatio);
+            const vertices: f32[] = [
+                0.0, y, 0.1, 1.0, 0.0, 0.0, 1.0,
+                0.25, -y, 0.9, 0.0, 1.0, 0.0, 1.0,
+                -0.25, -y, 0.5, 0.0, 0.0, 1.0, 1.0,
+            ];
+            // Blitting creates Donut's common passes: before any command list is open.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Triangle");
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onBackBufferResizing() {
             if (!this.hasTargets) {
                 return;
@@ -142,43 +178,6 @@ namespace DepthBoundsTest {
             frame.drawVertices(3);
 
             this.app.blitTexture(frame, this.colorBuffer);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.vertexShader = this.app.createShader("depth_bounds_test.hlsl", "VSMain", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader("depth_bounds_test.hlsl", "PSMain", ShaderType.Pixel);
-            if (!this.vertexShader || !this.pixelShader) {
-                return false;
-            }
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_STRIDE);
-            layoutDesc.addVertexAttribute("COLOR", Format.RGBA32_FLOAT, 12, 0, VERTEX_STRIDE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vertexShader);
-
-            // The triangle in clip space (the window's aspect ratio applied to y): top red at depth
-            // 0.1, right green at 0.9, left blue at 0.5.
-            const aspectRatio = Math.fround(1280.0 / 720.0);
-            const y = Math.fround(0.25 * aspectRatio);
-            let vertices: f32[] = [
-                0.0, y, 0.1, 1.0, 0.0, 0.0, 1.0,
-                0.25, -y, 0.9, 0.0, 1.0, 0.0, 1.0,
-                -0.25, -y, 0.5, 0.0, 0.0, 1.0, 1.0,
-            ];
-            // Blitting creates Donut's common passes: before any command list is open.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Triangle");
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

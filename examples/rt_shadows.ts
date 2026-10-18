@@ -75,6 +75,56 @@ namespace RtShadows {
             }
         }
 
+        init(scenePath: string) {
+            const scene = this.app.loadScene(scenePath);
+            if (scene.isNull()) {
+                console.log(`Cannot load the scene ${scenePath}`);
+                return false;
+            }
+            this.scene = scene;
+
+            const sceneGraph = scene.getSceneGraph();
+            this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
+                0.1, -1.0, 0.15, 0.53, 1.0);
+            this.app.refreshSceneGraph(sceneGraph);
+
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
+            this.camera.setMoveSpeed(3.0);
+
+            this.view = this.app.createPlanarView();
+
+            this.viewOffset = LIGHT_OFFSET + Donut_GetLightConstantsSize() / 4;
+            this.constantsSize = this.viewOffset * 4 + Donut_GetPlanarViewConstantsSize();
+            for (let i = 0; i < this.constantsSize / 4; i++) {
+                this.constants.push(0.0);
+            }
+            this.constantBuffer = this.app.createVolatileConstantBuffer(this.constantsSize, "LightingConstants");
+
+            if (!this.createRayTracingPipeline()) {
+                return false;
+            }
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+
+            this.accelStructs = this.app.buildSceneAccelStructs(commandList, scene);
+
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
@@ -199,57 +249,6 @@ namespace RtShadows {
             this.shaderTable = this.app.createShaderTable(pipeline, "RayGen", "HitGroup", "Miss");
             // The shader table keeps the pipeline alive.
             this.app.releaseResource(pipeline);
-            return true;
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init(scenePath: string) {
-            const scene = this.app.loadScene(scenePath);
-            if (scene.isNull()) {
-                console.log(`Cannot load the scene ${scenePath}`);
-                return false;
-            }
-            this.scene = scene;
-
-            const sceneGraph = scene.getSceneGraph();
-            this.sunLight = sceneGraph.addDirectionalLight(sceneGraph.getRootNode(), "Sun",
-                0.1, -1.0, 0.15, 0.53, 1.0);
-            this.app.refreshSceneGraph(sceneGraph);
-
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            this.camera.setMoveSpeed(3.0);
-
-            this.view = this.app.createPlanarView();
-
-            this.viewOffset = LIGHT_OFFSET + Donut_GetLightConstantsSize() / 4;
-            this.constantsSize = this.viewOffset * 4 + Donut_GetPlanarViewConstantsSize();
-            for (let i = 0; i < this.constantsSize / 4; i++) {
-                this.constants.push(0.0);
-            }
-            this.constantBuffer = this.app.createVolatileConstantBuffer(this.constantsSize, "LightingConstants");
-
-            if (!this.createRayTracingPipeline()) {
-                return false;
-            }
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-
-            this.accelStructs = this.app.buildSceneAccelStructs(commandList, scene);
-
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
             return true;
         }
     }

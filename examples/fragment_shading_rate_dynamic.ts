@@ -185,6 +185,80 @@ namespace FragmentShadingRateDynamic {
             }
         }
 
+        init() {
+            this.rateCount = this.app.getFragmentShadingRates(Ref(this.rates[0]));
+            this.tileSize = this.app.getShadingRateTileSize();
+            if (this.rateCount == 0 || this.tileSize == 0) {
+                this.unsupportedReason = "The graphics device has no variable rate shading with shading rate images";
+                return false;
+            }
+            // (min_shading_rate.height >> 1) | ((min_shading_rate.width << 1) & 12).
+            this.initialRateCode = (this.rates[1] >> 1) | ((this.rates[0] << 1) & 12);
+
+            const shader = "fragment_shading_rate_dynamic.hlsl";
+            this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
+            this.scenePS = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
+            const computeShader = this.app.createShader("fragment_shading_rate_dynamic_compute.hlsl", "generate_cs", ShaderType.Compute);
+            if (!this.sceneVS || !this.scenePS || !computeShader) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.sceneVS);
+
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBOScene");
+            const renderLayoutDesc = BindingLayoutDesc.create();
+            renderLayoutDesc.layoutVolatileConstantBuffer(0);
+            renderLayoutDesc.layoutTextureSRV(0);
+            renderLayoutDesc.layoutSampler(0);
+            renderLayoutDesc.layoutTextureSRV(1);
+            renderLayoutDesc.layoutSampler(1);
+            renderLayoutDesc.layoutTextureUAV(0);
+            renderLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
+            this.renderBindingLayout = this.app.createBindingLayout(renderLayoutDesc, ShaderType.All);
+
+            const computeLayoutDesc = BindingLayoutDesc.create();
+            computeLayoutDesc.layoutTextureUAV(0);
+            computeLayoutDesc.layoutTextureUAV(1);
+            computeLayoutDesc.layoutStructuredBufferSRV(0);
+            this.computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
+            this.computePipeline = this.app.createComputePipelineWithLayout(computeShader, this.computeBindingLayout);
+
+            // ApiVulkanSample::load_texture's sampler: linear, repeating, anisotropic at the device's
+            // most.
+            this.textureSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
+                this.app.getMaxSamplerAnisotropy());
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.skysphereMesh = this.app.loadGltfMesh(commandList, SKYSPHERE_PATH);
+            this.sceneMesh = this.app.loadGltfMesh(commandList, SCENE_PATH);
+            // As the framework loads KTX 1 color textures: as sRGB.
+            this.skysphereTexture = this.app.loadTexture(commandList, SKYSPHERE_TEXTURE_PATH, 1);
+            this.sceneTexture = this.app.loadTexture(commandList, SCENE_TEXTURE_PATH, 1);
+            this.createTargets(commandList, this.app.getWindowWidth(), this.app.getWindowHeight());
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (this.skysphereMesh.isNull() || this.sceneMesh.isNull() || !this.skysphereTexture || !this.sceneTexture) {
+                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         // The reduced size pass's size, for the UI's placement.
         getSubpassHeight() {
             return this.subpassHeight;
@@ -280,7 +354,7 @@ namespace FragmentShadingRateDynamic {
                 maxRateX = Math.max(maxRateX, this.rates[r * 2]);
                 maxRateY = Math.max(maxRateY, this.rates[r * 2 + 1]);
             }
-            let params: int[] = [this.subpassWidth, this.subpassHeight, this.shadingRateWidth, this.shadingRateHeight,
+            const params: int[] = [this.subpassWidth, this.subpassHeight, this.shadingRateWidth, this.shadingRateHeight,
                 maxRateX, maxRateY, this.rateCount, 0];
             for (let r = 0; r < this.rateCount * 2; r++) {
                 params.push(this.rates[r]);
@@ -429,81 +503,6 @@ namespace FragmentShadingRateDynamic {
                 this.shadingRateWidth, this.shadingRateHeight);
             commandList.endMarker();
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.rateCount = this.app.getFragmentShadingRates(Ref(this.rates[0]));
-            this.tileSize = this.app.getShadingRateTileSize();
-            if (this.rateCount == 0 || this.tileSize == 0) {
-                this.unsupportedReason = "The graphics device has no variable rate shading with shading rate images";
-                return false;
-            }
-            // (min_shading_rate.height >> 1) | ((min_shading_rate.width << 1) & 12).
-            this.initialRateCode = (this.rates[1] >> 1) | ((this.rates[0] << 1) & 12);
-
-            const shader = "fragment_shading_rate_dynamic.hlsl";
-            this.sceneVS = this.app.createShader(shader, "scene_vs", ShaderType.Vertex);
-            this.scenePS = this.app.createShader(shader, "scene_ps", ShaderType.Pixel);
-            const computeShader = this.app.createShader("fragment_shading_rate_dynamic_compute.hlsl", "generate_cs", ShaderType.Compute);
-            if (!this.sceneVS || !this.scenePS || !computeShader) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, 12, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 24, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.sceneVS);
-
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBOScene");
-            const renderLayoutDesc = BindingLayoutDesc.create();
-            renderLayoutDesc.layoutVolatileConstantBuffer(0);
-            renderLayoutDesc.layoutTextureSRV(0);
-            renderLayoutDesc.layoutSampler(0);
-            renderLayoutDesc.layoutTextureSRV(1);
-            renderLayoutDesc.layoutSampler(1);
-            renderLayoutDesc.layoutTextureUAV(0);
-            renderLayoutDesc.layoutPushConstants(1, PUSH_SIZE);
-            this.renderBindingLayout = this.app.createBindingLayout(renderLayoutDesc, ShaderType.All);
-
-            const computeLayoutDesc = BindingLayoutDesc.create();
-            computeLayoutDesc.layoutTextureUAV(0);
-            computeLayoutDesc.layoutTextureUAV(1);
-            computeLayoutDesc.layoutStructuredBufferSRV(0);
-            this.computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
-            this.computePipeline = this.app.createComputePipelineWithLayout(computeShader, this.computeBindingLayout);
-
-            // ApiVulkanSample::load_texture's sampler: linear, repeating, anisotropic at the device's
-            // most.
-            this.textureSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 1000.0,
-                this.app.getMaxSamplerAnisotropy());
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.skysphereMesh = this.app.loadGltfMesh(commandList, SKYSPHERE_PATH);
-            this.sceneMesh = this.app.loadGltfMesh(commandList, SCENE_PATH);
-            // As the framework loads KTX 1 color textures: as sRGB.
-            this.skysphereTexture = this.app.loadTexture(commandList, SKYSPHERE_TEXTURE_PATH, 1);
-            this.sceneTexture = this.app.loadTexture(commandList, SCENE_TEXTURE_PATH, 1);
-            this.createTargets(commandList, this.app.getWindowWidth(), this.app.getWindowHeight());
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (this.skysphereMesh.isNull() || this.sceneMesh.isNull() || !this.skysphereTexture || !this.sceneTexture) {
-                console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's settings, placed below the reduced size pass's corner (which the sample draws
@@ -513,6 +512,10 @@ namespace FragmentShadingRateDynamic {
 
         constructor(pass: FragmentShadingRateDynamicPass) {
             this.pass = pass;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -532,11 +535,6 @@ namespace FragmentShadingRateDynamic {
                 p.displaySkySphere = Donut_ImGuiCheckbox("sky-sphere", p.displaySkySphere ? 1 : 0) != 0;
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

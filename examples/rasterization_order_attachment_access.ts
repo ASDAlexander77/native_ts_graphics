@@ -188,6 +188,85 @@ namespace RasterizationOrderAttachmentAccess {
             this.drawConstants = [0];
         }
 
+        init() {
+            this.rovSupported = this.app.hasRasterizerOrderedViews() != 0;
+            this.rovEnabled = this.rovSupported;
+
+            const shader = "rasterization_order_attachment_access.hlsl";
+            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
+            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
+            this.blendVS = this.app.createShader(shader, "blend_vs", ShaderType.Vertex);
+            this.blendPS = this.app.createShaderWithDefine(shader, "blend_ps", ShaderType.Pixel, "ROV", "0");
+            this.displayPS = this.app.createShader(shader, "display_ps", ShaderType.Pixel);
+            if (!this.fullscreenVS || !this.backgroundPS || !this.blendVS || !this.blendPS || !this.displayPS) {
+                return false;
+            }
+            if (this.rovSupported) {
+                this.blendRovPS = this.app.createShaderWithDefine(shader, "blend_ps", ShaderType.Pixel, "ROV", "1");
+                if (!this.blendRovPS) {
+                    return false;
+                }
+            }
+
+            // The spheres' positions.
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.blendVS);
+
+            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
+
+            // The sample's descriptor set, split by pass: the background's uniforms, texture and
+            // sampler; the spheres' uniforms, instances and first instance; both the color texture.
+            const backgroundLayoutDesc = BindingLayoutDesc.create();
+            backgroundLayoutDesc.layoutVolatileConstantBuffer(0);
+            backgroundLayoutDesc.layoutTextureSRV(0);
+            backgroundLayoutDesc.layoutSampler(0);
+            backgroundLayoutDesc.layoutTextureUAV(1);
+            this.backgroundBindingLayout = this.app.createBindingLayout(backgroundLayoutDesc, ShaderType.Pixel);
+
+            const blendLayoutDesc = BindingLayoutDesc.create();
+            blendLayoutDesc.layoutVolatileConstantBuffer(0);
+            blendLayoutDesc.layoutPushConstants(1, 4);
+            blendLayoutDesc.layoutStructuredBufferSRV(1);
+            blendLayoutDesc.layoutTextureUAV(1);
+            this.blendBindingLayout = this.app.createBindingLayout(blendLayoutDesc, ShaderType.All);
+
+            const displayLayoutDesc = BindingLayoutDesc.create();
+            displayLayoutDesc.layoutTextureSRV(2);
+            this.displayBindingLayout = this.app.createBindingLayout(displayLayoutDesc, ShaderType.Pixel);
+
+            // The background's sampler: linear, repeating. Donut's common passes, which hold it,
+            // upload their textures on a command list of their own: before ours is open.
+            this.sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            const mesh = this.app.loadGltfMesh(commandList, MODEL_PATH);
+            const background = this.app.loadTexture(commandList, BACKGROUND_PATH, 1);
+            this.createInstanceBuffer(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (mesh.isNull() || !background) {
+                console.log("Cannot load the model and the background: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+            this.background = background;
+            this.vertexBuffer = mesh.getVertexBuffer();
+            this.indexBuffer = mesh.getIndexBuffer();
+            this.indexCount = mesh.getIndexCount();
+            this.timerQuery = this.app.createTimerQuery();
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         drawCallCount() {
             return this.rovEnabled ? 2 : INSTANCE_COUNT + 1;
         }
@@ -398,7 +477,7 @@ namespace RasterizationOrderAttachmentAccess {
         // The sample's instance data: the grid's transforms and random colors (alpha 0.2 to 1).
         createInstanceBuffer(commandList: CommandList) {
             const random = new MsvcRandom(RANDOM_SEED);
-            let instances: f32[] = [];
+            const instances: f32[] = [];
             for (let z = 0; z < INSTANCE_LAYER_COUNT; z++) {
                 for (let y = 0; y < INSTANCE_COLUMN_COUNT; y++) {
                     for (let x = 0; x < INSTANCE_ROW_COUNT; x++) {
@@ -428,86 +507,6 @@ namespace RasterizationOrderAttachmentAccess {
             this.instanceBuffer = this.app.createStructuredBuffer(INSTANCE_FLOATS * 4, INSTANCE_COUNT, "InstanceData");
             commandList.writeBuffer(this.instanceBuffer, Ref(instances[0]), INSTANCE_COUNT * INSTANCE_FLOATS * 4);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.rovSupported = this.app.hasRasterizerOrderedViews() != 0;
-            this.rovEnabled = this.rovSupported;
-
-            const shader = "rasterization_order_attachment_access.hlsl";
-            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
-            this.backgroundPS = this.app.createShader(shader, "background_ps", ShaderType.Pixel);
-            this.blendVS = this.app.createShader(shader, "blend_vs", ShaderType.Vertex);
-            this.blendPS = this.app.createShaderWithDefine(shader, "blend_ps", ShaderType.Pixel, "ROV", "0");
-            this.displayPS = this.app.createShader(shader, "display_ps", ShaderType.Pixel);
-            if (!this.fullscreenVS || !this.backgroundPS || !this.blendVS || !this.blendPS || !this.displayPS) {
-                return false;
-            }
-            if (this.rovSupported) {
-                this.blendRovPS = this.app.createShaderWithDefine(shader, "blend_ps", ShaderType.Pixel, "ROV", "1");
-                if (!this.blendRovPS) {
-                    return false;
-                }
-            }
-
-            // The spheres' positions.
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.blendVS);
-
-            this.constantBuffer = this.app.createVolatileConstantBuffer(CONST_FLOATS * 4, "SceneConstants");
-
-            // The sample's descriptor set, split by pass: the background's uniforms, texture and
-            // sampler; the spheres' uniforms, instances and first instance; both the color texture.
-            const backgroundLayoutDesc = BindingLayoutDesc.create();
-            backgroundLayoutDesc.layoutVolatileConstantBuffer(0);
-            backgroundLayoutDesc.layoutTextureSRV(0);
-            backgroundLayoutDesc.layoutSampler(0);
-            backgroundLayoutDesc.layoutTextureUAV(1);
-            this.backgroundBindingLayout = this.app.createBindingLayout(backgroundLayoutDesc, ShaderType.Pixel);
-
-            const blendLayoutDesc = BindingLayoutDesc.create();
-            blendLayoutDesc.layoutVolatileConstantBuffer(0);
-            blendLayoutDesc.layoutPushConstants(1, 4);
-            blendLayoutDesc.layoutStructuredBufferSRV(1);
-            blendLayoutDesc.layoutTextureUAV(1);
-            this.blendBindingLayout = this.app.createBindingLayout(blendLayoutDesc, ShaderType.All);
-
-            const displayLayoutDesc = BindingLayoutDesc.create();
-            displayLayoutDesc.layoutTextureSRV(2);
-            this.displayBindingLayout = this.app.createBindingLayout(displayLayoutDesc, ShaderType.Pixel);
-
-            // The background's sampler: linear, repeating. Donut's common passes, which hold it,
-            // upload their textures on a command list of their own: before ours is open.
-            this.sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            const mesh = this.app.loadGltfMesh(commandList, MODEL_PATH);
-            const background = this.app.loadTexture(commandList, BACKGROUND_PATH, 1);
-            this.createInstanceBuffer(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (mesh.isNull() || !background) {
-                console.log("Cannot load the model and the background: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-            this.background = background;
-            this.vertexBuffer = mesh.getVertexBuffer();
-            this.indexBuffer = mesh.getIndexBuffer();
-            this.indexCount = mesh.getIndexCount();
-            this.timerQuery = this.app.createTimerQuery();
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -516,6 +515,10 @@ namespace RasterizationOrderAttachmentAccess {
 
         constructor(sample: RasterizationOrderPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -534,11 +537,6 @@ namespace RasterizationOrderAttachmentAccess {
                 Donut_ImGuiText(`GPU time: ${formatFixed3(sample.gpuDrawTimeMs)} ms`);
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

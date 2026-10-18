@@ -87,6 +87,72 @@ namespace ComputeNBody {
             }
         }
 
+        init() {
+            this.vertexShader = this.app.createShader("compute_nbody.hlsl", "main_vs", ShaderType.Vertex);
+            this.pixelShader = this.app.createShader("compute_nbody.hlsl", "main_ps", ShaderType.Pixel);
+            const calculateShader = this.app.createShaderWithDefine("compute_nbody.hlsl", "calculate_cs", ShaderType.Compute, "SIMULATION", "1");
+            const integrateShader = this.app.createShaderWithDefine("compute_nbody.hlsl", "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
+            if (!this.vertexShader || !this.pixelShader || !calculateShader || !integrateShader) {
+                return false;
+            }
+
+            this.createParticles();
+
+            // Compute: the particles and the SimulationConstants push constants.
+            const computeLayoutDesc = BindingLayoutDesc.create();
+            computeLayoutDesc.layoutPushConstants(0, SIMULATION_CONSTANTS_SIZE);
+            computeLayoutDesc.layoutStructuredBufferUAV(0);
+            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
+
+            this.calculatePipeline = this.app.createComputePipelineWithLayout(calculateShader, computeBindingLayout);
+            this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
+
+            const computeSetDesc = BindingSetDesc.create();
+            computeSetDesc.bindPushConstants(0, SIMULATION_CONSTANTS_SIZE);
+            computeSetDesc.bindStructuredBufferUAV(0, this.particleBuffer);
+            this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, computeBindingLayout);
+
+            Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
+
+            // Drawing: the view constants and the particles, read by the vertex shader.
+            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
+            for (let i = 0; i < this.viewConstantsSize / 4; i++) {
+                this.viewConstants.push(0.0);
+            }
+            // Static, written in the command list every frame: a volatile one runs out of versions in
+            // -test's unthrottled frames on Vulkan.
+            this.viewConstantBuffer = this.app.createConstantBuffer(this.viewConstantsSize, "ViewConstants");
+
+            const drawLayoutDesc = BindingLayoutDesc.create();
+            drawLayoutDesc.layoutConstantBuffer(1);
+            drawLayoutDesc.layoutStructuredBufferSRV(0);
+            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
+
+            const drawSetDesc = BindingSetDesc.create();
+            drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
+            drawSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
+            this.drawBindingSet = this.app.createBindingSetForLayout(drawSetDesc, this.drawBindingLayout);
+
+            // The sample's look-at camera: 14 units from the origin, rotated (-26, 75) degrees.
+            this.camera = this.app.createThirdPersonCamera();
+            this.camera.thirdPersonSetTarget(0.0, 0.0, 0.0);
+            this.camera.thirdPersonSetDistance(14.0);
+            this.camera.thirdPersonSetRotation(radians(75.0), radians(26.0));
+            this.camera.setMoveSpeed(2.5);
+
+            this.view = this.app.createPlanarView();
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
@@ -179,7 +245,7 @@ namespace ComputeNBody {
             ];
             this.numParticles = NUM_ATTRACTORS * PARTICLES_PER_ATTRACTOR;
 
-            let particles: f32[] = [];
+            const particles: f32[] = [];
             for (let i = 0; i < this.numParticles * PARTICLE_FLOATS; i++) {
                 particles.push(0.0);
             }
@@ -265,73 +331,6 @@ namespace ComputeNBody {
                 return corners;
             }
             return check.drawn(0x000000, 1000, "Particles");
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.vertexShader = this.app.createShader("compute_nbody.hlsl", "main_vs", ShaderType.Vertex);
-            this.pixelShader = this.app.createShader("compute_nbody.hlsl", "main_ps", ShaderType.Pixel);
-            const calculateShader = this.app.createShaderWithDefine("compute_nbody.hlsl", "calculate_cs", ShaderType.Compute, "SIMULATION", "1");
-            const integrateShader = this.app.createShaderWithDefine("compute_nbody.hlsl", "integrate_cs", ShaderType.Compute, "SIMULATION", "1");
-            if (!this.vertexShader || !this.pixelShader || !calculateShader || !integrateShader) {
-                return false;
-            }
-
-            this.createParticles();
-
-            // Compute: the particles and the SimulationConstants push constants.
-            const computeLayoutDesc = BindingLayoutDesc.create();
-            computeLayoutDesc.layoutPushConstants(0, SIMULATION_CONSTANTS_SIZE);
-            computeLayoutDesc.layoutStructuredBufferUAV(0);
-            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
-
-            this.calculatePipeline = this.app.createComputePipelineWithLayout(calculateShader, computeBindingLayout);
-            this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
-
-            const computeSetDesc = BindingSetDesc.create();
-            computeSetDesc.bindPushConstants(0, SIMULATION_CONSTANTS_SIZE);
-            computeSetDesc.bindStructuredBufferUAV(0, this.particleBuffer);
-            this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, computeBindingLayout);
-
-            Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
-
-            // Drawing: the view constants and the particles, read by the vertex shader.
-            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
-            for (let i = 0; i < this.viewConstantsSize / 4; i++) {
-                this.viewConstants.push(0.0);
-            }
-            // Static, written in the command list every frame: a volatile one runs out of versions in
-            // -test's unthrottled frames on Vulkan.
-            this.viewConstantBuffer = this.app.createConstantBuffer(this.viewConstantsSize, "ViewConstants");
-
-            const drawLayoutDesc = BindingLayoutDesc.create();
-            drawLayoutDesc.layoutConstantBuffer(1);
-            drawLayoutDesc.layoutStructuredBufferSRV(0);
-            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
-
-            const drawSetDesc = BindingSetDesc.create();
-            drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
-            drawSetDesc.bindStructuredBufferSRV(0, this.particleBuffer);
-            this.drawBindingSet = this.app.createBindingSetForLayout(drawSetDesc, this.drawBindingLayout);
-
-            // The sample's look-at camera: 14 units from the origin, rotated (-26, 75) degrees.
-            this.camera = this.app.createThirdPersonCamera();
-            this.camera.thirdPersonSetTarget(0.0, 0.0, 0.0);
-            this.camera.thirdPersonSetDistance(14.0);
-            this.camera.thirdPersonSetRotation(radians(75.0), radians(26.0));
-            this.camera.setMoveSpeed(2.5);
-
-            this.view = this.app.createPlanarView();
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

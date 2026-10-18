@@ -53,6 +53,61 @@ namespace RtTriangle {
             this.bindingSet = new BindingSet(null);
         }
 
+        init() {
+            this.shaderLibrary = this.app.createShaderLibrary("rt_triangle.hlsl");
+            if (!this.shaderLibrary) {
+                return false;
+            }
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutTextureUAV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            const pipeline = this.app.createRayTracingPipeline(this.shaderLibrary, this.bindingLayout,
+                "RayGen", "Miss", "HitGroup", "ClosestHit", PAYLOAD_SIZE);
+            if (!pipeline) {
+                return false;
+            }
+
+            this.shaderTable = this.app.createShaderTable(pipeline, "RayGen", "HitGroup", "Miss");
+            // The shader table keeps the pipeline alive.
+            this.app.releaseResource(pipeline);
+
+            // Donut's common passes (the blit's), made before a command list is open, as the sample
+            // makes them: they upload their textures with an immediate command list of their own.
+            this.app.getCommonSampler(CommonSampler.LinearClamp);
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+
+            const indexBuffer = this.app.createAccelStructInputBuffer(UINT_SIZE * 3, "IndexBuffer");
+            const vertexBuffer = this.app.createAccelStructInputBuffer(FLOAT3_SIZE * 3, "VertexBuffer");
+
+            const indices: int[] = [0, 1, 2];
+            commandList.writeBuffer(indexBuffer, Ref(indices[0]), UINT_SIZE * 3);
+            const vertices: f32[] = [0.0, -1.0, 1.0,   -1.0, 1.0, 1.0,   1.0, 1.0, 1.0];
+            commandList.writeBuffer(vertexBuffer, Ref(vertices[0]), FLOAT3_SIZE * 3);
+
+            this.bottomLevelAS = this.app.buildTriangleBLAS(commandList, indexBuffer, 3, vertexBuffer, 3);
+            this.topLevelAS = this.app.buildSingleInstanceTLAS(commandList, this.bottomLevelAS);
+
+            commandList.close();
+            this.app.executeCommandList(commandList);
+
+            // Only needed for the builds: the command list references them, and the app holds it
+            // until the GPU is done with it.
+            this.app.releaseResource(indexBuffer);
+            this.app.releaseResource(vertexBuffer);
+            this.app.releaseResource(commandList.handle);
+
+            const pass = this.app.addPass();
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onBackBufferResizing() {
             const bindingSet = this.bindingSet;
             if (!bindingSet.isNull()) {
@@ -92,63 +147,6 @@ namespace RtTriangle {
 
             frame.dispatchRays(this.shaderTable, bindingSet, frame.getWidth(), frame.getHeight());
             this.app.blitTexture(frame, renderTarget);
-        }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            this.shaderLibrary = this.app.createShaderLibrary("rt_triangle.hlsl");
-            if (!this.shaderLibrary) {
-                return false;
-            }
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutTextureUAV(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            const pipeline = this.app.createRayTracingPipeline(this.shaderLibrary, this.bindingLayout,
-                "RayGen", "Miss", "HitGroup", "ClosestHit", PAYLOAD_SIZE);
-            if (!pipeline) {
-                return false;
-            }
-
-            this.shaderTable = this.app.createShaderTable(pipeline, "RayGen", "HitGroup", "Miss");
-            // The shader table keeps the pipeline alive.
-            this.app.releaseResource(pipeline);
-
-            // Donut's common passes (the blit's), made before a command list is open, as the sample
-            // makes them: they upload their textures with an immediate command list of their own.
-            this.app.getCommonSampler(CommonSampler.LinearClamp);
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-
-            const indexBuffer = this.app.createAccelStructInputBuffer(UINT_SIZE * 3, "IndexBuffer");
-            const vertexBuffer = this.app.createAccelStructInputBuffer(FLOAT3_SIZE * 3, "VertexBuffer");
-
-            // `let`, not `const`: tslang takes the address of the array's storage only for non-const arrays.
-            let indices: int[] = [0, 1, 2];
-            commandList.writeBuffer(indexBuffer, Ref(indices[0]), UINT_SIZE * 3);
-            let vertices: f32[] = [0.0, -1.0, 1.0,   -1.0, 1.0, 1.0,   1.0, 1.0, 1.0];
-            commandList.writeBuffer(vertexBuffer, Ref(vertices[0]), FLOAT3_SIZE * 3);
-
-            this.bottomLevelAS = this.app.buildTriangleBLAS(commandList, indexBuffer, 3, vertexBuffer, 3);
-            this.topLevelAS = this.app.buildSingleInstanceTLAS(commandList, this.bottomLevelAS);
-
-            commandList.close();
-            this.app.executeCommandList(commandList);
-
-            // Only needed for the builds: the command list references them, and the app holds it
-            // until the GPU is done with it.
-            this.app.releaseResource(indexBuffer);
-            this.app.releaseResource(vertexBuffer);
-            this.app.releaseResource(commandList.handle);
-
-            const pass = this.app.addPass();
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setRenderCallback(this.onRender);
-            return true;
         }
     }
 

@@ -119,6 +119,68 @@ namespace SeparateImageSampler {
             }
         }
 
+        init() {
+            const shader = "separate_image_sampler.hlsl";
+            this.vs = this.app.createShader(shader, "quad_vs", ShaderType.Vertex);
+            this.ps = this.app.createShader(shader, "quad_ps", ShaderType.Pixel);
+            if (!this.vs || !this.ps) {
+                return false;
+            }
+
+            const layoutDesc = InputLayoutDesc.create();
+            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
+            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_SIZE);
+            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
+
+            let vertices = QUAD_VERTICES.map((v): f32 => v);
+            let indices = QUAD_INDICES.map((v): int => v);
+            const commandList = this.app.createCommandList();
+            commandList.open();
+            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
+            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
+            const texture = this.app.loadTexture(commandList, TEXTURE_PATH, 1);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            if (!texture) {
+                console.log("Cannot load the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
+                return false;
+            }
+
+            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
+            const bindingLayoutDesc = BindingLayoutDesc.create();
+            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
+            bindingLayoutDesc.layoutTextureSRV(0);
+            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
+            const setDesc = BindingSetDesc.create();
+            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
+            setDesc.bindTextureSRV(0, texture);
+            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+
+            // The sample's setup_samplers: repeating, linear between levels, all the levels, the
+            // device's widest anisotropic filtering; linear or nearest within a level. A binding
+            // set of each.
+            const samplerLayoutDesc = BindingLayoutDesc.create();
+            samplerLayoutDesc.layoutSampler(0);
+            this.samplerBindingLayout = this.app.createBindingLayout(samplerLayoutDesc, ShaderType.Pixel);
+            for (let linear = 1; linear >= 0; linear--) {
+                const sampler = this.app.createSamplerWithDesc(linear, linear, 1, SamplerAddressMode.Wrap, 0.0, 0.0, MIP_LEVELS,
+                    this.app.getMaxSamplerAnisotropy());
+                const samplerSetDesc = BindingSetDesc.create();
+                samplerSetDesc.bindSampler(0, sampler);
+                this.samplerBindingSets.push(this.app.createBindingSetForLayout(samplerSetDesc, this.samplerBindingLayout));
+            }
+
+            const pass = this.app.addPass();
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onMousePos(x: number, y: number) {
             this.view.mouseMove(x, y);
             return 1;
@@ -207,69 +269,6 @@ namespace SeparateImageSampler {
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);
             frame.drawIndexed(QUAD_INDICES.length);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const shader = "separate_image_sampler.hlsl";
-            this.vs = this.app.createShader(shader, "quad_vs", ShaderType.Vertex);
-            this.ps = this.app.createShader(shader, "quad_ps", ShaderType.Pixel);
-            if (!this.vs || !this.ps) {
-                return false;
-            }
-
-            const layoutDesc = InputLayoutDesc.create();
-            layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);
-            layoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, 12, 0, VERTEX_SIZE);
-            this.inputLayout = this.app.createInputLayout(layoutDesc, this.vs);
-
-            let vertices = QUAD_VERTICES.map((v): f32 => v);
-            let indices = QUAD_INDICES.map((v): int => v);
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.vertexBuffer = this.app.createStaticVertexBuffer(commandList, Ref(vertices[0]), vertices.length * 4, "Vertices");
-            this.indexBuffer = this.app.createStaticIndexBuffer(commandList, Ref(indices[0]), indices.length * 4, "Indices");
-            const texture = this.app.loadTexture(commandList, TEXTURE_PATH, 1);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-            if (!texture) {
-                console.log("Cannot load the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
-                return false;
-            }
-
-            this.uniformBuffer = this.app.createVolatileConstantBuffer(UBO_FLOATS * 4, "UBO");
-            const bindingLayoutDesc = BindingLayoutDesc.create();
-            bindingLayoutDesc.layoutVolatileConstantBuffer(0);
-            bindingLayoutDesc.layoutTextureSRV(0);
-            this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
-            const setDesc = BindingSetDesc.create();
-            setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
-            setDesc.bindTextureSRV(0, texture);
-            this.bindingSet = this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
-
-            // The sample's setup_samplers: repeating, linear between levels, all the levels, the
-            // device's widest anisotropic filtering; linear or nearest within a level. A binding
-            // set of each.
-            const samplerLayoutDesc = BindingLayoutDesc.create();
-            samplerLayoutDesc.layoutSampler(0);
-            this.samplerBindingLayout = this.app.createBindingLayout(samplerLayoutDesc, ShaderType.Pixel);
-            for (let linear = 1; linear >= 0; linear--) {
-                const sampler = this.app.createSamplerWithDesc(linear, linear, 1, SamplerAddressMode.Wrap, 0.0, 0.0, MIP_LEVELS,
-                    this.app.getMaxSamplerAnisotropy());
-                const samplerSetDesc = BindingSetDesc.create();
-                samplerSetDesc.bindSampler(0, sampler);
-                this.samplerBindingSets.push(this.app.createBindingSetForLayout(samplerSetDesc, this.samplerBindingLayout));
-            }
-
-            const pass = this.app.addPass();
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -278,6 +277,10 @@ namespace SeparateImageSampler {
 
         constructor(sample: SeparateImageSamplerPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -290,11 +293,6 @@ namespace SeparateImageSampler {
             }
             Donut_ImGuiPopItemWidth();
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

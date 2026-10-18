@@ -70,6 +70,55 @@ namespace ComputeShaderDerivatives {
             this.graphicsPipeline = null;
         }
 
+        init() {
+            // Prefer quads when available; otherwise, fall back to linear.
+            const support = this.app.getComputeShaderDerivatives();
+            if (support == 0) {
+                this.unsupportedReason = "This example needs derivatives in compute shaders (D3D12 shader model 6.6 or Vulkan's VK_KHR_compute_shader_derivatives)";
+                return false;
+            }
+            if ((support & ComputeDerivatives.Quads) == 0) {
+                this.useLinear = true;
+            } else if ((support & ComputeDerivatives.Linear) == 0) {
+                this.useLinear = false;
+            }
+
+            const shader = "compute_shader_derivatives.hlsl";
+            const computeShader = this.app.createShader(shader, this.useLinear ? "derivatives_linear" : "derivatives_quad", ShaderType.Compute);
+            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
+            this.fullscreenPS = this.app.createShader(shader, "fullscreen_ps", ShaderType.Pixel);
+            if (!computeShader || !this.fullscreenVS || !this.fullscreenPS) {
+                return false;
+            }
+
+            // Storage image for compute shader output
+            this.image = this.app.createUAVTextureWithFormat(IMAGE_WIDTH, IMAGE_HEIGHT, Format.RGBA8_UNORM, "StorageImage");
+
+            const computeLayoutDesc = BindingLayoutDesc.create();
+            computeLayoutDesc.layoutTextureUAV(0);
+            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
+            this.computePipeline = this.app.createComputePipelineWithLayout(computeShader, computeBindingLayout);
+            const computeSetDesc = BindingSetDesc.create();
+            computeSetDesc.bindTextureUAV(0, this.image);
+            this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, computeBindingLayout);
+
+            // The image through a linear, clamped sampler.
+            const graphicsLayoutDesc = BindingLayoutDesc.create();
+            graphicsLayoutDesc.layoutTextureSRV(0);
+            graphicsLayoutDesc.layoutSampler(0);
+            this.graphicsBindingLayout = this.app.createBindingLayout(graphicsLayoutDesc, ShaderType.Pixel);
+            const graphicsSetDesc = BindingSetDesc.create();
+            graphicsSetDesc.bindTextureSRV(0, this.image);
+            graphicsSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.LinearClamp));
+            this.graphicsBindingSet = this.app.createBindingSetForLayout(graphicsSetDesc, this.graphicsBindingLayout);
+
+            const pass = this.app.addPass();
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
         }
@@ -128,56 +177,6 @@ namespace ComputeShaderDerivatives {
 
             this.app.blitTexture(frame, colorBuffer);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            // Prefer quads when available; otherwise, fall back to linear.
-            const support = this.app.getComputeShaderDerivatives();
-            if (support == 0) {
-                this.unsupportedReason = "This example needs derivatives in compute shaders (D3D12 shader model 6.6 or Vulkan's VK_KHR_compute_shader_derivatives)";
-                return false;
-            }
-            if ((support & ComputeDerivatives.Quads) == 0) {
-                this.useLinear = true;
-            } else if ((support & ComputeDerivatives.Linear) == 0) {
-                this.useLinear = false;
-            }
-
-            const shader = "compute_shader_derivatives.hlsl";
-            const computeShader = this.app.createShader(shader, this.useLinear ? "derivatives_linear" : "derivatives_quad", ShaderType.Compute);
-            this.fullscreenVS = this.app.createShader(shader, "fullscreen_vs", ShaderType.Vertex);
-            this.fullscreenPS = this.app.createShader(shader, "fullscreen_ps", ShaderType.Pixel);
-            if (!computeShader || !this.fullscreenVS || !this.fullscreenPS) {
-                return false;
-            }
-
-            // Storage image for compute shader output
-            this.image = this.app.createUAVTextureWithFormat(IMAGE_WIDTH, IMAGE_HEIGHT, Format.RGBA8_UNORM, "StorageImage");
-
-            const computeLayoutDesc = BindingLayoutDesc.create();
-            computeLayoutDesc.layoutTextureUAV(0);
-            const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
-            this.computePipeline = this.app.createComputePipelineWithLayout(computeShader, computeBindingLayout);
-            const computeSetDesc = BindingSetDesc.create();
-            computeSetDesc.bindTextureUAV(0, this.image);
-            this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, computeBindingLayout);
-
-            // The image through a linear, clamped sampler.
-            const graphicsLayoutDesc = BindingLayoutDesc.create();
-            graphicsLayoutDesc.layoutTextureSRV(0);
-            graphicsLayoutDesc.layoutSampler(0);
-            this.graphicsBindingLayout = this.app.createBindingLayout(graphicsLayoutDesc, ShaderType.Pixel);
-            const graphicsSetDesc = BindingSetDesc.create();
-            graphicsSetDesc.bindTextureSRV(0, this.image);
-            graphicsSetDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.LinearClamp));
-            this.graphicsBindingSet = this.app.createBindingSetForLayout(graphicsSetDesc, this.graphicsBindingLayout);
-
-            const pass = this.app.addPass();
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The sample's overlay.
@@ -186,6 +185,10 @@ namespace ComputeShaderDerivatives {
 
         constructor(sample: DerivativesPass) {
             this.sample = sample;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         buildUI() {
@@ -206,11 +209,6 @@ namespace ComputeShaderDerivatives {
                 Donut_ImGuiText(this.sample.useLinear ? "Derivative groups: linear (4 threads in a row)" : "Derivative groups: quads (2 x 2 threads)");
             }
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

@@ -278,6 +278,95 @@ namespace RtParticles {
             }
         }
 
+        init() {
+            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
+            bindlessLayoutDesc.addRawBuffers(1);
+            bindlessLayoutDesc.addTextures(2);
+            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutVolatileConstantBuffer(0);
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            layoutDesc.layoutStructuredBufferSRV(2);
+            layoutDesc.layoutStructuredBufferSRV(3);
+            layoutDesc.layoutStructuredBufferSRV(4);
+            layoutDesc.layoutSampler(0);
+            layoutDesc.layoutTextureUAV(0);
+            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+
+            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
+            this.descriptorTable = descriptorTableManager.getDescriptorTable();
+
+            // A procedural particle mesh, attached to the scene below.
+            this.particleMesh = this.app.createDynamicMesh(descriptorTableManager,
+                MAX_PARTICLES * VERTICES_PER_QUAD, MAX_PARTICLES * INDICES_PER_QUAD, "ParticleMesh");
+            this.particleInfoBuffer = this.app.createStructuredBuffer(PARTICLE_INFO_FLOATS * 4, MAX_PARTICLES, "ParticleInfoBuffer");
+
+            const environmentMap = this.app.loadBindlessTexture(descriptorTableManager, "media/rt_particles/environment-map.dds", 0);
+            const smokeTexture = this.app.loadBindlessTexture(descriptorTableManager, "media/rt_particles/smoke-particle.png", 1);
+            const logoTexture = this.app.loadBindlessTexture(descriptorTableManager, "media/nvidia-logo.png", 1);
+            if (environmentMap.isNull() || smokeTexture.isNull() || logoTexture.isNull()) {
+                console.log("Cannot load the particle textures");
+                return false;
+            }
+            this.environmentMap = environmentMap;
+            this.smokeTexture = smokeTexture;
+            this.logoTexture = logoTexture;
+
+            const scene = this.app.loadSceneWithDescriptorTable(SCENE_PATH, descriptorTableManager);
+            if (scene.isNull()) {
+                console.log(`Cannot load the scene ${SCENE_PATH}`);
+                return false;
+            }
+            this.scene = scene;
+
+            this.app.attachDynamicMesh(scene, this.particleMesh);
+
+            scene.getNodePosition("/Emitter", Ref(this.ui.emitterPosition[0]));
+
+            this.camera = this.app.createThirdPersonCamera();
+            this.camera.thirdPersonSetTarget(
+                this.ui.emitterPosition[0], this.ui.emitterPosition[1] + 2.0, this.ui.emitterPosition[2]);
+            this.camera.thirdPersonSetDistance(6.0);
+            this.camera.thirdPersonSetRotation(radians(225.0), radians(20.0));
+            this.camera.setMoveSpeed(3.0);
+
+            this.view = this.app.createPlanarView();
+
+            this.viewFloats = Donut_GetPlanarViewConstantsSize() / 4;
+            this.constantsSize = (this.viewFloats + GLOBAL_TAIL_FLOATS) * 4;
+            for (let i = 0; i < this.viewFloats + GLOBAL_TAIL_FLOATS; i++) {
+                this.constants.push(0.0);
+            }
+            this.constantBuffer = this.app.createVolatileConstantBuffer(this.constantsSize, "GlobalConstants");
+
+            const commandList = this.app.createCommandList();
+            commandList.open();
+
+            // The particle mesh has its BLAS already (built every frame); this builds the others.
+            this.app.buildSceneBLASes(commandList, scene);
+            this.particleIntersectionBLAS = this.app.createUnitAABBBlas(commandList, "ParticleIntersectionBLAS");
+
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+
+            // The scene's instances (including the one of the particle mesh) plus one per particle.
+            this.topLevelAS = this.app.createTopLevelAS(scene.getInstanceCount() + MAX_PARTICLES);
+
+            const pass = this.app.addPass();
+            pass.setKeyboardCallback(this.onKey);
+            pass.setMousePosCallback(this.onMousePos);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMouseScrollCallback(this.onMouseScroll);
+            pass.setAnimateCallback(this.onAnimate);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+            pass.setRenderCallback(this.onRender);
+            return true;
+        }
+
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
@@ -606,96 +695,6 @@ namespace RtParticles {
 
             this.app.blitTexture(frame, colorBuffer);
         }
-
-        // Declared after the callbacks: tslang resolves `this.onX` only for members declared earlier.
-        init() {
-            const bindlessLayoutDesc = BindlessLayoutDesc.create(0, 1024, ShaderType.All);
-            bindlessLayoutDesc.addRawBuffers(1);
-            bindlessLayoutDesc.addTextures(2);
-            this.bindlessLayout = this.app.createBindlessLayout(bindlessLayoutDesc);
-
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutVolatileConstantBuffer(0);
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            layoutDesc.layoutStructuredBufferSRV(2);
-            layoutDesc.layoutStructuredBufferSRV(3);
-            layoutDesc.layoutStructuredBufferSRV(4);
-            layoutDesc.layoutSampler(0);
-            layoutDesc.layoutTextureUAV(0);
-            this.bindingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-
-            const descriptorTableManager = this.app.createDescriptorTableManager(this.bindlessLayout);
-            this.descriptorTable = descriptorTableManager.getDescriptorTable();
-
-            // A procedural particle mesh, attached to the scene below.
-            this.particleMesh = this.app.createDynamicMesh(descriptorTableManager,
-                MAX_PARTICLES * VERTICES_PER_QUAD, MAX_PARTICLES * INDICES_PER_QUAD, "ParticleMesh");
-            this.particleInfoBuffer = this.app.createStructuredBuffer(PARTICLE_INFO_FLOATS * 4, MAX_PARTICLES, "ParticleInfoBuffer");
-
-            const environmentMap = this.app.loadBindlessTexture(descriptorTableManager, "media/rt_particles/environment-map.dds", 0);
-            const smokeTexture = this.app.loadBindlessTexture(descriptorTableManager, "media/rt_particles/smoke-particle.png", 1);
-            const logoTexture = this.app.loadBindlessTexture(descriptorTableManager, "media/nvidia-logo.png", 1);
-            if (environmentMap.isNull() || smokeTexture.isNull() || logoTexture.isNull()) {
-                console.log("Cannot load the particle textures");
-                return false;
-            }
-            this.environmentMap = environmentMap;
-            this.smokeTexture = smokeTexture;
-            this.logoTexture = logoTexture;
-
-            const scene = this.app.loadSceneWithDescriptorTable(SCENE_PATH, descriptorTableManager);
-            if (scene.isNull()) {
-                console.log(`Cannot load the scene ${SCENE_PATH}`);
-                return false;
-            }
-            this.scene = scene;
-
-            this.app.attachDynamicMesh(scene, this.particleMesh);
-
-            scene.getNodePosition("/Emitter", Ref(this.ui.emitterPosition[0]));
-
-            this.camera = this.app.createThirdPersonCamera();
-            this.camera.thirdPersonSetTarget(
-                this.ui.emitterPosition[0], this.ui.emitterPosition[1] + 2.0, this.ui.emitterPosition[2]);
-            this.camera.thirdPersonSetDistance(6.0);
-            this.camera.thirdPersonSetRotation(radians(225.0), radians(20.0));
-            this.camera.setMoveSpeed(3.0);
-
-            this.view = this.app.createPlanarView();
-
-            this.viewFloats = Donut_GetPlanarViewConstantsSize() / 4;
-            this.constantsSize = (this.viewFloats + GLOBAL_TAIL_FLOATS) * 4;
-            for (let i = 0; i < this.viewFloats + GLOBAL_TAIL_FLOATS; i++) {
-                this.constants.push(0.0);
-            }
-            this.constantBuffer = this.app.createVolatileConstantBuffer(this.constantsSize, "GlobalConstants");
-
-            const commandList = this.app.createCommandList();
-            commandList.open();
-
-            // The particle mesh has its BLAS already (built every frame); this builds the others.
-            this.app.buildSceneBLASes(commandList, scene);
-            this.particleIntersectionBLAS = this.app.createUnitAABBBlas(commandList, "ParticleIntersectionBLAS");
-
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
-            this.app.releaseResource(commandList.handle);
-
-            // The scene's instances (including the one of the particle mesh) plus one per particle.
-            this.topLevelAS = this.app.createTopLevelAS(scene.getInstanceCount() + MAX_PARTICLES);
-
-            const pass = this.app.addPass();
-            pass.setKeyboardCallback(this.onKey);
-            pass.setMousePosCallback(this.onMousePos);
-            pass.setMouseButtonCallback(this.onMouseButton);
-            pass.setMouseScrollCallback(this.onMouseScroll);
-            pass.setAnimateCallback(this.onAnimate);
-            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
-            pass.setRenderCallback(this.onRender);
-            return true;
-        }
     }
 
     // The settings window (the sample's UserInterface, an ImGui_Renderer).
@@ -704,6 +703,10 @@ namespace RtParticles {
 
         constructor(ui: UIData) {
             this.ui = ui;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
         }
 
         checkbox(label: string, value: boolean) {
@@ -764,11 +767,6 @@ namespace RtParticles {
             Donut_ImGuiUnindent();
 
             Donut_ImGuiEnd();
-        }
-
-        // Declared after buildUI: tslang resolves `this.buildUI` only for members declared earlier.
-        init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
         }
     }
 

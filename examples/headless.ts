@@ -92,9 +92,7 @@ namespace Headless {
         commandList.open();
 
         // Fill the input buffer with some numbers and compute the expected result of shader operation.
-        // `let`, not `const`: tslang takes the address of the array's storage only for non-const arrays.
-
-        let inputData: u32[] = [];
+        const inputData: u32[] = [];
         let expectedResult = 0;
         for (let i = 0; i < NUM_INPUT_VALUES; i++) {
             inputData.push(i + 1);
@@ -170,9 +168,7 @@ namespace Headless {
         commandList.open();
 
         // Fill the input buffer with some numbers and compute the expected result of shader operation.
-        // `let`, not `const`: tslang takes the address of the array's storage only for non-const arrays.
-
-        let inputData: int[] = [];
+        const inputData: int[] = [];
         let expectedResult = 0;
         for (let i = 0; i < NUM_INPUT_VALUES; i++) {
             inputData.push(i + 1);
@@ -196,7 +192,7 @@ namespace Headless {
 
         // Read the shader output
 
-        let outputData: int[] = [0];
+        const outputData: int[] = [0];
         if (!app.readBuffer(readbackBuffer, Ref(outputData[0]), UINT_SIZE)) {
             return false;
         }
