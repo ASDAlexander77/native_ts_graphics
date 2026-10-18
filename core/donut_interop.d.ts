@@ -976,6 +976,9 @@ declare function Donut_SetInformativeWindowTitleWithInfo(app: AppHandle, title: 
 declare function Donut_SetVsyncEnabled(app: AppHandle, enabled: int): void;
 // Lags Donut_SetVsyncEnabled by up to a frame.
 declare function Donut_IsVsyncEnabled(app: AppHandle): int;
+// Makes Donut_RunApp return after the current frame, in test mode too (before the frames it was to
+// render: a test waiting for something renders up to an upper bound and stops once it has the
+// frames it checks).
 declare function Donut_CloseWindow(app: AppHandle): void;
 // Blocks the calling thread for `milliseconds` (-test waiting on work that runs in real time, as a
 // video's decoding).

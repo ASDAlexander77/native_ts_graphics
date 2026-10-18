@@ -368,6 +368,8 @@ namespace
         uint32_t current = 0;
         int frameCount = 0;
         double frameSeconds = 0.0;
+        // Set by Donut_CloseWindow: Donut_RunApp stops after the current frame.
+        bool closeRequested = false;
     };
 
     struct App
@@ -3316,6 +3318,8 @@ extern "C"
             device->setEventQuery(query, nvrhi::CommandQueue::Graphics);
             app->device()->runGarbageCollection();
             DeviceManagerAccess::FrameIndex(deviceManager)++;
+            if (offscreen->closeRequested)
+                break;
         }
         WaitForIdleSynchronized(app->device());
         app->device()->runGarbageCollection();
@@ -3553,11 +3557,16 @@ extern "C"
         return app->deviceManager->IsVsyncEnabled() ? 1 : 0;
     }
 
-    // Makes Donut_RunApp return after the current frame.
+    // Makes Donut_RunApp return after the current frame; in test mode too, before the frames it
+    // was to render (a test that waits for something, as a scene loading, renders up to an upper
+    // bound and stops once it has rendered what it checks).
     void Donut_CloseWindow(App* app)
     {
         if (app->offscreen)
+        {
+            app->offscreen->closeRequested = true;
             return;
+        }
         glfwSetWindowShouldClose(app->deviceManager->GetWindow(), GLFW_TRUE);
     }
 
