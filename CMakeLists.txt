@@ -947,7 +947,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/compute_nbody.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/compute_nbody
 )
-add_tslang_example(compute_nbody core/matrix.ts)
+add_tslang_example(compute_nbody core/random.ts core/matrix.ts)
 add_tslang_example_test(compute_nbody)
 
 # compute_nbody with collisions: a third compute pass makes the particles bounce off each other
@@ -1041,7 +1041,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/instancing.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/instancing
 )
-add_tslang_example(instancing core/matrix.ts MEDIA instancing)
+add_tslang_example(instancing core/random.ts core/matrix.ts MEDIA instancing)
 add_tslang_example_test(instancing)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1136,7 +1136,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ray_tracing_extended/spirv
 )
-add_tslang_example(ray_tracing_extended core/ray_tracing_extended_scene.ts core/matrix.ts MEDIA ray_tracing_extended)
+add_tslang_example(ray_tracing_extended core/random.ts core/ray_tracing_extended_scene.ts core/matrix.ts MEDIA ray_tracing_extended)
 add_tslang_example_test(ray_tracing_extended)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1662,9 +1662,9 @@ donut_compile_shaders(
 )
 # Hit objects are shader model 6.9: the Agility SDK runtime on D3D12 (the OS's may not have it).
 if (NVRHI_WITH_DX12)
-    add_tslang_example(ray_tracing_invocation_reorder core/ray_tracing_extended_scene.ts core/matrix.ts core/d3d12_agility_sdk.cpp)
+    add_tslang_example(ray_tracing_invocation_reorder core/random.ts core/ray_tracing_extended_scene.ts core/matrix.ts core/d3d12_agility_sdk.cpp)
 else()
-    add_tslang_example(ray_tracing_invocation_reorder core/matrix.ts core/ray_tracing_extended_scene.ts MEDIA ray_tracing_extended)
+    add_tslang_example(ray_tracing_invocation_reorder core/random.ts core/matrix.ts core/ray_tracing_extended_scene.ts MEDIA ray_tracing_extended)
 endif()
 add_tslang_example_test(ray_tracing_invocation_reorder)
 if (TARGET ray_tracing_extended_media)
@@ -2036,7 +2036,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/instancing.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/memory_budget
 )
-add_tslang_example(memory_budget core/matrix.ts core/text_format.ts MEDIA memory_budget)
+add_tslang_example(memory_budget core/random.ts core/matrix.ts core/text_format.ts MEDIA memory_budget)
 add_tslang_example_test(memory_budget)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -2880,7 +2880,7 @@ if (ANDROID)
     set_source_files_properties(core/directx_collision.cpp PROPERTIES
         INCLUDE_DIRECTORIES "${directxmath_SOURCE_DIR}/Inc;${CMAKE_CURRENT_SOURCE_DIR}/core/sal")
 endif()
-add_tslang_example(collision core/directx_collision.cpp MEDIA fonts)
+add_tslang_example(collision core/matrix.ts core/directx_collision.cpp MEDIA fonts)
 add_tslang_example_test(collision)
 
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
@@ -3461,7 +3461,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_particles/spirv
 )
-add_tslang_example(rt_particles core/matrix.ts MEDIA rt_particles nvidia-logo.png)
+add_tslang_example(rt_particles core/random.ts core/matrix.ts MEDIA rt_particles nvidia-logo.png)
 add_tslang_example_test(rt_particles)
 
 # Port of Donut-Samples' work_graphs: deferred shading of a procedural scene with one D3D12 work
@@ -3492,6 +3492,6 @@ endif()
 # shadows, SSAO, procedural sky, TAA or MSAA, bloom, tone mapping, light probes, material picking)
 # over a loaded scene, with an ImGui settings window and material editor; DLSS with
 # DONUT_WITH_DLSS=ON. No shaders of its own; needs the scenes and fonts of DONUT_SAMPLES_MEDIA_DIR above.
-add_tslang_example(feature_demo core/text_format.ts MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
+add_tslang_example(feature_demo core/matrix.ts core/text_format.ts MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
 add_tslang_example_test(feature_demo)
 copy_dlss_library(feature_demo)

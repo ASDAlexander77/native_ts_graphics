@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { multiply, radians, perspective } from "../core/matrix";
+import { multiply, radians, perspective, inverseGaussJordan } from "../core/matrix";
 import { comboItems } from "../core/text_format";
 import { LookAtCamera } from "../core/vulkan_samples_camera";
 
@@ -88,52 +88,6 @@ namespace DynamicLineRasterization {
     }
 
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
-
-    // The inverse of m, by Gauss-Jordan elimination with partial pivoting.
-    function inverse(m: number[]) {
-        // Rows of [m | I].
-        let a: number[] = [];
-        for (let row = 0; row < 4; row++) {
-            for (let column = 0; column < 4; column++) {
-                a.push(m[column * 4 + row]);
-            }
-            for (let column = 0; column < 4; column++) {
-                a.push(row == column ? 1.0 : 0.0);
-            }
-        }
-        for (let column = 0; column < 4; column++) {
-            let pivot = column;
-            for (let row = column + 1; row < 4; row++) {
-                if (Math.abs(a[row * 8 + column]) > Math.abs(a[pivot * 8 + column])) {
-                    pivot = row;
-                }
-            }
-            for (let k = 0; k < 8; k++) {
-                const t = a[column * 8 + k];
-                a[column * 8 + k] = a[pivot * 8 + k];
-                a[pivot * 8 + k] = t;
-            }
-            const p = a[column * 8 + column];
-            for (let k = 0; k < 8; k++) {
-                a[column * 8 + k] /= p;
-            }
-            for (let row = 0; row < 4; row++) {
-                if (row != column) {
-                    const f = a[row * 8 + column];
-                    for (let k = 0; k < 8; k++) {
-                        a[row * 8 + k] -= f * a[column * 8 + k];
-                    }
-                }
-            }
-        }
-        let result: number[] = [];
-        for (let column = 0; column < 4; column++) {
-            for (let row = 0; row < 4; row++) {
-                result.push(a[row * 8 + 4 + column]);
-            }
-        }
-        return result;
-    }
 
     // --- Pass -------------------------------------------------------------------------------
 
@@ -326,7 +280,7 @@ namespace DynamicLineRasterization {
             for (let i = 1; i < 16; i += 4) {
                 viewProj[i] = -viewProj[i];
             }
-            const viewProjInverse = inverse(viewProj);
+            const viewProjInverse = inverseGaussJordan(viewProj);
             for (let i = 0; i < 16; i++) {
                 this.cameraConstants[i] = viewProj[i];
                 this.cameraConstants[16 + i] = viewProjInverse[i];

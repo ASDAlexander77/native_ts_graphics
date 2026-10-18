@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
-import { transpose, inverse, cross3, dot3, normalize3 } from "../core/matrix";
+import { transpose, inverse, cross3, dot3, normalize3, multiplyF32 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
 import {
     KEY_SPACE, KEY_A, KEY_D, KEY_F, KEY_R, KEY_S, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
@@ -96,20 +96,6 @@ namespace RaytracingAo {
     }
 
     // --- DirectXMath, row-major for mul(vector, matrix) --------------------------------------
-
-    function multiply(a: number[], b: number[]) {
-        let m: number[] = [];
-        for (let row = 0; row < 4; row++) {
-            for (let column = 0; column < 4; column++) {
-                let sum = 0.0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[row * 4 + k] * b[k * 4 + column];
-                }
-                m.push(Math.fround(sum));
-            }
-        }
-        return m;
-    }
 
     // XMVector4Transform of (x, y, z, w).
     function transform4(v: number[], m: number[]) {
@@ -687,7 +673,7 @@ namespace RaytracingAo {
             const view = lookAtLH(eye, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
             const aspectRatio = Math.fround(screenWidth / screenHeight);
             const proj = perspectiveFovLH(Math.fround(45.0 * (Math.PI / 180.0)), aspectRatio, NEAR_PLANE, FAR_PLANE);
-            const viewProj = multiply(view, proj);
+            const viewProj = multiplyF32(view, proj);
             const c = this.sceneConstants;
             const worldView = transpose(view);
             const worldViewProjection = transpose(viewProj);

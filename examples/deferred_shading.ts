@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { perspProjD3DStyle } from "../core/matrix";
+import { perspProjD3DStyle, radiansF32, translation } from "../core/matrix";
 
 namespace DeferredShading {
     // Test mode: the frames rendered.
@@ -156,11 +156,6 @@ namespace DeferredShading {
     // The donut::math functions the C++ sample uses, on row-major 4x4 matrices (16 numbers) with
     // Donut's row-vector convention: `mul(a, b)` applies a, then b.
 
-    // math::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number) {
-        return Math.fround(Math.fround(degrees) * Math.fround(Math.fround(Math.PI) / 180.0));
-    }
-
     function mul(a: number[], b: number[]) {
         // `let`: tslang's push needs a non-const array.
         const r: number[] = [];
@@ -189,16 +184,6 @@ namespace DeferredShading {
             -ch * sb + sh * sp * cb, cb * cp, sb * sh + ch * sp * cb,  0.0,
             sh * cp,                 -sp,     ch * cp,                 0.0,
             0.0,                     0.0,     0.0,                     1.0,
-        ];
-    }
-
-    // math::translation(float3(x, y, z)).
-    function translation(x: number, y: number, z: number) {
-        return [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            x,   y,   z,   1.0,
         ];
     }
 
@@ -282,10 +267,10 @@ namespace DeferredShading {
         setupView(width: int, height: int) {
             const viewMatrix = mul(mul(
                 yawPitchRoll(this.rotation, 0.0, 0.0),
-                yawPitchRoll(0.0, radians(-30.0), 0.0)),
+                yawPitchRoll(0.0, radiansF32(-30.0), 0.0)),
                 translation(0.0, 0.0, 2.0));
 
-            const projection = perspProjD3DStyle(radians(60.0), width / height, 0.1, 10.0);
+            const projection = perspProjD3DStyle(radiansF32(60.0), width / height, 0.1, 10.0);
 
             for (let i = 0; i < 16; i++) {
                 this.viewMatrix[i] = viewMatrix[i];

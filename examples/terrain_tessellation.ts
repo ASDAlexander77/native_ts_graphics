@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { perspProjReverse } from "../core/matrix";
+import { perspProjReverse, radiansF32 } from "../core/matrix";
 
 namespace TerrainTessellation {
     // Test mode: the frames rendered.
@@ -57,11 +57,6 @@ namespace TerrainTessellation {
     const DISPLACEMENT_FACTOR = 32.0;
 
     // --- Math ---------------------------------------------------------------------------------
-
-    // glm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number) {
-        return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
-    }
 
     // --- Passes -------------------------------------------------------------------------------
 
@@ -220,7 +215,7 @@ namespace TerrainTessellation {
                 c[CONST_WORLD_TO_VIEW + i] = row < 2 ? -this.donutWorldToView[i] : this.donutWorldToView[i];
             }
 
-            const projection = perspProjReverse(radians(60.0), width / height, Z_NEAR, Z_FAR);
+            const projection = perspProjReverse(radiansF32(60.0), width / height, Z_NEAR, Z_FAR);
             for (let i = 0; i < 16; i++) {
                 c[CONST_VIEW_TO_CLIP + i] = projection[i];
             }

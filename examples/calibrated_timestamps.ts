@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
-import { perspProjReverse } from "../core/matrix";
+import { perspProjReverse, radiansF32 } from "../core/matrix";
 
 namespace CalibratedTimestampsSample {
     const WINDOW_TITLE = "Donut Example: Calibrated Timestamps";
@@ -47,11 +47,6 @@ namespace CalibratedTimestampsSample {
     const TEST_FRAMES = 10;
 
     // --- Math ---------------------------------------------------------------------------------
-
-    // glm::radians(float): in float32, as every use in the sample is.
-    function radians(degrees: number) {
-        return Math.fround(Math.fround(degrees) * Math.fround(Math.PI / 180.0));
-    }
 
     // The sample's glm::perspective(fov, aspect, 256, 0.1) (near and far swapped for reversed
     // depth; right-handed, depth from 0 to 1), for row vectors, with clip y negated: the sample's
@@ -383,7 +378,7 @@ namespace CalibratedTimestampsSample {
 
         // The sample's update_uniform_buffers and update_params.
         updateConstants(width: int, height: int) {
-            const projection = perspProjReverse(radians(60.0), width / height, Z_NEAR, Z_FAR);
+            const projection = perspProjReverse(radiansF32(60.0), width / height, Z_NEAR, Z_FAR);
             for (let i = 0; i < 16; i++) {
                 this.projMatrix[i] = projection[i];
             }
@@ -408,7 +403,7 @@ namespace CalibratedTimestampsSample {
             const model = this.objectIndex == 1 ? [10.0, -10.0, -10.0, 1.0] : [1.0, 1.0, 1.0, 1.0];
 
             const c = this.matrices;
-            const sampleProjection = samplePerspective(radians(60.0), width / height, Z_NEAR, Z_FAR);
+            const sampleProjection = samplePerspective(radiansF32(60.0), width / height, Z_NEAR, Z_FAR);
             for (let i = 0; i < 16; i++) {
                 const row = Math.floor(i / 4);
                 c[CONST_PROJECTION + i] = sampleProjection[i];
