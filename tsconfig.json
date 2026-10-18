@@ -14,13 +14,16 @@
       "moduleResolution": "bundler",
       // tslang picks lib.<os>.ts / nvrhi_abi.<os>.ts for its target; the editor checks the
       // Windows ones (the files are the same API, only the C++ ABI details differ).
-      "moduleSuffixes": [".win32", ""],
+      "moduleSuffixes": [".editor.win32", ".win32", ""],
       "resolveJsonModule": true,
       "isolatedModules": true,
       "jsx": "preserve",
       "incremental": true,
       "lib": ["ESNext"],
-      "types": ["./types/tslang", "./tools/tslang/defaultlib/lib.d.ts", "I:/tslang/defaultlib/lib.d.ts"]
+      "types": ["./types/tslang", "I:/tslang/defaultlib/lib.d.ts"]
     },
-    "include": ["core/*.ts", "examples/*.ts"]
+    "include": ["core/*.ts", "examples/*.ts"],
+    // core/nvrhi.editor.<os>.ts (tools/gen_nvrhi_editor.mjs) stands for these: tslang merges their
+    // `nvrhi` namespaces, TypeScript does not.
+    "exclude": ["core/nvrhi.ts", "core/nvrhi_types.ts", "core/nvrhi_classes.*.ts", "core/nvrhi_abi.*.ts", "core/nvrhi.editor.linux.ts"]
 }

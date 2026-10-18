@@ -3,7 +3,8 @@
     // nvrhi_classes.linux.ts instead of the .win32 ones. Run `tsc -p tsconfig.linux.json`.
     "extends": "./tsconfig.json",
     "compilerOptions": {
-      "moduleSuffixes": [".linux", ""],
+      "moduleSuffixes": [".editor.linux", ".linux", ""],
       "tsBuildInfoFile": "./tsconfig.linux.tsbuildinfo"
-    }
+    },
+    "exclude": ["core/nvrhi.ts", "core/nvrhi_types.ts", "core/nvrhi_classes.*.ts", "core/nvrhi_abi.*.ts", "core/nvrhi.editor.win32.ts"]
 }
