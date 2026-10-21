@@ -217,7 +217,7 @@ The examples can also run under tslang's JIT, against the shared build of the in
 (`run_jit.bat examples/<name>.ts [-- args]` does this from the repo root):
 
 ```
-tslang --emit=jit --shared-libs=build/bin/donut_interop.dll examples/basic_triangle.ts -- -dx12
+tslang --emit=jit --shared-libs=build/bin/donut_interop_shared.dll examples/basic_triangle.ts -- -dx12
 ```
 
 - Program arguments go after `--`.

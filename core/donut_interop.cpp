@@ -586,7 +586,7 @@ namespace
     // Set by Donut_SetExecutablePath; empty means the module's own path (below).
     std::filesystem::path g_ExecutablePath;
 
-    // The module this code is linked into: the example executable, or donut_interop.dll when a
+    // The module this code is linked into: the example executable, or donut_interop_shared.dll when a
     // TypeScript file runs under tslang's JIT (where the process is tslang.exe, far from bin/).
     // Shaders and media are looked up next to it.
     std::filesystem::path GetExecutablePath()
@@ -3263,7 +3263,7 @@ extern "C"
     }
 
     // Names the folder the next app loads its shaders from (bin/shaders/<name>/<api>) in place
-    // of the executable's name, which under the JIT is donut_interop. Call before creating the app.
+    // of the executable's name, which under the JIT is donut_interop_shared. Call before creating the app.
     DONUT_API void Donut_SetAppName(const char* name)
     {
         g_AppName = name ? name : "";
@@ -10205,7 +10205,7 @@ extern "C"
     // Donut_OpenCommandList. Framebuffer handles (Donut_GetSceneRenderTargetsFramebuffer,
     // Donut_GetLightProbeCaptureFramebuffer) are valid as long as the object they came from.
 
-    // The directory of the executable (of donut_interop.dll under the JIT), '/'-separated, where
+    // The directory of the executable (of donut_interop_shared.dll under the JIT), '/'-separated, where
     // the media folder is.
     DONUT_API const char* Donut_GetExecutableDirectory()
     {
@@ -11706,7 +11706,7 @@ extern "C"
             *view, sourceTexture, float(sigma), float(alpha));
     }
 
-    // NVIDIA DLSS, loading nvngx_dlss.dll from the executable's directory (donut_interop.dll's under
+    // NVIDIA DLSS, loading nvngx_dlss.dll from the executable's directory (donut_interop_shared.dll's under
     // the JIT). Null when Donut was built without DONUT_WITH_DLSS, or the device can't create it.
     DONUT_API donut::render::DLSS* Donut_CreateDlss(App* app)
     {

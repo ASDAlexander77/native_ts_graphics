@@ -225,7 +225,7 @@ def cpp_param(text):
 def parse_cpp(root):
     """Donut_* functions: name -> (file, line, return type, [(type, name)]); the callback types;
     and the (file, line, name) of the functions not marked DONUT_API (core/donut_api.h), which
-    donut_interop.dll wouldn't export."""
+    donut_interop_shared.dll wouldn't export."""
     functions = {}
     callbacks = {}
     unexported = []
@@ -354,7 +354,7 @@ def check(root, strict, fixes=None):
     problems = []
 
     for path, line, name in unexported:
-        problems.append(f"{path}:{line}: {name} isn't marked DONUT_API, so donut_interop.dll doesn't export it")
+        problems.append(f"{path}:{line}: {name} isn't marked DONUT_API, so donut_interop_shared.dll doesn't export it")
 
     for name in sorted(set(cpp) - set(ts) - CPP_ONLY):
         path, line, _, _ = cpp[name]
