@@ -411,9 +411,11 @@ function(configure_donut_interop target)
     endif()
 endfunction()
 
-# Linked into every example executable.
+# Linked into every example executable. Named donut_interop_static so that donut_interop.lib is
+# the import library of donut_interop.dll (donut_interop_shared below).
 add_library(donut_interop STATIC core/donut_interop.cpp)
 configure_donut_interop(donut_interop)
+set_target_properties(donut_interop PROPERTIES OUTPUT_NAME donut_interop_static)
 
 # core/donut_interop.d.ts declares the functions core/*.cpp define, by hand: check that each
 # declaration matches its definition, handle types included, and that no handle is a void*,
@@ -439,8 +441,7 @@ add_dependencies(donut_interop check_interop_types)
 # It sits next to bin/shaders and bin/media, where it looks them up (see Donut_SetAppName).
 # It exports the functions marked DONUT_API (core/donut_api.h), the Donut_* ones, and nothing else:
 # tslang --jit-native links its import library, which mustn't also export the CRT inlines the DLL
-# compiled (sprintf_s, ...), as TypeScriptAsyncRuntime.lib defines them too. The import library is
-# renamed so it doesn't overwrite the static donut_interop.lib.
+# compiled (sprintf_s, ...), as TypeScriptAsyncRuntime.lib defines them too.
 # There is no JIT on Android, so no shared build there either.
 # Under the JIT this one library is all an example gets, so it also holds the C++ modules that only
 # some examples link into their executables (their add_tslang_example sources), with what those
@@ -464,9 +465,7 @@ endif()
 if (NOT ANDROID)
     add_library(donut_interop_shared SHARED core/donut_interop.cpp ${JIT_MODULE_SOURCES})
     configure_donut_interop(donut_interop_shared)
-    set_target_properties(donut_interop_shared PROPERTIES
-        OUTPUT_NAME donut_interop
-        ARCHIVE_OUTPUT_NAME donut_interop_shared)
+    set_target_properties(donut_interop_shared PROPERTIES OUTPUT_NAME donut_interop)
     target_compile_definitions(donut_interop_shared PRIVATE DONUT_INTEROP_SHARED)
     target_link_libraries(donut_interop_shared PRIVATE basisu_transcoder)
     # The Agility SDK runtime for the examples whose executables opt into it (see
