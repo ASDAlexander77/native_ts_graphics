@@ -8,7 +8,7 @@
             "name": "tslang JIT (Current File)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "C:/Utils/tslang/tslang.exe",
+            "program": "${env:TSLANG_HOME}/tslang.exe",
             "args": ["--di", "--opt_level=0", "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -20,8 +20,8 @@
                 // donut_interop_shared.lib.
                 "args": [
                     "--jit-native", "--jit-cache=true", "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
-                    "--tslang-lib-path=C:/Utils/tslang",
-                    "--gc-shared-lib-path=C:/Utils/tslang/gcdll",
+                    "--tslang-lib-path=${env:TSLANG_HOME}",
+                    "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
                     "--lib=build/donut_interop_shared.lib",
                     "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"
                 ],
