@@ -1,5 +1,5 @@
 # Release of tslang to install into tools/ when the compiler is not found
-set(TSLANG_VERSION "v0.0-pre-alpha104" CACHE STRING "tslang release (tag of github.com/ASDAlexander77/TypeScriptCompiler) to download")
+set(TSLANG_VERSION "v0.0-pre-alpha105" CACHE STRING "tslang release (tag of github.com/ASDAlexander77/TypeScriptCompiler) to download")
 set(TSLANG_INSTALL_DIR "${CMAKE_SOURCE_DIR}/tools/tslang" CACHE PATH "Where the downloaded tslang is installed")
 set(TSLANG_LINUX_DISTRO "ubuntu-24.04" CACHE STRING "Linux build of tslang to download: ubuntu-22.04, ubuntu-24.04 or ubuntu-26.04")
 
@@ -7,7 +7,7 @@ set(TSLANG_LINUX_DISTRO "ubuntu-24.04" CACHE STRING "Linux build of tslang to do
 # too, and a tslang.exe found there targets Windows (its default lib, gc.lib, backslash paths).
 if (CMAKE_HOST_WIN32)
     set(_tslang_names tslang tslang.exe)
-    set(_tslang_hints "${TSLANG_INSTALL_DIR}" "I:\\tslang" "${CMAKE_SOURCE_DIR}/tools")
+    set(_tslang_hints "${TSLANG_INSTALL_DIR}" "${CMAKE_SOURCE_DIR}/tools" "I:\\tslang")
 else()
     set(_tslang_names tslang)
     set(_tslang_hints "${TSLANG_INSTALL_DIR}" "${CMAKE_SOURCE_DIR}/tools")
