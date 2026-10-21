@@ -477,6 +477,21 @@ if (NOT ANDROID)
         target_link_libraries(donut_interop_shared PRIVATE delayimp)
         target_link_options(donut_interop_shared PRIVATE /DELAYLOAD:mfplat.dll)
     endif()
+    # tslang --jit-native links the JIT cache into a DLL with lld-link, against donut_interop_jit.lib:
+    # an import library of only the Donut_* exports (see cmake/make_jit_import_lib.cmake).
+    if (MSVC)
+        get_filename_component(MSVC_TOOLS_DIR "${CMAKE_LINKER}" DIRECTORY)
+        add_custom_command(TARGET donut_interop_shared POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                "-DDLL=$<TARGET_FILE:donut_interop_shared>"
+                "-DDEF=$<TARGET_LINKER_FILE_DIR:donut_interop_shared>/donut_interop_jit.def"
+                "-DLIB=$<TARGET_LINKER_FILE_DIR:donut_interop_shared>/donut_interop_jit.lib"
+                "-DDUMPBIN=${MSVC_TOOLS_DIR}/dumpbin.exe"
+                "-DLIBEXE=${CMAKE_AR}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/make_jit_import_lib.cmake"
+            COMMENT "Writing donut_interop_jit.lib (Donut_* imports, for tslang --jit-native)"
+            VERBATIM)
+    endif()
 endif()
 
 # With DONUT_WITH_DLSS, NGX loads nvngx_dlss.dll from the directory of the executable (of
