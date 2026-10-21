@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [        
         {
-            "name": "tslang JIT (Current File)",
+            "name": "VS: tslang JIT (Current File)",
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${env:TSLANG_HOME}/tslang.exe",
@@ -29,6 +29,16 @@
                     { "name": "PATH", "value": "${workspaceFolder}\\build\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}" }
                 ]
             }
-        }
+        },
+        {
+            "name": "GDB: tslang JIT (Current File)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "./tools/tslang",
+            "args": ["--di", "--opt_level=0", "--shared-libs=build/bin/libdonut_interop_shared.so", "${file}", "--", "-vk"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+        }        
     ]
 }

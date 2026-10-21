@@ -449,16 +449,15 @@ set(JIT_MODULE_SOURCES
     core/obj_model.cpp
     core/sdkmesh.cpp
     core/meshlet_model.cpp
-    core/denoised_rtao.cpp
-    core/pbrt/PBRTParser.cpp
-    core/pbrt/PlyParser.cpp
     core/directx_collision.cpp
     core/basis_transcoder.cpp
     core/fast_block_compress.cpp
     core/fbc_cpu.cpp
     core/paged_images.cpp)
 if (WIN32)
-    list(APPEND JIT_MODULE_SOURCES core/video_player.cpp)
+    # denoised_rtao is Windows only (its PBRT parser includes windows.h, it decodes with WIC).
+    list(APPEND JIT_MODULE_SOURCES core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
+        core/video_player.cpp)
 endif()
 if (NOT ANDROID)
     add_library(donut_interop_shared SHARED core/donut_interop.cpp ${JIT_MODULE_SOURCES})
@@ -1869,6 +1868,10 @@ if (MSVC)
 else()
     target_compile_options(basisu_transcoder PRIVATE -w)
 endif()
+# Its hash_map asserts call safe_shift_left(1ULL, ...), ambiguous between the uint32_t and uint64_t
+# overloads where uint64_t is unsigned long (64-bit Linux); GCC 14+ rejects that in a template body
+# even when the template isn't instantiated. Also its users', which include the header.
+target_compile_options(basisu_transcoder PUBLIC $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:GNU>>:-Wno-template-body>)
 donut_compile_shaders_all_platforms(
     TARGET texture_compression_comparison_shaders
     PROJECT_NAME "Texture Compression Comparison"
@@ -2866,9 +2869,10 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/collision.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/collision
 )
-# DirectXMath is the Windows SDK's; on Android it is fetched at configure time (DIRECTXMATH_FETCH_TAG;
-# headers only, not its CMake project), with core/sal/sal.h for the annotations it uses.
-if (ANDROID)
+# DirectXMath is the Windows SDK's; elsewhere (Android, Linux) it is fetched at configure time
+# (DIRECTXMATH_FETCH_TAG; headers only, not its CMake project), with core/sal/sal.h for the
+# annotations it uses.
+if (NOT WIN32)
     set(DIRECTXMATH_FETCH_TAG "jun2026" CACHE STRING "Git tag of DirectXMath, which collision uses on Android")
     FetchContent_Declare(directxmath
         GIT_REPOSITORY https://github.com/microsoft/DirectXMath.git

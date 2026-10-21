@@ -10,6 +10,13 @@ if(NOT CMAKE_TSLANG_COMPILE_OBJECT)
         "<CMAKE_TSLANG_COMPILER> <FLAGS> --default-lib-path=${CMAKE_TSLANG_DIR} --emit=obj -o=<OBJECT> <SOURCE>")
 endif()
 
+# What POSITION_INDEPENDENT_CODE adds: ELF toolchains link executables as PIE by default, which
+# tslang's default (static) relocation model can't go into.
+if(NOT WIN32)
+    set(CMAKE_TSLANG_COMPILE_OPTIONS_PIC "--relocation-model=pic")
+    set(CMAKE_TSLANG_COMPILE_OPTIONS_PIE "--relocation-model=pic")
+endif()
+
 # tslang has no option to write a depfile of the files a .ts imports and references, so Ninja's
 # rule names a DEP_FILE that is never made (a missing one counts as empty) and the imports are
 # listed by hand as OBJECT_DEPENDS (CMakeLists.txt). Once it has one, pass it here, e.g.

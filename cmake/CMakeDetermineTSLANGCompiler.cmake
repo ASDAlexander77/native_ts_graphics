@@ -3,10 +3,18 @@ set(TSLANG_VERSION "v0.0-pre-alpha104" CACHE STRING "tslang release (tag of gith
 set(TSLANG_INSTALL_DIR "${CMAKE_SOURCE_DIR}/tools/tslang" CACHE PATH "Where the downloaded tslang is installed")
 set(TSLANG_LINUX_DISTRO "ubuntu-24.04" CACHE STRING "Linux build of tslang to download: ubuntu-22.04, ubuntu-24.04 or ubuntu-26.04")
 
-# Locate your custom compiler
+# Locate your custom compiler. Only the host's own build: under WSL the Windows PATH is searched
+# too, and a tslang.exe found there targets Windows (its default lib, gc.lib, backslash paths).
+if (CMAKE_HOST_WIN32)
+    set(_tslang_names tslang tslang.exe)
+    set(_tslang_hints "${TSLANG_INSTALL_DIR}" "I:\\tslang" "${CMAKE_SOURCE_DIR}/tools")
+else()
+    set(_tslang_names tslang)
+    set(_tslang_hints "${TSLANG_INSTALL_DIR}" "${CMAKE_SOURCE_DIR}/tools")
+endif()
 find_program(CMAKE_TSLANG_COMPILER
-    NAMES tslang tslang.exe
-    HINTS "${TSLANG_INSTALL_DIR}" "I:\\tslang" "${CMAKE_SOURCE_DIR}/tools"
+    NAMES ${_tslang_names}
+    HINTS ${_tslang_hints}
     DOC "TSLANG compiler")
 
 if (NOT CMAKE_TSLANG_COMPILER)
@@ -36,7 +44,7 @@ if (NOT CMAKE_TSLANG_COMPILER)
     # the cached NOTFOUND must be cleared for the search to run again
     unset(CMAKE_TSLANG_COMPILER CACHE)
     find_program(CMAKE_TSLANG_COMPILER
-        NAMES tslang tslang.exe
+        NAMES ${_tslang_names}
         HINTS "${TSLANG_INSTALL_DIR}"
         NO_DEFAULT_PATH
         DOC "TSLANG compiler")
