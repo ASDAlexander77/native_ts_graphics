@@ -34,9 +34,17 @@
             "name": "GDB: tslang JIT (Current File)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "./tools/tslang",
-            "args": ["--di", "--opt_level=0", "--shared-libs=build/bin/libdonut_interop_shared.so", "${file}", "--", "-vk"],
+            "program": "${workspaceFolder}/tools/tslang/tslang",
+            // libTypeScriptRuntime.so goes first: the default library .so imports GC_malloc & co. from it,
+            // and tslang would otherwise only add it after the default library.
+            "args": [
+                "--di", "--opt_level=0",
+                "--default-lib-path=${workspaceFolder}/tools/tslang",
+                "--shared-libs=build/libdonut_interop_shared.so", "${file}", "--", "-vk"
+            ],
             "stopAtEntry": false,
+            "miDebuggerPath": "/usr/bin/gdb",
+            "MIMode": "gdb",
             "cwd": "${workspaceFolder}",
             "environment": [],
         }        
