@@ -5,5 +5,5 @@
 @pushd %~dp0
 rem set D=build-release-dlss/bin
 set D=build-release/bin
-tslang --shared-libs=%D%/donut_interop.dll %*
+"tslang.exe" --shared-libs=%D%/donut_interop.dll %* -- -dx12
 @popd

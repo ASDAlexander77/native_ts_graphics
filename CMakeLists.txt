@@ -273,9 +273,10 @@ function(apply_patches folder)
                 message(WARNING "Failed to apply patch: ${PATCH_FILE}")
             endif()
         else()
-            # Doesn't apply forward: it's already applied if it applies in reverse.
+            # Doesn't apply forward: it's already applied if it applies in reverse. With less context
+            # (-C1): a later patch touching the lines around a hunk would fail the full-context check.
             execute_process(
-                COMMAND "${GIT_EXECUTABLE}" apply --check --reverse "${PATCH_FILE}"
+                COMMAND "${GIT_EXECUTABLE}" apply --check --reverse -C1 "${PATCH_FILE}"
                 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${folder}"
                 RESULT_VARIABLE PATCH_REVERSE_CHECK
                 OUTPUT_QUIET ERROR_QUIET)
