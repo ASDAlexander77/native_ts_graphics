@@ -20,20 +20,20 @@ namespace
 
 extern "C"
 {
-    {create_type} Donut_CreateThing(App* app, int count, const char* name)
+    DONUT_API {create_type} Donut_CreateThing(App* app, int count, const char* name)
     {
         return nullptr;
     }
 
-    void Donut_UseThing(App* app, {use_type} thing, double scale)
+    DONUT_API void Donut_UseThing(App* app, {use_type} thing, double scale)
     {
     }
 
-    void Donut_SetRenderCallback(TsRenderPass* pass, RenderFn method, void* thisVal)
+    DONUT_API void Donut_SetRenderCallback(TsRenderPass* pass, RenderFn method, void* thisVal)
     {
     }
 
-    void Donut_ReadThing(App* app, void* dst)
+    DONUT_API void Donut_ReadThing(App* app, void* dst)
     {
     }
 }
@@ -160,6 +160,55 @@ class CheckTest(unittest.TestCase):
         checker.RAW_MEMORY.add(("Donut_ReadThing", "dst"))
         self.assertEqual(self.run_check(strict=True), [])
 
+    def test_function_without_donut_api_is_reported(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "core"))
+            cpp = CPP.replace("{frame_type}", "FrameContext*").replace("{create_type}", "Thing*") \
+                .replace("{use_type}", "Thing*").replace("DONUT_API void Donut_UseThing", "void Donut_UseThing")
+            with open(os.path.join(root, "core", "interop.cpp"), "w") as f:
+                f.write(cpp)
+            with open(os.path.join(root, "core", "donut_interop.d.ts"), "w") as f:
+                f.write(DTS.format(ts_frame="FrameHandle", ts_create="ThingHandle | null", ts_use="ThingHandle"))
+            with open(os.path.join(root, "core", "donut_handles.d.ts"), "w") as f:
+                f.write(HANDLES_DTS)
+            problems = checker.check(root, False)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("Donut_UseThing isn't marked DONUT_API", problems[0])
+
+    def test_typed_pointer_is_declared_as_ref(self):
+        self.assertEqual(self.run_check(use_type="const float*", ts_use="Ref<f32>"), [])
+        self.assertEqual(self.run_check(use_type="int*", ts_use="Ref<int> | null"), [])
+        problems = self.run_check(use_type="float*", ts_use="Opaque")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("C++ 'float*' is declared 'Opaque', expected Ref<f32>", problems[0])
+
+    def test_fix_rewrites_opaque_typed_pointers_as_ref(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "core"))
+            cpp = CPP.replace("{frame_type}", "FrameContext*").replace("{create_type}", "Thing*") \
+                .replace("{use_type}", "const uint8_t*")
+            with open(os.path.join(root, "core", "interop.cpp"), "w") as f:
+                f.write(cpp)
+            with open(os.path.join(root, "core", "donut_interop.d.ts"), "w") as f:
+                f.write(DTS.format(ts_frame="FrameHandle", ts_create="ThingHandle | null", ts_use="Opaque | null"))
+            with open(os.path.join(root, "core", "donut_handles.d.ts"), "w") as f:
+                f.write(HANDLES_DTS)
+            fixes = []
+            checker.check(root, False, fixes)
+            self.assertEqual(len(fixes), 1)
+            checker.apply_fixes(root, fixes)
+            self.assertEqual(checker.check(root, False), [])
+            with open(os.path.join(root, "core", "donut_interop.d.ts")) as f:
+                text = f.read()
+            self.assertIn("thing: Ref<u8> | null, scale: number", text)
+            self.assertIn("dst: Opaque", text)
+
+    def test_raw_memory_entry_that_isnt_void_star_is_reported(self):
+        checker.RAW_MEMORY.add(("Donut_UseThing", "thing"))
+        problems = self.run_check()
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("RAW_MEMORY lists Donut_UseThing 'thing', which isn't void*", problems[0])
+
     def test_fix_rewrites_opaque_declarations_of_typed_cpp(self):
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root, "core"))
@@ -193,7 +242,7 @@ class CheckTest(unittest.TestCase):
         cpp = textwrap.dedent("""\
             extern "C"
             {
-                void Donut_ReleaseObject(App* app, void* object)
+                DONUT_API void Donut_ReleaseObject(App* app, void* object)
                 {
                 }
             }
@@ -224,7 +273,7 @@ class CheckTest(unittest.TestCase):
         cpp_extra = textwrap.dedent("""\
             extern "C"
             {
-                void Donut_SetMode(App* app, int mode)
+                DONUT_API void Donut_SetMode(App* app, int mode)
                 {
                 }
             }

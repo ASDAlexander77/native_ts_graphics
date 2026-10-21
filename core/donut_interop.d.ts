@@ -53,7 +53,7 @@ enum TranscodeFormat {
 // transcoded into format, every level, kept on the CPU; stats gets the milliseconds it took and
 // the bytes (Ref of a `let` f32 array of 2). Null on failure; free it with
 // Donut_DestroyTranscodedTexture.
-declare function Donut_TranscodeKtx2(data: Opaque, byteSize: int, format: TranscodeFormat, stats: Opaque): TranscodedTextureHandle | null;
+declare function Donut_TranscodeKtx2(data: Ref<u8>, byteSize: int, format: TranscodeFormat, stats: Ref<f32>): TranscodedTextureHandle | null;
 declare function Donut_GetTranscodedWidth(transcodedTexture: TranscodedTextureHandle): int;
 declare function Donut_GetTranscodedHeight(transcodedTexture: TranscodedTextureHandle): int;
 declare function Donut_GetTranscodedLevelCount(transcodedTexture: TranscodedTextureHandle): int;
@@ -67,11 +67,11 @@ declare function Donut_DestroyTranscodedTexture(transcodedTexture: TranscodedTex
 // memory (square, a power of two, 32-bit BGRA / BGRX / RGBA) decoded to RGBA8 levels in the
 // sample's CPU compressor layout (16-byte aligned, natural pitches, 2x2 and 1x1 replicated to 4x4;
 // X8 alpha read as 255). Null on failure; free it with Donut_DestroyFbcTexture.
-declare function Donut_FbcDecodeDds(data: Opaque, byteSize: int): FbcTextureHandle | null;
+declare function Donut_FbcDecodeDds(data: Ref<u8>, byteSize: int): FbcTextureHandle | null;
 // The sample's CPU compression of such an image into BC1_UNORM, BC3_UNORM or BC5_UNORM: its top
 // level alone, then every level; stats gets the milliseconds of each (Ref of a `let` f32 array of
 // 2). Null on failure; free it with Donut_DestroyFbcTexture.
-declare function Donut_FbcCompressCpu(fbcTexture: FbcTextureHandle, format: Format, stats: Opaque): FbcTextureHandle | null;
+declare function Donut_FbcCompressCpu(fbcTexture: FbcTextureHandle, format: Format, stats: Ref<f32>): FbcTextureHandle | null;
 declare function Donut_GetFbcTextureWidth(fbcTexture: FbcTextureHandle): int;
 declare function Donut_GetFbcTextureLevelCount(fbcTexture: FbcTextureHandle): int;
 // A level's data, its rows (of pixels, or of 4x4 blocks) rowPitch bytes apart, valid until the
@@ -107,7 +107,7 @@ declare function Donut_DestroyVideoPlayer(videoPlayer: VideoPlayerHandle): void;
 // Donut_GetBinaryFileData; byteSize bytes, copied), checked as DirectXTK's Model::CreateFromSDKMESH
 // checks it; its buffers, meshes, subsets, materials and frames as the file has them. Null (after
 // printing why) on failure; free it with Donut_DestroySdkMesh. Strings are valid as long as the mesh.
-declare function Donut_LoadSdkMesh(data: Opaque, byteSize: int): SdkMeshHandle | null;
+declare function Donut_LoadSdkMesh(data: Ref<u8>, byteSize: int): SdkMeshHandle | null;
 declare function Donut_DestroySdkMesh(sdkMesh: SdkMeshHandle): void;
 // 101, or 200 for files with PBR materials.
 declare function Donut_GetSdkMeshVersion(sdkMesh: SdkMeshHandle): int;
@@ -137,7 +137,7 @@ declare function Donut_GetSdkMeshMeshVertexBuffer(sdkMesh: SdkMeshHandle, mesh: 
 declare function Donut_GetSdkMeshMeshIndexBuffer(sdkMesh: SdkMeshHandle, mesh: int): int;
 declare function Donut_GetSdkMeshMeshSubsetCount(sdkMesh: SdkMeshHandle, mesh: int): int;
 declare function Donut_GetSdkMeshMeshSubset(sdkMesh: SdkMeshHandle, mesh: int, index: int): int;
-declare function Donut_CopySdkMeshMeshBounds(sdkMesh: SdkMeshHandle, mesh: int, dst: Opaque): void;
+declare function Donut_CopySdkMeshMeshBounds(sdkMesh: SdkMeshHandle, mesh: int, dst: Ref<f32>): void;
 
 // Donut_GetMeshletModelAttributeBuffer's attributes.
 enum MeshletAttribute {
@@ -205,15 +205,15 @@ declare function Donut_WaitForPagedImagesIdle(pagedImageSet: PagedImageSetHandle
 declare function Donut_CreateObjModel(): ObjModelHandle;
 declare function Donut_DestroyObjModel(objModel: ObjModelHandle): void;
 // Parses an OBJ file's text (byteSize bytes from data, e.g. a binary file's) into the loader.
-declare function Donut_ParseObjModel(objModel: ObjModelHandle, data: Opaque, byteSize: int): void;
+declare function Donut_ParseObjModel(objModel: ObjModelHandle, data: Ref<u8>, byteSize: int): void;
 // Makes the mesh of an object, its positions multiplied by scale: three vertices per triangle,
 // indices 0, 1, 2, ... Returns its vertex count, -1 if the object is missing or broken.
 declare function Donut_BuildObjModelMesh(objModel: ObjModelHandle, name: string, scale: number): int;
 declare function Donut_GetObjModelMeshIndexCount(objModel: ObjModelHandle): int;
 // The mesh's vertices into dst (Ref of an f32 array element): 9 floats each, position, normal and
 // uv as float3s (36 bytes); its 32-bit indices (Ref of an int array element).
-declare function Donut_CopyObjModelMeshVertices(objModel: ObjModelHandle, dst: Opaque): void;
-declare function Donut_CopyObjModelMeshIndices(objModel: ObjModelHandle, dst: Opaque): void;
+declare function Donut_CopyObjModelMeshVertices(objModel: ObjModelHandle, dst: Ref<f32>): void;
+declare function Donut_CopyObjModelMeshIndices(objModel: ObjModelHandle, dst: Ref<int>): void;
 
 // Meshlet model files, the ".bin" files DirectX-Graphics-Samples' D3D12MeshShaders samples load
 // (core/meshlet_model.cpp, linked only into the examples that list it): meshes of vertices,
@@ -221,7 +221,7 @@ declare function Donut_CopyObjModelMeshIndices(objModel: ObjModelHandle, dst: Op
 // vertex indices, packed primitives (three 10-bit indices a uint), meshlet subsets (offset, count)
 // and per-meshlet culling data. A file in memory (byteSize bytes, copied), checked as the samples'
 // loader checks it; null (after printing why) on failure. Free it with Donut_DestroyMeshletModel.
-declare function Donut_LoadMeshletModel(data: Opaque, byteSize: int): MeshletModelHandle | null;
+declare function Donut_LoadMeshletModel(data: Ref<u8>, byteSize: int): MeshletModelHandle | null;
 declare function Donut_DestroyMeshletModel(meshletModel: MeshletModelHandle): void;
 declare function Donut_GetMeshletModelMeshCount(meshletModel: MeshletModelHandle): int;
 // A mesh's vertex buffers (data valid until the model is freed, size in bytes, stride) and vertex count.
@@ -244,7 +244,7 @@ declare function Donut_GetMeshletModelDataCount(meshletModel: MeshletModelHandle
 // Copies a part of a mesh into dst (Donut_GetMeshletModelDataSize bytes; Ref of a `let` array element).
 declare function Donut_CopyMeshletModelData(meshletModel: MeshletModelHandle, mesh: int, which: MeshletModelData, dst: Opaque): void;
 // The bounding sphere (center, radius: 4 floats into dst) of a mesh, or with mesh -1 of the model.
-declare function Donut_CopyMeshletModelBoundingSphere(meshletModel: MeshletModelHandle, mesh: int, dst: Opaque): void;
+declare function Donut_CopyMeshletModelBoundingSphere(meshletModel: MeshletModelHandle, mesh: int, dst: Ref<f32>): void;
 // Subsets: their material, primitive type (0 triangle list, 1 triangle strip, 2 line list, 3 line
 // strip, 4 point list...), and ranges of their mesh's index and vertex buffers.
 declare function Donut_GetSdkMeshSubsetMaterial(sdkMesh: SdkMeshHandle, subset: int): int;
@@ -260,14 +260,14 @@ declare function Donut_GetSdkMeshSubsetVertexCount(sdkMesh: SdkMeshHandle, subse
 declare function Donut_GetSdkMeshMaterialCount(sdkMesh: SdkMeshHandle): int;
 declare function Donut_GetSdkMeshMaterialName(sdkMesh: SdkMeshHandle, material: int): string;
 declare function Donut_GetSdkMeshMaterialTexture(sdkMesh: SdkMeshHandle, material: int, which: int): string;
-declare function Donut_CopySdkMeshMaterialColors(sdkMesh: SdkMeshHandle, material: int, dst: Opaque): void;
+declare function Donut_CopySdkMeshMaterialColors(sdkMesh: SdkMeshHandle, material: int, dst: Ref<f32>): void;
 // Frames (the meshes' hierarchy): their name, mesh and parent frame (-1 for none), and transform
 // relative to the parent (16 floats into dst, row-major for mul(vector, matrix) as DirectXMath).
 declare function Donut_GetSdkMeshFrameCount(sdkMesh: SdkMeshHandle): int;
 declare function Donut_GetSdkMeshFrameName(sdkMesh: SdkMeshHandle, frame: int): string;
 declare function Donut_GetSdkMeshFrameMesh(sdkMesh: SdkMeshHandle, frame: int): int;
 declare function Donut_GetSdkMeshFrameParent(sdkMesh: SdkMeshHandle, frame: int): int;
-declare function Donut_CopySdkMeshFrameMatrix(sdkMesh: SdkMeshHandle, frame: int, dst: Opaque): void;
+declare function Donut_CopySdkMeshFrameMatrix(sdkMesh: SdkMeshHandle, frame: int, dst: Ref<f32>): void;
 // --- PBRT scenes and RTAO sample sets (core/denoised_rtao.cpp; the denoised_rtao example links it) ---
 // Loads a PBRT scene (DirectX-Graphics-Samples' D3D12RaytracingRealTimeDenoisedAmbientOcclusion's
 // subset: shapes in PLY files, named materials, image map textures, transforms) with that sample's
@@ -280,9 +280,9 @@ declare function Donut_GetPbrtMeshVertexCount(pbrtScene: PbrtSceneHandle, mesh: 
 declare function Donut_GetPbrtMeshIndexCount(pbrtScene: PbrtSceneHandle, mesh: int): int;
 // Copies a mesh's vertices into dst (Ref of a `let` f32 array element): 11 floats each (position,
 // normal, texture coordinates, tangent: the sample's VertexPositionNormalTextureTangent).
-declare function Donut_CopyPbrtMeshVertices(pbrtScene: PbrtSceneHandle, mesh: int, dst: Opaque): void;
+declare function Donut_CopyPbrtMeshVertices(pbrtScene: PbrtSceneHandle, mesh: int, dst: Ref<f32>): void;
 // Copies a mesh's 32-bit indices into dst (Ref of a `let` int array element).
-declare function Donut_CopyPbrtMeshIndices(pbrtScene: PbrtSceneHandle, mesh: int, dst: Opaque): void;
+declare function Donut_CopyPbrtMeshIndices(pbrtScene: PbrtSceneHandle, mesh: int, dst: Ref<int>): void;
 // Copies a mesh's material into dst (Ref of a `let` f32 array element): the sample's
 // PrimitiveMaterialBuffer, 24 values (Kd, Ks, Kr, Kt, opacity, eta as float3s, roughness, then the
 // int bits of hasDiffuseTexture, hasNormalTexture, hasPerVertexTangents, type, and padding).
@@ -297,12 +297,12 @@ declare function Donut_GetPbrtMeshNormalTexture(pbrtScene: PbrtSceneHandle, mesh
 // Decodes an image file with WIC into 8-bit RGBA, as DirectXTK's WIC texture loader does (its JPEG
 // decoder differs a little from Donut's): width x height x 4 bytes into dst (Ref of a `let` int
 // array element; null for only the size). Returns width | height << 16, 0 on failure.
-declare function Donut_DecodeWicImageRGBA8(path: string, dst: Opaque | null): int;
+declare function Donut_DecodeWicImageRGBA8(path: string, dst: Ref<int> | null): int;
 // The sample's RTAO sample sets: numSampleSets sets of samplesPerSet multi-jittered samples on the
 // cosine-weighted hemisphere (its Samplers::MultiJittered, seeded with 1729), in the order the
 // sample fills its buffer with them: 4 floats each (x, y, z, 0) into dst (Ref of a `let` f32 array
 // element).
-declare function Donut_GenerateRtaoHemisphereSamples(samplesPerSet: int, numSampleSets: int, dst: Opaque): void;
+declare function Donut_GenerateRtaoHemisphereSamples(samplesPerSet: int, numSampleSets: int, dst: Ref<f32>): void;
 
 
 // DirectXMath's collision types (core/directx_collision.cpp, linked only into the examples that
@@ -329,19 +329,19 @@ enum Containment {
 
 // container.Contains(shape), a Containment; containers are spheres, boxes, oriented boxes and
 // frustums.
-declare function Donut_CollisionContains(containerShape: CollisionShape, container: Opaque, shape: CollisionShape, s: Opaque): Containment;
+declare function Donut_CollisionContains(containerShape: CollisionShape, container: Ref<f32>, shape: CollisionShape, s: Ref<f32>): Containment;
 // shape.Intersects(rayOrigin, rayDirection, distance) (TriangleTests::Intersects for triangles):
 // non-zero on a hit, with the distance along the (normalized) direction written to distance.
-declare function Donut_CollisionIntersectsRay(shape: CollisionShape, s: Opaque, rayOrigin: Opaque, rayDirection: Opaque, distance: Opaque): int;
+declare function Donut_CollisionIntersectsRay(shape: CollisionShape, s: Ref<f32>, rayOrigin: Ref<f32>, rayDirection: Ref<f32>, distance: Ref<f32>): int;
 // BoundingFrustum::CreateFromMatrix of a projection matrix (16 floats, DirectXMath's row-major
 // layout) into frustum (13 floats).
-declare function Donut_CollisionFrustumFromMatrix(projection: Opaque, frustum: Opaque): void;
+declare function Donut_CollisionFrustumFromMatrix(projection: Ref<f32>, frustum: Ref<f32>): void;
 // BoundingFrustum::GetCorners: 8 points (24 floats), the near plane's then the far plane's.
-declare function Donut_CollisionFrustumCorners(frustum: Opaque, corners: Opaque): void;
+declare function Donut_CollisionFrustumCorners(frustum: Ref<f32>, corners: Ref<f32>): void;
 // XMQuaternionRotationRollPitchYaw into quaternion (x, y, z, w).
-declare function Donut_QuaternionRotationRollPitchYaw(pitch: number, yaw: number, roll: number, quaternion: Opaque): void;
+declare function Donut_QuaternionRotationRollPitchYaw(pitch: number, yaw: number, roll: number, quaternion: Ref<f32>): void;
 // XMMatrixRotationRollPitchYaw into matrix (16 floats, row-major).
-declare function Donut_MatrixRotationRollPitchYaw(pitch: number, yaw: number, roll: number, matrix: Opaque): void;
+declare function Donut_MatrixRotationRollPitchYaw(pitch: number, yaw: number, roll: number, matrix: Ref<f32>): void;
 
 // nvrhi::VariableShadingRate values: pixels per shading, width x height.
 enum VariableShadingRate {
@@ -709,7 +709,7 @@ declare function Donut_ParseTestArgs(argc: int, argv: Ref<string>, frameCount: i
 // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
 // with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst (pixelCount
 // ints; Ref of a `let` int array element). 0 on failure or for back buffers not 8-bit RGBA / BGRA.
-declare function Donut_ReadBackBufferRGBA8(app: AppHandle, dst: Opaque, pixelCount: int): int;
+declare function Donut_ReadBackBufferRGBA8(app: AppHandle, dst: Ref<int>, pixelCount: int): int;
 // Ends a test after Donut_RunApp: saves the last frame to -testOutput's file if given, prints "Test
 // PASSED" if failure is "", else "Test FAILED: <failure>"; returns the exit code (0, 1).
 declare function Donut_FinishTest(app: AppHandle, failure: string): int;
@@ -945,7 +945,7 @@ declare function Donut_UavBarrier(commandList: CommandListHandle, texture: Textu
 // conservativePointAndLineRasterization, degenerateTrianglesRasterized, degenerateLinesRasterized,
 // fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage. 0 (dst
 // untouched) on other graphics APIs or without the extension.
-declare function Donut_GetVulkanConservativeRasterizationProperties(app: AppHandle, dst: Opaque): int;
+declare function Donut_GetVulkanConservativeRasterizationProperties(app: AppHandle, dst: Ref<f32>): int;
 // D3D12's conservative rasterization tier (0 for none); 0 on other graphics APIs.
 declare function Donut_GetD3D12ConservativeRasterizationTier(app: AppHandle): int;
 declare function Donut_GetRendererString(app: AppHandle): string;
@@ -1212,7 +1212,7 @@ declare function Donut_GetHostCopiedTexture(hostCopiedTexture: HostCopiedTexture
 declare function Donut_CreateTiledTexture(app: AppHandle, width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle;
 // Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
 // levels made of whole tiles, the number of levels packed into the mip tail.
-declare function Donut_GetTextureTiling(app: AppHandle, texture: TextureHandle, dst: Opaque): void;
+declare function Donut_GetTextureTiling(app: AppHandle, texture: TextureHandle, dst: Ref<int>): void;
 // The number of tiles the packed levels (the mip tail) take together: 0 if there are none.
 declare function Donut_GetTexturePackedMipTileCount(app: AppHandle, texture: TextureHandle): int;
 // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
@@ -1377,10 +1377,10 @@ declare function Donut_LoadBinaryFile(app: AppHandle, path: string): BinaryFileH
 declare function Donut_GetBinaryFileSize(binaryFile: BinaryFileHandle): int;
 // The file's bytes, valid as long as the file (e.g. for Donut_TranscodeKtx2).
 declare function Donut_GetBinaryFileData(binaryFile: BinaryFileHandle): Opaque;
-declare function Donut_CopyBinaryFileBytes(binaryFile: BinaryFileHandle, offset: int, count: int, dst: Opaque): void;
+declare function Donut_CopyBinaryFileBytes(binaryFile: BinaryFileHandle, offset: int, count: int, dst: Ref<int>): void;
 // count little-endian 32-bit values from byte offset into dst (Ref of a `let` int array element)
 // as ints; those past the end of the file as 0.
-declare function Donut_CopyBinaryFileUInts(binaryFile: BinaryFileHandle, offset: int, count: int, dst: Opaque): void;
+declare function Donut_CopyBinaryFileUInts(binaryFile: BinaryFileHandle, offset: int, count: int, dst: Ref<int>): void;
 // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the call
 // into an open command list (e.g. a model's vertices from the middle of its file).
 declare function Donut_WriteBufferFromBinaryFile(binaryFile: BinaryFileHandle, commandList: CommandListHandle, buffer: BufferHandle, bufferOffset: int,
@@ -1400,7 +1400,7 @@ declare function Donut_WriteTextureLevelFromBinaryFile(binaryFile: BinaryFileHan
 // (as Donut_CreateOpacityMicromap takes them). Writes up to maxEntries entries of three ints (count,
 // subdivision level, format) into dst (Ref of a `let` int array); returns how many there are.
 declare function Donut_CountOpacityMicromapUsage(binaryFile: BinaryFileHandle, indexOffset: int, indexCount: int, indexFormat: Format,
-    descOffset: int, descCount: int, dst: Opaque, maxEntries: int): int;
+    descOffset: int, descCount: int, dst: Ref<int>, maxEntries: int): int;
 // Writes byteSize bytes of data (Ref of a `let` array element, or a Donut data pointer) to a file
 // (path as given: absolute, or relative to the current directory). 1 on success.
 declare function Donut_WriteBinaryFile(path: string, data: Opaque, byteSize: int): int;
@@ -1408,18 +1408,18 @@ declare function Donut_GetGltfModelPrimitiveCount(gltfModel: GltfModelHandle): i
 declare function Donut_GetGltfModelVertexCount(gltfModel: GltfModelHandle, primitive: int): int;
 declare function Donut_GetGltfModelIndexCount(gltfModel: GltfModelHandle, primitive: int): int;
 // Into dst: Ref(arr[0]) of a `let` f32 array of 8 x the vertex count / int array of the index count.
-declare function Donut_CopyGltfModelVertices(gltfModel: GltfModelHandle, primitive: int, dst: Opaque): void;
+declare function Donut_CopyGltfModelVertices(gltfModel: GltfModelHandle, primitive: int, dst: Ref<f32>): void;
 // A primitive's vertex attribute by its name in the file ("COLOR_0",
 // "KHR_gaussian_splatting:ROTATION"...): its elements (0 if none), floats per element, and the
 // floats themselves (normalized integers converted; count * components into dst).
 declare function Donut_GetGltfModelAttributeCount(gltfModel: GltfModelHandle, primitive: int, name: string): int;
 declare function Donut_GetGltfModelAttributeComponents(gltfModel: GltfModelHandle, primitive: int, name: string): int;
-declare function Donut_CopyGltfModelAttribute(gltfModel: GltfModelHandle, primitive: int, name: string, dst: Opaque): void;
-declare function Donut_CopyGltfModelIndices(gltfModel: GltfModelHandle, primitive: int, dst: Opaque): void;
+declare function Donut_CopyGltfModelAttribute(gltfModel: GltfModelHandle, primitive: int, name: string, dst: Ref<f32>): void;
+declare function Donut_CopyGltfModelIndices(gltfModel: GltfModelHandle, primitive: int, dst: Ref<int>): void;
 declare function Donut_GetGltfModelBaseColorImage(gltfModel: GltfModelHandle, primitive: int): string;
 // The name of the primitive's mesh ("" if none).
 // A primitive's material's base color factor (RGBA) into dst (Ref of a `let` f32 array of 4).
-declare function Donut_CopyGltfModelBaseColorFactor(gltfModel: GltfModelHandle, primitive: int, dst: Opaque): void;
+declare function Donut_CopyGltfModelBaseColorFactor(gltfModel: GltfModelHandle, primitive: int, dst: Ref<f32>): void;
 declare function Donut_GetGltfModelMeshName(gltfModel: GltfModelHandle, primitive: int): string;
 // The index of the primitive's mesh, and its material's alpha mode.
 declare function Donut_GetGltfModelPrimitiveMesh(gltfModel: GltfModelHandle, primitive: int): int;
@@ -1435,7 +1435,7 @@ declare function Donut_GetGltfModelTextureCount(gltfModel: GltfModelHandle): int
 declare function Donut_GetGltfModelTextureImage(gltfModel: GltfModelHandle, texture: int): string;
 declare function Donut_GetGltfModelNodeCount(gltfModel: GltfModelHandle): int;
 declare function Donut_GetGltfModelNodeMesh(gltfModel: GltfModelHandle, node: int): int;
-declare function Donut_CopyGltfModelNodeTransform(gltfModel: GltfModelHandle, node: int, dst: Opaque): void;
+declare function Donut_CopyGltfModelNodeTransform(gltfModel: GltfModelHandle, node: int, dst: Ref<f32>): void;
 // An image file (path relative to the executable's directory) decoded with WIC into an RGBA8
 // texture as DirectXTK's CreateWICTextureFromFile loads it: one level, sRGB when the file says so
 // (a PNG's sRGB chunk, a JPEG's EXIF color space). Its upload recorded into an open command list.
@@ -1511,10 +1511,10 @@ declare function Donut_CreateEmptyTriangleBlas(app: AppHandle, debugName: string
 // RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of vertexBuffer (acceleration
 // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
 declare function Donut_AddTriangleBlasGeometry(triangleBlas: TriangleBlasHandle, indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int,
-    vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
+    vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Ref<f32> | null): void;
 // Same, with R16_UINT indices.
 declare function Donut_AddTriangleBlasGeometry16(triangleBlas: TriangleBlasHandle, indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int,
-    vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void;
+    vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Ref<f32> | null): void;
 // Opaque procedural primitives instead: aabbCount boxes (6 floats each, min x y z then max x y z),
 // aabbStride bytes apart at byteOffset of aabbBuffer (an acceleration structure input buffer),
 // intersected by the hit groups' intersection shaders (Donut_RtPipelineAddProceduralHitGroup). A
@@ -1531,7 +1531,7 @@ declare function Donut_SetTriangleBlasGeometryFlags(triangleBlas: TriangleBlasHa
 // holds numUsageCounts entries of three ints, how many triangles use OMMs of a subdivision level
 // and format (Donut_CountOpacityMicromapUsage; Vulkan's builds need them). The BLAS keeps the array.
 declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: TriangleBlasHandle, geometryIndex: int, opacityMicromap: OpacityMicromapHandle,
-    ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void;
+    ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Ref<int>, numUsageCounts: int): void;
 // An opacity micromap array (requires Feature.RayTracingOpacityMicromap), built into an open
 // command list from inputBuffer's raw OMM data at inputOffset and perOmmDescs' descs at
 // descsOffset (acceleration structure input buffers; descs as D3D12_RAYTRACING_OPACITY_MICROMAP_DESC
@@ -1540,7 +1540,7 @@ declare function Donut_SetTriangleBlasGeometryOpacityMicromap(triangleBlas: Tria
 // the array has of a subdivision level and format (D3D12's histogram). buildFlags:
 // nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
 declare function Donut_CreateOpacityMicromap(app: AppHandle, commandList: CommandListHandle, inputBuffer: BufferHandle, inputOffset: int,
-    perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int,
+    perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Ref<int>, numUsageCounts: int, buildFlags: int,
     debugName: string): OpacityMicromapHandle | null;
 // Builds such an array again, in place, from its inputs' current contents, into an open command list.
 declare function Donut_BuildOpacityMicromap(commandList: CommandListHandle, opacityMicromap: OpacityMicromapHandle): void;
@@ -1709,7 +1709,7 @@ declare function Donut_RandomUniformUInt(randomEngine: RandomEngineHandle, a: in
 // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
 // (Ref of a `let` f32 array element): one distribution object, as the samples keep one (MSVC's makes
 // values in pairs and keeps the second).
-declare function Donut_RandomNormalFloats(randomEngine: RandomEngineHandle, mean: number, stddev: number, count: int, dst: Opaque): void;
+declare function Donut_RandomNormalFloats(randomEngine: RandomEngineHandle, mean: number, stddev: number, count: int, dst: Ref<f32>): void;
 // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
 declare function Donut_LayoutPushConstants(bindingLayoutDesc: BindingLayoutDescHandle, slot: int, byteSize: int): void;
 // Register space 0, visible to shaderType's stages.
@@ -1849,16 +1849,16 @@ declare function Donut_ImGuiSelectable(label: string, selected: int): int;
 declare function Donut_ImGuiRadioButton(label: string, active: int): int;
 // 4 floats (RGBA) at values (Ref of a `let` f32 array element), width pixels wide (0: default);
 // non-zero if changed.
-declare function Donut_ImGuiColorEdit4(label: string, values: Opaque, width: number): int;
+declare function Donut_ImGuiColorEdit4(label: string, values: Ref<f32>, width: number): int;
 // A color picker of 3 floats (Ref of a `let` f32 array; RGB, unbounded) without previews; non-zero
 // when changed.
-declare function Donut_ImGuiColorPicker3(label: string, values: Opaque, width: number): int;
+declare function Donut_ImGuiColorPicker3(label: string, values: Ref<f32>, width: number): int;
 // Scopes the IDs of the widgets that follow (same labels apart) until Donut_ImGuiPopID.
 declare function Donut_ImGuiPushID(id: int): void;
 declare function Donut_ImGuiPopID(): void;
 declare function Donut_ImGuiEndCombo(): void;
 // 3 floats at values (Ref of a `let` f32 array element); non-zero if changed.
-declare function Donut_ImGuiDragFloat3(label: string, values: Opaque, speed: number): int;
+declare function Donut_ImGuiDragFloat3(label: string, values: Ref<f32>, speed: number): int;
 // Places the next window with its pivot (0..1 of its size; 1, 0 = top right corner) at x, y.
 declare function Donut_ImGuiSetNextWindowPosPivot(x: number, y: number, pivotX: number, pivotY: number): void;
 // Value in, new value out.
@@ -1880,7 +1880,7 @@ declare function Donut_ImGuiBeginOverlay(title: string, x: number, y: number, wi
 // count values (Ref of a `let` f32 array element) as a line graph, starting at valuesOffset
 // (wrapping around), scaleMin at the bottom and scaleMax at the top, width x height pixels;
 // frameBackground 0: without the frame's background.
-declare function Donut_ImGuiPlotLines(label: string, values: Opaque, count: int, valuesOffset: int, scaleMin: number,
+declare function Donut_ImGuiPlotLines(label: string, values: Ref<f32>, count: int, valuesOffset: int, scaleMin: number,
     scaleMax: number, width: number, height: number, frameBackground: int): void;
 // Value in, new value out: edited by dragging (speed per pixel), clamped to min .. max.
 declare function Donut_ImGuiDragFloat(label: string, value: number, speed: number, min: number, max: number): number;
@@ -1990,8 +1990,8 @@ declare function Donut_ThirdPersonCameraLookAt(camera: CameraHandle, posX: numbe
 // Every frame, after Donut_SetPlanarView of the view it renders.
 declare function Donut_ThirdPersonCameraSetView(camera: CameraHandle, view: ViewHandle): void;
 // Forward / up directions: 3 floats into dst (Ref of a `let` f32 array element).
-declare function Donut_GetCameraDirection(camera: CameraHandle, dst: Opaque): void;
-declare function Donut_GetCameraUp(camera: CameraHandle, dst: Opaque): void;
+declare function Donut_GetCameraDirection(camera: CameraHandle, dst: Ref<f32>): void;
+declare function Donut_GetCameraUp(camera: CameraHandle, dst: Ref<f32>): void;
 // Units per second.
 declare function Donut_CameraSetMoveSpeed(camera: CameraHandle, speed: number): void;
 // Mouse sensitivity, radians per pixel.
@@ -2004,7 +2004,7 @@ declare function Donut_CameraMouseScrollUpdate(camera: CameraHandle, xOffset: nu
 declare function Donut_CameraAnimate(camera: CameraHandle, elapsedSeconds: number): void;
 // World-to-view matrix into dst: Ref(arr[0]) of a `let` f32[16] array, row-major, row-vector
 // convention (as Donut_SetPlanarView takes it).
-declare function Donut_GetCameraWorldToView(camera: CameraHandle, dst: Opaque): void;
+declare function Donut_GetCameraWorldToView(camera: CameraHandle, dst: Ref<f32>): void;
 
 // Loaded scenes. Both valid as long as the scene.
 declare function Donut_GetSceneGraph(scene: SceneHandle): SceneGraphHandle;
@@ -2057,7 +2057,7 @@ declare function Donut_LoadBindlessTexture(app: AppHandle, descriptorTableManage
 declare function Donut_GetTextureDescriptorIndex(loadedTexture: LoadedTextureHandle): int;
 declare function Donut_GetSceneInstanceCount(scene: SceneHandle): int;
 // A node's world-space position into dst (3 floats); 0 if there's no node at path ("/Emitter").
-declare function Donut_GetSceneNodePosition(scene: SceneHandle, path: string, dst: Opaque): int;
+declare function Donut_GetSceneNodePosition(scene: SceneHandle, path: string, dst: Ref<f32>): int;
 
 // Dynamic meshes: one alpha-blended geometry whose vertices (positions, texture coordinates) and
 // indices are replaced every frame, with room for maxVertices / maxIndices, buffers registered in
@@ -2068,8 +2068,8 @@ declare function Donut_AttachDynamicMesh(app: AppHandle, scene: SceneHandle, dyn
 declare function Donut_SetDynamicMeshTexture(app: AppHandle, dynamicMesh: DynamicMeshHandle, loadedTexture: LoadedTextureHandle): void;
 // Valid only inside a render callback: positions (3 x f32 per vertex), texCoords (2 x f32), int
 // indices, as Ref of `let` array elements; rebuilds the mesh's BLAS.
-declare function Donut_UpdateDynamicMesh(frame: FrameHandle, dynamicMesh: DynamicMeshHandle, positions: Opaque, texCoords: Opaque, vertexCount: int,
-    indices: Opaque, indexCount: int): void;
+declare function Donut_UpdateDynamicMesh(frame: FrameHandle, dynamicMesh: DynamicMeshHandle, positions: Ref<f32>, texCoords: Ref<f32>, vertexCount: int,
+    indices: Ref<int>, indexCount: int): void;
 // A BLAS for every scene mesh without one (not dynamic meshes), into an open command list;
 // geometries not in the Opaque material domain are non-opaque.
 declare function Donut_BuildSceneBLASes(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle): void;
@@ -2091,11 +2091,11 @@ declare function Donut_AddTopLevelASInstance(sceneAccelStructs: SceneAccelStruct
 // translation in the last column (Vulkan's VkTransformMatrixKHR). flags: nvrhi::rt::InstanceFlags bits
 // (1 = no triangle culling).
 declare function Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs: SceneAccelStructsHandle, bottomLevelAS: AccelStructHandle, instanceMask: int,
-    instanceID: int, flags: int, transform: Opaque): void;
+    instanceID: int, flags: int, transform: Ref<f32>): void;
 // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex): which of
 // the shader table's hit groups its hits run.
 declare function Donut_AddTopLevelASInstanceWithHitGroup(sceneAccelStructs: SceneAccelStructsHandle, bottomLevelAS: AccelStructHandle, instanceMask: int,
-    instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void;
+    instanceID: int, hitGroupIndex: int, flags: int, transform: Ref<f32>): void;
 // Valid only inside a render callback.
 declare function Donut_BuildTopLevelAS(frame: FrameHandle, sceneAccelStructs: SceneAccelStructsHandle): void;
 // Valid only inside a render callback: refits the TLAS in place to the instances added since the
@@ -2111,8 +2111,8 @@ declare function Donut_CreateTexturedMaterial(app: AppHandle, commandList: Comma
 // vertex: position (3 x f32), texture coordinates (2 x f32), normal and tangent (int each,
 // packed as by vectorToSnorm8); then indexCount int indices. Arrays: Ref(arr[0]) of `let` arrays.
 declare function Donut_CreateMesh(app: AppHandle, commandList: CommandListHandle, name: string, material: MaterialHandle,
-    positions: Opaque, texCoords: Opaque, normals: Opaque, tangents: Opaque, vertexCount: int,
-    indices: Opaque, indexCount: int): MeshHandle;
+    positions: Ref<f32>, texCoords: Ref<f32>, normals: Ref<int>, tangents: Ref<int>, vertexCount: int,
+    indices: Ref<int>, indexCount: int): MeshHandle;
 declare function Donut_CreateSceneGraph(app: AppHandle): SceneGraphHandle;
 // Adds a node holding an instance of mesh under parentNode, or as the root if parentNode is
 // null. Returns the node, valid as long as the scene graph.
@@ -2145,7 +2145,7 @@ declare function Donut_ResetDeferredLightingBindingCache(deferredLightingPass: D
 declare function Donut_CreatePlanarView(app: AppHandle): ViewHandle;
 // Matrices: Ref(arr[0]) of `let` f32[16] arrays, row-major, row-vector convention (as the math
 // functions in the examples build them); viewport of width x height pixels.
-declare function Donut_SetPlanarView(view: ViewHandle, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int): void;
+declare function Donut_SetPlanarView(view: ViewHandle, viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int): void;
 // For constant buffers that embed a PlanarViewConstants (donut/shaders/view_cb.h): its size in
 // bytes (a multiple of 16), and the view's constants written to dst (Ref of a `let` array element).
 declare function Donut_GetPlanarViewConstantsSize(): int;
@@ -2199,7 +2199,7 @@ declare function Donut_CreateShadingRateSurface(app: AppHandle, width: int, heig
 // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of a
 // `let` int array of 32), largest first (Vulkan's order; D3D12's tier rates); returns their count,
 // 0 without variable rate shading.
-declare function Donut_GetFragmentShadingRates(app: AppHandle, dst: Opaque): int;
+declare function Donut_GetFragmentShadingRates(app: AppHandle, dst: Ref<int>): int;
 // Variable rate shading in a pipeline: its draws take the draw state's shading rate
 // (Donut_DrawSetVariableRateShading) combined with the framebuffer's shading rate surface.
 declare function Donut_GraphicsPipelineSetVariableRateShading(graphicsPipelineDesc: GraphicsPipelineDescHandle, enabled: int): void;
@@ -2256,7 +2256,7 @@ declare function Donut_SetD3D12LibraryRtShaderTable(app: AppHandle, libraryRtPip
 // group recordHitGroups[i] (Ref of an int array: indices into the comma-separated hitGroups) with
 // argsSize bytes of local root arguments from recordArgs + i * argsSize. 0 on failure.
 declare function Donut_SetD3D12LibraryRtShaderTableRecords(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, rayGeneration: string,
-    rayGenArgs: Opaque | null, rayGenArgsSize: int, miss: string, hitGroups: string, recordHitGroups: Opaque, recordCount: int, recordArgs: Opaque,
+    rayGenArgs: Opaque | null, rayGenArgsSize: int, miss: string, hitGroups: string, recordHitGroups: Ref<int>, recordCount: int, recordArgs: Opaque,
     argsSize: int): int;
 declare function Donut_SetD3D12LibraryRtDescriptorTextureUAV(app: AppHandle, libraryRtPipeline: D3D12LibraryRtPipelineHandle, index: int, texture: TextureHandle): void;
 // An SRV of a 2D texture (all its levels).
@@ -2506,7 +2506,7 @@ declare function Donut_UpdateSceneLoader(sceneLoader: SceneLoaderHandle, frame: 
 // The loaded scene, or null; valid until the next Donut_BeginLoadingScene.
 declare function Donut_GetLoadedScene(sceneLoader: SceneLoaderHandle): SceneHandle;
 // 4 ints into dst: objects loaded, objects total, textures loaded, textures requested.
-declare function Donut_GetSceneLoadingStats(sceneLoader: SceneLoaderHandle, dst: Opaque): void;
+declare function Donut_GetSceneLoadingStats(sceneLoader: SceneLoaderHandle, dst: Ref<int>): void;
 // The scene files (glTF, .scene.json) under a directory, recursively, as a string list.
 declare function Donut_FindScenes(app: AppHandle, directory: string): StringListHandle;
 declare function Donut_GetStringListCount(stringList: StringListHandle): int;
@@ -2526,13 +2526,13 @@ declare function Donut_GetSceneGraphCameraCount(sceneGraph: SceneGraphHandle): i
 declare function Donut_GetSceneGraphCamera(sceneGraph: SceneGraphHandle, index: int): SceneCameraHandle;
 declare function Donut_GetSceneCameraName(sceneCamera: SceneCameraHandle): string;
 // 16 floats into dst (row-major, row-vector convention).
-declare function Donut_GetSceneCameraWorldToView(sceneCamera: SceneCameraHandle, dst: Opaque): void;
-declare function Donut_GetSceneCameraViewToWorld(sceneCamera: SceneCameraHandle, dst: Opaque): void;
+declare function Donut_GetSceneCameraWorldToView(sceneCamera: SceneCameraHandle, dst: Ref<f32>): void;
+declare function Donut_GetSceneCameraViewToWorld(sceneCamera: SceneCameraHandle, dst: Ref<f32>): void;
 // Of a perspective camera (radians); negative for other cameras.
 declare function Donut_GetSceneCameraVerticalFov(sceneCamera: SceneCameraHandle): number;
 declare function Donut_GetSceneCameraZNear(sceneCamera: SceneCameraHandle): number;
 // World-space bounds as 6 floats into dst: min x, y, z, max x, y, z.
-declare function Donut_GetNodeBoundingBox(node: NodeHandle, dst: Opaque): void;
+declare function Donut_GetNodeBoundingBox(node: NodeHandle, dst: Ref<f32>): void;
 // Like "/Sponza/Mesh_12"; valid until the next call.
 declare function Donut_GetNodePath(node: NodeHandle): string;
 // Makes the scene re-sort the node's content (e.g. after a material changes domain).
@@ -2555,16 +2555,16 @@ declare function Donut_GetMeshInstanceGeometryIndexCount(sceneGraph: SceneGraphH
 // Views.
 declare function Donut_CreateStereoView(app: AppHandle): ViewHandle;
 // Donut_SetPlanarView with a sub-pixel projection jitter, in pixels.
-declare function Donut_SetPlanarViewJittered(view: ViewHandle, viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
+declare function Donut_SetPlanarViewJittered(view: ViewHandle, viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
 // Left eye in the left half of width x height pixels, right eye in the right half.
-declare function Donut_SetStereoView(view: ViewHandle, leftViewMatrix: Opaque, rightViewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
+declare function Donut_SetStereoView(view: ViewHandle, leftViewMatrix: Ref<f32>, rightViewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void;
 declare function Donut_CopyStereoView(dstView: ViewHandle, srcView: ViewHandle): void;
 // The left eye's planar view, e.g. for Donut_ThirdPersonCameraSetView.
 declare function Donut_GetStereoLeftView(view: ViewHandle): ViewHandle;
 // First person cameras only.
 declare function Donut_CameraLookAtWithUp(camera: CameraHandle, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number, upX: number, upY: number, upZ: number): void;
 // 3 floats into dst.
-declare function Donut_GetCameraPosition(camera: CameraHandle, dst: Opaque): void;
+declare function Donut_GetCameraPosition(camera: CameraHandle, dst: Ref<f32>): void;
 
 // Render targets of width x height (multisampled with sampleCount > 1): the G-buffer with motion
 // vectors and reverse-Z depth, HDR color, material IDs, resolved color, TAA feedback, LDR color,
@@ -2617,7 +2617,7 @@ declare function Donut_GetSharedTexture(sharedTexture: SharedTextureHandle): Tex
 declare function Donut_GetSharedTextureHandle(sharedTexture: SharedTextureHandle): Opaque;
 // The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
 // make another API's device on the same GPU. 0 if the API doesn't give it.
-declare function Donut_GetAdapterLuid(app: AppHandle, dst: Opaque): int;
+declare function Donut_GetAdapterLuid(app: AppHandle, dst: Ref<int>): int;
 // Asks for another color space of the back buffers, from the next frame on (as a resize: back
 // buffer resizing callbacks run). 0 (nothing changes) if the swap chain can't present it.
 declare function Donut_SetSwapChainColorSpace(app: AppHandle, colorSpace: SwapChainColorSpace): int;
@@ -2681,7 +2681,7 @@ declare function Donut_RenderSky(commandList: CommandListHandle, skyPass: SkyPas
 declare function Donut_CreateSceneTemporalAntiAliasingPass(app: AppHandle, view: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle, motionVectorStencilMask: int): TemporalAntiAliasingPassHandle;
 declare function Donut_SetTemporalJitter(temporalAntiAliasingPass: TemporalAntiAliasingPassHandle, jitter: TemporalJitter): void;
 // This frame's jitter, 2 floats into dst.
-declare function Donut_GetTemporalPixelOffset(temporalAntiAliasingPass: TemporalAntiAliasingPassHandle, dst: Opaque): void;
+declare function Donut_GetTemporalPixelOffset(temporalAntiAliasingPass: TemporalAntiAliasingPassHandle, dst: Ref<f32>): void;
 declare function Donut_RenderViewMotionVectors(commandList: CommandListHandle, temporalAntiAliasingPass: TemporalAntiAliasingPassHandle, view: ViewHandle, previousView: ViewHandle): void;
 declare function Donut_TemporalResolveView(commandList: CommandListHandle, temporalAntiAliasingPass: TemporalAntiAliasingPassHandle, view: ViewHandle, feedbackIsValid: int, enableHistoryClamping: int): void;
 declare function Donut_AdvanceTemporalFrame(temporalAntiAliasingPass: TemporalAntiAliasingPassHandle): void;
@@ -2705,7 +2705,7 @@ declare function Donut_EvaluateDlss(commandList: CommandListHandle, dlss: DlssHa
 // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
 declare function Donut_CreatePixelReadbackPass(app: AppHandle, texture: TextureHandle): PixelReadbackPassHandle;
 declare function Donut_CapturePixel(commandList: CommandListHandle, pixelReadbackPass: PixelReadbackPassHandle, x: int, y: int): void;
-declare function Donut_ReadPixelUInts(pixelReadbackPass: PixelReadbackPassHandle, dst: Opaque): void;
+declare function Donut_ReadPixelUInts(pixelReadbackPass: PixelReadbackPassHandle, dst: Ref<int>): void;
 // Mip generation for a color texture with mips; Display draws them over the frame.
 declare function Donut_CreateMipMapGenPass(app: AppHandle, texture: TextureHandle): MipMapGenPassHandle;
 declare function Donut_DispatchMipMapGen(commandList: CommandListHandle, mipMapGenPass: MipMapGenPassHandle): void;

@@ -145,7 +145,7 @@ extern "C"
     // aligned, natural pitches, the 2x2 and 1x1 levels replicated to 4x4 (their top-left 2x2 / 1x1
     // texels are the level). Returns null (after printing why) on failure; free it with
     // Donut_DestroyFbcTexture.
-    DONUT_API FbcTexture* Donut_FbcDecodeDds(const void* data, int byteSize)
+    DONUT_API FbcTexture* Donut_FbcDecodeDds(const uint8_t* data, int byteSize)
     {
         const auto* bytes = static_cast<const uint8_t*>(data);
         auto u32 = [bytes](size_t offset)

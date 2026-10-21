@@ -7,8 +7,9 @@ RenderCallback, ...) are compared the same way.
 
     python tools/check_interop_types.py [--fix] [--strict] [--stamp FILE] [--root DIR]
 
---fix:    where C++ takes or returns a handle type that the .d.ts still declares Opaque, rewrite
-          the .d.ts with the handle type (keeping `| null`), then check again.
+--fix:    where C++ takes or returns a handle type or a typed pointer (float*, int*, ...) that the
+          .d.ts still declares Opaque, rewrite the .d.ts with the handle or Ref<T> type (keeping
+          `| null`), then check again.
 --root:   the repository to check (default: this script's); the tests point it at fixtures.
 --strict: a void* parameter or return is an error unless RAW_MEMORY lists it.
 --stamp:  written on success (the build's dependency on this check).
@@ -33,11 +34,14 @@ TYPES = {
     "const char* const*": {"Ref<string>"},
     "void*": {"Opaque"},
     "const void*": {"Opaque"},
-    "float*": {"Opaque"},
-    "const float*": {"Opaque"},
-    "int*": {"Opaque"},
-    "const int*": {"Opaque"},
-    "uint8_t*": {"Opaque"},
+    # Arrays of a known element type: TypeScript passes Ref of an array element. (tslang doesn't
+    # check the element type, so these document what the memory holds.)
+    "float*": {"Ref<f32>"},
+    "const float*": {"Ref<f32>"},
+    "int*": {"Ref<int>"},
+    "const int*": {"Ref<int>"},
+    "uint8_t*": {"Ref<u8>"},
+    "const uint8_t*": {"Ref<u8>"},
 }
 
 # Pointers to C++ objects -> handle types (declared in donut_handles.d.ts). Filled in stage by
@@ -159,9 +163,6 @@ CPP_ONLY = {"Donut_SetExecutablePath"}
 # (function, parameter) pairs that are raw memory and stay void* under --strict; a parameter name
 # of "*" stands for the return value.
 RAW_MEMORY = {
-    ("Donut_CopyGltfModelIndices", "dst"),
-    ("Donut_CopyGltfModelNodeTransform", "dst"),
-    ("Donut_CopyGltfModelVertices", "dst"),
     ("Donut_CopyMeshletModelData", "dst"),
     ("Donut_CopyMeshletModelVertexBuffer", "dst"),
     ("Donut_CopyBufferDeviceAddress", "dst"),
@@ -170,30 +171,11 @@ RAW_MEMORY = {
     # An nvrhi::IMessageCallback implemented in tslang (core/nvrhi.ts), handed to NVRHI.
     ("Donut_SetNvrhiMessageCallback", "callback"),
     ("Donut_InitPagedImageSet", "device"),
-    ("Donut_CopyObjModelMeshIndices", "dst"),
-    ("Donut_CopyObjModelMeshVertices", "dst"),
-    ("Donut_ParseObjModel", "data"),
-    ("Donut_CopyPbrtMeshIndices", "dst"),
-    ("Donut_DecodeWicImageRGBA8", "dst"),
     ("Donut_CopyPbrtMeshMaterial", "dst"),
-    ("Donut_CopyPbrtMeshVertices", "dst"),
     ("Donut_FillLightConstants", "dst"),
     ("Donut_FillPlanarViewConstants", "dst"),
-    ("Donut_GetCameraDirection", "dst"),
-    ("Donut_GetCameraPosition", "dst"),
-    ("Donut_GetCameraUp", "dst"),
-    ("Donut_GetCameraWorldToView", "dst"),
-    ("Donut_GetNodeBoundingBox", "dst"),
-    ("Donut_GetSceneCameraViewToWorld", "dst"),
-    ("Donut_GetSceneCameraWorldToView", "dst"),
-    ("Donut_GetSceneLoadingStats", "dst"),
-    ("Donut_GetSceneNodePosition", "dst"),
     ("Donut_GetSharedTextureHandle", "*"),
-    ("Donut_GetTemporalPixelOffset", "dst"),
-    ("Donut_ImGuiDragFloat3", "values"),
     ("Donut_ReadBuffer", "dst"),
-    ("Donut_ReadBackBufferRGBA8", "dst"),
-    ("Donut_ReadPixelUInts", "dst"),
     ("Donut_ReadTextureLevel", "dst"),
     ("Donut_StoreBufferDeviceAddress", "dst"),
     ("Donut_StoreInt32", "dst"),
@@ -320,10 +302,15 @@ def compare(where, cpp_type, ts_type, enums, problems):
 
 
 def fixable(cpp_type, ts_type):
-    """The handle type an Opaque declaration should become, if that's the only problem."""
+    """The handle or Ref<T> type an Opaque declaration should become, if that's the only problem."""
     base = ts_type[:-len(" | null")] if ts_type.endswith(" | null") else ts_type
-    if base == "Opaque" and cpp_type.endswith("*") and cpp_type[:-1] in HANDLES:
+    if base != "Opaque":
+        return None
+    if cpp_type.endswith("*") and cpp_type[:-1] in HANDLES:
         return HANDLES[cpp_type[:-1]]
+    expected = TYPES.get(cpp_type, set())
+    if len(expected) == 1 and next(iter(expected)).startswith("Ref<"):
+        return next(iter(expected))
     return None
 
 
@@ -362,6 +349,14 @@ def check(root, strict, fixes=None):
     for name in sorted(set(ts) - set(cpp)):
         path, line, _, _ = ts[name]
         problems.append(f"{path}:{line}: {name} has no C++ definition")
+
+    for name, param in sorted(RAW_MEMORY):
+        if name not in cpp:
+            problems.append(f"RAW_MEMORY lists {name}, which C++ doesn't define")
+            continue
+        cpath, cline, cret, cparams = cpp[name]
+        if (cret if param == "*" else dict((n, t) for t, n in cparams).get(param)) != "void*":
+            problems.append(f"{cpath}:{cline}: RAW_MEMORY lists {name} '{param}', which isn't void*")
 
     used = set()
     for name in sorted(set(cpp) & set(ts)):
@@ -429,7 +424,7 @@ def check(root, strict, fixes=None):
 
 
 def apply_fixes(root, fixes):
-    """Rewrites the Opaque declarations `fixes` lists with their handle types."""
+    """Rewrites the Opaque declarations `fixes` lists with their handle or Ref<T> types."""
     path = os.path.join(root, "core", "donut_interop.d.ts")
     with open(path, encoding="utf-8") as f:
         lines = f.read().split("\n")

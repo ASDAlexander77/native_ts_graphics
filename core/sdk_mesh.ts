@@ -24,7 +24,7 @@ export class SdkMesh {
     // Donut_GetBinaryFileData; byteSize bytes, copied), checked as DirectXTK's Model::CreateFromSDKMESH
     // checks it; its buffers, meshes, subsets, materials and frames as the file has them. Null (after
     // printing why) on failure; free it with Donut_DestroySdkMesh. Strings are valid as long as the mesh.
-    static load(data: Opaque, byteSize: int): SdkMesh {
+    static load(data: Ref<u8>, byteSize: int): SdkMesh {
         return new SdkMesh(Donut_LoadSdkMesh(data, byteSize));
     }
 
@@ -117,7 +117,7 @@ export class SdkMesh {
         return Donut_GetSdkMeshMeshSubset(this.handle, mesh, index);
     }
 
-    copyMeshBounds(mesh: int, dst: Opaque): void {
+    copyMeshBounds(mesh: int, dst: Ref<f32>): void {
         Donut_CopySdkMeshMeshBounds(this.handle, mesh, dst);
     }
 
@@ -163,7 +163,7 @@ export class SdkMesh {
         return Donut_GetSdkMeshMaterialTexture(this.handle, material, which);
     }
 
-    copyMaterialColors(material: int, dst: Opaque): void {
+    copyMaterialColors(material: int, dst: Ref<f32>): void {
         Donut_CopySdkMeshMaterialColors(this.handle, material, dst);
     }
 
@@ -185,7 +185,7 @@ export class SdkMesh {
         return Donut_GetSdkMeshFrameParent(this.handle, frame);
     }
 
-    copyFrameMatrix(frame: int, dst: Opaque): void {
+    copyFrameMatrix(frame: int, dst: Ref<f32>): void {
         Donut_CopySdkMeshFrameMatrix(this.handle, frame, dst);
     }
 }

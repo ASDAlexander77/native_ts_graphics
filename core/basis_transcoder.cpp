@@ -60,7 +60,7 @@ extern "C"
     // the Vulkan-Samples framework's ktxTexture2_TranscodeBasis. stats gets the time the transcoding
     // took, in milliseconds, and the transcoded bytes (Ref of a `let` f32 array of 2). Returns null
     // (after printing why) on failure; free it with Donut_DestroyTranscodedTexture.
-    DONUT_API TranscodedTexture* Donut_TranscodeKtx2(const void* data, int byteSize, int format, float* stats)
+    DONUT_API TranscodedTexture* Donut_TranscodeKtx2(const uint8_t* data, int byteSize, int format, float* stats)
     {
         static std::once_flag initialized;
         std::call_once(initialized, [] { basist::basisu_transcoder_init(); });

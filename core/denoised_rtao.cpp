@@ -334,14 +334,14 @@ extern "C"
 
     // Copies a mesh's vertices into dst: 11 floats each (position, normal, texture coordinates,
     // tangent; 44 bytes, the sample's VertexPositionNormalTextureTangent).
-    DONUT_API void Donut_CopyPbrtMeshVertices(PbrtScene* scene, int mesh, void* dst)
+    DONUT_API void Donut_CopyPbrtMeshVertices(PbrtScene* scene, int mesh, float* dst)
     {
         const auto& vertices = scene->meshes[mesh].vertices;
         memcpy(dst, vertices.data(), vertices.size() * sizeof(VertexPositionNormalTextureTangent));
     }
 
     // Copies a mesh's 32-bit indices into dst.
-    DONUT_API void Donut_CopyPbrtMeshIndices(PbrtScene* scene, int mesh, void* dst)
+    DONUT_API void Donut_CopyPbrtMeshIndices(PbrtScene* scene, int mesh, int* dst)
     {
         const auto& indices = scene->meshes[mesh].indices;
         memcpy(dst, indices.data(), indices.size() * sizeof(UINT));
@@ -380,7 +380,7 @@ extern "C"
     // the sample (its JPEG decoder differs a little from Donut's): width x height x 4 bytes into
     // dst (Ref of a `let` int array element, room for width x height ints), or with dst null only
     // the size. Returns width | height << 16, 0 on failure.
-    DONUT_API int Donut_DecodeWicImageRGBA8(const char* path, void* dst)
+    DONUT_API int Donut_DecodeWicImageRGBA8(const char* path, int* dst)
     {
         static bool comInitialized = false;
         if (!comInitialized)
@@ -406,7 +406,7 @@ extern "C"
             SUCCEEDED(factory->CreateFormatConverter(&converter)) &&
             SUCCEEDED(converter->Initialize(frame, GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeErrorDiffusion, nullptr, 0, WICBitmapPaletteTypeMedianCut)))
         {
-            if (dst == nullptr || SUCCEEDED(converter->CopyPixels(nullptr, width * 4, width * height * 4, static_cast<BYTE*>(dst))))
+            if (dst == nullptr || SUCCEEDED(converter->CopyPixels(nullptr, width * 4, width * height * 4, reinterpret_cast<BYTE*>(dst))))
                 result = static_cast<int>(width | (height << 16));
         }
         if (converter) converter->Release();

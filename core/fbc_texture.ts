@@ -26,14 +26,14 @@ export class FbcTexture {
     // levels in the sample's CPU compressor layout (16-byte aligned, natural pitches, 2x2 and 1x1
     // replicated to 4x4; X8 alpha read as 255). A null handle on failure; free it with
     // Donut_DestroyFbcTexture.
-    static decodeDds(data: Opaque, byteSize: int): FbcTexture {
+    static decodeDds(data: Ref<u8>, byteSize: int): FbcTexture {
         return new FbcTexture(Donut_FbcDecodeDds(data, byteSize));
     }
 
     // The sample's CPU compression of such an image into BC1_UNORM, BC3_UNORM or BC5_UNORM: its top
     // level alone, then every level; stats gets the milliseconds of each (Ref of a `let` f32 array
     // of 2). A null handle on failure; free it with Donut_DestroyFbcTexture.
-    compressCpu(format: Format, stats: Opaque): FbcTexture {
+    compressCpu(format: Format, stats: Ref<f32>): FbcTexture {
         return new FbcTexture(Donut_FbcCompressCpu(this.handle, format, stats));
     }
 

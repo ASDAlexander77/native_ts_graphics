@@ -216,7 +216,7 @@ extern "C"
 {
     // A meshlet model file in memory (byteSize bytes, copied), checked as the samples' loader checks
     // it. Null (after printing why) on failure; free it with Donut_DestroyMeshletModel.
-    DONUT_API MeshletModel* Donut_LoadMeshletModel(const void* data, int byteSize)
+    DONUT_API MeshletModel* Donut_LoadMeshletModel(const uint8_t* data, int byteSize)
     {
         auto fail = [](const char* reason) -> MeshletModel*
         {

@@ -26,7 +26,7 @@ export class MeshletModel {
     // vertex indices, packed primitives (three 10-bit indices a uint), meshlet subsets (offset, count)
     // and per-meshlet culling data. A file in memory (byteSize bytes, copied), checked as the samples'
     // loader checks it; null (after printing why) on failure. Free it with Donut_DestroyMeshletModel.
-    static load(data: Opaque, byteSize: int): MeshletModel {
+    static load(data: Ref<u8>, byteSize: int): MeshletModel {
         return new MeshletModel(Donut_LoadMeshletModel(data, byteSize));
     }
 
@@ -97,7 +97,7 @@ export class MeshletModel {
     }
 
     // The bounding sphere (center, radius: 4 floats into dst) of a mesh, or with mesh -1 of the model.
-    copyBoundingSphere(mesh: int, dst: Opaque): void {
+    copyBoundingSphere(mesh: int, dst: Ref<f32>): void {
         Donut_CopyMeshletModelBoundingSphere(this.handle, mesh, dst);
     }
 }

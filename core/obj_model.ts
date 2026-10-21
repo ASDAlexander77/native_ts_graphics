@@ -31,7 +31,7 @@ export class ObjModel {
     }
 
     // Parses an OBJ file's text (byteSize bytes from data, e.g. a binary file's) into the loader.
-    parse(data: Opaque, byteSize: int): void {
+    parse(data: Ref<u8>, byteSize: int): void {
         Donut_ParseObjModel(this.handle, data, byteSize);
     }
 
@@ -47,11 +47,11 @@ export class ObjModel {
 
     // The mesh's vertices into dst (Ref of an f32 array element): 9 floats each, position, normal and
     // uv as float3s (36 bytes); its 32-bit indices (Ref of an int array element).
-    copyMeshVertices(dst: Opaque): void {
+    copyMeshVertices(dst: Ref<f32>): void {
         Donut_CopyObjModelMeshVertices(this.handle, dst);
     }
 
-    copyMeshIndices(dst: Opaque): void {
+    copyMeshIndices(dst: Ref<int>): void {
         Donut_CopyObjModelMeshIndices(this.handle, dst);
     }
 }

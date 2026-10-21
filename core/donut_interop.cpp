@@ -5280,14 +5280,14 @@ extern "C"
     }
 
     // A primitive's vertices (8 floats each) into dst, e.g. Ref of an f32 array element.
-    DONUT_API void Donut_CopyGltfModelVertices(GltfModel* gltfModel, int primitive, void* dst)
+    DONUT_API void Donut_CopyGltfModelVertices(GltfModel* gltfModel, int primitive, float* dst)
     {
         const std::vector<float>& vertices = gltfModel->primitives[primitive].vertices;
         memcpy(dst, vertices.data(), vertices.size() * sizeof(float));
     }
 
     // A primitive's indices into dst, e.g. Ref of an int array element.
-    DONUT_API void Donut_CopyGltfModelIndices(GltfModel* gltfModel, int primitive, void* dst)
+    DONUT_API void Donut_CopyGltfModelIndices(GltfModel* gltfModel, int primitive, int* dst)
     {
         const std::vector<uint32_t>& indices = gltfModel->primitives[primitive].indices;
         memcpy(dst, indices.data(), indices.size() * sizeof(uint32_t));
@@ -5362,7 +5362,7 @@ extern "C"
 
     // A node's world transform (16 floats, column-major as glm) into dst, e.g. Ref of an f32 array
     // element.
-    DONUT_API void Donut_CopyGltfModelNodeTransform(GltfModel* gltfModel, int node, void* dst)
+    DONUT_API void Donut_CopyGltfModelNodeTransform(GltfModel* gltfModel, int node, float* dst)
     {
         memcpy(dst, gltfModel->nodes[node].transform, sizeof(float) * 16);
     }
@@ -7391,7 +7391,7 @@ extern "C"
 
     // Edits 3 floats at values (Ref of a `let` f32 array element) by dragging; returns non-zero
     // if they changed.
-    DONUT_API int Donut_ImGuiDragFloat3(const char* label, void* values, double speed)
+    DONUT_API int Donut_ImGuiDragFloat3(const char* label, float* values, double speed)
     {
         return ImGui::DragFloat3(label, static_cast<float*>(values), float(speed)) ? 1 : 0;
     }
@@ -7953,7 +7953,7 @@ extern "C"
         return static_cast<int>(scene->GetSceneGraph()->GetMeshInstances().size());
     }
 
-    DONUT_API int Donut_GetSceneNodePosition(donut::engine::Scene* scene, const char* path, void* dst)
+    DONUT_API int Donut_GetSceneNodePosition(donut::engine::Scene* scene, const char* path, float* dst)
     {
         auto node = scene->GetSceneGraph()->FindNode(path);
         if (!node)
@@ -8058,8 +8058,8 @@ extern "C"
     // Inside a render callback: replaces the dynamic mesh's contents with vertexCount vertices
     // (positions: 3 floats each, texCoords: 2 floats each) and indexCount uint indices (at most the
     // sizes it was created with), and rebuilds its BLAS.
-    DONUT_API void Donut_UpdateDynamicMesh(FrameContext* frame, DynamicMesh* dynamicMesh, const void* positions, const void* texCoords, int vertexCount,
-        const void* indices, int indexCount)
+    DONUT_API void Donut_UpdateDynamicMesh(FrameContext* frame, DynamicMesh* dynamicMesh, const float* positions, const float* texCoords, int vertexCount,
+        const int* indices, int indexCount)
     {
         using donut::engine::VertexAttribute;
 
@@ -8193,7 +8193,7 @@ extern "C"
     // translation in the last column, as Vulkan's VkTransformMatrixKHR) and instance flags
     // (nvrhi::rt::InstanceFlags bits, e.g. 1 = no triangle culling).
     DONUT_API void Donut_AddTopLevelASInstanceWithTransform(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
-        int flags, const void* transform)
+        int flags, const float* transform)
     {
         nvrhi::rt::InstanceDesc instanceDesc;
         instanceDesc.bottomLevelAS = bottomLevelAS;
@@ -8207,7 +8207,7 @@ extern "C"
     // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex, Vulkan's
     // instanceShaderBindingTableRecordOffset): which of the shader table's hit groups its hits run.
     DONUT_API void Donut_AddTopLevelASInstanceWithHitGroup(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
-        int hitGroupIndex, int flags, const void* transform)
+        int hitGroupIndex, int flags, const float* transform)
     {
         Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs, bottomLevelAS, instanceMask, instanceID, flags, transform);
         sceneAccelStructs->pendingInstances.back().instanceContributionToHitGroupIndex =
@@ -8646,12 +8646,12 @@ extern "C"
     }
 
     // The camera's forward / up direction, as 3 floats into dst.
-    DONUT_API void Donut_GetCameraDirection(donut::app::BaseCamera* camera, void* dst)
+    DONUT_API void Donut_GetCameraDirection(donut::app::BaseCamera* camera, float* dst)
     {
         memcpy(dst, &camera->GetDir(), sizeof(dm::float3));
     }
 
-    DONUT_API void Donut_GetCameraUp(donut::app::BaseCamera* camera, void* dst)
+    DONUT_API void Donut_GetCameraUp(donut::app::BaseCamera* camera, float* dst)
     {
         memcpy(dst, &camera->GetUp(), sizeof(dm::float3));
     }
@@ -8702,7 +8702,7 @@ extern "C"
     }
 
     // Writes the camera's world-to-view matrix to dst: 16 floats, row-major, row-vector convention.
-    DONUT_API void Donut_GetCameraWorldToView(donut::app::BaseCamera* camera, void* dst)
+    DONUT_API void Donut_GetCameraWorldToView(donut::app::BaseCamera* camera, float* dst)
     {
         const dm::float4x4 m = dm::affineToHomogeneous(camera->GetWorldToViewMatrix());
         memcpy(dst, &m, sizeof(m));
@@ -8824,8 +8824,8 @@ extern "C"
     // a normal and a tangent (uint each, snorm8-packed as by donut::math::vectorToSnorm8); then
     // indexCount uint indices. Records the uploads into an open command list.
     DONUT_API donut::engine::MeshInfo* Donut_CreateMesh(App* app, nvrhi::ICommandList* commandList, const char* name, donut::engine::Material* material,
-        const void* positions, const void* texCoords, const void* normals, const void* tangents, int vertexCount,
-        const void* indices, int indexCount)
+        const float* positions, const float* texCoords, const int* normals, const int* tangents, int vertexCount,
+        const int* indices, int indexCount)
     {
         using namespace donut::engine;
 
@@ -8870,7 +8870,7 @@ extern "C"
         geometry->numVertices = static_cast<uint32_t>(vertexCount);
 
         dm::box3 bounds = dm::box3::empty();
-        const auto* vertexPositions = static_cast<const dm::float3*>(positions);
+        const auto* vertexPositions = reinterpret_cast<const dm::float3*>(positions);
         for (int i = 0; i < vertexCount; i++)
             bounds |= vertexPositions[i];
 
@@ -9031,7 +9031,7 @@ extern "C"
 
     // Sets the view's world-to-view and projection matrices (16 floats each, row-major, row-vector
     // convention, as donut::math builds them) and its viewport of width x height pixels.
-    DONUT_API void Donut_SetPlanarView(donut::engine::IView* view, const void* viewMatrix, const void* projMatrix, int width, int height)
+    DONUT_API void Donut_SetPlanarView(donut::engine::IView* view, const float* viewMatrix, const float* projMatrix, int width, int height)
     {
         auto* planarView = static_cast<donut::engine::PlanarView*>(view);
         planarView->SetViewport(nvrhi::Viewport(float(width), float(height)));
@@ -10380,7 +10380,7 @@ extern "C"
 
     // Loading progress as 4 ints into dst: objects loaded, objects total, textures loaded,
     // textures requested.
-    DONUT_API void Donut_GetSceneLoadingStats(SceneLoader* sceneLoader, void* dst)
+    DONUT_API void Donut_GetSceneLoadingStats(SceneLoader* sceneLoader, int* dst)
     {
         App* a = sceneLoader->app;
         const auto& stats = donut::engine::Scene::GetLoadingStats();
@@ -10469,13 +10469,13 @@ extern "C"
 
     // The camera's world-to-view / view-to-world matrix: 16 floats into dst (row-major,
     // row-vector convention).
-    DONUT_API void Donut_GetSceneCameraWorldToView(donut::engine::SceneCamera* sceneCamera, void* dst)
+    DONUT_API void Donut_GetSceneCameraWorldToView(donut::engine::SceneCamera* sceneCamera, float* dst)
     {
         const dm::float4x4 m = dm::affineToHomogeneous(sceneCamera->GetWorldToViewMatrix());
         memcpy(dst, &m, sizeof(m));
     }
 
-    DONUT_API void Donut_GetSceneCameraViewToWorld(donut::engine::SceneCamera* sceneCamera, void* dst)
+    DONUT_API void Donut_GetSceneCameraViewToWorld(donut::engine::SceneCamera* sceneCamera, float* dst)
     {
         const dm::float4x4 m = dm::affineToHomogeneous(sceneCamera->GetViewToWorldMatrix());
         memcpy(dst, &m, sizeof(m));
@@ -10496,7 +10496,7 @@ extern "C"
     }
 
     // World-space bounds of a node and its children, as 6 floats into dst: min x, y, z, max x, y, z.
-    DONUT_API void Donut_GetNodeBoundingBox(donut::engine::SceneGraphNode* node, void* dst)
+    DONUT_API void Donut_GetNodeBoundingBox(donut::engine::SceneGraphNode* node, float* dst)
     {
         const dm::box3& bounds = node->GetGlobalBoundingBox();
         const float values[6] = { bounds.m_mins.x, bounds.m_mins.y, bounds.m_mins.z, bounds.m_maxs.x, bounds.m_maxs.y, bounds.m_maxs.z };
@@ -10599,7 +10599,7 @@ extern "C"
 
     // Donut_SetPlanarView with the projection offset by a sub-pixel jitter (for temporal
     // anti-aliasing), in pixels.
-    DONUT_API void Donut_SetPlanarViewJittered(donut::engine::IView* view, const void* viewMatrix, const void* projMatrix, int width, int height,
+    DONUT_API void Donut_SetPlanarViewJittered(donut::engine::IView* view, const float* viewMatrix, const float* projMatrix, int width, int height,
         double pixelOffsetX, double pixelOffsetY)
     {
         auto* planarView = static_cast<donut::engine::PlanarView*>(view);
@@ -10612,7 +10612,7 @@ extern "C"
 
     // Sets a stereo view over width x height pixels: the left eye in the left half, the right
     // eye in the right half, sharing one projection (matrices as for Donut_SetPlanarView).
-    DONUT_API void Donut_SetStereoView(donut::engine::IView* view, const void* leftViewMatrix, const void* rightViewMatrix, const void* projMatrix,
+    DONUT_API void Donut_SetStereoView(donut::engine::IView* view, const float* leftViewMatrix, const float* rightViewMatrix, const float* projMatrix,
         int width, int height, double pixelOffsetX, double pixelOffsetY)
     {
         auto* stereoView = static_cast<donut::engine::StereoPlanarView*>(view);
@@ -10653,7 +10653,7 @@ extern "C"
     }
 
     // The camera's position, as 3 floats into dst.
-    DONUT_API void Donut_GetCameraPosition(donut::app::BaseCamera* camera, void* dst)
+    DONUT_API void Donut_GetCameraPosition(donut::app::BaseCamera* camera, float* dst)
     {
         memcpy(dst, &camera->GetPosition(), sizeof(dm::float3));
     }
@@ -11622,7 +11622,7 @@ extern "C"
     }
 
     // This frame's sub-pixel jitter, as 2 floats into dst (for Donut_SetPlanarViewJittered).
-    DONUT_API void Donut_GetTemporalPixelOffset(donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, void* dst)
+    DONUT_API void Donut_GetTemporalPixelOffset(donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, float* dst)
     {
         const dm::float2 offset = temporalAntiAliasingPass->GetCurrentPixelOffset();
         memcpy(dst, &offset, sizeof(offset));
@@ -11785,7 +11785,7 @@ extern "C"
     }
 
     // The captured pixel as 4 ints into dst; waits for the GPU if needed.
-    DONUT_API void Donut_ReadPixelUInts(donut::render::PixelReadbackPass* pixelReadbackPass, void* dst)
+    DONUT_API void Donut_ReadPixelUInts(donut::render::PixelReadbackPass* pixelReadbackPass, int* dst)
     {
         const dm::uint4 value = pixelReadbackPass->ReadUInts();
         memcpy(dst, &value, sizeof(value));

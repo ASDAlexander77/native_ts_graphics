@@ -82,7 +82,7 @@ export class App {
     // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
     // with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst (pixelCount
     // ints; Ref of a `let` int array element). 0 on failure or for back buffers not 8-bit RGBA / BGRA.
-    readBackBufferRGBA8(dst: Opaque, pixelCount: int): int {
+    readBackBufferRGBA8(dst: Ref<int>, pixelCount: int): int {
         return Donut_ReadBackBufferRGBA8(this.handle, dst, pixelCount);
     }
 
@@ -316,7 +316,7 @@ export class App {
     // conservativePointAndLineRasterization, degenerateTrianglesRasterized, degenerateLinesRasterized,
     // fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage. 0 (dst
     // untouched) on other graphics APIs or without the extension.
-    getVulkanConservativeRasterizationProperties(dst: Opaque): int {
+    getVulkanConservativeRasterizationProperties(dst: Ref<f32>): int {
         return Donut_GetVulkanConservativeRasterizationProperties(this.handle, dst);
     }
 
@@ -629,7 +629,7 @@ export class App {
 
     // Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
     // levels made of whole tiles, the number of levels packed into the mip tail.
-    getTextureTiling(texture: TextureHandle, dst: Opaque): void {
+    getTextureTiling(texture: TextureHandle, dst: Ref<int>): void {
         Donut_GetTextureTiling(this.handle, texture, dst);
     }
 
@@ -894,7 +894,7 @@ export class App {
     // usageCounts (Ref of a `let` int array) holds numUsageCounts entries of three ints, how many OMMs
     // the array has of a subdivision level and format (D3D12's histogram). buildFlags:
     // nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast trace, 2 fast build). Null on failure.
-    createOpacityMicromap(commandList: CommandList, inputBuffer: BufferHandle, inputOffset: int, perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Opaque, numUsageCounts: int, buildFlags: int, debugName: string): OpacityMicromapHandle | null {
+    createOpacityMicromap(commandList: CommandList, inputBuffer: BufferHandle, inputOffset: int, perOmmDescs: BufferHandle, descsOffset: int, usageCounts: Ref<int>, numUsageCounts: int, buildFlags: int, debugName: string): OpacityMicromapHandle | null {
         return Donut_CreateOpacityMicromap(this.handle, commandList.handle, inputBuffer, inputOffset, perOmmDescs, descsOffset, usageCounts, numUsageCounts, buildFlags, debugName);
     }
 
@@ -1222,7 +1222,7 @@ export class App {
     // One geometry, identity instance transform, uploads recorded into an open command list. Per
     // vertex: position (3 x f32), texture coordinates (2 x f32), normal and tangent (int each,
     // packed as by vectorToSnorm8); then indexCount int indices. Arrays: Ref(arr[0]) of `let` arrays.
-    createMesh(commandList: CommandList, name: string, material: Material, positions: Opaque, texCoords: Opaque, normals: Opaque, tangents: Opaque, vertexCount: int, indices: Opaque, indexCount: int): MeshHandle {
+    createMesh(commandList: CommandList, name: string, material: Material, positions: Ref<f32>, texCoords: Ref<f32>, normals: Ref<int>, tangents: Ref<int>, vertexCount: int, indices: Ref<int>, indexCount: int): MeshHandle {
         return Donut_CreateMesh(this.handle, commandList.handle, name, material.handle, positions, texCoords, normals, tangents, vertexCount, indices, indexCount);
     }
 
@@ -1291,7 +1291,7 @@ export class App {
     // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of a
     // `let` int array of 32), largest first (Vulkan's order; D3D12's tier rates); returns their count,
     // 0 without variable rate shading.
-    getFragmentShadingRates(dst: Opaque): int {
+    getFragmentShadingRates(dst: Ref<int>): int {
         return Donut_GetFragmentShadingRates(this.handle, dst);
     }
 
@@ -1337,7 +1337,7 @@ export class App {
     // arguments from rayGenArgs, a miss record, and recordCount hit group records, record i the hit
     // group recordHitGroups[i] (Ref of an int array: indices into the comma-separated hitGroups) with
     // argsSize bytes of local root arguments from recordArgs + i * argsSize. 0 on failure.
-    setD3D12LibraryRtShaderTableRecords(libraryRtPipeline: D3D12LibraryRtPipeline, rayGeneration: string, rayGenArgs: Opaque | null, rayGenArgsSize: int, miss: string, hitGroups: string, recordHitGroups: Opaque, recordCount: int, recordArgs: Opaque, argsSize: int): int {
+    setD3D12LibraryRtShaderTableRecords(libraryRtPipeline: D3D12LibraryRtPipeline, rayGeneration: string, rayGenArgs: Opaque | null, rayGenArgsSize: int, miss: string, hitGroups: string, recordHitGroups: Ref<int>, recordCount: int, recordArgs: Opaque, argsSize: int): int {
         return Donut_SetD3D12LibraryRtShaderTableRecords(this.handle, libraryRtPipeline.handle, rayGeneration, rayGenArgs, rayGenArgsSize, miss, hitGroups, recordHitGroups, recordCount, recordArgs, argsSize);
     }
 
@@ -1555,7 +1555,7 @@ export class App {
 
     // The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
     // make another API's device on the same GPU. 0 if the API doesn't give it.
-    getAdapterLuid(dst: Opaque): int {
+    getAdapterLuid(dst: Ref<int>): int {
         return Donut_GetAdapterLuid(this.handle, dst);
     }
 
@@ -1767,7 +1767,7 @@ export class Frame {
 
     // Valid only inside a render callback: positions (3 x f32 per vertex), texCoords (2 x f32), int
     // indices, as Ref of `let` array elements; rebuilds the mesh's BLAS.
-    updateDynamicMesh(dynamicMesh: DynamicMeshHandle, positions: Opaque, texCoords: Opaque, vertexCount: int, indices: Opaque, indexCount: int): void {
+    updateDynamicMesh(dynamicMesh: DynamicMeshHandle, positions: Ref<f32>, texCoords: Ref<f32>, vertexCount: int, indices: Ref<int>, indexCount: int): void {
         Donut_UpdateDynamicMesh(this.handle, dynamicMesh, positions, texCoords, vertexCount, indices, indexCount);
     }
 
@@ -3066,7 +3066,7 @@ export class SceneLoader {
     }
 
     // 4 ints into dst: objects loaded, objects total, textures loaded, textures requested.
-    getSceneLoadingStats(dst: Opaque): void {
+    getSceneLoadingStats(dst: Ref<int>): void {
         Donut_GetSceneLoadingStats(this.handle, dst);
     }
 }
@@ -3137,7 +3137,7 @@ export class Scene {
     }
 
     // A node's world-space position into dst (3 floats); 0 if there's no node at path ("/Emitter").
-    getNodePosition(path: string, dst: Opaque): int {
+    getNodePosition(path: string, dst: Ref<f32>): int {
         return Donut_GetSceneNodePosition(this.handle, path, dst);
     }
 }
@@ -3229,7 +3229,7 @@ export class Node {
     }
 
     // World-space bounds as 6 floats into dst: min x, y, z, max x, y, z.
-    getBoundingBox(dst: Opaque): void {
+    getBoundingBox(dst: Ref<f32>): void {
         Donut_GetNodeBoundingBox(this.handle, dst);
     }
 
@@ -3339,11 +3339,11 @@ export class SceneCamera {
     }
 
     // 16 floats into dst (row-major, row-vector convention).
-    getWorldToView(dst: Opaque): void {
+    getWorldToView(dst: Ref<f32>): void {
         Donut_GetSceneCameraWorldToView(this.handle, dst);
     }
 
-    getViewToWorld(dst: Opaque): void {
+    getViewToWorld(dst: Ref<f32>): void {
         Donut_GetSceneCameraViewToWorld(this.handle, dst);
     }
 
@@ -3388,13 +3388,13 @@ export class SceneAccelStructs {
     // A BLAS instance with a transform: Ref(arr[0]) of a `let` f32[12], a row-major 3x4 matrix with the
     // translation in the last column (Vulkan's VkTransformMatrixKHR). flags: nvrhi::rt::InstanceFlags bits
     // (1 = no triangle culling).
-    addInstanceWithTransform(bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int, flags: int, transform: Opaque): void {
+    addInstanceWithTransform(bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int, flags: int, transform: Ref<f32>): void {
         Donut_AddTopLevelASInstanceWithTransform(this.handle, bottomLevelAS, instanceMask, instanceID, flags, transform);
     }
 
     // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex): which of
     // the shader table's hit groups its hits run.
-    addInstanceWithHitGroup(bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int, hitGroupIndex: int, flags: int, transform: Opaque): void {
+    addInstanceWithHitGroup(bottomLevelAS: AccelStructHandle, instanceMask: int, instanceID: int, hitGroupIndex: int, flags: int, transform: Ref<f32>): void {
         Donut_AddTopLevelASInstanceWithHitGroup(this.handle, bottomLevelAS, instanceMask, instanceID, hitGroupIndex, flags, transform);
     }
 }
@@ -3467,11 +3467,11 @@ export class Camera {
     }
 
     // Forward / up directions: 3 floats into dst (Ref of a `let` f32 array element).
-    getDirection(dst: Opaque): void {
+    getDirection(dst: Ref<f32>): void {
         Donut_GetCameraDirection(this.handle, dst);
     }
 
-    getUp(dst: Opaque): void {
+    getUp(dst: Ref<f32>): void {
         Donut_GetCameraUp(this.handle, dst);
     }
 
@@ -3508,7 +3508,7 @@ export class Camera {
 
     // World-to-view matrix into dst: Ref(arr[0]) of a `let` f32[16] array, row-major, row-vector
     // convention (as Donut_SetPlanarView takes it).
-    getWorldToView(dst: Opaque): void {
+    getWorldToView(dst: Ref<f32>): void {
         Donut_GetCameraWorldToView(this.handle, dst);
     }
 
@@ -3518,7 +3518,7 @@ export class Camera {
     }
 
     // 3 floats into dst.
-    getPosition(dst: Opaque): void {
+    getPosition(dst: Ref<f32>): void {
         Donut_GetCameraPosition(this.handle, dst);
     }
 }
@@ -3537,7 +3537,7 @@ export class View {
 
     // Matrices: Ref(arr[0]) of `let` f32[16] arrays, row-major, row-vector convention (as the math
     // functions in the examples build them); viewport of width x height pixels.
-    setPlanarView(viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int): void {
+    setPlanarView(viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int): void {
         Donut_SetPlanarView(this.handle, viewMatrix, projMatrix, width, height);
     }
 
@@ -3556,12 +3556,12 @@ export class View {
     }
 
     // Donut_SetPlanarView with a sub-pixel projection jitter, in pixels.
-    setPlanarViewJittered(viewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void {
+    setPlanarViewJittered(viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void {
         Donut_SetPlanarViewJittered(this.handle, viewMatrix, projMatrix, width, height, pixelOffsetX, pixelOffsetY);
     }
 
     // Left eye in the left half of width x height pixels, right eye in the right half.
-    setStereoView(leftViewMatrix: Opaque, rightViewMatrix: Opaque, projMatrix: Opaque, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void {
+    setStereoView(leftViewMatrix: Ref<f32>, rightViewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int, pixelOffsetX: number, pixelOffsetY: number): void {
         Donut_SetStereoView(this.handle, leftViewMatrix, rightViewMatrix, projMatrix, width, height, pixelOffsetX, pixelOffsetY);
     }
 
@@ -3835,7 +3835,7 @@ export class TemporalAntiAliasingPass {
     }
 
     // This frame's jitter, 2 floats into dst.
-    getPixelOffset(dst: Opaque): void {
+    getPixelOffset(dst: Ref<f32>): void {
         Donut_GetTemporalPixelOffset(this.handle, dst);
     }
 
@@ -3873,7 +3873,7 @@ export class PixelReadbackPass {
         return !this.handle;
     }
 
-    readPixelUInts(dst: Opaque): void {
+    readPixelUInts(dst: Ref<int>): void {
         Donut_ReadPixelUInts(this.handle, dst);
     }
 }
@@ -4035,7 +4035,7 @@ export class GltfModel {
     }
 
     // Into dst: Ref(arr[0]) of a `let` f32 array of 8 x the vertex count / int array of the index count.
-    copyVertices(primitive: int, dst: Opaque): void {
+    copyVertices(primitive: int, dst: Ref<f32>): void {
         Donut_CopyGltfModelVertices(this.handle, primitive, dst);
     }
 
@@ -4050,11 +4050,11 @@ export class GltfModel {
         return Donut_GetGltfModelAttributeComponents(this.handle, primitive, name);
     }
 
-    copyAttribute(primitive: int, name: string, dst: Opaque): void {
+    copyAttribute(primitive: int, name: string, dst: Ref<f32>): void {
         Donut_CopyGltfModelAttribute(this.handle, primitive, name, dst);
     }
 
-    copyIndices(primitive: int, dst: Opaque): void {
+    copyIndices(primitive: int, dst: Ref<int>): void {
         Donut_CopyGltfModelIndices(this.handle, primitive, dst);
     }
 
@@ -4064,7 +4064,7 @@ export class GltfModel {
 
     // The name of the primitive's mesh ("" if none).
     // A primitive's material's base color factor (RGBA) into dst (Ref of a `let` f32 array of 4).
-    copyBaseColorFactor(primitive: int, dst: Opaque): void {
+    copyBaseColorFactor(primitive: int, dst: Ref<f32>): void {
         Donut_CopyGltfModelBaseColorFactor(this.handle, primitive, dst);
     }
 
@@ -4110,7 +4110,7 @@ export class GltfModel {
         return Donut_GetGltfModelNodeMesh(this.handle, node);
     }
 
-    copyNodeTransform(node: int, dst: Opaque): void {
+    copyNodeTransform(node: int, dst: Ref<f32>): void {
         Donut_CopyGltfModelNodeTransform(this.handle, node, dst);
     }
 }
@@ -4135,12 +4135,12 @@ export class TriangleBlas {
     // Opaque triangles: indexCount R32_UINT indices at indexByteOffset of indexBuffer, vertexCount
     // RGB32_FLOAT positions vertexStride bytes apart at vertexByteOffset of vertexBuffer (acceleration
     // structure input buffers), transformed by transform (12 floats, 3 rows of 4) or not (null).
-    addGeometry(indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void {
+    addGeometry(indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Ref<f32> | null): void {
         Donut_AddTriangleBlasGeometry(this.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
     }
 
     // Same, with R16_UINT indices.
-    addGeometry16(indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Opaque | null): void {
+    addGeometry16(indexBuffer: BufferHandle, indexByteOffset: int, indexCount: int, vertexBuffer: BufferHandle, vertexByteOffset: int, vertexCount: int, vertexStride: int, transform: Ref<f32> | null): void {
         Donut_AddTriangleBlasGeometry16(this.handle, indexBuffer, indexByteOffset, indexCount, vertexBuffer, vertexByteOffset, vertexCount, vertexStride, transform);
     }
 
@@ -4164,7 +4164,7 @@ export class TriangleBlas {
     // ones the special fully transparent / opaque indices); usageCounts (Ref of a `let` int array)
     // holds numUsageCounts entries of three ints, how many triangles use OMMs of a subdivision level
     // and format (Donut_CountOpacityMicromapUsage; Vulkan's builds need them). The BLAS keeps the array.
-    setGeometryOpacityMicromap(geometryIndex: int, opacityMicromap: OpacityMicromapHandle, ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Opaque, numUsageCounts: int): void {
+    setGeometryOpacityMicromap(geometryIndex: int, opacityMicromap: OpacityMicromapHandle, ommIndexBuffer: BufferHandle, ommIndexOffset: int, ommIndexFormat: Format, usageCounts: Ref<int>, numUsageCounts: int): void {
         Donut_SetTriangleBlasGeometryOpacityMicromap(this.handle, geometryIndex, opacityMicromap, ommIndexBuffer, ommIndexOffset, ommIndexFormat, usageCounts, numUsageCounts);
     }
 
@@ -4476,13 +4476,13 @@ export class BinaryFile {
         return Donut_GetBinaryFileData(this.handle);
     }
 
-    copyBytes(offset: int, count: int, dst: Opaque): void {
+    copyBytes(offset: int, count: int, dst: Ref<int>): void {
         Donut_CopyBinaryFileBytes(this.handle, offset, count, dst);
     }
 
     // count little-endian 32-bit values from byte offset into dst (Ref of a `let` int array element)
     // as ints; those past the end of the file as 0.
-    copyUInts(offset: int, count: int, dst: Opaque): void {
+    copyUInts(offset: int, count: int, dst: Ref<int>): void {
         Donut_CopyBinaryFileUInts(this.handle, offset, count, dst);
     }
 
@@ -4504,7 +4504,7 @@ export class BinaryFile {
     // (indexFormat R16_UINT or R32_UINT) at indexOffset, indexing descCount per-OMM descs at descOffset
     // (as Donut_CreateOpacityMicromap takes them). Writes up to maxEntries entries of three ints (count,
     // subdivision level, format) into dst (Ref of a `let` int array); returns how many there are.
-    countOpacityMicromapUsage(indexOffset: int, indexCount: int, indexFormat: Format, descOffset: int, descCount: int, dst: Opaque, maxEntries: int): int {
+    countOpacityMicromapUsage(indexOffset: int, indexCount: int, indexFormat: Format, descOffset: int, descCount: int, dst: Ref<int>, maxEntries: int): int {
         return Donut_CountOpacityMicromapUsage(this.handle, indexOffset, indexCount, indexFormat, descOffset, descCount, dst, maxEntries);
     }
 }
@@ -4583,7 +4583,7 @@ export class RandomEngine {
     // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
     // (Ref of a `let` f32 array element): one distribution object, as the samples keep one (MSVC's makes
     // values in pairs and keeps the second).
-    normalFloats(mean: number, stddev: number, count: int, dst: Opaque): void {
+    normalFloats(mean: number, stddev: number, count: int, dst: Ref<f32>): void {
         Donut_RandomNormalFloats(this.handle, mean, stddev, count, dst);
     }
 }

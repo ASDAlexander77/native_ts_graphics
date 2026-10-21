@@ -25,7 +25,7 @@ export class TranscodedTexture {
     // or not) transcoded into format, every level, kept on the CPU; stats gets the milliseconds it
     // took and the bytes (Ref of a `let` f32 array of 2). A null handle on failure; free it with
     // Donut_DestroyTranscodedTexture.
-    static transcodeKtx2(data: Opaque, byteSize: int, format: TranscodeFormat, stats: Opaque): TranscodedTexture {
+    static transcodeKtx2(data: Ref<u8>, byteSize: int, format: TranscodeFormat, stats: Ref<f32>): TranscodedTexture {
         return new TranscodedTexture(Donut_TranscodeKtx2(data, byteSize, format, stats));
     }
 

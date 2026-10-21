@@ -292,9 +292,9 @@ extern "C"
 
     // Parses an OBJ file's byteSize bytes of text into the loader, as ObjModelLoader::Load: its
     // objects are added, or continued if their names were met before.
-    DONUT_API void Donut_ParseObjModel(ObjModel* objModel, const void* data, int byteSize)
+    DONUT_API void Donut_ParseObjModel(ObjModel* objModel, const uint8_t* data, int byteSize)
     {
-        std::istringstream stream(std::string(static_cast<const char*>(data), static_cast<size_t>(byteSize)));
+        std::istringstream stream(std::string(reinterpret_cast<const char*>(data), static_cast<size_t>(byteSize)));
         objModel->Load(stream);
     }
 
@@ -313,13 +313,13 @@ extern "C"
     }
 
     // The mesh's vertices into dst: 9 floats each (position, normal, uv as float3s: 36 bytes).
-    DONUT_API void Donut_CopyObjModelMeshVertices(ObjModel* objModel, void* dst)
+    DONUT_API void Donut_CopyObjModelMeshVertices(ObjModel* objModel, float* dst)
     {
         memcpy(dst, objModel->vertices.data(), objModel->vertices.size() * sizeof(Vertex));
     }
 
     // The mesh's 32-bit indices into dst.
-    DONUT_API void Donut_CopyObjModelMeshIndices(ObjModel* objModel, void* dst)
+    DONUT_API void Donut_CopyObjModelMeshIndices(ObjModel* objModel, int* dst)
     {
         memcpy(dst, objModel->indices.data(), objModel->indices.size() * sizeof(uint32_t));
     }

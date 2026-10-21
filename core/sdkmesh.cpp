@@ -223,7 +223,7 @@ extern "C"
     // A SDKMESH file in memory (byteSize bytes, copied), checked as DirectXTK's
     // Model::CreateFromSDKMESH checks it. Null (after printing why) on failure; free it with
     // Donut_DestroySdkMesh.
-    DONUT_API SdkMesh* Donut_LoadSdkMesh(const void* data, int byteSize)
+    DONUT_API SdkMesh* Donut_LoadSdkMesh(const uint8_t* data, int byteSize)
     {
         auto fail = [](const char* reason) -> SdkMesh*
         {

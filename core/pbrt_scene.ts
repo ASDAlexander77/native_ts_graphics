@@ -47,12 +47,12 @@ export class PbrtScene {
 
     // Copies a mesh's vertices into dst (Ref of a `let` f32 array element): 11 floats each (position,
     // normal, texture coordinates, tangent: the sample's VertexPositionNormalTextureTangent).
-    copyMeshVertices(mesh: int, dst: Opaque): void {
+    copyMeshVertices(mesh: int, dst: Ref<f32>): void {
         Donut_CopyPbrtMeshVertices(this.handle, mesh, dst);
     }
 
     // Copies a mesh's 32-bit indices into dst (Ref of a `let` int array element).
-    copyMeshIndices(mesh: int, dst: Opaque): void {
+    copyMeshIndices(mesh: int, dst: Ref<int>): void {
         Donut_CopyPbrtMeshIndices(this.handle, mesh, dst);
     }
 
