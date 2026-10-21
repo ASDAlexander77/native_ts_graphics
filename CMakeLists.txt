@@ -464,6 +464,9 @@ if (NOT ANDROID)
     configure_donut_interop(donut_interop_shared)
     target_compile_definitions(donut_interop_shared PRIVATE DONUT_INTEROP_SHARED)
     target_link_libraries(donut_interop_shared PRIVATE basisu_transcoder)
+    # On Linux a shared library goes to LIBRARY_OUTPUT_DIRECTORY, not bin/ as a DLL does: put it next
+    # to bin/shaders and bin/media too.
+    set_target_properties(donut_interop_shared PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
     # The Agility SDK runtime for the examples whose executables opt into it (see
     # UseAgilitySdkUnderJit): tslang.exe doesn't.
     if (DONUT_D3D_AGILITY_SDK_VERSION)

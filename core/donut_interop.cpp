@@ -21,6 +21,8 @@
 #endif
 #include <windows.h>
 #include <wincodec.h>
+#else
+#include <dlfcn.h>
 #endif
 
 #include <donut/app/ApplicationBase.h>
@@ -586,8 +588,9 @@ namespace
     // Set by Donut_SetExecutablePath; empty means the module's own path (below).
     std::filesystem::path g_ExecutablePath;
 
-    // The module this code is linked into: the example executable, or donut_interop_shared.dll when a
-    // TypeScript file runs under tslang's JIT (where the process is tslang.exe, far from bin/).
+    // The module this code is linked into: the example executable, or donut_interop_shared.dll
+    // (libdonut_interop_shared.so) when a TypeScript file runs under tslang's JIT (where the process
+    // is tslang, far from bin/).
     // Shaders and media are looked up next to it.
     std::filesystem::path GetExecutablePath()
     {
@@ -601,6 +604,10 @@ namespace
         GetModuleFileNameW(module, path, MAX_PATH);
         return std::filesystem::path(path);
 #else
+        // libdonut_interop_shared.so under the JIT: /proc/self/exe would be tslang.
+        Dl_info info = {};
+        if (dladdr(reinterpret_cast<void*>(&GetExecutablePath), &info) && info.dli_fname && info.dli_fname[0])
+            return std::filesystem::absolute(info.dli_fname);
         return std::filesystem::read_symlink("/proc/self/exe");
 #endif
     }
