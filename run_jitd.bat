@@ -1,9 +1,15 @@
-@rem Runs an example under the JIT (run_jit.bat examples/<name>.ts [-- args]), against %D%: donut_interop.dll,
-@rem and input_pass.dll (with the default library it links) for the shared InputPass the example
-@rem imports. From the repo root, where no ../core/input_pass.dll is, so the import reads
-@rem core/input_pass.ts for its declarations.
+@rem Runs an example under the JIT for debugging (run_jitd.bat examples/<name>.ts [-- args]), as
+@rem run_jit.bat but with --jit-native: the JIT cache (__jit_dbg) is linked into a DLL with a PDB by
+@rem lld-link (LLVM\bin), so Visual Studio and WinDbg debug it with symbols and source. It links
+@rem donut_interop.dll's import library and loads the DLL and its dependencies from %D%.
+@setlocal
 @pushd %~dp0
-rem set D=build-dlss/bin
-set D=build/bin
-"tslang.exe" --shared-libs=%D%/donut_interop.dll %* -- -dx12
+rem set B=build-dlss
+set B=build
+set D=%B%/bin
+@rem tslang.exe's folder, with its runtime and GC libraries.
+for %%i in (tslang.exe) do set T=%%~dp$PATH:i
+set PATH=%~dp0%B%\bin;C:\Program Files\LLVM\bin;%PATH%
+"tslang.exe" --jit-native --jit-cache-dir=%~dp0__jit_dbg --tslang-lib-path=%T% --gc-shared-lib-path=%T%gcdll --lib=%B%/donut_interop.lib --shared-libs=%D%/donut_interop.dll %* -- -dx12
 @popd
+@endlocal
