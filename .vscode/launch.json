@@ -16,14 +16,13 @@
             "console": "internalConsole",
             "windows": {
                 // --jit-native links the JIT cache into a DLL + PDB with lld-link (LLVM\bin). It loads
-                // donut_interop.dll and its dependencies from build\bin. donut_interop_jit.lib imports only
-                // the DLL's C API: its own import library also exports CRT inlines (sprintf_s, ...) that
-                // clash with TypeScriptAsyncRuntime.lib's.
+                // donut_interop.dll and its dependencies from build\bin, and links its import library
+                // donut_interop_shared.lib.
                 "args": [
                     "--jit-native", "--jit-cache=true", "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
                     "--tslang-lib-path=C:/Utils/tslang",
                     "--gc-shared-lib-path=C:/Utils/tslang/gcdll",
-                    "--lib=build/donut_interop_jit.lib",
+                    "--lib=build/donut_interop_shared.lib",
                     "--shared-libs=build/bin/donut_interop.dll", "${file}", "--", "-dx12"
                 ],
                 "environment": [

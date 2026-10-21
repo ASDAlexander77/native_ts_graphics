@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 
+#include "donut_api.h"
+
 namespace
 {
     struct Float2 { float x, y; };
@@ -278,19 +280,19 @@ struct ObjModel
 extern "C"
 {
     // An empty OBJ loader. Free it with Donut_DestroyObjModel.
-    ObjModel* Donut_CreateObjModel()
+    DONUT_API ObjModel* Donut_CreateObjModel()
     {
         return new ObjModel();
     }
 
-    void Donut_DestroyObjModel(ObjModel* objModel)
+    DONUT_API void Donut_DestroyObjModel(ObjModel* objModel)
     {
         delete objModel;
     }
 
     // Parses an OBJ file's byteSize bytes of text into the loader, as ObjModelLoader::Load: its
     // objects are added, or continued if their names were met before.
-    void Donut_ParseObjModel(ObjModel* objModel, const void* data, int byteSize)
+    DONUT_API void Donut_ParseObjModel(ObjModel* objModel, const void* data, int byteSize)
     {
         std::istringstream stream(std::string(static_cast<const char*>(data), static_cast<size_t>(byteSize)));
         objModel->Load(stream);
@@ -298,26 +300,26 @@ extern "C"
 
     // The mesh of an object, its positions multiplied by scale: three vertices per triangle and
     // their indices (0, 1, 2, ...). Returns its vertex count, -1 if the object is missing or broken.
-    int Donut_BuildObjModelMesh(ObjModel* objModel, const char* name, double scale)
+    DONUT_API int Donut_BuildObjModelMesh(ObjModel* objModel, const char* name, double scale)
     {
         if (!objModel->GetObjectVerticesAndIndices(name, static_cast<float>(scale)))
             return -1;
         return static_cast<int>(objModel->vertices.size());
     }
 
-    int Donut_GetObjModelMeshIndexCount(ObjModel* objModel)
+    DONUT_API int Donut_GetObjModelMeshIndexCount(ObjModel* objModel)
     {
         return static_cast<int>(objModel->indices.size());
     }
 
     // The mesh's vertices into dst: 9 floats each (position, normal, uv as float3s: 36 bytes).
-    void Donut_CopyObjModelMeshVertices(ObjModel* objModel, void* dst)
+    DONUT_API void Donut_CopyObjModelMeshVertices(ObjModel* objModel, void* dst)
     {
         memcpy(dst, objModel->vertices.data(), objModel->vertices.size() * sizeof(Vertex));
     }
 
     // The mesh's 32-bit indices into dst.
-    void Donut_CopyObjModelMeshIndices(ObjModel* objModel, void* dst)
+    DONUT_API void Donut_CopyObjModelMeshIndices(ObjModel* objModel, void* dst)
     {
         memcpy(dst, objModel->indices.data(), objModel->indices.size() * sizeof(uint32_t));
     }

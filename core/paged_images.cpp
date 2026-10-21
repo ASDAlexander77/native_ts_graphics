@@ -41,6 +41,8 @@
 #include <thread>
 #include <vector>
 
+#include "donut_api.h"
+
 using Microsoft::WRL::ComPtr;
 
 namespace
@@ -956,12 +958,12 @@ extern "C"
     // (core/paged_images.cpp, linked only into the examples that list it): DirectX-Graphics-Samples'
     // D3D12MemoryManagement's paging. Initialize it with Donut_InitPagedImageSet; free it with
     // Donut_DestroyPagedImageSet before the app.
-    PagedImageSet* Donut_CreatePagedImageSet()
+    DONUT_API PagedImageSet* Donut_CreatePagedImageSet()
     {
         return new PagedImageSet();
     }
 
-    void Donut_DestroyPagedImageSet(PagedImageSet* pagedImageSet)
+    DONUT_API void Donut_DestroyPagedImageSet(PagedImageSet* pagedImageSet)
     {
         delete pagedImageSet;
     }
@@ -969,47 +971,47 @@ extern "C"
     // Starts the paging thread and creates the images: a DDS file's (ddsPath, relative to the
     // working directory; empty: none) then generatedCount checkerboards. device is the app's
     // nvrhi::IDevice (Donut_GetNvrhiDevice), a D3D12 one with tiled resources. Returns 0 on failure.
-    int Donut_InitPagedImageSet(PagedImageSet* pagedImageSet, void* device, const char* ddsPath, int generatedCount)
+    DONUT_API int Donut_InitPagedImageSet(PagedImageSet* pagedImageSet, void* device, const char* ddsPath, int generatedCount)
     {
         return pagedImageSet->Init(static_cast<nvrhi::IDevice*>(device), ddsPath, generatedCount) ? 1 : 0;
     }
 
-    int Donut_GetPagedImageCount(PagedImageSet* pagedImageSet)
+    DONUT_API int Donut_GetPagedImageCount(PagedImageSet* pagedImageSet)
     {
         return int(pagedImageSet->images.size());
     }
 
     // An image's size and level count, and NVRHI's handle for its texture (to draw from with an SRV
     // of the levels from Donut_ReferencePagedImage's on).
-    int Donut_GetPagedImageWidth(PagedImageSet* pagedImageSet, int image)
+    DONUT_API int Donut_GetPagedImageWidth(PagedImageSet* pagedImageSet, int image)
     {
         return int(pagedImageSet->images[image]->width);
     }
 
-    int Donut_GetPagedImageHeight(PagedImageSet* pagedImageSet, int image)
+    DONUT_API int Donut_GetPagedImageHeight(PagedImageSet* pagedImageSet, int image)
     {
         return int(pagedImageSet->images[image]->height);
     }
 
-    int Donut_GetPagedImageMipCount(PagedImageSet* pagedImageSet, int image)
+    DONUT_API int Donut_GetPagedImageMipCount(PagedImageSet* pagedImageSet, int image)
     {
         return int(pagedImageSet->images[image]->MipCount());
     }
 
-    nvrhi::ITexture* Donut_GetPagedImageTexture(PagedImageSet* pagedImageSet, int image)
+    DONUT_API nvrhi::ITexture* Donut_GetPagedImageTexture(PagedImageSet* pagedImageSet, int image)
     {
         return pagedImageSet->images[image]->texture;
     }
 
     // The most detailed level resident (the level count: none yet).
-    int Donut_GetPagedImageResidentMip(PagedImageSet* pagedImageSet, int image)
+    DONUT_API int Donut_GetPagedImageResidentMip(PagedImageSet* pagedImageSet, int image)
     {
         return pagedImageSet->images[image]->mostDetailedMipResident;
     }
 
     // Starts a frame of the render thread: the previous one's commands, submitted by now, are
     // marked on the graphics queue (the paging thread waits for that before evicting what it drew).
-    void Donut_BeginPagedImageFrame(PagedImageSet* pagedImageSet)
+    DONUT_API void Donut_BeginPagedImageFrame(PagedImageSet* pagedImageSet)
     {
         PagedImageSet* s = pagedImageSet;
         if (s->frameNumber > 0)
@@ -1020,7 +1022,7 @@ extern "C"
     // An image's visible level (on screen at the scene camera's zoom) and level to prefetch
     // (UNDEFINED, 15: none), from the render thread; the paging thread reprioritizes it when they
     // change.
-    void Donut_SetPagedImageMips(PagedImageSet* pagedImageSet, int image, int visibleMip, int prefetchMip)
+    DONUT_API void Donut_SetPagedImageMips(PagedImageSet* pagedImageSet, int image, int visibleMip, int prefetchMip)
     {
         PagedImage* r = pagedImageSet->images[image].get();
         if (r->visibleMip != visibleMip || r->prefetchMip != prefetchMip)
@@ -1034,7 +1036,7 @@ extern "C"
     // ReferenceResource: the level this frame draws an image from for the requested one: no more
     // detailed than resident or the trimming restriction allows; the paging thread won't evict its
     // heap until the GPU has finished this frame.
-    int Donut_ReferencePagedImage(PagedImageSet* pagedImageSet, int image, int requestedMip)
+    DONUT_API int Donut_ReferencePagedImage(PagedImageSet* pagedImageSet, int image, int requestedMip)
     {
         PagedImage* r = pagedImageSet->images[image].get();
         uint8_t requested = std::min(uint8_t(requestedMip), uint8_t(r->MipCount() - 1));
@@ -1047,31 +1049,31 @@ extern "C"
 
     // Local video memory usage and budget (bytes), as the paging thread last saw them, the budget
     // override applied.
-    double Donut_GetPagedImageSetUsage(PagedImageSet* pagedImageSet)
+    DONUT_API double Donut_GetPagedImageSetUsage(PagedImageSet* pagedImageSet)
     {
         return double(pagedImageSet->localUsage.load());
     }
 
-    double Donut_GetPagedImageSetBudget(PagedImageSet* pagedImageSet)
+    DONUT_API double Donut_GetPagedImageSetBudget(PagedImageSet* pagedImageSet)
     {
         return double(pagedImageSet->localBudget.load());
     }
 
     // The budget the paging thread keeps to instead of the kernel's (bytes; 0: the kernel's).
-    void Donut_SetPagedImageSetBudgetOverride(PagedImageSet* pagedImageSet, double bytes)
+    DONUT_API void Donut_SetPagedImageSetBudgetOverride(PagedImageSet* pagedImageSet, double bytes)
     {
         pagedImageSet->localBudgetOverride = uint64_t(bytes);
         SetEvent(pagedImageSet->wakeBudget);
     }
 
-    double Donut_GetPagedImageSetBudgetOverride(PagedImageSet* pagedImageSet)
+    DONUT_API double Donut_GetPagedImageSetBudgetOverride(PagedImageSet* pagedImageSet)
     {
         return double(pagedImageSet->localBudgetOverride.load());
     }
 
     // Waits (up to timeoutMs) for the paging thread to run out of work, or to wait for a frame to
     // finish (which only the next frames bring). Returns 1 if it did.
-    int Donut_WaitForPagedImagesIdle(PagedImageSet* pagedImageSet, int timeoutMs)
+    DONUT_API int Donut_WaitForPagedImagesIdle(PagedImageSet* pagedImageSet, int timeoutMs)
     {
         PagedImageSet* s = pagedImageSet;
         std::unique_lock<std::mutex> lock(s->idleMutex);

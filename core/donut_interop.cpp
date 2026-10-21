@@ -151,6 +151,8 @@ using namespace donut::math;
 #include <random>
 #include <vector>
 
+#include "donut_api.h"
+
 using donut::app::DeviceManager;
 
 namespace
@@ -2526,21 +2528,21 @@ extern "C"
 
     // Sets it: an object of a tslang class implementing nvrhi::IMessageCallback (core/nvrhi.ts),
     // which the caller keeps alive for as long as the devices live; null for Donut's again.
-    void Donut_SetNvrhiMessageCallback(void* callback)
+    DONUT_API void Donut_SetNvrhiMessageCallback(void* callback)
     {
         g_NvrhiMessageCallback = static_cast<nvrhi::IMessageCallback*>(callback);
     }
 
     // What Donut does with an NVRHI message - logs it, and a Fatal one ends the program - for a
     // callback that passes messages on.
-    void Donut_LogNvrhiMessage(int severity, const char* text)
+    DONUT_API void Donut_LogNvrhiMessage(int severity, const char* text)
     {
         donut::app::DefaultMessageCallback::GetInstance().message(static_cast<nvrhi::MessageSeverity>(severity), text);
     }
 
     // Creates the device and window for graphicsApi (an nvrhi::GraphicsAPI value), with the
     // AppOptions bits in options. Returns null on failure.
-    App* Donut_CreateAppWithOptions(int graphicsApi, const char* title, int width, int height, int options)
+    DONUT_API App* Donut_CreateAppWithOptions(int graphicsApi, const char* title, int width, int height, int options)
     {
         // Console app: log to the console instead of Donut's default modal MessageBox on errors.
         donut::log::ConsoleApplicationMode();
@@ -2842,7 +2844,7 @@ extern "C"
     // Non-zero if shaders' printf output reaches Donut_UpdateShaderPrintfOutput: a Vulkan app
     // created with AppOption_ShaderPrintf where the validation layer is installed (it instruments
     // the shaders and reads their output back). Not D3D, which has no printf in shaders.
-    int Donut_HasShaderPrintf(App* app)
+    DONUT_API int Donut_HasShaderPrintf(App* app)
     {
         return app->printfMessenger ? 1 : 0;
     }
@@ -2850,7 +2852,7 @@ extern "C"
     // Takes the messages of shaders' printf that the validation layer has delivered since the
     // last call (the layer reads them back once the GPU has finished the commands that printed
     // them), returning their count; Donut_GetShaderPrintfLine's lines until the next call.
-    int Donut_UpdateShaderPrintfOutput(App* app)
+    DONUT_API int Donut_UpdateShaderPrintfOutput(App* app)
     {
         std::lock_guard<std::mutex> lock(app->printfMutex);
         app->printfLines.clear();
@@ -2860,7 +2862,7 @@ extern "C"
 
     // The index-th message Donut_UpdateShaderPrintfOutput took (the layer's text, the shader's
     // formatted output at its end); valid until the next Donut_UpdateShaderPrintfOutput.
-    const char* Donut_GetShaderPrintfLine(App* app, int index)
+    DONUT_API const char* Donut_GetShaderPrintfLine(App* app, int index)
     {
         if (index < 0 || size_t(index) >= app->printfLines.size())
             return "";
@@ -2868,14 +2870,14 @@ extern "C"
     }
 
     // IndirectDrawSupport bits: what the app's device does with indirect draws.
-    int Donut_GetIndirectDrawSupport(App* app)
+    DONUT_API int Donut_GetIndirectDrawSupport(App* app)
     {
         return app->indirectDrawSupport;
     }
 
     // Non-zero if pixel shaders can write to UAVs and do atomics on them (Vulkan's
     // fragmentStoresAndAtomics; always on D3D11 and D3D12; 0 for headless apps).
-    int Donut_HasFragmentStoresAndAtomics(App* app)
+    DONUT_API int Donut_HasFragmentStoresAndAtomics(App* app)
     {
         return app->fragmentStoresAndAtomics ? 1 : 0;
     }
@@ -2887,7 +2889,7 @@ extern "C"
     // degenerateTrianglesRasterized, degenerateLinesRasterized,
     // fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage. Returns 0
     // (dst untouched) on other graphics APIs or without the extension.
-    int Donut_GetVulkanConservativeRasterizationProperties(App* app, float* dst)
+    DONUT_API int Donut_GetVulkanConservativeRasterizationProperties(App* app, float* dst)
     {
 #if DONUT_WITH_VULKAN
         App* a = app;
@@ -2917,7 +2919,7 @@ extern "C"
 
     // D3D12's conservative rasterization tier (D3D12_CONSERVATIVE_RASTERIZATION_TIER, 0 for none);
     // 0 on other graphics APIs.
-    int Donut_GetD3D12ConservativeRasterizationTier(App* app)
+    DONUT_API int Donut_GetD3D12ConservativeRasterizationTier(App* app)
     {
 #if DONUT_WITH_DX12
         nvrhi::IDevice* device = app->device();
@@ -2934,7 +2936,7 @@ extern "C"
 
     // Non-zero if textures can be written by the CPU without a copy on the GPU
     // (Donut_CreateHostCopiedTexture): Vulkan with VK_EXT_host_image_copy, D3D12.
-    int Donut_HasHostImageCopy(App* app)
+    DONUT_API int Donut_HasHostImageCopy(App* app)
     {
         return app->hostImageCopy ? 1 : 0;
     }
@@ -2946,7 +2948,7 @@ extern "C"
     // levels written with vkCopyMemoryToImageEXT), D3D12's WriteToSubresource (a texture in a
     // CPU-writable custom heap). It rests as a shader resource. Release it with
     // Donut_ReleaseObject. Null (after logging why) on failure; requires Donut_HasHostImageCopy.
-    HostCopiedTexture* Donut_CreateHostCopiedTexture(App* app, const char* path, int sRGB, const char* debugName)
+    DONUT_API HostCopiedTexture* Donut_CreateHostCopiedTexture(App* app, const char* path, int sRGB, const char* debugName)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -3110,7 +3112,7 @@ extern "C"
     }
 
     // The texture of a Donut_CreateHostCopiedTexture.
-    nvrhi::ITexture* Donut_GetHostCopiedTexture(HostCopiedTexture* hostCopiedTexture)
+    DONUT_API nvrhi::ITexture* Donut_GetHostCopiedTexture(HostCopiedTexture* hostCopiedTexture)
     {
         return hostCopiedTexture->texture;
     }
@@ -3119,20 +3121,20 @@ extern "C"
     // what they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan
     // with sparse residency of 2D images, shaderResourceResidency and sparse binding on the graphics
     // queue; never D3D11.
-    int Donut_HasSparseResidency(App* app)
+    DONUT_API int Donut_HasSparseResidency(App* app)
     {
         return app->sparseResidency ? 1 : 0;
     }
 
     // Same, without options.
-    App* Donut_CreateAppForAPI(int graphicsApi, const char* title, int width, int height)
+    DONUT_API App* Donut_CreateAppForAPI(int graphicsApi, const char* title, int width, int height)
     {
         return Donut_CreateAppWithOptions(graphicsApi, title, width, height, 0);
     }
 
     // Same, with the graphics API picked from the command line (-d3d11, -d3d12, -vk; D3D12 by
     // default on Windows).
-    App* Donut_CreateApp(int argc, const char* const* argv, const char* title, int width, int height)
+    DONUT_API App* Donut_CreateApp(int argc, const char* const* argv, const char* title, int width, int height)
     {
         const nvrhi::GraphicsAPI api = donut::app::GetGraphicsAPIFromCommandLine(argc, argv);
         return Donut_CreateAppForAPI(static_cast<int>(api), title, width, height);
@@ -3142,7 +3144,7 @@ extern "C"
     // the default adapter. Such an app has no passes: run work with Donut_*CommandList. Of the
     // AppOptions bits, the device's apply (ray tracing, compute queue, debug runtime). Returns
     // null on failure.
-    App* Donut_CreateHeadlessAppWithOptions(int graphicsApi, int adapterIndex, int options)
+    DONUT_API App* Donut_CreateHeadlessAppWithOptions(int graphicsApi, int adapterIndex, int options)
     {
         donut::log::ConsoleApplicationMode();
 
@@ -3193,13 +3195,13 @@ extern "C"
     }
 
     // Same, with no options.
-    App* Donut_CreateHeadlessApp(int graphicsApi, int adapterIndex)
+    DONUT_API App* Donut_CreateHeadlessApp(int graphicsApi, int adapterIndex)
     {
         return Donut_CreateHeadlessAppWithOptions(graphicsApi, adapterIndex, 0);
     }
 
     // Lists the adapters for graphicsApi. Returns null (after logging why) on failure.
-    AdapterList* Donut_EnumerateAdapters(int graphicsApi)
+    DONUT_API AdapterList* Donut_EnumerateAdapters(int graphicsApi)
     {
         donut::log::ConsoleApplicationMode();
 
@@ -3223,46 +3225,46 @@ extern "C"
         return list.release();
     }
 
-    int Donut_GetAdapterCount(AdapterList* list)
+    DONUT_API int Donut_GetAdapterCount(AdapterList* list)
     {
         return static_cast<int>(list->adapters.size());
     }
 
-    const char* Donut_GetAdapterName(AdapterList* list, int index)
+    DONUT_API const char* Donut_GetAdapterName(AdapterList* list, int index)
     {
         return list->adapters[index].name.c_str();
     }
 
-    int Donut_GetAdapterMemoryMB(AdapterList* list, int index)
+    DONUT_API int Donut_GetAdapterMemoryMB(AdapterList* list, int index)
     {
         return static_cast<int>(list->adapters[index].dedicatedVideoMemory / (1024 * 1024));
     }
 
     // Names returned by Donut_GetAdapterName are invalid afterwards.
-    void Donut_DestroyAdapterList(AdapterList* list)
+    DONUT_API void Donut_DestroyAdapterList(AdapterList* list)
     {
         delete list;
     }
 
-    const char* Donut_GraphicsAPIToString(int graphicsApi)
+    DONUT_API const char* Donut_GraphicsAPIToString(int graphicsApi)
     {
         return nvrhi::utils::GraphicsAPIToString(static_cast<nvrhi::GraphicsAPI>(graphicsApi));
     }
 
-    int Donut_GetGraphicsAPIFromCommandLine(int argc, const char* const* argv)
+    DONUT_API int Donut_GetGraphicsAPIFromCommandLine(int argc, const char* const* argv)
     {
         return static_cast<int>(donut::app::GetGraphicsAPIFromCommandLine(argc, argv));
     }
 
     // argv[index] of the argv passed to main.
-    const char* Donut_GetArg(const char* const* argv, int index)
+    DONUT_API const char* Donut_GetArg(const char* const* argv, int index)
     {
         return argv[index];
     }
 
     // Names the folder the next app loads its shaders from (bin/shaders/<name>/<api>) in place
     // of the executable's name, which under the JIT is donut_interop. Call before creating the app.
-    void Donut_SetAppName(const char* name)
+    DONUT_API void Donut_SetAppName(const char* name)
     {
         g_AppName = name ? name : "";
     }
@@ -3271,13 +3273,13 @@ extern "C"
     // its name is the app's unless Donut_SetAppName gave one. For an Android app, whose process is
     // the system's app_process: core/android_main.cpp extracts the APK's shaders and media and
     // points this into that folder. Call before creating the app.
-    void Donut_SetExecutablePath(const char* path)
+    DONUT_API void Donut_SetExecutablePath(const char* path)
     {
         g_ExecutablePath = path ? path : "";
     }
 
     // severity is a donut::log::Severity value; messages below it are dropped.
-    void Donut_SetLogMinSeverity(int severity)
+    DONUT_API void Donut_SetLogMinSeverity(int severity)
     {
         donut::log::SetMinSeverity(static_cast<donut::log::Severity>(severity));
     }
@@ -3286,7 +3288,7 @@ extern "C"
     // asked for into the offscreen back buffers instead, each one advancing the time by the same
     // step (Animate, then Render, of every pass, as the device manager's frames), waits for the
     // GPU and returns; Donut_GetCurrentBackBufferIndex is then the last frame's back buffer.
-    void Donut_RunApp(App* app)
+    DONUT_API void Donut_RunApp(App* app)
     {
         OffscreenBackBuffers* offscreen = app->offscreen.get();
         if (!offscreen)
@@ -3329,7 +3331,7 @@ extern "C"
     // frameCount frames with, each frameSeconds long, into back buffers that can be read back
     // (Donut_ReadTextureLevel of Donut_GetBackBuffer); no window, so no input and no title. Also
     // makes stdout unbuffered.
-    void Donut_SetTestMode(int frameCount, double frameSeconds)
+    DONUT_API void Donut_SetTestMode(int frameCount, double frameSeconds)
     {
         g_TestFrameCount = std::max(frameCount, 0);
         g_TestFrameSeconds = frameSeconds;
@@ -3340,7 +3342,7 @@ extern "C"
     // The examples' test options in main's argv: -test renders frameCount frames, frameSeconds each,
     // without a window (Donut_SetTestMode, for the app created next); -testOutput <file> names an
     // image file for the last one (Donut_FinishTest). Non-zero if -test is given.
-    int Donut_ParseTestArgs(int argc, const char* const* argv, int frameCount, double frameSeconds)
+    DONUT_API int Donut_ParseTestArgs(int argc, const char* const* argv, int frameCount, double frameSeconds)
     {
         bool test = false;
         for (int i = 1; i < argc; i++)
@@ -3356,19 +3358,19 @@ extern "C"
     }
 
     // Non-zero for an app created in test mode.
-    int Donut_IsTestMode(App* app)
+    DONUT_API int Donut_IsTestMode(App* app)
     {
         return app->offscreen ? 1 : 0;
     }
 
     // Destroys the app with all its passes and resources; their handles are invalid afterwards.
-    void Donut_DestroyApp(App* app)
+    DONUT_API void Donut_DestroyApp(App* app)
     {
         delete app;
     }
 
     // feature is an nvrhi::Feature value.
-    int Donut_IsFeatureSupported(App* app, int feature)
+    DONUT_API int Donut_IsFeatureSupported(App* app, int feature)
     {
         return app->device()->queryFeatureSupport(static_cast<nvrhi::Feature>(feature)) ? 1 : 0;
     }
@@ -3383,23 +3385,23 @@ extern "C"
         return info;
     }
 
-    int Donut_GetWaveLaneCountMin(App* app)
+    DONUT_API int Donut_GetWaveLaneCountMin(App* app)
     {
         return static_cast<int>(GetWaveLaneCounts(app).minWaveLaneCount);
     }
 
-    int Donut_GetWaveLaneCountMax(App* app)
+    DONUT_API int Donut_GetWaveLaneCountMax(App* app)
     {
         return static_cast<int>(GetWaveLaneCounts(app).maxWaveLaneCount);
     }
 
-    const char* Donut_GetRendererString(App* app)
+    DONUT_API const char* Donut_GetRendererString(App* app)
     {
         return app->deviceManager->GetRendererString();
     }
 
     // The app's nvrhi::IDevice, for code that works with NVRHI directly (e.g. core/paged_images.cpp).
-    void* Donut_GetNvrhiDevice(App* app)
+    DONUT_API void* Donut_GetNvrhiDevice(App* app)
     {
         return app->device();
     }
@@ -3407,7 +3409,7 @@ extern "C"
     // 1 if core/nvrhi.ts can call NVRHI's interfaces in this build: their vtables, member function
     // convention and std::string are MSVC x64's (core/nvrhi_abi.win32.ts) or those of Android's
     // clang and libc++ on x86-64 or AArch64 (core/nvrhi_abi.linux.ts); 0 otherwise.
-    int Donut_CanCallNvrhiDirectly()
+    DONUT_API int Donut_CanCallNvrhiDirectly()
     {
 #if defined(_MSC_VER) && defined(_M_X64)
         return 1;
@@ -3421,7 +3423,7 @@ extern "C"
     // sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple (named as in NVRHI), or -1: its
     // layout depends on the C++ build (std::string's on the CRT), so nvrhi.layoutMatches() compares
     // the two.
-    int Donut_GetNvrhiStructSize(const char* name)
+    DONUT_API int Donut_GetNvrhiStructSize(const char* name)
     {
         std::string_view n = name ? name : "";
         if (n == "BufferDesc")
@@ -3521,7 +3523,7 @@ extern "C"
         return -1;
     }
 
-    void Donut_SetWindowTitle(App* app, const char* title)
+    DONUT_API void Donut_SetWindowTitle(App* app, const char* title)
     {
         if (app->offscreen)
             return;
@@ -3529,7 +3531,7 @@ extern "C"
     }
 
     // Sets "<title> (<graphics API>, <fps> FPS)"; cheap enough to call every frame.
-    void Donut_SetInformativeWindowTitle(App* app, const char* title)
+    DONUT_API void Donut_SetInformativeWindowTitle(App* app, const char* title)
     {
         if (app->offscreen)
             return;
@@ -3537,7 +3539,7 @@ extern "C"
     }
 
     // Same, with extraInfo appended.
-    void Donut_SetInformativeWindowTitleWithInfo(App* app, const char* title, const char* extraInfo)
+    DONUT_API void Donut_SetInformativeWindowTitleWithInfo(App* app, const char* title, const char* extraInfo)
     {
         if (app->offscreen)
             return;
@@ -3546,13 +3548,13 @@ extern "C"
 
     // Apps start with vsync on. The change takes effect at the start of the next frame; on
     // Vulkan it recreates the swap chain, so the passes get onBackBufferResizing.
-    void Donut_SetVsyncEnabled(App* app, int enabled)
+    DONUT_API void Donut_SetVsyncEnabled(App* app, int enabled)
     {
         app->deviceManager->SetVsyncEnabled(enabled != 0);
     }
 
     // Lags Donut_SetVsyncEnabled by up to a frame.
-    int Donut_IsVsyncEnabled(App* app)
+    DONUT_API int Donut_IsVsyncEnabled(App* app)
     {
         return app->deviceManager->IsVsyncEnabled() ? 1 : 0;
     }
@@ -3560,7 +3562,7 @@ extern "C"
     // Makes Donut_RunApp return after the current frame; in test mode too, before the frames it
     // was to render (a test that waits for something, as a scene loading, renders up to an upper
     // bound and stops once it has rendered what it checks).
-    void Donut_CloseWindow(App* app)
+    DONUT_API void Donut_CloseWindow(App* app)
     {
         if (app->offscreen)
         {
@@ -3572,7 +3574,7 @@ extern "C"
 
     // Blocks the calling thread for `milliseconds` (-test waiting on work that runs in real time,
     // as a video's decoding).
-    void Donut_SleepMilliseconds(int milliseconds)
+    DONUT_API void Donut_SleepMilliseconds(int milliseconds)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(std::max(milliseconds, 0)));
     }
@@ -3580,7 +3582,7 @@ extern "C"
     // The mouse cursor's mode (CursorMode): shown, hidden over the window, or hidden and captured
     // (GLFW_CURSOR_DISABLED: the mouse callback then gets unbounded virtual positions, from raw
     // mouse motion where the system has it).
-    void Donut_SetCursorMode(App* app, int mode)
+    DONUT_API void Donut_SetCursorMode(App* app, int mode)
     {
         GLFWwindow* window = app->deviceManager->GetWindow();
         if (!window)
@@ -3592,7 +3594,7 @@ extern "C"
     }
 
     // Moves the mouse cursor to (x, y) in the mouse callback's coordinates.
-    void Donut_SetCursorPosition(App* app, double x, double y)
+    DONUT_API void Donut_SetCursorPosition(App* app, double x, double y)
     {
         donut::app::DeviceManager* deviceManager = app->deviceManager.get();
         // The inverse of DeviceManager::MousePosUpdate's scaling.
@@ -3608,7 +3610,7 @@ extern "C"
     }
 
     // Non-zero while the window has the keyboard focus.
-    int Donut_IsWindowFocused(App* app)
+    DONUT_API int Donut_IsWindowFocused(App* app)
     {
         if (app->offscreen)
             return 1;
@@ -3619,7 +3621,7 @@ extern "C"
 
     // Loads a shader compiled from the example's shaders/<example>.cfg. shaderType is an
     // nvrhi::ShaderType value. Returns null on failure.
-    nvrhi::IShader* Donut_CreateShader(App* app, const char* fileName, const char* entryName, int shaderType)
+    DONUT_API nvrhi::IShader* Donut_CreateShader(App* app, const char* fileName, const char* entryName, int shaderType)
     {
         App* a = app;
         const std::string path = std::string("app/") + fileName;
@@ -3629,7 +3631,7 @@ extern "C"
     }
 
     // Same, for the permutation compiled with -D defineName=defineValue in the .cfg.
-    nvrhi::IShader* Donut_CreateShaderWithDefine(App* app, const char* fileName, const char* entryName, int shaderType,
+    DONUT_API nvrhi::IShader* Donut_CreateShaderWithDefine(App* app, const char* fileName, const char* entryName, int shaderType,
         const char* defineName, const char* defineValue)
     {
         App* a = app;
@@ -3641,7 +3643,7 @@ extern "C"
     }
 
     // Shader library permutation compiled with -T lib -D defineName=defineValue. Returns null on failure.
-    nvrhi::IShaderLibrary* Donut_CreateShaderLibraryWithDefine(App* app, const char* fileName, const char* defineName, const char* defineValue)
+    DONUT_API nvrhi::IShaderLibrary* Donut_CreateShaderLibraryWithDefine(App* app, const char* fileName, const char* defineName, const char* defineValue)
     {
         App* a = app;
         const std::string path = std::string("app/") + fileName;
@@ -3651,7 +3653,7 @@ extern "C"
 
     // Loads a shader library (compiled with -T lib) from the example's shaders/<example>.cfg.
     // Returns null on failure.
-    nvrhi::IShaderLibrary* Donut_CreateShaderLibrary(App* app, const char* fileName)
+    DONUT_API nvrhi::IShaderLibrary* Donut_CreateShaderLibrary(App* app, const char* fileName)
     {
         App* a = app;
         const std::string path = std::string("app/") + fileName;
@@ -3661,7 +3663,7 @@ extern "C"
     // Ray tracing pipeline with one ray generation shader, one miss shader and one triangle hit
     // group made of a closest-hit shader (none if closestHitEntry is empty), all exported from
     // shaderLibrary by entry name, and one global binding layout. Returns null on failure.
-    nvrhi::rt::IPipeline* Donut_CreateRayTracingPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout,
+    DONUT_API nvrhi::rt::IPipeline* Donut_CreateRayTracingPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         int maxPayloadSize)
     {
@@ -3686,7 +3688,7 @@ extern "C"
 
     // Same, with a closest-hit and an any-hit shader in the hit group (either may be ""), and a
     // second global binding layout (e.g. a bindless layout; null for none).
-    nvrhi::rt::IPipeline* Donut_CreateRayTracingPipelineWithLayouts(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout,
+    DONUT_API nvrhi::rt::IPipeline* Donut_CreateRayTracingPipelineWithLayouts(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout,
         const char* rayGenEntry, const char* missEntry, const char* hitGroupName, const char* closestHitEntry,
         const char* anyHitEntry, int maxPayloadSize)
     {
@@ -3716,7 +3718,7 @@ extern "C"
     // Ray tracing pipelines of any shape: a description built up with the Donut_RtPipeline*
     // functions below, then consumed (freed) by Donut_CreateRayTracingPipelineFromDesc.
     // maxRecursionDepth: how deeply hit shaders may trace further rays (1 = no recursion).
-    nvrhi::rt::PipelineDesc* Donut_CreateRayTracingPipelineDesc(int maxPayloadSize, int maxRecursionDepth)
+    DONUT_API nvrhi::rt::PipelineDesc* Donut_CreateRayTracingPipelineDesc(int maxPayloadSize, int maxRecursionDepth)
     {
         auto* desc = new nvrhi::rt::PipelineDesc();
         desc->maxPayloadSize = static_cast<uint32_t>(maxPayloadSize);
@@ -3724,14 +3726,14 @@ extern "C"
         return desc;
     }
 
-    void Donut_RtPipelineAddGlobalBindingLayout(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IBindingLayout* bindingLayout)
+    DONUT_API void Donut_RtPipelineAddGlobalBindingLayout(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IBindingLayout* bindingLayout)
     {
         pipelineDesc->globalBindingLayouts.push_back(
             bindingLayout);
     }
 
     // A ray generation, miss or callable shader (shaderType), exported by its entry name.
-    void Donut_RtPipelineAddShader(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* entryName, int shaderType)
+    DONUT_API void Donut_RtPipelineAddShader(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* entryName, int shaderType)
     {
         pipelineDesc->shaders.push_back({ "",
             shaderLibrary->getShader(entryName, static_cast<nvrhi::ShaderType>(shaderType)),
@@ -3741,7 +3743,7 @@ extern "C"
     // A triangle hit group: closest-hit and any-hit shaders by entry name ("" for none), and an
     // optional local binding layout (D3D12 only; null for none) whose binding sets are given per
     // shader table entry.
-    void Donut_RtPipelineAddHitGroup(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
+    DONUT_API void Donut_RtPipelineAddHitGroup(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
         const char* closestHitEntry, const char* anyHitEntry, nvrhi::IBindingLayout* localBindingLayout)
     {
         auto* library = shaderLibrary;
@@ -3759,7 +3761,7 @@ extern "C"
     // A procedural primitive hit group, for AABB geometries: intersection, closest-hit and any-hit
     // shaders by entry name ("" for no closest-hit / any-hit shader), and an optional local binding
     // layout as above.
-    void Donut_RtPipelineAddProceduralHitGroup(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
+    DONUT_API void Donut_RtPipelineAddProceduralHitGroup(nvrhi::rt::PipelineDesc* pipelineDesc, nvrhi::IShaderLibrary* shaderLibrary, const char* exportName,
         const char* intersectionEntry, const char* closestHitEntry, const char* anyHitEntry, nvrhi::IBindingLayout* localBindingLayout)
     {
         auto* library = shaderLibrary;
@@ -3778,7 +3780,7 @@ extern "C"
 
     // The largest hit attribute structure the shaders report (D3D12's MaxAttributeSizeInBytes;
     // NVRHI's default is 8 bytes, two floats of triangle barycentrics).
-    void Donut_RtPipelineSetMaxAttributeSize(nvrhi::rt::PipelineDesc* pipelineDesc, int byteSize)
+    DONUT_API void Donut_RtPipelineSetMaxAttributeSize(nvrhi::rt::PipelineDesc* pipelineDesc, int byteSize)
     {
         pipelineDesc->maxAttributeSize = static_cast<uint32_t>(byteSize);
     }
@@ -3786,13 +3788,13 @@ extern "C"
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (D3D12's
     // D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS, Vulkan's
     // VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT); off by default.
-    void Donut_RtPipelineSetAllowOpacityMicromaps(nvrhi::rt::PipelineDesc* pipelineDesc, int allow)
+    DONUT_API void Donut_RtPipelineSetAllowOpacityMicromaps(nvrhi::rt::PipelineDesc* pipelineDesc, int allow)
     {
         pipelineDesc->allowOpacityMicromaps = allow != 0;
     }
 
     // Returns null on failure.
-    nvrhi::rt::IPipeline* Donut_CreateRayTracingPipelineFromDesc(App* app, nvrhi::rt::PipelineDesc* pipelineDesc)
+    DONUT_API nvrhi::rt::IPipeline* Donut_CreateRayTracingPipelineFromDesc(App* app, nvrhi::rt::PipelineDesc* pipelineDesc)
     {
         std::unique_ptr<nvrhi::rt::PipelineDesc> desc(pipelineDesc);
         App* a = app;
@@ -3801,25 +3803,25 @@ extern "C"
 
     // An empty shader table of a pipeline, filled with the Donut_ShaderTable* functions below.
     // It keeps the pipeline alive. Returns null on failure.
-    nvrhi::rt::IShaderTable* Donut_CreateEmptyShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline)
+    DONUT_API nvrhi::rt::IShaderTable* Donut_CreateEmptyShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline)
     {
         return app->Own(rayTracingPipeline->createShaderTable());
     }
 
-    void Donut_ShaderTableSetRayGeneration(nvrhi::rt::IShaderTable* shaderTable, const char* exportName)
+    DONUT_API void Donut_ShaderTableSetRayGeneration(nvrhi::rt::IShaderTable* shaderTable, const char* exportName)
     {
         shaderTable->setRayGenerationShader(exportName);
     }
 
     // Returns the miss shader's index (TraceRay's MissShaderIndex).
-    int Donut_ShaderTableAddMiss(nvrhi::rt::IShaderTable* shaderTable, const char* exportName)
+    DONUT_API int Donut_ShaderTableAddMiss(nvrhi::rt::IShaderTable* shaderTable, const char* exportName)
     {
         return shaderTable->addMissShader(exportName);
     }
 
     // Adds an entry for a hit group, with a binding set for its local binding layout (null for
     // none). Returns the entry's index.
-    int Donut_ShaderTableAddHitGroup(nvrhi::rt::IShaderTable* shaderTable, const char* exportName, nvrhi::IBindingSet* localBindingSet)
+    DONUT_API int Donut_ShaderTableAddHitGroup(nvrhi::rt::IShaderTable* shaderTable, const char* exportName, nvrhi::IBindingSet* localBindingSet)
     {
         return shaderTable->addHitGroup(exportName,
             localBindingSet);
@@ -3827,7 +3829,7 @@ extern "C"
 
     // Same as Donut_CreateShaderTable, with caching: NVRHI keeps up to maxCachedVersions copies
     // of the table in GPU memory, instead of re-uploading it every time it's used.
-    nvrhi::rt::IShaderTable* Donut_CreateCachedShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline, const char* rayGenExport,
+    DONUT_API nvrhi::rt::IShaderTable* Donut_CreateCachedShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline, const char* rayGenExport,
         const char* hitGroupExport, const char* missExport, int maxCachedVersions, const char* debugName)
     {
         nvrhi::rt::ShaderTableHandle table = rayTracingPipeline->createShaderTable(
@@ -3842,7 +3844,7 @@ extern "C"
 
     // Shader table of a ray tracing pipeline, with one ray generation shader, one hit group and
     // one miss shader, named by their export names. It keeps the pipeline alive.
-    nvrhi::rt::IShaderTable* Donut_CreateShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline, const char* rayGenExport,
+    DONUT_API nvrhi::rt::IShaderTable* Donut_CreateShaderTable(App* app, nvrhi::rt::IPipeline* rayTracingPipeline, const char* rayGenExport,
         const char* hitGroupExport, const char* missExport)
     {
         nvrhi::rt::ShaderTableHandle table = rayTracingPipeline->createShaderTable();
@@ -3854,7 +3856,7 @@ extern "C"
 
     // Buffer that acceleration structures are built from (vertex or index data), filled with
     // Donut_WriteBuffer. Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateAccelStructInputBuffer(App* app, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateAccelStructInputBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(static_cast<uint64_t>(byteSize))
@@ -3868,7 +3870,7 @@ extern "C"
     }
 
     // Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
-    nvrhi::IBuffer* Donut_CreateAccelStructInputRawBuffer(App* app, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateAccelStructInputRawBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(static_cast<uint64_t>(byteSize))
@@ -3883,7 +3885,7 @@ extern "C"
     }
 
     // Same, that shaders also read as a StructuredBuffer of `count` elements of `stride` bytes.
-    nvrhi::IBuffer* Donut_CreateAccelStructInputStructuredBuffer(App* app, int stride, int count, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateAccelStructInputStructuredBuffer(App* app, int stride, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(stride) * uint64_t(count))
@@ -3899,7 +3901,7 @@ extern "C"
 
     // Same, that compute shaders also write (RWStructuredBuffer): geometry made on the GPU, e.g.
     // vertices a compute shader animates each frame before the BLAS over them is rebuilt.
-    nvrhi::IBuffer* Donut_CreateRWAccelStructInputStructuredBuffer(App* app, int stride, int count, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateRWAccelStructInputStructuredBuffer(App* app, int stride, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(stride) * uint64_t(count))
@@ -3920,7 +3922,7 @@ extern "C"
     // of interleaved vertices). Its build is recorded into an open command list, preferring fast
     // tracing, or if updatable != 0 fast builds and updates (Donut_UpdateTriangleBlas). Returns
     // null on failure.
-    TriangleBlas* Donut_CreateTriangleBlas(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+    DONUT_API TriangleBlas* Donut_CreateTriangleBlas(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
         nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, int updatable, const char* debugName)
     {
         auto triangles = nvrhi::rt::GeometryTriangles()
@@ -3954,7 +3956,7 @@ extern "C"
 
     // Updates an updatable Donut_CreateTriangleBlas BLAS in place from its buffers' current
     // contents (the vertices may move, the counts stay), into an open command list.
-    void Donut_UpdateTriangleBlas(TriangleBlas* triangleBlas, nvrhi::ICommandList* commandList)
+    DONUT_API void Donut_UpdateTriangleBlas(TriangleBlas* triangleBlas, nvrhi::ICommandList* commandList)
     {
         auto* blas = triangleBlas;
         const nvrhi::rt::GeometryDesc& geometry = blas->desc.bottomLevelGeometries[0];
@@ -3964,7 +3966,7 @@ extern "C"
 
     // A bottom-level acceleration structure of several geometries, built up with
     // Donut_AddTriangleBlasGeometry and then built with Donut_BuildTriangleBlas.
-    TriangleBlas* Donut_CreateEmptyTriangleBlas(App* app, const char* debugName)
+    DONUT_API TriangleBlas* Donut_CreateEmptyTriangleBlas(App* app, const char* debugName)
     {
         auto blas = std::make_shared<TriangleBlas>();
         blas->desc.isTopLevel = false;
@@ -4001,7 +4003,7 @@ extern "C"
         triangleBlas->desc.addBottomLevelGeometry(geometry);
     }
 
-    void Donut_AddTriangleBlasGeometry(TriangleBlas* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+    DONUT_API void Donut_AddTriangleBlasGeometry(TriangleBlas* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
         nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
     {
         AddTriangleBlasGeometry(triangleBlas, nvrhi::Format::R32_UINT, indexBuffer, indexByteOffset, indexCount,
@@ -4009,7 +4011,7 @@ extern "C"
     }
 
     // Same, with R16_UINT indices.
-    void Donut_AddTriangleBlasGeometry16(TriangleBlas* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
+    DONUT_API void Donut_AddTriangleBlasGeometry16(TriangleBlas* triangleBlas, nvrhi::IBuffer* indexBuffer, int indexByteOffset, int indexCount,
         nvrhi::IBuffer* vertexBuffer, int vertexByteOffset, int vertexCount, int vertexStride, const float* transform)
     {
         AddTriangleBlasGeometry(triangleBlas, nvrhi::Format::R16_UINT, indexBuffer, indexByteOffset, indexCount,
@@ -4020,7 +4022,7 @@ extern "C"
     // (nvrhi::rt::GeometryAABB: min x y z, max x y z) aabbStride bytes apart from byteOffset of
     // aabbBuffer (created for acceleration structure builds). A BLAS holds triangles or AABBs, not
     // both.
-    void Donut_AddTriangleBlasAabbGeometry(TriangleBlas* triangleBlas, nvrhi::IBuffer* aabbBuffer, int byteOffset, int aabbCount,
+    DONUT_API void Donut_AddTriangleBlasAabbGeometry(TriangleBlas* triangleBlas, nvrhi::IBuffer* aabbBuffer, int byteOffset, int aabbCount,
         int aabbStride)
     {
         auto aabbs = nvrhi::rt::GeometryAABBs()
@@ -4035,7 +4037,7 @@ extern "C"
 
     // An unbuilt BLAS's geometryIndex-th geometry's nvrhi::rt::GeometryFlags (1 opaque, the default;
     // 0 for any-hit shaders to run; 2 no duplicate any-hit invocations).
-    void Donut_SetTriangleBlasGeometryFlags(TriangleBlas* triangleBlas, int geometryIndex, int flags)
+    DONUT_API void Donut_SetTriangleBlasGeometryFlags(TriangleBlas* triangleBlas, int geometryIndex, int flags)
     {
         auto& geometries = triangleBlas->desc.bottomLevelGeometries;
         if (geometryIndex < 0 || size_t(geometryIndex) >= geometries.size())
@@ -4049,7 +4051,7 @@ extern "C"
     // buffer); usageCounts (Ref of an int array) holds numUsageCounts entries of three ints, how
     // many triangles use OMMs of a subdivision level and format (Donut_CountOpacityMicromapUsage).
     // The BLAS keeps the array alive.
-    void Donut_SetTriangleBlasGeometryOpacityMicromap(TriangleBlas* triangleBlas, int geometryIndex, nvrhi::rt::IOpacityMicromap* opacityMicromap,
+    DONUT_API void Donut_SetTriangleBlasGeometryOpacityMicromap(TriangleBlas* triangleBlas, int geometryIndex, nvrhi::rt::IOpacityMicromap* opacityMicromap,
         nvrhi::IBuffer* ommIndexBuffer, int ommIndexOffset, int ommIndexFormat, const int* usageCounts, int numUsageCounts)
     {
         auto* blas = triangleBlas;
@@ -4087,7 +4089,7 @@ extern "C"
     // numUsageCounts entries of three ints, how many OMMs the array has of a subdivision level and
     // format (D3D12's histogram). buildFlags: nvrhi::rt::OpacityMicromapBuildFlags bits (1 fast
     // trace, 2 fast build). Returns null on failure.
-    nvrhi::rt::IOpacityMicromap* Donut_CreateOpacityMicromap(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* inputBuffer, int inputOffset,
+    DONUT_API nvrhi::rt::IOpacityMicromap* Donut_CreateOpacityMicromap(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* inputBuffer, int inputOffset,
         nvrhi::IBuffer* perOmmDescs, int descsOffset, const int* usageCounts, int numUsageCounts, int buildFlags,
         const char* debugName)
     {
@@ -4117,7 +4119,7 @@ extern "C"
 
     // Builds a Donut_CreateOpacityMicromap array again, in place, from its inputs' current contents,
     // into an open command list.
-    void Donut_BuildOpacityMicromap(nvrhi::ICommandList* commandList, nvrhi::rt::IOpacityMicromap* opacityMicromap)
+    DONUT_API void Donut_BuildOpacityMicromap(nvrhi::ICommandList* commandList, nvrhi::rt::IOpacityMicromap* opacityMicromap)
     {
         auto* omm = opacityMicromap;
         commandList->buildOpacityMicromap(omm, omm->getDesc());
@@ -4126,7 +4128,7 @@ extern "C"
     // Creates the BLAS of the geometries added (AccelStructBuildFlags bits: e.g. PreferFastTrace,
     // AllowDataAccess for hit shaders to read its vertex positions) and records its build into an
     // open command list. Returns 0 on failure.
-    int Donut_BuildTriangleBlas(TriangleBlas* triangleBlas, App* app, nvrhi::ICommandList* commandList, int buildFlags)
+    DONUT_API int Donut_BuildTriangleBlas(TriangleBlas* triangleBlas, App* app, nvrhi::ICommandList* commandList, int buildFlags)
     {
         auto* blas = triangleBlas;
         blas->desc.buildFlags = static_cast<nvrhi::rt::AccelStructBuildFlags>(buildFlags);
@@ -4139,7 +4141,7 @@ extern "C"
 
     // Builds a Donut_BuildTriangleBlas BLAS again, in place (not an update), from its geometries'
     // current contents, into an open command list.
-    void Donut_RebuildTriangleBlas(TriangleBlas* triangleBlas, nvrhi::ICommandList* commandList)
+    DONUT_API void Donut_RebuildTriangleBlas(TriangleBlas* triangleBlas, nvrhi::ICommandList* commandList)
     {
         auto* blas = triangleBlas;
         if (blas->accelStruct)
@@ -4149,7 +4151,7 @@ extern "C"
     // Points a BLAS's geometryIndex-th triangle geometry at another vertex buffer (same layout and
     // vertex count, from byte 0), for the next Donut_RebuildTriangleBlas: e.g. ping-ponged vertex
     // buffers a compute shader writes.
-    void Donut_SetTriangleBlasGeometryVertexBuffer(TriangleBlas* triangleBlas, int geometryIndex, nvrhi::IBuffer* vertexBuffer)
+    DONUT_API void Donut_SetTriangleBlasGeometryVertexBuffer(TriangleBlas* triangleBlas, int geometryIndex, nvrhi::IBuffer* vertexBuffer)
     {
         auto& triangles = triangleBlas->desc.bottomLevelGeometries[geometryIndex].geometryData.triangles;
         triangles.vertexBuffer = vertexBuffer;
@@ -4157,14 +4159,14 @@ extern "C"
     }
 
     // For Donut_AddTopLevelASInstanceWithTransform; valid as long as the BLAS.
-    nvrhi::rt::IAccelStruct* Donut_GetTriangleBlasAccelStruct(TriangleBlas* triangleBlas)
+    DONUT_API nvrhi::rt::IAccelStruct* Donut_GetTriangleBlasAccelStruct(TriangleBlas* triangleBlas)
     {
         return triangleBlas->accelStruct.Get();
     }
 
     // Creates a bottom-level acceleration structure of opaque triangles (R32_UINT indices,
     // RGB32_FLOAT vertices) and records its build into an open command list.
-    nvrhi::rt::IAccelStruct* Donut_BuildTriangleBLAS(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexCount,
+    DONUT_API nvrhi::rt::IAccelStruct* Donut_BuildTriangleBLAS(App* app, nvrhi::ICommandList* commandList, nvrhi::IBuffer* indexBuffer, int indexCount,
         nvrhi::IBuffer* vertexBuffer, int vertexCount)
     {
         nvrhi::rt::GeometryDesc geometry;
@@ -4194,7 +4196,7 @@ extern "C"
     // Creates a top-level acceleration structure holding one instance of bottomLevelAS (identity
     // transform, mask 1, counter-clockwise front faces) and records its build into an open
     // command list.
-    nvrhi::rt::IAccelStruct* Donut_BuildSingleInstanceTLAS(App* app, nvrhi::ICommandList* commandList, nvrhi::rt::IAccelStruct* bottomLevelAS)
+    DONUT_API nvrhi::rt::IAccelStruct* Donut_BuildSingleInstanceTLAS(App* app, nvrhi::ICommandList* commandList, nvrhi::rt::IAccelStruct* bottomLevelAS)
     {
         nvrhi::rt::AccelStructDesc desc;
         desc.isTopLevel = true;
@@ -4218,15 +4220,15 @@ extern "C"
 
     // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>; show
     // it with Donut_BlitTexture. Returns null on failure.
-    nvrhi::ITexture* Donut_CreateUAVTextureForFrameWithFormat(App* app, FrameContext* frame, const char* debugName, int format);
+    DONUT_API nvrhi::ITexture* Donut_CreateUAVTextureForFrameWithFormat(App* app, FrameContext* frame, const char* debugName, int format);
 
-    nvrhi::ITexture* Donut_CreateUAVTextureForFrame(App* app, FrameContext* frame, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateUAVTextureForFrame(App* app, FrameContext* frame, const char* debugName)
     {
         return Donut_CreateUAVTextureForFrameWithFormat(app, frame, debugName, static_cast<int>(nvrhi::Format::RGBA8_UNORM));
     }
 
     // Same, in `format` (an nvrhi::Format value).
-    nvrhi::ITexture* Donut_CreateUAVTextureForFrameWithFormat(App* app, FrameContext* frame, const char* debugName, int format)
+    DONUT_API nvrhi::ITexture* Donut_CreateUAVTextureForFrameWithFormat(App* app, FrameContext* frame, const char* debugName, int format)
     {
         nvrhi::TextureDesc desc = frame->framebuffer->getDesc().colorAttachments[0].texture->getDesc();
         desc.isUAV = true;
@@ -4242,7 +4244,7 @@ extern "C"
 
     // Same, in the back buffer's format without sRGB (RGBA8_UNORM with D3D12, BGRA8_UNORM with
     // Vulkan): Donut_CopyTextureToFrame copies it to the back buffer bit for bit.
-    nvrhi::ITexture* Donut_CreateUAVTextureForFrameCopy(App* app, FrameContext* frame, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateUAVTextureForFrameCopy(App* app, FrameContext* frame, const char* debugName)
     {
         nvrhi::Format format = frame->framebuffer->getDesc().colorAttachments[0].texture->getDesc().format;
         if (format == nvrhi::Format::SRGBA8_UNORM)
@@ -4254,7 +4256,7 @@ extern "C"
 
     // Triangle-list pipeline without depth test, for the frame's framebuffer layout; recreate it
     // after the back buffer is resized. Returns null on failure.
-    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipeline(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
+    DONUT_API nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipeline(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
     {
         nvrhi::GraphicsPipelineDesc desc;
         desc.VS = vertexShader;
@@ -4270,7 +4272,7 @@ extern "C"
 
     // Specializes one constant ([[vk::constant_id(constantId)]] in HLSL) of a SPIR-V shader;
     // requires nvrhi::Feature::ShaderSpecializations (Vulkan only). Returns null on failure.
-    nvrhi::IShader* Donut_SpecializeShaderFloat(App* app, nvrhi::IShader* shader, int constantId, double value)
+    DONUT_API nvrhi::IShader* Donut_SpecializeShaderFloat(App* app, nvrhi::IShader* shader, int constantId, double value)
     {
         const nvrhi::ShaderSpecialization constant =
             nvrhi::ShaderSpecialization::Float(static_cast<uint32_t>(constantId), float(value));
@@ -4281,7 +4283,7 @@ extern "C"
     }
 
     // As above, for a uint constant; value's bits are used as-is.
-    nvrhi::IShader* Donut_SpecializeShaderUInt(App* app, nvrhi::IShader* shader, int constantId, int value)
+    DONUT_API nvrhi::IShader* Donut_SpecializeShaderUInt(App* app, nvrhi::IShader* shader, int constantId, int value)
     {
         const nvrhi::ShaderSpecialization constant =
             nvrhi::ShaderSpecialization::UInt32(static_cast<uint32_t>(constantId), static_cast<uint32_t>(value));
@@ -4294,7 +4296,7 @@ extern "C"
     // Amplification + mesh + pixel shader pipeline (triangle list, no depth test) for the frame's
     // framebuffer layout; recreate it after the back buffer is resized. Requires
     // nvrhi::Feature::Meshlets. Returns null on failure.
-    nvrhi::IMeshletPipeline* Donut_CreateMeshletPipeline(App* app, FrameContext* frame, nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
+    DONUT_API nvrhi::IMeshletPipeline* Donut_CreateMeshletPipeline(App* app, FrameContext* frame, nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
     {
         nvrhi::MeshletPipelineDesc desc;
         desc.AS = amplificationShader;
@@ -4311,14 +4313,14 @@ extern "C"
 
     // Safe to call while the GPU may still use the resource: the command lists using it hold it
     // until the GPU has finished them (executed ones through the app, Donut_ExecuteCommandList).
-    void Donut_ReleaseResource(App* app, nvrhi::IResource* resource)
+    DONUT_API void Donut_ReleaseResource(App* app, nvrhi::IResource* resource)
     {
         app->resources.erase(resource);
     }
 
     // Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
     // otherwise shader-readable only, filled with Donut_WriteBuffer. Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateUIntBuffer(App* app, int elementCount, int writable, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateUIntBuffer(App* app, int elementCount, int writable, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(sizeof(uint32_t) * static_cast<uint64_t>(elementCount))
@@ -4335,7 +4337,7 @@ extern "C"
 
     // CPU-readable buffer to copy GPU results into; read it with Donut_ReadBuffer. Returns null
     // on failure.
-    nvrhi::IBuffer* Donut_CreateReadbackBuffer(App* app, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateReadbackBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(static_cast<uint64_t>(byteSize))
@@ -4350,7 +4352,7 @@ extern "C"
 
     // Copies byteSize bytes of a readback buffer to dst, after the GPU work writing it has
     // finished (see Donut_WaitForIdle). Returns 0 if the buffer can't be mapped.
-    int Donut_ReadBuffer(App* app, nvrhi::IBuffer* readbackBuffer, void* dst, int byteSize)
+    DONUT_API int Donut_ReadBuffer(App* app, nvrhi::IBuffer* readbackBuffer, void* dst, int byteSize)
     {
         nvrhi::IDevice* device = app->device();
         const void* data = device->mapBuffer(readbackBuffer, nvrhi::CpuAccessMode::Read);
@@ -4366,7 +4368,7 @@ extern "C"
     // that it waits for: call it while no other immediate command list is open. Not for the
     // texture cache's textures (permanently shader resources). Returns the bytes copied, 0 on
     // failure.
-    int Donut_ReadTextureLevel(App* app, nvrhi::ITexture* texture, int mipLevel, void* dst, int byteSize)
+    DONUT_API int Donut_ReadTextureLevel(App* app, nvrhi::ITexture* texture, int mipLevel, void* dst, int byteSize)
     {
         nvrhi::IDevice* device = app->device();
         auto* source = texture;
@@ -4429,7 +4431,7 @@ extern "C"
     // file, its format from the extension (.png, .bmp, .tga, .jpg). 8-bit RGBA and BGRA back buffers
     // go to PNG files as their bytes are (Donut's SaveTextureToFile would blit BGRA into sRGB),
     // but opaque. Not in a render callback.
-    int Donut_SaveBackBufferToFile(App* app, const char* path)
+    DONUT_API int Donut_SaveBackBufferToFile(App* app, const char* path)
     {
         nvrhi::ITexture* backBuffer = app->offscreen ? app->offscreen->textures[app->offscreen->current].Get()
             : app->deviceManager->GetBackBuffer(app->deviceManager->GetCurrentBackBufferIndex());
@@ -4460,7 +4462,7 @@ extern "C"
     // each with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst
     // (pixelCount ints, at least width * height); R10G10B10A2 back buffers (AppOption_HdrBackBuffer)
     // as their channels' top 8 bits. 0 on failure or for back buffers of other formats.
-    int Donut_ReadBackBufferRGBA8(App* app, int* dst, int pixelCount)
+    DONUT_API int Donut_ReadBackBufferRGBA8(App* app, int* dst, int pixelCount)
     {
         nvrhi::ITexture* backBuffer = app->offscreen ? app->offscreen->textures[app->offscreen->current].Get()
             : app->deviceManager->GetBackBuffer(app->deviceManager->GetCurrentBackBufferIndex());
@@ -4495,7 +4497,7 @@ extern "C"
     // Ends an example's test (after Donut_RunApp in test mode): saves the last frame to the file
     // -testOutput named, if any; prints "Test PASSED" if failure is empty, else "Test FAILED:
     // <failure>"; returns the exit code, 0 or 1.
-    int Donut_FinishTest(App* app, const char* failure)
+    DONUT_API int Donut_FinishTest(App* app, const char* failure)
     {
         if (!g_TestOutput.empty() && !Donut_SaveBackBufferToFile(app, g_TestOutput.c_str()))
             printf("Cannot save the frame to %s\n", g_TestOutput.c_str());
@@ -4510,13 +4512,13 @@ extern "C"
 
     // Binding set descriptions are built up with the Donut_Bind* functions below and then
     // consumed (freed) by Donut_CreateBindingSet.
-    nvrhi::BindingSetDesc* Donut_CreateBindingSetDesc()
+    DONUT_API nvrhi::BindingSetDesc* Donut_CreateBindingSetDesc()
     {
         return new nvrhi::BindingSetDesc();
     }
 
     // Buffer created by Donut_CreateUIntBuffer, read by the shader as Buffer<uint> at t<slot>.
-    void Donut_BindTypedBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_BindTypedBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::TypedBuffer_SRV(static_cast<uint32_t>(slot), buffer));
@@ -4524,7 +4526,7 @@ extern "C"
 
     // Writable buffer created by Donut_CreateUIntBuffer, written by the shader as RWBuffer<uint>
     // at u<slot>.
-    void Donut_BindTypedBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_BindTypedBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), buffer));
@@ -4533,7 +4535,7 @@ extern "C"
     // Creates a binding set, and a matching layout (in register space 0) visible to the stages
     // in shaderType (nvrhi::ShaderType bits), from a description, which it frees. Returns null
     // on failure.
-    nvrhi::IBindingSet* Donut_CreateBindingSet(App* app, nvrhi::BindingSetDesc* bindingSetDesc, int shaderType)
+    DONUT_API nvrhi::IBindingSet* Donut_CreateBindingSet(App* app, nvrhi::BindingSetDesc* bindingSetDesc, int shaderType)
     {
         std::unique_ptr<nvrhi::BindingSetDesc> desc(bindingSetDesc);
 
@@ -4550,7 +4552,7 @@ extern "C"
 
     // Texture created by Donut_CreateUAVTextureForFrame, written by the shader as
     // RWTexture2D<float4> at u<slot>.
-    void Donut_BindTextureUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture)
+    DONUT_API void Donut_BindTextureUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Texture_UAV(static_cast<uint32_t>(slot), texture));
@@ -4558,7 +4560,7 @@ extern "C"
 
     // Top-level acceleration structure, read by the shader as RaytracingAccelerationStructure
     // at t<slot>.
-    void Donut_BindAccelStruct(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::rt::IAccelStruct* accelStruct)
+    DONUT_API void Donut_BindAccelStruct(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::rt::IAccelStruct* accelStruct)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::RayTracingAccelStruct(static_cast<uint32_t>(slot),
@@ -4567,7 +4569,7 @@ extern "C"
 
     // Creates a binding set for an existing layout (see Donut_CreateBindingLayout) from a
     // description, which it frees. Returns null on failure.
-    nvrhi::IBindingSet* Donut_CreateBindingSetForLayout(App* app, nvrhi::BindingSetDesc* bindingSetDesc, nvrhi::IBindingLayout* bindingLayout)
+    DONUT_API nvrhi::IBindingSet* Donut_CreateBindingSetForLayout(App* app, nvrhi::BindingSetDesc* bindingSetDesc, nvrhi::IBindingLayout* bindingLayout)
     {
         std::unique_ptr<nvrhi::BindingSetDesc> desc(bindingSetDesc);
         App* a = app;
@@ -4577,99 +4579,99 @@ extern "C"
     // Binding layout descriptions, for when the layout is needed before the resources exist
     // (e.g. to create a pipeline); built up with the Donut_Layout* functions below, then
     // consumed (freed) by Donut_CreateBindingLayout.
-    nvrhi::BindingLayoutDesc* Donut_CreateBindingLayoutDesc()
+    DONUT_API nvrhi::BindingLayoutDesc* Donut_CreateBindingLayoutDesc()
     {
         return new nvrhi::BindingLayoutDesc();
     }
 
-    void Donut_LayoutTextureUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutTextureUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::Texture_UAV(static_cast<uint32_t>(slot)));
     }
 
-    void Donut_LayoutAccelStruct(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutAccelStruct(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::RayTracingAccelStruct(static_cast<uint32_t>(slot)));
     }
 
-    void Donut_LayoutTextureSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutTextureSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(slot)));
     }
 
-    void Donut_LayoutStructuredBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutStructuredBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot)));
     }
 
-    void Donut_LayoutSampler(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutSampler(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::Sampler(static_cast<uint32_t>(slot)));
     }
 
     // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
-    void Donut_LayoutPushConstants(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int byteSize)
+    DONUT_API void Donut_LayoutPushConstants(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int byteSize)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::PushConstants(static_cast<uint32_t>(slot), static_cast<uint32_t>(byteSize)));
     }
 
     // For a buffer from Donut_CreateVolatileConstantBuffer.
-    void Donut_LayoutVolatileConstantBuffer(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutVolatileConstantBuffer(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::VolatileConstantBuffer(static_cast<uint32_t>(slot)));
     }
 
     // Register space of the layout's items (D3D12 only; 0 by default).
-    void Donut_SetBindingLayoutRegisterSpace(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int space)
+    DONUT_API void Donut_SetBindingLayoutRegisterSpace(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int space)
     {
         bindingLayoutDesc->registerSpace = static_cast<uint32_t>(space);
     }
 
     // Register space of the layout's items, on Vulkan too: there the space is the descriptor set,
     // so the layout must be the pipeline's binding layout of that index.
-    void Donut_SetBindingLayoutDescriptorSet(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int space)
+    DONUT_API void Donut_SetBindingLayoutDescriptorSet(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int space)
     {
         bindingLayoutDesc->registerSpace = static_cast<uint32_t>(space);
         bindingLayoutDesc->registerSpaceIsDescriptorSet = true;
     }
 
     // Buffer<T> at t<slot>.
-    void Donut_LayoutTypedBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutTypedBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::TypedBuffer_SRV(static_cast<uint32_t>(slot)));
     }
 
     // A non-volatile cbuffer at b<slot>.
-    void Donut_LayoutConstantBuffer(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutConstantBuffer(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::ConstantBuffer(static_cast<uint32_t>(slot)));
     }
 
     // RWStructuredBuffer at u<slot>.
-    void Donut_LayoutStructuredBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutStructuredBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot)));
     }
 
     // ByteAddressBuffer at t<slot>.
-    void Donut_LayoutRawBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutRawBufferSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::RawBuffer_SRV(static_cast<uint32_t>(slot)));
     }
 
     // RWByteAddressBuffer at u<slot>.
-    void Donut_LayoutRawBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    DONUT_API void Donut_LayoutRawBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::RawBuffer_UAV(static_cast<uint32_t>(slot)));
@@ -4677,7 +4679,7 @@ extern "C"
 
     // An array of `count` Texture2D at t<slot> (t<slot> .. t<slot + count - 1> on D3D12, one
     // binding on Vulkan); not on D3D11.
-    void Donut_LayoutTextureSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
+    DONUT_API void Donut_LayoutTextureSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
@@ -4686,19 +4688,19 @@ extern "C"
     // Arrays of `count` buffers: ConstantBuffer<...> at b<slot>, ByteAddressBuffer and
     // StructuredBuffer<...> at t<slot> (b / t<slot> .. <slot + count - 1> on D3D12, one binding on
     // Vulkan); not on D3D11. Each element is bound with the matching Donut_Bind*ArrayElement.
-    void Donut_LayoutConstantBufferArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
+    DONUT_API void Donut_LayoutConstantBufferArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::ConstantBuffer(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
     }
 
-    void Donut_LayoutRawBufferSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
+    DONUT_API void Donut_LayoutRawBufferSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::RawBuffer_SRV(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
     }
 
-    void Donut_LayoutStructuredBufferSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
+    DONUT_API void Donut_LayoutStructuredBufferSRVArray(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot, int count)
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot)).setSize(static_cast<uint32_t>(count)));
@@ -4706,7 +4708,7 @@ extern "C"
 
     // Layout visible to the stages in shaderType (nvrhi::ShaderType bits), in register space 0
     // unless set with Donut_SetBindingLayoutRegisterSpace. Returns null on failure.
-    nvrhi::IBindingLayout* Donut_CreateBindingLayout(App* app, nvrhi::BindingLayoutDesc* bindingLayoutDesc, int shaderType)
+    DONUT_API nvrhi::IBindingLayout* Donut_CreateBindingLayout(App* app, nvrhi::BindingLayoutDesc* bindingLayoutDesc, int shaderType)
     {
         std::unique_ptr<nvrhi::BindingLayoutDesc> desc(bindingLayoutDesc);
         desc->visibility = static_cast<nvrhi::ShaderType>(shaderType);
@@ -4715,7 +4717,7 @@ extern "C"
     }
 
     // Compute pipeline with one binding layout (Donut_CreateBindingLayout). Returns null on failure.
-    nvrhi::IComputePipeline* Donut_CreateComputePipelineWithLayout(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout)
+    DONUT_API nvrhi::IComputePipeline* Donut_CreateComputePipelineWithLayout(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
@@ -4726,7 +4728,7 @@ extern "C"
     }
 
     // Same, with a second binding layout (e.g. a bindless layout; null for none).
-    nvrhi::IComputePipeline* Donut_CreateComputePipelineWithLayouts(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout)
+    DONUT_API nvrhi::IComputePipeline* Donut_CreateComputePipelineWithLayouts(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingLayout* bindingLayout, nvrhi::IBindingLayout* secondBindingLayout)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
@@ -4739,7 +4741,7 @@ extern "C"
     }
 
     // Compute pipeline using the layout of bindingSet. Returns null on failure.
-    nvrhi::IComputePipeline* Donut_CreateComputePipeline(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingSet* bindingSet)
+    DONUT_API nvrhi::IComputePipeline* Donut_CreateComputePipeline(App* app, nvrhi::IShader* computeShader, nvrhi::IBindingSet* bindingSet)
     {
         auto desc = nvrhi::ComputePipelineDesc()
             .setComputeShader(computeShader)
@@ -4751,7 +4753,7 @@ extern "C"
 
     // Constant buffer for cbuffers, written with Donut_WriteBuffer. Bind slices of it (offsets
     // and sizes in multiples of 256 bytes) with Donut_BindConstantBuffer. Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateConstantBuffer(App* app, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateConstantBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::utils::CreateStaticConstantBufferDesc(static_cast<uint32_t>(byteSize), debugName)
             .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
@@ -4764,7 +4766,7 @@ extern "C"
     // Constant buffer rewritten (with Donut_WriteBuffer) every time it's used, up to
     // c_MaxRenderPassConstantBufferVersions times per frame; bind it with
     // Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer. Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateVolatileConstantBuffer(App* app, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateVolatileConstantBuffer(App* app, int byteSize, const char* debugName)
     {
         App* a = app;
         return a->Own(a->device()->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
@@ -4773,7 +4775,7 @@ extern "C"
 
     // StructuredBuffer of `count` elements of `stride` bytes, for shaders to read (t registers),
     // filled with Donut_WriteBuffer. Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateStructuredBuffer(App* app, int stride, int count, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateStructuredBuffer(App* app, int stride, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(stride) * uint64_t(count))
@@ -4787,7 +4789,7 @@ extern "C"
     }
 
     // Same, that shaders can also write (RWStructuredBuffer, u registers).
-    nvrhi::IBuffer* Donut_CreateRWStructuredBuffer(App* app, int stride, int count, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateRWStructuredBuffer(App* app, int stride, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(stride) * uint64_t(count))
@@ -4805,7 +4807,7 @@ extern "C"
     // each: index count, instance count, first index, vertex offset, first instance), filled with
     // Donut_WriteBuffer, that shaders can also write as a RWByteAddressBuffer (u registers).
     // Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateDrawIndexedIndirectBuffer(App* app, int count, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateDrawIndexedIndirectBuffer(App* app, int count, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(uint64_t(count) * sizeof(nvrhi::DrawIndexedIndirectArguments))
@@ -4822,7 +4824,7 @@ extern "C"
 
     // Stores a buffer's GPU address (8 bytes; its device address on Vulkan) at dst, e.g. Ref of an
     // f32 array element, for shaders that write it through the address. 0 if it has none.
-    void Donut_StoreBufferDeviceAddress(void* dst, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_StoreBufferDeviceAddress(void* dst, nvrhi::IBuffer* buffer)
     {
         const uint64_t address = buffer->getGpuVirtualAddress();
         memcpy(dst, &address, sizeof(address));
@@ -4831,7 +4833,7 @@ extern "C"
     // Before a dispatch whose shaders write a buffer through its device address, which NVRHI can't
     // see: marks the buffer as written by shaders (unordered access), so that its next use waits
     // for the writes, and the writes for its previous use.
-    void Donut_SetBufferWrittenByShaders(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_SetBufferWrittenByShaders(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer)
     {
         nvrhi::ICommandList* cl = commandList;
         cl->setBufferState(buffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -4840,14 +4842,14 @@ extern "C"
 
     // Stores an int's bits at dst (e.g. Ref of an f32 array element), for int / uint fields of
     // structures that TypeScript lays out as f32 arrays.
-    void Donut_StoreInt32(void* dst, int value)
+    DONUT_API void Donut_StoreInt32(void* dst, int value)
     {
         memcpy(dst, &value, sizeof(value));
     }
 
     // Vertex buffer with byteSize bytes of data (copied during the call), uploaded by an open
     // command list; the contents can't change afterwards. Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateStaticVertexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticVertexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
     {
         return CreateStaticBuffer(app, commandList,
             nvrhi::BufferDesc().setIsVertexBuffer(true).setDebugName(debugName),
@@ -4856,7 +4858,7 @@ extern "C"
 
     // A vertex buffer of byteSize bytes to write (Donut_WriteBuffer) as often as needed, e.g. per
     // frame. Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateDynamicVertexBuffer(App* app, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateDynamicVertexBuffer(App* app, int byteSize, const char* debugName)
     {
         auto desc = nvrhi::BufferDesc()
             .setByteSize(static_cast<uint64_t>(byteSize))
@@ -4869,7 +4871,7 @@ extern "C"
     }
 
     // Same, that shaders can also read as a ByteAddressBuffer (t registers).
-    nvrhi::IBuffer* Donut_CreateStaticRawVertexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticRawVertexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
     {
         return CreateStaticBuffer(app, commandList,
             nvrhi::BufferDesc().setIsVertexBuffer(true).setCanHaveRawViews(true).setDebugName(debugName),
@@ -4879,7 +4881,7 @@ extern "C"
     // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
     // ByteAddressBuffer and acceleration structure builds take as input: one copy of a mesh for
     // rasterization and ray tracing.
-    nvrhi::IBuffer* Donut_CreateStaticGeometryBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, int isIndexBuffer,
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticGeometryBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, int isIndexBuffer,
         const char* debugName)
     {
         auto desc = nvrhi::BufferDesc().setCanHaveRawViews(true).setIsAccelStructBuildInput(true).setDebugName(debugName);
@@ -4895,7 +4897,7 @@ extern "C"
     // A static buffer of byteSize bytes of data for shaders to read: a StructuredBuffer of
     // structStride-byte elements if structStride > 0, else a ByteAddressBuffer (byteSize a multiple
     // of 4). Returns null on failure.
-    nvrhi::IBuffer* Donut_CreateStaticShaderBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, int structStride,
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticShaderBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, int structStride,
         const char* debugName)
     {
         auto desc = nvrhi::BufferDesc().setDebugName(debugName);
@@ -4907,7 +4909,7 @@ extern "C"
     }
 
     // Same, for an index buffer.
-    nvrhi::IBuffer* Donut_CreateStaticIndexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticIndexBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, const char* debugName)
     {
         return CreateStaticBuffer(app, commandList,
             nvrhi::BufferDesc().setIsIndexBuffer(true).setDebugName(debugName),
@@ -4918,7 +4920,7 @@ extern "C"
     // directory), as the Vulkan-Samples framework's load_model reads it: positions, normals and
     // texture coordinates interleaved, 32-bit indices, the nodes' transforms ignored. Uploaded by
     // an open command list. Returns null (after logging why) on failure.
-    GltfMesh* Donut_LoadGltfMesh(App* app, nvrhi::ICommandList* commandList, const char* path)
+    DONUT_API GltfMesh* Donut_LoadGltfMesh(App* app, nvrhi::ICommandList* commandList, const char* path)
     {
         GltfFile file;
         if (!file.Read(path))
@@ -4952,17 +4954,17 @@ extern "C"
     }
 
     // Valid as long as the mesh.
-    nvrhi::IBuffer* Donut_GetGltfMeshVertexBuffer(GltfMesh* gltfMesh)
+    DONUT_API nvrhi::IBuffer* Donut_GetGltfMeshVertexBuffer(GltfMesh* gltfMesh)
     {
         return gltfMesh->vertexBuffer.Get();
     }
 
-    nvrhi::IBuffer* Donut_GetGltfMeshIndexBuffer(GltfMesh* gltfMesh)
+    DONUT_API nvrhi::IBuffer* Donut_GetGltfMeshIndexBuffer(GltfMesh* gltfMesh)
     {
         return gltfMesh->indexBuffer.Get();
     }
 
-    int Donut_GetGltfMeshIndexCount(GltfMesh* gltfMesh)
+    DONUT_API int Donut_GetGltfMeshIndexCount(GltfMesh* gltfMesh)
     {
         return gltfMesh->indexCount;
     }
@@ -4975,7 +4977,7 @@ extern "C"
 
     // A file read whole (path relative to the executable's directory), for TypeScript to parse
     // (Donut_CopyBinaryFileBytes). Returns null (after logging why) on failure.
-    BinaryFile* Donut_LoadBinaryFile(App* app, const char* path)
+    DONUT_API BinaryFile* Donut_LoadBinaryFile(App* app, const char* path)
     {
         const std::filesystem::path filePath = GetExecutablePath().parent_path() / path;
         donut::vfs::NativeFileSystem fs;
@@ -4992,19 +4994,19 @@ extern "C"
     }
 
     // The file's bytes, valid as long as the file, e.g. for Donut_TranscodeKtx2.
-    const void* Donut_GetBinaryFileData(BinaryFile* binaryFile)
+    DONUT_API const void* Donut_GetBinaryFileData(BinaryFile* binaryFile)
     {
         return binaryFile->bytes.data();
     }
 
-    int Donut_GetBinaryFileSize(BinaryFile* binaryFile)
+    DONUT_API int Donut_GetBinaryFileSize(BinaryFile* binaryFile)
     {
         return static_cast<int>(binaryFile->bytes.size());
     }
 
     // Bytes [offset, offset + count) into dst, one int (0..255) each, e.g. Ref of an int array
     // element; those past the end of the file as 0.
-    void Donut_CopyBinaryFileBytes(BinaryFile* binaryFile, int offset, int count, int* dst)
+    DONUT_API void Donut_CopyBinaryFileBytes(BinaryFile* binaryFile, int offset, int count, int* dst)
     {
         const std::vector<uint8_t>& bytes = binaryFile->bytes;
         for (int i = 0; i < count; i++)
@@ -5016,7 +5018,7 @@ extern "C"
 
     // count little-endian 32-bit values from byte offset into dst (Ref of an int array element),
     // as ints; those past the end of the file as 0.
-    void Donut_CopyBinaryFileUInts(BinaryFile* binaryFile, int offset, int count, int* dst)
+    DONUT_API void Donut_CopyBinaryFileUInts(BinaryFile* binaryFile, int offset, int count, int* dst)
     {
         const std::vector<uint8_t>& bytes = binaryFile->bytes;
         for (int i = 0; i < count; i++)
@@ -5031,7 +5033,7 @@ extern "C"
 
     // byteSize bytes of the file from fileOffset into a buffer at bufferOffset, copied during the
     // call into an open command list (e.g. a model's vertices from the middle of its file).
-    void Donut_WriteBufferFromBinaryFile(BinaryFile* binaryFile, nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int bufferOffset,
+    DONUT_API void Donut_WriteBufferFromBinaryFile(BinaryFile* binaryFile, nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int bufferOffset,
         int fileOffset, int byteSize)
     {
         const std::vector<uint8_t>& bytes = binaryFile->bytes;
@@ -5047,7 +5049,7 @@ extern "C"
 
     // A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file
     // from fileOffset, uploaded by an open command list. Returns null (after logging why) on failure.
-    nvrhi::IBuffer* Donut_CreateStaticBufferFromBinaryFile(App* app, nvrhi::ICommandList* commandList, BinaryFile* binaryFile,
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticBufferFromBinaryFile(App* app, nvrhi::ICommandList* commandList, BinaryFile* binaryFile,
         int fileOffset, int byteSize, int isIndexBuffer, const char* debugName)
     {
         const std::vector<uint8_t>& bytes = binaryFile->bytes;
@@ -5070,7 +5072,7 @@ extern "C"
     // A texture level (Donut_CreateTextureWithLevels) from the file's bytes at fileOffset, its rows
     // (of 4 x 4 blocks for block-compressed formats) rowPitch bytes apart, copied during the call
     // into an open command list.
-    void Donut_WriteTextureLevelFromBinaryFile(BinaryFile* binaryFile, nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int mipLevel,
+    DONUT_API void Donut_WriteTextureLevelFromBinaryFile(BinaryFile* binaryFile, nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int mipLevel,
         int fileOffset, int rowPitch)
     {
         const std::vector<uint8_t>& bytes = binaryFile->bytes;
@@ -5095,7 +5097,7 @@ extern "C"
     // descs (D3D12_RAYTRACING_OPACITY_MICROMAP_DESC, VkMicromapTriangleEXT: 32-bit data offset,
     // 16-bit subdivision level, 16-bit format) at descOffset. Writes up to maxEntries entries of
     // three ints (count, subdivision level, format) into dst; returns how many there are.
-    int Donut_CountOpacityMicromapUsage(BinaryFile* binaryFile, int indexOffset, int indexCount, int indexFormat,
+    DONUT_API int Donut_CountOpacityMicromapUsage(BinaryFile* binaryFile, int indexOffset, int indexCount, int indexFormat,
         int descOffset, int descCount, int* dst, int maxEntries)
     {
         const std::vector<uint8_t>& bytes = binaryFile->bytes;
@@ -5143,7 +5145,7 @@ extern "C"
 
     // Writes byteSize bytes of data to a file (path as given: absolute, or relative to the current
     // directory). Returns 1 on success, 0 (after logging why) on failure.
-    int Donut_WriteBinaryFile(const char* path, const void* data, int byteSize)
+    DONUT_API int Donut_WriteBinaryFile(const char* path, const void* data, int byteSize)
     {
         FILE* file = fopen(path, "wb");
         if (!file)
@@ -5161,7 +5163,7 @@ extern "C"
     // submeshes: vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms
     // ignored), indices, and the base color image's URI. Kept on the CPU, to copy out with the
     // functions below. Returns null (after logging why) on failure.
-    GltfModel* Donut_LoadGltfModel(App* app, const char* path)
+    DONUT_API GltfModel* Donut_LoadGltfModel(App* app, const char* path)
     {
         GltfFile file;
         if (!file.Read(path))
@@ -5234,24 +5236,24 @@ extern "C"
         return app->OwnObject(model);
     }
 
-    int Donut_GetGltfModelPrimitiveCount(GltfModel* gltfModel)
+    DONUT_API int Donut_GetGltfModelPrimitiveCount(GltfModel* gltfModel)
     {
         return static_cast<int>(gltfModel->primitives.size());
     }
 
-    int Donut_GetGltfModelVertexCount(GltfModel* gltfModel, int primitive)
+    DONUT_API int Donut_GetGltfModelVertexCount(GltfModel* gltfModel, int primitive)
     {
         return static_cast<int>(gltfModel->primitives[primitive].vertices.size() / 8);
     }
 
-    int Donut_GetGltfModelIndexCount(GltfModel* gltfModel, int primitive)
+    DONUT_API int Donut_GetGltfModelIndexCount(GltfModel* gltfModel, int primitive)
     {
         return static_cast<int>(gltfModel->primitives[primitive].indices.size());
     }
 
     // The elements of a primitive's vertex attribute named `name` (as in the file: "COLOR_0",
     // "KHR_gaussian_splatting:ROTATION"...); 0 if it has none.
-    int Donut_GetGltfModelAttributeCount(GltfModel* gltfModel, int primitive, const char* name)
+    DONUT_API int Donut_GetGltfModelAttributeCount(GltfModel* gltfModel, int primitive, const char* name)
     {
         const auto& attributes = gltfModel->primitives[primitive].attributes;
         auto it = attributes.find(name);
@@ -5260,7 +5262,7 @@ extern "C"
     }
 
     // Its floats per element (1 for SCALAR, 3 for VEC3...); 0 if it has none.
-    int Donut_GetGltfModelAttributeComponents(GltfModel* gltfModel, int primitive, const char* name)
+    DONUT_API int Donut_GetGltfModelAttributeComponents(GltfModel* gltfModel, int primitive, const char* name)
     {
         const auto& attributes = gltfModel->primitives[primitive].attributes;
         auto it = attributes.find(name);
@@ -5269,7 +5271,7 @@ extern "C"
 
     // Its elements as floats (normalized integers converted) into dst, e.g. Ref of an f32 array
     // element: count * components of them.
-    void Donut_CopyGltfModelAttribute(GltfModel* gltfModel, int primitive, const char* name, float* dst)
+    DONUT_API void Donut_CopyGltfModelAttribute(GltfModel* gltfModel, int primitive, const char* name, float* dst)
     {
         const auto& attributes = gltfModel->primitives[primitive].attributes;
         auto it = attributes.find(name);
@@ -5278,45 +5280,45 @@ extern "C"
     }
 
     // A primitive's vertices (8 floats each) into dst, e.g. Ref of an f32 array element.
-    void Donut_CopyGltfModelVertices(GltfModel* gltfModel, int primitive, void* dst)
+    DONUT_API void Donut_CopyGltfModelVertices(GltfModel* gltfModel, int primitive, void* dst)
     {
         const std::vector<float>& vertices = gltfModel->primitives[primitive].vertices;
         memcpy(dst, vertices.data(), vertices.size() * sizeof(float));
     }
 
     // A primitive's indices into dst, e.g. Ref of an int array element.
-    void Donut_CopyGltfModelIndices(GltfModel* gltfModel, int primitive, void* dst)
+    DONUT_API void Donut_CopyGltfModelIndices(GltfModel* gltfModel, int primitive, void* dst)
     {
         const std::vector<uint32_t>& indices = gltfModel->primitives[primitive].indices;
         memcpy(dst, indices.data(), indices.size() * sizeof(uint32_t));
     }
 
     // Valid as long as the model.
-    const char* Donut_GetGltfModelBaseColorImage(GltfModel* gltfModel, int primitive)
+    DONUT_API const char* Donut_GetGltfModelBaseColorImage(GltfModel* gltfModel, int primitive)
     {
         return gltfModel->primitives[primitive].baseColorImage.c_str();
     }
 
     // A primitive's material's base color factor (RGBA) into dst (Ref of a `let` f32 array of 4).
-    void Donut_CopyGltfModelBaseColorFactor(GltfModel* gltfModel, int primitive, float* dst)
+    DONUT_API void Donut_CopyGltfModelBaseColorFactor(GltfModel* gltfModel, int primitive, float* dst)
     {
         memcpy(dst, gltfModel->primitives[primitive].baseColorFactor, 4 * sizeof(float));
     }
 
     // The name of a primitive's mesh ("" if it has none); valid as long as the model.
-    const char* Donut_GetGltfModelMeshName(GltfModel* gltfModel, int primitive)
+    DONUT_API const char* Donut_GetGltfModelMeshName(GltfModel* gltfModel, int primitive)
     {
         return gltfModel->primitives[primitive].meshName.c_str();
     }
 
     // The index of a primitive's mesh.
-    int Donut_GetGltfModelPrimitiveMesh(GltfModel* gltfModel, int primitive)
+    DONUT_API int Donut_GetGltfModelPrimitiveMesh(GltfModel* gltfModel, int primitive)
     {
         return gltfModel->primitives[primitive].mesh;
     }
 
     // The alpha mode of a primitive's material: 0 opaque (also without a material), 1 mask, 2 blend.
-    int Donut_GetGltfModelPrimitiveAlphaMode(GltfModel* gltfModel, int primitive)
+    DONUT_API int Donut_GetGltfModelPrimitiveAlphaMode(GltfModel* gltfModel, int primitive)
     {
         return gltfModel->primitives[primitive].alphaMode;
     }
@@ -5324,43 +5326,43 @@ extern "C"
     // The nodes that instantiate meshes, in node order.
     // A primitive's material's texture (0 base color, 1 normal, 2 metallic-roughness) as an index
     // into the file's textures; -1 if it has none.
-    int Donut_GetGltfModelMaterialTexture(GltfModel* gltfModel, int primitive, int which)
+    DONUT_API int Donut_GetGltfModelMaterialTexture(GltfModel* gltfModel, int primitive, int which)
     {
         return gltfModel->primitives[primitive].materialTextures[which];
     }
 
     // A primitive's material's metallic (which 0) or roughness (1) factor.
-    double Donut_GetGltfModelMaterialFactor(GltfModel* gltfModel, int primitive, int which)
+    DONUT_API double Donut_GetGltfModelMaterialFactor(GltfModel* gltfModel, int primitive, int which)
     {
         const GltfModel::Primitive& p = gltfModel->primitives[primitive];
         return which == 0 ? p.metallicFactor : p.roughnessFactor;
     }
 
     // The file's textures, and a texture's image URI ("" if none).
-    int Donut_GetGltfModelTextureCount(GltfModel* gltfModel)
+    DONUT_API int Donut_GetGltfModelTextureCount(GltfModel* gltfModel)
     {
         return static_cast<int>(gltfModel->textureImages.size());
     }
 
-    const char* Donut_GetGltfModelTextureImage(GltfModel* gltfModel, int texture)
+    DONUT_API const char* Donut_GetGltfModelTextureImage(GltfModel* gltfModel, int texture)
     {
         return gltfModel->textureImages[texture].c_str();
     }
 
-    int Donut_GetGltfModelNodeCount(GltfModel* gltfModel)
+    DONUT_API int Donut_GetGltfModelNodeCount(GltfModel* gltfModel)
     {
         return static_cast<int>(gltfModel->nodes.size());
     }
 
     // The index of a node's mesh.
-    int Donut_GetGltfModelNodeMesh(GltfModel* gltfModel, int node)
+    DONUT_API int Donut_GetGltfModelNodeMesh(GltfModel* gltfModel, int node)
     {
         return gltfModel->nodes[node].mesh;
     }
 
     // A node's world transform (16 floats, column-major as glm) into dst, e.g. Ref of an f32 array
     // element.
-    void Donut_CopyGltfModelNodeTransform(GltfModel* gltfModel, int node, void* dst)
+    DONUT_API void Donut_CopyGltfModelNodeTransform(GltfModel* gltfModel, int node, void* dst)
     {
         memcpy(dst, gltfModel->nodes[node].transform, sizeof(float) * 16);
     }
@@ -5371,7 +5373,7 @@ extern "C"
     // the file says so (a PNG's sRGB chunk or 2.2 gamma; others' System.Image.ColorSpace 1, e.g. a
     // JPEG's EXIF). Its upload is recorded into an open command list; it rests as a shader resource.
     // Windows only; null (after logging why) on failure.
-    nvrhi::ITexture* Donut_LoadWicTexture(App* app, nvrhi::ICommandList* commandList, const char* path, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_LoadWicTexture(App* app, nvrhi::ICommandList* commandList, const char* path, const char* debugName)
     {
 #ifdef _WIN32
         static bool comInitialized = false;
@@ -5449,14 +5451,14 @@ extern "C"
 
     // Input layout descriptions are built up with Donut_AddVertexAttribute and then consumed
     // (freed) by Donut_CreateInputLayout.
-    InputLayoutDesc* Donut_CreateInputLayoutDesc()
+    DONUT_API InputLayoutDesc* Donut_CreateInputLayoutDesc()
     {
         return new std::vector<nvrhi::VertexAttributeDesc>();
     }
 
     // A vertex shader input with semantic `name`, read from vertex buffer slot bufferIndex at
     // byte offset `offset` of each elementStride-byte element. format is an nvrhi::Format value.
-    void Donut_AddVertexAttribute(InputLayoutDesc* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
+    DONUT_API void Donut_AddVertexAttribute(InputLayoutDesc* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
     {
         inputLayoutDesc->push_back(nvrhi::VertexAttributeDesc()
             .setName(name)
@@ -5467,7 +5469,7 @@ extern "C"
     }
 
     // Same, read once per instance instead of once per vertex.
-    void Donut_AddInstanceVertexAttribute(InputLayoutDesc* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
+    DONUT_API void Donut_AddInstanceVertexAttribute(InputLayoutDesc* inputLayoutDesc, const char* name, int format, int offset, int bufferIndex, int elementStride)
     {
         inputLayoutDesc->push_back(nvrhi::VertexAttributeDesc()
             .setName(name)
@@ -5479,7 +5481,7 @@ extern "C"
     }
 
     // Returns null on failure.
-    nvrhi::IInputLayout* Donut_CreateInputLayout(App* app, InputLayoutDesc* inputLayoutDesc, nvrhi::IShader* vertexShader)
+    DONUT_API nvrhi::IInputLayout* Donut_CreateInputLayout(App* app, InputLayoutDesc* inputLayoutDesc, nvrhi::IShader* vertexShader)
     {
         std::unique_ptr<std::vector<nvrhi::VertexAttributeDesc>> attributes(
             inputLayoutDesc);
@@ -5491,7 +5493,7 @@ extern "C"
     // Loads an image file (path relative to the executable's directory) and records its upload
     // into an open command list; sRGB != 0 treats the data as sRGB. Returns null (after logging
     // why) if the file can't be loaded.
-    nvrhi::ITexture* Donut_LoadTexture(App* app, nvrhi::ICommandList* commandList, const char* path, int sRGB)
+    DONUT_API nvrhi::ITexture* Donut_LoadTexture(App* app, nvrhi::ICommandList* commandList, const char* path, int sRGB)
     {
         App* a = app;
         donut::engine::TextureLoadOptions options;
@@ -5513,7 +5515,7 @@ extern "C"
         CommonSampler_AnisotropicWrap = 3,
     };
 
-    nvrhi::ISampler* Donut_GetCommonSampler(App* app, int which)
+    DONUT_API nvrhi::ISampler* Donut_GetCommonSampler(App* app, int which)
     {
         App* a = app;
         donut::engine::CommonRenderPasses* passes = a->commonPasses();
@@ -5529,7 +5531,7 @@ extern "C"
 
     // A sampler: linearFilter / linearMipFilter non-zero for linear filtering within / between
     // levels (point otherwise), wrap non-zero to repeat (clamp otherwise). Returns null on failure.
-    nvrhi::ISampler* Donut_CreateSampler(App* app, int linearFilter, int linearMipFilter, int wrap)
+    DONUT_API nvrhi::ISampler* Donut_CreateSampler(App* app, int linearFilter, int linearMipFilter, int wrap)
     {
         auto desc = nvrhi::SamplerDesc()
             .setMinFilter(linearFilter != 0)
@@ -5546,7 +5548,7 @@ extern "C"
     // nvrhi::SamplerAddressMode value); a bias added to the level of detail, the range it's clamped
     // to (maxLod 0: level 0 only), and anisotropic filtering up to maxAnisotropy samples (1: off;
     // see Donut_GetMaxSamplerAnisotropy). Returns null on failure.
-    nvrhi::ISampler* Donut_CreateSamplerWithDesc(App* app, int linearMin, int linearMag, int linearMip, int addressMode,
+    DONUT_API nvrhi::ISampler* Donut_CreateSamplerWithDesc(App* app, int linearMin, int linearMag, int linearMip, int addressMode,
         double mipBias, double minLod, double maxLod, double maxAnisotropy)
     {
         auto desc = nvrhi::SamplerDesc()
@@ -5564,7 +5566,7 @@ extern "C"
 
     // A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero)
     // or point filtering when minifying, magnifying and between levels, every level.
-    nvrhi::ISampler* Donut_CreateBorderSampler(App* app, int linearMin, int linearMag, int linearMip, double r, double g,
+    DONUT_API nvrhi::ISampler* Donut_CreateBorderSampler(App* app, int linearMin, int linearMag, int linearMip, double r, double g,
         double b, double a)
     {
         auto desc = nvrhi::SamplerDesc()
@@ -5580,7 +5582,7 @@ extern "C"
 
     // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy where the
     // device has samplerAnisotropy (1 without), 16 on D3D.
-    double Donut_GetMaxSamplerAnisotropy(App* app)
+    DONUT_API double Donut_GetMaxSamplerAnisotropy(App* app)
     {
 #if DONUT_WITH_VULKAN
         App* a = app;
@@ -5600,7 +5602,7 @@ extern "C"
     // A comparison sampler (SamplerComparisonState) for depth textures: bilinear, clamped to the
     // edges. NVRHI fixes its comparison at "less": SampleCmp returns the filtered fraction of texels
     // whose depth is greater than the reference. Returns null on failure.
-    nvrhi::ISampler* Donut_CreateComparisonSampler(App* app)
+    DONUT_API nvrhi::ISampler* Donut_CreateComparisonSampler(App* app)
     {
         auto desc = nvrhi::SamplerDesc()
             .setAllFilters(true)
@@ -5613,7 +5615,7 @@ extern "C"
 
     // cbuffer at b<slot>: byteSize bytes of a constant buffer starting at byteOffset (both
     // multiples of 256).
-    void Donut_BindConstantBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer, int byteOffset, int byteSize)
+    DONUT_API void Donut_BindConstantBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer, int byteOffset, int byteSize)
     {
         bindingSetDesc->addItem(nvrhi::BindingSetItem::ConstantBuffer(
             static_cast<uint32_t>(slot), constantBuffer,
@@ -5621,35 +5623,35 @@ extern "C"
     }
 
     // StructuredBuffer at t<slot> (e.g. from Donut_GetSceneBuffer).
-    void Donut_BindStructuredBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_BindStructuredBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot), buffer));
     }
 
     // A buffer from Donut_CreateRWStructuredBuffer, as RWStructuredBuffer at u<slot>.
-    void Donut_BindStructuredBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_BindStructuredBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::StructuredBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
     // ByteAddressBuffer at t<slot>; the buffer must allow raw views.
-    void Donut_BindRawBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_BindRawBufferSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::RawBuffer_SRV(static_cast<uint32_t>(slot), buffer));
     }
 
     // RWByteAddressBuffer at u<slot>; the buffer must allow raw views and UAVs.
-    void Donut_BindRawBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_BindRawBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::RawBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
     // Element arrayElement of a Donut_LayoutTextureSRVArray array at t<slot>.
-    void Donut_BindTextureSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::ITexture* texture)
+    DONUT_API void Donut_BindTextureSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::ITexture* texture)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture)
@@ -5658,21 +5660,21 @@ extern "C"
 
     // Element arrayElement of a Donut_LayoutConstantBufferArray, Donut_LayoutRawBufferSRVArray or
     // Donut_LayoutStructuredBufferSRVArray array at b / t<slot>.
-    void Donut_BindConstantBufferArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* constantBuffer)
+    DONUT_API void Donut_BindConstantBufferArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* constantBuffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::ConstantBuffer(static_cast<uint32_t>(slot), constantBuffer)
                 .setArrayElement(static_cast<uint32_t>(arrayElement)));
     }
 
-    void Donut_BindRawBufferSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_BindRawBufferSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* buffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::RawBuffer_SRV(static_cast<uint32_t>(slot), buffer)
                 .setArrayElement(static_cast<uint32_t>(arrayElement)));
     }
 
-    void Donut_BindStructuredBufferSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_BindStructuredBufferSRVArrayElement(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int arrayElement, nvrhi::IBuffer* buffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::StructuredBuffer_SRV(static_cast<uint32_t>(slot), buffer)
@@ -5682,28 +5684,28 @@ extern "C"
     // The push constants of a Donut_LayoutPushConstants item: byteSize bytes at b<slot>, whose
     // values are given when dispatching or drawing (Donut_DispatchWithPushConstants,
     // Donut_DrawIndexedWithPushConstants).
-    void Donut_BindPushConstants(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int byteSize)
+    DONUT_API void Donut_BindPushConstants(nvrhi::BindingSetDesc* bindingSetDesc, int slot, int byteSize)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::PushConstants(static_cast<uint32_t>(slot), static_cast<uint32_t>(byteSize)));
     }
 
     // cbuffer at b<slot>: the whole of a constant buffer (required for volatile ones).
-    void Donut_BindEntireConstantBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer)
+    DONUT_API void Donut_BindEntireConstantBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* constantBuffer)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::ConstantBuffer(static_cast<uint32_t>(slot), constantBuffer));
     }
 
     // Texture2D at t<slot>.
-    void Donut_BindTextureSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture)
+    DONUT_API void Donut_BindTextureSRV(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture));
     }
 
     // Same, one level of the texture only (e.g. the level above the one a pass draws into).
-    void Donut_BindTextureSRVMip(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture, int mipLevel)
+    DONUT_API void Donut_BindTextureSRVMip(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture, int mipLevel)
     {
         bindingSetDesc->addItem(nvrhi::BindingSetItem::Texture_SRV(
             static_cast<uint32_t>(slot), texture, nvrhi::Format::UNKNOWN,
@@ -5711,7 +5713,7 @@ extern "C"
     }
 
     // Same, mipCount levels from firstMip on (the shader's level 0 is firstMip).
-    void Donut_BindTextureSRVMips(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture, int firstMip, int mipCount)
+    DONUT_API void Donut_BindTextureSRVMips(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ITexture* texture, int firstMip, int mipCount)
     {
         bindingSetDesc->addItem(nvrhi::BindingSetItem::Texture_SRV(
             static_cast<uint32_t>(slot), texture, nvrhi::Format::UNKNOWN,
@@ -5719,7 +5721,7 @@ extern "C"
     }
 
     // SamplerState at s<slot>.
-    void Donut_BindSampler(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ISampler* sampler)
+    DONUT_API void Donut_BindSampler(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::ISampler* sampler)
     {
         bindingSetDesc->addItem(
             nvrhi::BindingSetItem::Sampler(static_cast<uint32_t>(slot), sampler));
@@ -5727,14 +5729,14 @@ extern "C"
 
     // The layout a binding set was created with; valid as long as the binding set. Use it for
     // more binding sets (Donut_CreateBindingSetForLayout) and pipelines.
-    nvrhi::IBindingLayout* Donut_GetBindingLayout(nvrhi::IBindingSet* bindingSet)
+    DONUT_API nvrhi::IBindingLayout* Donut_GetBindingLayout(nvrhi::IBindingSet* bindingSet)
     {
         return bindingSet->getLayout();
     }
 
     // Triangle list, no depth test, for the frame's framebuffer layout, with an input layout
     // and one binding layout. Returns null on failure.
-    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithLayouts(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    DONUT_API nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithLayouts(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout)
     {
         nvrhi::GraphicsPipelineDesc desc;
@@ -5752,7 +5754,7 @@ extern "C"
     // Pipeline without depth test for the frame's framebuffer layout, drawing primitiveType (an
     // nvrhi::PrimitiveType value), with an optional input layout and an optional binding layout
     // (null for either means none). Returns null on failure.
-    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithTopology(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    DONUT_API nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithTopology(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout, int primitiveType)
     {
         nvrhi::GraphicsPipelineDesc desc;
@@ -5827,7 +5829,7 @@ extern "C"
 
     // Same, blending into the framebuffer with blendMode (a BlendMode value, see SetBlendMode).
     // Returns null on failure.
-    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithBlend(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    DONUT_API nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineWithBlend(App* app, FrameContext* frame, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout, int primitiveType, int blendMode)
     {
         nvrhi::GraphicsPipelineDesc desc;
@@ -5847,7 +5849,7 @@ extern "C"
     // RGBA8_UNORM texture of width x height that compute shaders write as RWTexture2D<float4> and
     // pixel shaders read; NVRHI tracks its state, which rests at NonPixelShaderResource. Returns
     // null on failure.
-    nvrhi::ITexture* Donut_CreateUAVTexture(App* app, int width, int height, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateUAVTexture(App* app, int width, int height, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(nvrhi::Format::RGBA8_UNORM)
@@ -5864,13 +5866,13 @@ extern "C"
     // Render target (for Donut_CreateFramebuffer) of width x height in `format` (an nvrhi::Format
     // value) that shaders can also read; resting at ShaderResource. A depth format makes a depth
     // buffer, cleared to 1 by default, whose shader view reads the depth. Returns null on failure.
-    nvrhi::ITexture* Donut_CreateRenderTargetTexture(App* app, int width, int height, int format, const char* debugName);
+    DONUT_API nvrhi::ITexture* Donut_CreateRenderTargetTexture(App* app, int width, int height, int format, const char* debugName);
 
     // Same, typeless: framebuffers can see it in other formats of its family
     // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
     // without sRGB encoding) or RGBA8_UINT (for logic operations, which D3D12 has on UINT targets
     // only); shaders read it in `format`.
-    nvrhi::ITexture* Donut_CreateTypelessRenderTargetTexture(App* app, int width, int height, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateTypelessRenderTargetTexture(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -5891,7 +5893,7 @@ extern "C"
     // shaders read with all its levels; typeless, so that copies from textures of other formats of
     // its family land (e.g. RGBA8_UNORM data into SRGBA8_UNORM). Resting at ShaderResource. Returns
     // null on failure.
-    nvrhi::ITexture* Donut_CreateMipmappedRenderTarget(App* app, int width, int height, int mipLevels, int format,
+    DONUT_API nvrhi::ITexture* Donut_CreateMipmappedRenderTarget(App* app, int width, int height, int mipLevels, int format,
         const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
@@ -5912,7 +5914,7 @@ extern "C"
     // Texture of width x height with mipLevels levels in `format` (block-compressed formats too) for
     // shaders to read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
     // Returns null on failure.
-    nvrhi::ITexture* Donut_CreateTextureWithLevels(App* app, int width, int height, int mipLevels, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateTextureWithLevels(App* app, int width, int height, int mipLevels, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -5929,7 +5931,7 @@ extern "C"
 
     // Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed
     // formats) rowPitch bytes apart, copied during the call, recorded into an open command list.
-    void Donut_WriteTextureLevel(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int mipLevel, const void* data, int rowPitch)
+    DONUT_API void Donut_WriteTextureLevel(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int mipLevel, const void* data, int rowPitch)
     {
         commandList->writeTexture(texture, 0, static_cast<uint32_t>(mipLevel),
             data, static_cast<size_t>(rowPitch));
@@ -5938,7 +5940,7 @@ extern "C"
     // Render target of width x height in `format` that shaders also read and write as a UAV
     // (RWTexture2D<...>), e.g. one pass's output another's compute shaders read; resting at
     // UnorderedAccess. Returns null on failure.
-    nvrhi::ITexture* Donut_CreateRenderTargetUAVTexture(App* app, int width, int height, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateRenderTargetUAVTexture(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -5954,7 +5956,7 @@ extern "C"
         return a->Own(a->device()->createTexture(desc));
     }
 
-    nvrhi::ITexture* Donut_CreateRenderTargetTexture(App* app, int width, int height, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateRenderTargetTexture(App* app, int width, int height, int format, const char* debugName)
     {
         const auto textureFormat = static_cast<nvrhi::Format>(format);
         auto desc = nvrhi::TextureDesc()
@@ -5978,7 +5980,7 @@ extern "C"
     // Depth buffer of width x height in `format` (a depth nvrhi::Format value), optimized for
     // clears to clearDepth (e.g. 0 for reversed depth), that shaders can also read (resting at
     // ShaderResource). Returns null on failure.
-    nvrhi::ITexture* Donut_CreateDepthTexture(App* app, int width, int height, int format, double clearDepth, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateDepthTexture(App* app, int width, int height, int format, double clearDepth, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -5998,7 +6000,7 @@ extern "C"
     // Texture of width x height in `format` (an nvrhi::Format value) that shaders write and read as
     // a UAV (RWTexture2D<...>), resting at UnorderedAccess; clear it with Donut_ClearTextureUInt or
     // Donut_ClearTextureFloat. Returns null on failure.
-    nvrhi::ITexture* Donut_CreateUAVTextureWithFormat(App* app, int width, int height, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateUAVTextureWithFormat(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -6014,7 +6016,7 @@ extern "C"
     }
 
     // Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read).
-    nvrhi::ITexture* Donut_CreateUAVTextureArray(App* app, int width, int height, int arraySize, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateUAVTextureArray(App* app, int width, int height, int arraySize, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setDimension(nvrhi::TextureDimension::Texture2DArray)
@@ -6037,7 +6039,7 @@ extern "C"
 
     // Render target of width x height in `format` (an nvrhi::Format value) that shaders read.
     // Returns null on failure.
-    nvrhi::ITexture* Donut_CreateComputeReadableRenderTarget(App* app, int width, int height, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateComputeReadableRenderTarget(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -6054,7 +6056,7 @@ extern "C"
 
     // Texture of width x height in `format` that compute shaders write (RWTexture2D<float4>) and
     // shaders read. Returns null on failure.
-    nvrhi::ITexture* Donut_CreateComputeTexture(App* app, int width, int height, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateComputeTexture(App* app, int width, int height, int format, const char* debugName)
     {
         auto desc = nvrhi::TextureDesc()
             .setFormat(static_cast<nvrhi::Format>(format))
@@ -6072,7 +6074,7 @@ extern "C"
     // Framebuffer of one color target and an optional depth target (null for none), textures from
     // Donut_CreateRenderTargetTexture. Draw into it with Donut_BeginDrawToFramebuffer. Returns null
     // on failure.
-    nvrhi::IFramebuffer* Donut_CreateFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* depthTexture)
+    DONUT_API nvrhi::IFramebuffer* Donut_CreateFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(colorTexture);
         if (depthTexture)
@@ -6085,7 +6087,7 @@ extern "C"
     // Same, the color target seen in colorFormat (an nvrhi::Format value of the texture's family:
     // e.g. RGBA8_UINT or RGBA8_UNORM for a typeless SRGBA8_UNORM texture,
     // Donut_CreateTypelessRenderTargetTexture).
-    nvrhi::IFramebuffer* Donut_CreateFramebufferWithColorFormat(App* app, nvrhi::ITexture* colorTexture, int colorFormat, nvrhi::ITexture* depthTexture)
+    DONUT_API nvrhi::IFramebuffer* Donut_CreateFramebufferWithColorFormat(App* app, nvrhi::ITexture* colorTexture, int colorFormat, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
             .setTexture(colorTexture)
@@ -6098,7 +6100,7 @@ extern "C"
     }
 
     // Framebuffer of a depth target alone (e.g. a shadow map). Returns null on failure.
-    nvrhi::IFramebuffer* Donut_CreateDepthFramebuffer(App* app, nvrhi::ITexture* depthTexture)
+    DONUT_API nvrhi::IFramebuffer* Donut_CreateDepthFramebuffer(App* app, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc().setDepthAttachment(depthTexture);
 
@@ -6107,7 +6109,7 @@ extern "C"
     }
 
     // Same, with two color targets (SV_Target0 and SV_Target1).
-    nvrhi::IFramebuffer* Donut_CreateFramebufferWithTwoTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture)
+    DONUT_API nvrhi::IFramebuffer* Donut_CreateFramebufferWithTwoTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc()
             .addColorAttachment(colorTexture0)
@@ -6120,7 +6122,7 @@ extern "C"
     }
 
     // Same, with three color targets (SV_Target0 to SV_Target2).
-    nvrhi::IFramebuffer* Donut_CreateFramebufferWithThreeTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* colorTexture2,
+    DONUT_API nvrhi::IFramebuffer* Donut_CreateFramebufferWithThreeTargets(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* colorTexture2,
         nvrhi::ITexture* depthTexture)
     {
         auto desc = nvrhi::FramebufferDesc()
@@ -6136,7 +6138,7 @@ extern "C"
 
     // Framebuffer of one level of a color target (e.g. of Donut_CreateTiledTexture), to draw into
     // while sampling another level (Donut_BindTextureSRVMip). Returns null on failure.
-    nvrhi::IFramebuffer* Donut_CreateFramebufferForMip(App* app, nvrhi::ITexture* colorTexture, int mipLevel)
+    DONUT_API nvrhi::IFramebuffer* Donut_CreateFramebufferForMip(App* app, nvrhi::ITexture* colorTexture, int mipLevel)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
             .setTexture(colorTexture)
@@ -6153,7 +6155,7 @@ extern "C"
     // zeros, and shaders can tell (CheckAccessFullyMapped). It rests as a shader resource, and is a
     // copy source and destination and a render target (e.g. to fill a level from the one above it).
     // Requires Donut_HasSparseResidency. Returns null on failure.
-    nvrhi::ITexture* Donut_CreateTiledTexture(App* app, int width, int height, int mipLevels, int format, const char* debugName)
+    DONUT_API nvrhi::ITexture* Donut_CreateTiledTexture(App* app, int width, int height, int mipLevels, int format, const char* debugName)
     {
         nvrhi::TextureDesc desc;
         desc.width = static_cast<uint32_t>(width);
@@ -6174,7 +6176,7 @@ extern "C"
     // A tiled texture's tiling, into dst (Ref of a `let` int array of 4): the tile's width and
     // height in texels, the number of levels made of whole tiles, and the number of levels packed
     // into the mip tail after them.
-    void Donut_GetTextureTiling(App* app, nvrhi::ITexture* texture, int* dst)
+    DONUT_API void Donut_GetTextureTiling(App* app, nvrhi::ITexture* texture, int* dst)
     {
         uint32_t numTiles = 0;
         nvrhi::PackedMipDesc packedMips;
@@ -6190,7 +6192,7 @@ extern "C"
 
     // The number of tiles a tiled texture's packed levels (its mip tail) take together: 0 if it has
     // none.
-    int Donut_GetTexturePackedMipTileCount(App* app, nvrhi::ITexture* texture)
+    DONUT_API int Donut_GetTexturePackedMipTileCount(App* app, nvrhi::ITexture* texture)
     {
         uint32_t numTiles = 0;
         nvrhi::PackedMipDesc packedMips;
@@ -6204,7 +6206,7 @@ extern "C"
     // Device memory to map tiles of tiled textures into: byteSize bytes, a multiple of the 64 KiB
     // tile. Release it (Donut_ReleaseResource) once no tile is mapped to it any more and the GPU is
     // done with what used it. Returns null on failure.
-    nvrhi::IHeap* Donut_CreateTileHeap(App* app, double byteSize, const char* debugName)
+    DONUT_API nvrhi::IHeap* Donut_CreateTileHeap(App* app, double byteSize, const char* debugName)
     {
         nvrhi::HeapDesc desc;
         desc.capacity = static_cast<uint64_t>(byteSize);
@@ -6269,7 +6271,7 @@ extern "C"
     // The bytes a width x height, one level texture of `format` takes in a texture heap
     // (Donut_CreatePlacedTexture), its alignment included: D3D12's small resource alignment (4 KB)
     // where it's granted, Vulkan's memory requirements.
-    double Donut_GetPlacedTextureSize(App* app, int width, int height, int format)
+    DONUT_API double Donut_GetPlacedTextureSize(App* app, int width, int height, int format)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -6294,7 +6296,7 @@ extern "C"
 
     // A heap of byteSize bytes of device memory for textures (Donut_CreatePlacedTexture); null on
     // failure. D3D11 has none.
-    TextureHeap* Donut_CreateTextureHeap(App* app, double byteSize, const char* debugName)
+    DONUT_API TextureHeap* Donut_CreateTextureHeap(App* app, double byteSize, const char* debugName)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -6333,7 +6335,7 @@ extern "C"
     // at byteOffset (a multiple of Donut_GetPlacedTextureSize's size); its first use recorded into an
     // open command list (D3D12's aliasing barrier). Fill it with Donut_WriteTextureLevel. Null on
     // failure.
-    nvrhi::ITexture* Donut_CreatePlacedTexture(App* app, nvrhi::ICommandList* commandList, TextureHeap* textureHeap, double byteOffset, int width, int height,
+    DONUT_API nvrhi::ITexture* Donut_CreatePlacedTexture(App* app, nvrhi::ICommandList* commandList, TextureHeap* textureHeap, double byteOffset, int width, int height,
         int format, const char* debugName)
     {
         App* a = app;
@@ -6391,14 +6393,14 @@ extern "C"
         std::vector<Tile> tiles;
     };
 
-    TileMappings* Donut_CreateTileMappings()
+    DONUT_API TileMappings* Donut_CreateTileMappings()
     {
         return new TileMappings();
     }
 
     // Maps the tile at column x, row y of level mipLevel to byteOffset (a multiple of 64 KiB) in a
     // heap, or unmaps it (heap null).
-    void Donut_TileMappingsAdd(TileMappings* tileMappings, int mipLevel, int x, int y, nvrhi::IHeap* heap, double byteOffset)
+    DONUT_API void Donut_TileMappingsAdd(TileMappings* tileMappings, int mipLevel, int x, int y, nvrhi::IHeap* heap, double byteOffset)
     {
         TileMappings::Tile tile;
         tile.heap = heap;
@@ -6411,7 +6413,7 @@ extern "C"
 
     // Maps all the packed levels (the mip tail, from level firstPackedMip on) to tileCount tiles
     // (Donut_GetTexturePackedMipTileCount) from byteOffset in a heap, or unmaps them (heap null).
-    void Donut_TileMappingsAddPackedMips(TileMappings* tileMappings, int firstPackedMip, int tileCount, nvrhi::IHeap* heap,
+    DONUT_API void Donut_TileMappingsAddPackedMips(TileMappings* tileMappings, int firstPackedMip, int tileCount, nvrhi::IHeap* heap,
         double byteOffset)
     {
         TileMappings::Tile tile;
@@ -6425,7 +6427,7 @@ extern "C"
     // Applies the mappings to a tiled texture, on the graphics queue, after the work submitted to
     // it before; frees them. Vulkan's sparse binding isn't ordered with the queue's other work: there
     // the device is idle before and after.
-    void Donut_ApplyTileMappings(App* app, nvrhi::ITexture* texture, TileMappings* tileMappings)
+    DONUT_API void Donut_ApplyTileMappings(App* app, nvrhi::ITexture* texture, TileMappings* tileMappings)
     {
         std::unique_ptr<TileMappings> mappings(tileMappings);
         nvrhi::IDevice* device = app->device();
@@ -6483,7 +6485,7 @@ extern "C"
     // The first level of a DDS file (path relative to the executable's directory) in a staging
     // texture: memory on the CPU's side that the GPU copies from (Donut_CopyStagingTextureRegion).
     // Null (after logging why) on failure.
-    nvrhi::IStagingTexture* Donut_LoadStagingTexture(App* app, const char* path)
+    DONUT_API nvrhi::IStagingTexture* Donut_LoadStagingTexture(App* app, const char* path)
     {
         const std::filesystem::path filePath = GetExecutablePath().parent_path() / path;
         donut::vfs::NativeFileSystem fs;
@@ -6522,19 +6524,19 @@ extern "C"
         return a->Own(staging);
     }
 
-    int Donut_GetStagingTextureWidth(nvrhi::IStagingTexture* stagingTexture)
+    DONUT_API int Donut_GetStagingTextureWidth(nvrhi::IStagingTexture* stagingTexture)
     {
         return static_cast<int>(stagingTexture->getDesc().width);
     }
 
-    int Donut_GetStagingTextureHeight(nvrhi::IStagingTexture* stagingTexture)
+    DONUT_API int Donut_GetStagingTextureHeight(nvrhi::IStagingTexture* stagingTexture)
     {
         return static_cast<int>(stagingTexture->getDesc().height);
     }
 
     // Copies width x height texels at (srcX, srcY) of a staging texture's first level to (dstX, dstY)
     // of level dstMip of a texture.
-    void Donut_CopyStagingTextureRegion(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, int dstMip, int dstX, int dstY,
+    DONUT_API void Donut_CopyStagingTextureRegion(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, int dstMip, int dstX, int dstY,
         nvrhi::IStagingTexture* stagingTexture, int srcX, int srcY, int width, int height)
     {
         nvrhi::TextureSlice dst;
@@ -6553,7 +6555,7 @@ extern "C"
     }
 
     // Same, between levels of textures (the same texture's other levels too).
-    void Donut_CopyTextureRegion(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, int dstMip, int dstX, int dstY,
+    DONUT_API void Donut_CopyTextureRegion(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, int dstMip, int dstX, int dstY,
         nvrhi::ITexture* srcTexture, int srcMip, int srcX, int srcY, int width, int height)
     {
         nvrhi::TextureSlice dst;
@@ -6575,7 +6577,7 @@ extern "C"
     // layout and one binding layout, and NVRHI's default render state: depth test (less) and
     // depth writes on, back faces culled (clockwise triangles are front faces). Returns null on
     // failure.
-    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineForFramebuffer(App* app, nvrhi::IFramebuffer* framebuffer, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    DONUT_API nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineForFramebuffer(App* app, nvrhi::IFramebuffer* framebuffer, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IBindingLayout* bindingLayout)
     {
         nvrhi::GraphicsPipelineDesc desc;
@@ -6594,7 +6596,7 @@ extern "C"
     // functions below, then consumed (freed) by Donut_CreateGraphicsPipelineFromDesc. It starts as
     // a triangle list with NVRHI's default render state: depth test (less) and depth writes on,
     // back faces culled (clockwise triangles are front faces), solid fill, no blending.
-    PipelineDesc* Donut_CreateGraphicsPipelineDesc(nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
+    DONUT_API PipelineDesc* Donut_CreateGraphicsPipelineDesc(nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader)
     {
         auto* desc = new PipelineDesc();
         desc->VS = vertexShader;
@@ -6606,7 +6608,7 @@ extern "C"
     // Same, for a meshlet pipeline (Donut_CreateMeshletPipelineFromDesc): amplification (optional),
     // mesh and pixel shaders, the rest set with the same functions. Its primitive type is what the
     // mesh shader outputs (its outputtopology).
-    PipelineDesc* Donut_CreateMeshletPipelineDesc(nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
+    DONUT_API PipelineDesc* Donut_CreateMeshletPipelineDesc(nvrhi::IShader* amplificationShader, nvrhi::IShader* meshShader, nvrhi::IShader* pixelShader)
     {
         auto* desc = new PipelineDesc();
         desc->AS = amplificationShader;
@@ -6617,30 +6619,30 @@ extern "C"
     }
 
     // A geometry shader between the vertex (or domain) shader and the rasterizer.
-    void Donut_GraphicsPipelineSetGeometryShader(PipelineDesc* graphicsPipelineDesc, nvrhi::IShader* geometryShader)
+    DONUT_API void Donut_GraphicsPipelineSetGeometryShader(PipelineDesc* graphicsPipelineDesc, nvrhi::IShader* geometryShader)
     {
         graphicsPipelineDesc->GS = geometryShader;
     }
 
-    void Donut_GraphicsPipelineAddBindingLayout(PipelineDesc* graphicsPipelineDesc, nvrhi::IBindingLayout* bindingLayout)
+    DONUT_API void Donut_GraphicsPipelineAddBindingLayout(PipelineDesc* graphicsPipelineDesc, nvrhi::IBindingLayout* bindingLayout)
     {
         graphicsPipelineDesc->bindingLayouts.push_back(
             bindingLayout);
     }
 
-    void Donut_GraphicsPipelineSetInputLayout(PipelineDesc* graphicsPipelineDesc, nvrhi::IInputLayout* inputLayout)
+    DONUT_API void Donut_GraphicsPipelineSetInputLayout(PipelineDesc* graphicsPipelineDesc, nvrhi::IInputLayout* inputLayout)
     {
         graphicsPipelineDesc->inputLayout = inputLayout;
     }
 
     // primitiveType: an nvrhi::PrimitiveType value.
-    void Donut_GraphicsPipelineSetPrimitiveType(PipelineDesc* graphicsPipelineDesc, int primitiveType)
+    DONUT_API void Donut_GraphicsPipelineSetPrimitiveType(PipelineDesc* graphicsPipelineDesc, int primitiveType)
     {
         graphicsPipelineDesc->primType = static_cast<nvrhi::PrimitiveType>(primitiveType);
     }
 
     // Hull and domain shaders, drawing patches of controlPoints vertices.
-    void Donut_GraphicsPipelineSetTessellation(PipelineDesc* graphicsPipelineDesc, nvrhi::IShader* hullShader, nvrhi::IShader* domainShader,
+    DONUT_API void Donut_GraphicsPipelineSetTessellation(PipelineDesc* graphicsPipelineDesc, nvrhi::IShader* hullShader, nvrhi::IShader* domainShader,
         int controlPoints)
     {
         PipelineDesc* desc = graphicsPipelineDesc;
@@ -6654,7 +6656,7 @@ extern "C"
         && int(nvrhi::ComparisonFunc::Always) == 8);
 
     // depthFunc: an nvrhi::ComparisonFunc value.
-    void Donut_GraphicsPipelineSetDepthState(PipelineDesc* graphicsPipelineDesc, int testEnable, int writeEnable, int depthFunc)
+    DONUT_API void Donut_GraphicsPipelineSetDepthState(PipelineDesc* graphicsPipelineDesc, int testEnable, int writeEnable, int depthFunc)
     {
         nvrhi::DepthStencilState& state = graphicsPipelineDesc->renderState.depthStencilState;
         state.depthTestEnable = testEnable != 0;
@@ -6664,7 +6666,7 @@ extern "C"
 
     // The depth bounds test: pixels whose depth target value is outside the draw's bounds
     // (Donut_DrawSetDepthBounds) are discarded. Requires Donut_HasDepthBoundsTest.
-    void Donut_GraphicsPipelineSetDepthBoundsTest(PipelineDesc* graphicsPipelineDesc, int enable)
+    DONUT_API void Donut_GraphicsPipelineSetDepthBoundsTest(PipelineDesc* graphicsPipelineDesc, int enable)
     {
         graphicsPipelineDesc->renderState.depthStencilState.depthBoundsTestEnable = enable != 0;
     }
@@ -6674,7 +6676,7 @@ extern "C"
     static_assert(int(nvrhi::RasterFillMode::Solid) == 0 && int(nvrhi::RasterFillMode::Wireframe) == 1);
 
     // cullMode, fillMode: nvrhi::RasterCullMode and nvrhi::RasterFillMode values.
-    void Donut_GraphicsPipelineSetRasterState(PipelineDesc* graphicsPipelineDesc, int cullMode, int fillMode,
+    DONUT_API void Donut_GraphicsPipelineSetRasterState(PipelineDesc* graphicsPipelineDesc, int cullMode, int fillMode,
         int frontCounterClockwise)
     {
         nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
@@ -6685,7 +6687,7 @@ extern "C"
 
     // Whether draws are clipped to their scissor rectangle (Donut_DrawSetScissor): NVRHI's D3D12 and
     // D3D11 backends apply it only to pipelines that enable it; Vulkan always does.
-    void Donut_GraphicsPipelineSetScissorEnable(PipelineDesc* graphicsPipelineDesc, int enable)
+    DONUT_API void Donut_GraphicsPipelineSetScissorEnable(PipelineDesc* graphicsPipelineDesc, int enable)
     {
         graphicsPipelineDesc->renderState.rasterState.scissorEnable = enable != 0;
     }
@@ -6693,14 +6695,14 @@ extern "C"
     // Whether primitives are clipped at the near and far planes (Vulkan's default, as without
     // VK_EXT_depth_clip_enable) or not (NVRHI's default: on D3D, depth beyond them is clamped and
     // what's between the eye and the near plane drawn). Off by default.
-    void Donut_GraphicsPipelineSetDepthClip(PipelineDesc* graphicsPipelineDesc, int enable)
+    DONUT_API void Donut_GraphicsPipelineSetDepthClip(PipelineDesc* graphicsPipelineDesc, int enable)
     {
         graphicsPipelineDesc->renderState.rasterState.depthClipEnable = enable != 0;
     }
 
     // Depth bias: depthBias units of the depth format's resolution, plus slopeScaledDepthBias times
     // the triangle's depth slope, clamped to depthBiasClamp in magnitude (0 for no clamp).
-    void Donut_GraphicsPipelineSetDepthBias(PipelineDesc* graphicsPipelineDesc, int depthBias, double depthBiasClamp,
+    DONUT_API void Donut_GraphicsPipelineSetDepthBias(PipelineDesc* graphicsPipelineDesc, int depthBias, double depthBiasClamp,
         double slopeScaledDepthBias)
     {
         nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
@@ -6713,7 +6715,7 @@ extern "C"
     // pixel a triangle touches at all is drawn. extraOverestimation enlarges the triangles further,
     // in pixels, on Vulkan (extraPrimitiveOverestimationSize, clamped to the device's maximum); D3D
     // has no such setting.
-    void Donut_GraphicsPipelineSetConservativeRaster(PipelineDesc* graphicsPipelineDesc, int enable, double extraOverestimation)
+    DONUT_API void Donut_GraphicsPipelineSetConservativeRaster(PipelineDesc* graphicsPipelineDesc, int enable, double extraOverestimation)
     {
         nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
         state.conservativeRasterEnable = enable != 0;
@@ -6723,7 +6725,7 @@ extern "C"
     // Primitive restart: strips restart at the largest index of indexFormat (Format R16_UINT:
     // 0xFFFF, R32_UINT: 0xFFFFFFFF; UNKNOWN for none), the format of the index buffers the pipeline
     // draws with (D3D12 needs it; D3D11 always restarts strips).
-    void Donut_GraphicsPipelineSetPrimitiveRestart(PipelineDesc* graphicsPipelineDesc, int indexFormat)
+    DONUT_API void Donut_GraphicsPipelineSetPrimitiveRestart(PipelineDesc* graphicsPipelineDesc, int indexFormat)
     {
         graphicsPipelineDesc->primitiveRestartIndexFormat = static_cast<nvrhi::Format>(indexFormat);
     }
@@ -6734,7 +6736,7 @@ extern "C"
     // 16-bit pattern, from the lowest, a run of stippleFactor pixels drawn if set). D3D draws
     // rectangular lines as quadrilateral lines (multisampling on), Bresenham ones aliased, smooth ones
     // alpha antialiased; it has no width or stipple.
-    void Donut_GraphicsPipelineSetLineRasterization(PipelineDesc* graphicsPipelineDesc, int mode, double width, int stippleEnable,
+    DONUT_API void Donut_GraphicsPipelineSetLineRasterization(PipelineDesc* graphicsPipelineDesc, int mode, double width, int stippleEnable,
         int stippleFactor, int stipplePattern)
     {
         nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
@@ -6747,7 +6749,7 @@ extern "C"
 
     // Which channels every color target writes: ColorMask bits (red 1, green 2, blue 4, alpha 8; 0 for
     // none, e.g. for a pass whose pixel shader only writes UAVs).
-    void Donut_GraphicsPipelineSetColorWriteMask(PipelineDesc* graphicsPipelineDesc, int mask)
+    DONUT_API void Donut_GraphicsPipelineSetColorWriteMask(PipelineDesc* graphicsPipelineDesc, int mask)
     {
         for (nvrhi::BlendState::RenderTarget& target : graphicsPipelineDesc->renderState.blendState.targets)
             target.setColorWriteMask(static_cast<nvrhi::ColorMask>(mask));
@@ -6755,7 +6757,7 @@ extern "C"
 
     // The channels one render target (SV_Target<target>) is written in (ColorMask bits; 0 writes
     // nothing to it).
-    void Donut_GraphicsPipelineSetTargetColorWriteMask(PipelineDesc* graphicsPipelineDesc, int target, int mask)
+    DONUT_API void Donut_GraphicsPipelineSetTargetColorWriteMask(PipelineDesc* graphicsPipelineDesc, int target, int mask)
     {
         graphicsPipelineDesc->renderState.blendState.targets[target]
             .setColorWriteMask(static_cast<nvrhi::ColorMask>(mask));
@@ -6763,7 +6765,7 @@ extern "C"
 
     // A logic operation (a LogicOp value: nvrhi::LogicOp, Vulkan's order) between the pixel shader's
     // output and the targets' bits, instead of blending (Donut_HasLogicOps; UINT and UNORM targets).
-    void Donut_GraphicsPipelineSetLogicOp(PipelineDesc* graphicsPipelineDesc, int enable, int logicOp)
+    DONUT_API void Donut_GraphicsPipelineSetLogicOp(PipelineDesc* graphicsPipelineDesc, int enable, int logicOp)
     {
         nvrhi::BlendState& state = graphicsPipelineDesc->renderState.blendState;
         state.logicOpEnable = enable != 0;
@@ -6771,7 +6773,7 @@ extern "C"
     }
 
     // Blending of every color target with blendMode (a BlendMode value, see SetBlendMode).
-    void Donut_GraphicsPipelineSetBlendMode(PipelineDesc* graphicsPipelineDesc, int blendMode)
+    DONUT_API void Donut_GraphicsPipelineSetBlendMode(PipelineDesc* graphicsPipelineDesc, int blendMode)
     {
         for (nvrhi::BlendState::RenderTarget& target : graphicsPipelineDesc->renderState.blendState.targets)
             SetBlendMode(target, blendMode);
@@ -6780,7 +6782,7 @@ extern "C"
     // Blending of every color target, on or off (enable), by blend factors (nvrhi::BlendFactor
     // values) and operations (nvrhi::BlendOp values) of the color and of the alpha. The color
     // write mask stays.
-    void Donut_GraphicsPipelineSetBlendState(PipelineDesc* graphicsPipelineDesc, int enable, int srcBlend, int destBlend,
+    DONUT_API void Donut_GraphicsPipelineSetBlendState(PipelineDesc* graphicsPipelineDesc, int enable, int srcBlend, int destBlend,
         int blendOp, int srcBlendAlpha, int destBlendAlpha, int blendOpAlpha)
     {
         for (nvrhi::BlendState::RenderTarget& target : graphicsPipelineDesc->renderState.blendState.targets)
@@ -6801,7 +6803,7 @@ extern "C"
     // VK_BLEND_OP_ZERO_EXT (0 Zero, 1 Src, ... 45 Blue; -1 for none), whether the source and the
     // destination colors are premultiplied by their alpha, and their overlap (VkBlendOverlapEXT:
     // 0 uncorrelated, 1 disjoint, 2 conjoint).
-    void Donut_GraphicsPipelineSetAdvancedBlendOp(PipelineDesc* graphicsPipelineDesc, int advancedBlendOp, int srcPremultiplied,
+    DONUT_API void Donut_GraphicsPipelineSetAdvancedBlendOp(PipelineDesc* graphicsPipelineDesc, int advancedBlendOp, int srcPremultiplied,
         int dstPremultiplied, int overlap)
     {
         graphicsPipelineDesc->renderState.blendState.setAdvancedBlendOp(
@@ -6810,7 +6812,7 @@ extern "C"
 
     // For a framebuffer's layout (Donut_CreateFramebuffer); frees the description. Returns null on
     // failure.
-    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineFromDesc(App* app, PipelineDesc* graphicsPipelineDesc, nvrhi::IFramebuffer* framebuffer)
+    DONUT_API nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineFromDesc(App* app, PipelineDesc* graphicsPipelineDesc, nvrhi::IFramebuffer* framebuffer)
     {
         std::unique_ptr<PipelineDesc> desc(graphicsPipelineDesc);
         App* a = app;
@@ -6820,7 +6822,7 @@ extern "C"
 
     // Same, for the frame's framebuffer (the back buffer's layout); frees the description. Returns
     // null on failure.
-    nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineFromDescForFrame(App* app, PipelineDesc* graphicsPipelineDesc, FrameContext* frame)
+    DONUT_API nvrhi::IGraphicsPipeline* Donut_CreateGraphicsPipelineFromDescForFrame(App* app, PipelineDesc* graphicsPipelineDesc, FrameContext* frame)
     {
         std::unique_ptr<PipelineDesc> desc(graphicsPipelineDesc);
         App* a = app;
@@ -6842,14 +6844,14 @@ extern "C"
 
     // A meshlet pipeline from a Donut_CreateMeshletPipelineDesc description (which it frees), for a
     // framebuffer's layout; requires nvrhi::Feature::Meshlets. Returns null on failure.
-    nvrhi::IMeshletPipeline* Donut_CreateMeshletPipelineFromDesc(App* app, PipelineDesc* graphicsPipelineDesc, nvrhi::IFramebuffer* framebuffer)
+    DONUT_API nvrhi::IMeshletPipeline* Donut_CreateMeshletPipelineFromDesc(App* app, PipelineDesc* graphicsPipelineDesc, nvrhi::IFramebuffer* framebuffer)
     {
         std::unique_ptr<PipelineDesc> desc(graphicsPipelineDesc);
         return CreateMeshletPipeline(app, *desc, framebuffer->getFramebufferInfo());
     }
 
     // Same, for the frame's framebuffer (the back buffer's layout).
-    nvrhi::IMeshletPipeline* Donut_CreateMeshletPipelineFromDescForFrame(App* app, PipelineDesc* graphicsPipelineDesc, FrameContext* frame)
+    DONUT_API nvrhi::IMeshletPipeline* Donut_CreateMeshletPipelineFromDescForFrame(App* app, PipelineDesc* graphicsPipelineDesc, FrameContext* frame)
     {
         std::unique_ptr<PipelineDesc> desc(graphicsPipelineDesc);
         return CreateMeshletPipeline(app, *desc, frame->framebuffer->getFramebufferInfo());
@@ -6857,7 +6859,7 @@ extern "C"
 
     // A binding set for a description (which it frees) from the app's binding cache: created on
     // the first request, reused for identical ones after. Valid until Donut_ClearBindingCache.
-    nvrhi::IBindingSet* Donut_GetCachedBindingSet(App* app, nvrhi::BindingSetDesc* bindingSetDesc, nvrhi::IBindingLayout* bindingLayout)
+    DONUT_API nvrhi::IBindingSet* Donut_GetCachedBindingSet(App* app, nvrhi::BindingSetDesc* bindingSetDesc, nvrhi::IBindingLayout* bindingLayout)
     {
         std::unique_ptr<nvrhi::BindingSetDesc> desc(bindingSetDesc);
         return app->bindingCache()->GetOrCreateBindingSet(*desc, bindingLayout).Get();
@@ -6871,7 +6873,7 @@ extern "C"
     // counting from 0) as push constants at b0; the binding layout must hold exactly those two.
     // Give it textures with Donut_AddAsyncComputeTexture, then start it. Returns null if the
     // device has no compute queue.
-    AsyncComputeLoop* Donut_CreateAsyncComputeLoop(App* app, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingLayout* bindingLayout,
+    DONUT_API AsyncComputeLoop* Donut_CreateAsyncComputeLoop(App* app, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingLayout* bindingLayout,
         int groupsX, int groupsY, int intervalMicroseconds)
     {
         App* a = app;
@@ -6897,7 +6899,7 @@ extern "C"
     }
 
     // Adds a texture (e.g. from Donut_CreateUAVTexture) for the loop to write; call before starting it.
-    void Donut_AddAsyncComputeTexture(AsyncComputeLoop* asyncComputeLoop, nvrhi::ITexture* texture)
+    DONUT_API void Donut_AddAsyncComputeTexture(AsyncComputeLoop* asyncComputeLoop, nvrhi::ITexture* texture)
     {
         asyncComputeLoop->renderToCompute.Push(texture, 0);
     }
@@ -6905,7 +6907,7 @@ extern "C"
     // Same, with the binding set (from the loop's binding layout) to run the compute pipeline with
     // when writing it: the texture's UAV at u0, the push constants at b0, and anything else the
     // shader reads (e.g. a color map), instead of the loop's own set of the first two.
-    void Donut_AddAsyncComputeTextureWithBindingSet(AsyncComputeLoop* asyncComputeLoop, nvrhi::ITexture* texture, nvrhi::IBindingSet* bindingSet)
+    DONUT_API void Donut_AddAsyncComputeTextureWithBindingSet(AsyncComputeLoop* asyncComputeLoop, nvrhi::ITexture* texture, nvrhi::IBindingSet* bindingSet)
     {
         auto* loop = asyncComputeLoop;
         loop->textureBindingSets[texture] = bindingSet;
@@ -6914,7 +6916,7 @@ extern "C"
 
     // The push constants of the runs from now on (byteSize bytes from data, copied during the call;
     // the binding layout's push constants must be that size), instead of the run index.
-    void Donut_SetAsyncComputePushConstants(AsyncComputeLoop* asyncComputeLoop, const void* data, int byteSize)
+    DONUT_API void Donut_SetAsyncComputePushConstants(AsyncComputeLoop* asyncComputeLoop, const void* data, int byteSize)
     {
         auto* loop = asyncComputeLoop;
         std::lock_guard lock(loop->pushConstantsMutex);
@@ -6922,18 +6924,18 @@ extern "C"
     }
 
     // Non-zero: the worker starts no more runs until resumed (the run under way finishes).
-    void Donut_SetAsyncComputeLoopPaused(AsyncComputeLoop* asyncComputeLoop, int paused)
+    DONUT_API void Donut_SetAsyncComputeLoopPaused(AsyncComputeLoop* asyncComputeLoop, int paused)
     {
         asyncComputeLoop->paused = paused != 0;
     }
 
     // Runs the worker has submitted so far.
-    int Donut_GetAsyncComputeRunCount(AsyncComputeLoop* asyncComputeLoop)
+    DONUT_API int Donut_GetAsyncComputeRunCount(AsyncComputeLoop* asyncComputeLoop)
     {
         return static_cast<int>(asyncComputeLoop->runCount.load());
     }
 
-    void Donut_StartAsyncComputeLoop(AsyncComputeLoop* asyncComputeLoop)
+    DONUT_API void Donut_StartAsyncComputeLoop(AsyncComputeLoop* asyncComputeLoop)
     {
         auto* loop = asyncComputeLoop;
         loop->thread = std::thread([loop]() { loop->ThreadProc(); });
@@ -6941,7 +6943,7 @@ extern "C"
 
     // Stops and joins the worker thread; call it before Donut_DestroyApp (releasing or destroying
     // the loop also does).
-    void Donut_StopAsyncComputeLoop(AsyncComputeLoop* asyncComputeLoop)
+    DONUT_API void Donut_StopAsyncComputeLoop(AsyncComputeLoop* asyncComputeLoop)
     {
         asyncComputeLoop->Stop();
     }
@@ -6949,7 +6951,7 @@ extern "C"
     // Inside a render callback: if the loop finished a texture, switches to it (making the frame's
     // command list wait for the compute queue) and returns the texture shown until then to the
     // loop. Returns the texture to show this frame, null until the first one is ready.
-    nvrhi::ITexture* Donut_AcquireAsyncComputeTexture(AsyncComputeLoop* asyncComputeLoop, FrameContext* frame)
+    DONUT_API nvrhi::ITexture* Donut_AcquireAsyncComputeTexture(AsyncComputeLoop* asyncComputeLoop, FrameContext* frame)
     {
         auto* loop = asyncComputeLoop;
 
@@ -6970,25 +6972,25 @@ extern "C"
 
     // --- Command lists (for work outside render passes, e.g. in a headless app) --------------
 
-    nvrhi::ICommandList* Donut_CreateCommandList(App* app)
+    DONUT_API nvrhi::ICommandList* Donut_CreateCommandList(App* app)
     {
         App* a = app;
         return a->Own(a->device()->createCommandList());
     }
 
-    void Donut_OpenCommandList(nvrhi::ICommandList* commandList)
+    DONUT_API void Donut_OpenCommandList(nvrhi::ICommandList* commandList)
     {
         commandList->open();
     }
 
-    void Donut_CloseCommandList(nvrhi::ICommandList* commandList)
+    DONUT_API void Donut_CloseCommandList(nvrhi::ICommandList* commandList)
     {
         commandList->close();
     }
 
     // The app holds the command list until the GPU has finished it (App::ExecuteCommandList), so
     // it can be released right after.
-    void Donut_ExecuteCommandList(App* app, nvrhi::ICommandList* commandList)
+    DONUT_API void Donut_ExecuteCommandList(App* app, nvrhi::ICommandList* commandList)
     {
         app->ExecuteCommandList(commandList);
     }
@@ -6996,7 +6998,7 @@ extern "C"
     // Draws vertexCount vertices (no vertex buffers, e.g. a triangle over the target from
     // SV_VertexID) with a graphics pipeline into a framebuffer, all of it, with one binding set:
     // for drawing outside the frames, e.g. into a texture's levels at load time.
-    void Donut_CommandListDraw(nvrhi::ICommandList* commandList, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer, nvrhi::IBindingSet* bindingSet, int vertexCount)
+    DONUT_API void Donut_CommandListDraw(nvrhi::ICommandList* commandList, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer, nvrhi::IBindingSet* bindingSet, int vertexCount)
     {
         auto* fb = framebuffer;
         nvrhi::GraphicsState state;
@@ -7012,7 +7014,7 @@ extern "C"
 
     // A command list for the compute queue (the app needs AppOptions.ComputeQueue), to record each
     // frame and run with Donut_ExecuteFrameComputeWork. Returns null if there's no compute queue.
-    nvrhi::ICommandList* Donut_CreateComputeQueueCommandList(App* app)
+    DONUT_API nvrhi::ICommandList* Donut_CreateComputeQueueCommandList(App* app)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -7024,7 +7026,7 @@ extern "C"
     }
 
     // Blocks the CPU until the GPU has finished all submitted work.
-    void Donut_WaitForIdle(App* app)
+    DONUT_API void Donut_WaitForIdle(App* app)
     {
         App* a = app;
         WaitForIdleSynchronized(a->device());
@@ -7032,20 +7034,20 @@ extern "C"
     }
 
     // Uploads byteSize bytes from data (copied during the call) into buffer.
-    void Donut_WriteBuffer(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, const void* data, int byteSize)
+    DONUT_API void Donut_WriteBuffer(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, const void* data, int byteSize)
     {
         commandList->writeBuffer(buffer, data, static_cast<size_t>(byteSize));
     }
 
     // byteSize bytes of data into a (non-volatile) buffer at byteOffset, e.g. a constant buffer's
     // uints after its floats.
-    void Donut_WriteBufferAt(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int byteOffset, const void* data, int byteSize)
+    DONUT_API void Donut_WriteBufferAt(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int byteOffset, const void* data, int byteSize)
     {
         commandList->writeBuffer(buffer, data, static_cast<size_t>(byteSize),
             static_cast<uint64_t>(byteOffset));
     }
 
-    void Donut_CopyBuffer(nvrhi::ICommandList* commandList, nvrhi::IBuffer* dst, int dstOffset, nvrhi::IBuffer* src, int srcOffset, int byteSize)
+    DONUT_API void Donut_CopyBuffer(nvrhi::ICommandList* commandList, nvrhi::IBuffer* dst, int dstOffset, nvrhi::IBuffer* src, int srcOffset, int byteSize)
     {
         commandList->copyBuffer(dst, static_cast<uint64_t>(dstOffset),
             src, static_cast<uint64_t>(srcOffset), static_cast<uint64_t>(byteSize));
@@ -7053,7 +7055,7 @@ extern "C"
 
     // Same as Donut_Dispatch, with a descriptor table (Donut_GetDescriptorTable) bound after the
     // binding set, for pipelines with a bindless layout second.
-    void Donut_DispatchWithDescriptorTable(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
+    DONUT_API void Donut_DispatchWithDescriptorTable(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
         int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
@@ -7066,7 +7068,7 @@ extern "C"
         cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
     }
 
-    void Donut_Dispatch(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet, int groupsX, int groupsY, int groupsZ)
+    DONUT_API void Donut_Dispatch(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet, int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
             .setPipeline(computePipeline)
@@ -7079,7 +7081,7 @@ extern "C"
 
     // Same, with byteSize bytes of push constants from data (the binding set's
     // Donut_BindPushConstants item).
-    void Donut_DispatchWithPushConstants(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
+    DONUT_API void Donut_DispatchWithPushConstants(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
         const void* data, int byteSize, int groupsX, int groupsY, int groupsZ)
     {
         auto state = nvrhi::ComputeState()
@@ -7093,26 +7095,26 @@ extern "C"
     }
 
     // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
-    void Donut_ClearDepth(nvrhi::ICommandList* commandList, nvrhi::ITexture* depthTexture, double depth)
+    DONUT_API void Donut_ClearDepth(nvrhi::ICommandList* commandList, nvrhi::ITexture* depthTexture, double depth)
     {
         commandList->clearDepthStencilTexture(depthTexture,
             nvrhi::AllSubresources, true, float(depth), false, 0);
     }
 
     // Fills a color texture (Donut_CreateRenderTargetTexture) with r, g, b, a.
-    void Donut_ClearTextureFloat(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, double r, double g, double b, double a)
+    DONUT_API void Donut_ClearTextureFloat(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, double r, double g, double b, double a)
     {
         commandList->clearTextureFloat(texture, nvrhi::AllSubresources,
             nvrhi::Color(float(r), float(g), float(b), float(a)));
     }
 
     // Names the commands recorded until the matching Donut_EndMarker, for GPU debuggers and profilers.
-    void Donut_BeginMarker(nvrhi::ICommandList* commandList, const char* name)
+    DONUT_API void Donut_BeginMarker(nvrhi::ICommandList* commandList, const char* name)
     {
         commandList->beginMarker(name);
     }
 
-    void Donut_EndMarker(nvrhi::ICommandList* commandList)
+    DONUT_API void Donut_EndMarker(nvrhi::ICommandList* commandList)
     {
         commandList->endMarker();
     }
@@ -7121,36 +7123,36 @@ extern "C"
 
     // Measures the GPU time between Donut_BeginTimerQuery and Donut_EndTimerQuery. Returns null on
     // failure.
-    nvrhi::ITimerQuery* Donut_CreateTimerQuery(App* app)
+    DONUT_API nvrhi::ITimerQuery* Donut_CreateTimerQuery(App* app)
     {
         App* a = app;
         return a->Own(a->device()->createTimerQuery());
     }
 
     // Makes a query that has been read (or never used) ready to measure again.
-    void Donut_ResetTimerQuery(App* app, nvrhi::ITimerQuery* timerQuery)
+    DONUT_API void Donut_ResetTimerQuery(App* app, nvrhi::ITimerQuery* timerQuery)
     {
         app->device()->resetTimerQuery(timerQuery);
     }
 
-    void Donut_BeginTimerQuery(nvrhi::ICommandList* commandList, nvrhi::ITimerQuery* timerQuery)
+    DONUT_API void Donut_BeginTimerQuery(nvrhi::ICommandList* commandList, nvrhi::ITimerQuery* timerQuery)
     {
         commandList->beginTimerQuery(timerQuery);
     }
 
-    void Donut_EndTimerQuery(nvrhi::ICommandList* commandList, nvrhi::ITimerQuery* timerQuery)
+    DONUT_API void Donut_EndTimerQuery(nvrhi::ICommandList* commandList, nvrhi::ITimerQuery* timerQuery)
     {
         commandList->endTimerQuery(timerQuery);
     }
 
     // Non-zero once the GPU has finished the measured commands.
-    int Donut_PollTimerQuery(App* app, nvrhi::ITimerQuery* timerQuery)
+    DONUT_API int Donut_PollTimerQuery(App* app, nvrhi::ITimerQuery* timerQuery)
     {
         return app->device()->pollTimerQuery(timerQuery) ? 1 : 0;
     }
 
     // The measured time in seconds; waits for the GPU unless Donut_PollTimerQuery returned non-zero.
-    double Donut_GetTimerQueryTime(App* app, nvrhi::ITimerQuery* timerQuery)
+    DONUT_API double Donut_GetTimerQueryTime(App* app, nvrhi::ITimerQuery* timerQuery)
     {
         return app->device()->getTimerQueryTime(timerQuery);
     }
@@ -7159,7 +7161,7 @@ extern "C"
 
     // Adds a pass drawn after the previously added ones. The app owns it; set its callbacks
     // with the functions below.
-    TsRenderPass* Donut_AddPass(App* app)
+    DONUT_API TsRenderPass* Donut_AddPass(App* app)
     {
         App* a = app;
         a->passes.push_back(std::make_unique<TsRenderPass>(a->deviceManager.get()));
@@ -7169,48 +7171,48 @@ extern "C"
     }
 
     // By default (as in Donut) animation and rendering pause while the window is unfocused.
-    void Donut_SetRunWhenUnfocused(TsRenderPass* pass, int enabled)
+    DONUT_API void Donut_SetRunWhenUnfocused(TsRenderPass* pass, int enabled)
     {
         pass->m_RunWhenUnfocused = enabled != 0;
     }
 
-    void Donut_SetRenderCallback(TsRenderPass* pass, RenderFn method, void* thisVal)
+    DONUT_API void Donut_SetRenderCallback(TsRenderPass* pass, RenderFn method, void* thisVal)
     {
         pass->m_Render = { method, thisVal };
     }
 
-    void Donut_SetAnimateCallback(TsRenderPass* pass, AnimateFn method, void* thisVal)
+    DONUT_API void Donut_SetAnimateCallback(TsRenderPass* pass, AnimateFn method, void* thisVal)
     {
         pass->m_Animate = { method, thisVal };
     }
 
     // Called before the swap chain is resized; release framebuffer-dependent resources here.
-    void Donut_SetBackBufferResizingCallback(TsRenderPass* pass, VoidFn method, void* thisVal)
+    DONUT_API void Donut_SetBackBufferResizingCallback(TsRenderPass* pass, VoidFn method, void* thisVal)
     {
         pass->m_BackBufferResizing = { method, thisVal };
     }
 
     // Keys go to the most recently added pass first; the callback returns non-zero if it
     // handled the key, and then passes added before it don't see it.
-    void Donut_SetKeyboardCallback(TsRenderPass* pass, KeyboardFn method, void* thisVal)
+    DONUT_API void Donut_SetKeyboardCallback(TsRenderPass* pass, KeyboardFn method, void* thisVal)
     {
         pass->m_Keyboard = { method, thisVal };
     }
 
     // Mouse position in window pixels; same return convention as the keyboard callback.
-    void Donut_SetMousePosCallback(TsRenderPass* pass, MousePosFn method, void* thisVal)
+    DONUT_API void Donut_SetMousePosCallback(TsRenderPass* pass, MousePosFn method, void* thisVal)
     {
         pass->m_MousePos = { method, thisVal };
     }
 
     // GLFW mouse button and action values; same return convention as the keyboard callback.
-    void Donut_SetMouseButtonCallback(TsRenderPass* pass, MouseButtonFn method, void* thisVal)
+    DONUT_API void Donut_SetMouseButtonCallback(TsRenderPass* pass, MouseButtonFn method, void* thisVal)
     {
         pass->m_MouseButton = { method, thisVal };
     }
 
     // Scroll offsets; same return convention as the keyboard callback.
-    void Donut_SetMouseScrollCallback(TsRenderPass* pass, MouseScrollFn method, void* thisVal)
+    DONUT_API void Donut_SetMouseScrollCallback(TsRenderPass* pass, MouseScrollFn method, void* thisVal)
     {
         pass->m_MouseScroll = { method, thisVal };
     }
@@ -7220,7 +7222,7 @@ extern "C"
     // Adds Donut's ImGui renderer as a pass drawn after the previously added ones (on top), which
     // sees input before them; buildUI is called every frame to build the UI with the Donut_ImGui*
     // functions below. Returns null if the renderer can't be initialized.
-    TsImGuiPass* Donut_AddImGuiPass(App* app, VoidFn buildUI, void* thisVal)
+    DONUT_API TsImGuiPass* Donut_AddImGuiPass(App* app, VoidFn buildUI, void* thisVal)
     {
         App* a = app;
         auto pass = std::make_unique<TsImGuiPass>(a->deviceManager.get());
@@ -7237,7 +7239,7 @@ extern "C"
     // Draws the UI into framebuffer (e.g. an HDR scene's, Donut_CreateFramebuffer) instead of the
     // back buffer, from the next frame on; null: the back buffer again. Passes added after the
     // ImGui pass draw after it (e.g. one that takes that framebuffer's texture to the back buffer).
-    void Donut_SetImGuiPassFramebuffer(TsImGuiPass* imguiPass, nvrhi::IFramebuffer* framebuffer)
+    DONUT_API void Donut_SetImGuiPassFramebuffer(TsImGuiPass* imguiPass, nvrhi::IFramebuffer* framebuffer)
     {
         imguiPass->m_Framebuffer = framebuffer;
     }
@@ -7245,7 +7247,7 @@ extern "C"
     // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space to activate, Escape),
     // as ImGuiConfigFlags_NavEnableKeyboard; after Donut_AddImGuiPass (which creates the context).
     // ImGui then takes the keyboard while one of its windows has the focus.
-    void Donut_ImGuiSetKeyboardNavigation(int enable)
+    DONUT_API void Donut_ImGuiSetKeyboardNavigation(int enable)
     {
         ImGuiIO& io = ImGui::GetIO();
         if (enable)
@@ -7255,54 +7257,54 @@ extern "C"
     }
 
     // Only inside the buildUI callback.
-    void Donut_ImGuiSetNextWindowPos(double x, double y)
+    DONUT_API void Donut_ImGuiSetNextWindowPos(double x, double y)
     {
         ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), 0);
     }
 
     // autoResize != 0: the window fits its contents. Always pair with Donut_ImGuiEnd.
-    void Donut_ImGuiBegin(const char* title, int autoResize)
+    DONUT_API void Donut_ImGuiBegin(const char* title, int autoResize)
     {
         ImGui::Begin(title, nullptr, autoResize ? ImGuiWindowFlags_AlwaysAutoResize : 0);
     }
 
-    void Donut_ImGuiEnd()
+    DONUT_API void Donut_ImGuiEnd()
     {
         ImGui::End();
     }
 
-    void Donut_ImGuiText(const char* text)
+    DONUT_API void Donut_ImGuiText(const char* text)
     {
         ImGui::TextUnformatted(text);
     }
 
-    void Donut_ImGuiSeparator()
+    DONUT_API void Donut_ImGuiSeparator()
     {
         ImGui::Separator();
     }
 
-    void Donut_ImGuiIndent()
+    DONUT_API void Donut_ImGuiIndent()
     {
         ImGui::Indent();
     }
 
-    void Donut_ImGuiUnindent()
+    DONUT_API void Donut_ImGuiUnindent()
     {
         ImGui::Unindent();
     }
 
-    void Donut_ImGuiPushItemWidth(double width)
+    DONUT_API void Donut_ImGuiPushItemWidth(double width)
     {
         ImGui::PushItemWidth(float(width));
     }
 
-    void Donut_ImGuiPopItemWidth()
+    DONUT_API void Donut_ImGuiPopItemWidth()
     {
         ImGui::PopItemWidth();
     }
 
     // Returns the checkbox's new state (value, unless it was clicked).
-    int Donut_ImGuiCheckbox(const char* label, int value)
+    DONUT_API int Donut_ImGuiCheckbox(const char* label, int value)
     {
         bool checked = value != 0;
         ImGui::Checkbox(label, &checked);
@@ -7310,13 +7312,13 @@ extern "C"
     }
 
     // Returns non-zero if the button was clicked.
-    int Donut_ImGuiButton(const char* label)
+    DONUT_API int Donut_ImGuiButton(const char* label)
     {
         return ImGui::Button(label) ? 1 : 0;
     }
 
     // A combo box of '|'-separated items; returns the new selection (current, unless changed).
-    int Donut_ImGuiCombo(const char* label, int current, const char* items)
+    DONUT_API int Donut_ImGuiCombo(const char* label, int current, const char* items)
     {
         // ImGui wants the items separated by NULs, with an extra NUL at the end.
         std::string zeroSeparated(items);
@@ -7332,14 +7334,14 @@ extern "C"
 
     // A combo box with custom items: returns non-zero while its list is open; then add
     // Donut_ImGuiSelectable items and call Donut_ImGuiEndCombo.
-    int Donut_ImGuiBeginCombo(const char* label, const char* preview)
+    DONUT_API int Donut_ImGuiBeginCombo(const char* label, const char* preview)
     {
         return ImGui::BeginCombo(label, preview) ? 1 : 0;
     }
 
     // A color editor of 4 floats at values (RGBA, edited as floats), width pixels wide (0 for the
     // default); returns non-zero if they changed.
-    int Donut_ImGuiColorEdit4(const char* label, float* values, double width)
+    DONUT_API int Donut_ImGuiColorEdit4(const char* label, float* values, double width)
     {
         ImGui::PushItemWidth(float(width));
         const bool changed = ImGui::ColorEdit4(label, values, ImGuiColorEditFlags_Float);
@@ -7349,7 +7351,7 @@ extern "C"
 
     // A color picker of 3 floats (RGB, unbounded: HDR) without previews, as Vulkan-Samples'
     // Drawer::color_op<Pick>; non-zero when changed.
-    int Donut_ImGuiColorPicker3(const char* label, float* values, double width)
+    DONUT_API int Donut_ImGuiColorPicker3(const char* label, float* values, double width)
     {
         ImGui::PushItemWidth(float(width));
         const bool changed = ImGui::ColorPicker3(label, values, ImGuiColorEditFlags_NoSidePreview
@@ -7360,55 +7362,55 @@ extern "C"
 
     // Scopes the IDs of the widgets that follow (ones with the same labels apart) until the
     // matching Donut_ImGuiPopID.
-    void Donut_ImGuiPushID(int id)
+    DONUT_API void Donut_ImGuiPushID(int id)
     {
         ImGui::PushID(id);
     }
 
-    void Donut_ImGuiPopID()
+    DONUT_API void Donut_ImGuiPopID()
     {
         ImGui::PopID();
     }
 
     // A radio button shown selected when active is non-zero; returns non-zero if it was clicked.
-    int Donut_ImGuiRadioButton(const char* label, int active)
+    DONUT_API int Donut_ImGuiRadioButton(const char* label, int active)
     {
         return ImGui::RadioButton(label, active != 0) ? 1 : 0;
     }
 
     // Returns non-zero if the item was clicked.
-    int Donut_ImGuiSelectable(const char* label, int selected)
+    DONUT_API int Donut_ImGuiSelectable(const char* label, int selected)
     {
         return ImGui::Selectable(label, selected != 0) ? 1 : 0;
     }
 
-    void Donut_ImGuiEndCombo()
+    DONUT_API void Donut_ImGuiEndCombo()
     {
         ImGui::EndCombo();
     }
 
     // Edits 3 floats at values (Ref of a `let` f32 array element) by dragging; returns non-zero
     // if they changed.
-    int Donut_ImGuiDragFloat3(const char* label, void* values, double speed)
+    DONUT_API int Donut_ImGuiDragFloat3(const char* label, void* values, double speed)
     {
         return ImGui::DragFloat3(label, static_cast<float*>(values), float(speed)) ? 1 : 0;
     }
 
     // Places the next window with its pivot (0..1 of its size; 1, 0 = top right corner) at x, y.
-    void Donut_ImGuiSetNextWindowPosPivot(double x, double y, double pivotX, double pivotY)
+    DONUT_API void Donut_ImGuiSetNextWindowPosPivot(double x, double y, double pivotX, double pivotY)
     {
         ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), 0, ImVec2(float(pivotX), float(pivotY)));
     }
 
     // A slider; returns the new value (value, unless it was moved).
-    double Donut_ImGuiSliderFloat(const char* label, double value, double min, double max)
+    DONUT_API double Donut_ImGuiSliderFloat(const char* label, double value, double min, double max)
     {
         float v = float(value);
         ImGui::SliderFloat(label, &v, float(min), float(max));
         return v;
     }
 
-    int Donut_ImGuiSliderInt(const char* label, int value, int min, int max)
+    DONUT_API int Donut_ImGuiSliderInt(const char* label, int value, int min, int max)
     {
         ImGui::SliderInt(label, &value, min, max);
         return value;
@@ -7416,25 +7418,25 @@ extern "C"
 
     // ImGui::SameLine(offsetFromStartX): the next item on this line, offsetFromStartX pixels from
     // the window's left (0: right after the previous item).
-    void Donut_ImGuiSameLineAt(double offsetFromStartX)
+    DONUT_API void Donut_ImGuiSameLineAt(double offsetFromStartX)
     {
         ImGui::SameLine(float(offsetFromStartX));
     }
 
     // The text color of the items that follow, until Donut_ImGuiPopStyleColor.
-    void Donut_ImGuiPushTextColor(double r, double g, double b, double a)
+    DONUT_API void Donut_ImGuiPushTextColor(double r, double g, double b, double a)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(float(r), float(g), float(b), float(a)));
     }
 
-    void Donut_ImGuiPopStyleColor()
+    DONUT_API void Donut_ImGuiPopStyleColor()
     {
         ImGui::PopStyleColor();
     }
 
     // A window drawn over the scene at (x, y), width x height: no title bar, background or
     // scrollbars, not movable, ignoring the mouse (an overlay graph). Pair with Donut_ImGuiEnd.
-    void Donut_ImGuiBeginOverlay(const char* title, double x, double y, double width, double height)
+    DONUT_API void Donut_ImGuiBeginOverlay(const char* title, double x, double y, double width, double height)
     {
         ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(float(width), float(height)), ImGuiCond_Always);
@@ -7448,7 +7450,7 @@ extern "C"
     // count values (Ref of a `let` f32 array element) as a line graph, starting at valuesOffset
     // (wrapping around), scaleMin at the bottom and scaleMax at the top, width x height pixels;
     // frameBackground 0: without the frame's background.
-    void Donut_ImGuiPlotLines(const char* label, const float* values, int count, int valuesOffset, double scaleMin,
+    DONUT_API void Donut_ImGuiPlotLines(const char* label, const float* values, int count, int valuesOffset, double scaleMin,
         double scaleMax, double width, double height, int frameBackground)
     {
         if (!frameBackground)
@@ -7460,7 +7462,7 @@ extern "C"
     }
 
     // A value edited by dragging (speed per pixel), clamped to min .. max; returns the new value.
-    double Donut_ImGuiDragFloat(const char* label, double value, double speed, double min, double max)
+    DONUT_API double Donut_ImGuiDragFloat(const char* label, double value, double speed, double min, double max)
     {
         float v = float(value);
         ImGui::DragFloat(label, &v, float(speed), float(min), float(max));
@@ -7469,7 +7471,7 @@ extern "C"
 
     // A number field with - and + buttons that step it by `step`, shown with a printf format
     // ("%.3f"); returns the new value.
-    double Donut_ImGuiInputFloat(const char* label, double value, double step, const char* format)
+    DONUT_API double Donut_ImGuiInputFloat(const char* label, double value, double step, const char* format)
     {
         float v = float(value);
         ImGui::InputFloat(label, &v, float(step), 0.f, format);
@@ -7477,50 +7479,50 @@ extern "C"
     }
 
     // Returns non-zero while the header is expanded (show its contents then).
-    int Donut_ImGuiCollapsingHeader(const char* label)
+    DONUT_API int Donut_ImGuiCollapsingHeader(const char* label)
     {
         return ImGui::CollapsingHeader(label) ? 1 : 0;
     }
 
     // Same, expanded until the user collapses it.
-    int Donut_ImGuiCollapsingHeaderDefaultOpen(const char* label)
+    DONUT_API int Donut_ImGuiCollapsingHeaderDefaultOpen(const char* label)
     {
         return ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen) ? 1 : 0;
     }
 
     // The next item goes on the same line as the previous one.
-    void Donut_ImGuiSameLine()
+    DONUT_API void Donut_ImGuiSameLine()
     {
         ImGui::SameLine();
     }
 
     // Ends the line: the next item starts on a new one (after Donut_ImGuiSameLine, an empty line).
-    void Donut_ImGuiNewLine()
+    DONUT_API void Donut_ImGuiNewLine()
     {
         ImGui::NewLine();
     }
 
     // A scrolling region of width x height pixels (0: the rest of the window); end it with
     // Donut_ImGuiEndChild whatever this returns.
-    int Donut_ImGuiBeginChild(const char* id, double width, double height, int border)
+    DONUT_API int Donut_ImGuiBeginChild(const char* id, double width, double height, int border)
     {
         return ImGui::BeginChild(id, ImVec2(float(width), float(height)),
             border != 0 ? ImGuiChildFlags_Borders : ImGuiChildFlags_None) ? 1 : 0;
     }
 
-    void Donut_ImGuiEndChild()
+    DONUT_API void Donut_ImGuiEndChild()
     {
         ImGui::EndChild();
     }
 
     // Inside a combo box: scrolls to the last item when the list opens.
-    void Donut_ImGuiSetItemDefaultFocus()
+    DONUT_API void Donut_ImGuiSetItemDefaultFocus()
     {
         ImGui::SetItemDefaultFocus();
     }
 
     // Height of the current font in pixels.
-    double Donut_ImGuiGetFontSize()
+    DONUT_API double Donut_ImGuiGetFontSize()
     {
         return ImGui::GetFontSize();
     }
@@ -7528,7 +7530,7 @@ extern "C"
     // Loads a TrueType font (path relative to the executable's directory) at a size in pixels,
     // for Donut_ImGuiPushFont. Call right after Donut_AddImGuiPass, before the first frame.
     // Returns null if the file can't be read.
-    donut::app::RegisteredFont* Donut_ImGuiCreateFont(TsImGuiPass* imguiPass, const char* path, double size)
+    DONUT_API donut::app::RegisteredFont* Donut_ImGuiCreateFont(TsImGuiPass* imguiPass, const char* path, double size)
     {
         donut::vfs::NativeFileSystem fs;
         auto font = imguiPass->CreateFontFromFile(fs, GetExecutablePath().parent_path() / path, float(size));
@@ -7536,12 +7538,12 @@ extern "C"
     }
 
     // Draws with a font from Donut_ImGuiCreateFont until Donut_ImGuiPopFont.
-    void Donut_ImGuiPushFont(donut::app::RegisteredFont* font)
+    DONUT_API void Donut_ImGuiPushFont(donut::app::RegisteredFont* font)
     {
         ImGui::PushFont(font->GetScaledFont());
     }
 
-    void Donut_ImGuiPopFont()
+    DONUT_API void Donut_ImGuiPopFont()
     {
         ImGui::PopFont();
     }
@@ -7549,7 +7551,7 @@ extern "C"
     // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in
     // the current font and color (r, g, b, a), on the background draw list: behind the windows, no
     // window needed.
-    void Donut_ImGuiDrawText(double x, double y, const char* text, double r, double g, double b, double a, int alignRight)
+    DONUT_API void Donut_ImGuiDrawText(double x, double y, const char* text, double r, double g, double b, double a, int alignRight)
     {
         ImVec2 position{ float(x), float(y) };
         if (alignRight)
@@ -7560,45 +7562,45 @@ extern "C"
 
     // A filled rectangle from (x0, y0) to (x1, y1) in UI coordinates, behind the windows and over
     // what was drawn behind them before (e.g. a box under Donut_ImGuiDrawText's text).
-    void Donut_ImGuiDrawRect(double x0, double y0, double x1, double y1, double r, double g, double b, double a)
+    DONUT_API void Donut_ImGuiDrawRect(double x0, double y0, double x1, double y1, double r, double g, double b, double a)
     {
         ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(float(x0), float(y0)), ImVec2(float(x1), float(y1)),
             ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))));
     }
 
     // The width of a line of text in the current font, in UI coordinates.
-    double Donut_ImGuiCalcTextWidth(const char* text)
+    DONUT_API double Donut_ImGuiCalcTextWidth(const char* text)
     {
         return ImGui::CalcTextSize(text).x;
     }
 
     // A borderless window covering the screen, e.g. for a loading message; pair with
     // Donut_ImGuiEndFullScreenWindow.
-    void Donut_ImGuiBeginFullScreenWindow(TsImGuiPass* imguiPass)
+    DONUT_API void Donut_ImGuiBeginFullScreenWindow(TsImGuiPass* imguiPass)
     {
         imguiPass->BeginFullScreenWindow();
     }
 
     // Text (may span lines) centered on the screen, inside the full-screen window.
-    void Donut_ImGuiDrawScreenCenteredText(TsImGuiPass* imguiPass, const char* text)
+    DONUT_API void Donut_ImGuiDrawScreenCenteredText(TsImGuiPass* imguiPass, const char* text)
     {
         imguiPass->DrawScreenCenteredText(text);
     }
 
-    void Donut_ImGuiEndFullScreenWindow(TsImGuiPass* imguiPass)
+    DONUT_API void Donut_ImGuiEndFullScreenWindow(TsImGuiPass* imguiPass)
     {
         imguiPass->EndFullScreenWindow();
     }
 
     // Donut's material editor widgets, for a scene material; allowDomainChanges != 0 lets it
     // change the domain (opaque, alpha tested, ...). Returns non-zero if the material changed.
-    int Donut_ImGuiMaterialEditor(donut::engine::Material* material, int allowDomainChanges)
+    DONUT_API int Donut_ImGuiMaterialEditor(donut::engine::Material* material, int allowDomainChanges)
     {
         return donut::app::MaterialEditor(material, allowDomainChanges != 0) ? 1 : 0;
     }
 
     // Donut's light editor widgets, for a scene light. Returns non-zero if the light changed.
-    int Donut_ImGuiLightEditor(donut::engine::Light* light)
+    DONUT_API int Donut_ImGuiLightEditor(donut::engine::Light* light)
     {
         return donut::app::LightEditor(*light) ? 1 : 0;
     }
@@ -7606,7 +7608,7 @@ extern "C"
     // The system's open (open != 0) or save file dialog, with '|'-separated filter pairs like
     // "BMP files|*.bmp|All files|*.*". Returns the chosen path, or "" if cancelled; valid until
     // the next call.
-    const char* Donut_FileDialog(int open, const char* filters)
+    DONUT_API const char* Donut_FileDialog(int open, const char* filters)
     {
         // Windows wants the pairs separated by NULs, with an extra NUL at the end.
         std::string zeroSeparated(filters);
@@ -7623,7 +7625,7 @@ extern "C"
 
     // --- C++ objects (owned by the app until released or the app is destroyed) -------------
 
-    void Donut_ReleaseObject(App* app, void* object)
+    DONUT_API void Donut_ReleaseObject(App* app, void* object)
     {
         app->objects.erase(object);
     }
@@ -7631,7 +7633,7 @@ extern "C"
     // Loads a scene (glTF or Donut's .scene.json; path relative to the executable's directory,
     // or absolute) on the app's thread pool, then finishes uploading its textures. Returns null
     // (after logging why) on failure.
-    donut::engine::Scene* Donut_LoadScene(App* app, const char* path)
+    DONUT_API donut::engine::Scene* Donut_LoadScene(App* app, const char* path)
     {
         App* a = app;
         return LoadScene(a, path, a->textureCache(), nullptr);
@@ -7639,7 +7641,7 @@ extern "C"
 
     // Bindless ray tracing: a bindless layout (register spaces added with the two functions
     // below), consumed (freed) by Donut_CreateBindlessLayout.
-    nvrhi::BindlessLayoutDesc* Donut_CreateBindlessLayoutDesc(int firstSlot, int maxCapacity, int shaderType)
+    DONUT_API nvrhi::BindlessLayoutDesc* Donut_CreateBindlessLayoutDesc(int firstSlot, int maxCapacity, int shaderType)
     {
         auto* desc = new nvrhi::BindlessLayoutDesc();
         desc->visibility = static_cast<nvrhi::ShaderType>(shaderType);
@@ -7649,21 +7651,21 @@ extern "C"
     }
 
     // ByteAddressBuffer[] in register space `space`.
-    void Donut_BindlessLayoutAddRawBuffers(nvrhi::BindlessLayoutDesc* bindlessLayoutDesc, int space)
+    DONUT_API void Donut_BindlessLayoutAddRawBuffers(nvrhi::BindlessLayoutDesc* bindlessLayoutDesc, int space)
     {
         bindlessLayoutDesc->registerSpaces.push_back(
             nvrhi::BindingLayoutItem::RawBuffer_SRV(static_cast<uint32_t>(space)));
     }
 
     // Texture2D[] in register space `space`.
-    void Donut_BindlessLayoutAddTextures(nvrhi::BindlessLayoutDesc* bindlessLayoutDesc, int space)
+    DONUT_API void Donut_BindlessLayoutAddTextures(nvrhi::BindlessLayoutDesc* bindlessLayoutDesc, int space)
     {
         bindlessLayoutDesc->registerSpaces.push_back(
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(space)));
     }
 
     // Returns null on failure.
-    nvrhi::IBindingLayout* Donut_CreateBindlessLayout(App* app, nvrhi::BindlessLayoutDesc* bindlessLayoutDesc)
+    DONUT_API nvrhi::IBindingLayout* Donut_CreateBindlessLayout(App* app, nvrhi::BindlessLayoutDesc* bindlessLayoutDesc)
     {
         std::unique_ptr<nvrhi::BindlessLayoutDesc> desc(bindlessLayoutDesc);
         App* a = app;
@@ -7672,7 +7674,7 @@ extern "C"
 
     // Donut's DescriptorTableManager: a descriptor table of a bindless layout that scenes loaded
     // with Donut_LoadSceneWithDescriptorTable put their buffers and textures in.
-    donut::engine::DescriptorTableManager* Donut_CreateDescriptorTableManager(App* app, nvrhi::IBindingLayout* bindlessLayout)
+    DONUT_API donut::engine::DescriptorTableManager* Donut_CreateDescriptorTableManager(App* app, nvrhi::IBindingLayout* bindlessLayout)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::engine::DescriptorTableManager>(
@@ -7680,14 +7682,14 @@ extern "C"
     }
 
     // The table itself, to bind next to a binding set; valid as long as the manager.
-    nvrhi::IDescriptorTable* Donut_GetDescriptorTable(donut::engine::DescriptorTableManager* descriptorTableManager)
+    DONUT_API nvrhi::IDescriptorTable* Donut_GetDescriptorTable(donut::engine::DescriptorTableManager* descriptorTableManager)
     {
         return descriptorTableManager->GetDescriptorTable();
     }
 
     // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors
     // in each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
-    nvrhi::IDescriptorTable* Donut_CreateDescriptorTable(App* app, nvrhi::IBindingLayout* bindlessLayout, int capacity)
+    DONUT_API nvrhi::IDescriptorTable* Donut_CreateDescriptorTable(App* app, nvrhi::IBindingLayout* bindlessLayout, int capacity)
     {
         App* a = app;
         nvrhi::DescriptorTableHandle table = a->device()->createDescriptorTable(bindlessLayout);
@@ -7700,7 +7702,7 @@ extern "C"
     // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at
     // once (also into a table bound by command lists still recording or running: the bindless
     // layouts are update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
-    int Donut_WriteDescriptorTableTexture(App* app, nvrhi::IDescriptorTable* descriptorTable, int slot, nvrhi::ITexture* texture)
+    DONUT_API int Donut_WriteDescriptorTableTexture(App* app, nvrhi::IDescriptorTable* descriptorTable, int slot, nvrhi::ITexture* texture)
     {
         return app->device()->writeDescriptorTable(descriptorTable,
             nvrhi::BindingSetItem::Texture_SRV(static_cast<uint32_t>(slot), texture)) ? 1 : 0;
@@ -7709,7 +7711,7 @@ extern "C"
     // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples
     // make with one: the same seed gives the same numbers; a negative seed takes one from
     // std::random_device (different every run).
-    RandomEngine* Donut_CreateRandomEngine(App* app, int seed)
+    DONUT_API RandomEngine* Donut_CreateRandomEngine(App* app, int seed)
     {
         const auto value = seed >= 0 ? static_cast<std::default_random_engine::result_type>(seed)
                                      : static_cast<std::default_random_engine::result_type>(std::random_device()());
@@ -7719,7 +7721,7 @@ extern "C"
     // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
     // (Ref of a `let` f32 array element): one distribution object, as the samples keep it (MSVC's
     // makes values in pairs and keeps the second).
-    void Donut_RandomNormalFloats(RandomEngine* randomEngine, double mean, double stddev, int count, float* dst)
+    DONUT_API void Donut_RandomNormalFloats(RandomEngine* randomEngine, double mean, double stddev, int count, float* dst)
     {
         std::normal_distribution<float> distribution(static_cast<float>(mean), static_cast<float>(stddev));
         auto& engine = *randomEngine;
@@ -7729,7 +7731,7 @@ extern "C"
 
     // The engine's next number from std::uniform_real_distribution<float>(a, b) (a and b rounded to
     // float as the sample's literals are).
-    double Donut_RandomUniformFloat(RandomEngine* randomEngine, double a, double b)
+    DONUT_API double Donut_RandomUniformFloat(RandomEngine* randomEngine, double a, double b)
     {
         return std::uniform_real_distribution<float>(static_cast<float>(a), static_cast<float>(b))(
             *randomEngine);
@@ -7737,14 +7739,14 @@ extern "C"
 
     // The engine's next number from std::uniform_int_distribution<int>(a, b) (a fresh distribution
     // object per call, as samples that make one per use).
-    int Donut_RandomUniformInt(RandomEngine* randomEngine, int a, int b)
+    DONUT_API int Donut_RandomUniformInt(RandomEngine* randomEngine, int a, int b)
     {
         return std::uniform_int_distribution<int>(a, b)(*randomEngine);
     }
 
     // The engine's next number from std::uniform_int_distribution<unsigned>(a, b), the bounds and
     // the result as unsigned bits in ints (e.g. a = 0, b = -1 for the whole range).
-    int Donut_RandomUniformUInt(RandomEngine* randomEngine, int a, int b)
+    DONUT_API int Donut_RandomUniformUInt(RandomEngine* randomEngine, int a, int b)
     {
         return static_cast<int>(std::uniform_int_distribution<unsigned>(static_cast<unsigned>(a), static_cast<unsigned>(b))(*randomEngine));
     }
@@ -7752,7 +7754,7 @@ extern "C"
     // Same as Donut_LoadScene, also registering the scene's vertex / index buffers and textures in
     // a descriptor table (Donut_CreateDescriptorTableManager), where the scene's geometry and
     // material buffers refer to them by index. Returns null (after logging why) on failure.
-    donut::engine::Scene* Donut_LoadSceneWithDescriptorTable(App* app, const char* path, donut::engine::DescriptorTableManager* descriptorTableManager)
+    DONUT_API donut::engine::Scene* Donut_LoadSceneWithDescriptorTable(App* app, const char* path, donut::engine::DescriptorTableManager* descriptorTableManager)
     {
         App* a = app;
         auto descriptorTable = a->SharedObject<donut::engine::DescriptorTableManager>(descriptorTableManager);
@@ -7771,7 +7773,7 @@ extern "C"
 
     // A loaded scene's structured buffer of InstanceData, GeometryData or MaterialConstants
     // (donut/shaders/bindless.h, material_cb.h); valid as long as the scene.
-    nvrhi::IBuffer* Donut_GetSceneBuffer(donut::engine::Scene* scene, int which)
+    DONUT_API nvrhi::IBuffer* Donut_GetSceneBuffer(donut::engine::Scene* scene, int which)
     {
         auto* s = scene;
         switch (which)
@@ -7785,7 +7787,7 @@ extern "C"
 
     // Geometries of a loaded scene, addressed by globalGeometryIndex (0 .. count - 1), e.g. to
     // lay out one shader table entry per geometry in that order.
-    int Donut_GetSceneGeometryCount(donut::engine::Scene* scene)
+    DONUT_API int Donut_GetSceneGeometryCount(donut::engine::Scene* scene)
     {
         int count = 0;
         for (const auto& mesh : scene->GetSceneGraph()->GetMeshes())
@@ -7794,7 +7796,7 @@ extern "C"
     }
 
     // Buffer<uint> at t<slot>: the geometry's indices (relative to its first vertex).
-    void Donut_BindGeometryIndexBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, donut::engine::Scene* scene, int globalGeometryIndex)
+    DONUT_API void Donut_BindGeometryIndexBuffer(nvrhi::BindingSetDesc* bindingSetDesc, int slot, donut::engine::Scene* scene, int globalGeometryIndex)
     {
         const SceneGeometry g = FindSceneGeometry(scene, globalGeometryIndex);
         bindingSetDesc->addItem(nvrhi::BindingSetItem::TypedBuffer_SRV(
@@ -7813,7 +7815,7 @@ extern "C"
     };
 
     // Buffer<...> at t<slot>: one vertex attribute of the geometry's vertices.
-    void Donut_BindGeometryVertexAttribute(nvrhi::BindingSetDesc* bindingSetDesc, int slot, donut::engine::Scene* scene, int globalGeometryIndex, int attribute)
+    DONUT_API void Donut_BindGeometryVertexAttribute(nvrhi::BindingSetDesc* bindingSetDesc, int slot, donut::engine::Scene* scene, int globalGeometryIndex, int attribute)
     {
         using donut::engine::VertexAttribute;
         VertexAttribute vertexAttribute = VertexAttribute::Position;
@@ -7859,7 +7861,7 @@ extern "C"
 
     // Texture2D at t<slot>: one of the geometry's material textures, or Donut's white or black
     // texture if the material has none.
-    void Donut_BindGeometryMaterialTexture(App* app, nvrhi::BindingSetDesc* bindingSetDesc, int slot, donut::engine::Scene* scene, int globalGeometryIndex,
+    DONUT_API void Donut_BindGeometryMaterialTexture(App* app, nvrhi::BindingSetDesc* bindingSetDesc, int slot, donut::engine::Scene* scene, int globalGeometryIndex,
         int which, int fallback)
     {
         const donut::engine::Material& material = *FindSceneGeometry(scene, globalGeometryIndex).geometry->material;
@@ -7878,7 +7880,7 @@ extern "C"
     }
 
     // cbuffer at b<slot>: the geometry's MaterialConstants (donut/shaders/material_cb.h).
-    void Donut_BindGeometryMaterialConstants(nvrhi::BindingSetDesc* bindingSetDesc, int slot, donut::engine::Scene* scene, int globalGeometryIndex)
+    DONUT_API void Donut_BindGeometryMaterialConstants(nvrhi::BindingSetDesc* bindingSetDesc, int slot, donut::engine::Scene* scene, int globalGeometryIndex)
     {
         bindingSetDesc->addItem(nvrhi::BindingSetItem::ConstantBuffer(
             static_cast<uint32_t>(slot), FindSceneGeometry(scene, globalGeometryIndex).geometry->material->materialConstants));
@@ -7887,7 +7889,7 @@ extern "C"
     // Like Donut_BuildSceneAccelStructs (opaque triangles; BLASes kept in the meshes), for shader
     // tables with hitGroupStride entries per geometry, laid out by globalGeometryIndex: each
     // instance's hit groups start at its mesh's first geometry index times hitGroupStride.
-    SceneAccelStructs* Donut_BuildSceneAccelStructsWithHitGroupStride(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene, int hitGroupStride)
+    DONUT_API SceneAccelStructs* Donut_BuildSceneAccelStructsWithHitGroupStride(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene, int hitGroupStride)
     {
         App* a = app;
         nvrhi::ICommandList* cl = commandList;
@@ -7915,7 +7917,7 @@ extern "C"
     // (Donut_CreateDescriptorTableManager) for bindless access. It submits its own command list,
     // so call it while no other command list is open. Returns the texture object, or null (after
     // logging why) on failure.
-    donut::engine::LoadedTexture* Donut_LoadBindlessTexture(App* app, donut::engine::DescriptorTableManager* descriptorTableManager, const char* path, int sRGB)
+    DONUT_API donut::engine::LoadedTexture* Donut_LoadBindlessTexture(App* app, donut::engine::DescriptorTableManager* descriptorTableManager, const char* path, int sRGB)
     {
         App* a = app;
         std::shared_ptr<donut::engine::TextureCache>& cache = a->bindlessTextureCaches[descriptorTableManager];
@@ -7938,7 +7940,7 @@ extern "C"
     }
 
     // Index of a Donut_LoadBindlessTexture texture in its descriptor table (the shaders' array index).
-    int Donut_GetTextureDescriptorIndex(donut::engine::LoadedTexture* loadedTexture)
+    DONUT_API int Donut_GetTextureDescriptorIndex(donut::engine::LoadedTexture* loadedTexture)
     {
         return loadedTexture->bindlessDescriptor.Get();
     }
@@ -7946,12 +7948,12 @@ extern "C"
     // Loaded scene queries: the number of mesh instances (e.g. to size a TLAS), and a node's
     // world-space position (3 floats into dst; path like "/Emitter"). The latter returns 0 if
     // there's no such node.
-    int Donut_GetSceneInstanceCount(donut::engine::Scene* scene)
+    DONUT_API int Donut_GetSceneInstanceCount(donut::engine::Scene* scene)
     {
         return static_cast<int>(scene->GetSceneGraph()->GetMeshInstances().size());
     }
 
-    int Donut_GetSceneNodePosition(donut::engine::Scene* scene, const char* path, void* dst)
+    DONUT_API int Donut_GetSceneNodePosition(donut::engine::Scene* scene, const char* path, void* dst)
     {
         auto node = scene->GetSceneGraph()->FindNode(path);
         if (!node)
@@ -7966,7 +7968,7 @@ extern "C"
     // maxVertices / maxIndices. Its buffers are registered in a descriptor table (for bindless
     // shaders), its material is alpha-blended, and its BLAS is created (not built) at full size.
     // Add it to a scene with Donut_AttachDynamicMesh.
-    DynamicMesh* Donut_CreateDynamicMesh(App* app, donut::engine::DescriptorTableManager* descriptorTableManager, int maxVertices, int maxIndices, const char* name)
+    DONUT_API DynamicMesh* Donut_CreateDynamicMesh(App* app, donut::engine::DescriptorTableManager* descriptorTableManager, int maxVertices, int maxIndices, const char* name)
     {
         using namespace donut::engine;
 
@@ -8030,7 +8032,7 @@ extern "C"
 
     // Adds an instance of a dynamic mesh under a loaded scene's root and updates the scene's
     // buffers for it (waiting for the GPU); do it before creating binding sets of those buffers.
-    void Donut_AttachDynamicMesh(App* app, donut::engine::Scene* scene, DynamicMesh* dynamicMesh)
+    DONUT_API void Donut_AttachDynamicMesh(App* app, donut::engine::Scene* scene, DynamicMesh* dynamicMesh)
     {
         App* a = app;
         auto* s = scene;
@@ -8046,7 +8048,7 @@ extern "C"
 
     // The dynamic mesh's diffuse texture (a Donut_LoadBindlessTexture one); the scene's material
     // buffer picks it up at the next Donut_RefreshScene.
-    void Donut_SetDynamicMeshTexture(App* app, DynamicMesh* dynamicMesh, donut::engine::LoadedTexture* loadedTexture)
+    DONUT_API void Donut_SetDynamicMeshTexture(App* app, DynamicMesh* dynamicMesh, donut::engine::LoadedTexture* loadedTexture)
     {
         auto* m = dynamicMesh;
         m->material->baseOrDiffuseTexture = app->SharedObject<donut::engine::LoadedTexture>(loadedTexture);
@@ -8056,7 +8058,7 @@ extern "C"
     // Inside a render callback: replaces the dynamic mesh's contents with vertexCount vertices
     // (positions: 3 floats each, texCoords: 2 floats each) and indexCount uint indices (at most the
     // sizes it was created with), and rebuilds its BLAS.
-    void Donut_UpdateDynamicMesh(FrameContext* frame, DynamicMesh* dynamicMesh, const void* positions, const void* texCoords, int vertexCount,
+    DONUT_API void Donut_UpdateDynamicMesh(FrameContext* frame, DynamicMesh* dynamicMesh, const void* positions, const void* texCoords, int vertexCount,
         const void* indices, int indexCount)
     {
         using donut::engine::VertexAttribute;
@@ -8083,7 +8085,7 @@ extern "C"
     // Builds a BLAS (kept in the mesh's accelStruct) for every mesh of a loaded scene that doesn't
     // have one yet (e.g. not dynamic meshes), into an open command list: geometries not in the
     // Opaque material domain are non-opaque, for ray queries to see as candidates.
-    void Donut_BuildSceneBLASes(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene)
+    DONUT_API void Donut_BuildSceneBLASes(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene)
     {
         App* a = app;
         for (const auto& mesh : scene->GetSceneGraph()->GetMeshes())
@@ -8100,7 +8102,7 @@ extern "C"
     // A BLAS of one procedural AABB, (-1, -1, -1) .. (1, 1, 1), built into an open command list;
     // instance it scaled and moved (Donut_AddTopLevelASInstance) for intersection-shader or ray
     // query primitives.
-    nvrhi::rt::IAccelStruct* Donut_CreateUnitAABBBlas(App* app, nvrhi::ICommandList* commandList, const char* debugName)
+    DONUT_API nvrhi::rt::IAccelStruct* Donut_CreateUnitAABBBlas(App* app, nvrhi::ICommandList* commandList, const char* debugName)
     {
         App* a = app;
         nvrhi::ICommandList* cl = commandList;
@@ -8128,7 +8130,7 @@ extern "C"
 
     // A TLAS of up to maxInstances instances, rebuilt from instances added with the functions
     // below by Donut_BuildTopLevelAS. Get the TLAS with Donut_GetSceneTopLevelAS.
-    SceneAccelStructs* Donut_CreateTopLevelAS(App* app, int maxInstances)
+    DONUT_API SceneAccelStructs* Donut_CreateTopLevelAS(App* app, int maxInstances)
     {
         App* a = app;
         auto accelStructs = std::make_shared<SceneAccelStructs>();
@@ -8141,7 +8143,7 @@ extern "C"
 
     // Same, built with buildFlags (AccelStructBuildFlags bits, e.g. AllowUpdate for
     // Donut_UpdateTopLevelAS, PreferFastBuild).
-    SceneAccelStructs* Donut_CreateTopLevelASWithFlags(App* app, int maxInstances, int buildFlags)
+    DONUT_API SceneAccelStructs* Donut_CreateTopLevelASWithFlags(App* app, int maxInstances, int buildFlags)
     {
         App* a = app;
         auto accelStructs = std::make_shared<SceneAccelStructs>();
@@ -8157,7 +8159,7 @@ extern "C"
     // Adds all mesh instances of a loaded scene (instance ID = instance index; meshes' BLASes from
     // Donut_BuildSceneBLASes), with instanceMask, except dynamicMesh's (if not null) with
     // dynamicMeshMask.
-    void Donut_AddSceneTopLevelASInstances(SceneAccelStructs* sceneAccelStructs, donut::engine::Scene* scene, int instanceMask,
+    DONUT_API void Donut_AddSceneTopLevelASInstances(SceneAccelStructs* sceneAccelStructs, donut::engine::Scene* scene, int instanceMask,
         DynamicMesh* dynamicMesh, int dynamicMeshMask)
     {
         auto* accelStructs = sceneAccelStructs;
@@ -8175,7 +8177,7 @@ extern "C"
     }
 
     // Adds an instance of a BLAS, uniformly scaled by `scale`, then moved to (x, y, z).
-    void Donut_AddTopLevelASInstance(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
+    DONUT_API void Donut_AddTopLevelASInstance(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
         double scale, double x, double y, double z)
     {
         nvrhi::rt::InstanceDesc instanceDesc;
@@ -8190,7 +8192,7 @@ extern "C"
     // Adds an instance of a BLAS with a transform (12 floats: a row-major 3x4 matrix, the
     // translation in the last column, as Vulkan's VkTransformMatrixKHR) and instance flags
     // (nvrhi::rt::InstanceFlags bits, e.g. 1 = no triangle culling).
-    void Donut_AddTopLevelASInstanceWithTransform(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
+    DONUT_API void Donut_AddTopLevelASInstanceWithTransform(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
         int flags, const void* transform)
     {
         nvrhi::rt::InstanceDesc instanceDesc;
@@ -8204,7 +8206,7 @@ extern "C"
 
     // Same, with the instance's hit group index offset (instanceContributionToHitGroupIndex, Vulkan's
     // instanceShaderBindingTableRecordOffset): which of the shader table's hit groups its hits run.
-    void Donut_AddTopLevelASInstanceWithHitGroup(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
+    DONUT_API void Donut_AddTopLevelASInstanceWithHitGroup(SceneAccelStructs* sceneAccelStructs, nvrhi::rt::IAccelStruct* bottomLevelAS, int instanceMask, int instanceID,
         int hitGroupIndex, int flags, const void* transform)
     {
         Donut_AddTopLevelASInstanceWithTransform(sceneAccelStructs, bottomLevelAS, instanceMask, instanceID, flags, transform);
@@ -8213,7 +8215,7 @@ extern "C"
     }
 
     // Inside a render callback: builds the TLAS from the instances added since the last build.
-    void Donut_BuildTopLevelAS(FrameContext* frame, SceneAccelStructs* sceneAccelStructs)
+    DONUT_API void Donut_BuildTopLevelAS(FrameContext* frame, SceneAccelStructs* sceneAccelStructs)
     {
         auto* accelStructs = sceneAccelStructs;
         nvrhi::ICommandList* cl = frame->commandList;
@@ -8232,7 +8234,7 @@ extern "C"
     // build (new transforms, same instance count), instead of building it anew. Needs a TLAS
     // created with AllowUpdate; builds it instead before its first build or when the instance
     // count changed. Returns 1 if it refitted, 0 if it built.
-    int Donut_UpdateTopLevelAS(FrameContext* frame, SceneAccelStructs* sceneAccelStructs)
+    DONUT_API int Donut_UpdateTopLevelAS(FrameContext* frame, SceneAccelStructs* sceneAccelStructs)
     {
         auto* accelStructs = sceneAccelStructs;
         const nvrhi::rt::AccelStructBuildFlags buildFlags = accelStructs->topLevel->getDesc().buildFlags;
@@ -8257,26 +8259,26 @@ extern "C"
     }
 
     // Scene animations (e.g. glTF skeletal animations), in the scene graph's order.
-    int Donut_GetSceneAnimationCount(donut::engine::Scene* scene)
+    DONUT_API int Donut_GetSceneAnimationCount(donut::engine::Scene* scene)
     {
         return static_cast<int>(scene->GetSceneGraph()->GetAnimations().size());
     }
 
     // In seconds.
-    double Donut_GetSceneAnimationDuration(donut::engine::Scene* scene, int index)
+    DONUT_API double Donut_GetSceneAnimationDuration(donut::engine::Scene* scene, int index)
     {
         return scene->GetSceneGraph()->GetAnimations()[index]->GetDuration();
     }
 
     // Poses the animated nodes at `time` seconds into the animation; call Donut_RefreshScene after.
-    void Donut_ApplySceneAnimation(donut::engine::Scene* scene, int index, double time)
+    DONUT_API void Donut_ApplySceneAnimation(donut::engine::Scene* scene, int index, double time)
     {
         (void)scene->GetSceneGraph()->GetAnimations()[index]->Apply(float(time));
     }
 
     // Inside a render callback: updates the scene graph and its GPU buffers (transforms, skinning)
     // after animations or other changes.
-    void Donut_RefreshScene(App* app, FrameContext* frame, donut::engine::Scene* scene)
+    DONUT_API void Donut_RefreshScene(App* app, FrameContext* frame, donut::engine::Scene* scene)
     {
         scene->Refresh(frame->commandList,
             app->deviceManager->GetFrameIndex());
@@ -8286,7 +8288,7 @@ extern "C"
     // mesh's accelStruct; alpha-tested geometries non-opaque, static ones compacted later) into
     // an open command list, and creates a TLAS for Donut_UpdateSceneAccelStructs to build every
     // frame. Get the TLAS with Donut_GetSceneTopLevelAS.
-    SceneAccelStructs* Donut_CreateAnimatedSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene)
+    DONUT_API SceneAccelStructs* Donut_CreateAnimatedSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene)
     {
         App* a = app;
         nvrhi::ICommandList* cl = commandList;
@@ -8319,7 +8321,7 @@ extern "C"
     // Inside a render callback, after Donut_RefreshScene: rebuilds the BLAS of the skinned mesh
     // instances updated this frame, compacts the static BLASes whose builds have finished, and
     // builds the TLAS from the instances' current transforms (instance IDs = instance indices).
-    void Donut_UpdateSceneAccelStructs(App* app, FrameContext* frame, SceneAccelStructs* sceneAccelStructs, donut::engine::Scene* scene)
+    DONUT_API void Donut_UpdateSceneAccelStructs(App* app, FrameContext* frame, SceneAccelStructs* sceneAccelStructs, donut::engine::Scene* scene)
     {
         nvrhi::ICommandList* cl = frame->commandList;
         const uint32_t frameIndex = app->deviceManager->GetFrameIndex();
@@ -8369,7 +8371,7 @@ extern "C"
 
     // Donut's forward shading pass; numConstantBufferVersions bounds how many views it can
     // render per frame.
-    donut::render::ForwardShadingPass* Donut_CreateForwardShadingPass(App* app, int numConstantBufferVersions)
+    DONUT_API donut::render::ForwardShadingPass* Donut_CreateForwardShadingPass(App* app, int numConstantBufferVersions)
     {
         App* a = app;
         auto pass = std::make_shared<donut::render::ForwardShadingPass>(a->device(), a->sharedCommonPasses());
@@ -8380,7 +8382,7 @@ extern "C"
     }
 
     // Cube map render target of resolution x resolution faces: SRGBA8 color, D32 depth.
-    CubemapTarget* Donut_CreateCubemapTarget(App* app, int resolution)
+    DONUT_API CubemapTarget* Donut_CreateCubemapTarget(App* app, int resolution)
     {
         App* a = app;
         auto target = std::make_shared<CubemapTarget>();
@@ -8420,13 +8422,13 @@ extern "C"
     }
 
     // The color texture, one array slice per face; valid as long as the target.
-    nvrhi::ITexture* Donut_GetCubemapColorTexture(CubemapTarget* cubemapTarget)
+    DONUT_API nvrhi::ITexture* Donut_GetCubemapColorTexture(CubemapTarget* cubemapTarget)
     {
         return cubemapTarget->colorBuffer.Get();
     }
 
     // Places the cube map view at the camera, looking along its axes.
-    void Donut_SetCubemapViewFromCamera(CubemapTarget* cubemapTarget, donut::app::BaseCamera* camera, double zNear, double cullDistance)
+    DONUT_API void Donut_SetCubemapViewFromCamera(CubemapTarget* cubemapTarget, donut::app::BaseCamera* camera, double zNear, double cullDistance)
     {
         auto* target = cubemapTarget;
         target->view.SetTransform(camera->GetWorldToViewMatrix(),
@@ -8435,7 +8437,7 @@ extern "C"
     }
 
     // Command list for recording on another thread and executing later; see Donut_RenderCubemapFaceAsync.
-    nvrhi::ICommandList* Donut_CreateDeferredCommandList(App* app)
+    DONUT_API nvrhi::ICommandList* Donut_CreateDeferredCommandList(App* app)
     {
         App* a = app;
         return a->Own(a->device()->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false)));
@@ -8443,7 +8445,7 @@ extern "C"
 
     // Records the scene as seen by one cube map face (0..5) into commandList (opening and closing
     // it), with the forward shading pass and ambient lighting only.
-    void Donut_RenderCubemapFace(CubemapTarget* cubemapTarget, int face, nvrhi::ICommandList* commandList, donut::engine::Scene* scene, donut::render::ForwardShadingPass* forwardShadingPass)
+    DONUT_API void Donut_RenderCubemapFace(CubemapTarget* cubemapTarget, int face, nvrhi::ICommandList* commandList, donut::engine::Scene* scene, donut::render::ForwardShadingPass* forwardShadingPass)
     {
         RenderCubemapFace(cubemapTarget, face, commandList,
             scene, forwardShadingPass);
@@ -8451,7 +8453,7 @@ extern "C"
 
     // Same, as a task on the app's thread pool; call Donut_WaitForTasks before executing the
     // command list. Each concurrent task needs its own command list.
-    void Donut_RenderCubemapFaceAsync(App* app, CubemapTarget* cubemapTarget, int face, nvrhi::ICommandList* commandList, donut::engine::Scene* scene, donut::render::ForwardShadingPass* forwardShadingPass)
+    DONUT_API void Donut_RenderCubemapFaceAsync(App* app, CubemapTarget* cubemapTarget, int face, nvrhi::ICommandList* commandList, donut::engine::Scene* scene, donut::render::ForwardShadingPass* forwardShadingPass)
     {
         auto* target = cubemapTarget;
         auto* cl = commandList;
@@ -8511,7 +8513,7 @@ extern "C"
         commandList->close();
     }
 
-    DrawBatch* Donut_CreateDrawBatch(App* app, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer,
+    DONUT_API DrawBatch* Donut_CreateDrawBatch(App* app, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer,
         nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer)
     {
         auto batch = std::make_shared<DrawBatch>();
@@ -8525,7 +8527,7 @@ extern "C"
 
     // A binding set every draw uses, in the pipeline's binding layout order; add them before the
     // draws' own.
-    void Donut_DrawBatchAddBindingSet(DrawBatch* drawBatch, nvrhi::IBindingSet* bindingSet)
+    DONUT_API void Donut_DrawBatchAddBindingSet(DrawBatch* drawBatch, nvrhi::IBindingSet* bindingSet)
     {
         drawBatch->state.bindings.push_back(bindingSet);
         drawBatch->sharedBindingSetCount = drawBatch->state.bindings.size();
@@ -8533,7 +8535,7 @@ extern "C"
 
     // A draw of indexCount indices from startIndex, offset by baseVertex, with its own binding set
     // (null for none) after the shared ones.
-    void Donut_DrawBatchAddDraw(DrawBatch* drawBatch, nvrhi::IBindingSet* bindingSet, int indexCount, int startIndex, int baseVertex)
+    DONUT_API void Donut_DrawBatchAddDraw(DrawBatch* drawBatch, nvrhi::IBindingSet* bindingSet, int indexCount, int startIndex, int baseVertex)
     {
         DrawBatch::Draw draw;
         draw.bindingSet = bindingSet;
@@ -8545,27 +8547,27 @@ extern "C"
 
     // Same, with a pipeline of its own (for the batch's framebuffer and binding layouts) instead of
     // the batch's.
-    void Donut_DrawBatchAddDrawWithPipeline(DrawBatch* drawBatch, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IBindingSet* bindingSet,
+    DONUT_API void Donut_DrawBatchAddDrawWithPipeline(DrawBatch* drawBatch, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IBindingSet* bindingSet,
         int indexCount, int startIndex, int baseVertex)
     {
         Donut_DrawBatchAddDraw(drawBatch, bindingSet, indexCount, startIndex, baseVertex);
         drawBatch->draws.back().pipeline = pipeline;
     }
 
-    int Donut_GetDrawBatchDrawCount(DrawBatch* drawBatch)
+    DONUT_API int Donut_GetDrawBatchDrawCount(DrawBatch* drawBatch)
     {
         return int(drawBatch->draws.size());
     }
 
     // Records all the batch's draws into an open command list (e.g. the frame's), as a D3D12
     // command list executes a bundle.
-    void Donut_ExecuteDrawBatch(DrawBatch* drawBatch, nvrhi::ICommandList* commandList)
+    DONUT_API void Donut_ExecuteDrawBatch(DrawBatch* drawBatch, nvrhi::ICommandList* commandList)
     {
         ExecuteDrawBatch(drawBatch, commandList, 0, 1);
     }
 
     // Records the batch's draws first, first + step, ... into commandList (opening and closing it).
-    void Donut_RecordDrawBatch(DrawBatch* drawBatch, nvrhi::ICommandList* commandList, int first, int step)
+    DONUT_API void Donut_RecordDrawBatch(DrawBatch* drawBatch, nvrhi::ICommandList* commandList, int first, int step)
     {
         RecordDrawBatch(drawBatch, commandList, first, step);
     }
@@ -8573,7 +8575,7 @@ extern "C"
     // Same, as a task on the app's thread pool; call Donut_WaitForTasks before executing the
     // command list (Donut_CreateDeferredCommandList). Each concurrent task needs its own command
     // list.
-    void Donut_RecordDrawBatchAsync(App* app, DrawBatch* drawBatch, nvrhi::ICommandList* commandList, int first, int step)
+    DONUT_API void Donut_RecordDrawBatchAsync(App* app, DrawBatch* drawBatch, nvrhi::ICommandList* commandList, int first, int step)
     {
         auto* batch = drawBatch;
         auto* cl = commandList;
@@ -8581,13 +8583,13 @@ extern "C"
     }
 
     // Blocks until all tasks queued on the app's thread pool have finished.
-    void Donut_WaitForTasks(App* app)
+    DONUT_API void Donut_WaitForTasks(App* app)
     {
         app->threadPool()->WaitForTasks();
     }
 
     // Donut's first person camera: WASD/arrow keys move, dragging with the left button looks around.
-    donut::app::BaseCamera* Donut_CreateFirstPersonCamera(App* app)
+    DONUT_API donut::app::BaseCamera* Donut_CreateFirstPersonCamera(App* app)
     {
         donut::app::BaseCamera* camera = app->OwnObject(std::make_shared<donut::app::FirstPersonCamera>());
         return camera;
@@ -8595,42 +8597,42 @@ extern "C"
 
     // Donut's third person (orbit) camera around a target: dragging with the left button orbits,
     // the mouse wheel zooms, WASD / arrows move the target.
-    donut::app::BaseCamera* Donut_CreateThirdPersonCamera(App* app)
+    DONUT_API donut::app::BaseCamera* Donut_CreateThirdPersonCamera(App* app)
     {
         donut::app::BaseCamera* camera = app->OwnObject(std::make_shared<donut::app::ThirdPersonCamera>());
         return camera;
     }
 
-    void Donut_ThirdPersonCameraSetTarget(donut::app::BaseCamera* camera, double x, double y, double z)
+    DONUT_API void Donut_ThirdPersonCameraSetTarget(donut::app::BaseCamera* camera, double x, double y, double z)
     {
         AsThirdPersonCamera(camera)->SetTargetPosition(dm::float3(float(x), float(y), float(z)));
     }
 
-    void Donut_ThirdPersonCameraSetDistance(donut::app::BaseCamera* camera, double distance)
+    DONUT_API void Donut_ThirdPersonCameraSetDistance(donut::app::BaseCamera* camera, double distance)
     {
         AsThirdPersonCamera(camera)->SetDistance(float(distance));
     }
 
     // In radians.
-    void Donut_ThirdPersonCameraSetRotation(donut::app::BaseCamera* camera, double yaw, double pitch)
+    DONUT_API void Donut_ThirdPersonCameraSetRotation(donut::app::BaseCamera* camera, double yaw, double pitch)
     {
         AsThirdPersonCamera(camera)->SetRotation(float(yaw), float(pitch));
     }
 
     // In radians.
-    double Donut_ThirdPersonCameraGetYaw(donut::app::BaseCamera* camera)
+    DONUT_API double Donut_ThirdPersonCameraGetYaw(donut::app::BaseCamera* camera)
     {
         return AsThirdPersonCamera(camera)->GetRotationYaw();
     }
 
-    double Donut_ThirdPersonCameraGetPitch(donut::app::BaseCamera* camera)
+    DONUT_API double Donut_ThirdPersonCameraGetPitch(donut::app::BaseCamera* camera)
     {
         return AsThirdPersonCamera(camera)->GetRotationPitch();
     }
 
     // Orbits cameraTarget from cameraPos. Through LookTo: ThirdPersonCamera::LookAt gets the pitch's
     // sign wrong (it takes the angles of the direction to the target, LookTo of the opposite one).
-    void Donut_ThirdPersonCameraLookAt(donut::app::BaseCamera* camera, double posX, double posY, double posZ, double targetX, double targetY, double targetZ)
+    DONUT_API void Donut_ThirdPersonCameraLookAt(donut::app::BaseCamera* camera, double posX, double posY, double posZ, double targetX, double targetY, double targetZ)
     {
         const dm::float3 position{ float(posX), float(posY), float(posZ) };
         const dm::float3 direction = dm::float3(float(targetX), float(targetY), float(targetZ)) - position;
@@ -8638,81 +8640,81 @@ extern "C"
     }
 
     // The camera needs the view it renders (after Donut_SetPlanarView), every frame.
-    void Donut_ThirdPersonCameraSetView(donut::app::BaseCamera* camera, donut::engine::IView* view)
+    DONUT_API void Donut_ThirdPersonCameraSetView(donut::app::BaseCamera* camera, donut::engine::IView* view)
     {
         AsThirdPersonCamera(camera)->SetView(*static_cast<donut::engine::PlanarView*>(view));
     }
 
     // The camera's forward / up direction, as 3 floats into dst.
-    void Donut_GetCameraDirection(donut::app::BaseCamera* camera, void* dst)
+    DONUT_API void Donut_GetCameraDirection(donut::app::BaseCamera* camera, void* dst)
     {
         memcpy(dst, &camera->GetDir(), sizeof(dm::float3));
     }
 
-    void Donut_GetCameraUp(donut::app::BaseCamera* camera, void* dst)
+    DONUT_API void Donut_GetCameraUp(donut::app::BaseCamera* camera, void* dst)
     {
         memcpy(dst, &camera->GetUp(), sizeof(dm::float3));
     }
 
     // First person cameras only.
-    void Donut_CameraLookAt(donut::app::BaseCamera* camera, double posX, double posY, double posZ, double targetX, double targetY, double targetZ)
+    DONUT_API void Donut_CameraLookAt(donut::app::BaseCamera* camera, double posX, double posY, double posZ, double targetX, double targetY, double targetZ)
     {
         static_cast<donut::app::FirstPersonCamera*>(camera)->LookAt(
             dm::float3(float(posX), float(posY), float(posZ)), dm::float3(float(targetX), float(targetY), float(targetZ)));
     }
 
     // In units per second.
-    void Donut_CameraSetMoveSpeed(donut::app::BaseCamera* camera, double speed)
+    DONUT_API void Donut_CameraSetMoveSpeed(donut::app::BaseCamera* camera, double speed)
     {
         camera->SetMoveSpeed(float(speed));
     }
 
     // Mouse sensitivity, in radians per pixel.
-    void Donut_CameraSetRotateSpeed(donut::app::BaseCamera* camera, double speed)
+    DONUT_API void Donut_CameraSetRotateSpeed(donut::app::BaseCamera* camera, double speed)
     {
         camera->SetRotateSpeed(float(speed));
     }
 
     // Forward the pass input callbacks' arguments to these.
-    void Donut_CameraKeyboardUpdate(donut::app::BaseCamera* camera, int key, int scancode, int action, int mods)
+    DONUT_API void Donut_CameraKeyboardUpdate(donut::app::BaseCamera* camera, int key, int scancode, int action, int mods)
     {
         camera->KeyboardUpdate(key, scancode, action, mods);
     }
 
-    void Donut_CameraMousePosUpdate(donut::app::BaseCamera* camera, double x, double y)
+    DONUT_API void Donut_CameraMousePosUpdate(donut::app::BaseCamera* camera, double x, double y)
     {
         camera->MousePosUpdate(x, y);
     }
 
-    void Donut_CameraMouseButtonUpdate(donut::app::BaseCamera* camera, int button, int action, int mods)
+    DONUT_API void Donut_CameraMouseButtonUpdate(donut::app::BaseCamera* camera, int button, int action, int mods)
     {
         camera->MouseButtonUpdate(button, action, mods);
     }
 
-    void Donut_CameraMouseScrollUpdate(donut::app::BaseCamera* camera, double xOffset, double yOffset)
+    DONUT_API void Donut_CameraMouseScrollUpdate(donut::app::BaseCamera* camera, double xOffset, double yOffset)
     {
         camera->MouseScrollUpdate(xOffset, yOffset);
     }
 
-    void Donut_CameraAnimate(donut::app::BaseCamera* camera, double elapsedSeconds)
+    DONUT_API void Donut_CameraAnimate(donut::app::BaseCamera* camera, double elapsedSeconds)
     {
         camera->Animate(float(elapsedSeconds));
     }
 
     // Writes the camera's world-to-view matrix to dst: 16 floats, row-major, row-vector convention.
-    void Donut_GetCameraWorldToView(donut::app::BaseCamera* camera, void* dst)
+    DONUT_API void Donut_GetCameraWorldToView(donut::app::BaseCamera* camera, void* dst)
     {
         const dm::float4x4 m = dm::affineToHomogeneous(camera->GetWorldToViewMatrix());
         memcpy(dst, &m, sizeof(m));
     }
 
     // The scene graph of a scene from Donut_LoadScene; valid as long as the scene.
-    donut::engine::SceneGraph* Donut_GetSceneGraph(donut::engine::Scene* scene)
+    DONUT_API donut::engine::SceneGraph* Donut_GetSceneGraph(donut::engine::Scene* scene)
     {
         return scene->GetSceneGraph().get();
     }
 
-    donut::engine::SceneGraphNode* Donut_GetRootNode(donut::engine::SceneGraph* sceneGraph)
+    DONUT_API donut::engine::SceneGraphNode* Donut_GetRootNode(donut::engine::SceneGraph* sceneGraph)
     {
         return sceneGraph->GetRootNode().get();
     }
@@ -8720,7 +8722,7 @@ extern "C"
     // Builds one bottom-level acceleration structure per mesh of a scene from Donut_LoadScene (its
     // opaque triangles), and a top-level one over its mesh instances, recording the builds into an
     // open command list. Get the top-level one with Donut_GetSceneTopLevelAS.
-    SceneAccelStructs* Donut_BuildSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene)
+    DONUT_API SceneAccelStructs* Donut_BuildSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene)
     {
         App* a = app;
         nvrhi::ICommandList* cl = commandList;
@@ -8776,7 +8778,7 @@ extern "C"
     }
 
     // For Donut_BindAccelStruct; valid as long as the acceleration structures.
-    nvrhi::rt::IAccelStruct* Donut_GetSceneTopLevelAS(SceneAccelStructs* sceneAccelStructs)
+    DONUT_API nvrhi::rt::IAccelStruct* Donut_GetSceneTopLevelAS(SceneAccelStructs* sceneAccelStructs)
     {
         return sceneAccelStructs->topLevel.Get();
     }
@@ -8787,7 +8789,7 @@ extern "C"
     // records the texture and constant buffer uploads into an open command list. specularGloss
     // != 0 selects the specular-glossiness model. Returns null (after logging why) if the
     // texture can't be loaded.
-    donut::engine::Material* Donut_CreateTexturedMaterial(App* app, nvrhi::ICommandList* commandList, const char* name, const char* diffuseTexturePath,
+    DONUT_API donut::engine::Material* Donut_CreateTexturedMaterial(App* app, nvrhi::ICommandList* commandList, const char* name, const char* diffuseTexturePath,
         int specularGloss)
     {
         App* a = app;
@@ -8821,7 +8823,7 @@ extern "C"
     // instance transform. Per vertex: a position (3 floats), texture coordinates (2 floats), and
     // a normal and a tangent (uint each, snorm8-packed as by donut::math::vectorToSnorm8); then
     // indexCount uint indices. Records the uploads into an open command list.
-    donut::engine::MeshInfo* Donut_CreateMesh(App* app, nvrhi::ICommandList* commandList, const char* name, donut::engine::Material* material,
+    DONUT_API donut::engine::MeshInfo* Donut_CreateMesh(App* app, nvrhi::ICommandList* commandList, const char* name, donut::engine::Material* material,
         const void* positions, const void* texCoords, const void* normals, const void* tangents, int vertexCount,
         const void* indices, int indexCount)
     {
@@ -8884,14 +8886,14 @@ extern "C"
     }
 
     // An empty scene graph; add nodes with the functions below.
-    donut::engine::SceneGraph* Donut_CreateSceneGraph(App* app)
+    DONUT_API donut::engine::SceneGraph* Donut_CreateSceneGraph(App* app)
     {
         return app->OwnObject(std::make_shared<donut::engine::SceneGraph>());
     }
 
     // Adds a node holding an instance of a mesh from Donut_CreateMesh, under parentNode, or as the
     // root node if parentNode is null. Returns the node, valid as long as the scene graph.
-    donut::engine::SceneGraphNode* Donut_AddMeshNode(App* app, donut::engine::SceneGraph* sceneGraph, donut::engine::SceneGraphNode* parentNode, donut::engine::MeshInfo* mesh, const char* name)
+    DONUT_API donut::engine::SceneGraphNode* Donut_AddMeshNode(App* app, donut::engine::SceneGraph* sceneGraph, donut::engine::SceneGraphNode* parentNode, donut::engine::MeshInfo* mesh, const char* name)
     {
         App* a = app;
         auto* graph = sceneGraph;
@@ -8911,7 +8913,7 @@ extern "C"
     // Adds a directional light in a new node under parentNode, shining along (dirX, dirY, dirZ);
     // angularSize is in degrees. Returns the light, valid as long as the scene graph; call
     // Donut_RefreshSceneGraph before using it.
-    donut::engine::Light* Donut_AddDirectionalLight(donut::engine::SceneGraph* sceneGraph, donut::engine::SceneGraphNode* parentNode, const char* name,
+    DONUT_API donut::engine::Light* Donut_AddDirectionalLight(donut::engine::SceneGraph* sceneGraph, donut::engine::SceneGraphNode* parentNode, const char* name,
         double dirX, double dirY, double dirZ, double angularSize, double irradiance)
     {
         auto light = std::make_shared<donut::engine::DirectionalLight>();
@@ -8927,13 +8929,13 @@ extern "C"
     }
 
     // sizeof(LightConstants) (donut/shaders/light_cb.h), a multiple of 16.
-    int Donut_GetLightConstantsSize()
+    DONUT_API int Donut_GetLightConstantsSize()
     {
         return static_cast<int>(sizeof(LightConstants));
     }
 
     // Writes a light's LightConstants to dst.
-    void Donut_FillLightConstants(donut::engine::Light* light, void* dst)
+    DONUT_API void Donut_FillLightConstants(donut::engine::Light* light, void* dst)
     {
         LightConstants constants = {};
         light->FillLightConstants(constants);
@@ -8941,13 +8943,13 @@ extern "C"
     }
 
     // Updates the transforms, bounds and instance indices after nodes were added or changed.
-    void Donut_RefreshSceneGraph(App* app, donut::engine::SceneGraph* sceneGraph)
+    DONUT_API void Donut_RefreshSceneGraph(App* app, donut::engine::SceneGraph* sceneGraph)
     {
         sceneGraph->Refresh(app->deviceManager->GetFrameIndex());
     }
 
     // Logs the node tree.
-    void Donut_PrintSceneGraph(donut::engine::SceneGraph* sceneGraph)
+    DONUT_API void Donut_PrintSceneGraph(donut::engine::SceneGraph* sceneGraph)
     {
         donut::engine::PrintSceneGraph(sceneGraph->GetRootNode());
     }
@@ -8957,7 +8959,7 @@ extern "C"
     // G-buffer (depth, diffuse, specular, normals, emissive) of width x height pixels, plus an
     // RGBA16_FLOAT texture for the lit result; create a new one when the frame size changes.
     // reverseDepth != 0: depth is cleared to 0, for reverse-Z projections.
-    GBufferTargets* Donut_CreateGBufferTargets(App* app, int width, int height, int reverseDepth)
+    DONUT_API GBufferTargets* Donut_CreateGBufferTargets(App* app, int width, int height, int reverseDepth)
     {
         App* a = app;
         auto targets = std::make_shared<GBufferTargets>();
@@ -8977,7 +8979,7 @@ extern "C"
 
     // One of the G-buffer textures, e.g. for binding to a shader that decodes the G-buffer;
     // valid as long as the targets.
-    nvrhi::ITexture* Donut_GetGBufferTexture(GBufferTargets* gbufferTargets, int which)
+    DONUT_API nvrhi::ITexture* Donut_GetGBufferTexture(GBufferTargets* gbufferTargets, int which)
     {
         auto* targets = gbufferTargets;
         switch (which)
@@ -8992,13 +8994,13 @@ extern "C"
     }
 
     // The lit result, for Donut_BlitTexture; valid as long as the targets.
-    nvrhi::ITexture* Donut_GetGBufferShadedColor(GBufferTargets* gbufferTargets)
+    DONUT_API nvrhi::ITexture* Donut_GetGBufferShadedColor(GBufferTargets* gbufferTargets)
     {
         return gbufferTargets->ShadedColor.Get();
     }
 
     // Donut's G-buffer fill pass; its pipelines depend on the targets' formats and sample count.
-    donut::render::GBufferFillPass* Donut_CreateGBufferFillPass(App* app)
+    DONUT_API donut::render::GBufferFillPass* Donut_CreateGBufferFillPass(App* app)
     {
         App* a = app;
         auto pass = std::make_shared<donut::render::GBufferFillPass>(a->device(), a->sharedCommonPasses());
@@ -9007,7 +9009,7 @@ extern "C"
     }
 
     // Donut's deferred lighting pass (a compute shader reading the G-buffer).
-    donut::render::DeferredLightingPass* Donut_CreateDeferredLightingPass(App* app)
+    DONUT_API donut::render::DeferredLightingPass* Donut_CreateDeferredLightingPass(App* app)
     {
         App* a = app;
         auto pass = std::make_shared<donut::render::DeferredLightingPass>(a->device(), a->sharedCommonPasses());
@@ -9016,20 +9018,20 @@ extern "C"
     }
 
     // Drops the binding sets the pass cached, and with them their references to G-buffer textures.
-    void Donut_ResetDeferredLightingBindingCache(donut::render::DeferredLightingPass* deferredLightingPass)
+    DONUT_API void Donut_ResetDeferredLightingBindingCache(donut::render::DeferredLightingPass* deferredLightingPass)
     {
         deferredLightingPass->ResetBindingCache();
     }
 
     // A single view (camera) for the passes above.
-    donut::engine::IView* Donut_CreatePlanarView(App* app)
+    DONUT_API donut::engine::IView* Donut_CreatePlanarView(App* app)
     {
         return app->OwnObject(std::make_shared<donut::engine::PlanarView>());
     }
 
     // Sets the view's world-to-view and projection matrices (16 floats each, row-major, row-vector
     // convention, as donut::math builds them) and its viewport of width x height pixels.
-    void Donut_SetPlanarView(donut::engine::IView* view, const void* viewMatrix, const void* projMatrix, int width, int height)
+    DONUT_API void Donut_SetPlanarView(donut::engine::IView* view, const void* viewMatrix, const void* projMatrix, int width, int height)
     {
         auto* planarView = static_cast<donut::engine::PlanarView*>(view);
         planarView->SetViewport(nvrhi::Viewport(float(width), float(height)));
@@ -9039,13 +9041,13 @@ extern "C"
     }
 
     // sizeof(PlanarViewConstants) (donut/shaders/view_cb.h), a multiple of 16.
-    int Donut_GetPlanarViewConstantsSize()
+    DONUT_API int Donut_GetPlanarViewConstantsSize()
     {
         return static_cast<int>(sizeof(PlanarViewConstants));
     }
 
     // Writes the view's PlanarViewConstants (as of its last Donut_SetPlanarView) to dst.
-    void Donut_FillPlanarViewConstants(donut::engine::IView* view, void* dst)
+    DONUT_API void Donut_FillPlanarViewConstants(donut::engine::IView* view, void* dst)
     {
         PlanarViewConstants constants = {};
         static_cast<donut::engine::PlanarView*>(view)->FillPlanarViewConstants(constants);
@@ -9053,14 +9055,14 @@ extern "C"
     }
 
     // Clears all the G-buffer textures.
-    void Donut_ClearGBuffer(FrameContext* frame, GBufferTargets* gbufferTargets)
+    DONUT_API void Donut_ClearGBuffer(FrameContext* frame, GBufferTargets* gbufferTargets)
     {
         gbufferTargets->Clear(frame->commandList);
     }
 
     // Draws the mesh instance of a node from Donut_AddMeshNode (all its geometries, back faces
     // culled) into the G-buffer, as seen by view.
-    void Donut_RenderMeshNodeToGBuffer(FrameContext* frame, donut::render::GBufferFillPass* gbufferFillPass, donut::engine::IView* view, GBufferTargets* gbufferTargets, donut::engine::SceneGraphNode* meshNode)
+    DONUT_API void Donut_RenderMeshNodeToGBuffer(FrameContext* frame, donut::render::GBufferFillPass* gbufferFillPass, donut::engine::IView* view, GBufferTargets* gbufferTargets, donut::engine::SceneGraphNode* meshNode)
     {
         auto* node = meshNode;
         auto* instance = dynamic_cast<donut::engine::MeshInstance*>(node->GetLeaf().get());
@@ -9092,7 +9094,7 @@ extern "C"
     }
 
     // Draws the opaque meshes of a scene from Donut_LoadScene into the G-buffer, as seen by view.
-    void Donut_RenderSceneToGBuffer(FrameContext* frame, donut::render::GBufferFillPass* gbufferFillPass, donut::engine::IView* view, GBufferTargets* gbufferTargets, donut::engine::Scene* scene)
+    DONUT_API void Donut_RenderSceneToGBuffer(FrameContext* frame, donut::render::GBufferFillPass* gbufferFillPass, donut::engine::IView* view, GBufferTargets* gbufferTargets, donut::engine::Scene* scene)
     {
         auto* planarView = static_cast<donut::engine::PlanarView*>(view);
         donut::render::InstancedOpaqueDrawStrategy drawStrategy;
@@ -9106,7 +9108,7 @@ extern "C"
     // Draws the transparent meshes of a loaded scene with a forward shading pass
     // (Donut_CreateForwardShadingPass) over the targets' shaded color, depth-tested against the
     // G-buffer depth, lit by the scene graph's lights plus a top / bottom ambient term.
-    void Donut_RenderSceneTransparentOverGBuffer(FrameContext* frame, donut::render::ForwardShadingPass* forwardShadingPass, donut::engine::IView* view, GBufferTargets* gbufferTargets,
+    DONUT_API void Donut_RenderSceneTransparentOverGBuffer(FrameContext* frame, donut::render::ForwardShadingPass* forwardShadingPass, donut::engine::IView* view, GBufferTargets* gbufferTargets,
         donut::engine::Scene* scene, double topR, double topG, double topB, double bottomR, double bottomG, double bottomB)
     {
         nvrhi::ICommandList* cl = frame->commandList;
@@ -9126,7 +9128,7 @@ extern "C"
 
     // Lights the G-buffer with the scene graph's lights plus a hemispherical ambient term (top
     // and bottom colors), writing the result into the targets' shaded color texture.
-    void Donut_RenderDeferredLighting(FrameContext* frame, donut::render::DeferredLightingPass* deferredLightingPass, donut::engine::IView* view, GBufferTargets* gbufferTargets,
+    DONUT_API void Donut_RenderDeferredLighting(FrameContext* frame, donut::render::DeferredLightingPass* deferredLightingPass, donut::engine::IView* view, GBufferTargets* gbufferTargets,
         donut::engine::SceneGraph* sceneGraph, double topR, double topG, double topB, double bottomR, double bottomG, double bottomB)
     {
         auto* targets = gbufferTargets;
@@ -9143,7 +9145,7 @@ extern "C"
     }
 
     // Copies a view's viewport, matrices and derived state, e.g. to keep the previous frame's view.
-    void Donut_CopyPlanarView(donut::engine::IView* dstView, donut::engine::IView* srcView)
+    DONUT_API void Donut_CopyPlanarView(donut::engine::IView* dstView, donut::engine::IView* srcView)
     {
         *static_cast<donut::engine::PlanarView*>(dstView) = *static_cast<donut::engine::PlanarView*>(srcView);
     }
@@ -9153,7 +9155,7 @@ extern "C"
     // Targets of width x height pixels: RGBA16_FLOAT HDR color and D24S8 depth (cleared for reverse Z)
     // to render into, RG16_FLOAT motion vectors, and the TAA resolved color and feedback textures.
     // Create new ones when the frame size changes.
-    TemporalTargets* Donut_CreateTemporalTargets(App* app, int width, int height)
+    DONUT_API TemporalTargets* Donut_CreateTemporalTargets(App* app, int width, int height)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -9209,7 +9211,7 @@ extern "C"
     };
 
     // One of the targets' textures; valid as long as the targets.
-    nvrhi::ITexture* Donut_GetTemporalTargetsTexture(TemporalTargets* temporalTargets, int which)
+    DONUT_API nvrhi::ITexture* Donut_GetTemporalTargetsTexture(TemporalTargets* temporalTargets, int which)
     {
         auto* targets = temporalTargets;
         switch (which)
@@ -9224,14 +9226,14 @@ extern "C"
 
     // Makes rendering into the targets use a shading rate surface (Donut_CreateShadingRateSurface)
     // whenever the view enables variable rate shading. Call it before the first draw into them.
-    void Donut_SetTemporalTargetsShadingRateSurface(TemporalTargets* temporalTargets, nvrhi::ITexture* shadingRateSurface)
+    DONUT_API void Donut_SetTemporalTargetsShadingRateSurface(TemporalTargets* temporalTargets, nvrhi::ITexture* shadingRateSurface)
     {
         temporalTargets->framebuffer->ShadingRateSurface =
             shadingRateSurface;
     }
 
     // Clears depth (to 0, for reverse Z) and HDR color.
-    void Donut_ClearTemporalTargets(FrameContext* frame, TemporalTargets* temporalTargets)
+    DONUT_API void Donut_ClearTemporalTargets(FrameContext* frame, TemporalTargets* temporalTargets)
     {
         auto* targets = temporalTargets;
         nvrhi::ICommandList* cl = frame->commandList;
@@ -9242,7 +9244,7 @@ extern "C"
     // Draws a loaded scene, opaque then transparent meshes, into the targets' HDR color and depth
     // with a forward shading pass (Donut_CreateForwardShadingPass), lit by the scene graph's
     // lights plus a top / bottom ambient term.
-    void Donut_RenderSceneForward(FrameContext* frame, donut::render::ForwardShadingPass* forwardShadingPass, donut::engine::IView* view, TemporalTargets* temporalTargets, donut::engine::Scene* scene,
+    DONUT_API void Donut_RenderSceneForward(FrameContext* frame, donut::render::ForwardShadingPass* forwardShadingPass, donut::engine::IView* view, TemporalTargets* temporalTargets, donut::engine::Scene* scene,
         double topR, double topG, double topB, double bottomR, double bottomG, double bottomB)
     {
         nvrhi::ICommandList* cl = frame->commandList;
@@ -9266,7 +9268,7 @@ extern "C"
 
     // Donut's TAA pass over the targets (Catmull-Rom filter, motion vectors where the stencil has
     // bit 0 set), for views like `view`; create a new one with new targets.
-    donut::render::TemporalAntiAliasingPass* Donut_CreateTemporalAntiAliasingPass(App* app, donut::engine::IView* view, TemporalTargets* temporalTargets)
+    DONUT_API donut::render::TemporalAntiAliasingPass* Donut_CreateTemporalAntiAliasingPass(App* app, donut::engine::IView* view, TemporalTargets* temporalTargets)
     {
         App* a = app;
         auto* targets = temporalTargets;
@@ -9286,7 +9288,7 @@ extern "C"
     }
 
     // Writes the targets' motion vectors, from the camera's movement between the two views.
-    void Donut_RenderMotionVectors(FrameContext* frame, donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, donut::engine::IView* view, donut::engine::IView* previousView)
+    DONUT_API void Donut_RenderMotionVectors(FrameContext* frame, donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, donut::engine::IView* view, donut::engine::IView* previousView)
     {
         temporalAntiAliasingPass->RenderMotionVectors(
             frame->commandList, *static_cast<donut::engine::PlanarView*>(view),
@@ -9295,7 +9297,7 @@ extern "C"
 
     // Resolves the HDR color into the resolved color with default TAA parameters;
     // feedbackIsValid == 0 on the first frame, when there's no history yet.
-    void Donut_TemporalResolve(FrameContext* frame, donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, donut::engine::IView* view, int feedbackIsValid)
+    DONUT_API void Donut_TemporalResolve(FrameContext* frame, donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, donut::engine::IView* view, int feedbackIsValid)
     {
         auto* planarView = static_cast<donut::engine::PlanarView*>(view);
         temporalAntiAliasingPass->TemporalResolve(
@@ -9307,7 +9309,7 @@ extern "C"
 
     // Pixels per shading rate surface texel in each dimension, as NVRHI reports it (0 without
     // nvrhi::Feature::VariableRateShading).
-    int Donut_GetShadingRateTileSize(App* app)
+    DONUT_API int Donut_GetShadingRateTileSize(App* app)
     {
         nvrhi::VariableRateShadingFeatureInfo info = {};
         app->device()->queryFeatureSupport(nvrhi::Feature::VariableRateShading, &info, sizeof(info));
@@ -9315,7 +9317,7 @@ extern "C"
     }
 
     // Same, straight from D3D12 (D3D12_FEATURE_D3D12_OPTIONS6); 0 on other graphics APIs.
-    int Donut_GetD3D12ShadingRateTileSize(App* app)
+    DONUT_API int Donut_GetD3D12ShadingRateTileSize(App* app)
     {
 #if DONUT_WITH_DX12
         nvrhi::IDevice* device = app->device();
@@ -9334,7 +9336,7 @@ extern "C"
     // `let` int array of 2 x 16), in Vulkan's order: largest first (vkGetPhysicalDeviceFragmentShadingRatesKHR;
     // on D3D12 the rates of its tier: 2x4, 4x2 and 4x4 with AdditionalShadingRatesSupported). Returns
     // their count, 0 without variable rate shading.
-    int Donut_GetFragmentShadingRates(App* app, int* dst)
+    DONUT_API int Donut_GetFragmentShadingRates(App* app, int* dst)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -9386,7 +9388,7 @@ extern "C"
     // Variable rate shading in a graphics pipeline (Feature::VariableRateShading): its draws take
     // their shading rate from the draw state (Donut_DrawSetVariableRateShading), combined with a
     // framebuffer's shading rate surface.
-    void Donut_GraphicsPipelineSetVariableRateShading(PipelineDesc* graphicsPipelineDesc, int enabled)
+    DONUT_API void Donut_GraphicsPipelineSetVariableRateShading(PipelineDesc* graphicsPipelineDesc, int enabled)
     {
         graphicsPipelineDesc->shadingRateState.setEnabled(enabled != 0);
     }
@@ -9398,12 +9400,12 @@ extern "C"
     // far, Override takes the new one).
     // The depth bounds of the draw (after Donut_BeginDraw) for a pipeline with the depth bounds test:
     // depth target values from minDepth to maxDepth pass (0 to 1 by default).
-    void Donut_DrawSetDepthBounds(FrameContext* frame, double minDepth, double maxDepth)
+    DONUT_API void Donut_DrawSetDepthBounds(FrameContext* frame, double minDepth, double maxDepth)
     {
         frame->draw.setDepthBounds(float(minDepth), float(maxDepth));
     }
 
-    void Donut_DrawSetVariableRateShading(FrameContext* frame, int enabled, int shadingRate, int primitiveCombiner,
+    DONUT_API void Donut_DrawSetVariableRateShading(FrameContext* frame, int enabled, int shadingRate, int primitiveCombiner,
         int imageCombiner)
     {
         frame->draw.shadingRateState = nvrhi::VariableRateShadingState()
@@ -9417,7 +9419,7 @@ extern "C"
     // for none) whose draws can take their shading rates from shadingRateSurface
     // (Donut_CreateShadingRateSurface, a texel per Donut_GetShadingRateTileSize square of pixels).
     // Returns null on failure.
-    nvrhi::IFramebuffer* Donut_CreateFramebufferWithShadingRate(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture,
+    DONUT_API nvrhi::IFramebuffer* Donut_CreateFramebufferWithShadingRate(App* app, nvrhi::ITexture* colorTexture0, nvrhi::ITexture* colorTexture1, nvrhi::ITexture* depthTexture,
         nvrhi::ITexture* shadingRateSurface)
     {
         auto desc = nvrhi::FramebufferDesc().addColorAttachment(colorTexture0);
@@ -9434,7 +9436,7 @@ extern "C"
 
     // R8_UINT shading rate surface of width x height tiles, written by compute shaders as
     // RWTexture2D<uint> (D3D12_SHADING_RATE values). Returns null on failure.
-    nvrhi::ITexture* Donut_CreateShadingRateSurface(App* app, int width, int height)
+    DONUT_API nvrhi::ITexture* Donut_CreateShadingRateSurface(App* app, int width, int height)
     {
         nvrhi::TextureDesc desc;
         desc.debugName = "ShadingRateTexture";
@@ -9453,7 +9455,7 @@ extern "C"
 
     // enabled != 0: draws with the view use its framebuffer's shading rate surface alone (1x1
     // per-draw rate, the surface overriding it); 0: full rate.
-    void Donut_SetViewVariableRateShading(donut::engine::IView* view, int enabled)
+    DONUT_API void Donut_SetViewVariableRateShading(donut::engine::IView* view, int enabled)
     {
         static_cast<donut::engine::PlanarView*>(view)->SetVariableRateShadingState(enabled
             ? nvrhi::VariableRateShadingState().setEnabled(true).setShadingRate(nvrhi::VariableShadingRate::e1x1)
@@ -9465,7 +9467,7 @@ extern "C"
     // surface to D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE and binds it, with every combiner at
     // MAX and a 1x1 per-draw rate. Use it instead of Donut_SetTemporalTargetsShadingRateSurface
     // and Donut_SetViewVariableRateShading, and pair it with Donut_EndD3D12ShadingRateImage.
-    void Donut_BeginD3D12ShadingRateImage(FrameContext* frame, nvrhi::ITexture* shadingRateSurface)
+    DONUT_API void Donut_BeginD3D12ShadingRateImage(FrameContext* frame, nvrhi::ITexture* shadingRateSurface)
     {
 #if DONUT_WITH_DX12
         ID3D12GraphicsCommandList* d3dCommandList = frame->commandList->getNativeObject(
@@ -9494,7 +9496,7 @@ extern "C"
     }
 
     // Undoes Donut_BeginD3D12ShadingRateImage: full rate, no surface, surface back to UAV state.
-    void Donut_EndD3D12ShadingRateImage(FrameContext* frame, nvrhi::ITexture* shadingRateSurface)
+    DONUT_API void Donut_EndD3D12ShadingRateImage(FrameContext* frame, nvrhi::ITexture* shadingRateSurface)
     {
 #if DONUT_WITH_DX12
         ID3D12GraphicsCommandList* d3dCommandList = frame->commandList->getNativeObject(
@@ -9526,7 +9528,7 @@ extern "C"
 
     // The device's D3D12_WORK_GRAPHS_TIER (D3D12_FEATURE_D3D12_OPTIONS21): 0 when work graphs are
     // unsupported, 10 for tier 1.0, 11 for tier 1.1. Also 0 on other graphics APIs.
-    int Donut_GetD3D12WorkGraphsTier(App* app)
+    DONUT_API int Donut_GetD3D12WorkGraphsTier(App* app)
     {
 #if DONUT_WITH_DX12
         nvrhi::IDevice* device = app->device();
@@ -9547,7 +9549,7 @@ extern "C"
     // broadcasting entry node entryNodeName overridden with gridX x gridY x gridZ. Creates its
     // backing memory too. Release it with Donut_ReleaseObject. Returns null (after logging why) on
     // failure.
-    D3D12WorkGraph* Donut_CreateD3D12WorkGraph(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IComputePipeline* computePipeline, const char* programName,
+    DONUT_API D3D12WorkGraph* Donut_CreateD3D12WorkGraph(App* app, nvrhi::IShaderLibrary* shaderLibrary, nvrhi::IComputePipeline* computePipeline, const char* programName,
         const char* entryNodeName, int gridX, int gridY, int gridZ)
     {
 #if DONUT_WITH_DX12
@@ -9633,7 +9635,7 @@ extern "C"
     // record no more dispatches with it after the graph in the command list (NVRHI believes it is
     // still bound). initializeBackingMemory: non-zero the first time the graph's backing memory is
     // used, or after another graph used it.
-    void Donut_DispatchD3D12WorkGraph(nvrhi::ICommandList* commandList, D3D12WorkGraph* workGraph, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
+    DONUT_API void Donut_DispatchD3D12WorkGraph(nvrhi::ICommandList* commandList, D3D12WorkGraph* workGraph, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
         const void* data, int byteSize, int initializeBackingMemory)
     {
 #if DONUT_WITH_DX12
@@ -9682,7 +9684,7 @@ extern "C"
     // library's bytecode too. descriptorCount: the size of its block of descriptors (descriptor
     // tables' views). Release it with Donut_ReleaseObject. D3D12 only; null (after logging why) on
     // failure.
-    D3D12LibraryRtPipeline* Donut_CreateD3D12LibraryRtPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, const char* exports, int descriptorCount)
+    DONUT_API D3D12LibraryRtPipeline* Donut_CreateD3D12LibraryRtPipeline(App* app, nvrhi::IShaderLibrary* shaderLibrary, const char* exports, int descriptorCount)
     {
 #if DONUT_WITH_DX12
         App* a = app;
@@ -9765,7 +9767,7 @@ extern "C"
     // record with byteSize bytes of local root arguments from data (the hit group's local root
     // signature's, e.g. root constants), each by its export name. Returns 0 (after logging why) on
     // failure.
-    int Donut_SetD3D12LibraryRtShaderTable(App* app, D3D12LibraryRtPipeline* pipeline, const char* rayGeneration, const char* miss, const char* hitGroup,
+    DONUT_API int Donut_SetD3D12LibraryRtShaderTable(App* app, D3D12LibraryRtPipeline* pipeline, const char* rayGeneration, const char* miss, const char* hitGroup,
         const void* data, int byteSize)
     {
 #if DONUT_WITH_DX12
@@ -9798,7 +9800,7 @@ extern "C"
     // recordCount hit group records, record i the hit group named recordHitGroups[i] (an index into
     // the comma-separated hitGroups) with argsSize bytes of local root arguments from
     // recordArgs + i * argsSize. Returns 0 (after logging why) on failure.
-    int Donut_SetD3D12LibraryRtShaderTableRecords(App* app, D3D12LibraryRtPipeline* pipeline, const char* rayGeneration, const void* rayGenArgs,
+    DONUT_API int Donut_SetD3D12LibraryRtShaderTableRecords(App* app, D3D12LibraryRtPipeline* pipeline, const char* rayGeneration, const void* rayGenArgs,
         int rayGenArgsSize, const char* miss, const char* hitGroups, const int* recordHitGroups, int recordCount, const void* recordArgs, int argsSize)
     {
 #if DONUT_WITH_DX12
@@ -9845,7 +9847,7 @@ extern "C"
     }
 
     // The pipeline's descriptor at index: an SRV of a 2D texture, all its levels.
-    void Donut_SetD3D12LibraryRtDescriptorTextureSRV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::ITexture* texture)
+    DONUT_API void Donut_SetD3D12LibraryRtDescriptorTextureSRV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::ITexture* texture)
     {
 #if DONUT_WITH_DX12
         if (index < 0 || uint32_t(index) >= pipeline->descriptorCount)
@@ -9868,7 +9870,7 @@ extern "C"
 
     // The pipeline's descriptor at index (of its block): a UAV of a 2D texture's first level. Set
     // descriptors while no frame in flight uses them.
-    void Donut_SetD3D12LibraryRtDescriptorTextureUAV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::ITexture* texture)
+    DONUT_API void Donut_SetD3D12LibraryRtDescriptorTextureUAV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::ITexture* texture)
     {
 #if DONUT_WITH_DX12
         if (index < 0 || uint32_t(index) >= pipeline->descriptorCount)
@@ -9889,7 +9891,7 @@ extern "C"
 
     // The pipeline's descriptor at index: an SRV of a whole buffer, raw (a ByteAddressBuffer;
     // structureStride 0) or structured.
-    void Donut_SetD3D12LibraryRtDescriptorBufferSRV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::IBuffer* buffer, int structureStride)
+    DONUT_API void Donut_SetD3D12LibraryRtDescriptorBufferSRV(App* app, D3D12LibraryRtPipeline* pipeline, int index, nvrhi::IBuffer* buffer, int structureStride)
     {
 #if DONUT_WITH_DX12
         if (index < 0 || uint32_t(index) >= pipeline->descriptorCount)
@@ -9923,7 +9925,7 @@ extern "C"
 
     // The global root signature's parameter rootParameter in the dispatches: a descriptor table
     // from the pipeline's descriptor firstDescriptor on; ...
-    void Donut_SetD3D12LibraryRtRootDescriptorTable(D3D12LibraryRtPipeline* pipeline, int rootParameter, int firstDescriptor)
+    DONUT_API void Donut_SetD3D12LibraryRtRootDescriptorTable(D3D12LibraryRtPipeline* pipeline, int rootParameter, int firstDescriptor)
     {
 #if DONUT_WITH_DX12
         auto& parameter = D3D12LibraryRtRootParameter(pipeline, rootParameter);
@@ -9934,7 +9936,7 @@ extern "C"
     }
 
     // ... a root SRV of an acceleration structure (a TLAS); ...
-    void Donut_SetD3D12LibraryRtRootAccelStruct(D3D12LibraryRtPipeline* pipeline, int rootParameter, nvrhi::rt::IAccelStruct* accelStruct)
+    DONUT_API void Donut_SetD3D12LibraryRtRootAccelStruct(D3D12LibraryRtPipeline* pipeline, int rootParameter, nvrhi::rt::IAccelStruct* accelStruct)
     {
 #if DONUT_WITH_DX12
         auto& parameter = D3D12LibraryRtRootParameter(pipeline, rootParameter);
@@ -9945,7 +9947,7 @@ extern "C"
     }
 
     // ... a root CBV of a (non-volatile) constant buffer.
-    void Donut_SetD3D12LibraryRtRootConstantBuffer(D3D12LibraryRtPipeline* pipeline, int rootParameter, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_SetD3D12LibraryRtRootConstantBuffer(D3D12LibraryRtPipeline* pipeline, int rootParameter, nvrhi::IBuffer* buffer)
     {
 #if DONUT_WITH_DX12
         auto& parameter = D3D12LibraryRtRootParameter(pipeline, rootParameter);
@@ -9958,7 +9960,7 @@ extern "C"
     // Traces width x height rays with the pipeline, its root parameters and shader table, through
     // D3D12 directly: the resources' states set through NVRHI first, NVRHI's own state cleared
     // after (it rebinds everything for the next draw or dispatch).
-    void Donut_DispatchD3D12LibraryRays(nvrhi::ICommandList* commandList, D3D12LibraryRtPipeline* pipeline, int width, int height)
+    DONUT_API void Donut_DispatchD3D12LibraryRays(nvrhi::ICommandList* commandList, D3D12LibraryRtPipeline* pipeline, int width, int height)
     {
 #if DONUT_WITH_DX12
         nvrhi::ICommandList* cl = commandList;
@@ -10022,7 +10024,7 @@ extern "C"
 
     // The highest shader model the device supports, as 0x60 for 6.0 ... 0x69 for 6.9 (D3D_SHADER_MODEL
     // values); 0 on other APIs. Generic programs need 6.8.
-    int Donut_GetD3D12ShaderModel(App* app)
+    DONUT_API int Donut_GetD3D12ShaderModel(App* app)
     {
 #if DONUT_WITH_DX12
         nvrhi::IDevice* device = app->device();
@@ -10047,7 +10049,7 @@ extern "C"
     // allows additions (Donut_AddD3D12GenericProgram). Release it with Donut_ReleaseObject. D3D12,
     // shader model 6.8 (the Agility SDK runtime: link core/d3d12_agility_sdk.cpp). Null (after
     // logging why) on failure.
-    D3D12GenericProgram* Donut_CreateD3D12GenericProgram(App* app, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IInputLayout* inputLayout,
+    DONUT_API D3D12GenericProgram* Donut_CreateD3D12GenericProgram(App* app, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IInputLayout* inputLayout,
         nvrhi::IShader* vertexShader, const char* vertexExport, nvrhi::IShader* pixelShader, const char* pixelExport, const char* programName)
     {
 #if DONUT_WITH_DX12
@@ -10121,7 +10123,7 @@ extern "C"
     // name, pixelExport), and the same other building blocks, which the addition defines again (they
     // can't be referred to across additions). The result is a new state object holding both
     // programs. Release it with Donut_ReleaseObject. Null (after logging why) on failure.
-    D3D12GenericProgram* Donut_AddD3D12GenericProgram(App* app, D3D12GenericProgram* genericProgram, nvrhi::IShader* pixelShader, const char* pixelExport,
+    DONUT_API D3D12GenericProgram* Donut_AddD3D12GenericProgram(App* app, D3D12GenericProgram* genericProgram, nvrhi::IShader* pixelShader, const char* pixelExport,
         const char* programName)
     {
 #if DONUT_WITH_DX12
@@ -10171,7 +10173,7 @@ extern "C"
     // state (the framebuffer, the root signature, the vertex buffers, the topology, the viewport),
     // SetProgram replaces the pipeline state with the program, then NVRHI's state is cleared (it
     // rebinds everything for the next draw).
-    void Donut_DrawD3D12GenericProgram(FrameContext* frame, D3D12GenericProgram* genericProgram, int vertexCount)
+    DONUT_API void Donut_DrawD3D12GenericProgram(FrameContext* frame, D3D12GenericProgram* genericProgram, int vertexCount)
     {
 #if DONUT_WITH_DX12
         FrameContext* ctx = frame;
@@ -10205,27 +10207,27 @@ extern "C"
 
     // The directory of the executable (of donut_interop.dll under the JIT), '/'-separated, where
     // the media folder is.
-    const char* Donut_GetExecutableDirectory()
+    DONUT_API const char* Donut_GetExecutableDirectory()
     {
         static std::string storage;
         return ReturnString(storage, GetExecutablePath().parent_path().generic_string());
     }
 
     // Seconds per frame averaged over the last half second or so; 0 until measured.
-    double Donut_GetAverageFrameTime(App* app)
+    DONUT_API double Donut_GetAverageFrameTime(App* app)
     {
         return app->deviceManager->GetAverageFrameTimeSeconds();
     }
 
     // Window size in pixels, e.g. for placing ImGui windows.
-    int Donut_GetWindowWidth(App* app)
+    DONUT_API int Donut_GetWindowWidth(App* app)
     {
         int width = 0, height = 0;
         app->deviceManager->GetWindowDimensions(width, height);
         return width;
     }
 
-    int Donut_GetWindowHeight(App* app)
+    DONUT_API int Donut_GetWindowHeight(App* app)
     {
         int width = 0, height = 0;
         app->deviceManager->GetWindowDimensions(width, height);
@@ -10234,29 +10236,29 @@ extern "C"
 
     // Drops the compiled shaders the app's shader factory cached, so that passes created after
     // this load them from disk again (e.g. after recompiling them).
-    void Donut_ClearShaderCache(App* app)
+    DONUT_API void Donut_ClearShaderCache(App* app)
     {
         app->shaderFactory->ClearCache();
     }
 
     // Destroys resources released since the GPU last finished with them; after Donut_WaitForIdle.
-    void Donut_RunGarbageCollection(App* app)
+    DONUT_API void Donut_RunGarbageCollection(App* app)
     {
         app->device()->runGarbageCollection();
     }
 
     // nvrhi::Format values 0 .. count-1, with their names and nvrhi::FormatSupport bits.
-    int Donut_GetFormatCount()
+    DONUT_API int Donut_GetFormatCount()
     {
         return static_cast<int>(nvrhi::Format::COUNT);
     }
 
-    const char* Donut_GetFormatName(int format)
+    DONUT_API const char* Donut_GetFormatName(int format)
     {
         return nvrhi::getFormatInfo(static_cast<nvrhi::Format>(format)).name;
     }
 
-    int Donut_QueryFormatSupport(App* app, int format)
+    DONUT_API int Donut_QueryFormatSupport(App* app, int format)
     {
         return static_cast<int>(app->device()->queryFormatSupport(static_cast<nvrhi::Format>(format)));
     }
@@ -10265,7 +10267,7 @@ extern "C"
 
     // A scene loader: loads one scene at a time on a thread (Donut_BeginLoadingScene); poll it
     // with Donut_UpdateSceneLoader every frame. Its scenes use the app's texture cache.
-    SceneLoader* Donut_CreateSceneLoader(App* app)
+    DONUT_API SceneLoader* Donut_CreateSceneLoader(App* app)
     {
         auto loader = std::make_shared<SceneLoader>();
         loader->app = app;
@@ -10274,20 +10276,20 @@ extern "C"
 
     // Non-zero once a scene has loaded, until the next Donut_BeginLoadingScene; unload what
     // references it (the passes' binding caches) before starting another load.
-    int Donut_IsSceneLoaded(SceneLoader* sceneLoader)
+    DONUT_API int Donut_IsSceneLoaded(SceneLoader* sceneLoader)
     {
         return sceneLoader->sceneLoaded ? 1 : 0;
     }
 
     // Non-zero while the loading thread runs (until Donut_UpdateSceneLoader returns 1).
-    int Donut_IsSceneLoading(SceneLoader* sceneLoader)
+    DONUT_API int Donut_IsSceneLoading(SceneLoader* sceneLoader)
     {
         return sceneLoader->thread ? 1 : 0;
     }
 
     // Starts loading a scene file (glTF or .scene.json; absolute, or relative to the executable's
     // directory) on a thread, dropping the current scene: its handle is invalid afterwards.
-    void Donut_BeginLoadingScene(SceneLoader* sceneLoader, const char* path)
+    DONUT_API void Donut_BeginLoadingScene(SceneLoader* sceneLoader, const char* path)
     {
         auto* loader = sceneLoader;
         App* a = loader->app;
@@ -10337,7 +10339,7 @@ extern "C"
     // finishes the scene once it and all its textures have loaded. A scene that fails to load
     // stays Loading. The uploads use their own command list, so this submits what the frame has
     // recorded so far (NVRHI allows one open immediate command list at a time).
-    int Donut_UpdateSceneLoader(SceneLoader* sceneLoader, FrameContext* frame)
+    DONUT_API int Donut_UpdateSceneLoader(SceneLoader* sceneLoader, FrameContext* frame)
     {
         auto* loader = sceneLoader;
         App* a = loader->app;
@@ -10371,14 +10373,14 @@ extern "C"
 
     // The loaded scene (for the Donut_*Scene* functions), or null; valid until the next
     // Donut_BeginLoadingScene.
-    donut::engine::Scene* Donut_GetLoadedScene(SceneLoader* sceneLoader)
+    DONUT_API donut::engine::Scene* Donut_GetLoadedScene(SceneLoader* sceneLoader)
     {
         return sceneLoader->scene.get();
     }
 
     // Loading progress as 4 ints into dst: objects loaded, objects total, textures loaded,
     // textures requested.
-    void Donut_GetSceneLoadingStats(SceneLoader* sceneLoader, void* dst)
+    DONUT_API void Donut_GetSceneLoadingStats(SceneLoader* sceneLoader, void* dst)
     {
         App* a = sceneLoader->app;
         const auto& stats = donut::engine::Scene::GetLoadingStats();
@@ -10390,19 +10392,19 @@ extern "C"
     }
 
     // The scene files (glTF and .scene.json) under a directory, recursively, as a string list.
-    StringList* Donut_FindScenes(App* app, const char* directory)
+    DONUT_API StringList* Donut_FindScenes(App* app, const char* directory)
     {
         donut::vfs::NativeFileSystem fs;
         return app->OwnObject(std::make_shared<std::vector<std::string>>(donut::app::FindScenes(fs, directory)));
     }
 
-    int Donut_GetStringListCount(StringList* stringList)
+    DONUT_API int Donut_GetStringListCount(StringList* stringList)
     {
         return static_cast<int>(stringList->size());
     }
 
     // Valid as long as the list.
-    const char* Donut_GetStringListItem(StringList* stringList, int index)
+    DONUT_API const char* Donut_GetStringListItem(StringList* stringList, int index)
     {
         return (*stringList)[index].c_str();
     }
@@ -10410,91 +10412,91 @@ extern "C"
     // --- Scene graph queries ------------------------------------------------------------------
     // Handles to lights, cameras, materials and nodes are valid as long as their scene.
 
-    int Donut_GetSceneGraphLightCount(donut::engine::SceneGraph* sceneGraph)
+    DONUT_API int Donut_GetSceneGraphLightCount(donut::engine::SceneGraph* sceneGraph)
     {
         return static_cast<int>(sceneGraph->GetLights().size());
     }
 
-    donut::engine::Light* Donut_GetSceneGraphLight(donut::engine::SceneGraph* sceneGraph, int index)
+    DONUT_API donut::engine::Light* Donut_GetSceneGraphLight(donut::engine::SceneGraph* sceneGraph, int index)
     {
         return sceneGraph->GetLights()[index].get();
     }
 
     // A LightType_* value (light_types.h): 1 directional, 2 spot, 3 point.
-    int Donut_GetLightType(donut::engine::Light* light)
+    DONUT_API int Donut_GetLightType(donut::engine::Light* light)
     {
         return light->GetLightType();
     }
 
-    const char* Donut_GetLightName(donut::engine::Light* light)
+    DONUT_API const char* Donut_GetLightName(donut::engine::Light* light)
     {
         return light->GetName().c_str();
     }
 
     // Directional lights only.
-    double Donut_GetDirectionalLightIrradiance(donut::engine::Light* light)
+    DONUT_API double Donut_GetDirectionalLightIrradiance(donut::engine::Light* light)
     {
         return static_cast<donut::engine::DirectionalLight*>(light)->irradiance;
     }
 
-    void Donut_SetDirectionalLightIrradiance(donut::engine::Light* light, double irradiance)
+    DONUT_API void Donut_SetDirectionalLightIrradiance(donut::engine::Light* light, double irradiance)
     {
         static_cast<donut::engine::DirectionalLight*>(light)->irradiance = float(irradiance);
     }
 
     // The shadow map the light casts shadows with in the forward and deferred passes, or none (null).
-    void Donut_SetLightShadowMap(donut::engine::Light* light, ShadowMapTarget* shadowMapTarget)
+    DONUT_API void Donut_SetLightShadowMap(donut::engine::Light* light, ShadowMapTarget* shadowMapTarget)
     {
         light->shadowMap = shadowMapTarget
             ? shadowMapTarget->shadowMap() : nullptr;
     }
 
     // Cameras defined in the scene file.
-    int Donut_GetSceneGraphCameraCount(donut::engine::SceneGraph* sceneGraph)
+    DONUT_API int Donut_GetSceneGraphCameraCount(donut::engine::SceneGraph* sceneGraph)
     {
         return static_cast<int>(sceneGraph->GetCameras().size());
     }
 
-    donut::engine::SceneCamera* Donut_GetSceneGraphCamera(donut::engine::SceneGraph* sceneGraph, int index)
+    DONUT_API donut::engine::SceneCamera* Donut_GetSceneGraphCamera(donut::engine::SceneGraph* sceneGraph, int index)
     {
         return sceneGraph->GetCameras()[index].get();
     }
 
-    const char* Donut_GetSceneCameraName(donut::engine::SceneCamera* sceneCamera)
+    DONUT_API const char* Donut_GetSceneCameraName(donut::engine::SceneCamera* sceneCamera)
     {
         return sceneCamera->GetName().c_str();
     }
 
     // The camera's world-to-view / view-to-world matrix: 16 floats into dst (row-major,
     // row-vector convention).
-    void Donut_GetSceneCameraWorldToView(donut::engine::SceneCamera* sceneCamera, void* dst)
+    DONUT_API void Donut_GetSceneCameraWorldToView(donut::engine::SceneCamera* sceneCamera, void* dst)
     {
         const dm::float4x4 m = dm::affineToHomogeneous(sceneCamera->GetWorldToViewMatrix());
         memcpy(dst, &m, sizeof(m));
     }
 
-    void Donut_GetSceneCameraViewToWorld(donut::engine::SceneCamera* sceneCamera, void* dst)
+    DONUT_API void Donut_GetSceneCameraViewToWorld(donut::engine::SceneCamera* sceneCamera, void* dst)
     {
         const dm::float4x4 m = dm::affineToHomogeneous(sceneCamera->GetViewToWorldMatrix());
         memcpy(dst, &m, sizeof(m));
     }
 
     // Vertical field of view in radians of a perspective camera, or a negative value for other cameras.
-    double Donut_GetSceneCameraVerticalFov(donut::engine::SceneCamera* sceneCamera)
+    DONUT_API double Donut_GetSceneCameraVerticalFov(donut::engine::SceneCamera* sceneCamera)
     {
         auto* perspective = dynamic_cast<donut::engine::PerspectiveCamera*>(sceneCamera);
         return perspective ? perspective->verticalFov : -1.0;
     }
 
     // Near plane distance of a perspective camera, or a negative value for other cameras.
-    double Donut_GetSceneCameraZNear(donut::engine::SceneCamera* sceneCamera)
+    DONUT_API double Donut_GetSceneCameraZNear(donut::engine::SceneCamera* sceneCamera)
     {
         auto* perspective = dynamic_cast<donut::engine::PerspectiveCamera*>(sceneCamera);
         return perspective ? perspective->zNear : -1.0;
     }
 
     // World-space bounds of a node and its children, as 6 floats into dst: min x, y, z, max x, y, z.
-    void Donut_GetNodeBoundingBox(donut::engine::SceneGraphNode* node, void* dst)
+    DONUT_API void Donut_GetNodeBoundingBox(donut::engine::SceneGraphNode* node, void* dst)
     {
         const dm::box3& bounds = node->GetGlobalBoundingBox();
         const float values[6] = { bounds.m_mins.x, bounds.m_mins.y, bounds.m_mins.z, bounds.m_maxs.x, bounds.m_maxs.y, bounds.m_maxs.z };
@@ -10502,19 +10504,19 @@ extern "C"
     }
 
     // Like "/Sponza/Mesh_12".
-    const char* Donut_GetNodePath(donut::engine::SceneGraphNode* node)
+    DONUT_API const char* Donut_GetNodePath(donut::engine::SceneGraphNode* node)
     {
         static std::string storage;
         return ReturnString(storage, node->GetPath().generic_string());
     }
 
     // Makes the scene re-sort the node's content, e.g. after a material changes domain.
-    void Donut_InvalidateNodeContent(donut::engine::SceneGraphNode* node)
+    DONUT_API void Donut_InvalidateNodeContent(donut::engine::SceneGraphNode* node)
     {
         node->InvalidateContent();
     }
 
-    int Donut_GetSceneGraphMaterialCount(donut::engine::SceneGraph* sceneGraph)
+    DONUT_API int Donut_GetSceneGraphMaterialCount(donut::engine::SceneGraph* sceneGraph)
     {
         // ResourceTracker's iterator is forward-only, without iterator_traits for std::distance.
         int count = 0;
@@ -10526,7 +10528,7 @@ extern "C"
         return count;
     }
 
-    donut::engine::Material* Donut_GetSceneGraphMaterial(donut::engine::SceneGraph* sceneGraph, int index)
+    DONUT_API donut::engine::Material* Donut_GetSceneGraphMaterial(donut::engine::SceneGraph* sceneGraph, int index)
     {
         for (const auto& material : sceneGraph->GetMaterials())
         {
@@ -10536,52 +10538,52 @@ extern "C"
         return nullptr;
     }
 
-    int Donut_GetMaterialID(donut::engine::Material* material)
+    DONUT_API int Donut_GetMaterialID(donut::engine::Material* material)
     {
         return material->materialID;
     }
 
-    const char* Donut_GetMaterialName(donut::engine::Material* material)
+    DONUT_API const char* Donut_GetMaterialName(donut::engine::Material* material)
     {
         return material->name.c_str();
     }
 
     // A donut::engine::MaterialDomain value.
-    int Donut_GetMaterialDomain(donut::engine::Material* material)
+    DONUT_API int Donut_GetMaterialDomain(donut::engine::Material* material)
     {
         return static_cast<int>(material->domain);
     }
 
     // Marks the material for re-upload of its constants (what the material editor returns).
-    void Donut_SetMaterialDirty(donut::engine::Material* material, int dirty)
+    DONUT_API void Donut_SetMaterialDirty(donut::engine::Material* material, int dirty)
     {
         material->dirty = dirty != 0;
     }
 
-    int Donut_GetSceneGraphMeshInstanceCount(donut::engine::SceneGraph* sceneGraph)
+    DONUT_API int Donut_GetSceneGraphMeshInstanceCount(donut::engine::SceneGraph* sceneGraph)
     {
         return static_cast<int>(sceneGraph->GetMeshInstances().size());
     }
 
     // The instance index (what material ID passes write) of the index-th mesh instance.
-    int Donut_GetMeshInstanceIndex(donut::engine::SceneGraph* sceneGraph, int index)
+    DONUT_API int Donut_GetMeshInstanceIndex(donut::engine::SceneGraph* sceneGraph, int index)
     {
         return sceneGraph->GetMeshInstances()[index]->GetInstanceIndex();
     }
 
-    donut::engine::SceneGraphNode* Donut_GetMeshInstanceNode(donut::engine::SceneGraph* sceneGraph, int index)
+    DONUT_API donut::engine::SceneGraphNode* Donut_GetMeshInstanceNode(donut::engine::SceneGraph* sceneGraph, int index)
     {
         return sceneGraph->GetMeshInstances()[index]->GetNode();
     }
 
     // The geometries of the index-th mesh instance's mesh, and how many indices one of them has:
     // what drawing them from the scene's bindless buffers takes (GeometryData::numIndices).
-    int Donut_GetMeshInstanceGeometryCount(donut::engine::SceneGraph* sceneGraph, int index)
+    DONUT_API int Donut_GetMeshInstanceGeometryCount(donut::engine::SceneGraph* sceneGraph, int index)
     {
         return static_cast<int>(sceneGraph->GetMeshInstances()[index]->GetMesh()->geometries.size());
     }
 
-    int Donut_GetMeshInstanceGeometryIndexCount(donut::engine::SceneGraph* sceneGraph, int index, int geometry)
+    DONUT_API int Donut_GetMeshInstanceGeometryIndexCount(donut::engine::SceneGraph* sceneGraph, int index, int geometry)
     {
         return static_cast<int>(sceneGraph->GetMeshInstances()[index]->GetMesh()->geometries[geometry]->numIndices);
     }
@@ -10589,7 +10591,7 @@ extern "C"
     // --- Views ----------------------------------------------------------------------------------
 
     // Two planar views side by side, left and right eye, rendered as one.
-    donut::engine::IView* Donut_CreateStereoView(App* app)
+    DONUT_API donut::engine::IView* Donut_CreateStereoView(App* app)
     {
         donut::engine::IView* view = app->OwnObject(std::make_shared<donut::engine::StereoPlanarView>());
         return view;
@@ -10597,7 +10599,7 @@ extern "C"
 
     // Donut_SetPlanarView with the projection offset by a sub-pixel jitter (for temporal
     // anti-aliasing), in pixels.
-    void Donut_SetPlanarViewJittered(donut::engine::IView* view, const void* viewMatrix, const void* projMatrix, int width, int height,
+    DONUT_API void Donut_SetPlanarViewJittered(donut::engine::IView* view, const void* viewMatrix, const void* projMatrix, int width, int height,
         double pixelOffsetX, double pixelOffsetY)
     {
         auto* planarView = static_cast<donut::engine::PlanarView*>(view);
@@ -10610,7 +10612,7 @@ extern "C"
 
     // Sets a stereo view over width x height pixels: the left eye in the left half, the right
     // eye in the right half, sharing one projection (matrices as for Donut_SetPlanarView).
-    void Donut_SetStereoView(donut::engine::IView* view, const void* leftViewMatrix, const void* rightViewMatrix, const void* projMatrix,
+    DONUT_API void Donut_SetStereoView(donut::engine::IView* view, const void* leftViewMatrix, const void* rightViewMatrix, const void* projMatrix,
         int width, int height, double pixelOffsetX, double pixelOffsetY)
     {
         auto* stereoView = static_cast<donut::engine::StereoPlanarView*>(view);
@@ -10630,19 +10632,19 @@ extern "C"
         stereoView->RightView.UpdateCache();
     }
 
-    void Donut_CopyStereoView(donut::engine::IView* dstView, donut::engine::IView* srcView)
+    DONUT_API void Donut_CopyStereoView(donut::engine::IView* dstView, donut::engine::IView* srcView)
     {
         *static_cast<donut::engine::StereoPlanarView*>(dstView) = *static_cast<donut::engine::StereoPlanarView*>(srcView);
     }
 
     // The left eye's planar view, e.g. for Donut_ThirdPersonCameraSetView.
-    donut::engine::IView* Donut_GetStereoLeftView(donut::engine::IView* view)
+    DONUT_API donut::engine::IView* Donut_GetStereoLeftView(donut::engine::IView* view)
     {
         return &static_cast<donut::engine::StereoPlanarView*>(view)->LeftView;
     }
 
     // First person cameras only: Donut_CameraLookAt with an up direction.
-    void Donut_CameraLookAtWithUp(donut::app::BaseCamera* camera, double posX, double posY, double posZ,
+    DONUT_API void Donut_CameraLookAtWithUp(donut::app::BaseCamera* camera, double posX, double posY, double posZ,
         double targetX, double targetY, double targetZ, double upX, double upY, double upZ)
     {
         static_cast<donut::app::FirstPersonCamera*>(camera)->LookAt(
@@ -10651,7 +10653,7 @@ extern "C"
     }
 
     // The camera's position, as 3 floats into dst.
-    void Donut_GetCameraPosition(donut::app::BaseCamera* camera, void* dst)
+    DONUT_API void Donut_GetCameraPosition(donut::app::BaseCamera* camera, void* dst)
     {
         memcpy(dst, &camera->GetPosition(), sizeof(dm::float3));
     }
@@ -10660,7 +10662,7 @@ extern "C"
 
     // Render targets of width x height pixels, multisampled with sampleCount > 1; create new ones
     // when the size or sample count changes.
-    SceneRenderTargets* Donut_CreateSceneRenderTargets(App* app, int width, int height, int sampleCount)
+    DONUT_API SceneRenderTargets* Donut_CreateSceneRenderTargets(App* app, int width, int height, int sampleCount)
     {
         App* a = app;
         auto targets = std::make_shared<SceneRenderTargets>();
@@ -10669,7 +10671,7 @@ extern "C"
     }
 
     // Clears the G-buffer (depth to 0, for reverse Z), HDR, LDR and resolved color.
-    void Donut_ClearSceneRenderTargets(nvrhi::ICommandList* commandList, SceneRenderTargets* sceneRenderTargets)
+    DONUT_API void Donut_ClearSceneRenderTargets(nvrhi::ICommandList* commandList, SceneRenderTargets* sceneRenderTargets)
     {
         sceneRenderTargets->Clear(commandList);
     }
@@ -10687,7 +10689,7 @@ extern "C"
     };
 
     // Valid as long as the targets.
-    nvrhi::ITexture* Donut_GetSceneRenderTargetsTexture(SceneRenderTargets* sceneRenderTargets, int which)
+    DONUT_API nvrhi::ITexture* Donut_GetSceneRenderTargetsTexture(SceneRenderTargets* sceneRenderTargets, int which)
     {
         auto* targets = sceneRenderTargets;
         switch (which)
@@ -10714,7 +10716,7 @@ extern "C"
         SceneFramebuffer_MaterialIDs = 5, // material IDs and depth
     };
 
-    FramebufferFactoryRef* Donut_GetSceneRenderTargetsFramebuffer(SceneRenderTargets* sceneRenderTargets, int which)
+    DONUT_API FramebufferFactoryRef* Donut_GetSceneRenderTargetsFramebuffer(SceneRenderTargets* sceneRenderTargets, int which)
     {
         auto* targets = sceneRenderTargets;
         switch (which)
@@ -10730,7 +10732,7 @@ extern "C"
     }
 
     // Resolves mip 0 / slice 0 of a multisampled texture into a single-sample one.
-    void Donut_ResolveTexture(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, nvrhi::ITexture* srcTexture)
+    DONUT_API void Donut_ResolveTexture(nvrhi::ICommandList* commandList, nvrhi::ITexture* dstTexture, nvrhi::ITexture* srcTexture)
     {
         const auto subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
         commandList->resolveTexture(dstTexture, subresources,
@@ -10738,7 +10740,7 @@ extern "C"
     }
 
     // Clears all of an integer texture to value.
-    void Donut_ClearTextureUInt(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int value)
+    DONUT_API void Donut_ClearTextureUInt(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture, int value)
     {
         commandList->clearTextureUInt(texture, nvrhi::AllSubresources,
             static_cast<uint32_t>(value));
@@ -10751,7 +10753,7 @@ extern "C"
     // Vulkan, the device's framebufferColorSampleCounts & framebufferDepthSampleCounts (as the
     // Vulkan-Samples framework reads them, whatever the formats); on D3D, the counts with
     // multisample quality levels for both formats.
-    int Donut_GetSupportedSampleCounts(App* app, int colorFormat, int depthFormat)
+    DONUT_API int Donut_GetSupportedSampleCounts(App* app, int colorFormat, int depthFormat)
     {
         nvrhi::IDevice* device = app->device();
         int counts = 1;
@@ -10810,7 +10812,7 @@ extern "C"
     // Non-zero if render passes resolve multisampled targets into single-sampled ones as they end
     // (Donut_CreateResolveFramebuffer): Vulkan's dynamic rendering. NVRHI runs D3D11 and D3D12
     // without render passes; resolve there with Donut_ResolveTexture.
-    int Donut_HasRenderPassResolve(App* app)
+    DONUT_API int Donut_HasRenderPassResolve(App* app)
     {
         return app->device()->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN ? 1 : 0;
     }
@@ -10818,7 +10820,7 @@ extern "C"
     // The ways render passes can resolve a multisampled depth buffer (Donut_CreateResolveFramebuffer),
     // as bits 1 << ResolveMode (SampleZero 1, Average 2, Min 3, Max 4): Vulkan's
     // supportedDepthResolveModes. 0 without render pass resolves (Donut_HasRenderPassResolve).
-    int Donut_GetDepthResolveModes(App* app)
+    DONUT_API int Donut_GetDepthResolveModes(App* app)
     {
 #if DONUT_WITH_VULKAN
         App* a = app;
@@ -10851,7 +10853,7 @@ extern "C"
     // width x height with sampleCount samples (a Texture2DMS when more than 1), that shaders can
     // also read (Texture2DMS<...> there) and that can be resolved; resting at ShaderResource.
     // Returns null on failure.
-    nvrhi::ITexture* Donut_CreateMultisampledTexture(App* app, int width, int height, int format, int sampleCount,
+    DONUT_API nvrhi::ITexture* Donut_CreateMultisampledTexture(App* app, int width, int height, int format, int sampleCount,
         double clearDepth, const char* debugName)
     {
         const auto textureFormat = static_cast<nvrhi::Format>(format);
@@ -10881,7 +10883,7 @@ extern "C"
     // Donut_GetDepthResolveModes) where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI
     // ends a render pass at every barrier, so a pass with several may resolve several times, with
     // the same result. Returns null on failure.
-    nvrhi::IFramebuffer* Donut_CreateResolveFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* colorResolveTexture, nvrhi::ITexture* depthTexture,
+    DONUT_API nvrhi::IFramebuffer* Donut_CreateResolveFramebuffer(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* colorResolveTexture, nvrhi::ITexture* depthTexture,
         nvrhi::ITexture* depthResolveTexture, int depthResolveMode)
     {
         auto desc = nvrhi::FramebufferDesc();
@@ -10907,14 +10909,14 @@ extern "C"
 
     // The swap chain's back buffers: their count, and the one at index (valid until the back
     // buffers are resized: recreate what refers to them in the back buffer resizing callback).
-    int Donut_GetBackBufferCount(App* app)
+    DONUT_API int Donut_GetBackBufferCount(App* app)
     {
         if (app->offscreen)
             return static_cast<int>(app->offscreen->textures.size());
         return static_cast<int>(app->deviceManager->GetBackBufferCount());
     }
 
-    nvrhi::ITexture* Donut_GetBackBuffer(App* app, int index)
+    DONUT_API nvrhi::ITexture* Donut_GetBackBuffer(App* app, int index)
     {
         if (app->offscreen)
             return app->offscreen->textures[static_cast<size_t>(index)];
@@ -10922,7 +10924,7 @@ extern "C"
     }
 
     // The index of the back buffer the current frame renders into (in a render callback).
-    int Donut_GetCurrentBackBufferIndex(App* app)
+    DONUT_API int Donut_GetCurrentBackBufferIndex(App* app)
     {
         if (app->offscreen)
             return static_cast<int>(app->offscreen->current);
@@ -10931,7 +10933,7 @@ extern "C"
 
     // The back buffers' format, an nvrhi::Format value (SRGBA8_UNORM with D3D, SBGRA8_UNORM with
     // Vulkan).
-    int Donut_GetBackBufferFormat(App* app)
+    DONUT_API int Donut_GetBackBufferFormat(App* app)
     {
         return static_cast<int>(Donut_GetBackBuffer(app, 0)->getDesc().format);
     }
@@ -10953,7 +10955,7 @@ extern "C"
     };
 
     // D3D12 and D3D11 only: null with other APIs, and (after logging why) on failure.
-    SharedTexture* Donut_CreateSharedTexture(App* app, int width, int height, int format, const char* debugName)
+    DONUT_API SharedTexture* Donut_CreateSharedTexture(App* app, int width, int height, int format, const char* debugName)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -11028,20 +11030,20 @@ extern "C"
     }
 
     // The texture, for bindings; valid as long as the shared texture.
-    nvrhi::ITexture* Donut_GetSharedTexture(SharedTexture* sharedTexture)
+    DONUT_API nvrhi::ITexture* Donut_GetSharedTexture(SharedTexture* sharedTexture)
     {
         return sharedTexture->texture.Get();
     }
 
     // Its NT handle, for the other device's OpenSharedResource1.
-    void* Donut_GetSharedTextureHandle(SharedTexture* sharedTexture)
+    DONUT_API void* Donut_GetSharedTextureHandle(SharedTexture* sharedTexture)
     {
         return sharedTexture->handle;
     }
 
     // The LUID of the device's adapter into dst (2 ints: low, high part), e.g. for another API's
     // device on the same GPU. Returns 0 if the API doesn't give it.
-    int Donut_GetAdapterLuid(App* app, int* dst)
+    DONUT_API int Donut_GetAdapterLuid(App* app, int* dst)
     {
         nvrhi::IDevice* device = app->device();
         LUID luid = {};
@@ -11090,26 +11092,26 @@ extern "C"
 #else
     // Shared textures and adapter LUIDs are Windows-only; the wrappers in donut.ts call these on
     // every platform, so elsewhere they exist and report that there is none.
-    SharedTexture* Donut_CreateSharedTexture(App* app, int width, int height, int format, const char* debugName)
+    DONUT_API SharedTexture* Donut_CreateSharedTexture(App* app, int width, int height, int format, const char* debugName)
     {
         (void)app, (void)width, (void)height, (void)format, (void)debugName;
         donut::log::error("Donut_CreateSharedTexture: shared textures need Windows");
         return nullptr;
     }
 
-    nvrhi::ITexture* Donut_GetSharedTexture(SharedTexture* sharedTexture)
+    DONUT_API nvrhi::ITexture* Donut_GetSharedTexture(SharedTexture* sharedTexture)
     {
         (void)sharedTexture;
         return nullptr;
     }
 
-    void* Donut_GetSharedTextureHandle(SharedTexture* sharedTexture)
+    DONUT_API void* Donut_GetSharedTextureHandle(SharedTexture* sharedTexture)
     {
         (void)sharedTexture;
         return nullptr;
     }
 
-    int Donut_GetAdapterLuid(App* app, int* dst)
+    DONUT_API int Donut_GetAdapterLuid(App* app, int* dst)
     {
         (void)app;
         dst[0] = 0;
@@ -11120,7 +11122,7 @@ extern "C"
 
     // The color space of what the back buffers hold, a donut::app::SwapChainColorSpace value (0 sRGB,
     // 1 HDR10, 2 scRGB).
-    int Donut_GetSwapChainColorSpace(App* app)
+    DONUT_API int Donut_GetSwapChainColorSpace(App* app)
     {
         return static_cast<int>(app->deviceManager->GetSwapChainColorSpace());
     }
@@ -11128,7 +11130,7 @@ extern "C"
     // Asks for another color space of the back buffers, from the next frame on (as a resize: the
     // passes' back buffer resizing callbacks run). Returns 0 (and changes nothing) if the swap chain
     // can't present it with its format and display.
-    int Donut_SetSwapChainColorSpace(App* app, int colorSpace)
+    DONUT_API int Donut_SetSwapChainColorSpace(App* app, int colorSpace)
     {
         DeviceManager* deviceManager = app->deviceManager.get();
         const auto value = static_cast<donut::app::SwapChainColorSpace>(colorSpace);
@@ -11144,7 +11146,7 @@ extern "C"
     // frame (e.g. from a keyboard callback). The color space may fall back to sRGB if the new format
     // can't present it. Returns 0 (and changes nothing) where the swap chain can't have the format
     // (Vulkan surfaces list theirs) or on D3D11.
-    int Donut_SetSwapChainFormat(App* app, int format)
+    DONUT_API int Donut_SetSwapChainFormat(App* app, int format)
     {
         auto newFormat = static_cast<nvrhi::Format>(format);
         const nvrhi::GraphicsAPI api = app->device()->getGraphicsAPI();
@@ -11220,7 +11222,7 @@ extern "C"
     // Whether the display the window is mostly on is in HDR mode (Windows' HDR / advanced color on,
     // an HDR10 output: DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020), as the ATG samples'
     // DeviceResources::UpdateColorSpace finds it. 0 elsewhere than on Windows.
-    int Donut_IsDisplayHdr(App* app)
+    DONUT_API int Donut_IsDisplayHdr(App* app)
     {
 #ifdef _WIN32
         if (!app->deviceManager->GetWindow())
@@ -11285,7 +11287,7 @@ extern "C"
     // --- Shadows ------------------------------------------------------------------------------
 
     // A cascaded shadow map of numCascades resolution x resolution cascades.
-    ShadowMapTarget* Donut_CreateCascadedShadowMap(App* app, int resolution, int numCascades)
+    DONUT_API ShadowMapTarget* Donut_CreateCascadedShadowMap(App* app, int resolution, int numCascades)
     {
         App* a = app;
         auto target = std::make_shared<ShadowMapTarget>();
@@ -11301,7 +11303,7 @@ extern "C"
     // A planar shadow map of resolution x resolution: one orthographic view for a directional
     // light (Donut_SetupPlanarShadowMapForScene), no cascades. Works wherever a cascaded one does,
     // except the Donut_SetupShadowMapFor* fitting functions, which leave it unchanged.
-    ShadowMapTarget* Donut_CreatePlanarShadowMap(App* app, int resolution)
+    DONUT_API ShadowMapTarget* Donut_CreatePlanarShadowMap(App* app, int resolution)
     {
         App* a = app;
         auto target = std::make_shared<ShadowMapTarget>();
@@ -11321,7 +11323,7 @@ extern "C"
     // bounds grow by 1% of their diagonal first, so that geometry on them (Sponza's flat roofs) isn't
     // on the light's near or far plane: D3D clamps depth there, Vulkan clips (NVRHI turns depth
     // clipping off only with VK_EXT_depth_clip_enable, which the app doesn't enable).
-    int Donut_SetupPlanarShadowMapForScene(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, donut::engine::SceneGraph* sceneGraph, double fadeRangeWorld)
+    DONUT_API int Donut_SetupPlanarShadowMapForScene(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, donut::engine::SceneGraph* sceneGraph, double fadeRangeWorld)
     {
         auto* target = shadowMapTarget;
         if (!target->planar)
@@ -11334,7 +11336,7 @@ extern "C"
     }
 
     // The depth texture, one array slice per cascade (one for a planar shadow map).
-    nvrhi::ITexture* Donut_GetShadowMapTexture(ShadowMapTarget* shadowMapTarget)
+    DONUT_API nvrhi::ITexture* Donut_GetShadowMapTexture(ShadowMapTarget* shadowMapTarget)
     {
         return shadowMapTarget->shadowMap()->GetTexture();
     }
@@ -11342,7 +11344,7 @@ extern "C"
     // Fits the cascades to a directional light and the first planar view of `view`, out to
     // maxShadowDistance, with cascade split exponent `exponent` (stable: they don't shimmer
     // when the camera moves).
-    void Donut_SetupShadowMapForView(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, donut::engine::IView* view, double maxShadowDistance,
+    DONUT_API void Donut_SetupShadowMapForView(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, donut::engine::IView* view, double maxShadowDistance,
         double zRange, double exponent)
     {
         auto* target = shadowMapTarget;
@@ -11355,7 +11357,7 @@ extern "C"
             v->GetProjectionFrustum(), viewMatrixInv, float(maxShadowDistance), float(zRange), float(zRange), float(exponent));
     }
 
-    void Donut_ClearShadowMap(nvrhi::ICommandList* commandList, ShadowMapTarget* shadowMapTarget)
+    DONUT_API void Donut_ClearShadowMap(nvrhi::ICommandList* commandList, ShadowMapTarget* shadowMapTarget)
     {
         auto* target = shadowMapTarget;
         if (target->cascaded)
@@ -11365,7 +11367,7 @@ extern "C"
     }
 
     // Donut's depth-only pass, with depth biases for shadow maps.
-    donut::render::DepthPass* Donut_CreateShadowDepthPass(App* app, int depthBias, double slopeScaledDepthBias)
+    DONUT_API donut::render::DepthPass* Donut_CreateShadowDepthPass(App* app, int depthBias, double slopeScaledDepthBias)
     {
         App* a = app;
         donut::render::DepthPass::CreateParameters params;
@@ -11376,14 +11378,14 @@ extern "C"
         return a->OwnObject(pass);
     }
 
-    void Donut_ResetDepthPassBindingCache(donut::render::DepthPass* depthPass)
+    DONUT_API void Donut_ResetDepthPassBindingCache(donut::render::DepthPass* depthPass)
     {
         depthPass->ResetBindingCache();
     }
 
     // Draws the opaque meshes of a scene graph into all the shadow map's cascades.
     // materialEvents != 0: one GPU marker per material.
-    void Donut_RenderShadowDepth(nvrhi::ICommandList* commandList, donut::render::DepthPass* depthPass, ShadowMapTarget* shadowMapTarget, donut::engine::SceneGraph* sceneGraph, int materialEvents)
+    DONUT_API void Donut_RenderShadowDepth(nvrhi::ICommandList* commandList, donut::render::DepthPass* depthPass, ShadowMapTarget* shadowMapTarget, donut::engine::SceneGraph* sceneGraph, int materialEvents)
     {
         auto* target = shadowMapTarget;
         donut::render::InstancedOpaqueDrawStrategy strategy;
@@ -11398,7 +11400,7 @@ extern "C"
     // Donut_CreateForwardShadingPass with options: singlePassCubemap != 0 renders all six faces
     // of a cube map view at once (needs nvrhi::Feature::FastGeometryShader); trackLiveness == 0
     // skips resource liveness tracking.
-    donut::render::ForwardShadingPass* Donut_CreateForwardShadingPassWithOptions(App* app, int singlePassCubemap, int trackLiveness)
+    DONUT_API donut::render::ForwardShadingPass* Donut_CreateForwardShadingPassWithOptions(App* app, int singlePassCubemap, int trackLiveness)
     {
         App* a = app;
         donut::render::ForwardShadingPass::CreateParameters params;
@@ -11409,21 +11411,21 @@ extern "C"
         return a->OwnObject(pass);
     }
 
-    void Donut_ResetForwardShadingBindingCache(donut::render::ForwardShadingPass* forwardShadingPass)
+    DONUT_API void Donut_ResetForwardShadingBindingCache(donut::render::ForwardShadingPass* forwardShadingPass)
     {
         forwardShadingPass->ResetBindingCache();
     }
 
     // The lights a forward shading pass renders with (Donut_PrepareForwardLights), kept between
     // its draws.
-    donut::render::ForwardShadingPass::Context* Donut_CreateForwardShadingContext(App* app)
+    DONUT_API donut::render::ForwardShadingPass::Context* Donut_CreateForwardShadingContext(App* app)
     {
         return app->OwnObject(std::make_shared<donut::render::ForwardShadingPass::Context>());
     }
 
     // Uploads a scene graph's lights, a top / bottom ambient term and the enabled probes of a
     // light probe set (or none: null) for Donut_RenderForward with the same context.
-    void Donut_PrepareForwardLights(nvrhi::ICommandList* commandList, donut::render::ForwardShadingPass* forwardShadingPass, donut::render::ForwardShadingPass::Context* forwardShadingContext, donut::engine::SceneGraph* sceneGraph,
+    DONUT_API void Donut_PrepareForwardLights(nvrhi::ICommandList* commandList, donut::render::ForwardShadingPass* forwardShadingPass, donut::render::ForwardShadingPass::Context* forwardShadingContext, donut::engine::SceneGraph* sceneGraph,
         double topR, double topG, double topB, double bottomR, double bottomG, double bottomB, LightProbeSet* lightProbeSet)
     {
         std::vector<std::shared_ptr<donut::engine::LightProbe>> lightProbes;
@@ -11439,7 +11441,7 @@ extern "C"
     // Draws a scene graph's opaque (transparent == 0) or transparent meshes with a forward shading
     // pass into a framebuffer, as seen by view; previousView (or null) is for motion vectors.
     // `name` labels the GPU marker; materialEvents != 0 adds one per material.
-    void Donut_RenderForward(nvrhi::ICommandList* commandList, donut::render::ForwardShadingPass* forwardShadingPass, donut::render::ForwardShadingPass::Context* forwardShadingContext, donut::engine::IView* view,
+    DONUT_API void Donut_RenderForward(nvrhi::ICommandList* commandList, donut::render::ForwardShadingPass* forwardShadingPass, donut::render::ForwardShadingPass::Context* forwardShadingContext, donut::engine::IView* view,
         donut::engine::IView* previousView, FramebufferFactoryRef* framebuffer, donut::engine::SceneGraph* sceneGraph, int transparent, const char* name, int materialEvents)
     {
         donut::render::InstancedOpaqueDrawStrategy opaqueStrategy;
@@ -11455,7 +11457,7 @@ extern "C"
 
     // Donut_CreateGBufferFillPass with options: enableMotionVectors != 0 writes motion vectors
     // (and stencilWriteMask into the stencil where it does, for TAA).
-    donut::render::GBufferFillPass* Donut_CreateGBufferFillPassWithOptions(App* app, int enableMotionVectors, int stencilWriteMask)
+    DONUT_API donut::render::GBufferFillPass* Donut_CreateGBufferFillPassWithOptions(App* app, int enableMotionVectors, int stencilWriteMask)
     {
         App* a = app;
         donut::render::GBufferFillPass::CreateParameters params;
@@ -11466,14 +11468,14 @@ extern "C"
         return a->OwnObject(pass);
     }
 
-    void Donut_ResetGBufferFillBindingCache(donut::render::GBufferFillPass* gbufferFillPass)
+    DONUT_API void Donut_ResetGBufferFillBindingCache(donut::render::GBufferFillPass* gbufferFillPass)
     {
         gbufferFillPass->ResetBindingCache();
     }
 
     // Draws a scene graph's opaque meshes into the targets' G-buffer, as seen by view (and, for
     // motion vectors, previousView).
-    void Donut_RenderGBufferFill(nvrhi::ICommandList* commandList, donut::render::GBufferFillPass* gbufferFillPass, donut::engine::IView* view, donut::engine::IView* previousView,
+    DONUT_API void Donut_RenderGBufferFill(nvrhi::ICommandList* commandList, donut::render::GBufferFillPass* gbufferFillPass, donut::engine::IView* view, donut::engine::IView* previousView,
         SceneRenderTargets* sceneRenderTargets, donut::engine::SceneGraph* sceneGraph, int materialEvents)
     {
         donut::render::InstancedOpaqueDrawStrategy strategy;
@@ -11484,7 +11486,7 @@ extern "C"
     }
 
     // Donut's material ID pass: writes each pixel's material ID and instance index (RG16_UINT).
-    donut::render::MaterialIDPass* Donut_CreateMaterialIDPass(App* app, int stencilWriteMask)
+    DONUT_API donut::render::MaterialIDPass* Donut_CreateMaterialIDPass(App* app, int stencilWriteMask)
     {
         App* a = app;
         donut::render::GBufferFillPass::CreateParameters params;
@@ -11497,7 +11499,7 @@ extern "C"
 
     // Draws a scene graph's opaque (transparent == 0) or transparent meshes into the targets'
     // material IDs.
-    void Donut_RenderMaterialIDs(nvrhi::ICommandList* commandList, donut::render::MaterialIDPass* materialIdPass, donut::engine::IView* view, donut::engine::IView* previousView,
+    DONUT_API void Donut_RenderMaterialIDs(nvrhi::ICommandList* commandList, donut::render::MaterialIDPass* materialIdPass, donut::engine::IView* view, donut::engine::IView* previousView,
         SceneRenderTargets* sceneRenderTargets, donut::engine::SceneGraph* sceneGraph, int transparent)
     {
         donut::render::InstancedOpaqueDrawStrategy opaqueStrategy;
@@ -11515,7 +11517,7 @@ extern "C"
     // Lights the targets' G-buffer into their HDR color with a scene graph's lights, a top /
     // bottom ambient term, the targets' ambient occlusion (useAmbientOcclusion != 0) and a light
     // probe set (or none: null).
-    void Donut_RenderDeferredLightingToHdr(nvrhi::ICommandList* commandList, donut::render::DeferredLightingPass* deferredLightingPass, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets,
+    DONUT_API void Donut_RenderDeferredLightingToHdr(nvrhi::ICommandList* commandList, donut::render::DeferredLightingPass* deferredLightingPass, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets,
         donut::engine::SceneGraph* sceneGraph, int useAmbientOcclusion, double topR, double topG, double topB,
         double bottomR, double bottomG, double bottomB, LightProbeSet* lightProbeSet)
     {
@@ -11538,7 +11540,7 @@ extern "C"
 
     // Donut's SSAO over the targets' depth and G-buffer normals, into their ambient occlusion.
     // Single-sample targets only.
-    donut::render::SsaoPass* Donut_CreateSsaoPass(App* app, SceneRenderTargets* sceneRenderTargets)
+    DONUT_API donut::render::SsaoPass* Donut_CreateSsaoPass(App* app, SceneRenderTargets* sceneRenderTargets)
     {
         App* a = app;
         auto* targets = sceneRenderTargets;
@@ -11547,14 +11549,14 @@ extern "C"
     }
 
     // With default parameters.
-    void Donut_RenderSsao(nvrhi::ICommandList* commandList, donut::render::SsaoPass* ssaoPass, donut::engine::IView* view)
+    DONUT_API void Donut_RenderSsao(nvrhi::ICommandList* commandList, donut::render::SsaoPass* ssaoPass, donut::engine::IView* view)
     {
         ssaoPass->Render(commandList,
             donut::render::SsaoParameters(), *view);
     }
 
     // Donut's procedural sky, drawn where the framebuffer's depth is still clear.
-    donut::render::SkyPass* Donut_CreateSkyPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view)
+    DONUT_API donut::render::SkyPass* Donut_CreateSkyPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::SkyPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
@@ -11564,7 +11566,7 @@ extern "C"
     // Donut's environment map background: a lat-long (2D) or cube map texture drawn where the
     // framebuffer's depth is still clear. The view must be set up first (its depth direction picks
     // the pipeline).
-    donut::render::EnvironmentMapPass* Donut_CreateEnvironmentMapPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view, nvrhi::ITexture* environmentMap)
+    DONUT_API donut::render::EnvironmentMapPass* Donut_CreateEnvironmentMapPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view, nvrhi::ITexture* environmentMap)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::EnvironmentMapPass>(a->device(), a->shaderFactory,
@@ -11572,13 +11574,13 @@ extern "C"
             environmentMap));
     }
 
-    void Donut_RenderEnvironmentMap(nvrhi::ICommandList* commandList, donut::render::EnvironmentMapPass* environmentMapPass, donut::engine::IView* view)
+    DONUT_API void Donut_RenderEnvironmentMap(nvrhi::ICommandList* commandList, donut::render::EnvironmentMapPass* environmentMapPass, donut::engine::IView* view)
     {
         environmentMapPass->Render(commandList, *view);
     }
 
     // Draws the sky around a directional light; the SkyParameters not given keep their defaults.
-    void Donut_RenderSky(nvrhi::ICommandList* commandList, donut::render::SkyPass* skyPass, donut::engine::IView* view, donut::engine::Light* light, double brightness,
+    DONUT_API void Donut_RenderSky(nvrhi::ICommandList* commandList, donut::render::SkyPass* skyPass, donut::engine::IView* view, donut::engine::Light* light, double brightness,
         double glowSize, double glowSharpness, double glowIntensity, double horizonSize)
     {
         donut::render::SkyParameters params;
@@ -11593,7 +11595,7 @@ extern "C"
 
     // Donut's TAA over the targets: resolves HDR color into resolved color with Catmull-Rom
     // filtering, using motion vectors where the stencil has motionVectorStencilMask set.
-    donut::render::TemporalAntiAliasingPass* Donut_CreateSceneTemporalAntiAliasingPass(App* app, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets, int motionVectorStencilMask)
+    DONUT_API donut::render::TemporalAntiAliasingPass* Donut_CreateSceneTemporalAntiAliasingPass(App* app, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets, int motionVectorStencilMask)
     {
         App* a = app;
         auto* targets = sceneRenderTargets;
@@ -11613,28 +11615,28 @@ extern "C"
     }
 
     // A donut::render::TemporalAntiAliasingJitter value: 0 MSAA, 1 Halton, 2 R2, 3 white noise.
-    void Donut_SetTemporalJitter(donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, int jitter)
+    DONUT_API void Donut_SetTemporalJitter(donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, int jitter)
     {
         temporalAntiAliasingPass->SetJitter(
             static_cast<donut::render::TemporalAntiAliasingJitter>(jitter));
     }
 
     // This frame's sub-pixel jitter, as 2 floats into dst (for Donut_SetPlanarViewJittered).
-    void Donut_GetTemporalPixelOffset(donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, void* dst)
+    DONUT_API void Donut_GetTemporalPixelOffset(donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, void* dst)
     {
         const dm::float2 offset = temporalAntiAliasingPass->GetCurrentPixelOffset();
         memcpy(dst, &offset, sizeof(offset));
     }
 
     // Donut_RenderMotionVectors for any view.
-    void Donut_RenderViewMotionVectors(nvrhi::ICommandList* commandList, donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, donut::engine::IView* view, donut::engine::IView* previousView)
+    DONUT_API void Donut_RenderViewMotionVectors(nvrhi::ICommandList* commandList, donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, donut::engine::IView* view, donut::engine::IView* previousView)
     {
         temporalAntiAliasingPass->RenderMotionVectors(
             commandList, *view, *previousView);
     }
 
     // Donut_TemporalResolve for any view, with history clamping on or off.
-    void Donut_TemporalResolveView(nvrhi::ICommandList* commandList, donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, donut::engine::IView* view, int feedbackIsValid,
+    DONUT_API void Donut_TemporalResolveView(nvrhi::ICommandList* commandList, donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass, donut::engine::IView* view, int feedbackIsValid,
         int enableHistoryClamping)
     {
         donut::render::TemporalAntiAliasingParameters params;
@@ -11644,14 +11646,14 @@ extern "C"
     }
 
     // Moves on to the next jitter offset; once per frame.
-    void Donut_AdvanceTemporalFrame(donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass)
+    DONUT_API void Donut_AdvanceTemporalFrame(donut::render::TemporalAntiAliasingPass* temporalAntiAliasingPass)
     {
         temporalAntiAliasingPass->AdvanceFrame();
     }
 
     // Donut's tone mapping with eye adaptation, into a framebuffer. Pass the tone mapping pass
     // this one replaces (or null) to keep its adapted exposure.
-    donut::render::ToneMappingPass* Donut_CreateToneMappingPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view, donut::render::ToneMappingPass* previousToneMappingPass)
+    DONUT_API donut::render::ToneMappingPass* Donut_CreateToneMappingPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view, donut::render::ToneMappingPass* previousToneMappingPass)
     {
         App* a = app;
         donut::render::ToneMappingPass::CreateParameters params;
@@ -11662,12 +11664,12 @@ extern "C"
     }
 
     // Once per frame, with the frame time in seconds (for eye adaptation).
-    void Donut_AdvanceToneMappingFrame(donut::render::ToneMappingPass* toneMappingPass, double elapsedSeconds)
+    DONUT_API void Donut_AdvanceToneMappingFrame(donut::render::ToneMappingPass* toneMappingPass, double elapsedSeconds)
     {
         toneMappingPass->AdvanceFrame(float(elapsedSeconds));
     }
 
-    void Donut_ResetExposure(nvrhi::ICommandList* commandList, donut::render::ToneMappingPass* toneMappingPass, double initialExposure)
+    DONUT_API void Donut_ResetExposure(nvrhi::ICommandList* commandList, donut::render::ToneMappingPass* toneMappingPass, double initialExposure)
     {
         toneMappingPass->ResetExposure(commandList, float(initialExposure));
     }
@@ -11676,7 +11678,7 @@ extern "C"
     // to this frame's at once (eye adaptation speeds 0, as Donut's feature demo does right after
     // Donut_ResetExposure); otherwise it adapts at the default speeds over the frame time of
     // Donut_AdvanceToneMappingFrame, and stays as it is while that is 0 (never advanced).
-    void Donut_RenderToneMapping(nvrhi::ICommandList* commandList, donut::render::ToneMappingPass* toneMappingPass, donut::engine::IView* view, nvrhi::ITexture* sourceTexture, int instantAdaptation)
+    DONUT_API void Donut_RenderToneMapping(nvrhi::ICommandList* commandList, donut::render::ToneMappingPass* toneMappingPass, donut::engine::IView* view, nvrhi::ITexture* sourceTexture, int instantAdaptation)
     {
         donut::render::ToneMappingParameters params;
         if (instantAdaptation)
@@ -11689,7 +11691,7 @@ extern "C"
     }
 
     // Donut's bloom, blended into a framebuffer's color.
-    donut::render::BloomPass* Donut_CreateBloomPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view)
+    DONUT_API donut::render::BloomPass* Donut_CreateBloomPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::BloomPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
@@ -11697,7 +11699,7 @@ extern "C"
     }
 
     // Blurs sourceTexture (Gaussian sigma in pixels) and adds it to the framebuffer, weighted by alpha.
-    void Donut_RenderBloom(nvrhi::ICommandList* commandList, donut::render::BloomPass* bloomPass, FramebufferFactoryRef* framebuffer, donut::engine::IView* view, nvrhi::ITexture* sourceTexture,
+    DONUT_API void Donut_RenderBloom(nvrhi::ICommandList* commandList, donut::render::BloomPass* bloomPass, FramebufferFactoryRef* framebuffer, donut::engine::IView* view, nvrhi::ITexture* sourceTexture,
         double sigma, double alpha)
     {
         bloomPass->Render(commandList, *framebuffer,
@@ -11706,7 +11708,7 @@ extern "C"
 
     // NVIDIA DLSS, loading nvngx_dlss.dll from the executable's directory (donut_interop.dll's under
     // the JIT). Null when Donut was built without DONUT_WITH_DLSS, or the device can't create it.
-    donut::render::DLSS* Donut_CreateDlss(App* app)
+    DONUT_API donut::render::DLSS* Donut_CreateDlss(App* app)
     {
 #if DONUT_WITH_DLSS
         App* a = app;
@@ -11721,7 +11723,7 @@ extern "C"
 
     // Sets DLSS up for inputWidth x inputHeight images upscaled to outputWidth x outputHeight
     // (again whenever the sizes change). Returns non-zero if DLSS is ready to use.
-    int Donut_InitDlss(donut::render::DLSS* dlss, int inputWidth, int inputHeight, int outputWidth, int outputHeight)
+    DONUT_API int Donut_InitDlss(donut::render::DLSS* dlss, int inputWidth, int inputHeight, int outputWidth, int outputHeight)
     {
 #if DONUT_WITH_DLSS
         donut::render::DLSS::InitParameters params;
@@ -11738,7 +11740,7 @@ extern "C"
 #endif
     }
 
-    int Donut_IsDlssInitialized(donut::render::DLSS* dlss)
+    DONUT_API int Donut_IsDlssInitialized(donut::render::DLSS* dlss)
     {
 #if DONUT_WITH_DLSS
         return dlss->IsDlssInitialized() ? 1 : 0;
@@ -11750,7 +11752,7 @@ extern "C"
 
     // Anti-aliases the targets' HDR color into their resolved color (instead of TAA), from their
     // depth and motion vectors, with the tone mapping pass's exposure. Planar views only.
-    void Donut_EvaluateDlss(nvrhi::ICommandList* commandList, donut::render::DLSS* dlss, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets, donut::render::ToneMappingPass* toneMappingPass)
+    DONUT_API void Donut_EvaluateDlss(nvrhi::ICommandList* commandList, donut::render::DLSS* dlss, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets, donut::render::ToneMappingPass* toneMappingPass)
     {
 #if DONUT_WITH_DLSS
         auto* targets = sceneRenderTargets;
@@ -11769,41 +11771,41 @@ extern "C"
 
     // Reads back one pixel of a texture (as RGBA32_UINT): Donut_CapturePixel, execute the command
     // list, then Donut_ReadPixelUInts.
-    donut::render::PixelReadbackPass* Donut_CreatePixelReadbackPass(App* app, nvrhi::ITexture* texture)
+    DONUT_API donut::render::PixelReadbackPass* Donut_CreatePixelReadbackPass(App* app, nvrhi::ITexture* texture)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::PixelReadbackPass>(a->device(), a->shaderFactory,
             texture, nvrhi::Format::RGBA32_UINT));
     }
 
-    void Donut_CapturePixel(nvrhi::ICommandList* commandList, donut::render::PixelReadbackPass* pixelReadbackPass, int x, int y)
+    DONUT_API void Donut_CapturePixel(nvrhi::ICommandList* commandList, donut::render::PixelReadbackPass* pixelReadbackPass, int x, int y)
     {
         pixelReadbackPass->Capture(commandList,
             dm::uint2(uint32_t(x), uint32_t(y)));
     }
 
     // The captured pixel as 4 ints into dst; waits for the GPU if needed.
-    void Donut_ReadPixelUInts(donut::render::PixelReadbackPass* pixelReadbackPass, void* dst)
+    DONUT_API void Donut_ReadPixelUInts(donut::render::PixelReadbackPass* pixelReadbackPass, void* dst)
     {
         const dm::uint4 value = pixelReadbackPass->ReadUInts();
         memcpy(dst, &value, sizeof(value));
     }
 
     // Donut's mip generation (compute) for a color texture with mips.
-    donut::render::MipMapGenPass* Donut_CreateMipMapGenPass(App* app, nvrhi::ITexture* texture)
+    DONUT_API donut::render::MipMapGenPass* Donut_CreateMipMapGenPass(App* app, nvrhi::ITexture* texture)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::MipMapGenPass>(a->device(), a->shaderFactory,
             texture, donut::render::MipMapGenPass::MODE_COLOR));
     }
 
-    void Donut_DispatchMipMapGen(nvrhi::ICommandList* commandList, donut::render::MipMapGenPass* mipMapGenPass)
+    DONUT_API void Donut_DispatchMipMapGen(nvrhi::ICommandList* commandList, donut::render::MipMapGenPass* mipMapGenPass)
     {
         mipMapGenPass->Dispatch(commandList);
     }
 
     // Inside a render callback: draws the texture's mips over the frame.
-    void Donut_DisplayMipMapGen(App* app, FrameContext* frame, donut::render::MipMapGenPass* mipMapGenPass)
+    DONUT_API void Donut_DisplayMipMapGen(App* app, FrameContext* frame, donut::render::MipMapGenPass* mipMapGenPass)
     {
         mipMapGenPass->Display(app->sharedCommonPasses(),
             frame->commandList, frame->framebuffer);
@@ -11813,7 +11815,7 @@ extern "C"
 
     // numProbes light probes (named "1", "2", ...), disabled until rendered: 256x256 diffuse and
     // 512x512 specular (8 mips) RGBA16_FLOAT cube maps.
-    LightProbeSet* Donut_CreateLightProbeSet(App* app, int numProbes)
+    DONUT_API LightProbeSet* Donut_CreateLightProbeSet(App* app, int numProbes)
     {
         App* a = app;
         auto set = std::make_shared<LightProbeSet>();
@@ -11852,27 +11854,27 @@ extern "C"
         return a->OwnObject(set);
     }
 
-    int Donut_GetLightProbeCount(LightProbeSet* lightProbeSet)
+    DONUT_API int Donut_GetLightProbeCount(LightProbeSet* lightProbeSet)
     {
         return static_cast<int>(lightProbeSet->probes.size());
     }
 
-    const char* Donut_GetLightProbeName(LightProbeSet* lightProbeSet, int index)
+    DONUT_API const char* Donut_GetLightProbeName(LightProbeSet* lightProbeSet, int index)
     {
         return lightProbeSet->probes[index]->name.c_str();
     }
 
-    int Donut_IsLightProbeEnabled(LightProbeSet* lightProbeSet, int index)
+    DONUT_API int Donut_IsLightProbeEnabled(LightProbeSet* lightProbeSet, int index)
     {
         return lightProbeSet->probes[index]->enabled ? 1 : 0;
     }
 
-    void Donut_SetLightProbeEnabled(LightProbeSet* lightProbeSet, int index, int enabled)
+    DONUT_API void Donut_SetLightProbeEnabled(LightProbeSet* lightProbeSet, int index, int enabled)
     {
         lightProbeSet->probes[index]->enabled = enabled != 0;
     }
 
-    void Donut_SetLightProbeScales(LightProbeSet* lightProbeSet, int index, double diffuseScale, double specularScale)
+    DONUT_API void Donut_SetLightProbeScales(LightProbeSet* lightProbeSet, int index, double diffuseScale, double specularScale)
     {
         auto& probe = *lightProbeSet->probes[index];
         probe.diffuseScale = float(diffuseScale);
@@ -11880,27 +11882,27 @@ extern "C"
     }
 
     // Mips of the probes' specular maps, one per roughness level.
-    int Donut_GetLightProbeSpecularMipLevels(LightProbeSet* lightProbeSet)
+    DONUT_API int Donut_GetLightProbeSpecularMipLevels(LightProbeSet* lightProbeSet)
     {
         return static_cast<int>(lightProbeSet->specularTexture->getDesc().mipLevels);
     }
 
     // Donut's light probe processing: environment map mips, diffuse and specular maps, BRDF table.
-    donut::render::LightProbeProcessingPass* Donut_CreateLightProbeProcessingPass(App* app)
+    DONUT_API donut::render::LightProbeProcessingPass* Donut_CreateLightProbeProcessingPass(App* app)
     {
         App* a = app;
         return a->OwnObject(std::make_shared<donut::render::LightProbeProcessingPass>(a->device(), a->shaderFactory,
             a->sharedCommonPasses()));
     }
 
-    void Donut_ResetLightProbeProcessingCaches(donut::render::LightProbeProcessingPass* lightProbeProcessingPass)
+    DONUT_API void Donut_ResetLightProbeProcessingCaches(donut::render::LightProbeProcessingPass* lightProbeProcessingPass)
     {
         lightProbeProcessingPass->ResetCaches();
     }
 
     // An environment cube map of size x size faces (RGBA16_FLOAT, mipLevels mips) with a depth
     // buffer, and the cube map view that renders it. Place it with Donut_SetLightProbeCaptureTransform.
-    LightProbeCapture* Donut_CreateLightProbeCapture(App* app, int size, int mipLevels)
+    DONUT_API LightProbeCapture* Donut_CreateLightProbeCapture(App* app, int size, int mipLevels)
     {
         App* a = app;
         auto capture = std::make_shared<LightProbeCapture>();
@@ -11935,7 +11937,7 @@ extern "C"
     }
 
     // Centers the cube map view at a world position, rendering from zNear out to cullDistance.
-    void Donut_SetLightProbeCaptureTransform(LightProbeCapture* lightProbeCapture, double x, double y, double z, double zNear, double cullDistance)
+    DONUT_API void Donut_SetLightProbeCaptureTransform(LightProbeCapture* lightProbeCapture, double x, double y, double z, double zNear, double cullDistance)
     {
         auto* capture = lightProbeCapture;
         capture->view.SetTransform(dm::translation(-dm::float3(float(x), float(y), float(z))), float(zNear), float(cullDistance));
@@ -11943,19 +11945,19 @@ extern "C"
     }
 
     // The cube map view (for the view functions) and framebuffer.
-    donut::engine::IView* Donut_GetLightProbeCaptureView(LightProbeCapture* lightProbeCapture)
+    DONUT_API donut::engine::IView* Donut_GetLightProbeCaptureView(LightProbeCapture* lightProbeCapture)
     {
         donut::engine::IView* view = &lightProbeCapture->view;
         return view;
     }
 
-    FramebufferFactoryRef* Donut_GetLightProbeCaptureFramebuffer(LightProbeCapture* lightProbeCapture)
+    DONUT_API FramebufferFactoryRef* Donut_GetLightProbeCaptureFramebuffer(LightProbeCapture* lightProbeCapture)
     {
         return &lightProbeCapture->framebuffer;
     }
 
     // Clears color to black and depth to 0 (reverse Z).
-    void Donut_ClearLightProbeCapture(nvrhi::ICommandList* commandList, LightProbeCapture* lightProbeCapture)
+    DONUT_API void Donut_ClearLightProbeCapture(nvrhi::ICommandList* commandList, LightProbeCapture* lightProbeCapture)
     {
         auto* capture = lightProbeCapture;
         nvrhi::ICommandList* cl = commandList;
@@ -11965,7 +11967,7 @@ extern "C"
     }
 
     // Fits the shadow map's cascades to a directional light and the capture's cube map view.
-    void Donut_SetupShadowMapForLightProbeCapture(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, LightProbeCapture* lightProbeCapture,
+    DONUT_API void Donut_SetupShadowMapForLightProbeCapture(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, LightProbeCapture* lightProbeCapture,
         double cullDistance, double zRange, double exponent)
     {
         auto* capture = lightProbeCapture;
@@ -11978,7 +11980,7 @@ extern "C"
     }
 
     // Fills the capture's environment map mips from mip 0.
-    void Donut_GenerateLightProbeCaptureMips(nvrhi::ICommandList* commandList, donut::render::LightProbeProcessingPass* lightProbeProcessingPass, LightProbeCapture* lightProbeCapture)
+    DONUT_API void Donut_GenerateLightProbeCaptureMips(nvrhi::ICommandList* commandList, donut::render::LightProbeProcessingPass* lightProbeProcessingPass, LightProbeCapture* lightProbeCapture)
     {
         auto* capture = lightProbeCapture;
         lightProbeProcessingPass->GenerateCubemapMips(
@@ -11986,7 +11988,7 @@ extern "C"
     }
 
     // Convolves the capture into a probe's diffuse map.
-    void Donut_RenderLightProbeDiffuse(nvrhi::ICommandList* commandList, donut::render::LightProbeProcessingPass* lightProbeProcessingPass, LightProbeCapture* lightProbeCapture,
+    DONUT_API void Donut_RenderLightProbeDiffuse(nvrhi::ICommandList* commandList, donut::render::LightProbeProcessingPass* lightProbeProcessingPass, LightProbeCapture* lightProbeCapture,
         LightProbeSet* lightProbeSet, int index)
     {
         auto& probe = *lightProbeSet->probes[index];
@@ -11996,7 +11998,7 @@ extern "C"
     }
 
     // Prefilters the capture for a roughness into one mip of a probe's specular map.
-    void Donut_RenderLightProbeSpecular(nvrhi::ICommandList* commandList, donut::render::LightProbeProcessingPass* lightProbeProcessingPass, LightProbeCapture* lightProbeCapture,
+    DONUT_API void Donut_RenderLightProbeSpecular(nvrhi::ICommandList* commandList, donut::render::LightProbeProcessingPass* lightProbeProcessingPass, LightProbeCapture* lightProbeCapture,
         LightProbeSet* lightProbeSet, int index, double roughness, int mipLevel)
     {
         auto& probe = *lightProbeSet->probes[index];
@@ -12006,7 +12008,7 @@ extern "C"
     }
 
     // Renders the environment BRDF lookup table the probes share (once is enough).
-    void Donut_RenderEnvironmentBrdf(nvrhi::ICommandList* commandList, donut::render::LightProbeProcessingPass* lightProbeProcessingPass)
+    DONUT_API void Donut_RenderEnvironmentBrdf(nvrhi::ICommandList* commandList, donut::render::LightProbeProcessingPass* lightProbeProcessingPass)
     {
         lightProbeProcessingPass->RenderEnvironmentBrdfTexture(
             commandList);
@@ -12014,7 +12016,7 @@ extern "C"
 
     // After its maps are rendered (and the GPU is done): enables a probe, affecting everything
     // within 10 units of the position it was rendered from.
-    void Donut_FinishLightProbe(LightProbeSet* lightProbeSet, int index, donut::render::LightProbeProcessingPass* lightProbeProcessingPass, double x, double y, double z)
+    DONUT_API void Donut_FinishLightProbe(LightProbeSet* lightProbeSet, int index, donut::render::LightProbeProcessingPass* lightProbeProcessingPass, double x, double y, double z)
     {
         auto& probe = *lightProbeSet->probes[index];
         probe.environmentBrdf = lightProbeProcessingPass->GetEnvironmentBrdfTexture();
@@ -12027,7 +12029,7 @@ extern "C"
 
     // Submits what the frame has recorded so far, and goes on recording into the same command
     // list: work after it (e.g. Donut_ReadPixelUInts) sees the GPU results.
-    void Donut_FlushFrameCommandList(App* app, FrameContext* frame)
+    DONUT_API void Donut_FlushFrameCommandList(App* app, FrameContext* frame)
     {
         FrameContext* ctx = frame;
         ctx->commandList->close();
@@ -12039,7 +12041,7 @@ extern "C"
     // then a closed command list of Donut_CreateComputeQueueCommandList to the compute queue,
     // which waits for the graphics work; the frame goes on recording into the same command list,
     // whose work waits for the compute work. The waits are GPU-side (semaphores / fences).
-    void Donut_ExecuteFrameComputeWork(App* app, FrameContext* frame, nvrhi::ICommandList* computeCommandList)
+    DONUT_API void Donut_ExecuteFrameComputeWork(App* app, FrameContext* frame, nvrhi::ICommandList* computeCommandList)
     {
         nvrhi::IDevice* device = app->device();
         FrameContext* ctx = frame;
@@ -12053,7 +12055,7 @@ extern "C"
 
     // Saves the frame's color (as recorded so far, which it submits) to an image file: BMP, PNG,
     // JPG or TGA, by the extension. Returns non-zero on success.
-    int Donut_SaveFrameToFile(App* app, FrameContext* frame, const char* path)
+    DONUT_API int Donut_SaveFrameToFile(App* app, FrameContext* frame, const char* path)
     {
         App* a = app;
         FrameContext* ctx = frame;
@@ -12068,7 +12070,7 @@ extern "C"
         return saved ? 1 : 0;
     }
 
-    void Donut_ClearColor(FrameContext* frame, double r, double g, double b, double a)
+    DONUT_API void Donut_ClearColor(FrameContext* frame, double r, double g, double b, double a)
     {
         FrameContext* ctx = frame;
         nvrhi::utils::ClearColorAttachment(ctx->commandList, ctx->framebuffer, 0,
@@ -12076,7 +12078,7 @@ extern "C"
     }
 
     // Draws vertexCount vertices with no vertex buffers, over the whole framebuffer.
-    void Donut_Draw(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline, int vertexCount)
+    DONUT_API void Donut_Draw(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline, int vertexCount)
     {
         FrameContext* ctx = frame;
 
@@ -12092,7 +12094,7 @@ extern "C"
     }
 
     // Launches groupsX amplification-shader groups of a meshlet pipeline, over the whole framebuffer.
-    void Donut_DispatchMesh(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline, int groupsX)
+    DONUT_API void Donut_DispatchMesh(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline, int groupsX)
     {
         FrameContext* ctx = frame;
 
@@ -12106,7 +12108,7 @@ extern "C"
     }
 
     // Traces width x height rays with a shader table, with bindingSet as its global bindings.
-    void Donut_DispatchRays(FrameContext* frame, nvrhi::rt::IShaderTable* shaderTable, nvrhi::IBindingSet* bindingSet, int width, int height)
+    DONUT_API void Donut_DispatchRays(FrameContext* frame, nvrhi::rt::IShaderTable* shaderTable, nvrhi::IBindingSet* bindingSet, int width, int height)
     {
         FrameContext* ctx = frame;
 
@@ -12123,7 +12125,7 @@ extern "C"
 
     // Same as Donut_DispatchRays, with a descriptor table (Donut_GetDescriptorTable) bound after
     // the binding set, for pipelines with a bindless layout second.
-    void Donut_DispatchRaysWithDescriptorTable(FrameContext* frame, nvrhi::rt::IShaderTable* shaderTable, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
+    DONUT_API void Donut_DispatchRaysWithDescriptorTable(FrameContext* frame, nvrhi::rt::IShaderTable* shaderTable, nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable,
         int width, int height)
     {
         FrameContext* ctx = frame;
@@ -12141,7 +12143,7 @@ extern "C"
 
     // Copies a texture over the whole framebuffer, stretched, with Donut's CommonRenderPasses.
     // Call Donut_ClearBindingCache when textures blitted before are released.
-    void Donut_BlitTexture(App* app, FrameContext* frame, nvrhi::ITexture* texture)
+    DONUT_API void Donut_BlitTexture(App* app, FrameContext* frame, nvrhi::ITexture* texture)
     {
         App* a = app;
         FrameContext* ctx = frame;
@@ -12150,7 +12152,7 @@ extern "C"
     }
 
     // Copies one array slice of a texture, stretched, into a rectangle of the framebuffer (pixels).
-    void Donut_BlitTextureSlice(App* app, FrameContext* frame, nvrhi::ITexture* texture, int arraySlice,
+    DONUT_API void Donut_BlitTextureSlice(App* app, FrameContext* frame, nvrhi::ITexture* texture, int arraySlice,
         double left, double top, double width, double height)
     {
         App* a = app;
@@ -12166,21 +12168,21 @@ extern "C"
 
     // Drops the binding sets Donut_BlitTexture cached, and with them their references to the
     // blitted textures.
-    void Donut_ClearBindingCache(App* app)
+    DONUT_API void Donut_ClearBindingCache(App* app)
     {
         app->bindingCache()->Clear();
     }
 
     // The frame's open command list, for the command list functions (e.g. Donut_WriteBuffer).
     // Don't open, close or execute it: the pass does.
-    nvrhi::ICommandList* Donut_GetFrameCommandList(FrameContext* frame)
+    DONUT_API nvrhi::ICommandList* Donut_GetFrameCommandList(FrameContext* frame)
     {
         return frame->commandList;
     }
 
     // Starts describing a draw with a graphics pipeline, over the whole framebuffer; add to it
     // with the Donut_Draw* functions, then issue it with Donut_DrawIndexed.
-    void Donut_BeginDraw(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline)
+    DONUT_API void Donut_BeginDraw(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline)
     {
         FrameContext* ctx = frame;
         ctx->draw = nvrhi::GraphicsState();
@@ -12189,7 +12191,7 @@ extern "C"
     }
 
     // Same, into another framebuffer (Donut_CreateFramebuffer; the pipeline must be for its layout).
-    void Donut_BeginDrawToFramebuffer(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer)
+    DONUT_API void Donut_BeginDrawToFramebuffer(FrameContext* frame, nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer)
     {
         FrameContext* ctx = frame;
         ctx->draw = nvrhi::GraphicsState();
@@ -12197,39 +12199,39 @@ extern "C"
         ctx->draw.framebuffer = framebuffer;
     }
 
-    void Donut_DrawAddBindingSet(FrameContext* frame, nvrhi::IBindingSet* bindingSet)
+    DONUT_API void Donut_DrawAddBindingSet(FrameContext* frame, nvrhi::IBindingSet* bindingSet)
     {
         frame->draw.bindings.push_back(bindingSet);
     }
 
     // A descriptor table (Donut_CreateDescriptorTable, Donut_GetDescriptorTable) for the draw, in
     // the pipeline's binding layout order as Donut_DrawAddBindingSet.
-    void Donut_DrawAddDescriptorTable(FrameContext* frame, nvrhi::IDescriptorTable* descriptorTable)
+    DONUT_API void Donut_DrawAddDescriptorTable(FrameContext* frame, nvrhi::IDescriptorTable* descriptorTable)
     {
         frame->draw.bindings.push_back(descriptorTable);
     }
 
     // R32_UINT indices.
-    void Donut_DrawSetIndexBuffer(FrameContext* frame, nvrhi::IBuffer* indexBuffer)
+    DONUT_API void Donut_DrawSetIndexBuffer(FrameContext* frame, nvrhi::IBuffer* indexBuffer)
     {
         frame->draw.indexBuffer = { indexBuffer, nvrhi::Format::R32_UINT, 0 };
     }
 
     // R16_UINT indices.
-    void Donut_DrawSetIndexBuffer16(FrameContext* frame, nvrhi::IBuffer* indexBuffer)
+    DONUT_API void Donut_DrawSetIndexBuffer16(FrameContext* frame, nvrhi::IBuffer* indexBuffer)
     {
         frame->draw.indexBuffer = { indexBuffer, nvrhi::Format::R16_UINT, 0 };
     }
 
     // Binds a vertex buffer, starting at byteOffset, to the input layout's slot.
-    void Donut_DrawAddVertexBuffer(FrameContext* frame, nvrhi::IBuffer* vertexBuffer, int slot, int byteOffset)
+    DONUT_API void Donut_DrawAddVertexBuffer(FrameContext* frame, nvrhi::IBuffer* vertexBuffer, int slot, int byteOffset)
     {
         frame->draw.vertexBuffers.push_back(
             { vertexBuffer, static_cast<uint32_t>(slot), static_cast<uint64_t>(byteOffset) });
     }
 
     // Draws into this rectangle of the framebuffer (in pixels) instead of all of it.
-    void Donut_DrawSetViewport(FrameContext* frame, double left, double top, double width, double height)
+    DONUT_API void Donut_DrawSetViewport(FrameContext* frame, double left, double top, double width, double height)
     {
         const nvrhi::Viewport viewport(float(left), float(left + width), float(top), float(top + height), 0.f, 1.f);
         frame->draw.viewport = nvrhi::ViewportState().addViewportAndScissorRect(viewport);
@@ -12237,7 +12239,7 @@ extern "C"
 
     // The draw's scissor rectangle (pixels left to right, top to bottom), after Donut_DrawSetViewport
     // or for the framebuffer's viewport when none was set.
-    void Donut_DrawSetScissor(FrameContext* frame, int left, int top, int right, int bottom)
+    DONUT_API void Donut_DrawSetScissor(FrameContext* frame, int left, int top, int right, int bottom)
     {
         if (frame->draw.viewport.viewports.empty())
             frame->draw.viewport.addViewportAndScissorRect(frame->draw.framebuffer->getFramebufferInfo().getViewport());
@@ -12246,13 +12248,13 @@ extern "C"
 
     // One more viewport (with its scissor rectangle) for the draw, after those set or added before:
     // geometry shaders pick one per primitive (SV_ViewportArrayIndex).
-    void Donut_DrawAddViewport(FrameContext* frame, double left, double top, double width, double height)
+    DONUT_API void Donut_DrawAddViewport(FrameContext* frame, double left, double top, double width, double height)
     {
         const nvrhi::Viewport viewport(float(left), float(left + width), float(top), float(top + height), 0.f, 1.f);
         frame->draw.viewport.addViewportAndScissorRect(viewport);
     }
 
-    void Donut_DrawIndexed(FrameContext* frame, int indexCount)
+    DONUT_API void Donut_DrawIndexed(FrameContext* frame, int indexCount)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -12265,7 +12267,7 @@ extern "C"
     }
 
     // Same, instanceCount times (instance attributes advance per instance).
-    void Donut_DrawIndexedInstanced(FrameContext* frame, int indexCount, int instanceCount)
+    DONUT_API void Donut_DrawIndexedInstanced(FrameContext* frame, int indexCount, int instanceCount)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -12281,7 +12283,7 @@ extern "C"
     // Same, with byteSize bytes of push constants from data (the binding set's
     // Donut_BindPushConstants item). The draw described stays, so this can repeat with other
     // push constants.
-    void Donut_DrawIndexedWithPushConstants(FrameContext* frame, int indexCount, const void* data, int byteSize)
+    DONUT_API void Donut_DrawIndexedWithPushConstants(FrameContext* frame, int indexCount, const void* data, int byteSize)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -12296,7 +12298,7 @@ extern "C"
     }
 
     // Same, instanceCount times.
-    void Donut_DrawIndexedInstancedWithPushConstants(FrameContext* frame, int indexCount, int instanceCount, const void* data, int byteSize)
+    DONUT_API void Donut_DrawIndexedInstancedWithPushConstants(FrameContext* frame, int indexCount, int instanceCount, const void* data, int byteSize)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -12312,7 +12314,7 @@ extern "C"
 
     // Same, drawing indexCount indices from startIndex of the index buffer, added to baseVertex.
     // indexCount indices from startIndex, offset by baseVertex, in the current draw state.
-    void Donut_DrawIndexedRange(FrameContext* frame, int indexCount, int startIndex, int baseVertex)
+    DONUT_API void Donut_DrawIndexedRange(FrameContext* frame, int indexCount, int startIndex, int baseVertex)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -12326,7 +12328,7 @@ extern "C"
         ctx->commandList->drawIndexed(args);
     }
 
-    void Donut_DrawIndexedRangeWithPushConstants(FrameContext* frame, int indexCount, int startIndex, int baseVertex,
+    DONUT_API void Donut_DrawIndexedRangeWithPushConstants(FrameContext* frame, int indexCount, int startIndex, int baseVertex,
         const void* data, int byteSize)
     {
         FrameContext* ctx = frame;
@@ -12375,7 +12377,7 @@ extern "C"
     // and the like): accesses to them from overlapping pixels happen in the order of the
     // primitives drawn. D3D11 and D3D12 with ROVsSupported, Vulkan with fragment shader pixel
     // interlock (VK_EXT_fragment_shader_interlock; DXC compiles them to that).
-    int Donut_HasRasterizerOrderedViews(App* app)
+    DONUT_API int Donut_HasRasterizerOrderedViews(App* app)
     {
         return app->rasterizerOrderedViews ? 1 : 0;
     }
@@ -12384,7 +12386,7 @@ extern "C"
     // (SV_Barycentrics) and the attributes of the triangle's vertices (GetAttributeAtVertex on
     // nointerpolation inputs): D3D12 with BarycentricsSupported (shader model 6.1), Vulkan with
     // VK_KHR_fragment_shader_barycentric; not D3D11.
-    int Donut_HasBarycentrics(App* app)
+    DONUT_API int Donut_HasBarycentrics(App* app)
     {
         return app->barycentrics ? 1 : 0;
     }
@@ -12395,26 +12397,26 @@ extern "C"
     // whether the GPU reorders). Vulkan: VK_NV_ray_tracing_invocation_reorder (ray tracing apps
     // only; Reorders if the GPU reorders, from rayTracingInvocationReorderReorderingHint). None on
     // D3D11.
-    int Donut_GetShaderExecutionReordering(App* app)
+    DONUT_API int Donut_GetShaderExecutionReordering(App* app)
     {
         return app->shaderExecutionReordering;
     }
 
     // ComputeDerivatives bits: D3D12 with shader model 6.6 has both; Vulkan with
     // VK_KHR_compute_shader_derivatives what the GPU has; 0 on D3D11.
-    int Donut_GetComputeShaderDerivatives(App* app)
+    DONUT_API int Donut_GetComputeShaderDerivatives(App* app)
     {
         return app->computeShaderDerivatives;
     }
 
     // Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
     // D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
-    int Donut_HasLogicOps(App* app)
+    DONUT_API int Donut_HasLogicOps(App* app)
     {
         return app->logicOps ? 1 : 0;
     }
 
-    int Donut_HasDepthBoundsTest(App* app)
+    DONUT_API int Donut_HasDepthBoundsTest(App* app)
     {
         return app->depthBoundsTest ? 1 : 0;
     }
@@ -12424,7 +12426,7 @@ extern "C"
     // with VK_EXT_memory_budget (without it the usage is 0 and the budget the heap's size); D3D's
     // local (video) and non-local (system) memory segment groups, from DXGI. Read back by
     // Donut_GetMemoryHeapUsage, Donut_GetMemoryHeapBudget and Donut_GetMemoryHeapFlags.
-    int Donut_QueryMemoryBudget(App* app)
+    DONUT_API int Donut_QueryMemoryBudget(App* app)
     {
         App* a = app;
         a->memoryHeaps.clear();
@@ -12495,19 +12497,19 @@ extern "C"
 
     // A memory heap's usage and budget in bytes, and its MemoryHeapFlag bits, as
     // Donut_QueryMemoryBudget last found them.
-    double Donut_GetMemoryHeapUsage(App* app, int heap)
+    DONUT_API double Donut_GetMemoryHeapUsage(App* app, int heap)
     {
         const App* a = app;
         return heap >= 0 && size_t(heap) < a->memoryHeaps.size() ? a->memoryHeaps[heap].usage : 0.0;
     }
 
-    double Donut_GetMemoryHeapBudget(App* app, int heap)
+    DONUT_API double Donut_GetMemoryHeapBudget(App* app, int heap)
     {
         const App* a = app;
         return heap >= 0 && size_t(heap) < a->memoryHeaps.size() ? a->memoryHeaps[heap].budget : 0.0;
     }
 
-    int Donut_GetMemoryHeapFlags(App* app, int heap)
+    DONUT_API int Donut_GetMemoryHeapFlags(App* app, int heap)
     {
         const App* a = app;
         return heap >= 0 && size_t(heap) < a->memoryHeaps.size() ? a->memoryHeaps[heap].flags : 0;
@@ -12519,7 +12521,7 @@ extern "C"
     // CLOCK_MONOTONIC_RAW, 3 QueryPerformanceCounter); D3D12's command queue clock calibration
     // (the device's and QueryPerformanceCounter's). Null if the device can't (D3D11, or Vulkan
     // without the extension). Release it with Donut_ReleaseObject.
-    CalibratedTimestamps* Donut_CreateCalibratedTimestamps(App* app)
+    DONUT_API CalibratedTimestamps* Donut_CreateCalibratedTimestamps(App* app)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -12564,12 +12566,12 @@ extern "C"
     }
 
     // Its time domains: their number, and each one's VkTimeDomainEXT value.
-    int Donut_GetCalibratedTimeDomainCount(CalibratedTimestamps* calibratedTimestamps)
+    DONUT_API int Donut_GetCalibratedTimeDomainCount(CalibratedTimestamps* calibratedTimestamps)
     {
         return int(calibratedTimestamps->domains.size());
     }
 
-    int Donut_GetCalibratedTimeDomain(CalibratedTimestamps* calibratedTimestamps, int index)
+    DONUT_API int Donut_GetCalibratedTimeDomain(CalibratedTimestamps* calibratedTimestamps, int index)
     {
         if (index < 0 || size_t(index) >= calibratedTimestamps->domains.size())
             return -1;
@@ -12578,7 +12580,7 @@ extern "C"
 
     // Samples the timestamps of all its domains at once (vkGetCalibratedTimestampsEXT,
     // ID3D12CommandQueue::GetClockCalibration). Returns 0 on failure.
-    int Donut_SampleCalibratedTimestamps(CalibratedTimestamps* calibratedTimestamps)
+    DONUT_API int Donut_SampleCalibratedTimestamps(CalibratedTimestamps* calibratedTimestamps)
     {
         CalibratedTimestamps* t = calibratedTimestamps;
         nvrhi::IDevice* device = t->app->device();
@@ -12620,21 +12622,21 @@ extern "C"
     // The last sample's timestamp of domain index, in its domain's ticks (the device's: of
     // Donut_GetTimestampPeriod nanoseconds); the sample's maximum deviation between the domains in
     // nanoseconds (Vulkan's; 0 on D3D12, which reports none).
-    double Donut_GetCalibratedTimestamp(CalibratedTimestamps* calibratedTimestamps, int index)
+    DONUT_API double Donut_GetCalibratedTimestamp(CalibratedTimestamps* calibratedTimestamps, int index)
     {
         if (index < 0 || size_t(index) >= calibratedTimestamps->timestamps.size())
             return 0.0;
         return double(calibratedTimestamps->timestamps[size_t(index)]);
     }
 
-    double Donut_GetCalibratedTimestampsMaxDeviation(CalibratedTimestamps* calibratedTimestamps)
+    DONUT_API double Donut_GetCalibratedTimestampsMaxDeviation(CalibratedTimestamps* calibratedTimestamps)
     {
         return double(calibratedTimestamps->maxDeviation);
     }
 
     // The nanoseconds of one tick of the device's timestamps: Vulkan's timestampPeriod limit;
     // 1e9 / the graphics queue's timestamp frequency on D3D12; 0 if unknown.
-    double Donut_GetTimestampPeriod(App* app)
+    DONUT_API double Donut_GetTimestampPeriod(App* app)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -12662,13 +12664,13 @@ extern "C"
     // (Donut_GraphicsPipelineSetLineRasterization): Vulkan's with VK_EXT_line_rasterization's
     // features, plain and stippled; D3D's rectangular (quadrilateral), Bresenham (aliased) and smooth
     // (alpha antialiased) lines, unstippled.
-    int Donut_GetLineRasterizationModes(App* app)
+    DONUT_API int Donut_GetLineRasterizationModes(App* app)
     {
         return app->lineRasterizationModes;
     }
 
     // The widest lines can be: Vulkan's lineWidthRange with the wideLines feature, else 1.
-    double Donut_GetMaxLineWidth(App* app)
+    DONUT_API double Donut_GetMaxLineWidth(App* app)
     {
         return app->maxLineWidth;
     }
@@ -12676,7 +12678,7 @@ extern "C"
     // Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad
     // operations (QuadReadLaneAt...): Vulkan with VK_KHR_shader_quad_control (SPIR-V's
     // RequireFullQuadsKHR and QuadDerivativesKHR execution modes), D3D12 always.
-    int Donut_HasShaderQuadControl(App* app)
+    DONUT_API int Donut_HasShaderQuadControl(App* app)
     {
         return app->shaderQuadControl ? 1 : 0;
     }
@@ -12684,7 +12686,7 @@ extern "C"
     // AdvancedBlend bits: the advanced blend operations blend states can do
     // (Donut_GraphicsPipelineSetAdvancedBlendOp): Vulkan with VK_EXT_blend_operation_advanced and
     // its coherent operations; 0 elsewhere.
-    int Donut_GetAdvancedBlendOperations(App* app)
+    DONUT_API int Donut_GetAdvancedBlendOperations(App* app)
     {
         return app->advancedBlendOperations;
     }
@@ -12693,7 +12695,7 @@ extern "C"
     // shaders are compiled with -enable-16bit-types, as ShaderMake does from shader model 6.2) and
     // read them from structured buffers: D3D12 with Native16BitShaderOpsSupported, Vulkan with
     // shaderFloat16, shaderInt16 and storageBuffer16BitAccess; not D3D11.
-    int Donut_HasNative16BitShaderOps(App* app)
+    DONUT_API int Donut_HasNative16BitShaderOps(App* app)
     {
         return app->native16Bit ? 1 : 0;
     }
@@ -12701,14 +12703,14 @@ extern "C"
     // Non-zero if, besides, push constants and constant buffers can hold 16-bit values: D3D12 with
     // native 16-bit shader ops, Vulkan with storagePushConstant16 and
     // uniformAndStorageBuffer16BitAccess too.
-    int Donut_HasNative16BitConstants(App* app)
+    DONUT_API int Donut_HasNative16BitConstants(App* app)
     {
         return app->native16BitConstants ? 1 : 0;
     }
 
     // Non-zero if descriptors can be pushed into command buffers (Vulkan's VK_KHR_push_descriptor):
     // Donut_CreatePushDescriptorPipeline. Not D3D, which has root descriptors instead.
-    int Donut_HasPushDescriptors(App* app)
+    DONUT_API int Donut_HasPushDescriptors(App* app)
     {
 #if DONUT_WITH_VULKAN
         return app->device()->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN
@@ -12721,7 +12723,7 @@ extern "C"
 
     // The most descriptors a push can set (VkPhysicalDevicePushDescriptorPropertiesKHR's
     // maxPushDescriptors); 0 without push descriptors.
-    int Donut_GetMaxPushDescriptors(App* app)
+    DONUT_API int Donut_GetMaxPushDescriptors(App* app)
     {
         if (!Donut_HasPushDescriptors(app))
             return 0;
@@ -12999,7 +13001,7 @@ extern "C"
     // blending. Add its bindings (Donut_AddPushDescriptorBinding), then build it
     // (Donut_BuildPushDescriptorPipeline). Null without push descriptors (Donut_HasPushDescriptors).
     // Release it with Donut_ReleaseObject.
-    PushDescriptorPipeline* Donut_CreatePushDescriptorPipeline(App* app, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    DONUT_API PushDescriptorPipeline* Donut_CreatePushDescriptorPipeline(App* app, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IFramebuffer* framebuffer, int cullMode, int frontCounterClockwise,
         int depthTest, int depthWrite, int depthFunc)
     {
@@ -13014,7 +13016,7 @@ extern "C"
 
     // A binding of its set (set 0): its number (the shader's [[vk::binding(n)]]), its
     // RawDescriptorType, the stages that see it (ShaderType bits).
-    void Donut_AddPushDescriptorBinding(PushDescriptorPipeline* pushDescriptorPipeline, int binding, int type, int shaderType)
+    DONUT_API void Donut_AddPushDescriptorBinding(PushDescriptorPipeline* pushDescriptorPipeline, int binding, int type, int shaderType)
     {
         pushDescriptorPipeline->bindings.push_back({ binding, type, shaderType });
     }
@@ -13022,7 +13024,7 @@ extern "C"
     // Creates the set layout (with VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR: no
     // descriptor set is ever allocated for it), the pipeline layout and the pipeline. Returns 0 (after
     // logging why) on failure.
-    int Donut_BuildPushDescriptorPipeline(PushDescriptorPipeline* pushDescriptorPipeline)
+    DONUT_API int Donut_BuildPushDescriptorPipeline(PushDescriptorPipeline* pushDescriptorPipeline)
     {
 #if DONUT_WITH_VULKAN
         PushDescriptorPipeline* p = pushDescriptorPipeline;
@@ -13035,7 +13037,7 @@ extern "C"
 
     // Starts recording draws into framebuffer (one like the pipeline's) with commandList: the
     // pushes and draws up to Donut_EndPushDescriptorPass, which records them.
-    void Donut_BeginPushDescriptorPass(PushDescriptorPipeline* pushDescriptorPipeline, nvrhi::ICommandList* commandList,
+    DONUT_API void Donut_BeginPushDescriptorPass(PushDescriptorPipeline* pushDescriptorPipeline, nvrhi::ICommandList* commandList,
         nvrhi::IFramebuffer* framebuffer)
     {
         PushDescriptorPipeline* p = pushDescriptorPipeline;
@@ -13047,7 +13049,7 @@ extern "C"
 
     // Pushes a descriptor for the next draws: a constant buffer (a static one: a volatile one has
     // no fixed place) at a RawDescriptor_ConstantBuffer binding.
-    void Donut_PushDescriptorBuffer(PushDescriptorPipeline* pushDescriptorPipeline, int binding, nvrhi::IBuffer* buffer)
+    DONUT_API void Donut_PushDescriptorBuffer(PushDescriptorPipeline* pushDescriptorPipeline, int binding, nvrhi::IBuffer* buffer)
     {
         RawDescriptor& d = pushDescriptorPipeline->pushed[binding];
         d = {};
@@ -13058,7 +13060,7 @@ extern "C"
 
     // Same, a texture (all of it) and a sampler: at a RawDescriptor_TextureSampler binding both, at
     // a RawDescriptor_Texture one the texture, at a RawDescriptor_Sampler one the sampler.
-    void Donut_PushDescriptorTexture(PushDescriptorPipeline* pushDescriptorPipeline, int binding, nvrhi::ITexture* texture,
+    DONUT_API void Donut_PushDescriptorTexture(PushDescriptorPipeline* pushDescriptorPipeline, int binding, nvrhi::ITexture* texture,
         nvrhi::ISampler* sampler)
     {
         int type = RawDescriptor_TextureSampler;
@@ -13078,7 +13080,7 @@ extern "C"
     // An indexed draw (triangle list, from index 0 and vertex 0) of a vertex buffer with an index
     // buffer (R16_UINT indices, else 32-bit), with the descriptors pushed so far: pushed into the
     // command buffer (vkCmdPushDescriptorSetKHR) right before the draw.
-    void Donut_PushDescriptorDrawIndexed(PushDescriptorPipeline* pushDescriptorPipeline, nvrhi::IBuffer* vertexBuffer,
+    DONUT_API void Donut_PushDescriptorDrawIndexed(PushDescriptorPipeline* pushDescriptorPipeline, nvrhi::IBuffer* vertexBuffer,
         nvrhi::IBuffer* indexBuffer, int indexCount)
     {
         PushDescriptorPipeline* p = pushDescriptorPipeline;
@@ -13093,7 +13095,7 @@ extern "C"
 
     // Records the pass (BeginRawPass: barriers, the framebuffer's rendering scope, the pipeline),
     // then per draw its descriptors pushed and the draw.
-    void Donut_EndPushDescriptorPass(PushDescriptorPipeline* pushDescriptorPipeline)
+    DONUT_API void Donut_EndPushDescriptorPass(PushDescriptorPipeline* pushDescriptorPipeline)
     {
         PushDescriptorPipeline* p = pushDescriptorPipeline;
 #if DONUT_WITH_VULKAN
@@ -13156,7 +13158,7 @@ extern "C"
     // Non-zero if descriptor sets can live in buffers (Vulkan's VK_EXT_descriptor_buffer, its
     // descriptorBuffer feature on, for apps created with AppOption_DescriptorBuffers):
     // Donut_CreateDescriptorBufferPipeline. Not D3D (whose descriptor heaps are NVRHI's).
-    int Donut_HasDescriptorBuffers(App* app)
+    DONUT_API int Donut_HasDescriptorBuffers(App* app)
     {
         return app->descriptorBuffers ? 1 : 0;
     }
@@ -13175,7 +13177,7 @@ extern "C"
 
     // How many descriptor buffers a pass can bind with resource descriptors
     // (maxResourceDescriptorBufferBindings); 0 without descriptor buffers.
-    int Donut_GetMaxResourceDescriptorBufferBindings(App* app)
+    DONUT_API int Donut_GetMaxResourceDescriptorBufferBindings(App* app)
     {
 #if DONUT_WITH_VULKAN
         if (app->descriptorBuffers)
@@ -13188,7 +13190,7 @@ extern "C"
     // and (samplers != 0) sampler ones (combined image samplers included), in host-visible memory
     // the CPU writes them into (Donut_WriteDescriptorBuffer*). Null without descriptor buffers.
     // Release it with Donut_ReleaseObject.
-    DescriptorBuffer* Donut_CreateDescriptorBuffer(App* app, int byteSize, int samplers)
+    DONUT_API DescriptorBuffer* Donut_CreateDescriptorBuffer(App* app, int byteSize, int samplers)
     {
 #if DONUT_WITH_VULKAN
         if (!app->descriptorBuffers || byteSize <= 0)
@@ -13244,7 +13246,7 @@ extern "C"
     // Donut_CreatePushDescriptorPipeline's. Add its sets (Donut_AddDescriptorBufferSet), then build
     // it (Donut_BuildDescriptorBufferPipeline). Null without descriptor buffers. Release it with
     // Donut_ReleaseObject.
-    DescriptorBufferPipeline* Donut_CreateDescriptorBufferPipeline(App* app, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
+    DONUT_API DescriptorBufferPipeline* Donut_CreateDescriptorBufferPipeline(App* app, nvrhi::IShader* vertexShader, nvrhi::IShader* pixelShader,
         nvrhi::IInputLayout* inputLayout, nvrhi::IFramebuffer* framebuffer, int cullMode, int frontCounterClockwise,
         int depthTest, int depthWrite, int depthFunc)
     {
@@ -13260,7 +13262,7 @@ extern "C"
     // The next set (sets are numbered from 0 in the order added): one binding, binding 0 (the
     // shader's [[vk::binding(0, set)]]), of a RawDescriptorType, seen by the stages in shaderType
     // (ShaderType bits).
-    void Donut_AddDescriptorBufferSet(DescriptorBufferPipeline* descriptorBufferPipeline, int type, int shaderType)
+    DONUT_API void Donut_AddDescriptorBufferSet(DescriptorBufferPipeline* descriptorBufferPipeline, int type, int shaderType)
     {
         descriptorBufferPipeline->sets.push_back({ 0, type, shaderType });
     }
@@ -13270,7 +13272,7 @@ extern "C"
     // each set's size in a descriptor buffer (vkGetDescriptorSetLayoutSizeEXT, aligned to
     // descriptorBufferOffsetAlignment) and its binding's offset. Returns 0 (after logging why) on
     // failure.
-    int Donut_BuildDescriptorBufferPipeline(DescriptorBufferPipeline* descriptorBufferPipeline)
+    DONUT_API int Donut_BuildDescriptorBufferPipeline(DescriptorBufferPipeline* descriptorBufferPipeline)
     {
 #if DONUT_WITH_VULKAN
         DescriptorBufferPipeline* p = descriptorBufferPipeline;
@@ -13299,7 +13301,7 @@ extern "C"
 
     // A set's size in a descriptor buffer (bytes, aligned to where sets can start): the offset of
     // the next element in a buffer holding several of them.
-    int Donut_GetDescriptorBufferSetSize(DescriptorBufferPipeline* descriptorBufferPipeline, int set)
+    DONUT_API int Donut_GetDescriptorBufferSetSize(DescriptorBufferPipeline* descriptorBufferPipeline, int set)
     {
         const auto& sizes = descriptorBufferPipeline->setSizes;
         return set >= 0 && size_t(set) < sizes.size() ? int(sizes[set]) : 0;
@@ -13369,7 +13371,7 @@ extern "C"
     // Writes a constant buffer's descriptor (its device address and size: a static buffer) for
     // set's binding (a RawDescriptor_ConstantBuffer one) of descriptorBufferPipeline at element of the buffer (byte
     // offset element * Donut_GetDescriptorBufferSetSize(set)).
-    void Donut_WriteDescriptorBufferConstantBuffer(DescriptorBuffer* descriptorBuffer, DescriptorBufferPipeline* descriptorBufferPipeline,
+    DONUT_API void Donut_WriteDescriptorBufferConstantBuffer(DescriptorBuffer* descriptorBuffer, DescriptorBufferPipeline* descriptorBufferPipeline,
         int set, int element, nvrhi::IBuffer* buffer)
     {
 #if DONUT_WITH_VULKAN
@@ -13382,7 +13384,7 @@ extern "C"
 
     // Same, a texture (all of it) and a sampler, for a RawDescriptor_TextureSampler binding (both),
     // a RawDescriptor_Texture or a RawDescriptor_Sampler one.
-    void Donut_WriteDescriptorBufferTexture(DescriptorBuffer* descriptorBuffer, DescriptorBufferPipeline* descriptorBufferPipeline,
+    DONUT_API void Donut_WriteDescriptorBufferTexture(DescriptorBuffer* descriptorBuffer, DescriptorBufferPipeline* descriptorBufferPipeline,
         int set, int element, nvrhi::ITexture* texture, nvrhi::ISampler* sampler)
     {
 #if DONUT_WITH_VULKAN
@@ -13398,7 +13400,7 @@ extern "C"
 
     // Starts recording draws into framebuffer (one like the pipeline's) with commandList: the
     // bindings, offsets and draws up to Donut_EndDescriptorBufferPass, which records them.
-    void Donut_BeginDescriptorBufferPass(DescriptorBufferPipeline* descriptorBufferPipeline, nvrhi::ICommandList* commandList,
+    DONUT_API void Donut_BeginDescriptorBufferPass(DescriptorBufferPipeline* descriptorBufferPipeline, nvrhi::ICommandList* commandList,
         nvrhi::IFramebuffer* framebuffer)
     {
         DescriptorBufferPipeline* p = descriptorBufferPipeline;
@@ -13411,7 +13413,7 @@ extern "C"
 
     // Binds a descriptor buffer for the pass, as the next index (from 0;
     // vkCmdBindDescriptorBuffersEXT binds them all at the pass's start).
-    void Donut_BindDescriptorBuffer(DescriptorBufferPipeline* descriptorBufferPipeline, DescriptorBuffer* descriptorBuffer)
+    DONUT_API void Donut_BindDescriptorBuffer(DescriptorBufferPipeline* descriptorBufferPipeline, DescriptorBuffer* descriptorBuffer)
     {
         DescriptorBufferPipeline* p = descriptorBufferPipeline;
         auto shared = p->objects.app->SharedObject<DescriptorBuffer>(descriptorBuffer);
@@ -13422,7 +13424,7 @@ extern "C"
     // Where set's descriptors are for the next draws: in the bufferIndex-th bound descriptor buffer,
     // at element (byte offset element * Donut_GetDescriptorBufferSetSize(set))
     // (vkCmdSetDescriptorBufferOffsetsEXT).
-    void Donut_SetDescriptorBufferOffset(DescriptorBufferPipeline* descriptorBufferPipeline, int set, int bufferIndex, int element)
+    DONUT_API void Donut_SetDescriptorBufferOffset(DescriptorBufferPipeline* descriptorBufferPipeline, int set, int bufferIndex, int element)
     {
         DescriptorBufferPipeline* p = descriptorBufferPipeline;
         if (set < 0 || size_t(set) >= p->setOffsets.size())
@@ -13432,7 +13434,7 @@ extern "C"
 
     // An indexed draw (triangle list, from index 0 and vertex 0) of a vertex buffer with an index
     // buffer (R16_UINT indices, else 32-bit), with the sets where they are so far.
-    void Donut_DescriptorBufferDrawIndexed(DescriptorBufferPipeline* descriptorBufferPipeline, nvrhi::IBuffer* vertexBuffer,
+    DONUT_API void Donut_DescriptorBufferDrawIndexed(DescriptorBufferPipeline* descriptorBufferPipeline, nvrhi::IBuffer* vertexBuffer,
         nvrhi::IBuffer* indexBuffer, int indexCount)
     {
         DescriptorBufferPipeline* p = descriptorBufferPipeline;
@@ -13448,7 +13450,7 @@ extern "C"
     // BeginRawPass (the framebuffer's rendering scope, the pipeline), the descriptor buffers bound
     // (vkCmdBindDescriptorBuffersEXT), then per draw each set's buffer and offset
     // (vkCmdSetDescriptorBufferOffsetsEXT) and the draw.
-    void Donut_EndDescriptorBufferPass(DescriptorBufferPipeline* descriptorBufferPipeline)
+    DONUT_API void Donut_EndDescriptorBufferPass(DescriptorBufferPipeline* descriptorBufferPipeline)
     {
         DescriptorBufferPipeline* p = descriptorBufferPipeline;
 #if DONUT_WITH_VULKAN
@@ -13502,7 +13504,7 @@ extern "C"
     // Non-zero if shaders can reach buffers through their device addresses (Vulkan's
     // bufferDeviceAddress, which Donut enables where the device has it; every NVRHI buffer then has
     // one): Donut_CopyBufferDeviceAddress. Not D3D12 or D3D11, whose shaders have no pointers.
-    int Donut_HasBufferDeviceAddress(App* app)
+    DONUT_API int Donut_HasBufferDeviceAddress(App* app)
     {
 #if DONUT_WITH_VULKAN
         App* a = app;
@@ -13522,7 +13524,7 @@ extern "C"
     // A buffer's device address (a GPU pointer, uint64) into the 8 bytes at dst (e.g. Ref of an
     // array element: push constants or data written to a buffer, for shaders to load and store
     // through with vk::RawBufferLoad / vk::RawBufferStore). Requires Donut_HasBufferDeviceAddress.
-    void Donut_CopyBufferDeviceAddress(nvrhi::IBuffer* buffer, void* dst)
+    DONUT_API void Donut_CopyBufferDeviceAddress(nvrhi::IBuffer* buffer, void* dst)
     {
         const uint64_t address = buffer->getGpuVirtualAddress();
         memcpy(dst, &address, sizeof(address));
@@ -13531,20 +13533,20 @@ extern "C"
     // The state a buffer must be in for what comes next (ResourceState bits), with a barrier from
     // what it was in (placed by Donut_CommitBarriers or the next draw or dispatch): for accesses
     // NVRHI doesn't see, e.g. through device addresses.
-    void Donut_SetBufferState(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int state)
+    DONUT_API void Donut_SetBufferState(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer, int state)
     {
         commandList->setBufferState(buffer, static_cast<nvrhi::ResourceStates>(state));
     }
 
     // Places the barriers that Donut_SetBufferState asked for.
-    void Donut_CommitBarriers(nvrhi::ICommandList* commandList)
+    DONUT_API void Donut_CommitBarriers(nvrhi::ICommandList* commandList)
     {
         commandList->commitBarriers();
     }
 
     // A barrier between the draws or dispatches before and after that write and read a UAV
     // texture: NVRHI only places one where the texture is bound anew.
-    void Donut_UavBarrier(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture)
+    DONUT_API void Donut_UavBarrier(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture)
     {
         nvrhi::ICommandList* cl = commandList;
         cl->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
@@ -13554,14 +13556,14 @@ extern "C"
     // Non-zero if draws can be skipped by a value in a buffer (Donut_CreatePredicationBuffer):
     // D3D12's predication, Vulkan's VK_EXT_conditional_rendering; not D3D11 (whose predicates are
     // queries) or headless apps.
-    int Donut_HasConditionalRendering(App* app)
+    DONUT_API int Donut_HasConditionalRendering(App* app)
     {
         return app->conditionalRendering ? 1 : 0;
     }
 
     // count values, each 0 (skip) or not (draw), all 1 at first. Requires
     // Donut_HasConditionalRendering. Returns null on failure.
-    PredicationBuffer* Donut_CreatePredicationBuffer(App* app, int count)
+    DONUT_API PredicationBuffer* Donut_CreatePredicationBuffer(App* app, int count)
     {
         App* a = app;
         if (!a->conditionalRendering || count <= 0)
@@ -13635,7 +13637,7 @@ extern "C"
 
     // Value `index`: 0 skips the draws it decides, anything else lets them happen. Seen by the GPU
     // when it executes the draws (not when they are recorded).
-    void Donut_SetPredicationValue(PredicationBuffer* predicationBuffer, int index, int value)
+    DONUT_API void Donut_SetPredicationValue(PredicationBuffer* predicationBuffer, int index, int value)
     {
         auto* predication = predicationBuffer;
         if (index >= 0 && uint32_t(index) < predication->count)
@@ -13644,7 +13646,7 @@ extern "C"
 
     // Donut_DrawIndexedRangeWithPushConstants, drawn only if value `index` of a predication buffer
     // isn't 0 when the GPU gets to it.
-    void Donut_DrawIndexedRangeWithPushConstantsPredicated(FrameContext* frame, int indexCount, int startIndex, int baseVertex,
+    DONUT_API void Donut_DrawIndexedRangeWithPushConstantsPredicated(FrameContext* frame, int indexCount, int startIndex, int baseVertex,
         const void* data, int byteSize, PredicationBuffer* predicationBuffer, int index)
     {
         auto* predication = predicationBuffer;
@@ -13724,7 +13726,7 @@ extern "C"
     // results (Donut_ResolveOcclusionQueries), which predicate draws
     // (Donut_DrawVerticesOcclusionPredicated); every result starts as 0, occluded. Requires
     // Donut_HasConditionalRendering; null otherwise or on failure.
-    OcclusionPredication* Donut_CreateOcclusionPredication(App* app, int count)
+    DONUT_API OcclusionPredication* Donut_CreateOcclusionPredication(App* app, int count)
     {
         App* a = app;
         if (!a->conditionalRendering || count <= 0)
@@ -13820,7 +13822,7 @@ extern "C"
 
     // Draws vertexCount vertices (Donut_DrawVertices) inside binary occlusion query `index`: its
     // result says whether any of their samples passed the depth and stencil tests.
-    void Donut_DrawVerticesWithOcclusionQuery(FrameContext* frame, int vertexCount, OcclusionPredication* occlusionPredication, int index)
+    DONUT_API void Donut_DrawVerticesWithOcclusionQuery(FrameContext* frame, int vertexCount, OcclusionPredication* occlusionPredication, int index)
     {
         auto* occlusion = occlusionPredication;
         FrameContext* ctx = frame;
@@ -13858,7 +13860,7 @@ extern "C"
 
     // Resolves the queries into the predication values for the draws after it: 1 where samples
     // passed, 0 where none did (the GPU waits for the queries).
-    void Donut_ResolveOcclusionQueries(FrameContext* frame, OcclusionPredication* occlusionPredication)
+    DONUT_API void Donut_ResolveOcclusionQueries(FrameContext* frame, OcclusionPredication* occlusionPredication)
     {
         auto* occlusion = occlusionPredication;
         FrameContext* ctx = frame;
@@ -13905,7 +13907,7 @@ extern "C"
 
     // Draws vertexCount vertices (Donut_DrawVertices) only if resolved result `index` isn't 0 when
     // the GPU gets to it.
-    void Donut_DrawVerticesOcclusionPredicated(FrameContext* frame, int vertexCount, OcclusionPredication* occlusionPredication, int index)
+    DONUT_API void Donut_DrawVerticesOcclusionPredicated(FrameContext* frame, int vertexCount, OcclusionPredication* occlusionPredication, int index)
     {
         auto* occlusion = occlusionPredication;
         FrameContext* ctx = frame;
@@ -13948,14 +13950,14 @@ extern "C"
     }
 
     // The buffer indirect draws read their arguments from (Donut_CreateDrawIndexedIndirectBuffer).
-    void Donut_DrawSetIndirectBuffer(FrameContext* frame, nvrhi::IBuffer* indirectBuffer)
+    DONUT_API void Donut_DrawSetIndirectBuffer(FrameContext* frame, nvrhi::IBuffer* indirectBuffer)
     {
         frame->draw.indirectParams = indirectBuffer;
     }
 
     // drawCount indexed draws, their arguments read from the indirect buffer from offsetBytes on
     // (20 bytes each). The draw described stays, so this can repeat with other offsets.
-    void Donut_DrawIndexedIndirect(FrameContext* frame, int offsetBytes, int drawCount)
+    DONUT_API void Donut_DrawIndexedIndirect(FrameContext* frame, int offsetBytes, int drawCount)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -13968,7 +13970,7 @@ extern "C"
     // Up to maxDrawCount indexed draws, their arguments read from the indirect buffer from
     // offsetBytes on and their count from countBuffer at countOffsetBytes (a uint). Needs
     // IndirectDraw_Count (D3D12; Vulkan's drawIndirectCount).
-    void Donut_DrawIndexedIndirectCount(FrameContext* frame, nvrhi::IBuffer* countBuffer, int offsetBytes, int countOffsetBytes, int maxDrawCount)
+    DONUT_API void Donut_DrawIndexedIndirectCount(FrameContext* frame, nvrhi::IBuffer* countBuffer, int offsetBytes, int countOffsetBytes, int maxDrawCount)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -13982,7 +13984,7 @@ extern "C"
 
     // Copies a texture of the back buffer's size and a compatible format (e.g. RGBA8_UNORM) into
     // the back buffer, without conversion.
-    void Donut_CopyTextureToFrame(FrameContext* frame, nvrhi::ITexture* texture)
+    DONUT_API void Donut_CopyTextureToFrame(FrameContext* frame, nvrhi::ITexture* texture)
     {
         FrameContext* ctx = frame;
         ctx->commandList->copyTexture(ctx->framebuffer->getDesc().colorAttachments[0].texture, nvrhi::TextureSlice(),
@@ -13990,7 +13992,7 @@ extern "C"
     }
 
     // Same as Donut_DrawIndexed, without an index buffer: vertexCount vertices.
-    void Donut_DrawVertices(FrameContext* frame, int vertexCount)
+    DONUT_API void Donut_DrawVertices(FrameContext* frame, int vertexCount)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -14003,7 +14005,7 @@ extern "C"
     }
 
     // Same, with byteSize bytes of push constants from data; the draw described stays.
-    void Donut_DrawVerticesWithPushConstants(FrameContext* frame, int vertexCount, const void* data, int byteSize)
+    DONUT_API void Donut_DrawVerticesWithPushConstants(FrameContext* frame, int vertexCount, const void* data, int byteSize)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -14017,7 +14019,7 @@ extern "C"
     }
 
     // Same, from vertex startVertex on.
-    void Donut_DrawVerticesRangeWithPushConstants(FrameContext* frame, int vertexCount, int startVertex, const void* data, int byteSize)
+    DONUT_API void Donut_DrawVerticesRangeWithPushConstants(FrameContext* frame, int vertexCount, int startVertex, const void* data, int byteSize)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -14033,7 +14035,7 @@ extern "C"
 
     // Executes what the frame's command list holds so far, and reopens it for the rest of the frame:
     // e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it.
-    void Donut_SubmitFrameCommandList(App* app, FrameContext* frame)
+    DONUT_API void Donut_SubmitFrameCommandList(App* app, FrameContext* frame)
     {
         FrameContext* ctx = frame;
         ctx->commandList->close();
@@ -14044,7 +14046,7 @@ extern "C"
     // Starts describing a mesh shader draw with a meshlet pipeline, over the whole framebuffer; add
     // binding sets and a viewport with the Donut_Draw* functions, then issue it with
     // Donut_DrawMeshTasks.
-    void Donut_BeginMeshDraw(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline)
+    DONUT_API void Donut_BeginMeshDraw(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline)
     {
         FrameContext* ctx = frame;
         ctx->draw = nvrhi::GraphicsState();
@@ -14053,7 +14055,7 @@ extern "C"
     }
 
     // Same, into another framebuffer (the pipeline must be for its layout).
-    void Donut_BeginMeshDrawToFramebuffer(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline, nvrhi::IFramebuffer* framebuffer)
+    DONUT_API void Donut_BeginMeshDrawToFramebuffer(FrameContext* frame, nvrhi::IMeshletPipeline* meshletPipeline, nvrhi::IFramebuffer* framebuffer)
     {
         FrameContext* ctx = frame;
         ctx->draw = nvrhi::GraphicsState();
@@ -14062,7 +14064,7 @@ extern "C"
     }
 
     // Launches groupsX x 1 x 1 groups of the draw's first shader (amplification, or mesh without one).
-    void Donut_DrawMeshTasks(FrameContext* frame, int groupsX)
+    DONUT_API void Donut_DrawMeshTasks(FrameContext* frame, int groupsX)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -14079,7 +14081,7 @@ extern "C"
 
     // Same, with byteSize bytes of push constants from data (the binding set's Donut_BindPushConstants
     // slot), e.g. what the draw's mesh shader reads of the mesh.
-    void Donut_DrawMeshTasksWithPushConstants(FrameContext* frame, int groupsX, const void* data, int byteSize)
+    DONUT_API void Donut_DrawMeshTasksWithPushConstants(FrameContext* frame, int groupsX, const void* data, int byteSize)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -14096,7 +14098,7 @@ extern "C"
     }
 
     // Same as Donut_DrawMeshTasks, launching groupsX x groupsY groups.
-    void Donut_DrawMeshTasks2D(FrameContext* frame, int groupsX, int groupsY)
+    DONUT_API void Donut_DrawMeshTasks2D(FrameContext* frame, int groupsX, int groupsY)
     {
         FrameContext* ctx = frame;
         if (ctx->draw.viewport.viewports.empty())
@@ -14143,7 +14145,7 @@ extern "C"
     // Null when the device can't count mesh shader work: D3D11, D3D12 without
     // MeshShaderPipelineStatsSupported, Vulkan without pipelineStatisticsQuery and meshShaderQueries
     // (or without mesh shaders).
-    MeshPipelineStatistics* Donut_CreateMeshPipelineStatistics(App* app)
+    DONUT_API MeshPipelineStatistics* Donut_CreateMeshPipelineStatistics(App* app)
     {
         App* a = app;
         nvrhi::IDevice* device = a->device();
@@ -14215,7 +14217,7 @@ extern "C"
 
     // Starts the frame's statistics, before the frame's first draw (Vulkan resets queries outside
     // render passes): reads back the results of the query this frame reuses, if it was used.
-    void Donut_BeginMeshPipelineStatisticsFrame(FrameContext* frame, MeshPipelineStatistics* meshPipelineStatistics)
+    DONUT_API void Donut_BeginMeshPipelineStatisticsFrame(FrameContext* frame, MeshPipelineStatistics* meshPipelineStatistics)
     {
         auto* stats = meshPipelineStatistics;
         nvrhi::ICommandList* commandList = frame->commandList;
@@ -14257,7 +14259,7 @@ extern "C"
     }
 
     // Same as Donut_DrawMeshTasks2D, counted by the frame's statistics.
-    void Donut_DrawMeshTasksWithStatistics(FrameContext* frame, int groupsX, int groupsY, MeshPipelineStatistics* meshPipelineStatistics)
+    DONUT_API void Donut_DrawMeshTasksWithStatistics(FrameContext* frame, int groupsX, int groupsY, MeshPipelineStatistics* meshPipelineStatistics)
     {
         auto* stats = meshPipelineStatistics;
         FrameContext* ctx = frame;
@@ -14298,18 +14300,18 @@ extern "C"
 
     // The latest results read back: which 0 for pixel shader invocations, 1 for amplification
     // (task) shader invocations, 2 for mesh shader invocations.
-    double Donut_GetMeshPipelineStatistic(MeshPipelineStatistics* meshPipelineStatistics, int which)
+    DONUT_API double Donut_GetMeshPipelineStatistic(MeshPipelineStatistics* meshPipelineStatistics, int which)
     {
         auto* stats = meshPipelineStatistics;
         return which >= 0 && which < 3 ? double(stats->values[which]) : 0.0;
     }
 
-    int Donut_GetFrameWidth(FrameContext* frame)
+    DONUT_API int Donut_GetFrameWidth(FrameContext* frame)
     {
         return static_cast<int>(frame->framebuffer->getFramebufferInfo().width);
     }
 
-    int Donut_GetFrameHeight(FrameContext* frame)
+    DONUT_API int Donut_GetFrameHeight(FrameContext* frame)
     {
         return static_cast<int>(frame->framebuffer->getFramebufferInfo().height);
     }

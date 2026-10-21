@@ -437,8 +437,10 @@ add_dependencies(donut_interop check_interop_types)
 # The same API as bin/donut_interop.dll, for running the .ts files under tslang's JIT:
 #   tslang --emit=jit --shared-libs=build/bin/donut_interop.dll examples/<example>.ts
 # It sits next to bin/shaders and bin/media, where it looks them up (see Donut_SetAppName).
-# The functions have no dllexport, so export all of core/donut_interop.cpp's symbols; its import library
-# is renamed so it doesn't overwrite the static donut_interop.lib.
+# It exports the functions marked DONUT_API (core/donut_api.h), the Donut_* ones, and nothing else:
+# tslang --jit-native links its import library, which mustn't also export the CRT inlines the DLL
+# compiled (sprintf_s, ...), as TypeScriptAsyncRuntime.lib defines them too. The import library is
+# renamed so it doesn't overwrite the static donut_interop.lib.
 # There is no JIT on Android, so no shared build there either.
 # Under the JIT this one library is all an example gets, so it also holds the C++ modules that only
 # some examples link into their executables (their add_tslang_example sources), with what those
@@ -464,8 +466,8 @@ if (NOT ANDROID)
     configure_donut_interop(donut_interop_shared)
     set_target_properties(donut_interop_shared PROPERTIES
         OUTPUT_NAME donut_interop
-        ARCHIVE_OUTPUT_NAME donut_interop_shared
-        WINDOWS_EXPORT_ALL_SYMBOLS ON)
+        ARCHIVE_OUTPUT_NAME donut_interop_shared)
+    target_compile_definitions(donut_interop_shared PRIVATE DONUT_INTEROP_SHARED)
     target_link_libraries(donut_interop_shared PRIVATE basisu_transcoder)
     # The Agility SDK runtime for the examples whose executables opt into it (see
     # UseAgilitySdkUnderJit): tslang.exe doesn't.
@@ -476,21 +478,6 @@ if (NOT ANDROID)
         # As video_texture's: mfplat.dll delay-loaded (Windows N editions lack it).
         target_link_libraries(donut_interop_shared PRIVATE delayimp)
         target_link_options(donut_interop_shared PRIVATE /DELAYLOAD:mfplat.dll)
-    endif()
-    # tslang --jit-native links the JIT cache into a DLL with lld-link, against donut_interop_jit.lib:
-    # an import library of only the Donut_* exports (see cmake/make_jit_import_lib.cmake).
-    if (MSVC)
-        get_filename_component(MSVC_TOOLS_DIR "${CMAKE_LINKER}" DIRECTORY)
-        add_custom_command(TARGET donut_interop_shared POST_BUILD
-            COMMAND ${CMAKE_COMMAND}
-                "-DDLL=$<TARGET_FILE:donut_interop_shared>"
-                "-DDEF=$<TARGET_LINKER_FILE_DIR:donut_interop_shared>/donut_interop_jit.def"
-                "-DLIB=$<TARGET_LINKER_FILE_DIR:donut_interop_shared>/donut_interop_jit.lib"
-                "-DDUMPBIN=${MSVC_TOOLS_DIR}/dumpbin.exe"
-                "-DLIBEXE=${CMAKE_AR}"
-                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/make_jit_import_lib.cmake"
-            COMMENT "Writing donut_interop_jit.lib (Donut_* imports, for tslang --jit-native)"
-            VERBATIM)
     endif()
 endif()
 

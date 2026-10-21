@@ -8,6 +8,8 @@
 #include <DirectXCollision.h>
 #include <DirectXMath.h>
 
+#include "donut_api.h"
+
 using namespace DirectX;
 
 namespace
@@ -67,7 +69,7 @@ extern "C"
 {
     // container.Contains(shape): a ContainmentType (0 disjoint, 1 intersects, 2 contains).
     // Containers are spheres, boxes, oriented boxes and frustums.
-    int Donut_CollisionContains(int containerShape, const float* container, int shape, const float* s)
+    DONUT_API int Donut_CollisionContains(int containerShape, const float* container, int shape, const float* s)
     {
         switch (containerShape)
         {
@@ -81,7 +83,7 @@ extern "C"
 
     // shape.Intersects(origin, direction, distance) (TriangleTests::Intersects for triangles):
     // non-zero on a hit, with the distance along the (normalized) direction.
-    int Donut_CollisionIntersectsRay(int shape, const float* s, const float* rayOrigin, const float* rayDirection, float* distance)
+    DONUT_API int Donut_CollisionIntersectsRay(int shape, const float* s, const float* rayOrigin, const float* rayDirection, float* distance)
     {
         const XMVECTOR origin = XMVectorSet(rayOrigin[0], rayOrigin[1], rayOrigin[2], 0.f);
         const XMVECTOR direction = XMVectorSet(rayDirection[0], rayDirection[1], rayDirection[2], 0.f);
@@ -102,7 +104,7 @@ extern "C"
 
     // BoundingFrustum::CreateFromMatrix of a projection matrix (16 floats, DirectXMath's row-major
     // layout) into frustum (13 floats).
-    void Donut_CollisionFrustumFromMatrix(const float* projection, float* frustum)
+    DONUT_API void Donut_CollisionFrustumFromMatrix(const float* projection, float* frustum)
     {
         BoundingFrustum result;
         BoundingFrustum::CreateFromMatrix(result, XMMATRIX(projection));
@@ -114,20 +116,20 @@ extern "C"
     }
 
     // BoundingFrustum::GetCorners: 8 points (24 floats), the near plane's then the far plane's.
-    void Donut_CollisionFrustumCorners(const float* frustum, float* corners)
+    DONUT_API void Donut_CollisionFrustumCorners(const float* frustum, float* corners)
     {
         ToFrustum(frustum).GetCorners(reinterpret_cast<XMFLOAT3*>(corners));
     }
 
     // XMQuaternionRotationRollPitchYaw (x, y, z, w). TypeScript numbers come as doubles; the angles
     // are the sample's floats.
-    void Donut_QuaternionRotationRollPitchYaw(double pitch, double yaw, double roll, float* quaternion)
+    DONUT_API void Donut_QuaternionRotationRollPitchYaw(double pitch, double yaw, double roll, float* quaternion)
     {
         XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(quaternion), XMQuaternionRotationRollPitchYaw(float(pitch), float(yaw), float(roll)));
     }
 
     // XMMatrixRotationRollPitchYaw (16 floats, row-major).
-    void Donut_MatrixRotationRollPitchYaw(double pitch, double yaw, double roll, float* matrix)
+    DONUT_API void Donut_MatrixRotationRollPitchYaw(double pitch, double yaw, double roll, float* matrix)
     {
         XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(matrix), XMMatrixRotationRollPitchYaw(float(pitch), float(yaw), float(roll)));
     }

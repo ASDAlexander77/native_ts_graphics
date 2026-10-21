@@ -16,6 +16,8 @@
 #include <random>
 #include <wincodec.h>
 
+#include "donut_api.h"
+
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "ole32.lib")
 
@@ -240,7 +242,7 @@ extern "C"
     // Scene::LoadPBRTScene does: the meshes with vertices and indices, their positions and normals
     // transformed by their transform, their materials as PrimitiveMaterialBuffer. Null (after
     // printing why) on failure; free it with Donut_DestroyPbrtScene.
-    PbrtScene* Donut_LoadPbrtScene(const char* path)
+    DONUT_API PbrtScene* Donut_LoadPbrtScene(const char* path)
     {
         SceneParser::Scene pbrtScene;
         // The parser finds the PLY files next to the scene by the last backslash.
@@ -310,36 +312,36 @@ extern "C"
         return scene;
     }
 
-    void Donut_DestroyPbrtScene(PbrtScene* scene)
+    DONUT_API void Donut_DestroyPbrtScene(PbrtScene* scene)
     {
         delete scene;
     }
 
-    int Donut_GetPbrtSceneMeshCount(PbrtScene* scene)
+    DONUT_API int Donut_GetPbrtSceneMeshCount(PbrtScene* scene)
     {
         return static_cast<int>(scene->meshes.size());
     }
 
-    int Donut_GetPbrtMeshVertexCount(PbrtScene* scene, int mesh)
+    DONUT_API int Donut_GetPbrtMeshVertexCount(PbrtScene* scene, int mesh)
     {
         return static_cast<int>(scene->meshes[mesh].vertices.size());
     }
 
-    int Donut_GetPbrtMeshIndexCount(PbrtScene* scene, int mesh)
+    DONUT_API int Donut_GetPbrtMeshIndexCount(PbrtScene* scene, int mesh)
     {
         return static_cast<int>(scene->meshes[mesh].indices.size());
     }
 
     // Copies a mesh's vertices into dst: 11 floats each (position, normal, texture coordinates,
     // tangent; 44 bytes, the sample's VertexPositionNormalTextureTangent).
-    void Donut_CopyPbrtMeshVertices(PbrtScene* scene, int mesh, void* dst)
+    DONUT_API void Donut_CopyPbrtMeshVertices(PbrtScene* scene, int mesh, void* dst)
     {
         const auto& vertices = scene->meshes[mesh].vertices;
         memcpy(dst, vertices.data(), vertices.size() * sizeof(VertexPositionNormalTextureTangent));
     }
 
     // Copies a mesh's 32-bit indices into dst.
-    void Donut_CopyPbrtMeshIndices(PbrtScene* scene, int mesh, void* dst)
+    DONUT_API void Donut_CopyPbrtMeshIndices(PbrtScene* scene, int mesh, void* dst)
     {
         const auto& indices = scene->meshes[mesh].indices;
         memcpy(dst, indices.data(), indices.size() * sizeof(UINT));
@@ -348,14 +350,14 @@ extern "C"
     // Copies a mesh's material into dst: the sample's PrimitiveMaterialBuffer, 24 floats / ints
     // (Kd, Ks, Kr, Kt, opacity, eta as float3s, roughness, then the ints hasDiffuseTexture,
     // hasNormalTexture, hasPerVertexTangents, type, and padding).
-    void Donut_CopyPbrtMeshMaterial(PbrtScene* scene, int mesh, void* dst)
+    DONUT_API void Donut_CopyPbrtMeshMaterial(PbrtScene* scene, int mesh, void* dst)
     {
         memcpy(dst, &scene->meshes[mesh].material, sizeof(PrimitiveMaterialBuffer));
     }
 
     // Non-zero if a mesh's geometry is opaque, as Scene::LoadPBRTScene flags it: unless it's
     // see-through (opacity below 0.99) or a perfect mirror (which AO rays then skip as occluders).
-    int Donut_IsPbrtMeshOpaque(PbrtScene* scene, int mesh)
+    DONUT_API int Donut_IsPbrtMeshOpaque(PbrtScene* scene, int mesh)
     {
         const auto& cb = scene->meshes[mesh].material;
         return cb.opacity.x > 0.99f && cb.opacity.y > 0.99f && cb.opacity.z > 0.99f &&
@@ -364,12 +366,12 @@ extern "C"
 
     // A mesh's diffuse and normal map texture files (full paths, as the scene's file names them),
     // "" for none. Valid as long as the scene.
-    const char* Donut_GetPbrtMeshDiffuseTexture(PbrtScene* scene, int mesh)
+    DONUT_API const char* Donut_GetPbrtMeshDiffuseTexture(PbrtScene* scene, int mesh)
     {
         return scene->meshes[mesh].diffuseTexture.c_str();
     }
 
-    const char* Donut_GetPbrtMeshNormalTexture(PbrtScene* scene, int mesh)
+    DONUT_API const char* Donut_GetPbrtMeshNormalTexture(PbrtScene* scene, int mesh)
     {
         return scene->meshes[mesh].normalTexture.c_str();
     }
@@ -378,7 +380,7 @@ extern "C"
     // the sample (its JPEG decoder differs a little from Donut's): width x height x 4 bytes into
     // dst (Ref of a `let` int array element, room for width x height ints), or with dst null only
     // the size. Returns width | height << 16, 0 on failure.
-    int Donut_DecodeWicImageRGBA8(const char* path, void* dst)
+    DONUT_API int Donut_DecodeWicImageRGBA8(const char* path, void* dst)
     {
         static bool comInitialized = false;
         if (!comInitialized)
@@ -418,7 +420,7 @@ extern "C"
     // multi-jittered samples on the cosine-weighted hemisphere (Samplers::MultiJittered, seeded
     // with 1729), taken one by one with GetHemisphereSample3D as the sample fills its buffer: 4
     // floats each (x, y, z, 0: AlignedHemisphereSample3D) into dst.
-    void Donut_GenerateRtaoHemisphereSamples(int samplesPerSet, int numSampleSets, float* dst)
+    DONUT_API void Donut_GenerateRtaoHemisphereSamples(int samplesPerSet, int numSampleSets, float* dst)
     {
         MultiJitteredSampler sampler;
         sampler.Reset(static_cast<UINT>(samplesPerSet), static_cast<UINT>(numSampleSets), 1.f);

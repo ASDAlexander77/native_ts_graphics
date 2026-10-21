@@ -223,9 +223,12 @@ def cpp_param(text):
 
 
 def parse_cpp(root):
-    """Donut_* functions: name -> (file, line, return type, [(type, name)])."""
+    """Donut_* functions: name -> (file, line, return type, [(type, name)]); the callback types;
+    and the (file, line, name) of the functions not marked DONUT_API (core/donut_api.h), which
+    donut_interop.dll wouldn't export."""
     functions = {}
     callbacks = {}
+    unexported = []
     for path in sorted(glob.glob(os.path.join(root, "core", "*.cpp"))):
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -236,11 +239,13 @@ def parse_cpp(root):
         for block in re.finditer(r'^extern "C"\s*\n\{\n(.*?)^\}', text, re.S | re.M):
             body = block.group(1)
             first_line = text[:block.start(1)].count("\n") + 1
-            for m in re.finditer(r"^    ([A-Za-z_][\w:<>\s\*&]*?[\s\*&])(Donut_\w+)\(([^)]*)\)\s*\n    \{", body, re.M):
+            for m in re.finditer(r"^    (DONUT_API )?([A-Za-z_][\w:<>\s\*&]*?[\s\*&])(Donut_\w+)\(([^)]*)\)\s*\n    \{", body, re.M):
                 line = first_line + body[:m.start()].count("\n")
-                functions[m.group(2)] = (rel, line, normalize(m.group(1)),
-                                         [cpp_param(p) for p in split_params(m.group(3))])
-    return functions, callbacks
+                functions[m.group(3)] = (rel, line, normalize(m.group(2)),
+                                         [cpp_param(p) for p in split_params(m.group(4))])
+                if not m.group(1):
+                    unexported.append((rel, line, m.group(3)))
+    return functions, callbacks, unexported
 
 
 def parse_ts(root):
@@ -344,9 +349,12 @@ def check(root, strict, fixes=None):
     return value, handle type) for each Opaque declaration --fix can rewrite."""
     if fixes is None:
         fixes = []
-    cpp, cpp_callbacks = parse_cpp(root)
+    cpp, cpp_callbacks, unexported = parse_cpp(root)
     ts, ts_callbacks, enums = parse_ts(root)
     problems = []
+
+    for path, line, name in unexported:
+        problems.append(f"{path}:{line}: {name} isn't marked DONUT_API, so donut_interop.dll doesn't export it")
 
     for name in sorted(set(cpp) - set(ts) - CPP_ONLY):
         path, line, _, _ = cpp[name]

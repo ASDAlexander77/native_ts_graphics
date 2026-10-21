@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+#include "donut_api.h"
+
 namespace
 {
     // DirectXTK's SDKMesh.h.
@@ -221,7 +223,7 @@ extern "C"
     // A SDKMESH file in memory (byteSize bytes, copied), checked as DirectXTK's
     // Model::CreateFromSDKMESH checks it. Null (after printing why) on failure; free it with
     // Donut_DestroySdkMesh.
-    SdkMesh* Donut_LoadSdkMesh(const void* data, int byteSize)
+    DONUT_API SdkMesh* Donut_LoadSdkMesh(const void* data, int byteSize)
     {
         auto fail = [](const char* reason) -> SdkMesh*
         {
@@ -359,163 +361,163 @@ extern "C"
         return mesh.release();
     }
 
-    void Donut_DestroySdkMesh(SdkMesh* sdkMesh)
+    DONUT_API void Donut_DestroySdkMesh(SdkMesh* sdkMesh)
     {
         delete sdkMesh;
     }
 
     // 101, or 200 for files with PBR materials.
-    int Donut_GetSdkMeshVersion(SdkMesh* sdkMesh)
+    DONUT_API int Donut_GetSdkMeshVersion(SdkMesh* sdkMesh)
     {
         return int(sdkMesh->header->Version);
     }
 
-    int Donut_GetSdkMeshVertexBufferCount(SdkMesh* sdkMesh)
+    DONUT_API int Donut_GetSdkMeshVertexBufferCount(SdkMesh* sdkMesh)
     {
         return int(sdkMesh->header->NumVertexBuffers);
     }
 
-    const void* Donut_GetSdkMeshVertexBufferData(SdkMesh* sdkMesh, int vertexBuffer)
+    DONUT_API const void* Donut_GetSdkMeshVertexBufferData(SdkMesh* sdkMesh, int vertexBuffer)
     {
         SdkMesh* mesh = sdkMesh;
         return mesh->bytes.data() + mesh->vertexBuffers[vertexBuffer].DataOffset;
     }
 
-    int Donut_GetSdkMeshVertexBufferSize(SdkMesh* sdkMesh, int vertexBuffer)
+    DONUT_API int Donut_GetSdkMeshVertexBufferSize(SdkMesh* sdkMesh, int vertexBuffer)
     {
         return int(sdkMesh->vertexBuffers[vertexBuffer].SizeBytes);
     }
 
-    int Donut_GetSdkMeshVertexBufferStride(SdkMesh* sdkMesh, int vertexBuffer)
+    DONUT_API int Donut_GetSdkMeshVertexBufferStride(SdkMesh* sdkMesh, int vertexBuffer)
     {
         return int(sdkMesh->vertexBuffers[vertexBuffer].StrideBytes);
     }
 
-    int Donut_GetSdkMeshVertexBufferVertexCount(SdkMesh* sdkMesh, int vertexBuffer)
+    DONUT_API int Donut_GetSdkMeshVertexBufferVertexCount(SdkMesh* sdkMesh, int vertexBuffer)
     {
         return int(sdkMesh->vertexBuffers[vertexBuffer].NumVertices);
     }
 
-    int Donut_GetSdkMeshVertexElementOffset(SdkMesh* sdkMesh, int vertexBuffer, int usage, int usageIndex)
+    DONUT_API int Donut_GetSdkMeshVertexElementOffset(SdkMesh* sdkMesh, int vertexBuffer, int usage, int usageIndex)
     {
         const D3DVERTEXELEMENT9* element = FindElement(sdkMesh->vertexBuffers[vertexBuffer], usage, usageIndex);
         return element ? int(element->Offset) : -1;
     }
 
-    int Donut_GetSdkMeshVertexElementType(SdkMesh* sdkMesh, int vertexBuffer, int usage, int usageIndex)
+    DONUT_API int Donut_GetSdkMeshVertexElementType(SdkMesh* sdkMesh, int vertexBuffer, int usage, int usageIndex)
     {
         const D3DVERTEXELEMENT9* element = FindElement(sdkMesh->vertexBuffers[vertexBuffer], usage, usageIndex);
         return element ? int(element->Type) : -1;
     }
 
-    int Donut_GetSdkMeshIndexBufferCount(SdkMesh* sdkMesh)
+    DONUT_API int Donut_GetSdkMeshIndexBufferCount(SdkMesh* sdkMesh)
     {
         return int(sdkMesh->header->NumIndexBuffers);
     }
 
-    const void* Donut_GetSdkMeshIndexBufferData(SdkMesh* sdkMesh, int indexBuffer)
+    DONUT_API const void* Donut_GetSdkMeshIndexBufferData(SdkMesh* sdkMesh, int indexBuffer)
     {
         SdkMesh* mesh = sdkMesh;
         return mesh->bytes.data() + mesh->indexBuffers[indexBuffer].DataOffset;
     }
 
-    int Donut_GetSdkMeshIndexBufferSize(SdkMesh* sdkMesh, int indexBuffer)
+    DONUT_API int Donut_GetSdkMeshIndexBufferSize(SdkMesh* sdkMesh, int indexBuffer)
     {
         return int(sdkMesh->indexBuffers[indexBuffer].SizeBytes);
     }
 
-    int Donut_GetSdkMeshIndexBufferIndexCount(SdkMesh* sdkMesh, int indexBuffer)
+    DONUT_API int Donut_GetSdkMeshIndexBufferIndexCount(SdkMesh* sdkMesh, int indexBuffer)
     {
         return int(sdkMesh->indexBuffers[indexBuffer].NumIndices);
     }
 
-    int Donut_IsSdkMeshIndexBuffer32Bit(SdkMesh* sdkMesh, int indexBuffer)
+    DONUT_API int Donut_IsSdkMeshIndexBuffer32Bit(SdkMesh* sdkMesh, int indexBuffer)
     {
         return sdkMesh->indexBuffers[indexBuffer].IndexType == 1 ? 1 : 0;
     }
 
-    int Donut_GetSdkMeshMeshCount(SdkMesh* sdkMesh)
+    DONUT_API int Donut_GetSdkMeshMeshCount(SdkMesh* sdkMesh)
     {
         return int(sdkMesh->header->NumMeshes);
     }
 
-    const char* Donut_GetSdkMeshMeshName(SdkMesh* sdkMesh, int mesh)
+    DONUT_API const char* Donut_GetSdkMeshMeshName(SdkMesh* sdkMesh, int mesh)
     {
         return sdkMesh->meshNames[mesh].c_str();
     }
 
-    int Donut_GetSdkMeshMeshVertexBuffer(SdkMesh* sdkMesh, int mesh)
+    DONUT_API int Donut_GetSdkMeshMeshVertexBuffer(SdkMesh* sdkMesh, int mesh)
     {
         return int(sdkMesh->meshes[mesh].VertexBuffers[0]);
     }
 
-    int Donut_GetSdkMeshMeshIndexBuffer(SdkMesh* sdkMesh, int mesh)
+    DONUT_API int Donut_GetSdkMeshMeshIndexBuffer(SdkMesh* sdkMesh, int mesh)
     {
         return int(sdkMesh->meshes[mesh].IndexBuffer);
     }
 
-    int Donut_GetSdkMeshMeshSubsetCount(SdkMesh* sdkMesh, int mesh)
+    DONUT_API int Donut_GetSdkMeshMeshSubsetCount(SdkMesh* sdkMesh, int mesh)
     {
         return int(sdkMesh->meshes[mesh].NumSubsets);
     }
 
-    int Donut_GetSdkMeshMeshSubset(SdkMesh* sdkMesh, int mesh, int index)
+    DONUT_API int Donut_GetSdkMeshMeshSubset(SdkMesh* sdkMesh, int mesh, int index)
     {
         SdkMesh* m = sdkMesh;
         const auto* subsets = reinterpret_cast<const uint32_t*>(m->bytes.data() + m->meshes[mesh].SubsetOffset);
         return int(subsets[index]);
     }
 
-    void Donut_CopySdkMeshMeshBounds(SdkMesh* sdkMesh, int mesh, float* dst)
+    DONUT_API void Donut_CopySdkMeshMeshBounds(SdkMesh* sdkMesh, int mesh, float* dst)
     {
         const SDKMESH_MESH& m = sdkMesh->meshes[mesh];
         memcpy(dst, m.BoundingBoxCenter, 3 * sizeof(float));
         memcpy(dst + 3, m.BoundingBoxExtents, 3 * sizeof(float));
     }
 
-    int Donut_GetSdkMeshSubsetMaterial(SdkMesh* sdkMesh, int subset)
+    DONUT_API int Donut_GetSdkMeshSubsetMaterial(SdkMesh* sdkMesh, int subset)
     {
         return int(sdkMesh->subsets[subset].MaterialID);
     }
 
-    int Donut_GetSdkMeshSubsetPrimitiveType(SdkMesh* sdkMesh, int subset)
+    DONUT_API int Donut_GetSdkMeshSubsetPrimitiveType(SdkMesh* sdkMesh, int subset)
     {
         return int(sdkMesh->subsets[subset].PrimitiveType);
     }
 
-    int Donut_GetSdkMeshSubsetIndexStart(SdkMesh* sdkMesh, int subset)
+    DONUT_API int Donut_GetSdkMeshSubsetIndexStart(SdkMesh* sdkMesh, int subset)
     {
         return int(sdkMesh->subsets[subset].IndexStart);
     }
 
-    int Donut_GetSdkMeshSubsetIndexCount(SdkMesh* sdkMesh, int subset)
+    DONUT_API int Donut_GetSdkMeshSubsetIndexCount(SdkMesh* sdkMesh, int subset)
     {
         return int(sdkMesh->subsets[subset].IndexCount);
     }
 
-    int Donut_GetSdkMeshSubsetVertexStart(SdkMesh* sdkMesh, int subset)
+    DONUT_API int Donut_GetSdkMeshSubsetVertexStart(SdkMesh* sdkMesh, int subset)
     {
         return int(sdkMesh->subsets[subset].VertexStart);
     }
 
-    int Donut_GetSdkMeshSubsetVertexCount(SdkMesh* sdkMesh, int subset)
+    DONUT_API int Donut_GetSdkMeshSubsetVertexCount(SdkMesh* sdkMesh, int subset)
     {
         return int(sdkMesh->subsets[subset].VertexCount);
     }
 
-    int Donut_GetSdkMeshMaterialCount(SdkMesh* sdkMesh)
+    DONUT_API int Donut_GetSdkMeshMaterialCount(SdkMesh* sdkMesh)
     {
         return int(sdkMesh->header->NumMaterials);
     }
 
-    const char* Donut_GetSdkMeshMaterialName(SdkMesh* sdkMesh, int material)
+    DONUT_API const char* Donut_GetSdkMeshMaterialName(SdkMesh* sdkMesh, int material)
     {
         return sdkMesh->materialNames[material].c_str();
     }
 
     // which: 0 diffuse (version 200: albedo), 1 normal, 2 specular (version 200: roughness /
     // metallic / ambient occlusion), 3 emissive (version 200 only).
-    const char* Donut_GetSdkMeshMaterialTexture(SdkMesh* sdkMesh, int material, int which)
+    DONUT_API const char* Donut_GetSdkMeshMaterialTexture(SdkMesh* sdkMesh, int material, int which)
     {
         if (which < 0 || which > 3)
             return "";
@@ -524,7 +526,7 @@ extern "C"
 
     // Version 101: diffuse, ambient, specular and emissive (RGBA each), then the specular power (17
     // floats). Version 200: the alpha (1 float).
-    void Donut_CopySdkMeshMaterialColors(SdkMesh* sdkMesh, int material, float* dst)
+    DONUT_API void Donut_CopySdkMeshMaterialColors(SdkMesh* sdkMesh, int material, float* dst)
     {
         SdkMesh* m = sdkMesh;
         if (m->materialsV2)
@@ -540,30 +542,30 @@ extern "C"
         dst[16] = mat.Power;
     }
 
-    int Donut_GetSdkMeshFrameCount(SdkMesh* sdkMesh)
+    DONUT_API int Donut_GetSdkMeshFrameCount(SdkMesh* sdkMesh)
     {
         return int(sdkMesh->header->NumFrames);
     }
 
-    const char* Donut_GetSdkMeshFrameName(SdkMesh* sdkMesh, int frame)
+    DONUT_API const char* Donut_GetSdkMeshFrameName(SdkMesh* sdkMesh, int frame)
     {
         return sdkMesh->frameNames[frame].c_str();
     }
 
     // The frame's mesh and parent frame, -1 for none.
-    int Donut_GetSdkMeshFrameMesh(SdkMesh* sdkMesh, int frame)
+    DONUT_API int Donut_GetSdkMeshFrameMesh(SdkMesh* sdkMesh, int frame)
     {
         return int(sdkMesh->frames[frame].Mesh);
     }
 
-    int Donut_GetSdkMeshFrameParent(SdkMesh* sdkMesh, int frame)
+    DONUT_API int Donut_GetSdkMeshFrameParent(SdkMesh* sdkMesh, int frame)
     {
         return int(sdkMesh->frames[frame].ParentFrame);
     }
 
     // The frame's transform relative to its parent: 16 floats, row-major for mul(vector, matrix)
     // (DirectXMath's layout).
-    void Donut_CopySdkMeshFrameMatrix(SdkMesh* sdkMesh, int frame, float* dst)
+    DONUT_API void Donut_CopySdkMeshFrameMatrix(SdkMesh* sdkMesh, int frame, float* dst)
     {
         memcpy(dst, sdkMesh->frames[frame].Matrix, 16 * sizeof(float));
     }

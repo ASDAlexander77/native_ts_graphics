@@ -13,6 +13,8 @@
 #include <memory>
 #include <vector>
 
+#include "donut_api.h"
+
 namespace
 {
     // Model.cpp's file layout.
@@ -214,7 +216,7 @@ extern "C"
 {
     // A meshlet model file in memory (byteSize bytes, copied), checked as the samples' loader checks
     // it. Null (after printing why) on failure; free it with Donut_DestroyMeshletModel.
-    MeshletModel* Donut_LoadMeshletModel(const void* data, int byteSize)
+    DONUT_API MeshletModel* Donut_LoadMeshletModel(const void* data, int byteSize)
     {
         auto fail = [](const char* reason) -> MeshletModel*
         {
@@ -343,86 +345,86 @@ extern "C"
         return model.release();
     }
 
-    void Donut_DestroyMeshletModel(MeshletModel* model)
+    DONUT_API void Donut_DestroyMeshletModel(MeshletModel* model)
     {
         delete model;
     }
 
-    int Donut_GetMeshletModelMeshCount(MeshletModel* model)
+    DONUT_API int Donut_GetMeshletModelMeshCount(MeshletModel* model)
     {
         return int(model->meshes.size());
     }
 
     // A mesh's vertex buffers: their count, data, size in bytes and stride; its vertex count.
-    int Donut_GetMeshletModelVertexBufferCount(MeshletModel* model, int mesh)
+    DONUT_API int Donut_GetMeshletModelVertexBufferCount(MeshletModel* model, int mesh)
     {
         return int(model->meshes[mesh].vertices.size());
     }
 
-    const void* Donut_GetMeshletModelVertexBufferData(MeshletModel* model, int mesh, int vertexBuffer)
+    DONUT_API const void* Donut_GetMeshletModelVertexBufferData(MeshletModel* model, int mesh, int vertexBuffer)
     {
         return model->meshes[mesh].vertices[vertexBuffer].data;
     }
 
-    int Donut_GetMeshletModelVertexBufferSize(MeshletModel* model, int mesh, int vertexBuffer)
+    DONUT_API int Donut_GetMeshletModelVertexBufferSize(MeshletModel* model, int mesh, int vertexBuffer)
     {
         return int(model->meshes[mesh].vertices[vertexBuffer].size);
     }
 
-    int Donut_GetMeshletModelVertexBufferStride(MeshletModel* model, int mesh, int vertexBuffer)
+    DONUT_API int Donut_GetMeshletModelVertexBufferStride(MeshletModel* model, int mesh, int vertexBuffer)
     {
         return int(model->meshes[mesh].vertexStrides[vertexBuffer]);
     }
 
     // Copies a vertex buffer into dst (Donut_GetMeshletModelVertexBufferSize bytes).
-    void Donut_CopyMeshletModelVertexBuffer(MeshletModel* model, int mesh, int vertexBuffer, void* dst)
+    DONUT_API void Donut_CopyMeshletModelVertexBuffer(MeshletModel* model, int mesh, int vertexBuffer, void* dst)
     {
         const Span& span = model->meshes[mesh].vertices[vertexBuffer];
         std::memcpy(dst, span.data, span.size);
     }
 
-    int Donut_GetMeshletModelVertexCount(MeshletModel* model, int mesh)
+    DONUT_API int Donut_GetMeshletModelVertexCount(MeshletModel* model, int mesh)
     {
         return int(model->meshes[mesh].vertexCount);
     }
 
     // The vertex buffer an attribute (0 position, 1 normal, 2 texture coordinates, 3 tangent,
     // 4 bitangent) is in, -1 if the mesh hasn't it; and its byte offset in a vertex.
-    int Donut_GetMeshletModelAttributeBuffer(MeshletModel* model, int mesh, int attribute)
+    DONUT_API int Donut_GetMeshletModelAttributeBuffer(MeshletModel* model, int mesh, int attribute)
     {
         return model->meshes[mesh].attributeBuffer[attribute];
     }
 
-    int Donut_GetMeshletModelAttributeOffset(MeshletModel* model, int mesh, int attribute)
+    DONUT_API int Donut_GetMeshletModelAttributeOffset(MeshletModel* model, int mesh, int attribute)
     {
         return int(model->meshes[mesh].attributeOffset[attribute]);
     }
 
     // Bytes per index of the mesh's index buffer and unique vertex indices: 2 or 4.
-    int Donut_GetMeshletModelIndexSize(MeshletModel* model, int mesh)
+    DONUT_API int Donut_GetMeshletModelIndexSize(MeshletModel* model, int mesh)
     {
         return int(model->meshes[mesh].indexSize);
     }
 
     // A MeshletModelData part of a mesh: its data (valid until the model is freed), size in bytes
     // and element count (indices, subsets, meshlets, primitives, cull data).
-    const void* Donut_GetMeshletModelData(MeshletModel* model, int mesh, int which)
+    DONUT_API const void* Donut_GetMeshletModelData(MeshletModel* model, int mesh, int which)
     {
         return model->meshes[mesh].data[which].data;
     }
 
-    int Donut_GetMeshletModelDataSize(MeshletModel* model, int mesh, int which)
+    DONUT_API int Donut_GetMeshletModelDataSize(MeshletModel* model, int mesh, int which)
     {
         return int(model->meshes[mesh].data[which].size);
     }
 
-    int Donut_GetMeshletModelDataCount(MeshletModel* model, int mesh, int which)
+    DONUT_API int Donut_GetMeshletModelDataCount(MeshletModel* model, int mesh, int which)
     {
         return int(model->meshes[mesh].data[which].count);
     }
 
     // Copies a part of a mesh into dst (its size in bytes, Donut_GetMeshletModelDataSize).
-    void Donut_CopyMeshletModelData(MeshletModel* model, int mesh, int which, void* dst)
+    DONUT_API void Donut_CopyMeshletModelData(MeshletModel* model, int mesh, int which, void* dst)
     {
         const Span& span = model->meshes[mesh].data[which];
         std::memcpy(dst, span.data, span.size);
@@ -430,7 +432,7 @@ extern "C"
 
     // The bounding sphere (center, radius: 4 floats into dst) of a mesh, or with mesh -1 of the
     // whole model.
-    void Donut_CopyMeshletModelBoundingSphere(MeshletModel* model, int mesh, float* dst)
+    DONUT_API void Donut_CopyMeshletModelBoundingSphere(MeshletModel* model, int mesh, float* dst)
     {
         const Sphere& sphere = mesh < 0 ? model->boundingSphere : model->meshes[mesh].boundingSphere;
         dst[0] = sphere.center[0];
