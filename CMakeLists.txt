@@ -567,7 +567,7 @@ endif()
 # lib<name>.so and bin/<name>.apk (see above), with the media files and folders listed in
 # <media> (paths in the media folder) and the further sources after it
 function(add_tslang_android_app name media)
-    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts core/input_pass.ts core/args.ts core/test_check.ts core/donut.ts ${ARGN}
+    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts core/input_pass.ts core/args.ts core/test_check.ts core/glfw_input.ts core/donut.ts ${ARGN}
         core/android_main.cpp "${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c")
     set_target_properties(${name}_app PROPERTIES
         OUTPUT_NAME ${name}
