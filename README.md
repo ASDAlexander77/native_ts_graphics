@@ -551,8 +551,12 @@ next to the NDK, or `ANDROID_SDK_DIR`), a JDK (`JAVA_HOME`, or `ANDROID_JAVA_HOM
 `rt_reflections` has no APK that builds: it is D3D12-only.
 
 The window is the activity's, through GLFW's Android platform
-(`patches/glfw-android-platform.patch`): touch drives the mouse cursor and left button, Back is
-Escape, and the display density is the content scale. What the examples print goes to logcat
+(`patches/glfw-android-platform.patch`): one finger drives the mouse cursor and left button
+(look around, orbit), Back is Escape, and the display density is the content scale. Two fingers
+navigate a 3D view through the input the cameras already read: their centre is the cursor with the
+middle button down (pan), spreading or pinching scrolls (zoom) and, past a dead zone, holds W/S
+(forward/back); moving their centre holds D/A (right/left) and E/Q (up/down) until they come back
+or are lifted. What the examples print goes to logcat
 under their name. An example runs once per process: Back, or the activity leaving the screen,
 closes it and the process exits. Their shaders and media are extracted into the app's storage on
 the first start after an install.

@@ -146,10 +146,10 @@ index 00000000..276a5aba
 +GLFWbool _glfwConnectAndroid(int platformID, _GLFWplatform* platform);
 diff --git a/src/android_window.c b/src/android_window.c
 new file mode 100644
-index 00000000..63b476dc
+index 00000000..4dc9c9a2
 --- /dev/null
 +++ b/src/android_window.c
-@@ -0,0 +1,648 @@
+@@ -0,0 +1,806 @@
 +//========================================================================
 +// GLFW 3.4 Android - www.glfw.org
 +//------------------------------------------------------------------------
@@ -178,6 +178,7 @@ index 00000000..63b476dc
 +
 +#include "internal.h"
 +
++#include <math.h>
 +#include <string.h>
 +
 +#include <android/configuration.h>
@@ -211,6 +212,15 @@ index 00000000..63b476dc
 +    float               contentScale;
 +    // the pointer that drives the cursor and the left mouse button, -1 while none is down
 +    int32_t             pointerId;
++    // the two-finger gesture: the two pointers while it is active, its distance and centre when
++    // it started and at the last move, and the keys it holds down (see gestureKeyCodes)
++    GLFWbool            gestureActive;
++    int32_t             gesturePointers[2];
++    float               gestureStart[3];
++    float               gestureLast[3];
++    GLFWbool            gestureKeys[6];
++    // after a gesture, the fingers still down don't drive the left button until all are lifted
++    GLFWbool            ignoreTouch;
 +} _glfwAndroid = { NULL, NULL, 1.f, -1 };
 +
 +
@@ -448,8 +458,128 @@ index 00000000..63b476dc
 +    _glfwInputCursorPos(window, AMotionEvent_getX(event, index), AMotionEvent_getY(event, index));
 +}
 +
++// Two fingers navigate a 3D view without a keyboard or a mouse wheel, through the input the
++// examples' cameras already read:
++//   - the centre of the fingers is the cursor, with the middle mouse button down (panning the
++//     orbit camera);
++//   - spreading or pinching the fingers scrolls (zooming it), a notch per GESTURE_SCROLL_STEP;
++//   - moving the fingers apart from their start distance, or their centre from its start, past a
++//     dead zone holds a key down until they come back or are lifted: W/S for spread/pinch, D/A for
++//     the centre right/left, E/Q for it up/down, which move a first person camera.
++// The first finger's left button is released when the second one comes down.
++
++#define GESTURE_SCROLL_STEP 48.f
++#define GESTURE_PINCH_DEAD  40.f
++#define GESTURE_PAN_DEAD    32.f
++
++static const int gestureKeyCodes[6] =
++{
++    GLFW_KEY_W, GLFW_KEY_S, GLFW_KEY_D, GLFW_KEY_A, GLFW_KEY_E, GLFW_KEY_Q
++};
++
++static void setGestureKey(_GLFWwindow* window, int which, GLFWbool held)
++{
++    if (_glfwAndroid.gestureKeys[which] == held)
++        return;
++
++    _glfwAndroid.gestureKeys[which] = held;
++    _glfwInputKey(window, gestureKeyCodes[which], 0, held ? GLFW_PRESS : GLFW_RELEASE, 0);
++}
++
++// The distance between the gesture's fingers and their centre, if both are in the event
++static GLFWbool measureGesture(const AInputEvent* event, float* measure)
++{
++    const int32_t a = findPointer(event, _glfwAndroid.gesturePointers[0]);
++    const int32_t b = findPointer(event, _glfwAndroid.gesturePointers[1]);
++    if (a < 0 || b < 0)
++        return GLFW_FALSE;
++
++    const float ax = AMotionEvent_getX(event, a), ay = AMotionEvent_getY(event, a);
++    const float bx = AMotionEvent_getX(event, b), by = AMotionEvent_getY(event, b);
++    measure[0] = hypotf(bx - ax, by - ay);
++    measure[1] = (ax + bx) * 0.5f;
++    measure[2] = (ay + by) * 0.5f;
++    return GLFW_TRUE;
++}
++
++static void inputCursorPos(_GLFWwindow* window, float x, float y)
++{
++    _glfw.null.xcursor = (int) x;
++    _glfw.null.ycursor = (int) y;
++    _glfwInputCursorPos(window, x, y);
++}
++
++static void beginGesture(_GLFWwindow* window, const AInputEvent* event)
++{
++    if (_glfwAndroid.pointerId >= 0)
++    {
++        _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
++        _glfwAndroid.pointerId = -1;
++    }
++
++    _glfwAndroid.gesturePointers[0] = AMotionEvent_getPointerId(event, 0);
++    _glfwAndroid.gesturePointers[1] = AMotionEvent_getPointerId(event, 1);
++
++    float measure[3];
++    if (!measureGesture(event, measure))
++        return;
++
++    memcpy(_glfwAndroid.gestureStart, measure, sizeof(measure));
++    memcpy(_glfwAndroid.gestureLast, measure, sizeof(measure));
++    memset(_glfwAndroid.gestureKeys, 0, sizeof(_glfwAndroid.gestureKeys));
++    _glfwAndroid.gestureActive = GLFW_TRUE;
++
++    inputCursorPos(window, measure[1], measure[2]);
++    _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_MIDDLE, GLFW_PRESS, 0);
++}
++
++static void endGesture(_GLFWwindow* window)
++{
++    if (!_glfwAndroid.gestureActive)
++        return;
++
++    for (int i = 0;  i < 6;  i++)
++        setGestureKey(window, i, GLFW_FALSE);
++
++    _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_MIDDLE, GLFW_RELEASE, 0);
++    _glfwAndroid.gestureActive = GLFW_FALSE;
++    _glfwAndroid.ignoreTouch = GLFW_TRUE;
++}
++
++static void moveGesture(_GLFWwindow* window, const AInputEvent* event)
++{
++    float measure[3];
++    if (!measureGesture(event, measure))
++        return;
++
++    const float scale = _glfwAndroid.contentScale;
++    const float* start = _glfwAndroid.gestureStart;
++    const float* last = _glfwAndroid.gestureLast;
++
++    inputCursorPos(window, measure[1], measure[2]);
++
++    const float notches = (measure[0] - last[0]) / (GESTURE_SCROLL_STEP * scale);
++    if (notches != 0.f)
++        _glfwInputScroll(window, 0.0, notches);
++
++    const float pinchDead = GESTURE_PINCH_DEAD * scale;
++    const float panDead = GESTURE_PAN_DEAD * scale;
++    const float spread = measure[0] - start[0];
++    const float right = measure[1] - start[1];
++    const float up = start[2] - measure[2];
++    setGestureKey(window, 0, spread > pinchDead);
++    setGestureKey(window, 1, spread < -pinchDead);
++    setGestureKey(window, 2, right > panDead);
++    setGestureKey(window, 3, right < -panDead);
++    setGestureKey(window, 4, up > panDead);
++    setGestureKey(window, 5, up < -panDead);
++
++    memcpy(_glfwAndroid.gestureLast, measure, sizeof(measure));
++}
++
 +// A touch, or a mouse, drives the cursor and the left mouse button: the first finger down does,
-+// until it is lifted; the other fingers are ignored
++// until it is lifted or a second one comes down, which starts a gesture (see above); a third
++// finger is ignored
 +//
 +static int32_t handleMotionEvent(_GLFWwindow* window, const AInputEvent* event)
 +{
@@ -461,13 +591,28 @@ index 00000000..63b476dc
 +    switch (action & AMOTION_EVENT_ACTION_MASK)
 +    {
 +        case AMOTION_EVENT_ACTION_DOWN:
++            _glfwAndroid.ignoreTouch = GLFW_FALSE;
 +            _glfwAndroid.pointerId = AMotionEvent_getPointerId(event, 0);
 +            inputPointerPos(window, event, 0);
 +            _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, mods);
 +            return 1;
 +
++        case AMOTION_EVENT_ACTION_POINTER_DOWN:
++            if (!_glfwAndroid.gestureActive && !_glfwAndroid.ignoreTouch &&
++                AMotionEvent_getPointerCount(event) == 2)
++            {
++                beginGesture(window, event);
++            }
++            return 1;
++
 +        case AMOTION_EVENT_ACTION_MOVE:
 +        {
++            if (_glfwAndroid.gestureActive)
++            {
++                moveGesture(window, event);
++                return 1;
++            }
++
 +            const int32_t pointer = findPointer(event, _glfwAndroid.pointerId);
 +            if (pointer >= 0)
 +                inputPointerPos(window, event, pointer);
@@ -479,6 +624,13 @@ index 00000000..63b476dc
 +            return 1;
 +
 +        case AMOTION_EVENT_ACTION_POINTER_UP:
++            if (_glfwAndroid.gestureActive)
++            {
++                const int32_t id = AMotionEvent_getPointerId(event, index);
++                if (id == _glfwAndroid.gesturePointers[0] || id == _glfwAndroid.gesturePointers[1])
++                    endGesture(window);
++                return 1;
++            }
 +            if (AMotionEvent_getPointerId(event, index) != _glfwAndroid.pointerId)
 +                return 1;
 +            // the primary pointer is lifted while others stay down
@@ -489,6 +641,8 @@ index 00000000..63b476dc
 +
 +        case AMOTION_EVENT_ACTION_UP:
 +        case AMOTION_EVENT_ACTION_CANCEL:
++            endGesture(window);
++            _glfwAndroid.ignoreTouch = GLFW_FALSE;
 +            if (_glfwAndroid.pointerId < 0)
 +                return 1;
 +            {
@@ -573,6 +727,8 @@ index 00000000..63b476dc
 +    _glfwAndroid.app->onAppCmd = handleCommand;
 +    _glfwAndroid.app->onInputEvent = handleInput;
 +    _glfwAndroid.pointerId = -1;
++    _glfwAndroid.gestureActive = GLFW_FALSE;
++    _glfwAndroid.ignoreTouch = GLFW_FALSE;
 +    updateContentScale();
 +
 +    return _glfwInitNull();
@@ -649,6 +805,8 @@ index 00000000..63b476dc
 +    {
 +        _glfwAndroid.window = NULL;
 +        _glfwAndroid.pointerId = -1;
++        _glfwAndroid.gestureActive = GLFW_FALSE;
++        _glfwAndroid.ignoreTouch = GLFW_FALSE;
 +    }
 +
 +    _glfwDestroyWindowNull(window);
