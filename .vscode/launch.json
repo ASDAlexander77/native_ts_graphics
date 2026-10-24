@@ -39,8 +39,9 @@
             // and tslang would otherwise only add it after the default library.
             "args": [
                 "--di", "--opt_level=0",
+                "--tslang-lib-path=${workspaceFolder}/tools/tslang",
                 "--default-lib-path=${workspaceFolder}/tools/tslang",
-                "--shared-libs=build/libdonut_interop_shared.so", "${file}", "--", "-vk"
+                "--shared-libs=build/bin/libdonut_interop_shared.so", "${file}", "--", "-vk"
             ],
             "stopAtEntry": false,
             "miDebuggerPath": "/usr/bin/gdb",
