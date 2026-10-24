@@ -589,7 +589,7 @@ def main():
     handles = set()
     if os.path.exists(HANDLES):
         with open(HANDLES, encoding="utf-8") as f:
-            handles = set(re.findall(r"^declare class (\w+)", f.read(), re.M))
+            handles = set(re.findall(r"^(?:@cpp )?declare class (\w+)", f.read(), re.M))
     if "--report" in sys.argv:
         report(functions)
     text = generate(functions, handles)

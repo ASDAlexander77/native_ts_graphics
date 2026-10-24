@@ -274,7 +274,7 @@ def handle_classes(root):
     with open(path, encoding="utf-8") as f:
         text = f.read()
     return {m.group(1): m.group(2) for m in
-            re.finditer(r"^declare class (\w+)(?: extends (\w+))? \{", text, re.M)}
+            re.finditer(r"^(?:@cpp )?declare class (\w+)(?: extends (\w+))? \{", text, re.M)}
 
 
 def accepted(cpp_type, enums):
