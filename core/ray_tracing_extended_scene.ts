@@ -27,6 +27,7 @@ class FlameParticle {
     }
 }
 
+@final
 export class FlameParticleGenerator {
     particles: FlameParticle[];
     private origin: number[];
@@ -102,6 +103,7 @@ export class FlameParticleGenerator {
 }
 
 // Geometry in NewVertex layout, before it goes to the static buffers.
+@final
 export class Model {
     vertices: f32[];
     triangles: int[];
@@ -117,6 +119,7 @@ export class Model {
 }
 
 // A model's place in the static or dynamic buffers, and its BLAS.
+@final
 export class ModelBuffer {
     vertexOffset: int; // in bytes
     indexOffset: int;  // in bytes

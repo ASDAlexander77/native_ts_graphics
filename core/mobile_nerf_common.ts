@@ -22,6 +22,7 @@ const CHAR_LOWER_E = 101;
 
 // Reads the numbers of mlp.json's arrays: { "obj_num": 1, "0_weights": [[...], ...], "0_bias":
 // [...], ... }.
+@final
 export class MlpReader {
     private bytes: int[];
     private pos: int;
@@ -156,6 +157,7 @@ function normalize(v: number[]) {
 
 // The sample's camera (the framework's vkb::Camera, look-at type), with ApiVulkanSample's mouse
 // controls: the left button turns it, the right one zooms, the middle one pans.
+@final
 export class MobileNerfCamera {
     rotation: number[];
     position: number[];
@@ -197,12 +199,13 @@ export class MobileNerfCamera {
             qy = root * (row2[0] - row0[2]);
             qz = root * (row0[1] - row1[0]);
         } else {
+            // the rows are the array's now: read through it (-mm=own moves them in)
             const rows = [row0, row1, row2];
             let i = 0;
-            if (row1[1] > row0[0]) {
+            if (rows[1][1] > rows[0][0]) {
                 i = 1;
             }
-            if (row2[2] > rows[i][i]) {
+            if (rows[2][2] > rows[i][i]) {
                 i = 2;
             }
             const j = (i + 1) % 3;

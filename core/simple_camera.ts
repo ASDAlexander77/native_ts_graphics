@@ -10,6 +10,7 @@ import { KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP } fro
 // DirectX-Graphics-Samples' SimpleCamera: WASD move it, the arrow keys turn it (pitch within 45
 // degrees up and down), at its move and turn speeds per second. Escape closes the window, as in
 // the other examples, rather than putting the camera back.
+@final
 export class SimpleCamera {
     private initialPosition: number[];
     position: number[];

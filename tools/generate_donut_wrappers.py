@@ -430,16 +430,22 @@ def emit_method(out, function, cls, is_static):
     else:
         returns = function.returns
         body = [f"{call};" if returns == "void" else f"return {call};"]
-    body = [f"{retained_array(p.type)}.push({p.name});" for p in params if p.is_callback] + body
+    # The callbacks are kept in their retained arrays for good (see RETAINED_COMMENT), which the
+    # method says with @immortalizes: under -mm=own its callers make what they pass immortal.
+    kept = [p for p in params if p.is_callback]
+    if kept:
+        body = [f"{retained_array(p.type)}.push({p.name});" for p in kept] + [""] + body
     name = method_name(function, cls)
     signature = f"{'static ' if is_static else ''}{name}({', '.join(p.declaration() for p in params)}): {returns}"
 
     out.append("")
     for comment in comments_for(function, function.previous):
         out.append(f"    {comment}")
+    if kept:
+        out.append(f"    @immortalizes({', '.join(repr(p.name).replace(chr(39), chr(34)) for p in kept)})")
     out.append(f"    {signature} {{")
     for line in body:
-        out.append(f"        {line}")
+        out.append(f"        {line}" if line else "")
     out.append("    }")
     return name
 
@@ -452,7 +458,10 @@ RETAINED_COMMENT = """\
 // The callbacks handed to Donut, kept for as long as the program runs: a callback is a method of
 // an object (an InputPass, a render pass) that Donut's C++ memory may be the only one to reference
 // once it is set, and the collector doesn't scan that memory on Linux or Android (on Windows it
-// scans all writable memory, so it found them there)."""
+// scans all writable memory, so it found them there). Only ever pushed onto, so under -mm=own what
+// they keep - the object a callback is a method of, a closure's box and what it captures - is made
+// immortal where it is registered (tslang's docs/superpowers/specs/2026-10-25-own-immortal-keepers-
+// design.md)."""
 
 
 def handle_type(cls, handles):

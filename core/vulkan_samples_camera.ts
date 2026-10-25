@@ -12,6 +12,7 @@ import { KEY_A, KEY_D, KEY_S, KEY_W, ACTION_RELEASE } from "./glfw_input";
 // vkb::Camera, look-at type, with ApiVulkanSample's mouse controls: the left button turns it, the
 // right one (or the wheel) zooms, the middle one pans. Starts at position (a translation) and
 // rotation (degrees around x, y, z).
+@final
 export class LookAtCamera {
     rotation: number[];
     position: number[];
@@ -71,6 +72,7 @@ export class LookAtCamera {
 // vkb::Camera, first person type, with ApiVulkanSample's controls: W, S, A, D move it (1 unit per
 // second), the left mouse button turns it, the right one moves it along its view, the middle one
 // pans. Starts at position and rotation (degrees around x, y, z).
+@final
 export class FirstPersonCamera {
     rotation: number[];
     position: number[];
@@ -172,6 +174,7 @@ export class FirstPersonCamera {
 // ApiVulkanSample's own view (not its camera): zoom, rotation and camera_pos, with its mouse
 // controls: the left button turns (1.25 degrees per pixel), the right one zooms, the middle one
 // pans.
+@final
 export class SampleView {
     zoom: number;
     rotation: number[];
