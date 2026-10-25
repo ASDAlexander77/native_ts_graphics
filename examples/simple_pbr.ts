@@ -5,7 +5,6 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { rotationY, transpose, inverse, cross3, dot3, multiplyF32 } from "../core/matrix";
-import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace SimplePbr {
     // Test mode: the frames rendered.
@@ -750,7 +749,7 @@ namespace SimplePbr {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key >= 0 && key < 512) {
                 this.input.held[key] = action != Action.Release;
             }
@@ -767,7 +766,7 @@ namespace SimplePbr {
             return 0;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             if (button == MouseButton.Left) {
                 this.input.leftButton = action != Action.Release;
             } else if (button == MouseButton.Right) {

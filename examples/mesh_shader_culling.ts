@@ -3,7 +3,6 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { Key, Action } from "../core/glfw_input";
 
 namespace MeshShaderCulling {
     // Test mode: the frames rendered.
@@ -151,7 +150,7 @@ namespace MeshShaderCulling {
         }
 
         // ApiVulkanSample's keys: WASD move the camera while held.
-        onKeyboard(key: int, scancode: int, action: int, mods: int) {
+        onKeyboard(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }

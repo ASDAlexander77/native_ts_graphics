@@ -3,7 +3,6 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { PagedImageSet } from "../core/paged_images";
-import { Key, Action } from "../core/glfw_input";
 
 namespace MemoryManagement {
     const WINDOW_TITLE = "Donut Example: Memory Management";
@@ -335,7 +334,7 @@ namespace MemoryManagement {
             return total / STATISTIC_COUNT;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action == Action.Release) {
                 return 0;
             }
@@ -366,7 +365,7 @@ namespace MemoryManagement {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             if (button == 0) {
                 this.mouseDown = action == 1;
             }

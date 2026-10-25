@@ -8,7 +8,6 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, matrixScaling,
     matrixTranslation, normalize3, radians, transformCoord3, transformNormal3, vadd, vsub,
 } from "../core/directx_math";
-import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace DenoisedRtao {
     const WINDOW_TITLE = "D3D12 Raytracing Real-Time Denoised Ambient Occlusion";
@@ -506,7 +505,7 @@ namespace DenoisedRtao {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             const held = [Key.W, Key.S, Key.A, Key.D, Key.E, Key.Q];
             for (let i = 0; i < 6; i++) {
                 if (key == held[i] && (action == Action.Press || action == Action.Release)) {
@@ -572,7 +571,7 @@ namespace DenoisedRtao {
             return 0;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             if (action == Action.Press && (button == MouseButton.Left || button == MouseButton.Right)) {
                 this.mouseButton = button;
             } else if (action == Action.Release && button == this.mouseButton) {

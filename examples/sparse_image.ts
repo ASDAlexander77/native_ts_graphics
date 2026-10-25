@@ -4,7 +4,6 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { multiply, rotation, translation, radians, perspective } from "../core/matrix";
-import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace SparseImage {
     // Test mode: the frames rendered.
@@ -556,7 +555,7 @@ namespace SparseImage {
         // --- Input ------------------------------------------------------------------------------
 
         // ApiVulkanSample's keys: WASD move the camera while held.
-        onKeyboard(key: int, scancode: int, action: int, mods: int) {
+        onKeyboard(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }
@@ -596,7 +595,7 @@ namespace SparseImage {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             const pressed = action == Action.Press;
             if (button == MouseButton.Left) {
                 this.leftButton = pressed;

@@ -4,7 +4,6 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
-import { Key, Action } from "../core/glfw_input";
 
 namespace ComputeNBodyCollisions {
     const WINDOW_TITLE = "Donut Example: Compute N-Body Collisions";
@@ -616,7 +615,7 @@ namespace ComputeNBodyCollisions {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             this.idleSeconds = 0.0;
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
@@ -651,7 +650,7 @@ namespace ComputeNBodyCollisions {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             this.idleSeconds = 0.0;
             if (action == Action.Press) {
                 this.buttonsDown++;

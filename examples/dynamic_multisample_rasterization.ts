@@ -115,7 +115,7 @@ namespace DynamicMultisampleRasterization {
         }
 
         // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-        mouseButton(button: int, action: int) {
+        mouseButton(button: MouseButton, action: Action) {
             if (button >= 0 && button < 3) {
                 this.buttons[button] = action == 1;
             }
@@ -288,7 +288,7 @@ namespace DynamicMultisampleRasterization {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             this.camera.mouseButton(button, action);
             return 1;
         }

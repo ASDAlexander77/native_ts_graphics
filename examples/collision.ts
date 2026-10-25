@@ -3,7 +3,6 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { Key, Action, MouseButton } from "../core/glfw_input";
 import { multiplyF32, inverse } from "../core/matrix";
 
 namespace Collision {
@@ -724,7 +723,7 @@ namespace Collision {
             this.name = GROUP_NAMES[group];
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != Action.Release;
             }
@@ -751,7 +750,7 @@ namespace Collision {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             if (button == MouseButton.Left) {
                 this.leftButton = action != Action.Release;
             } else if (button == MouseButton.Right) {

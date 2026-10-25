@@ -7,14 +7,96 @@
 // given as Ref(this.constants[0])) outlives a call of them. A new function that calls a TypeScript
 // callback before it returns must go without the mark.
 
+// GLFW's input values (glfw3.h), as the input callbacks pass them: key codes, key and mouse
+// button actions, mouse buttons, modifier bits.
+enum Key {
+    Space = 32,
+    Minus = 45,
+    Num0 = 48,
+    Num1 = 49,
+    Num2 = 50,
+    Num3 = 51,
+    Num4 = 52,
+    Num9 = 57,
+    Equal = 61,
+    A = 65,
+    B = 66,
+    C = 67,
+    D = 68,
+    E = 69,
+    F = 70,
+    G = 71,
+    H = 72,
+    J = 74,
+    K = 75,
+    L = 76,
+    M = 77,
+    O = 79,
+    P = 80,
+    Q = 81,
+    R = 82,
+    S = 83,
+    T = 84,
+    U = 85,
+    V = 86,
+    W = 87,
+    X = 88,
+    Y = 89,
+    Z = 90,
+    GraveAccent = 96,
+    Escape = 256,
+    Enter = 257,
+    Tab = 258,
+    Right = 262,
+    Left = 263,
+    Down = 264,
+    Up = 265,
+    PageUp = 266,
+    PageDown = 267,
+    Home = 268,
+    End = 269,
+    F1 = 290,
+    Kp1 = 321,
+    Kp2 = 322,
+    Kp3 = 323,
+    Kp4 = 324,
+    Kp6 = 326,
+    Kp8 = 328,
+    KpSubtract = 333,
+    KpAdd = 334,
+    KpEnter = 335,
+    LeftShift = 340,
+    RightShift = 344
+}
+enum Action {
+    Release = 0,
+    Press = 1,
+    Repeat = 2
+}
+enum MouseButton {
+    Left = 0,
+    Right = 1,
+    Middle = 2
+}
+
+// GLFW modifier bits.
+enum KeyMods {
+    Shift = 1,
+    Control = 2,
+    Alt = 4,
+    Super = 8,
+    CapsLock = 16,
+    NumLock = 32
+}
+
 // A method passed as one of these (e.g. `this.onRender`) reaches C++ as a function pointer
 // plus its `this` value.
 type VoidCallback = () => void;
 type RenderCallback = (frame: FrameHandle) => void;
 type AnimateCallback = (elapsedSeconds: number) => void;
-type KeyboardCallback = (key: int, scancode: int, action: int, mods: int) => int;
+type KeyboardCallback = (key: Key, scancode: int, action: Action, mods: KeyMods) => int;
 type MousePosCallback = (x: number, y: number) => int;
-type MouseButtonCallback = (button: int, action: int, mods: int) => int;
+type MouseButtonCallback = (button: MouseButton, action: Action, mods: KeyMods) => int;
 type MouseScrollCallback = (xOffset: number, yOffset: number) => int;
 
 // nvrhi::GraphicsAPI values.
@@ -2003,9 +2085,9 @@ enum ShaderType {
 // Mouse sensitivity, radians per pixel.
 @nodrops declare function Donut_CameraSetRotateSpeed(camera: CameraHandle, speed: number): void;
 // Forward the pass input callbacks' arguments to these.
-@nodrops declare function Donut_CameraKeyboardUpdate(camera: CameraHandle, key: int, scancode: int, action: int, mods: int): void;
+@nodrops declare function Donut_CameraKeyboardUpdate(camera: CameraHandle, key: Key, scancode: int, action: Action, mods: KeyMods): void;
 @nodrops declare function Donut_CameraMousePosUpdate(camera: CameraHandle, x: number, y: number): void;
-@nodrops declare function Donut_CameraMouseButtonUpdate(camera: CameraHandle, button: int, action: int, mods: int): void;
+@nodrops declare function Donut_CameraMouseButtonUpdate(camera: CameraHandle, button: MouseButton, action: Action, mods: KeyMods): void;
 @nodrops declare function Donut_CameraMouseScrollUpdate(camera: CameraHandle, xOffset: number, yOffset: number): void;
 @nodrops declare function Donut_CameraAnimate(camera: CameraHandle, elapsedSeconds: number): void;
 // World-to-view matrix into dst: Ref(arr[0]) of a `let` f32[16] array, row-major, row-vector

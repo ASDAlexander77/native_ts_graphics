@@ -192,7 +192,7 @@ namespace TerrainTessellation {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }
@@ -202,7 +202,7 @@ namespace TerrainTessellation {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }

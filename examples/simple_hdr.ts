@@ -4,7 +4,6 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import { Key, Action } from "../core/glfw_input";
 
 namespace SimpleHdr {
     // Test mode: the frames rendered.
@@ -245,7 +244,7 @@ namespace SimpleHdr {
             return this.app.getSwapChainColorSpace() == SwapChainColorSpace.HDR10;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key == Key.Up || key == Key.Right) {
                 this.upHeld = action != Action.Release;
             } else if (key == Key.Down || key == Key.Left) {

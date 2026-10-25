@@ -8,7 +8,6 @@ import {
     rotationY, transpose, inverse, cross3, dot3, normalize3, multiplyF32,
 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
-import { Key, Action } from "../core/glfw_input";
 
 namespace Bokeh {
     // Test mode: the frames rendered.
@@ -608,7 +607,7 @@ namespace Bokeh {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != Action.Release;
             }
@@ -625,7 +624,7 @@ namespace Bokeh {
             return 1;
         }
 
-        isHeld(key: int) {
+        isHeld(key: Key) {
             return this.held[key];
         }
 

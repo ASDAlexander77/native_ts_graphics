@@ -3,7 +3,6 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { dot3, matrixInverse, matrixMultiply, matrixPerspectiveFovRH } from "../core/directx_math";
-import { Action } from "../core/glfw_input";
 import { SimpleCamera } from "../core/simple_camera";
 
 namespace NBodyGravity {
@@ -221,7 +220,7 @@ namespace NBodyGravity {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods): int {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }

@@ -8,7 +8,6 @@ import {
     matrixInverse, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
     XM_PI,
 } from "../core/directx_math";
-import { Key, Action } from "../core/glfw_input";
 import { SimpleCamera } from "../core/simple_camera";
 
 namespace MeshletInstancing {
@@ -153,7 +152,7 @@ namespace MeshletInstancing {
         }
 
         // OnKeyDown / OnKeyUp.
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action == Action.Press) {
                 if (key == Key.Equal || key == Key.KpAdd) {
                     this.instanceLevel++;

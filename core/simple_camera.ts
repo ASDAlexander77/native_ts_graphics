@@ -4,8 +4,8 @@
 // Imported with `import { SimpleCamera } from "../core/simple_camera";` (from examples/), its object
 // and core/directx_math.ts's listed in the example's add_tslang_example sources.
 
+/// <reference path="donut_interop.d.ts" />
 import { matrixLookToRH, XM_PI } from "./directx_math";
-import { Key } from "./glfw_input";
 
 // DirectX-Graphics-Samples' SimpleCamera: WASD move it, the arrow keys turn it (pitch within 45
 // degrees up and down), at its move and turn speeds per second. Escape closes the window, as in
@@ -50,7 +50,7 @@ export class SimpleCamera {
     }
 
     // True if it took the key.
-    onKey(key: int, down: boolean): boolean {
+    onKey(key: Key, down: boolean): boolean {
         let index = -1;
         if (key == Key.W) {
             index = 0;

@@ -3,7 +3,6 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { Key, Action } from "../core/glfw_input";
 
 namespace ThreadedRendering {
     // Test mode: the frames rendered.
@@ -93,7 +92,7 @@ namespace ThreadedRendering {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == Key.Space && action == Action.Press) {
@@ -108,7 +107,7 @@ namespace ThreadedRendering {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }

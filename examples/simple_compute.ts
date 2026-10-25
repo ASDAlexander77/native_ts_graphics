@@ -4,7 +4,6 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import { Key, Action } from "../core/glfw_input";
 
 namespace SimpleCompute {
     // Test mode: the frames rendered.
@@ -227,7 +226,7 @@ namespace SimpleCompute {
             this.computeLoop.setPaused(value ? 0 : 1);
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != Action.Release;
             }

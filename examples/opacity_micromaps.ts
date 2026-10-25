@@ -7,7 +7,6 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY,
     normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
-import { Key, Action } from "../core/glfw_input";
 
 namespace OpacityMicromaps {
     // Test mode: the frames rendered.
@@ -319,7 +318,7 @@ namespace OpacityMicromaps {
         }
 
         // The sample's OnUpdate keys.
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key == Key.Z || key == Key.X) {
                 const held = action != Action.Release;
                 if (key == Key.Z) {

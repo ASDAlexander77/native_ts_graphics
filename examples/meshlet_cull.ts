@@ -9,7 +9,6 @@ import {
     matrixScaling, matrixTranspose, normalize3, planeNormalize, row, transform3, transformCoord3,
     transformNormal3, vadd, vsub, XM_PI,
 } from "../core/directx_math";
-import { Key, Action } from "../core/glfw_input";
 
 namespace MeshletCull {
     const WINDOW_TITLE = "D3D12 Mesh Shader Culling";
@@ -107,7 +106,7 @@ namespace MeshletCull {
             this.lookDirection = [0.0, 0.0, -1.0, 0.0];
         }
 
-        onKey(key: int, down: boolean) {
+        onKey(key: Key, down: boolean) {
             let index = -1;
             if (key == Key.W) {
                 index = 0;
@@ -473,7 +472,7 @@ namespace MeshletCull {
         }
 
         // OnKeyDown / OnKeyUp.
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action == Action.Press) {
                 if (key == Key.Space) {
                     this.drawMeshlets = !this.drawMeshlets;

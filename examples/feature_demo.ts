@@ -5,7 +5,6 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import { Key, Action, MouseButton } from "../core/glfw_input";
 import { radiansF32 } from "../core/matrix";
 
 namespace FeatureDemoExample {
@@ -1045,7 +1044,7 @@ namespace FeatureDemoExample {
 
         // --- Pass callbacks ---
 
-        onKeyboard(key: int, scancode: int, action: int, mods: int) {
+        onKeyboard(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key == Key.Escape && action == Action.Press) {
                 this.ui.showUI = !this.ui.showUI;
                 return 1;
@@ -1096,7 +1095,7 @@ namespace FeatureDemoExample {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().mouseButtonUpdate(button, action, mods);
             }

@@ -266,7 +266,7 @@ namespace FragmentShadingRateDynamic {
             return this.subpassHeight;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             this.camera.key(key, action);
             return 1;
         }
@@ -276,7 +276,7 @@ namespace FragmentShadingRateDynamic {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             this.camera.mouseButton(button, action);
             return 1;
         }

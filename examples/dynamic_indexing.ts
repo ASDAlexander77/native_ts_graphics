@@ -6,7 +6,6 @@ import {
     matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
 } from "../core/directx_math";
 import { SimpleCamera } from "../core/simple_camera";
-import { Action } from "../core/glfw_input";
 
 namespace DynamicIndexing {
     const WINDOW_TITLE = "D3D12 Dynamic Indexing Sample";
@@ -165,7 +164,7 @@ namespace DynamicIndexing {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods): int {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }
