@@ -79,8 +79,8 @@ export class App {
 
     // Saves the current back buffer (in test mode after Donut_RunApp, the last frame's) as an image file,
     // its format from the extension (.png, .bmp, .tga, .jpg). Not in a render callback.
-    saveBackBufferToFile(path: string): int {
-        return Donut_SaveBackBufferToFile(this.handle, path);
+    saveBackBufferToFile(path: string): boolean {
+        return Donut_SaveBackBufferToFile(this.handle, path) != 0;
     }
 
     // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
@@ -457,8 +457,8 @@ export class App {
 
     // Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
     // Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int[] / f32[] array. Returns 0 on failure.
-    readBuffer(readbackBuffer: BufferHandle, dst: Opaque, byteSize: int): int {
-        return Donut_ReadBuffer(this.handle, readbackBuffer, dst, byteSize);
+    readBuffer(readbackBuffer: BufferHandle, dst: Opaque, byteSize: int): boolean {
+        return Donut_ReadBuffer(this.handle, readbackBuffer, dst, byteSize) != 0;
     }
 
     // Copies a level of a texture to dst (Ref of a `let` array element; byteSize bytes at most): its
@@ -1440,8 +1440,8 @@ export class App {
     }
 
     // Saves the frame's color as recorded so far (BMP, PNG, JPG or TGA, by extension); non-zero on success.
-    saveFrameToFile(frame: Frame, path: string): int {
-        return Donut_SaveFrameToFile(this.handle, frame.handle, path);
+    saveFrameToFile(frame: Frame, path: string): boolean {
+        return Donut_SaveFrameToFile(this.handle, frame.handle, path) != 0;
     }
 
     // Seconds per frame, averaged; 0 until measured.
@@ -1567,14 +1567,14 @@ export class App {
 
     // Asks for another color space of the back buffers, from the next frame on (as a resize: back
     // buffer resizing callbacks run). 0 (nothing changes) if the swap chain can't present it.
-    setSwapChainColorSpace(colorSpace: SwapChainColorSpace): int {
-        return Donut_SetSwapChainColorSpace(this.handle, colorSpace);
+    setSwapChainColorSpace(colorSpace: SwapChainColorSpace): boolean {
+        return Donut_SetSwapChainColorSpace(this.handle, colorSpace) != 0;
     }
 
     // Changes the back buffers' format (RGBA8_UNORM, SRGBA8_UNORM, R10G10B10A2_UNORM or RGBA16_FLOAT; 8-bit
     // ones BGRA on Vulkan) at once, as a resize; not within a frame. 0 where the swap chain can't have it.
-    setSwapChainFormat(format: Format): int {
-        return Donut_SetSwapChainFormat(this.handle, format);
+    setSwapChainFormat(format: Format): boolean {
+        return Donut_SetSwapChainFormat(this.handle, format) != 0;
     }
 
     // True if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10

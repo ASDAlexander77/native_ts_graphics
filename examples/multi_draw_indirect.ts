@@ -482,7 +482,7 @@ namespace MultiDrawIndirect {
                 for (let i = 0; i < this.modelCount * COMMAND_INTS; i++) {
                     commands.push(0);
                 }
-                if (this.app.readBuffer(this.readbackBuffers[oldest], Ref(commands[0]), this.modelCount * COMMAND_SIZE) != 0) {
+                if (this.app.readBuffer(this.readbackBuffers[oldest], Ref(commands[0]), this.modelCount * COMMAND_SIZE)) {
                     let visible = 0;
                     for (let i = 0; i < this.modelCount; i++) {
                         visible += commands[i * COMMAND_INTS + COMMAND_INSTANCE_COUNT];

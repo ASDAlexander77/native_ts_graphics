@@ -223,7 +223,7 @@ namespace HdrDisplay {
         // PgUp / PgDn: UpdateSwapChainBuffer with the next format.
         setBitDepth(bitDepth: BitDepth) {
             const formats = [Format.RGBA8_UNORM, Format.R10G10B10A2_UNORM, Format.RGBA16_FLOAT];
-            if (this.app.setSwapChainFormat(formats[bitDepth]) == 0) {
+            if (!this.app.setSwapChainFormat(formats[bitDepth])) {
                 console.log(`The swap chain can't have ${FORMAT_NAMES[bitDepth]} back buffers`);
                 return;
             }

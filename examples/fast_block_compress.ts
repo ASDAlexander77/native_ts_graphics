@@ -507,7 +507,7 @@ namespace FastBlockCompress {
             const slot = this.frameIndex % READBACK_FRAMES;
             const pendingWidth = this.rmsReadbackWidth[slot];
             if (pendingWidth > 0) {
-                if (this.app.readBuffer(this.rmsReadbacks[slot], Ref(this.rmsResult[0]), 8) != 0) {
+                if (this.app.readBuffer(this.rmsReadbacks[slot], Ref(this.rmsResult[0]), 8)) {
                     // RMSComputeResult: RGB and alpha.
                     this.rmsError[0] = (1.0 / 3.0) * Math.sqrt(this.rmsResult[0] / (pendingWidth * pendingWidth));
                     this.rmsError[1] = Math.sqrt(this.rmsResult[1] / (pendingWidth * pendingWidth));
