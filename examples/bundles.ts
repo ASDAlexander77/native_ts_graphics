@@ -169,14 +169,14 @@ namespace Bundles {
             desc1.setInputLayout(this.inputLayout);
             desc1.addBindingLayout(this.bindingLayout);
             desc1.setDepthState(1, 1, ComparisonFunc.Less);
-            desc1.setDepthClip(1);
+            desc1.setDepthClip(true);
             desc1.setRasterState(CullMode.None, FillMode.Solid, 0);
             this.pipeline1 = this.app.createGraphicsPipelineFromDesc(desc1, this.framebuffer);
             const desc2 = GraphicsPipelineDesc.create(this.vertexShader, this.altPixelShader);
             desc2.setInputLayout(this.inputLayout);
             desc2.addBindingLayout(this.bindingLayout);
             desc2.setDepthState(1, 1, ComparisonFunc.Less);
-            desc2.setDepthClip(1);
+            desc2.setDepthClip(true);
             desc2.setRasterState(CullMode.None, FillMode.Solid, 0);
             this.pipeline2 = this.app.createGraphicsPipelineFromDesc(desc2, this.framebuffer);
 
@@ -228,9 +228,9 @@ namespace Bundles {
                 return false;
             }
             this.vertexBuffer = this.app.createStaticBufferFromBinaryFile(commandList, binaryFile,
-                VERTEX_DATA_OFFSET, VERTEX_DATA_SIZE, 0, "City");
+                VERTEX_DATA_OFFSET, VERTEX_DATA_SIZE, false, "City");
             this.indexBuffer = this.app.createStaticBufferFromBinaryFile(commandList, binaryFile,
-                INDEX_DATA_OFFSET, INDEX_DATA_SIZE, 1, "City");
+                INDEX_DATA_OFFSET, INDEX_DATA_SIZE, true, "City");
             const diffuse = this.app.createTextureWithLevels(TEXTURE_SIZE, TEXTURE_SIZE, 1, Format.BC1_UNORM, "CityDiffuse");
             binaryFile.writeTextureLevelFromBinaryFile(commandList, diffuse, 0, 0, TEXTURE_PITCH);
             this.app.releaseObject(binaryFile.handle);

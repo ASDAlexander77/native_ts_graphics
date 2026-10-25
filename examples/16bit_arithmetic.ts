@@ -372,9 +372,9 @@ namespace Khr16BitArithmetic {
         buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("16-bit arithmetic", 1);
+            Donut_ImGuiBegin("16-bit arithmetic", true);
             if (sample.native16Bit) {
-                sample.fp16Enabled = Donut_ImGuiCheckbox("Enable 16-bit arithmetic", sample.fp16Enabled ? 1 : 0) != 0;
+                sample.fp16Enabled = Donut_ImGuiCheckbox("Enable 16-bit arithmetic", sample.fp16Enabled);
             } else {
                 Donut_ImGuiText("16-bit arithmetic (unsupported features)");
             }

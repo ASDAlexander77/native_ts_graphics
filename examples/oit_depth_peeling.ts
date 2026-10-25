@@ -444,8 +444,8 @@ namespace OitDepthPeeling {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            sample.cameraAutoRotation = Donut_ImGuiCheckbox("Camera auto-rotation", sample.cameraAutoRotation ? 1 : 0) != 0;
+            Donut_ImGuiBegin("Vulkan Example", true);
+            sample.cameraAutoRotation = Donut_ImGuiCheckbox("Camera auto-rotation", sample.cameraAutoRotation);
             sample.backgroundGrayscale = Donut_ImGuiSliderFloat("Background grayscale", sample.backgroundGrayscale, 0.0, 1.0);
             sample.objectAlpha = Donut_ImGuiSliderFloat("Object opacity", sample.objectAlpha, 0.0, 1.0);
             sample.frontLayerIndex = Donut_ImGuiSliderInt("Front layer index", sample.frontLayerIndex, 0, sample.backLayerIndex);

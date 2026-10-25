@@ -1000,7 +1000,7 @@ namespace Collision {
                 desc.setPrimitiveType(PrimitiveType.LineList);
                 desc.setDepthState(0, 0, ComparisonFunc.Always);
                 desc.setRasterState(CullMode.None, FillMode.Solid, 0);
-                desc.setDepthClip(1);
+                desc.setDepthClip(true);
                 if ((this.app.getLineRasterizationModes() & LineRasterization.Rectangular) != 0) {
                     desc.setLineRasterization(LineRasterizationMode.Rectangular, lineWidth, 0, 1, 0xFFFF);
                 }

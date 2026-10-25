@@ -265,7 +265,7 @@ namespace ConservativeRasterization {
             desc.setRasterState(CullMode.Back, FillMode.Solid, 0);
             if (conservative) {
                 // The sample enlarges the triangle by the device's maximum extra size (Vulkan only).
-                desc.setConservativeRaster(1, this.hasVulkanProperties ? this.vulkanProperties[1] : 0.0);
+                desc.setConservativeRaster(true, this.hasVulkanProperties ? this.vulkanProperties[1] : 0.0);
             }
             return this.app.createGraphicsPipelineFromDesc(desc, this.offscreenFramebuffer);
         }
@@ -374,11 +374,11 @@ namespace ConservativeRasterization {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
-                sample.conservativeRasterEnabled = Donut_ImGuiCheckbox("Conservative rasterization", sample.conservativeRasterEnabled ? 1 : 0) != 0;
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+                sample.conservativeRasterEnabled = Donut_ImGuiCheckbox("Conservative rasterization", sample.conservativeRasterEnabled);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Device properties") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Device properties")) {
                 if (sample.hasVulkanProperties) {
                     const p = sample.vulkanProperties;
                     Donut_ImGuiText(`maxExtraPrimitiveOverestimationSize: ${formatFloat(p[1])}`);

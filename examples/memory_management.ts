@@ -344,7 +344,7 @@ namespace MemoryManagement {
                 this.drawMipColors = !this.drawMipColors;
             } else if (key == Key.V) {
                 this.vsync = !this.vsync;
-                this.app.setVsyncEnabled(this.vsync ? 1 : 0);
+                this.app.setVsyncEnabled(this.vsync);
             } else if (key == Key.C) {
                 this.capturedIsDebug = !this.capturedIsDebug;
             } else if (key == Key.D) {
@@ -488,14 +488,14 @@ namespace MemoryManagement {
             textureDesc.addBindingLayout(this.textureLayout);
             textureDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
             textureDesc.setDepthState(0, 0, ComparisonFunc.Always);
-            textureDesc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add, BlendFactor.One,
+            textureDesc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add, BlendFactor.One,
                 BlendFactor.Zero, BlendOp.Add);
             this.texturePipeline = this.app.createGraphicsPipelineFromDescForFrame(textureDesc, frame);
             const colorDesc = GraphicsPipelineDesc.create(this.vs, this.colorPS);
             colorDesc.addBindingLayout(this.colorLayout);
             colorDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
             colorDesc.setDepthState(0, 0, ComparisonFunc.Always);
-            colorDesc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add, BlendFactor.One,
+            colorDesc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add, BlendFactor.One,
                 BlendFactor.Zero, BlendOp.Add);
             this.colorPipeline = this.app.createGraphicsPipelineFromDescForFrame(colorDesc, frame);
             this.pipelinesCreated = true;

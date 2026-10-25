@@ -222,15 +222,15 @@ namespace ColorWriteEnable {
         buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Color Write Enable", 1);
+            Donut_ImGuiBegin("Color Write Enable", true);
             Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Background color") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Background color")) {
                 Donut_ImGuiColorPicker3("", Ref(sample.backgroundColor[0]), 200.0);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Enabled attachment") != 0) {
-                sample.rBitEnabled = Donut_ImGuiCheckbox("Red bit", sample.rBitEnabled ? 1 : 0) != 0;
-                sample.gBitEnabled = Donut_ImGuiCheckbox("Green bit", sample.gBitEnabled ? 1 : 0) != 0;
-                sample.bBitEnabled = Donut_ImGuiCheckbox("Blue bit", sample.bBitEnabled ? 1 : 0) != 0;
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Enabled attachment")) {
+                sample.rBitEnabled = Donut_ImGuiCheckbox("Red bit", sample.rBitEnabled);
+                sample.gBitEnabled = Donut_ImGuiCheckbox("Green bit", sample.gBitEnabled);
+                sample.bBitEnabled = Donut_ImGuiCheckbox("Blue bit", sample.bBitEnabled);
             }
             Donut_ImGuiPopItemWidth();
             Donut_ImGuiEnd();

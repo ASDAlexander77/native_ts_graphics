@@ -230,7 +230,7 @@ namespace PatchControlPoints {
             desc.addBindingLayout(this.bindingLayout);
             desc.setDepthState(1, 1, ComparisonFunc.Greater);
             desc.setRasterState(CullMode.Front, FillMode.Wireframe, 1);
-            desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
+            desc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                 BlendFactor.One, BlendFactor.Zero, BlendOp.Add);
             return this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
         }
@@ -311,10 +311,10 @@ namespace PatchControlPoints {
         buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Patch Control Points", 1);
+            Donut_ImGuiBegin("Patch Control Points", true);
             Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
-                sample.tessellation = Donut_ImGuiCheckbox("Tessellation Enable", sample.tessellation ? 1 : 0) != 0;
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+                sample.tessellation = Donut_ImGuiCheckbox("Tessellation Enable", sample.tessellation);
                 // Maximum tessellation level is set to 7.0
                 sample.tessLevel = Donut_ImGuiSliderFloat("Tessellation level", sample.tessLevel, 3.0, 7.0);
             }

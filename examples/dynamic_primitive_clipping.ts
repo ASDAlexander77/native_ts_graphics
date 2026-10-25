@@ -301,14 +301,14 @@ namespace DynamicPrimitiveClipping {
         buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
+            Donut_ImGuiBegin("Options", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
                 p.objectIndex = Donut_ImGuiCombo("Object type", p.objectIndex, comboItems(MODEL_NAMES));
-                p.usePrimitiveClipping = Donut_ImGuiCheckbox("Use primitive clipping", p.usePrimitiveClipping ? 1 : 0) != 0;
+                p.usePrimitiveClipping = Donut_ImGuiCheckbox("Use primitive clipping", p.usePrimitiveClipping);
                 p.visualization = Donut_ImGuiCombo("Visualization", p.visualization, comboItems(VISUALIZATION_NAMES));
-                p.drawObject[0] = Donut_ImGuiCheckbox("Draw object 1", p.drawObject[0] ? 1 : 0) != 0;
-                p.drawObject[1] = Donut_ImGuiCheckbox("Draw object 2", p.drawObject[1] ? 1 : 0) != 0;
-                p.useDepthClipping = Donut_ImGuiCheckbox("Use depth clipping", p.useDepthClipping ? 1 : 0) != 0;
+                p.drawObject[0] = Donut_ImGuiCheckbox("Draw object 1", p.drawObject[0]);
+                p.drawObject[1] = Donut_ImGuiCheckbox("Draw object 2", p.drawObject[1]);
+                p.useDepthClipping = Donut_ImGuiCheckbox("Use depth clipping", p.useDepthClipping);
             }
             Donut_ImGuiEnd();
         }

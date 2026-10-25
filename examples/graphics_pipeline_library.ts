@@ -330,9 +330,9 @@ namespace GraphicsPipelineLibrary {
         buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Graphics Pipeline Library", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
-                if (Donut_ImGuiButton("Add pipeline") != 0) {
+            Donut_ImGuiBegin("Graphics Pipeline Library", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+                if (Donut_ImGuiButton("Add pipeline")) {
                     sample.pendingPipelines++;
                 }
             }

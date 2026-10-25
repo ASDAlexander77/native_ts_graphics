@@ -578,7 +578,7 @@ namespace TextureCompressionComparison {
                 }
             }
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", 1);
+            Donut_ImGuiBegin("Options", true);
             const selection = Donut_ImGuiCombo("Compressed Format", p.guiFormat, this.items);
             if (selection != p.guiFormat) {
                 p.guiFormat = selection;

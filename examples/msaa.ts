@@ -854,15 +854,15 @@ namespace Msaa {
             const m = this.msaa;
             const msaaEnabled = m.sampleCount > 1;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", 1);
+            Donut_ImGuiBegin("Options", true);
 
-            if (Donut_ImGuiBeginCombo("##sample_count", sampleCountName(m.sampleCount)) != 0) {
+            if (Donut_ImGuiBeginCombo("##sample_count", sampleCountName(m.sampleCount))) {
                 for (const count of SAMPLE_COUNTS) {
                     if ((m.supportedSampleCounts & count) == 0) {
                         continue;
                     }
                     const selected = count == m.sampleCount;
-                    if (Donut_ImGuiSelectable(sampleCountName(count), selected ? 1 : 0) != 0) {
+                    if (Donut_ImGuiSelectable(sampleCountName(count), selected)) {
                         m.sampleCount = count;
                     }
                     if (selected) {
@@ -872,18 +872,18 @@ namespace Msaa {
                 Donut_ImGuiEndCombo();
             }
             Donut_ImGuiSameLine();
-            m.postprocessing = Donut_ImGuiCheckbox("Post-processing (2 renderpasses)", m.postprocessing ? 1 : 0) != 0;
+            m.postprocessing = Donut_ImGuiCheckbox("Post-processing (2 renderpasses)", m.postprocessing);
 
             Donut_ImGuiText("Resolve color: ");
             Donut_ImGuiSameLine();
             if (!msaaEnabled) {
                 Donut_ImGuiText("n/a");
             } else if (m.renderPassResolve) {
-                if (Donut_ImGuiRadioButton("On writeback", m.colorResolveMethod == MsaaResolve.OnWriteback ? 1 : 0) != 0) {
+                if (Donut_ImGuiRadioButton("On writeback", m.colorResolveMethod == MsaaResolve.OnWriteback)) {
                     m.colorResolveMethod = MsaaResolve.OnWriteback;
                 }
                 Donut_ImGuiSameLine();
-                if (Donut_ImGuiRadioButton("Separate", m.colorResolveMethod == MsaaResolve.Separate ? 1 : 0) != 0) {
+                if (Donut_ImGuiRadioButton("Separate", m.colorResolveMethod == MsaaResolve.Separate)) {
                     m.colorResolveMethod = MsaaResolve.Separate;
                 }
             } else {
@@ -896,18 +896,18 @@ namespace Msaa {
             if (!msaaEnabled || !m.postprocessing) {
                 Donut_ImGuiText("n/a");
             } else if (m.canResolveDepthOnWriteback()) {
-                m.resolveDepthOnWriteback = Donut_ImGuiCheckbox("##resolve_depth", m.resolveDepthOnWriteback ? 1 : 0) != 0;
+                m.resolveDepthOnWriteback = Donut_ImGuiCheckbox("##resolve_depth", m.resolveDepthOnWriteback);
                 Donut_ImGuiSameLine();
                 Donut_ImGuiText("On writeback");
                 Donut_ImGuiSameLine();
                 Donut_ImGuiPushItemWidth(120.0);
-                if (Donut_ImGuiBeginCombo("##resolve_mode", resolveModeName(m.depthResolveMode)) != 0) {
+                if (Donut_ImGuiBeginCombo("##resolve_mode", resolveModeName(m.depthResolveMode))) {
                     for (const mode of DEPTH_RESOLVE_MODES) {
                         if ((m.depthResolveModes & (1 << mode)) == 0) {
                             continue;
                         }
                         const selected = mode == m.depthResolveMode;
-                        if (Donut_ImGuiSelectable(resolveModeName(mode), selected ? 1 : 0) != 0) {
+                        if (Donut_ImGuiSelectable(resolveModeName(mode), selected)) {
                             m.depthResolveMode = mode;
                         }
                         if (selected) {

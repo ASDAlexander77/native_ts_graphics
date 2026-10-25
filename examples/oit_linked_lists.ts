@@ -496,10 +496,10 @@ namespace OitLinkedLists {
             const oit = this.oit;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
-                oit.sortFragments = Donut_ImGuiCheckbox("Sort fragments", oit.sortFragments ? 1 : 0) != 0;
-                oit.cameraAutoRotation = Donut_ImGuiCheckbox("Camera auto-rotation", oit.cameraAutoRotation ? 1 : 0) != 0;
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+                oit.sortFragments = Donut_ImGuiCheckbox("Sort fragments", oit.sortFragments);
+                oit.cameraAutoRotation = Donut_ImGuiCheckbox("Camera auto-rotation", oit.cameraAutoRotation);
                 oit.sortedFragmentCount = Donut_ImGuiSliderInt("Sorted fragments per pixel", oit.sortedFragmentCount,
                     SORTED_FRAGMENT_MIN_COUNT, SORTED_FRAGMENT_MAX_COUNT);
                 oit.backgroundGrayscale = Donut_ImGuiSliderFloat("Background grayscale", oit.backgroundGrayscale, 0.0, 1.0);

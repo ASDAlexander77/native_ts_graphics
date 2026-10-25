@@ -754,7 +754,7 @@ namespace FastBlockCompress {
             const sample = this.sample;
             // Three rows above the images, as the sample's text.
             Donut_ImGuiSetNextWindowPos(10.0, 4.0);
-            Donut_ImGuiBegin("Fast Block Compress", 1);
+            Donut_ImGuiBegin("Fast Block Compress", true);
             Donut_ImGuiText("[LB/RB] Image");
             Donut_ImGuiSameLine();
             Donut_ImGuiPushItemWidth(110.0);
@@ -783,36 +783,36 @@ namespace FastBlockCompress {
             sample.mipLevel = Donut_ImGuiSliderInt("##mip", sample.mipLevel, 0, levels - 1);
             Donut_ImGuiPopItemWidth();
 
-            sample.highlightBlocks = Donut_ImGuiCheckbox("[A] Highlight blocks", sample.highlightBlocks ? 1 : 0) != 0;
+            sample.highlightBlocks = Donut_ImGuiCheckbox("[A] Highlight blocks", sample.highlightBlocks);
             Donut_ImGuiSameLine();
-            const fullscreen = Donut_ImGuiCheckbox("[X] Fullscreen", sample.fullscreen ? 1 : 0) != 0;
+            const fullscreen = Donut_ImGuiCheckbox("[X] Fullscreen", sample.fullscreen);
             if (fullscreen != sample.fullscreen) {
                 sample.fullscreen = fullscreen;
                 sample.toggleOriginal = false;
             }
             if (sample.fullscreen) {
                 Donut_ImGuiSameLine();
-                sample.toggleOriginal = Donut_ImGuiCheckbox("Original image", sample.toggleOriginal ? 1 : 0) != 0;
+                sample.toggleOriginal = Donut_ImGuiCheckbox("Original image", sample.toggleOriginal);
             }
 
             Donut_ImGuiText("[Y] Diffs (10x scale):");
             Donut_ImGuiSameLine();
-            if (Donut_ImGuiRadioButton("None", !sample.colorDiffs && !sample.alphaDiffs ? 1 : 0) != 0) {
+            if (Donut_ImGuiRadioButton("None", !sample.colorDiffs && !sample.alphaDiffs)) {
                 sample.colorDiffs = false;
                 sample.alphaDiffs = false;
             }
             Donut_ImGuiSameLine();
-            if (Donut_ImGuiRadioButton("Color", sample.colorDiffs ? 1 : 0) != 0) {
+            if (Donut_ImGuiRadioButton("Color", sample.colorDiffs)) {
                 sample.colorDiffs = true;
                 sample.alphaDiffs = false;
             }
             Donut_ImGuiSameLine();
-            if (Donut_ImGuiRadioButton("Alpha", sample.alphaDiffs ? 1 : 0) != 0) {
+            if (Donut_ImGuiRadioButton("Alpha", sample.alphaDiffs)) {
                 sample.colorDiffs = false;
                 sample.alphaDiffs = true;
             }
             Donut_ImGuiSameLine();
-            if (Donut_ImGuiButton("[RS] Reset camera") != 0) {
+            if (Donut_ImGuiButton("[RS] Reset camera")) {
                 sample.resetCamera();
             }
             Donut_ImGuiSameLine();

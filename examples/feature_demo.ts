@@ -410,7 +410,7 @@ namespace FeatureDemoExample {
 
             const probeCount = this.lightProbes.getCount();
             for (let i = 0; i < probeCount; i++) {
-                this.lightProbes.setEnabled(i, 0);
+                this.lightProbes.setEnabled(i, false);
             }
         }
 
@@ -676,7 +676,7 @@ namespace FeatureDemoExample {
 
         renderSplashScreen(frame: Frame) {
             frame.clearColor(0.0, 0.0, 0.0, 0.0);
-            this.app.setVsyncEnabled(1);
+            this.app.setVsyncEnabled(true);
         }
 
         // After the frame's commands have been submitted: finds what the right mouse button clicked.
@@ -836,7 +836,7 @@ namespace FeatureDemoExample {
                 }
 
                 commandList.renderDeferredLightingToHdr(this.deferredLightingPass, view, targets, sceneGraph,
-                    ui.enableSsao ? 1 : 0, top[0], top[1], top[2], bottom[0], bottom[1], bottom[2], lightProbes);
+                    ui.enableSsao, top[0], top[1], top[2], bottom[0], bottom[1], bottom[2], lightProbes);
             } else {
                 commandList.renderForward(forwardPass, this.forwardContext, view, viewPrevious,
                     targets.getFramebuffer(SceneFramebuffer.Forward), sceneGraph, 0, "ForwardOpaque", materialEvents);
@@ -951,7 +951,7 @@ namespace FeatureDemoExample {
             this.view = this.viewPrevious;
             this.viewPrevious = swappedView;
 
-            app.setVsyncEnabled(ui.enableVsync ? 1 : 0);
+            app.setVsyncEnabled(ui.enableVsync);
         }
 
         // Renders a light probe's cube maps from the camera position (the sample's RenderLightProbe).
@@ -1209,7 +1209,7 @@ namespace FeatureDemoExample {
         }
 
         checkbox(label: string, value: boolean) {
-            return Donut_ImGuiCheckbox(label, value ? 1 : 0) != 0;
+            return Donut_ImGuiCheckbox(label, value);
         }
 
         // Scene paths are shown relative to the scene folder.
@@ -1252,7 +1252,7 @@ namespace FeatureDemoExample {
             const fontSize = Donut_ImGuiGetFontSize();
 
             Donut_ImGuiSetNextWindowPos(fontSize * 0.6, fontSize * 0.6);
-            Donut_ImGuiBegin("Settings", 1);
+            Donut_ImGuiBegin("Settings", true);
             Donut_ImGuiText(`Renderer: ${app.getRendererString()}`);
             const frameTime = app.getAverageFrameTime();
             if (frameTime > 0.0) {
@@ -1260,12 +1260,12 @@ namespace FeatureDemoExample {
             }
 
             const currentScene = demo.currentSceneName;
-            if (Donut_ImGuiBeginCombo("Scene", this.getRelativePath(currentScene)) != 0) {
+            if (Donut_ImGuiBeginCombo("Scene", this.getRelativePath(currentScene))) {
                 const sceneCount = demo.sceneFilesAvailable.getCount();
                 for (let i = 0; i < sceneCount; i++) {
                     const scene = demo.sceneFilesAvailable.getItem(i);
                     const isSelected = scene == currentScene;
-                    if (Donut_ImGuiSelectable(this.getRelativePath(scene), isSelected ? 1 : 0) != 0) {
+                    if (Donut_ImGuiSelectable(this.getRelativePath(scene), isSelected)) {
                         demo.setCurrentSceneName(scene);
                     }
                     if (isSelected) {
@@ -1275,7 +1275,7 @@ namespace FeatureDemoExample {
                 Donut_ImGuiEndCombo();
             }
 
-            if (Donut_ImGuiButton("Reload Shaders") != 0) {
+            if (Donut_ImGuiButton("Reload Shaders")) {
                 ui.shaderReloadRequested = true;
             }
 
@@ -1291,12 +1291,12 @@ namespace FeatureDemoExample {
             const activeSceneCamera = ui.activeSceneCamera;
             const cameraPreview = !activeSceneCamera.isNull() ? activeSceneCamera.getName()
                 : ui.useThirdPersonCamera ? "Third-Person" : "First-Person";
-            if (Donut_ImGuiBeginCombo("Camera (T)", cameraPreview) != 0) {
-                if (Donut_ImGuiSelectable("First-Person", ui.activeSceneCamera.isNull() && !ui.useThirdPersonCamera ? 1 : 0) != 0) {
+            if (Donut_ImGuiBeginCombo("Camera (T)", cameraPreview)) {
+                if (Donut_ImGuiSelectable("First-Person", ui.activeSceneCamera.isNull() && !ui.useThirdPersonCamera)) {
                     ui.activeSceneCamera = new SceneCamera(null);
                     ui.useThirdPersonCamera = false;
                 }
-                if (Donut_ImGuiSelectable("Third-Person", ui.activeSceneCamera.isNull() && ui.useThirdPersonCamera ? 1 : 0) != 0) {
+                if (Donut_ImGuiSelectable("Third-Person", ui.activeSceneCamera.isNull() && ui.useThirdPersonCamera)) {
                     ui.activeSceneCamera = new SceneCamera(null);
                     ui.useThirdPersonCamera = true;
                     demo.copyActiveCameraToFirstPerson();
@@ -1305,7 +1305,7 @@ namespace FeatureDemoExample {
                 for (let i = 0; i < cameraCount; i++) {
                     const camera = sceneGraph.getCamera(i);
                     // The handles: each call wraps the camera in a new object.
-                    if (Donut_ImGuiSelectable(camera.getName(), ui.activeSceneCamera.handle == camera.handle ? 1 : 0) != 0) {
+                    if (Donut_ImGuiSelectable(camera.getName(), ui.activeSceneCamera.handle == camera.handle)) {
                         ui.activeSceneCamera = camera;
                         demo.copyActiveCameraToFirstPerson();
                     }
@@ -1320,7 +1320,7 @@ namespace FeatureDemoExample {
 
             const aaModes: string[] = ["None", "TemporalAA", "DLSS", "MSAA 2x", "MSAA 4x", "MSAA 8x"];
             const aaMode = ui.antiAliasingMode;
-            if (Donut_ImGuiBeginCombo("AA Mode", aaModes[aaMode]) != 0) {
+            if (Donut_ImGuiBeginCombo("AA Mode", aaModes[aaMode])) {
                 for (let n = 0; n < 6; n++) {
                     if (n == AntiAliasingMode.DLSS && !ui.dlssAvailable) {
                         // Skip DLSS if not available
@@ -1328,7 +1328,7 @@ namespace FeatureDemoExample {
                     }
 
                     const isSelected = aaMode == n;
-                    if (Donut_ImGuiSelectable(aaModes[n], isSelected ? 1 : 0) != 0) {
+                    if (Donut_ImGuiSelectable(aaModes[n], isSelected)) {
                         ui.antiAliasingMode = n;
                     }
                     if (isSelected) {
@@ -1343,13 +1343,13 @@ namespace FeatureDemoExample {
             ui.ambientIntensity = Donut_ImGuiSliderFloat("Ambient Intensity", ui.ambientIntensity, 0.0, 1.0);
 
             ui.enableLightProbe = this.checkbox("Enable Light Probe", ui.enableLightProbe);
-            if (ui.enableLightProbe && Donut_ImGuiCollapsingHeader("Light Probe") != 0) {
+            if (ui.enableLightProbe && Donut_ImGuiCollapsingHeader("Light Probe")) {
                 ui.lightProbeDiffuseScale = Donut_ImGuiDragFloat("Diffuse Scale", ui.lightProbeDiffuseScale, 0.01, 0.0, 10.0);
                 ui.lightProbeSpecularScale = Donut_ImGuiDragFloat("Specular Scale", ui.lightProbeSpecularScale, 0.01, 0.0, 10.0);
             }
 
             ui.enableProceduralSky = this.checkbox("Enable Procedural Sky", ui.enableProceduralSky);
-            if (ui.enableProceduralSky && Donut_ImGuiCollapsingHeader("Sky Parameters") != 0) {
+            if (ui.enableProceduralSky && Donut_ImGuiCollapsingHeader("Sky Parameters")) {
                 ui.skyBrightness = Donut_ImGuiSliderFloat("Brightness", ui.skyBrightness, 0.0, 1.0);
                 ui.skyGlowSize = Donut_ImGuiSliderFloat("Glow Size", ui.skyGlowSize, 0.0, 90.0);
                 ui.skyGlowSharpness = Donut_ImGuiSliderFloat("Glow Sharpness", ui.skyGlowSharpness, 1.0, 10.0);
@@ -1369,14 +1369,14 @@ namespace FeatureDemoExample {
             Donut_ImGuiSeparator();
 
             const lightCount = sceneGraph.getLightCount();
-            if (lightCount > 0 && Donut_ImGuiCollapsingHeader("Lights") != 0) {
+            if (lightCount > 0 && Donut_ImGuiCollapsingHeader("Lights")) {
                 const selectedLight = ui.selectedLight;
-                if (Donut_ImGuiBeginCombo("Select Light", !selectedLight.isNull() ? selectedLight.getName() : "(None)") != 0) {
+                if (Donut_ImGuiBeginCombo("Select Light", !selectedLight.isNull() ? selectedLight.getName() : "(None)")) {
                     for (let i = 0; i < lightCount; i++) {
                         const light = sceneGraph.getLight(i);
                         // ImGui::Selectable(label, &selected): a click toggles `selected`.
                         let selected = ui.selectedLight.handle == light.handle;
-                        if (Donut_ImGuiSelectable(light.getName(), selected ? 1 : 0) != 0) {
+                        if (Donut_ImGuiSelectable(light.getName(), selected)) {
                             selected = !selected;
                         }
                         if (selected) {
@@ -1397,13 +1397,13 @@ namespace FeatureDemoExample {
             const probeCount = demo.lightProbes.getCount();
             for (let i = 0; i < probeCount; i++) {
                 Donut_ImGuiSameLine();
-                if (Donut_ImGuiButton(demo.lightProbes.getName(i)) != 0) {
+                if (Donut_ImGuiButton(demo.lightProbes.getName(i))) {
                     demo.renderLightProbe(i);
                 }
             }
 
-            if (Donut_ImGuiButton("Screenshot") != 0) {
-                const fileName = Donut_FileDialog(0, "BMP files|*.bmp|All files|*.*");
+            if (Donut_ImGuiButton("Screenshot")) {
+                const fileName = Donut_FileDialog(false, "BMP files|*.bmp|All files|*.*");
                 if (fileName != "") {
                     // A copy: the dialog's result is overwritten by its next call.
                     ui.screenshotFileName = `${fileName}`;
@@ -1419,11 +1419,11 @@ namespace FeatureDemoExample {
             const material = ui.selectedMaterial;
             if (!material.isNull()) {
                 Donut_ImGuiSetNextWindowPosPivot(width - fontSize * 0.6, fontSize * 0.6, 1.0, 0.0);
-                Donut_ImGuiBegin("Material Editor", 0);
+                Donut_ImGuiBegin("Material Editor", false);
                 Donut_ImGuiText(`Material ${material.getID()}: ${material.getName()}`);
 
                 const previousDomain = material.getDomain();
-                material.setDirty(material.imGuiEditor(1));
+                material.setDirty(material.imGuiEditor(true));
 
                 if (previousDomain != material.getDomain()) {
                     sceneGraph.getRootNode().invalidateContent();

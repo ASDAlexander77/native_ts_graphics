@@ -597,15 +597,15 @@ namespace TimestampQueries {
         buildUI() {
             const hdr = this.hdr;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Timestamp queries", 1);
+            Donut_ImGuiBegin("Timestamp queries", true);
             Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
                 hdr.objectIndex = Donut_ImGuiCombo("Object type", hdr.objectIndex, OBJECT_NAMES);
                 hdr.exposure = Donut_ImGuiInputFloat("Exposure", hdr.exposure, 0.025, "%.3f");
-                hdr.bloom = Donut_ImGuiCheckbox("Bloom", hdr.bloom ? 1 : 0) != 0;
-                hdr.displaySkybox = Donut_ImGuiCheckbox("Skybox", hdr.displaySkybox ? 1 : 0) != 0;
+                hdr.bloom = Donut_ImGuiCheckbox("Bloom", hdr.bloom);
+                hdr.displaySkybox = Donut_ImGuiCheckbox("Skybox", hdr.displaySkybox);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("timing") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("timing")) {
                 const times = hdr.passTimes;
                 Donut_ImGuiText(`Pass 1: Offscreen scene rendering: ${formatMs(times[0])} ms`);
                 Donut_ImGuiText(`Pass 2: ${hdr.passTimesBloom ? "First bloom pass" : "Scene display"} ${formatMs(times[1])} ms`);

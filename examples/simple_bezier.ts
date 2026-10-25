@@ -404,7 +404,7 @@ namespace SimpleBezier {
             desc.addBindingLayout(this.bindingLayout);
             desc.setDepthState(1, 1, ComparisonFunc.Less);
             desc.setRasterState(CullMode.None, wireframe != 0 ? FillMode.Wireframe : FillMode.Solid, 0);
-            desc.setDepthClip(1);
+            desc.setDepthClip(true);
             // The edges are aliased lines (MultisampleEnable FALSE): D3D's diamond-exit rule, which
             // is Vulkan's Bresenham mode (VK_EXT_line_rasterization), where the device has it.
             if (wireframe != 0 && (this.app.getLineRasterizationModes() & LineRasterization.Bresenham) != 0) {

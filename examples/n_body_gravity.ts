@@ -259,7 +259,7 @@ namespace NBodyGravity {
                 desc.setPrimitiveType(PrimitiveType.PointList);
                 desc.setDepthState(0, 0, ComparisonFunc.Always);
                 desc.setRasterState(CullMode.Back, FillMode.Solid, 0);
-                desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.One, BlendOp.Add, BlendFactor.Zero, BlendFactor.Zero, BlendOp.Add);
+                desc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.One, BlendOp.Add, BlendFactor.Zero, BlendFactor.Zero, BlendOp.Add);
                 this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]);
                 this.pipelineCreated = true;
             }

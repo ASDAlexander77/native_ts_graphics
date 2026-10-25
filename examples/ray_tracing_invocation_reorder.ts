@@ -699,10 +699,10 @@ namespace RayTracingInvocationReorder {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
+            Donut_ImGuiBegin("Vulkan Example", true);
             if (sample.serSupport != ShaderExecutionReordering.None) {
-                sample.serEnabled = Donut_ImGuiCheckbox("Enable Shader Execution Reordering (SER)", sample.serEnabled ? 1 : 0) != 0;
-                sample.coherenceHintEnabled = Donut_ImGuiCheckbox("Enable Coherence Hint", sample.coherenceHintEnabled ? 1 : 0) != 0;
+                sample.serEnabled = Donut_ImGuiCheckbox("Enable Shader Execution Reordering (SER)", sample.serEnabled);
+                sample.coherenceHintEnabled = Donut_ImGuiCheckbox("Enable Coherence Hint", sample.coherenceHintEnabled);
             } else {
                 Donut_ImGuiText("Shader Execution Reordering is not supported");
             }

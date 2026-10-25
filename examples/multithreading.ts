@@ -234,13 +234,13 @@ namespace Multithreading {
             sceneDesc.addBindingLayout(this.sceneBindingLayout);
             sceneDesc.addBindingLayout(this.materialBindingLayout);
             sceneDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
-            sceneDesc.setDepthClip(1);
+            sceneDesc.setDepthClip(true);
             const scenePipeline = this.app.createGraphicsPipelineFromDesc(sceneDesc, this.sceneFramebuffer);
             const shadowDesc = GraphicsPipelineDesc.create(this.shadowVertexShader, null);
             shadowDesc.setInputLayout(this.shadowInputLayout);
             shadowDesc.addBindingLayout(this.shadowBindingLayout);
             shadowDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
-            shadowDesc.setDepthClip(1);
+            shadowDesc.setDepthClip(true);
             const shadowPipeline = this.app.createGraphicsPipelineFromDesc(shadowDesc, this.shadowFramebuffer);
 
             // Blitting creates Donut's common passes: before any command list is open.
@@ -417,9 +417,9 @@ namespace Multithreading {
                 return false;
             }
             this.vertexBuffer = this.app.createStaticBufferFromBinaryFile(commandList, binaryFile,
-                SQUID_ROOM_VERTEX_DATA_OFFSET, SQUID_ROOM_VERTEX_DATA_SIZE, 0, "SquidRoomVertices");
+                SQUID_ROOM_VERTEX_DATA_OFFSET, SQUID_ROOM_VERTEX_DATA_SIZE, false, "SquidRoomVertices");
             this.indexBuffer = this.app.createStaticBufferFromBinaryFile(commandList, binaryFile,
-                SQUID_ROOM_INDEX_DATA_OFFSET, SQUID_ROOM_INDEX_DATA_SIZE, 1, "SquidRoomIndices");
+                SQUID_ROOM_INDEX_DATA_OFFSET, SQUID_ROOM_INDEX_DATA_SIZE, true, "SquidRoomIndices");
             if (!this.vertexBuffer || !this.indexBuffer) {
                 return false;
             }

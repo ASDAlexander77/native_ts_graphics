@@ -194,8 +194,8 @@ namespace ComputeShaderDerivatives {
         buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Compute Shader Derivatives") != 0) {
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Compute Shader Derivatives")) {
                 Donut_ImGuiText("Visualization:");
                 Donut_ImGuiText("- Blue: Base procedural radial pattern");
                 Donut_ImGuiText("- Red/Yellow: Edges (high gradient magnitude)");

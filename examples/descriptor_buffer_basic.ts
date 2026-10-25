@@ -349,9 +349,9 @@ namespace DescriptorBufferBasic {
         buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Descriptor buffers", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
-                sample.animate = Donut_ImGuiCheckbox("Animate", sample.animate ? 1 : 0) != 0;
+            Donut_ImGuiBegin("Descriptor buffers", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+                sample.animate = Donut_ImGuiCheckbox("Animate", sample.animate);
             }
             Donut_ImGuiEnd();
         }

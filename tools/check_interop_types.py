@@ -29,6 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TYPES = {
     "void": {"void"},
     "int": {"int"},
+    "bool": {"boolean"},
     "double": {"number"},
     "const char*": {"string"},
     "const char* const*": {"Ref<string>"},

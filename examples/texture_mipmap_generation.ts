@@ -439,9 +439,9 @@ namespace TextureMipmapGeneration {
         buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
-                p.rotateScene = Donut_ImGuiCheckbox("Rotate", p.rotateScene ? 1 : 0) != 0;
+            Donut_ImGuiBegin("Options", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+                p.rotateScene = Donut_ImGuiCheckbox("Rotate", p.rotateScene);
                 p.lodBias = Donut_ImGuiSliderFloat("LOD bias", p.lodBias, 0.0, p.mipLevels);
                 p.samplerIndex = Donut_ImGuiCombo("Sampler type", p.samplerIndex, SAMPLER_NAMES);
             }

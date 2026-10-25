@@ -270,7 +270,7 @@ namespace DynamicLineRasterization {
             desc.setPrimitiveType(primitiveType);
             desc.setDepthState(0, 0, ComparisonFunc.Always);
             desc.setRasterState(CullMode.None, FillMode.Solid, 1);
-            desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
+            desc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                 BlendFactor.One, BlendFactor.Zero, BlendOp.Add);
             return desc;
         }
@@ -383,10 +383,10 @@ namespace DynamicLineRasterization {
         buildUI() {
             const l = this.lines;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Primitive options") != 0) {
-                l.fillEnabled = Donut_ImGuiCheckbox("Fill", l.fillEnabled ? 1 : 0) != 0;
-                l.gridEnabled = Donut_ImGuiCheckbox("Grid", l.gridEnabled ? 1 : 0) != 0;
+            Donut_ImGuiBegin("Options", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Primitive options")) {
+                l.fillEnabled = Donut_ImGuiCheckbox("Fill", l.fillEnabled);
+                l.gridEnabled = Donut_ImGuiCheckbox("Grid", l.gridEnabled);
                 // Only the modes the device has (DEFAULT always).
                 const mode = Donut_ImGuiCombo("Rasterization mode", l.rasterizationMode, comboItems(MODE_NAMES));
                 if (mode == 0 || (l.modes & MODE_BITS[mode]) != 0) {
@@ -397,13 +397,13 @@ namespace DynamicLineRasterization {
                     l.lineWidth = Donut_ImGuiSliderFloat("Line width", l.lineWidth, 1.0, Math.min(64.0, l.maxLineWidth));
                 }
                 if (l.canStipple()) {
-                    l.stippleEnabled = Donut_ImGuiCheckbox("Stipple enabled", l.stippleEnabled ? 1 : 0) != 0;
+                    l.stippleEnabled = Donut_ImGuiCheckbox("Stipple enabled", l.stippleEnabled);
                     // The stipple factor has a maximum value of 256. Here, a limit of 64 has been chosen to achieve a scroll step equal to 1.
                     l.stippleFactor = Donut_ImGuiSliderInt("Stipple factor", l.stippleFactor, 1, 64);
                     Donut_ImGuiText(`Stipple pattern: ${hex(l.pattern())}`);
                     for (let i = 0; i < 16; i++) {
                         Donut_ImGuiPushID(i);
-                        l.stipplePattern[i] = Donut_ImGuiCheckbox("", l.stipplePattern[i] ? 1 : 0) != 0;
+                        l.stipplePattern[i] = Donut_ImGuiCheckbox("", l.stipplePattern[i]);
                         Donut_ImGuiPopID();
                         if (i % 8 != 7) {
                             Donut_ImGuiSameLine();

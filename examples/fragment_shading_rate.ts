@@ -381,7 +381,7 @@ namespace FragmentShadingRate {
                     const desc = GraphicsPipelineDesc.create(this.sceneVS, this.scenePS);
                     desc.setInputLayout(this.inputLayout);
                     desc.addBindingLayout(this.bindingLayout);
-                    desc.setVariableRateShading(1);
+                    desc.setVariableRateShading(true);
                     if (cube == 1) {
                         // Depth tested (greater: reversed) and written, front faces culled.
                         desc.setDepthState(1, 1, ComparisonFunc.Greater);
@@ -438,7 +438,7 @@ namespace FragmentShadingRate {
             const imageCombiner = this.enableAttachmentShadingRate ? ShadingRateCombiner.Override : ShadingRateCombiner.Passthrough;
             if (this.displaySkySphere) {
                 frame.beginDrawToFramebuffer(this.skyspherePipeline, framebuffer);
-                frame.drawSetVariableRateShading(1, VariableShadingRate.Rate1x1, ShadingRateCombiner.Passthrough, imageCombiner);
+                frame.drawSetVariableRateShading(true, VariableShadingRate.Rate1x1, ShadingRateCombiner.Passthrough, imageCombiner);
                 frame.drawAddBindingSet(this.bindingSet);
                 frame.drawSetIndexBuffer(this.skysphereMesh.getIndexBuffer());
                 frame.drawAddVertexBuffer(this.skysphereMesh.getVertexBuffer(), 0, 0);
@@ -450,7 +450,7 @@ namespace FragmentShadingRate {
                 frame.drawIndexedWithPushConstants(this.skysphereMesh.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
             frame.beginDrawToFramebuffer(this.cubePipeline, framebuffer);
-            frame.drawSetVariableRateShading(1, VariableShadingRate.Rate1x1, ShadingRateCombiner.Passthrough, imageCombiner);
+            frame.drawSetVariableRateShading(true, VariableShadingRate.Rate1x1, ShadingRateCombiner.Passthrough, imageCombiner);
             frame.drawAddBindingSet(this.bindingSet);
             frame.drawSetIndexBuffer(this.sceneMesh.getIndexBuffer());
             frame.drawAddVertexBuffer(this.sceneMesh.getVertexBuffer(), 0, 0);
@@ -480,12 +480,12 @@ namespace FragmentShadingRate {
         buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
+            Donut_ImGuiBegin("Options", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
                 p.enableAttachmentShadingRate = Donut_ImGuiCheckbox("Enable attachment shading rate",
-                    p.enableAttachmentShadingRate ? 1 : 0) != 0;
-                p.colorShadingRate = Donut_ImGuiCheckbox("Color shading rates", p.colorShadingRate ? 1 : 0) != 0;
-                p.displaySkySphere = Donut_ImGuiCheckbox("skysphere", p.displaySkySphere ? 1 : 0) != 0;
+                    p.enableAttachmentShadingRate);
+                p.colorShadingRate = Donut_ImGuiCheckbox("Color shading rates", p.colorShadingRate);
+                p.displaySkySphere = Donut_ImGuiCheckbox("skysphere", p.displaySkySphere);
             }
             Donut_ImGuiEnd();
         }

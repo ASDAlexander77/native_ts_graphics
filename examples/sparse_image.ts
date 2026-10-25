@@ -1476,18 +1476,18 @@ namespace SparseImage {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
-                const colorHighlight = Donut_ImGuiCheckbox("Color highlight", sample.colorHighlight ? 1 : 0) != 0;
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+                const colorHighlight = Donut_ImGuiCheckbox("Color highlight", sample.colorHighlight);
                 sample.colorHighlightChanged = colorHighlight != sample.colorHighlight;
                 sample.colorHighlight = colorHighlight;
-                sample.memoryDefragmentation = Donut_ImGuiCheckbox("Memory defragmentation", sample.memoryDefragmentation ? 1 : 0) != 0;
-                sample.frameCounterFeature = Donut_ImGuiCheckbox("Update prioritization", sample.frameCounterFeature ? 1 : 0) != 0;
+                sample.memoryDefragmentation = Donut_ImGuiCheckbox("Memory defragmentation", sample.memoryDefragmentation);
+                sample.frameCounterFeature = Donut_ImGuiCheckbox("Update prioritization", sample.frameCounterFeature);
                 sample.blocksToUpdatePerCycle = Donut_ImGuiSliderInt("Blocks per cycle", sample.blocksToUpdatePerCycle, 1, 50);
                 sample.numVerticalBlocksUpd = Donut_ImGuiSliderInt("Vertical blocks", sample.numVerticalBlocksUpd, 1, 100);
                 sample.numHorizontalBlocksUpd = Donut_ImGuiSliderInt("Horizontal blocks", sample.numHorizontalBlocksUpd, 1, 100);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Statistics") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Statistics")) {
                 Donut_ImGuiText("Memory usage in pages:");
                 Donut_ImGuiText(`* Virtual: ${sample.virtualPages()} `);
                 Donut_ImGuiText(`* Allocated: ${sample.allocatedPages()} `);

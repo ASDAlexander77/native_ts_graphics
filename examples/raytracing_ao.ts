@@ -250,9 +250,9 @@ namespace RaytracingAo {
             }
 
             this.vertexBuffer = app.createStaticGeometryBuffer(commandList, mesh.getVertexBufferData(vb),
-                mesh.getVertexBufferSize(vb), 0, file);
+                mesh.getVertexBufferSize(vb), false, file);
             this.indexBuffer = app.createStaticGeometryBuffer(commandList, mesh.getIndexBufferData(ib),
-                mesh.getIndexBufferSize(ib), 1, file);
+                mesh.getIndexBufferSize(ib), true, file);
             this.indexCount = mesh.getSubsetIndexCount(subset);
             this.vertexCount = mesh.getSubsetVertexCount(subset);
 

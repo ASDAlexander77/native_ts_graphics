@@ -3555,7 +3555,7 @@ extern "C"
 
     // Apps start with vsync on. The change takes effect at the start of the next frame; on
     // Vulkan it recreates the swap chain, so the passes get onBackBufferResizing.
-    DONUT_API void Donut_SetVsyncEnabled(App* app, int enabled)
+    DONUT_API void Donut_SetVsyncEnabled(App* app, bool enabled)
     {
         app->deviceManager->SetVsyncEnabled(enabled != 0);
     }
@@ -3795,7 +3795,7 @@ extern "C"
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (D3D12's
     // D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS, Vulkan's
     // VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT); off by default.
-    DONUT_API void Donut_RtPipelineSetAllowOpacityMicromaps(nvrhi::rt::PipelineDesc* pipelineDesc, int allow)
+    DONUT_API void Donut_RtPipelineSetAllowOpacityMicromaps(nvrhi::rt::PipelineDesc* pipelineDesc, bool allow)
     {
         pipelineDesc->allowOpacityMicromaps = allow != 0;
     }
@@ -4888,7 +4888,7 @@ extern "C"
     // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
     // ByteAddressBuffer and acceleration structure builds take as input: one copy of a mesh for
     // rasterization and ray tracing.
-    DONUT_API nvrhi::IBuffer* Donut_CreateStaticGeometryBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, int isIndexBuffer,
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticGeometryBuffer(App* app, nvrhi::ICommandList* commandList, const void* data, int byteSize, bool isIndexBuffer,
         const char* debugName)
     {
         auto desc = nvrhi::BufferDesc().setCanHaveRawViews(true).setIsAccelStructBuildInput(true).setDebugName(debugName);
@@ -5057,7 +5057,7 @@ extern "C"
     // A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file
     // from fileOffset, uploaded by an open command list. Returns null (after logging why) on failure.
     DONUT_API nvrhi::IBuffer* Donut_CreateStaticBufferFromBinaryFile(App* app, nvrhi::ICommandList* commandList, BinaryFile* binaryFile,
-        int fileOffset, int byteSize, int isIndexBuffer, const char* debugName)
+        int fileOffset, int byteSize, bool isIndexBuffer, const char* debugName)
     {
         const std::vector<uint8_t>& bytes = binaryFile->bytes;
         if (fileOffset < 0 || byteSize <= 0 || size_t(fileOffset) + size_t(byteSize) > bytes.size())
@@ -6673,7 +6673,7 @@ extern "C"
 
     // The depth bounds test: pixels whose depth target value is outside the draw's bounds
     // (Donut_DrawSetDepthBounds) are discarded. Requires Donut_HasDepthBoundsTest.
-    DONUT_API void Donut_GraphicsPipelineSetDepthBoundsTest(PipelineDesc* graphicsPipelineDesc, int enable)
+    DONUT_API void Donut_GraphicsPipelineSetDepthBoundsTest(PipelineDesc* graphicsPipelineDesc, bool enable)
     {
         graphicsPipelineDesc->renderState.depthStencilState.depthBoundsTestEnable = enable != 0;
     }
@@ -6694,7 +6694,7 @@ extern "C"
 
     // Whether draws are clipped to their scissor rectangle (Donut_DrawSetScissor): NVRHI's D3D12 and
     // D3D11 backends apply it only to pipelines that enable it; Vulkan always does.
-    DONUT_API void Donut_GraphicsPipelineSetScissorEnable(PipelineDesc* graphicsPipelineDesc, int enable)
+    DONUT_API void Donut_GraphicsPipelineSetScissorEnable(PipelineDesc* graphicsPipelineDesc, bool enable)
     {
         graphicsPipelineDesc->renderState.rasterState.scissorEnable = enable != 0;
     }
@@ -6702,7 +6702,7 @@ extern "C"
     // Whether primitives are clipped at the near and far planes (Vulkan's default, as without
     // VK_EXT_depth_clip_enable) or not (NVRHI's default: on D3D, depth beyond them is clamped and
     // what's between the eye and the near plane drawn). Off by default.
-    DONUT_API void Donut_GraphicsPipelineSetDepthClip(PipelineDesc* graphicsPipelineDesc, int enable)
+    DONUT_API void Donut_GraphicsPipelineSetDepthClip(PipelineDesc* graphicsPipelineDesc, bool enable)
     {
         graphicsPipelineDesc->renderState.rasterState.depthClipEnable = enable != 0;
     }
@@ -6722,7 +6722,7 @@ extern "C"
     // pixel a triangle touches at all is drawn. extraOverestimation enlarges the triangles further,
     // in pixels, on Vulkan (extraPrimitiveOverestimationSize, clamped to the device's maximum); D3D
     // has no such setting.
-    DONUT_API void Donut_GraphicsPipelineSetConservativeRaster(PipelineDesc* graphicsPipelineDesc, int enable, double extraOverestimation)
+    DONUT_API void Donut_GraphicsPipelineSetConservativeRaster(PipelineDesc* graphicsPipelineDesc, bool enable, double extraOverestimation)
     {
         nvrhi::RasterState& state = graphicsPipelineDesc->renderState.rasterState;
         state.conservativeRasterEnable = enable != 0;
@@ -6772,7 +6772,7 @@ extern "C"
 
     // A logic operation (a LogicOp value: nvrhi::LogicOp, Vulkan's order) between the pixel shader's
     // output and the targets' bits, instead of blending (Donut_HasLogicOps; UINT and UNORM targets).
-    DONUT_API void Donut_GraphicsPipelineSetLogicOp(PipelineDesc* graphicsPipelineDesc, int enable, int logicOp)
+    DONUT_API void Donut_GraphicsPipelineSetLogicOp(PipelineDesc* graphicsPipelineDesc, bool enable, int logicOp)
     {
         nvrhi::BlendState& state = graphicsPipelineDesc->renderState.blendState;
         state.logicOpEnable = enable != 0;
@@ -6789,7 +6789,7 @@ extern "C"
     // Blending of every color target, on or off (enable), by blend factors (nvrhi::BlendFactor
     // values) and operations (nvrhi::BlendOp values) of the color and of the alpha. The color
     // write mask stays.
-    DONUT_API void Donut_GraphicsPipelineSetBlendState(PipelineDesc* graphicsPipelineDesc, int enable, int srcBlend, int destBlend,
+    DONUT_API void Donut_GraphicsPipelineSetBlendState(PipelineDesc* graphicsPipelineDesc, bool enable, int srcBlend, int destBlend,
         int blendOp, int srcBlendAlpha, int destBlendAlpha, int blendOpAlpha)
     {
         for (nvrhi::BlendState::RenderTarget& target : graphicsPipelineDesc->renderState.blendState.targets)
@@ -6931,7 +6931,7 @@ extern "C"
     }
 
     // Non-zero: the worker starts no more runs until resumed (the run under way finishes).
-    DONUT_API void Donut_SetAsyncComputeLoopPaused(AsyncComputeLoop* asyncComputeLoop, int paused)
+    DONUT_API void Donut_SetAsyncComputeLoopPaused(AsyncComputeLoop* asyncComputeLoop, bool paused)
     {
         asyncComputeLoop->paused = paused != 0;
     }
@@ -7178,7 +7178,7 @@ extern "C"
     }
 
     // By default (as in Donut) animation and rendering pause while the window is unfocused.
-    DONUT_API void Donut_SetRunWhenUnfocused(TsRenderPass* pass, int enabled)
+    DONUT_API void Donut_SetRunWhenUnfocused(TsRenderPass* pass, bool enabled)
     {
         pass->m_RunWhenUnfocused = enabled != 0;
     }
@@ -7254,7 +7254,7 @@ extern "C"
     // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space to activate, Escape),
     // as ImGuiConfigFlags_NavEnableKeyboard; after Donut_AddImGuiPass (which creates the context).
     // ImGui then takes the keyboard while one of its windows has the focus.
-    DONUT_API void Donut_ImGuiSetKeyboardNavigation(int enable)
+    DONUT_API void Donut_ImGuiSetKeyboardNavigation(bool enable)
     {
         ImGuiIO& io = ImGui::GetIO();
         if (enable)
@@ -7270,7 +7270,7 @@ extern "C"
     }
 
     // autoResize != 0: the window fits its contents. Always pair with Donut_ImGuiEnd.
-    DONUT_API void Donut_ImGuiBegin(const char* title, int autoResize)
+    DONUT_API void Donut_ImGuiBegin(const char* title, bool autoResize)
     {
         ImGui::Begin(title, nullptr, autoResize ? ImGuiWindowFlags_AlwaysAutoResize : 0);
     }
@@ -7311,7 +7311,7 @@ extern "C"
     }
 
     // Returns the checkbox's new state (value, unless it was clicked).
-    DONUT_API int Donut_ImGuiCheckbox(const char* label, int value)
+    DONUT_API bool Donut_ImGuiCheckbox(const char* label, bool value)
     {
         bool checked = value != 0;
         ImGui::Checkbox(label, &checked);
@@ -7319,7 +7319,7 @@ extern "C"
     }
 
     // Returns non-zero if the button was clicked.
-    DONUT_API int Donut_ImGuiButton(const char* label)
+    DONUT_API bool Donut_ImGuiButton(const char* label)
     {
         return ImGui::Button(label) ? 1 : 0;
     }
@@ -7341,14 +7341,14 @@ extern "C"
 
     // A combo box with custom items: returns non-zero while its list is open; then add
     // Donut_ImGuiSelectable items and call Donut_ImGuiEndCombo.
-    DONUT_API int Donut_ImGuiBeginCombo(const char* label, const char* preview)
+    DONUT_API bool Donut_ImGuiBeginCombo(const char* label, const char* preview)
     {
         return ImGui::BeginCombo(label, preview) ? 1 : 0;
     }
 
     // A color editor of 4 floats at values (RGBA, edited as floats), width pixels wide (0 for the
     // default); returns non-zero if they changed.
-    DONUT_API int Donut_ImGuiColorEdit4(const char* label, float* values, double width)
+    DONUT_API bool Donut_ImGuiColorEdit4(const char* label, float* values, double width)
     {
         ImGui::PushItemWidth(float(width));
         const bool changed = ImGui::ColorEdit4(label, values, ImGuiColorEditFlags_Float);
@@ -7358,7 +7358,7 @@ extern "C"
 
     // A color picker of 3 floats (RGB, unbounded: HDR) without previews, as Vulkan-Samples'
     // Drawer::color_op<Pick>; non-zero when changed.
-    DONUT_API int Donut_ImGuiColorPicker3(const char* label, float* values, double width)
+    DONUT_API bool Donut_ImGuiColorPicker3(const char* label, float* values, double width)
     {
         ImGui::PushItemWidth(float(width));
         const bool changed = ImGui::ColorPicker3(label, values, ImGuiColorEditFlags_NoSidePreview
@@ -7380,13 +7380,13 @@ extern "C"
     }
 
     // A radio button shown selected when active is non-zero; returns non-zero if it was clicked.
-    DONUT_API int Donut_ImGuiRadioButton(const char* label, int active)
+    DONUT_API bool Donut_ImGuiRadioButton(const char* label, bool active)
     {
         return ImGui::RadioButton(label, active != 0) ? 1 : 0;
     }
 
     // Returns non-zero if the item was clicked.
-    DONUT_API int Donut_ImGuiSelectable(const char* label, int selected)
+    DONUT_API bool Donut_ImGuiSelectable(const char* label, bool selected)
     {
         return ImGui::Selectable(label, selected != 0) ? 1 : 0;
     }
@@ -7398,7 +7398,7 @@ extern "C"
 
     // Edits 3 floats at values (Ref of a `let` f32 array element) by dragging; returns non-zero
     // if they changed.
-    DONUT_API int Donut_ImGuiDragFloat3(const char* label, float* values, double speed)
+    DONUT_API bool Donut_ImGuiDragFloat3(const char* label, float* values, double speed)
     {
         return ImGui::DragFloat3(label, static_cast<float*>(values), float(speed)) ? 1 : 0;
     }
@@ -7486,13 +7486,13 @@ extern "C"
     }
 
     // Returns non-zero while the header is expanded (show its contents then).
-    DONUT_API int Donut_ImGuiCollapsingHeader(const char* label)
+    DONUT_API bool Donut_ImGuiCollapsingHeader(const char* label)
     {
         return ImGui::CollapsingHeader(label) ? 1 : 0;
     }
 
     // Same, expanded until the user collapses it.
-    DONUT_API int Donut_ImGuiCollapsingHeaderDefaultOpen(const char* label)
+    DONUT_API bool Donut_ImGuiCollapsingHeaderDefaultOpen(const char* label)
     {
         return ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen) ? 1 : 0;
     }
@@ -7511,7 +7511,7 @@ extern "C"
 
     // A scrolling region of width x height pixels (0: the rest of the window); end it with
     // Donut_ImGuiEndChild whatever this returns.
-    DONUT_API int Donut_ImGuiBeginChild(const char* id, double width, double height, int border)
+    DONUT_API bool Donut_ImGuiBeginChild(const char* id, double width, double height, bool border)
     {
         return ImGui::BeginChild(id, ImVec2(float(width), float(height)),
             border != 0 ? ImGuiChildFlags_Borders : ImGuiChildFlags_None) ? 1 : 0;
@@ -7601,13 +7601,13 @@ extern "C"
 
     // Donut's material editor widgets, for a scene material; allowDomainChanges != 0 lets it
     // change the domain (opaque, alpha tested, ...). Returns non-zero if the material changed.
-    DONUT_API int Donut_ImGuiMaterialEditor(donut::engine::Material* material, int allowDomainChanges)
+    DONUT_API bool Donut_ImGuiMaterialEditor(donut::engine::Material* material, bool allowDomainChanges)
     {
         return donut::app::MaterialEditor(material, allowDomainChanges != 0) ? 1 : 0;
     }
 
     // Donut's light editor widgets, for a scene light. Returns non-zero if the light changed.
-    DONUT_API int Donut_ImGuiLightEditor(donut::engine::Light* light)
+    DONUT_API bool Donut_ImGuiLightEditor(donut::engine::Light* light)
     {
         return donut::app::LightEditor(*light) ? 1 : 0;
     }
@@ -7615,7 +7615,7 @@ extern "C"
     // The system's open (open != 0) or save file dialog, with '|'-separated filter pairs like
     // "BMP files|*.bmp|All files|*.*". Returns the chosen path, or "" if cancelled; valid until
     // the next call.
-    DONUT_API const char* Donut_FileDialog(int open, const char* filters)
+    DONUT_API const char* Donut_FileDialog(bool open, const char* filters)
     {
         // Windows wants the pairs separated by NULs, with an extra NUL at the end.
         std::string zeroSeparated(filters);
@@ -9395,7 +9395,7 @@ extern "C"
     // Variable rate shading in a graphics pipeline (Feature::VariableRateShading): its draws take
     // their shading rate from the draw state (Donut_DrawSetVariableRateShading), combined with a
     // framebuffer's shading rate surface.
-    DONUT_API void Donut_GraphicsPipelineSetVariableRateShading(PipelineDesc* graphicsPipelineDesc, int enabled)
+    DONUT_API void Donut_GraphicsPipelineSetVariableRateShading(PipelineDesc* graphicsPipelineDesc, bool enabled)
     {
         graphicsPipelineDesc->shadingRateState.setEnabled(enabled != 0);
     }
@@ -9412,7 +9412,7 @@ extern "C"
         frame->draw.setDepthBounds(float(minDepth), float(maxDepth));
     }
 
-    DONUT_API void Donut_DrawSetVariableRateShading(FrameContext* frame, int enabled, int shadingRate, int primitiveCombiner,
+    DONUT_API void Donut_DrawSetVariableRateShading(FrameContext* frame, bool enabled, int shadingRate, int primitiveCombiner,
         int imageCombiner)
     {
         frame->draw.shadingRateState = nvrhi::VariableRateShadingState()
@@ -9462,7 +9462,7 @@ extern "C"
 
     // enabled != 0: draws with the view use its framebuffer's shading rate surface alone (1x1
     // per-draw rate, the surface overriding it); 0: full rate.
-    DONUT_API void Donut_SetViewVariableRateShading(donut::engine::IView* view, int enabled)
+    DONUT_API void Donut_SetViewVariableRateShading(donut::engine::IView* view, bool enabled)
     {
         static_cast<donut::engine::PlanarView*>(view)->SetVariableRateShadingState(enabled
             ? nvrhi::VariableRateShadingState().setEnabled(true).setShadingRate(nvrhi::VariableShadingRate::e1x1)
@@ -10562,7 +10562,7 @@ extern "C"
     }
 
     // Marks the material for re-upload of its constants (what the material editor returns).
-    DONUT_API void Donut_SetMaterialDirty(donut::engine::Material* material, int dirty)
+    DONUT_API void Donut_SetMaterialDirty(donut::engine::Material* material, bool dirty)
     {
         material->dirty = dirty != 0;
     }
@@ -11525,7 +11525,7 @@ extern "C"
     // bottom ambient term, the targets' ambient occlusion (useAmbientOcclusion != 0) and a light
     // probe set (or none: null).
     DONUT_API void Donut_RenderDeferredLightingToHdr(nvrhi::ICommandList* commandList, donut::render::DeferredLightingPass* deferredLightingPass, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets,
-        donut::engine::SceneGraph* sceneGraph, int useAmbientOcclusion, double topR, double topG, double topB,
+        donut::engine::SceneGraph* sceneGraph, bool useAmbientOcclusion, double topR, double topG, double topB,
         double bottomR, double bottomG, double bottomB, LightProbeSet* lightProbeSet)
     {
         auto* targets = sceneRenderTargets;
@@ -11876,7 +11876,7 @@ extern "C"
         return lightProbeSet->probes[index]->enabled ? 1 : 0;
     }
 
-    DONUT_API void Donut_SetLightProbeEnabled(LightProbeSet* lightProbeSet, int index, int enabled)
+    DONUT_API void Donut_SetLightProbeEnabled(LightProbeSet* lightProbeSet, int index, bool enabled)
     {
         lightProbeSet->probes[index]->enabled = enabled != 0;
     }

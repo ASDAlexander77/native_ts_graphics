@@ -237,7 +237,7 @@ namespace ExecuteIndirect {
             desc.setDepthState(1, 1, ComparisonFunc.Less);
             desc.setRasterState(CullMode.Back, FillMode.Solid, 0);
             // The culling band's scissor rectangle.
-            desc.setScissorEnable(1);
+            desc.setScissorEnable(true);
             this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffer);
             this.hasTargets = true;
         }

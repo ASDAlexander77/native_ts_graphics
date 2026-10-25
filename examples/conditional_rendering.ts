@@ -439,24 +439,24 @@ namespace ConditionalRendering {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Visibility") != 0) {
-                if (Donut_ImGuiButton("All") != 0) {
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Visibility")) {
+                if (Donut_ImGuiButton("All")) {
                     for (let i = 0; i < sample.names.length; i++) {
                         sample.setVisible(i, true);
                     }
                 }
                 Donut_ImGuiSameLine();
-                if (Donut_ImGuiButton("None") != 0) {
+                if (Donut_ImGuiButton("None")) {
                     for (let i = 0; i < sample.names.length; i++) {
                         sample.setVisible(i, false);
                     }
                 }
                 Donut_ImGuiNewLine();
 
-                Donut_ImGuiBeginChild("InnerRegion", 200.0, 400.0, 0);
+                Donut_ImGuiBeginChild("InnerRegion", 200.0, 400.0, false);
                 for (let i = 0; i < sample.names.length; i++) {
-                    const visible = Donut_ImGuiCheckbox(`[${i}] ${sample.names[i]}`, sample.visible[i] ? 1 : 0) != 0;
+                    const visible = Donut_ImGuiCheckbox(`[${i}] ${sample.names[i]}`, sample.visible[i]);
                     if (visible != sample.visible[i]) {
                         sample.setVisible(i, visible);
                     }
