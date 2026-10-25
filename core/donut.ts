@@ -414,6 +414,11 @@ export class App {
         return Donut_CreateShaderLibraryWithDefine(this.handle, fileName, defineName, defineValue);
     }
 
+    // Same with several defines, "NAME=value;NAME=value".
+    createShaderLibraryWithDefines(fileName: string, defines: string): ShaderLibraryHandle {
+        return Donut_CreateShaderLibraryWithDefines(this.handle, fileName, defines);
+    }
+
     // Triangle list, no depth test, for the frame's framebuffer layout.
     createGraphicsPipeline(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipeline(this.handle, frame.handle, vertexShader, pixelShader);
@@ -1910,6 +1915,12 @@ export class Frame {
     // Same, with a descriptor table bound after the binding set.
     dispatchRaysWithDescriptorTable(shaderTable: ShaderTable, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, width: int, height: int): void {
         Donut_DispatchRaysWithDescriptorTable(this.handle, shaderTable.handle, bindingSet.handle, descriptorTable, width, height);
+    }
+
+    // Same, with two binding sets before the descriptor table (a pipeline of two ordinary binding layouts
+    // and a bindless one).
+    dispatchRaysWithBindingSets(shaderTable: ShaderTable, bindingSet: BindingSet, secondBindingSet: BindingSet, descriptorTable: DescriptorTableHandle, width: int, height: int): void {
+        Donut_DispatchRaysWithBindingSets(this.handle, shaderTable.handle, bindingSet.handle, secondBindingSet.handle, descriptorTable, width, height);
     }
 
     // The frame's open command list, for the command list functions (e.g. Donut_WriteBuffer). Don't
@@ -3465,6 +3476,11 @@ export class LoadedTexture {
     // Its index in the descriptor table (the shaders' array index).
     getDescriptorIndex(): int {
         return Donut_GetTextureDescriptorIndex(this.handle);
+    }
+
+    // The texture itself; valid as long as the loaded texture.
+    getTexture(): TextureHandle {
+        return Donut_GetLoadedTextureTexture(this.handle);
     }
 }
 

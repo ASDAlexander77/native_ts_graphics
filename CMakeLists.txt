@@ -3633,5 +3633,15 @@ if (RTXCR_DIR)
         SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/spirv
         SHADERMAKE_OPTIONS "--sourceDir ${RTXCR_DIR}/samples/pathtracer/shaders"
     )
+    donut_compile_shaders(
+        TARGET rtxcr_pathtracer_vs_shaders
+        PROJECT_NAME "RTXCR Pathtracer Full-screen"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_pathtracer_vs.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_pathtracer_vs.hlsl
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/spirv
+    )
     add_tslang_example(rtxcr_pathtracer core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp)
+    add_dependencies(rtxcr_pathtracer rtxcr_pathtracer_vs_shaders)
+    add_tslang_example_test(rtxcr_pathtracer ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.scene.json)
 endif()

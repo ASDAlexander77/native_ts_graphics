@@ -3659,6 +3659,28 @@ extern "C"
         return a->Own(a->shaderFactory->CreateShaderLibrary(path.c_str(), &defines));
     }
 
+    // Same with several defines, "NAME=value;NAME=value".
+    DONUT_API nvrhi::IShaderLibrary* Donut_CreateShaderLibraryWithDefines(App* app, const char* fileName, const char* defines)
+    {
+        App* a = app;
+        const std::string path = std::string("app/") + fileName;
+        std::vector<donut::engine::ShaderMacro> macros;
+        const std::string list = defines;
+        size_t start = 0;
+        while (start < list.size())
+        {
+            size_t end = list.find(';', start);
+            if (end == std::string::npos)
+                end = list.size();
+            const std::string item = list.substr(start, end - start);
+            const size_t equals = item.find('=');
+            if (equals != std::string::npos)
+                macros.push_back({ item.substr(0, equals), item.substr(equals + 1) });
+            start = end + 1;
+        }
+        return a->Own(a->shaderFactory->CreateShaderLibrary(path.c_str(), &macros));
+    }
+
     // Loads a shader library (compiled with -T lib) from the example's shaders/<example>.cfg.
     // Returns null on failure.
     DONUT_API nvrhi::IShaderLibrary* Donut_CreateShaderLibrary(App* app, const char* fileName)
@@ -7965,6 +7987,12 @@ extern "C"
         return loadedTexture->bindlessDescriptor.Get();
     }
 
+    // The texture of a Donut_LoadBindlessTexture texture; valid as long as it.
+    DONUT_API nvrhi::ITexture* Donut_GetLoadedTextureTexture(donut::engine::LoadedTexture* loadedTexture)
+    {
+        return loadedTexture->texture.Get();
+    }
+
     // Loaded scene queries: the number of mesh instances (e.g. to size a TLAS), and a node's
     // world-space position (3 floats into dst; path like "/Emitter"). The latter returns 0 if
     // there's no such node.
@@ -12153,6 +12181,24 @@ extern "C"
         nvrhi::rt::State state;
         state.shaderTable = shaderTable;
         state.bindings = { bindingSet, descriptorTable };
+        ctx->commandList->setRayTracingState(state);
+
+        nvrhi::rt::DispatchRaysArguments args;
+        args.width = static_cast<uint32_t>(width);
+        args.height = static_cast<uint32_t>(height);
+        ctx->commandList->dispatchRays(args);
+    }
+
+    // Same as Donut_DispatchRaysWithDescriptorTable, with two binding sets before the descriptor table
+    // (pipelines with three binding layouts: two ordinary ones, then a bindless one).
+    DONUT_API void Donut_DispatchRaysWithBindingSets(FrameContext* frame, nvrhi::rt::IShaderTable* shaderTable, nvrhi::IBindingSet* bindingSet,
+        nvrhi::IBindingSet* secondBindingSet, nvrhi::IDescriptorTable* descriptorTable, int width, int height)
+    {
+        FrameContext* ctx = frame;
+
+        nvrhi::rt::State state;
+        state.shaderTable = shaderTable;
+        state.bindings = { bindingSet, secondBindingSet, descriptorTable };
         ctx->commandList->setRayTracingState(state);
 
         nvrhi::rt::DispatchRaysArguments args;

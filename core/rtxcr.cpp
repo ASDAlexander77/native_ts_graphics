@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -28,9 +29,14 @@
 #include <donut/engine/DescriptorTableManager.h>
 #include <donut/engine/Scene.h>
 #include <donut/engine/SceneGraph.h>
+#include <donut/render/SkyPass.h>
 #include <nvrhi/nvrhi.h>
 #include <nvrhi/utils.h>
 #include <rtxcr/geometry/include/CurveTessellation.h>
+
+// donut/shaders/sky_cb.h is shared with HLSL: its float3 is Donut's.
+using namespace donut::math;
+#include <donut/shaders/sky_cb.h>
 
 #include "donut_api.h"
 
@@ -511,6 +517,32 @@ extern "C"
         // Compacts the structures tagged for it whose original builds have finished.
         commandList->compactBottomLevelAccelStructs();
         commandList->buildTopLevelAccelStruct(s->tlas, instances.data(), instances.size());
+    }
+
+    // The sample's sky constants (GlobalConstants::skyParams, 96 bytes): Donut's procedural sky for
+    // `sun` (a directional light) with the horizon in skyColor, the sample's own light and glow sizes,
+    // and the ground in skyColor (skyType 0, a constant sky) or black (no sky); for the environment
+    // map (skyType 2) the light's angular size is -1, the shader's mark of it.
+    DONUT_API void Donut_RtxcrFillSkyParameters(RtxcrScene* s, donut::engine::Light* sun, double skyR, double skyG, double skyB, bool enableSky, int skyType, void* dst)
+    {
+        const dm::float3 skyColor = enableSky ? dm::float3(float(skyR), float(skyG), float(skyB)) : dm::float3(0.0f, 0.0f, 0.0f);
+
+        donut::render::SkyParameters skyParams = {};
+        skyParams.brightness = 1.0f;
+        skyParams.horizonColor = skyColor;
+
+        ProceduralSkyShaderParameters params = {};
+        donut::render::SkyPass::FillShaderParameters(*static_cast<donut::engine::DirectionalLight*>(sun), skyParams, params);
+        params.angularSizeOfLight = 0.02f;
+        params.glowSize = 0.02f;
+        params.skyColor = skyColor;
+        if (!enableSky)
+            params.groundColor = dm::float3(0.0f, 0.0f, 0.0f);
+        else if (skyType == 0)
+            params.groundColor = skyColor;
+        else if (skyType == 2)
+            params.angularSizeOfLight = -1.0f;
+        std::memcpy(dst, &params, sizeof(params));
     }
 
     // Valid as long as the scene.

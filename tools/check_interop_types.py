@@ -174,6 +174,7 @@ RAW_MEMORY = {
     ("Donut_SetNvrhiMessageCallback", "callback"),
     ("Donut_InitPagedImageSet", "device"),
     ("Donut_RtxcrCreateScene", "device"),
+    ("Donut_RtxcrFillSkyParameters", "dst"),
     ("Donut_CopyPbrtMeshMaterial", "dst"),
     ("Donut_FillLightConstants", "dst"),
     ("Donut_FillPlanarViewConstants", "dst"),

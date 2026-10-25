@@ -1179,6 +1179,8 @@ enum ShaderType {
 @nodrops declare function Donut_CreateShaderWithDefine(app: AppHandle, fileName: string, entryName: string, shaderType: ShaderType,
     defineName: string, defineValue: string): ShaderHandle;
 @nodrops declare function Donut_CreateShaderLibraryWithDefine(app: AppHandle, fileName: string, defineName: string, defineValue: string): ShaderLibraryHandle;
+// Same with several defines, "NAME=value;NAME=value".
+@nodrops declare function Donut_CreateShaderLibraryWithDefines(app: AppHandle, fileName: string, defines: string): ShaderLibraryHandle;
 // Triangle list, no depth test, for the frame's framebuffer layout.
 @nodrops declare function Donut_CreateGraphicsPipeline(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineHandle;
 // Same, with an input layout and one binding layout.
@@ -2149,6 +2151,8 @@ enum ShaderType {
 @nodrops declare function Donut_LoadBindlessTexture(app: AppHandle, descriptorTableManager: DescriptorTableManagerHandle, path: string, sRGB: int): LoadedTextureHandle;
 // Its index in the descriptor table (the shaders' array index).
 @nodrops declare function Donut_GetTextureDescriptorIndex(loadedTexture: LoadedTextureHandle): int;
+// The texture itself; valid as long as the loaded texture.
+@nodrops declare function Donut_GetLoadedTextureTexture(loadedTexture: LoadedTextureHandle): TextureHandle;
 @nodrops declare function Donut_GetSceneInstanceCount(scene: SceneHandle): int;
 // A node's world-space position into dst (3 floats); 0 if there's no node at path ("/Emitter").
 @nodrops declare function Donut_GetSceneNodePosition(scene: SceneHandle, path: string, dst: Ref<f32>): int;
@@ -2395,6 +2399,10 @@ enum ShaderType {
 // Same, with a descriptor table bound after the binding set.
 @nodrops declare function Donut_DispatchRaysWithDescriptorTable(frame: FrameHandle, shaderTable: ShaderTableHandle, bindingSet: BindingSetHandle,
     descriptorTable: DescriptorTableHandle, width: int, height: int): void;
+// Same, with two binding sets before the descriptor table (a pipeline of two ordinary binding layouts
+// and a bindless one).
+@nodrops declare function Donut_DispatchRaysWithBindingSets(frame: FrameHandle, shaderTable: ShaderTableHandle, bindingSet: BindingSetHandle,
+    secondBindingSet: BindingSetHandle, descriptorTable: DescriptorTableHandle, width: int, height: int): void;
 // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
 // textures blitted before.
 @nodrops declare function Donut_BlitTexture(app: AppHandle, frame: FrameHandle, texture: TextureHandle): void;
@@ -2845,3 +2853,6 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // surfaces unless showEmissiveSurfaces, else 1).
 @nodrops declare function Donut_RtxcrBuildTlas(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, showEmissiveSurfaces: boolean): void;
 @nodrops declare function Donut_RtxcrGetTlas(rtxcrScene: RtxcrSceneHandle): AccelStructHandle;
+// The sample's sky constants (GlobalConstants::skyParams, 96 bytes into dst) for a directional light.
+// skyType: 0 constant, 1 procedural, 2 environment map.
+@nodrops declare function Donut_RtxcrFillSkyParameters(rtxcrScene: RtxcrSceneHandle, sun: LightHandle, skyR: number, skyG: number, skyB: number, enableSky: boolean, skyType: int, dst: Opaque): void;

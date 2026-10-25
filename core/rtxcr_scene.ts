@@ -51,4 +51,10 @@ export class RtxcrScene {
     getTlas(): AccelStructHandle {
         return Donut_RtxcrGetTlas(this.handle);
     }
+
+    // The sample's sky constants (GlobalConstants::skyParams, 96 bytes into dst) for a directional light.
+    // skyType: 0 constant, 1 procedural, 2 environment map.
+    fillSkyParameters(sun: LightHandle, skyR: number, skyG: number, skyB: number, enableSky: boolean, skyType: int, dst: Opaque): void {
+        Donut_RtxcrFillSkyParameters(this.handle, sun, skyR, skyG, skyB, enableSky, skyType, dst);
+    }
 }
