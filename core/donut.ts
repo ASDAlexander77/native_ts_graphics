@@ -2208,6 +2208,11 @@ export class CommandList {
         Donut_Dispatch(this.handle, computePipeline, bindingSet.handle, groupsX, groupsY, groupsZ);
     }
 
+    // Same, with two binding sets (a pipeline of two binding layouts).
+    dispatchWithBindingSets(computePipeline: ComputePipelineHandle, bindingSet: BindingSet, secondBindingSet: BindingSet, groupsX: int, groupsY: int, groupsZ: int): void {
+        Donut_DispatchWithBindingSets(this.handle, computePipeline, bindingSet.handle, secondBindingSet.handle, groupsX, groupsY, groupsZ);
+    }
+
     // Same, with a descriptor table bound after the binding set.
     dispatchWithDescriptorTable(computePipeline: ComputePipelineHandle, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, groupsX: int, groupsY: int, groupsZ: int): void {
         Donut_DispatchWithDescriptorTable(this.handle, computePipeline, bindingSet.handle, descriptorTable, groupsX, groupsY, groupsZ);

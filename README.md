@@ -184,8 +184,11 @@ build/bin/rtxcr_pathtracer.exe --scene E:/RTXCR/assets/claire.scene.json
 ```
 
 (`--scene .../claire.animation.scene.json -enableAnimation 1` for the animated hair; `-vk` for Vulkan,
-where the hair is DOTS.) The sample's denoisers (NRD, DLSS ray reconstruction), upscalers and frame
-generation are not ported: it accumulates samples while the camera stands still. With `RTXCR_DIR`, the
+where the hair is DOTS.) It accumulates samples while the camera stands still, or with `-denoiser 1`
+(`-nrdMode 0` ReBLUR, `1` ReLAX; the "Denoiser" section of the window) denoises each frame with the
+checkout's NRD (`external/RayTracingDenoiser`, built by this repository's CMake with its shaders in
+`bin/shaders/nrd`, `core/rtxcr.cpp` driving it) instead. The sample's DLSS ray reconstruction, upscalers
+(so no anti-aliasing of the denoised frames) and frame generation are not ported. With `RTXCR_DIR`, the
 build uses that checkout's NVAPI (and NVAPI's opacity micromaps, not DXR 1.2's) for the D3D12 swept
 spheres. This software contains source code provided by NVIDIA Corporation.
 

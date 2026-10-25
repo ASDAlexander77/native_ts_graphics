@@ -91,6 +91,7 @@ CLASSES = {
     "binaryFile": "BinaryFile",
     "pbrtScene": "PbrtScene",
     "rtxcrScene": "RtxcrScene",
+    "rtxcrNrd": "RtxcrNrd",
     "sdkMesh": "SdkMesh",
     "meshletModel": "MeshletModel",
     "objModel": "ObjModel",
@@ -108,6 +109,7 @@ CLASSES = {
 MODULES = {
     "PbrtScene": ("pbrt_scene", "core/denoised_rtao.cpp"),
     "RtxcrScene": ("rtxcr_scene", "core/rtxcr.cpp"),
+    "RtxcrNrd": ("rtxcr_scene", "core/rtxcr.cpp"),
     "SdkMesh": ("sdk_mesh", "core/sdkmesh.cpp"),
     "MeshletModel": ("meshlet_model", "core/meshlet_model.cpp"),
     "ObjModel": ("obj_model", "core/obj_model.cpp"),
@@ -171,6 +173,7 @@ METHOD_NAMES = {
     "Donut_SetViewVariableRateShading": "setVariableRateShading",
     "Donut_RtxcrCreateScene": "create",
     "Donut_RtxcrDestroyScene": "destroy",
+    "Donut_RtxcrNrdCreate": "create",
     "Donut_CreateRayTracingPipelineDesc": "create",
     "Donut_CreateGraphicsPipelineDesc": "create",
     "Donut_CreateMeshletPipelineDesc": "createMeshlet",

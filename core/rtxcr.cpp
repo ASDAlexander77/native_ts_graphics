@@ -3,7 +3,9 @@
 // ray tracer traces (polytubes, DOTS or linear swept spheres), and the scene's acceleration
 // structures over it. They work on Donut's scene objects (mesh buffers, mesh instances), which
 // TypeScript can't reach; the sample's CurveTessellation and AccelerationStructure classes, here as
-// one. Built only with RTXCR_DIR (CMakeLists.txt), which also puts its libraries on the include path.
+// one; and NVIDIA's Real-Time Denoisers (NRD, the checkout's external/RayTracingDenoiser) over the
+// G-buffer and the noisy diffuse and specular radiance (RtxcrNrd). Built only with RTXCR_DIR
+// (CMakeLists.txt), which also puts its libraries on the include path.
 //
 // This software contains source code provided by NVIDIA Corporation.
 //
@@ -21,15 +23,22 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include <NRD.h>
+#include <donut/app/ApplicationBase.h>
 #include <donut/core/math/math.h>
+#include <donut/core/vfs/VFS.h>
+#include <donut/engine/BindingCache.h>
 #include <donut/engine/DescriptorTableManager.h>
 #include <donut/engine/Scene.h>
 #include <donut/engine/SceneGraph.h>
+#include <donut/engine/ShaderFactory.h>
+#include <donut/engine/View.h>
 #include <donut/render/SkyPass.h>
 #include <nvrhi/common/misc.h>
 #include <nvrhi/nvrhi.h>
@@ -39,6 +48,13 @@
 // donut/shaders/sky_cb.h is shared with HLSL: its float3 is Donut's.
 using namespace donut::math;
 #include <donut/shaders/sky_cb.h>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include "donut_api.h"
 
@@ -1006,5 +1022,462 @@ extern "C"
     DONUT_API nvrhi::rt::IAccelStruct* Donut_RtxcrGetTlas(RtxcrScene* s)
     {
         return s->tlas;
+    }
+}
+
+// Denoising with NRD: ReBLUR or ReLAX over the diffuse and specular radiance the path tracer writes
+// (packed for NRD by the sample's denoiser.hlsl, which examples/rtxcr_pathtracer.ts runs before and
+// after). NRD describes what it needs (pipelines, resources, constants); this creates that with
+// NVRHI and plays its dispatches back each frame.
+namespace
+{
+    nvrhi::Format nrdFormatToNvrhi(nrd::Format format)
+    {
+        switch (format)
+        {
+        case nrd::Format::R8_UNORM: return nvrhi::Format::R8_UNORM;
+        case nrd::Format::R8_SNORM: return nvrhi::Format::R8_SNORM;
+        case nrd::Format::R8_UINT: return nvrhi::Format::R8_UINT;
+        case nrd::Format::R8_SINT: return nvrhi::Format::R8_SINT;
+        case nrd::Format::RG8_UNORM: return nvrhi::Format::RG8_UNORM;
+        case nrd::Format::RG8_SNORM: return nvrhi::Format::RG8_SNORM;
+        case nrd::Format::RG8_UINT: return nvrhi::Format::RG8_UINT;
+        case nrd::Format::RG8_SINT: return nvrhi::Format::RG8_SINT;
+        case nrd::Format::RGBA8_UNORM: return nvrhi::Format::RGBA8_UNORM;
+        case nrd::Format::RGBA8_SNORM: return nvrhi::Format::RGBA8_SNORM;
+        case nrd::Format::RGBA8_UINT: return nvrhi::Format::RGBA8_UINT;
+        case nrd::Format::RGBA8_SINT: return nvrhi::Format::RGBA8_SINT;
+        case nrd::Format::RGBA8_SRGB: return nvrhi::Format::SRGBA8_UNORM;
+        case nrd::Format::R16_UNORM: return nvrhi::Format::R16_UNORM;
+        case nrd::Format::R16_SNORM: return nvrhi::Format::R16_SNORM;
+        case nrd::Format::R16_UINT: return nvrhi::Format::R16_UINT;
+        case nrd::Format::R16_SINT: return nvrhi::Format::R16_SINT;
+        case nrd::Format::R16_SFLOAT: return nvrhi::Format::R16_FLOAT;
+        case nrd::Format::RG16_UNORM: return nvrhi::Format::RG16_UNORM;
+        case nrd::Format::RG16_SNORM: return nvrhi::Format::RG16_SNORM;
+        case nrd::Format::RG16_UINT: return nvrhi::Format::RG16_UINT;
+        case nrd::Format::RG16_SINT: return nvrhi::Format::RG16_SINT;
+        case nrd::Format::RG16_SFLOAT: return nvrhi::Format::RG16_FLOAT;
+        case nrd::Format::RGBA16_UNORM: return nvrhi::Format::RGBA16_UNORM;
+        case nrd::Format::RGBA16_SNORM: return nvrhi::Format::RGBA16_SNORM;
+        case nrd::Format::RGBA16_UINT: return nvrhi::Format::RGBA16_UINT;
+        case nrd::Format::RGBA16_SINT: return nvrhi::Format::RGBA16_SINT;
+        case nrd::Format::RGBA16_SFLOAT: return nvrhi::Format::RGBA16_FLOAT;
+        case nrd::Format::R32_UINT: return nvrhi::Format::R32_UINT;
+        case nrd::Format::R32_SINT: return nvrhi::Format::R32_SINT;
+        case nrd::Format::R32_SFLOAT: return nvrhi::Format::R32_FLOAT;
+        case nrd::Format::RG32_UINT: return nvrhi::Format::RG32_UINT;
+        case nrd::Format::RG32_SINT: return nvrhi::Format::RG32_SINT;
+        case nrd::Format::RG32_SFLOAT: return nvrhi::Format::RG32_FLOAT;
+        case nrd::Format::RGB32_UINT: return nvrhi::Format::RGB32_UINT;
+        case nrd::Format::RGB32_SINT: return nvrhi::Format::RGB32_SINT;
+        case nrd::Format::RGB32_SFLOAT: return nvrhi::Format::RGB32_FLOAT;
+        case nrd::Format::RGBA32_UINT: return nvrhi::Format::RGBA32_UINT;
+        case nrd::Format::RGBA32_SINT: return nvrhi::Format::RGBA32_SINT;
+        case nrd::Format::RGBA32_SFLOAT: return nvrhi::Format::RGBA32_FLOAT;
+        case nrd::Format::R10_G10_B10_A2_UNORM: return nvrhi::Format::R10G10B10A2_UNORM;
+        case nrd::Format::R11_G11_B10_UFLOAT: return nvrhi::Format::R11G11B10_FLOAT;
+        default: return nvrhi::Format::UNKNOWN;
+        }
+    }
+
+    // Where the shaders of NRD's CMake target are: bin/shaders/nrd/<dxil|spirv>, next to the module
+    // holding this code (the executable, or donut_interop_shared under the JIT).
+    std::filesystem::path nrdShaderDirectory(nvrhi::GraphicsAPI api)
+    {
+        std::filesystem::path module;
+#ifdef _WIN32
+        HMODULE handle = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&nrdShaderDirectory), &handle);
+        wchar_t path[MAX_PATH] = {};
+        GetModuleFileNameW(handle, path, MAX_PATH);
+        module = path;
+#endif
+        return module.parent_path() / "shaders" / "nrd" / donut::app::GetShaderTypeName(api);
+    }
+
+    struct RtxcrNrd
+    {
+        nvrhi::DeviceHandle device;
+        bool relax = false;
+        nrd::Instance* instance = nullptr;
+        nrd::Identifier identifier = 0;
+        nrd::Denoiser denoiser = nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR;
+
+        struct Pipeline
+        {
+            nvrhi::ShaderHandle shader;
+            nvrhi::BindingLayoutHandle resourcesLayout;
+            nvrhi::BindingLayoutHandle constantsLayout;
+            nvrhi::ComputePipelineHandle pipeline;
+        };
+        nvrhi::BufferHandle constantBuffer;
+        std::vector<nvrhi::SamplerHandle> samplers;
+        std::vector<Pipeline> pipelines;
+        std::vector<nvrhi::TextureHandle> permanentTextures;
+        std::vector<nvrhi::TextureHandle> transientTextures;
+        std::unique_ptr<donut::engine::BindingCache> bindingCache;
+
+        nrd::CommonSettings common;
+        nrd::ReblurSettings reblur;
+        nrd::RelaxSettings relaxSettings;
+
+        ~RtxcrNrd()
+        {
+            if (instance)
+                nrd::DestroyInstance(*instance);
+        }
+    };
+
+    // The sample's tuning of the two denoisers, over NRD's defaults.
+    void applyDefaultNrdSettings(RtxcrNrd& n)
+    {
+        n.reblur = {};
+        n.reblur.enableAntiFirefly = true;
+        n.reblur.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
+        n.reblur.planeDistanceSensitivity = 0.002f;
+        n.reblur.diffusePrepassBlurRadius = 0.0f;
+        n.reblur.specularPrepassBlurRadius = 0.0f;
+
+        n.relaxSettings = {};
+        nrd::RelaxSettings& r = n.relaxSettings;
+        r.enableAntiFirefly = true;
+        r.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
+        r.historyFixFrameNum = 3;
+        r.spatialVarianceEstimationHistoryThreshold = 4;
+        // The path tracer picks one lobe a sample at random, which the diffuse prepass blur isn't for.
+        r.diffusePrepassBlurRadius = 0.0f;
+        r.specularPrepassBlurRadius = 20.0f;
+        r.diffuseMaxFastAccumulatedFrameNum = 4;
+        r.diffusePhiLuminance = 0.0f;
+        r.specularMaxFastAccumulatedFrameNum = 6;
+        r.specularPhiLuminance = 0.35f;
+        r.specularLobeAngleSlack = 0.15f;
+        r.confidenceDrivenLuminanceEdgeStoppingRelaxation = 0.5f;
+        r.roughnessEdgeStoppingRelaxation = 0.3f;
+        r.lobeAngleFraction = 0.93f;
+        r.atrousIterationNum = 5;
+        r.diffuseMaxAccumulatedFrameNum = 60;
+        r.specularMaxAccumulatedFrameNum = 60;
+        r.depthThreshold = 0.004f;
+
+        n.common = {};
+        n.common.disocclusionThreshold = 0.01f;
+        n.common.disocclusionThresholdAlternate = 0.05f;
+    }
+
+    bool createNrdTextures(RtxcrNrd& n, uint32_t width, uint32_t height)
+    {
+        const nrd::InstanceDesc& desc = *nrd::GetInstanceDesc(*n.instance);
+        n.permanentTextures.clear();
+        n.transientTextures.clear();
+        n.bindingCache->Clear();
+
+        for (uint32_t i = 0; i < desc.permanentPoolSize + desc.transientPoolSize; ++i)
+        {
+            const bool permanent = i < desc.permanentPoolSize;
+            const uint32_t index = permanent ? i : i - desc.permanentPoolSize;
+            const nrd::TextureDesc& poolDesc = permanent ? desc.permanentPool[index] : desc.transientPool[index];
+            const nvrhi::Format format = nrdFormatToNvrhi(poolDesc.format);
+            if (format == nvrhi::Format::UNKNOWN)
+            {
+                fprintf(stderr, "NRD: a pool texture of a format that NVRHI doesn't have\n");
+                return false;
+            }
+
+            nvrhi::TextureDesc textureDesc;
+            textureDesc.width = width;
+            textureDesc.height = height;
+            textureDesc.format = format;
+            textureDesc.dimension = nvrhi::TextureDimension::Texture2D;
+            textureDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+            textureDesc.keepInitialState = true;
+            textureDesc.isUAV = true;
+            textureDesc.debugName = std::string("NRD ") + (permanent ? "permanent " : "transient ") + std::to_string(index);
+            nvrhi::TextureHandle texture = n.device->createTexture(textureDesc);
+            if (!texture)
+                return false;
+            (permanent ? n.permanentTextures : n.transientTextures).push_back(texture);
+        }
+        return true;
+    }
+
+    // NRD's matrices are column-major with column vectors, which is Donut's row-major with row vectors.
+    void matrixToNrd(float* dst, const dm::float4x4& m)
+    {
+        memcpy(dst, &m, sizeof(m));
+    }
+}
+
+extern "C"
+{
+    // Makes a denoiser (mode 0 ReBLUR, 1 ReLAX) for textures of width x height; null if NRD or its
+    // shaders (bin/shaders/nrd) fail to load.
+    DONUT_API RtxcrNrd* Donut_RtxcrNrdCreate(void* device, int mode, int width, int height)
+    {
+        auto n = std::make_unique<RtxcrNrd>();
+        n->device = static_cast<nvrhi::IDevice*>(device);
+        n->relax = mode == 1;
+        n->denoiser = n->relax ? nrd::Denoiser::RELAX_DIFFUSE_SPECULAR : nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR;
+        n->bindingCache = std::make_unique<donut::engine::BindingCache>(n->device);
+        applyDefaultNrdSettings(*n);
+
+        const nrd::LibraryDesc& library = *nrd::GetLibraryDesc();
+        const nrd::DenoiserDesc denoiserDesc = { n->identifier, n->denoiser };
+        nrd::InstanceCreationDesc creation = {};
+        creation.denoisers = &denoiserDesc;
+        creation.denoisersNum = 1;
+        if (nrd::CreateInstance(creation, n->instance) != nrd::Result::SUCCESS)
+        {
+            fprintf(stderr, "NRD: cannot create the instance\n");
+            return nullptr;
+        }
+        const nrd::InstanceDesc& desc = *nrd::GetInstanceDesc(*n->instance);
+
+        // One volatile constant buffer, written before each dispatch.
+        n->constantBuffer = n->device->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
+            desc.constantBufferMaxDataSize, "NRD constants", desc.descriptorPoolDesc.setsMaxNum * 4));
+        if (!n->constantBuffer)
+            return nullptr;
+
+        for (uint32_t i = 0; i < desc.samplersNum; ++i)
+        {
+            const bool linear = desc.samplers[i] == nrd::Sampler::LINEAR_CLAMP;
+            n->samplers.push_back(n->device->createSampler(nvrhi::SamplerDesc()
+                .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp)
+                .setAllFilters(linear)));
+        }
+
+        // The shaders of NRD's CMake target, in a file system of their own for Donut's shader factory
+        // (permutation blobs: the identifier's macros pick the permutation).
+        auto fileSystem = std::make_shared<donut::vfs::RootFileSystem>();
+        fileSystem->mount("/shaders/nrd", nrdShaderDirectory(n->device->getGraphicsAPI()));
+        donut::engine::ShaderFactory shaderFactory(n->device, fileSystem, "/shaders");
+
+        const nvrhi::VulkanBindingOffsets offsets = nvrhi::VulkanBindingOffsets()
+            .setSamplerOffset(library.spirvBindingOffsets.samplerOffset)
+            .setShaderResourceOffset(library.spirvBindingOffsets.textureOffset)
+            .setConstantBufferOffset(library.spirvBindingOffsets.constantBufferOffset)
+            .setUnorderedAccessViewOffset(library.spirvBindingOffsets.storageTextureAndBufferOffset);
+        const bool vulkan = n->device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
+
+        for (uint32_t i = 0; i < desc.pipelinesNum; ++i)
+        {
+            const nrd::PipelineDesc& pipelineDesc = desc.pipelines[i];
+
+            // "file|MACRO=value|...": the file is in shaders/nrd, the macros pick the permutation.
+            const std::string identifier = pipelineDesc.shaderIdentifier;
+            std::vector<donut::engine::ShaderMacro> macros;
+            const size_t bar = identifier.find('|');
+            const std::string fileName = "nrd/" + identifier.substr(0, bar);
+            for (size_t at = bar; at != std::string::npos;)
+            {
+                const size_t next = identifier.find('|', at + 1);
+                const std::string item = identifier.substr(at + 1, next == std::string::npos ? next : next - at - 1);
+                const size_t equals = item.find('=');
+                if (equals == std::string::npos)
+                    return nullptr;
+                macros.emplace_back(item.substr(0, equals), item.substr(equals + 1));
+                at = next;
+            }
+
+            RtxcrNrd::Pipeline pipeline;
+            pipeline.shader = shaderFactory.CreateShader(fileName.c_str(), desc.shaderEntryPoint, &macros, nvrhi::ShaderType::Compute);
+            if (!pipeline.shader)
+            {
+                fprintf(stderr, "NRD: cannot load the shader %s\n", pipelineDesc.shaderIdentifier);
+                return nullptr;
+            }
+
+            // The constants and samplers are in one register space, the textures in another (which
+            // ones is in NRD's InstanceDesc).
+            nvrhi::BindingLayoutDesc constantsLayout;
+            constantsLayout.visibility = nvrhi::ShaderType::Compute;
+            constantsLayout.registerSpace = desc.constantBufferAndSamplersSpaceIndex;
+            constantsLayout.registerSpaceIsDescriptorSet = vulkan;
+            constantsLayout.bindingOffsets = offsets;
+            constantsLayout.bindings.push_back(nvrhi::BindingLayoutItem::VolatileConstantBuffer(desc.constantBufferRegisterIndex));
+            for (uint32_t s = 0; s < desc.samplersNum; ++s)
+                constantsLayout.bindings.push_back(nvrhi::BindingLayoutItem::Sampler(desc.samplersBaseRegisterIndex + s));
+            pipeline.constantsLayout = n->device->createBindingLayout(constantsLayout);
+
+            nvrhi::BindingLayoutDesc resourcesLayout;
+            resourcesLayout.visibility = nvrhi::ShaderType::Compute;
+            resourcesLayout.registerSpace = desc.resourcesSpaceIndex;
+            resourcesLayout.registerSpaceIsDescriptorSet = vulkan;
+            resourcesLayout.bindingOffsets = offsets;
+            for (uint32_t r = 0; r < pipelineDesc.resourceRangesNum; ++r)
+            {
+                // Each range counts its registers from the base: shader registers t0.. and u0..
+                const nrd::ResourceRangeDesc& range = pipelineDesc.resourceRanges[r];
+                for (uint32_t d = 0; d < range.descriptorsNum; ++d)
+                {
+                    const uint32_t slot = desc.resourcesBaseRegisterIndex + d;
+                    resourcesLayout.bindings.push_back(range.descriptorType == nrd::DescriptorType::TEXTURE
+                        ? nvrhi::BindingLayoutItem::Texture_SRV(slot) : nvrhi::BindingLayoutItem::Texture_UAV(slot));
+                }
+            }
+            pipeline.resourcesLayout = n->device->createBindingLayout(resourcesLayout);
+
+            nvrhi::ComputePipelineDesc computeDesc;
+            computeDesc.bindingLayouts = { pipeline.resourcesLayout, pipeline.constantsLayout };
+            computeDesc.CS = pipeline.shader;
+            pipeline.pipeline = n->device->createComputePipeline(computeDesc);
+            if (!pipeline.constantsLayout || !pipeline.resourcesLayout || !pipeline.pipeline)
+                return nullptr;
+            n->pipelines.push_back(pipeline);
+        }
+
+        if (!createNrdTextures(*n, static_cast<uint32_t>(width), static_cast<uint32_t>(height)))
+            return nullptr;
+        return n.release();
+    }
+
+    DONUT_API void Donut_RtxcrNrdDestroy(RtxcrNrd* n)
+    {
+        delete n;
+    }
+
+    // The textures at a new size (the history is gone: reset on the next Donut_RtxcrNrdDenoise).
+    // Returns 0 if they can't be made.
+    DONUT_API int Donut_RtxcrNrdResize(RtxcrNrd* n, int width, int height)
+    {
+        n->device->waitForIdle();
+        return createNrdTextures(*n, static_cast<uint32_t>(width), static_cast<uint32_t>(height)) ? 1 : 0;
+    }
+
+    // Settings the UI changes, by key: 0 disocclusion threshold, 1 maximum accumulated frames
+    // (diffuse and specular), 2 anti-firefly (0 or 1), 3 validation overlay (0 or 1), 4 split screen
+    // (0 to 1: noisy on the left, denoised on the right).
+    DONUT_API void Donut_RtxcrNrdSetSetting(RtxcrNrd* n, int key, double value)
+    {
+        const float v = static_cast<float>(value);
+        switch (key)
+        {
+        case 0: n->common.disocclusionThreshold = v; break;
+        case 1:
+            n->reblur.maxAccumulatedFrameNum = static_cast<uint32_t>(v);
+            n->relaxSettings.diffuseMaxAccumulatedFrameNum = static_cast<uint32_t>(v);
+            n->relaxSettings.specularMaxAccumulatedFrameNum = static_cast<uint32_t>(v);
+            break;
+        case 2:
+            n->reblur.enableAntiFirefly = v != 0.0f;
+            n->relaxSettings.enableAntiFirefly = v != 0.0f;
+            break;
+        case 3: n->common.enableValidation = v != 0.0f; break;
+        case 4: n->common.splitScreen = v; break;
+        }
+    }
+
+    // ReBLUR's hit distance parameter A (index 0), B (1) or C (2), which the shaders normalize the hit
+    // distance with.
+    DONUT_API double Donut_RtxcrNrdGetHitDistanceParameter(RtxcrNrd* n, int index)
+    {
+        const nrd::ReblurHitDistanceParameters& p = n->reblur.hitDistanceParameters;
+        return index == 0 ? p.A : index == 1 ? p.B : p.C;
+    }
+
+    // Denoises the packed noisy diffuse and specular radiance into the two denoised textures, with
+    // openCommandList. The G-buffer is the sample's: the motion in pixels with the depth change in z,
+    // the normal and roughness packed for NRD, the linear view Z. view and previousView are this
+    // frame's view and the one before (planar, unjittered); the jitter is the pixel offset the rays
+    // were traced with. reset starts the history over.
+    DONUT_API void Donut_RtxcrNrdDenoise(RtxcrNrd* n, nvrhi::ICommandList* commandList, nvrhi::ITexture* motion,
+        nvrhi::ITexture* normalRoughness, nvrhi::ITexture* viewZ, nvrhi::ITexture* noisyDiffuse, nvrhi::ITexture* noisySpecular,
+        nvrhi::ITexture* denoisedDiffuse, nvrhi::ITexture* denoisedSpecular, nvrhi::ITexture* validation,
+        donut::engine::IView* view, donut::engine::IView* previousView, double jitterX, double jitterY,
+        double previousJitterX, double previousJitterY, int frameIndex, bool reset)
+    {
+        nrd::CommonSettings& c = n->common;
+        const auto extent = view->GetViewExtent();
+        const float width = static_cast<float>(extent.width());
+        const float height = static_cast<float>(extent.height());
+
+        matrixToNrd(c.viewToClipMatrix, view->GetProjectionMatrix(false));
+        matrixToNrd(c.viewToClipMatrixPrev, previousView->GetProjectionMatrix(false));
+        matrixToNrd(c.worldToViewMatrix, dm::affineToHomogeneous(view->GetViewMatrix()));
+        matrixToNrd(c.worldToViewMatrixPrev, dm::affineToHomogeneous(previousView->GetViewMatrix()));
+        c.motionVectorScale[0] = 1.0f / width;
+        c.motionVectorScale[1] = 1.0f / height;
+        c.motionVectorScale[2] = 1.0f;
+        c.cameraJitter[0] = static_cast<float>(jitterX);
+        c.cameraJitter[1] = static_cast<float>(jitterY);
+        c.cameraJitterPrev[0] = static_cast<float>(previousJitterX);
+        c.cameraJitterPrev[1] = static_cast<float>(previousJitterY);
+        const uint16_t w = static_cast<uint16_t>(extent.width());
+        const uint16_t h = static_cast<uint16_t>(extent.height());
+        c.resourceSize[0] = c.resourceSizePrev[0] = c.rectSize[0] = c.rectSizePrev[0] = w;
+        c.resourceSize[1] = c.resourceSizePrev[1] = c.rectSize[1] = c.rectSizePrev[1] = h;
+        c.denoisingRange = TRACING_FAR_DENOISING_DISTANCE;
+        c.frameIndex = static_cast<uint32_t>(frameIndex);
+        c.accumulationMode = reset ? nrd::AccumulationMode::RESTART : nrd::AccumulationMode::CONTINUE;
+        c.isMotionVectorInWorldSpace = false;
+        c.isHistoryConfidenceAvailable = false;
+        c.isDisocclusionThresholdMixAvailable = false;
+
+        nrd::SetCommonSettings(*n->instance, c);
+        nrd::SetDenoiserSettings(*n->instance, n->identifier, n->relax ? static_cast<const void*>(&n->relaxSettings)
+            : static_cast<const void*>(&n->reblur));
+
+        const nrd::DispatchDesc* dispatches = nullptr;
+        uint32_t dispatchCount = 0;
+        nrd::GetComputeDispatches(*n->instance, &n->identifier, 1, dispatches, dispatchCount);
+        const nrd::InstanceDesc& desc = *nrd::GetInstanceDesc(*n->instance);
+
+        for (uint32_t d = 0; d < dispatchCount; ++d)
+        {
+            const nrd::DispatchDesc& dispatch = dispatches[d];
+            const RtxcrNrd::Pipeline& pipeline = n->pipelines[dispatch.pipelineIndex];
+            const nrd::PipelineDesc& pipelineDesc = desc.pipelines[dispatch.pipelineIndex];
+            if (dispatch.name)
+                commandList->beginMarker(dispatch.name);
+
+            commandList->writeBuffer(n->constantBuffer, dispatch.constantBufferData, dispatch.constantBufferDataSize);
+            nvrhi::BindingSetDesc constantsSet;
+            constantsSet.bindings.push_back(nvrhi::BindingSetItem::ConstantBuffer(desc.constantBufferRegisterIndex, n->constantBuffer));
+            for (uint32_t s = 0; s < desc.samplersNum; ++s)
+                constantsSet.bindings.push_back(nvrhi::BindingSetItem::Sampler(desc.samplersBaseRegisterIndex + s, n->samplers[s]));
+
+            nvrhi::BindingSetDesc resourcesSet;
+            uint32_t resourceIndex = 0;
+            for (uint32_t r = 0; r < pipelineDesc.resourceRangesNum; ++r)
+            {
+                const nrd::ResourceRangeDesc& range = pipelineDesc.resourceRanges[r];
+                for (uint32_t i = 0; i < range.descriptorsNum; ++i, ++resourceIndex)
+                {
+                    const nrd::ResourceDesc& resource = dispatch.resources[resourceIndex];
+                    nvrhi::ITexture* texture = nullptr;
+                    switch (resource.type)
+                    {
+                    case nrd::ResourceType::IN_MV: texture = motion; break;
+                    case nrd::ResourceType::IN_NORMAL_ROUGHNESS: texture = normalRoughness; break;
+                    case nrd::ResourceType::IN_VIEWZ: texture = viewZ; break;
+                    case nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST: texture = noisyDiffuse; break;
+                    case nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST: texture = noisySpecular; break;
+                    case nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST: texture = denoisedDiffuse; break;
+                    case nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST: texture = denoisedSpecular; break;
+                    case nrd::ResourceType::OUT_VALIDATION: texture = validation; break;
+                    case nrd::ResourceType::TRANSIENT_POOL: texture = n->transientTextures[resource.indexInPool]; break;
+                    case nrd::ResourceType::PERMANENT_POOL: texture = n->permanentTextures[resource.indexInPool]; break;
+                    default: break;
+                    }
+                    assert(texture);
+
+                    const uint32_t slot = desc.resourcesBaseRegisterIndex + i;
+                    resourcesSet.bindings.push_back(range.descriptorType == nrd::DescriptorType::TEXTURE
+                        ? nvrhi::BindingSetItem::Texture_SRV(slot, texture) : nvrhi::BindingSetItem::Texture_UAV(slot, texture));
+                }
+            }
+
+            nvrhi::ComputeState state;
+            state.pipeline = pipeline.pipeline;
+            state.bindings = { n->bindingCache->GetOrCreateBindingSet(resourcesSet, pipeline.resourcesLayout),
+                n->bindingCache->GetOrCreateBindingSet(constantsSet, pipeline.constantsLayout) };
+            commandList->setComputeState(state);
+            commandList->dispatch(dispatch.gridWidth, dispatch.gridHeight);
+            if (dispatch.name)
+                commandList->endMarker();
+        }
     }
 }
