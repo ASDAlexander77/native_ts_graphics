@@ -6,5 +6,5 @@
 rem set D=build-release-dlss/bin
 set D=build-release-rtxcr/bin
 rem set D=build-release/bin
-"tslang.exe" --shared-libs=%D%/donut_interop_shared.dll %* -- -dx12 --scene E:/Gits/RTXCR/assets/claire.scene.json
+"tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_pathtracer.ts %* -- -dx12 --scene E:/Gits/RTXCR/assets/claire.animation.scene.json
 @popd

@@ -375,7 +375,7 @@ export namespace nvrhi {
         @slot(51) endMarker(): void;
         @slot(52) setEnableAutomaticBarriers(enable: boolean): void;
         @slot(53) setResourceStatesForBindingSet(bindingSet: IBindingSet | null): void;
-        @linkname("_ZN5nvrhi12ICommandList31setResourceStatesForFramebufferEPNS_12IFramebufferE") setResourceStatesForFramebuffer(framebuffer: IFramebuffer | null): void;
+        @cppname("void nvrhi::ICommandList::setResourceStatesForFramebuffer(class nvrhi::IFramebuffer*)") setResourceStatesForFramebuffer(framebuffer: IFramebuffer | null): void;
         @slot(54) setEnableUavBarriersForTexture(texture: ITexture | null, enableBarriers: boolean): void;
         @slot(55) setEnableUavBarriersForBuffer(buffer: IBuffer | null, enableBarriers: boolean): void;
         @slot(56) beginTrackingTextureState(texture: ITexture | null, subresources: TextureSubresourceSet, stateBits: u32): void;
