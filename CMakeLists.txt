@@ -1400,7 +1400,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/oit_linked_lists.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/oit_linked_lists
 )
-add_tslang_example(oit_linked_lists core/matrix.ts MEDIA oit_linked_lists)
+add_tslang_example(oit_linked_lists core/random.ts core/matrix.ts MEDIA oit_linked_lists)
 add_tslang_example_test(oit_linked_lists)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -1551,7 +1551,7 @@ donut_compile_shaders_all_platforms(
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rasterization_order_attachment_access
     SHADERMAKE_OPTIONS_SPIRV "--spirvExt SPV_EXT_fragment_shader_interlock"
 )
-add_tslang_example(rasterization_order_attachment_access core/matrix.ts MEDIA rasterization_order_attachment_access)
+add_tslang_example(rasterization_order_attachment_access core/random.ts core/matrix.ts MEDIA rasterization_order_attachment_access)
 add_tslang_example_test(rasterization_order_attachment_access)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -3179,7 +3179,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/execute_indirect/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/execute_indirect/spirv
 )
-add_tslang_example(execute_indirect core/directx_math.ts)
+add_tslang_example(execute_indirect core/random.ts core/directx_math.ts)
 add_tslang_example_test(execute_indirect)
 
 # Port of DirectX-Graphics-Samples' D3D12DynamicIndexing: 120 copies of a city, each draw's pixel shader
@@ -3229,7 +3229,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/n_body_gravity/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/n_body_gravity/spirv
 )
-add_tslang_example(n_body_gravity core/simple_camera.ts core/directx_math.ts)
+add_tslang_example(n_body_gravity core/random.ts core/simple_camera.ts core/directx_math.ts)
 add_tslang_example_test(n_body_gravity)
 
 # Copies a folder of the DirectX-Graphics-Samples checkout into an example's media folder, whole.
@@ -3475,7 +3475,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/small_resources/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/small_resources/spirv
 )
-add_tslang_example(small_resources)
+add_tslang_example(small_resources core/random.ts)
 add_tslang_example_test(small_resources)
 
 # Port of DirectX-Graphics-Samples' D3D12ReservedResources: a quad sampling one level of a reserved
@@ -3595,7 +3595,7 @@ if (NVRHI_WITH_DX12)
         DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/work_graphs/dxil
         SHADER_MODEL 6_8
     )
-    add_tslang_example(work_graphs core/matrix.ts core/d3d12_agility_sdk.cpp)
+    add_tslang_example(work_graphs core/random.ts core/matrix.ts core/d3d12_agility_sdk.cpp)
     add_tslang_example_test(work_graphs APIS dx12)
 endif()
 

@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiply, rotation, translation, radians, samplePerspective } from "../core/matrix";
+import { MsvcRandom } from "../core/random";
 
 namespace OitLinkedLists {
     // Test mode: the frames rendered.
@@ -77,25 +78,6 @@ namespace OitLinkedLists {
 
     // The sample's benchmark mode (--benchmark): simulated at 60 frames per second.
     const BENCHMARK_FRAME_TIME = 1.0 / 60.0;
-
-    // MSVC's rand(), from its default seed, which the sample's colors come from: RAND_MAX 32767.
-    class MsvcRandom {
-        private state: number;
-
-        constructor() {
-            this.state = 1;
-        }
-
-        next() {
-            this.state = (this.state * 214013 + 2531011) % 4294967296;
-            return Math.floor(this.state / 65536) % 32768;
-        }
-
-        // static_cast<float>(rand()) / RAND_MAX.
-        nextFloat() {
-            return this.next() / 32767.0;
-        }
-    }
 
     // --- Passes -------------------------------------------------------------------------------
 
@@ -455,7 +437,7 @@ namespace OitLinkedLists {
 
         // The sample's fill_instance_data: the grid's transforms and random colors (alpha 0.2 to 1).
         fillInstanceData(commandList: CommandList) {
-            const random = new MsvcRandom();
+            const random = new MsvcRandom(1);
             const instances: f32[] = [];
             for (let l = 0; l < INSTANCE_LAYER_COUNT; l++) {
                 for (let c = 0; c < INSTANCE_COLUMN_COUNT; c++) {

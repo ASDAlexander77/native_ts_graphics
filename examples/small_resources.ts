@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
+import { MsvcRandom } from "../core/random";
 
 namespace SmallResources {
     // Test mode: the frames rendered.
@@ -42,21 +43,6 @@ namespace SmallResources {
     const VERTEX_STRIDE = 20;
     const MB = 1048576.0;
     const KB = 1024.0;
-
-    // MSVC's rand(), which the sample's colors come from (srand(100) before each set).
-    class MsvcRandom {
-        private state: number;
-
-        constructor(seed: number) {
-            this.state = seed;
-        }
-
-        next(): int {
-            this.state = (this.state * 214013 + 2531011) % 4294967296;
-            const value = Math.floor(this.state / 65536) % 32768;
-            return value;
-        }
-    }
 
     // FormatMemoryUsage.
     function formatMemoryUsage(usage: number) {

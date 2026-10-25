@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { perspProjD3DStyle } from "../core/matrix";
+import { MsvcRandom } from "../core/random";
 
 namespace WorkGraphs {
     // Test mode: the frames rendered.
@@ -147,11 +148,9 @@ namespace WorkGraphs {
     // srand(0) / rand() of the MSVC runtime the sample is built with, so that the scene comes out the
     // same. (A function named rand would clash with the CRT's.)
     const RAND_MAX = 32767.0;
-    let g_RandomSeed = 0.0;
+    let g_Random = new MsvcRandom(0);
     function msvcRand(): int {
-        g_RandomSeed = (g_RandomSeed * 214013.0 + 2531011.0) % 4294967296.0;
-        const value = Math.floor(g_RandomSeed / 65536.0) % 32768;
-        return value;
+        return g_Random.next();
     }
 
     class Float3 {
@@ -611,7 +610,7 @@ namespace WorkGraphs {
         }
 
         populateWorld() {
-            g_RandomSeed = 0.0; // srand(0): deterministic world content.
+            g_Random = new MsvcRandom(0); // srand(0): deterministic world content.
 
             // Generate materials.
             const groundColor = new Float3(SCENE_GROUND_COLOR, SCENE_GROUND_COLOR, SCENE_GROUND_COLOR);

@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiply, rotation, translation, radians, samplePerspective } from "../core/matrix";
+import { MsvcRandom } from "../core/random";
 
 namespace RasterizationOrderAttachmentAccess {
     // Test mode: the frames rendered.
@@ -76,25 +77,6 @@ namespace RasterizationOrderAttachmentAccess {
             fraction = "0" + fraction;
         }
         return `${whole}.${fraction}`;
-    }
-
-    // MSVC's rand() after srand(seed), which the sample's colors come from: RAND_MAX 32767.
-    class MsvcRandom {
-        private state: number;
-
-        constructor(seed: number) {
-            this.state = seed;
-        }
-
-        next() {
-            this.state = (this.state * 214013 + 2531011) % 4294967296;
-            return Math.floor(this.state / 65536) % 32768;
-        }
-
-        // static_cast<float>(rand()) / RAND_MAX.
-        nextFloat() {
-            return this.next() / 32767.0;
-        }
     }
 
     // Port of Vulkan-Samples' rasterization_order_attachment_access: 64 transparent spheres over a
