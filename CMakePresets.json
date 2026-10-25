@@ -69,6 +69,26 @@
       }
     },
     {
+      "name": "default-rtxcr",
+      "displayName": "Default with RTXCR (Ninja)",
+      "description": "Debug with the rtxcr_pathtracer example (RTXCR_DIR: a checkout of github.com/NVIDIA-RTX/RTXCR with submodules and assets). Override the path with -DRTXCR_DIR=<path>.",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-debug-rtxcr",
+      "cacheVariables": {
+        "RTXCR_DIR": "E:/Gits/RTXCR"
+      }
+    },
+    {
+      "name": "release-rtxcr",
+      "displayName": "Release with RTXCR (Ninja)",
+      "description": "Release with the rtxcr_pathtracer example (RTXCR_DIR: a checkout of github.com/NVIDIA-RTX/RTXCR with submodules and assets). Override the path with -DRTXCR_DIR=<path>.",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-rtxcr",
+      "cacheVariables": {
+        "RTXCR_DIR": "E:/Gits/RTXCR"
+      }
+    },
+    {
       "name": "android-x86_64",
       "displayName": "Android x86_64 Release (Ninja, NDK)",
       "description": "Release for Android x86_64 (the emulator), API 29, Vulkan only. Needs ANDROID_NDK_HOME, and a desktop build first for its ShaderMake.",
@@ -122,6 +142,14 @@
     {
       "name": "release-dlss",
       "configurePreset": "release-dlss"
+    },
+    {
+      "name": "default-rtxcr",
+      "configurePreset": "default-rtxcr"
+    },
+    {
+      "name": "release-rtxcr",
+      "configurePreset": "release-rtxcr"
     },
     {
       "name": "android-x86_64",
