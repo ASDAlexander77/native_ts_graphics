@@ -475,7 +475,7 @@ if (WIN32)
 endif()
 if (RTXCR_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
-    set_source_files_properties(core/rtxcr.cpp PROPERTIES INCLUDE_DIRECTORIES "${RTXCR_DIR}/libraries;${RTXCR_DIR}/samples/pathtracer")
+    set_source_files_properties(core/rtxcr.cpp PROPERTIES INCLUDE_DIRECTORIES "${RTXCR_DIR}/libraries;${RTXCR_DIR}/samples/pathtracer;${RTXCR_DIR}/external/RayTracingDenoiser/Include")
 endif()
 if (NOT ANDROID)
     add_library(donut_interop_shared SHARED core/donut_interop.cpp ${JIT_MODULE_SOURCES})
@@ -3625,6 +3625,45 @@ add_tslang_example(feature_demo core/matrix.ts core/text_format.ts MEDIA fonts s
 add_tslang_example_test(feature_demo)
 copy_dlss_library(feature_demo)
 
+# NVIDIA's Real-Time Denoisers (NRD), the RTXCR checkout's: rtxcr_pathtracer's ReBLUR and ReLAX
+# denoising. Built as RTXCR builds it (its external/CMakeLists.txt): the library without its shaders
+# embedded, the shaders compiled to bin/shaders/nrd/<dxil|spirv> with the register shifts NRD's
+# Vulkan bindings are made for. The encodings (NRD_NORMAL_ENCODING, NRD_ROUGHNESS_ENCODING) are
+# written to the checkout's NRDConfig.hlsli, which NRD's shaders and rtxcr_pathtracer's denoiser
+# shaders both include, so the three agree. NRD is under the same license as RTXCR: nothing of it
+# is copied here.
+if (RTXCR_DIR)
+    set(RTXCR_NRD_DIR "${RTXCR_DIR}/external/RayTracingDenoiser")
+    set(NRD_NORMAL_ENCODING "2" CACHE STRING "Normal encoding variant (0-4, matches nrd::NormalEncoding)")
+    set(NRD_ROUGHNESS_ENCODING "1" CACHE STRING "Roughness encoding variant (0-2, matches nrd::RoughnessEncoding)")
+    set(NRD_EMBEDS_SPIRV_SHADERS OFF CACHE BOOL "NRD embeds SPIRV shaders" FORCE)
+    set(NRD_EMBEDS_DXIL_SHADERS OFF CACHE BOOL "NRD embeds DXIL shaders" FORCE)
+    set(NRD_EMBEDS_DXBC_SHADERS OFF CACHE BOOL "NRD embeds DXBC shaders" FORCE)
+    # A static library: under tslang's JIT donut_interop_shared.dll is loaded without its folder in the DLL
+    # search path, so an NRD.dll beside it would not be found.
+    set(NRD_STATIC_LIBRARY ON CACHE BOOL "Build static library" FORCE)
+    add_subdirectory("${RTXCR_NRD_DIR}" "${CMAKE_BINARY_DIR}/nrd")
+
+    file(GLOB_RECURSE NRD_SHADER_SOURCES CONFIGURE_DEPENDS "${RTXCR_NRD_DIR}/Shaders/*.hlsl" "${RTXCR_NRD_DIR}/Shaders/*.hlsli")
+    get_target_property(NRD_MATHLIB_SOURCE_DIR MathLib SOURCE_DIR)
+    set(NRD_SHADERMAKE_GENERAL "--flatten --stripReflection --WX --allResourcesBound -D NRD_INTERNAL")
+    donut_compile_shaders(
+        TARGET nrd_shaders
+        PROJECT_NAME "NRD"
+        CONFIG ${RTXCR_NRD_DIR}/Shaders/Shaders.cfg
+        SOURCES ${NRD_SHADER_SOURCES}
+        INCLUDES ${NRD_MATHLIB_SOURCE_DIR} ${RTXCR_NRD_DIR}/Shaders
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nrd/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nrd/spirv
+        SHADERMAKE_OPTIONS_DXIL ${NRD_SHADERMAKE_GENERAL}
+        SHADERMAKE_OPTIONS_SPIRV "${NRD_SHADERMAKE_GENERAL} --sRegShift 0 --bRegShift 2 --uRegShift 3 --tRegShift 20"
+    )
+    if (TARGET donut_interop_shared)
+        target_link_libraries(donut_interop_shared PRIVATE NRD)
+        add_dependencies(donut_interop_shared nrd_shaders)
+    endif()
+endif()
+
 # Port of NVIDIA's RTX Character Rendering pathtracer sample (github.com/NVIDIA-RTX/RTXCR): a path
 # tracer for hair and skin (the Claire scene). The sample is under the NVIDIA RTX SDKs License,
 # which doesn't allow copying it into an open source repository, so nothing of it is copied: with
@@ -3641,6 +3680,7 @@ if (RTXCR_DIR)
             ${RTXCR_DIR}/samples/pathtracer
             ${RTXCR_DIR}/libraries/rtxcr/material/shaders/include
             ${RTXCR_DIR}/libraries/rtxcr/geometry/shaders/include
+            ${RTXCR_NRD_DIR}/Shaders
         DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/dxil
         SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/spirv
         SHADERMAKE_OPTIONS "--sourceDir ${RTXCR_DIR}/samples/pathtracer/shaders"
@@ -3654,10 +3694,18 @@ if (RTXCR_DIR)
         SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/spirv
     )
     add_tslang_example(rtxcr_pathtracer core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp MEDIA fonts)
-    add_dependencies(rtxcr_pathtracer rtxcr_pathtracer_vs_shaders)
+    add_dependencies(rtxcr_pathtracer rtxcr_pathtracer_vs_shaders nrd_shaders)
+    target_link_libraries(rtxcr_pathtracer PRIVATE NRD)
     add_tslang_example_test(rtxcr_pathtracer ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.scene.json)
     add_tslang_example_test(rtxcr_pathtracer SUFFIX animation
         ARGS -width 960 -height 540 -enableAnimation 1 --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+    # Denoised with NRD instead of accumulating: ReBLUR and ReLAX, the animated hair too.
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX nrd_reblur
+        ARGS -width 960 -height 540 -denoiser 1 -nrdMode 0 -frames 32 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX nrd_relax
+        ARGS -width 960 -height 540 -denoiser 1 -nrdMode 1 -frames 32 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX nrd_animation
+        ARGS -width 960 -height 540 -denoiser 1 -nrdMode 0 -enableAnimation 1 --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
     # The hair's tessellation changed while rendering: from DOTS to polytubes, the animated hair too.
     add_tslang_example_test(rtxcr_pathtracer SUFFIX switch
         ARGS -width 960 -height 540 -hairTessellationType 1 -switchTessellation 0 --scene ${RTXCR_DIR}/assets/claire.scene.json)

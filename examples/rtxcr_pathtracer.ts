@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { RtxcrScene } from "../core/rtxcr_scene";
+import { RtxcrScene, RtxcrNrd } from "../core/rtxcr_scene";
 import { perspProjD3DStyleReverse } from "../core/matrix";
 
 // Port of NVIDIA's RTX Character Rendering pathtracer sample (github.com/NVIDIA-RTX/RTXCR), which
@@ -14,8 +14,10 @@ import { perspProjD3DStyleReverse } from "../core/matrix";
 // A path tracer for hair and skin: a G-buffer pass and the path tracing pass (the sample's shaders,
 // compiled in place from the checkout) over the scene's acceleration structures, the hair curves
 // tessellated into polytubes, DOTS or linear swept spheres (core/rtxcr.cpp), accumulating samples
-// while the camera stands still, then tone mapped. The sample's denoisers (NRD, DLSS ray
-// reconstruction), upscalers and frame generation are not ported.
+// while the camera stands still, then tone mapped. Or denoised instead of accumulating: NVIDIA's NRD
+// (ReBLUR or ReLAX, core/rtxcr.cpp) over the noisy diffuse and specular radiance, packed and composited
+// again by the sample's denoiser.hlsl. The sample's DLSS ray reconstruction, upscalers and frame
+// generation are not ported.
 namespace RtxcrPathtracer {
     const WINDOW_TITLE = "RTX Character Rendering: Pathtracer";
 
@@ -206,6 +208,16 @@ namespace RtxcrPathtracer {
         animationKeyFrameIndexOverride = 0;
         animationKeyFrameWeightOverride = 0.0;
 
+        // The sample's denoiser settings (UIData::enableDenoiser, nrdDenoiserMode and the NRD ones): NRD
+        // instead of accumulating samples. nrdMode is 0 for ReBLUR and 1 for ReLAX.
+        enableDenoiser = false;
+        nrdMode = 0;
+        nrdDisocclusionThreshold = 0.01;
+        nrdMaxAccumulatedFrames = 60;
+        nrdAntiFirefly = true;
+        nrdValidation = false;
+        nrdSplitScreen = 0.0;
+
         // The hair tessellation the window asks for (HairTessellation).
         hairTessellationType = 1;
         // A test's: the tessellation to ask for after the first frames, or -1.
@@ -287,8 +299,8 @@ namespace RtxcrPathtracer {
 
     // --- Settings window -----------------------------------------------------------------------
 
-    // The sample's UI (Ui/PathtracerUi.cpp) without the denoiser, upscaler and frame generation: the
-    // settings of the path tracer, the hair, the skin and the animation. A setting that changes the
+    // The sample's UI (Ui/PathtracerUi.cpp) without the upscaler and frame generation: the settings of
+    // the path tracer, the NRD denoiser, the hair, the skin and the animation. A setting that changes the
     // picture marks the settings dirty, which restarts the accumulation.
     class UserInterface {
         private settings: Settings;
@@ -355,7 +367,7 @@ namespace RtxcrPathtracer {
 
             const seconds = s.frameSeconds;
             ImGui.text(`${seconds > 0.0 ? Math.round(1.0 / seconds) : 0} FPS`);
-            if (s.enableAccumulation) {
+            if (s.enableAccumulation && !s.enableDenoiser) {
                 ImGui.text(`Accumulated frames: ${s.accumulatedFrames}`);
             }
 
@@ -375,6 +387,20 @@ namespace RtxcrPathtracer {
                 s.enableIndirectLighting = this.check("Indirect lighting", s.enableIndirectLighting);
                 s.enableSoftShadows = this.check("Soft shadows", s.enableSoftShadows);
                 s.enableTransparentShadows = this.check("Transparent shadows", s.enableTransparentShadows);
+                ImGui.unindent();
+            }
+
+            if (ImGui.collapsingHeaderDefaultOpen("Denoiser")) {
+                ImGui.indent();
+                s.enableDenoiser = this.check("NRD denoiser", s.enableDenoiser);
+                if (s.enableDenoiser) {
+                    s.nrdMode = this.combo("Method", s.nrdMode, "ReBLUR|ReLAX");
+                    s.nrdDisocclusionThreshold = ImGui.sliderFloat("Disocclusion threshold", s.nrdDisocclusionThreshold, 0.01, 0.02);
+                    s.nrdMaxAccumulatedFrames = ImGui.sliderInt("Max accumulated frames", s.nrdMaxAccumulatedFrames, 1, 120);
+                    s.nrdAntiFirefly = ImGui.checkbox("Anti-firefly", s.nrdAntiFirefly);
+                    s.nrdValidation = ImGui.checkbox("Validation layer", s.nrdValidation);
+                    s.nrdSplitScreen = ImGui.sliderFloat("Split screen", s.nrdSplitScreen, 0.0, 1.0);
+                }
                 ImGui.unindent();
             }
 
@@ -546,11 +572,34 @@ namespace RtxcrPathtracer {
         private noisySpecular: TextureHandle;
         private specularHitDistance: TextureHandle;
         private denoiserValidation: TextureHandle;
+        private denoisedDiffuse: TextureHandle;
+        private denoisedSpecular: TextureHandle;
         private gbufferSet: BindingSet;
         private gbufferDenoiserSet: BindingSet;
         private ptSet: BindingSet;
         private ptDenoiserSet: BindingSet;
         private tonemapSet: BindingSet;
+
+        // The NRD denoiser: the passes that pack the noisy radiance for it and composite what it returns
+        // (the sample's denoiser.hlsl; ReBLUR and ReLAX pack differently), and NRD itself.
+        private nrdLayout: BindingLayoutHandle;
+        private nrdTexturesLayout: BindingLayoutHandle;
+        private nrdPackShader: ShaderHandle[];
+        private nrdCompositeShader: ShaderHandle[];
+        private nrdPackPipeline: ComputePipelineHandle[];
+        private nrdCompositePipeline: ComputePipelineHandle[];
+        private nrdSet: BindingSet;
+        private nrdPackSet: BindingSet;
+        private nrdCompositeSet: BindingSet;
+        private nrd: RtxcrNrd;
+        // The method (0 ReBLUR, 1 ReLAX) of nrd, or -1 while there is none.
+        private nrdMethod: int;
+        // The denoiser's history is of another picture (a new denoiser, a resize, a setting).
+        private resetDenoiser: boolean;
+        private jitterX: number;
+        private jitterY: number;
+        private previousJitterX: number;
+        private previousJitterY: number;
 
         private frameCounter: int;
         // The sample's PathTracingPass accumulation state.
@@ -577,6 +626,20 @@ namespace RtxcrPathtracer {
             this.ptSet = new BindingSet(null);
             this.ptDenoiserSet = new BindingSet(null);
             this.tonemapSet = new BindingSet(null);
+            this.nrdSet = new BindingSet(null);
+            this.nrdPackSet = new BindingSet(null);
+            this.nrdCompositeSet = new BindingSet(null);
+            this.nrd = new RtxcrNrd(null);
+            this.nrdMethod = -1;
+            this.resetDenoiser = true;
+            this.jitterX = 0.0;
+            this.jitterY = 0.0;
+            this.previousJitterX = 0.0;
+            this.previousJitterY = 0.0;
+            this.nrdPackShader = [];
+            this.nrdCompositeShader = [];
+            this.nrdPackPipeline = [];
+            this.nrdCompositePipeline = [];
             this.morphTargetCount = 0;
             this.wallclockTime = 0.0;
             this.elapsedSeconds = 0.0;
@@ -705,6 +768,9 @@ namespace RtxcrPathtracer {
         // Drops what holds the scene's materials and buffers, before the device goes.
         shutdown() {
             this.app.waitForIdle();
+            if (!this.nrd.isNull()) {
+                this.nrd.destroy();
+            }
             this.rtxcrScene.destroy();
         }
 
@@ -769,6 +835,9 @@ namespace RtxcrPathtracer {
             sets.push(this.ptSet);
             sets.push(this.ptDenoiserSet);
             sets.push(this.tonemapSet);
+            sets.push(this.nrdSet);
+            sets.push(this.nrdPackSet);
+            sets.push(this.nrdCompositeSet);
             for (let i = 0; i < sets.length; i++) {
                 if (!sets[i].isNull()) {
                     this.app.releaseResource(sets[i].handle);
@@ -779,6 +848,9 @@ namespace RtxcrPathtracer {
             this.ptSet = new BindingSet(null);
             this.ptDenoiserSet = new BindingSet(null);
             this.tonemapSet = new BindingSet(null);
+            this.nrdSet = new BindingSet(null);
+            this.nrdPackSet = new BindingSet(null);
+            this.nrdCompositeSet = new BindingSet(null);
             if (this.targetsReady) {
                 const textures: TextureHandle[] = [];
                 textures.push(this.pathTracerOutput);
@@ -796,6 +868,8 @@ namespace RtxcrPathtracer {
                 textures.push(this.noisySpecular);
                 textures.push(this.specularHitDistance);
                 textures.push(this.denoiserValidation);
+                textures.push(this.denoisedDiffuse);
+                textures.push(this.denoisedSpecular);
                 for (let i = 0; i < textures.length; i++) {
                     this.app.releaseResource(textures[i]);
                 }
@@ -808,6 +882,7 @@ namespace RtxcrPathtracer {
             }
             this.app.clearBindingCache();
             this.resetAccumulation = true;
+            this.resetDenoiser = true;
         }
 
         // The sample's ResourceManager::CreateScreenResolutionTextures and
@@ -831,6 +906,11 @@ namespace RtxcrPathtracer {
             this.noisySpecular = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA16_FLOAT, "Noisy Specular Radiance HitT");
             this.specularHitDistance = this.app.createRenderTargetUAVTexture(width, height, Format.R16_FLOAT, "Specular HitT");
             this.denoiserValidation = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA8_UNORM, "Denoiser Validation Texture");
+            this.denoisedDiffuse = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA16_FLOAT, "Denoised Diffuse Radiance HitT");
+            this.denoisedSpecular = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA16_FLOAT, "Denoised Specular Radiance HitT");
+            if (!this.nrd.isNull()) {
+                this.nrd.resize(width, height);
+            }
         }
 
         // A layout of the sample's pass bindings in register space / descriptor set `set`.
@@ -945,6 +1025,35 @@ namespace RtxcrPathtracer {
             // The morph target pass.
             if (!this.createMorphTargetShader()) {
                 return false;
+            }
+
+            // The denoiser's packing and compositing passes (denoiser.hlsl, ReBLUR's and ReLAX's): the global
+            // constants and the output in space 0, the G-buffer and the radiance in space 1, all UAVs.
+            {
+                const desc = BindingLayoutDesc.create();
+                desc.layoutVolatileConstantBuffer(0);
+                desc.layoutTextureUAV(0);
+                desc.setDescriptorSet(0);
+                this.nrdLayout = this.app.createBindingLayout(desc, ShaderType.Compute);
+                const texturesDesc = BindingLayoutDesc.create();
+                for (let i = 0; i < 8; i++) {
+                    texturesDesc.layoutTextureUAV(i);
+                }
+                texturesDesc.setDescriptorSet(1);
+                this.nrdTexturesLayout = this.app.createBindingLayout(texturesDesc, ShaderType.Compute);
+                for (let method = 0; method < 2; method++) {
+                    const value = `${method}`;
+                    const pack = this.app.createShaderWithDefine("denoiser.hlsl", "demodulate", ShaderType.Compute, "USE_RELAX", value);
+                    const composite = this.app.createShaderWithDefine("denoiser.hlsl", "composite", ShaderType.Compute, "USE_RELAX", value);
+                    if (!pack || !composite) {
+                        console.log("Cannot load the denoiser shaders");
+                        return false;
+                    }
+                    this.nrdPackShader.push(pack);
+                    this.nrdCompositeShader.push(composite);
+                    this.nrdPackPipeline.push(this.app.createComputePipelineWithLayouts(pack, this.nrdLayout, this.nrdTexturesLayout));
+                    this.nrdCompositePipeline.push(this.app.createComputePipelineWithLayouts(composite, this.nrdLayout, this.nrdTexturesLayout));
+                }
             }
 
             // Tone mapping: the sample's pixel shader over a full-screen strip.
@@ -1065,12 +1174,86 @@ namespace RtxcrPathtracer {
             ptDenoiserDesc.bindTextureUAV(2, this.specularHitDistance);
             this.ptDenoiserSet = this.app.createBindingSetForLayout(ptDenoiserDesc, this.ptDenoiserLayout);
 
+            const nrdDesc = BindingSetDesc.create();
+            nrdDesc.bindEntireConstantBuffer(0, this.globalBuffer);
+            nrdDesc.bindTextureUAV(0, output);
+            this.nrdSet = this.app.createBindingSetForLayout(nrdDesc, this.nrdLayout);
+            // The packing reads the noisy radiance and writes it back packed; the compositing reads what NRD denoised.
+            for (let pass = 0; pass < 2; pass++) {
+                const desc = BindingSetDesc.create();
+                desc.bindTextureUAV(0, pass == 0 ? this.noisyDiffuse : this.denoisedDiffuse);
+                desc.bindTextureUAV(1, pass == 0 ? this.noisySpecular : this.denoisedSpecular);
+                desc.bindTextureUAV(2, this.viewZ);
+                desc.bindTextureUAV(3, this.shadingNormalRoughness);
+                desc.bindTextureUAV(4, this.motionVector);
+                desc.bindTextureUAV(5, this.emissive);
+                desc.bindTextureUAV(6, this.albedo);
+                desc.bindTextureUAV(7, this.specularAlbedo);
+                const set = this.app.createBindingSetForLayout(desc, this.nrdTexturesLayout);
+                if (pass == 0) {
+                    this.nrdPackSet = set;
+                } else {
+                    this.nrdCompositeSet = set;
+                }
+            }
+
             const tonemapDesc = BindingSetDesc.create();
             tonemapDesc.bindEntireConstantBuffer(0, this.globalBuffer);
             tonemapDesc.bindTextureUAV(0, this.postProcessing);
             tonemapDesc.bindTextureUAV(1, this.accumulation);
             tonemapDesc.bindTextureSRV(0, this.denoiserValidation);
             this.tonemapSet = this.app.createBindingSetForLayout(tonemapDesc, this.tonemapLayout);
+        }
+
+        // True while the frame is denoised: the window asks for it and NRD is there (see prepareDenoiser).
+        denoising() {
+            return this.settings.enableDenoiser && !this.nrd.isNull();
+        }
+
+        // Makes, replaces or drops NRD to match the window's choice. A new one has no history.
+        prepareDenoiser() {
+            const wanted = this.settings.enableDenoiser ? this.settings.nrdMode : -1;
+            if (wanted == this.nrdMethod) {
+                return;
+            }
+            this.app.waitForIdle();
+            if (!this.nrd.isNull()) {
+                this.nrd.destroy();
+                this.nrd = new RtxcrNrd(null);
+            }
+            this.nrdMethod = wanted;
+            this.resetDenoiser = true;
+            if (wanted >= 0) {
+                this.nrd = RtxcrNrd.create(this.app.getNvrhiDevice(), wanted, this.width, this.height);
+                if (this.nrd.isNull()) {
+                    console.log("Cannot create the NRD denoiser");
+                    this.settings.enableDenoiser = false;
+                    this.nrdMethod = -1;
+                }
+            }
+        }
+
+        // The sample's NrdDenoiser::Dispatch: the noisy radiance is packed for NRD (demodulated by the albedos), NRD
+        // denoises it, and the composite pass modulates the result by the albedos again and adds the emission, into
+        // the path tracer's output.
+        denoise(commandList: CommandList, width: int, height: int) {
+            const settings = this.settings;
+            this.nrd.setSetting(0, settings.nrdDisocclusionThreshold);
+            this.nrd.setSetting(1, settings.nrdMaxAccumulatedFrames);
+            this.nrd.setSetting(2, settings.nrdAntiFirefly ? 1.0 : 0.0);
+            this.nrd.setSetting(3, settings.nrdValidation ? 1.0 : 0.0);
+            this.nrd.setSetting(4, settings.nrdSplitScreen);
+
+            const groupsX = Math.floor((width + 15) / 16);
+            const groupsY = Math.floor((height + 15) / 16);
+            const method = this.nrdMethod;
+            commandList.dispatchWithBindingSets(this.nrdPackPipeline[method], this.nrdSet, this.nrdPackSet, groupsX, groupsY, 1);
+            this.nrd.denoise(commandList.handle, this.motionVector, this.shadingNormalRoughness, this.viewZ, this.noisyDiffuse,
+                this.noisySpecular, this.denoisedDiffuse, this.denoisedSpecular, this.denoiserValidation, this.view.handle,
+                this.previousView.handle, -this.jitterX, -this.jitterY, -this.previousJitterX, -this.previousJitterY,
+                this.frameCounter, this.resetDenoiser);
+            this.resetDenoiser = false;
+            commandList.dispatchWithBindingSets(this.nrdCompositePipeline[method], this.nrdSet, this.nrdCompositeSet, groupsX, groupsY, 1);
         }
 
         // The sample's SampleRenderer::updateConstantBuffers: the lighting and global constants.
@@ -1123,14 +1306,28 @@ namespace RtxcrPathtracer {
             const jitter = haltonPixelOffset(this.frameCounter);
             g.setFloat(G_JITTER_OFFSET, jitter[0]);
             g.setFloat(G_JITTER_OFFSET + 4, jitter[1]);
+            this.previousJitterX = this.jitterX;
+            this.previousJitterY = this.jitterY;
+            this.jitterX = jitter[0];
+            this.jitterY = jitter[1];
             g.setBool(G_ENABLE_BACK_FACE_CULL, settings.enableBackFaceCull);
             g.setInt(G_BOUNCES_MAX, settings.bouncesMax);
             g.setInt(G_FRAME_INDEX, this.frameCounter);
             this.frameCounter++;
-            g.setBool(G_ENABLE_ACCUMULATION, settings.enableAccumulation);
+            // The denoiser takes the place of accumulating samples.
+            const accumulate = settings.enableAccumulation && !this.denoising();
+            g.setBool(G_ENABLE_ACCUMULATION, accumulate);
             g.setInt(G_ACCUMULATED_FRAMES_MAX, this.resetAccumulation ? 1 : 128);
-            g.setFloat(G_RECIP_ACCUMULATED_FRAMES,
-                settings.enableAccumulation ? 1.0 / this.accumulatedFrameCount : 1.0);
+            g.setFloat(G_RECIP_ACCUMULATED_FRAMES, accumulate ? 1.0 / this.accumulatedFrameCount : 1.0);
+            g.setBool(G_ENABLE_DENOISER, this.denoising());
+            g.setBool(G_ENABLE_DENOISER_VALIDATION_LAYER, this.denoising() && settings.nrdValidation);
+            if (this.denoising()) {
+                // ReBLUR's A, B and C: the shaders normalize the radiance's hit distance with them.
+                g.setFloat(G_NRD_HIT_DISTANCE_PARAMS, this.nrd.getHitDistanceParameter(0));
+                g.setFloat(G_NRD_HIT_DISTANCE_PARAMS + 4, this.nrd.getHitDistanceParameter(1));
+                g.setFloat(G_NRD_HIT_DISTANCE_PARAMS + 8, this.nrd.getHitDistanceParameter(2));
+                g.setFloat(G_NRD_HIT_DISTANCE_PARAMS + 12, 0.0);
+            }
             g.setFloat(G_ENVIRONMENT_LIGHT_INTENSITY, settings.environmentLightIntensity);
             g.setBool(G_ENABLE_EMISSIVES, settings.enableEmissives);
             g.setBool(G_ENABLE_LIGHTING, settings.enableLighting);
@@ -1219,6 +1416,7 @@ namespace RtxcrPathtracer {
             this.settings.frameSeconds = this.app.getAverageFrameTime();
             if (this.settings.dirty) {
                 this.resetAccumulation = true;
+                this.resetDenoiser = true;
                 this.settings.dirty = false;
             }
 
@@ -1230,6 +1428,7 @@ namespace RtxcrPathtracer {
                 this.createTargets(width, height);
                 this.createBindingSets();
             }
+            this.prepareDenoiser();
             if (!this.tonemapPipelineReady) {
                 const desc = GraphicsPipelineDesc.create(this.tonemapVS, this.tonemapPS);
                 desc.addBindingLayout(this.tonemapLayout);
@@ -1275,6 +1474,9 @@ namespace RtxcrPathtracer {
             frame.dispatchRaysWithBindingSets(this.gbufferTable, this.gbufferSet, this.gbufferDenoiserSet, this.descriptorTable,
                 width, height);
             frame.dispatchRaysWithBindingSets(this.ptTable, this.ptSet, this.ptDenoiserSet, this.descriptorTable, width, height);
+            if (this.denoising()) {
+                this.denoise(commandList, width, height);
+            }
 
             // The sample's PathTracingPass accumulation counter.
             this.accumulatedFrameCount++;
@@ -1320,6 +1522,10 @@ namespace RtxcrPathtracer {
         switchTessellation: int = -1;
         // -enableAnimation <0 or 1>: the sample's option; Space toggles it.
         enableAnimation: boolean = false;
+        // -denoiser <0 or 1>: NRD instead of accumulating samples (the sample's -denoiser 1), and
+        // -nrdMode <0 ReBLUR, 1 ReLAX> its method.
+        denoiser: boolean = false;
+        nrdMode: int = 0;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
@@ -1339,6 +1545,10 @@ namespace RtxcrPathtracer {
                         this.switchTessellation = parseInt(this[i + 1]);
                     } else if (arg == "-enableAnimation") {
                         this.enableAnimation = parseInt(this[i + 1]) != 0;
+                    } else if (arg == "-denoiser") {
+                        this.denoiser = parseInt(this[i + 1]) != 0;
+                    } else if (arg == "-nrdMode") {
+                        this.nrdMode = parseInt(this[i + 1]);
                     }
                 }
             }
@@ -1387,6 +1597,8 @@ namespace RtxcrPathtracer {
         settings.hairTessellationType = hairTessellationType;
         settings.enableAccumulation = args.accumulate;
         settings.enableAnimations = args.enableAnimation;
+        settings.enableDenoiser = args.denoiser;
+        settings.nrdMode = args.nrdMode;
         settings.switchTessellation = args.switchTessellation;
         const renderer = new Renderer(app, settings, args.scenePath, hairTessellationType, args.hairRadiusScale);
         if (!renderer.init()) {

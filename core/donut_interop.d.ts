@@ -1882,6 +1882,9 @@ enum ShaderType {
 @nodrops declare function Donut_WriteBufferAt(commandList: CommandListHandle, buffer: BufferHandle, byteOffset: int, data: Opaque, byteSize: int): void;
 @nodrops declare function Donut_CopyBuffer(commandList: CommandListHandle, dst: BufferHandle, dstOffset: int, src: BufferHandle, srcOffset: int, byteSize: int): void;
 @nodrops declare function Donut_Dispatch(commandList: CommandListHandle, computePipeline: ComputePipelineHandle, bindingSet: BindingSetHandle, groupsX: int, groupsY: int, groupsZ: int): void;
+// Same, with two binding sets (a pipeline of two binding layouts).
+@nodrops declare function Donut_DispatchWithBindingSets(commandList: CommandListHandle, computePipeline: ComputePipelineHandle, bindingSet: BindingSetHandle,
+    secondBindingSet: BindingSetHandle, groupsX: int, groupsY: int, groupsZ: int): void;
 // Same, with a descriptor table bound after the binding set.
 @nodrops declare function Donut_DispatchWithDescriptorTable(commandList: CommandListHandle, computePipeline: ComputePipelineHandle, bindingSet: BindingSetHandle,
     descriptorTable: DescriptorTableHandle, groupsX: int, groupsY: int, groupsZ: int): void;
@@ -2888,3 +2891,25 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // The sample's sky constants (GlobalConstants::skyParams, 96 bytes into dst) for a directional light.
 // skyType: 0 constant, 1 procedural, 2 environment map.
 @nodrops declare function Donut_RtxcrFillSkyParameters(rtxcrScene: RtxcrSceneHandle, sun: LightHandle, skyR: number, skyG: number, skyB: number, enableSky: boolean, skyType: int, dst: Opaque): void;
+
+// Denoising with NRD (core/rtxcr.cpp, built with RTXCR_DIR): ReBLUR (mode 0) or ReLAX (mode 1) over the noisy
+// diffuse and specular radiance for textures of width x height. `device` is Donut_GetNvrhiDevice's. A null
+// handle if NRD or its shaders (bin/shaders/nrd) don't load.
+@nodrops declare function Donut_RtxcrNrdCreate(device: Opaque, mode: int, width: int, height: int): RtxcrNrdHandle;
+@nodrops declare function Donut_RtxcrNrdDestroy(rtxcrNrd: RtxcrNrdHandle): void;
+// The denoiser's textures at a new size (its history is gone: pass reset to the next denoise). 0 if they can't be made.
+@nodrops declare function Donut_RtxcrNrdResize(rtxcrNrd: RtxcrNrdHandle, width: int, height: int): int;
+// Settings by key: 0 disocclusion threshold, 1 maximum accumulated frames, 2 anti-firefly (0 or 1), 3 validation
+// overlay (0 or 1), 4 split screen (0 to 1: noisy on the left, denoised on the right).
+@nodrops declare function Donut_RtxcrNrdSetSetting(rtxcrNrd: RtxcrNrdHandle, key: int, value: number): void;
+// ReBLUR's hit distance parameter A (index 0), B (1) or C (2), which the shaders normalize the hit distance with.
+@nodrops declare function Donut_RtxcrNrdGetHitDistanceParameter(rtxcrNrd: RtxcrNrdHandle, index: int): number;
+// Denoises the packed noisy radiance into the two denoised textures with an open command list. The G-buffer is
+// the sample's: motion in pixels (depth change in z), normal and roughness packed for NRD, linear view Z. view and
+// previousView are this frame's and the one before's (planar, unjittered); the jitter is the pixel offset the rays
+// were traced with. reset starts the history over (first frame, camera cut, resize, a changed scene).
+@nodrops declare function Donut_RtxcrNrdDenoise(rtxcrNrd: RtxcrNrdHandle, openCommandList: CommandListHandle, motion: TextureHandle,
+    normalRoughness: TextureHandle, viewZ: TextureHandle, noisyDiffuse: TextureHandle, noisySpecular: TextureHandle,
+    denoisedDiffuse: TextureHandle, denoisedSpecular: TextureHandle, validation: TextureHandle, view: ViewHandle,
+    previousView: ViewHandle, jitterX: number, jitterY: number, previousJitterX: number, previousJitterY: number,
+    frameIndex: int, reset: boolean): void;

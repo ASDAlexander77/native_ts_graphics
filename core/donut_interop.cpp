@@ -7131,6 +7131,20 @@ extern "C"
         cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
     }
 
+    // Same, with two binding sets.
+    DONUT_API void Donut_DispatchWithBindingSets(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
+        nvrhi::IBindingSet* secondBindingSet, int groupsX, int groupsY, int groupsZ)
+    {
+        auto state = nvrhi::ComputeState()
+            .setPipeline(computePipeline)
+            .addBindingSet(bindingSet)
+            .addBindingSet(secondBindingSet);
+
+        nvrhi::ICommandList* cl = commandList;
+        cl->setComputeState(state);
+        cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
+    }
+
     // Same, with byteSize bytes of push constants from data (the binding set's
     // Donut_BindPushConstants item).
     DONUT_API void Donut_DispatchWithPushConstants(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline, nvrhi::IBindingSet* bindingSet,
