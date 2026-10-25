@@ -359,23 +359,23 @@ namespace TextureCompressionBasisu {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Basis Universal texture loading", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Input")) {
-                Donut_ImGuiText("Input image:");
-                Donut_ImGuiPushItemWidth(180.0);
-                sample.selectedInputTexture = Donut_ImGuiCombo("##img", sample.selectedInputTexture, comboItems(TEXTURE_FILE_NAMES));
-                Donut_ImGuiPopItemWidth();
-                Donut_ImGuiText("Transcode target:");
-                Donut_ImGuiPushItemWidth(180.0);
-                sample.selectedTranscodeTargetFormat = Donut_ImGuiCombo("##tt", sample.selectedTranscodeTargetFormat, this.targetNames);
-                Donut_ImGuiPopItemWidth();
-                if (Donut_ImGuiButton("Transcode")) {
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Basis Universal texture loading", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Input")) {
+                ImGui.text("Input image:");
+                ImGui.pushItemWidth(180.0);
+                sample.selectedInputTexture = ImGui.combo("##img", sample.selectedInputTexture, comboItems(TEXTURE_FILE_NAMES));
+                ImGui.popItemWidth();
+                ImGui.text("Transcode target:");
+                ImGui.pushItemWidth(180.0);
+                sample.selectedTranscodeTargetFormat = ImGui.combo("##tt", sample.selectedTranscodeTargetFormat, this.targetNames);
+                ImGui.popItemWidth();
+                if (ImGui.button("Transcode")) {
                     sample.transcodePending = true;
                 }
-                Donut_ImGuiText(`Transcoded in ${formatFixed(sample.lastTranscodeTime, 2)} ms`);
+                ImGui.text(`Transcoded in ${formatFixed(sample.lastTranscodeTime, 2)} ms`);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

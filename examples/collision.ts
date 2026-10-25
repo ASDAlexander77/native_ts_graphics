@@ -1050,11 +1050,11 @@ namespace Collision {
 
             if (sample.showHelp) {
                 this.titleFont.push();
-                Donut_ImGuiDrawText(left, top, "Collision sample", WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
-                Donut_ImGuiPopFont();
+                ImGui.drawText(left, top, "Collision sample", WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
+                ImGui.popFont();
                 this.font.push();
                 const y = top + TITLE_FONT_SIZE + LINE_SPACING;
-                Donut_ImGuiDrawText(left, y, "This sample demonstrates DirectXMath's collision types", WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
+                ImGui.drawText(left, y, "This sample demonstrates DirectXMath's collision types", WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
                 const controls = [
                     "1: Frustum",
                     "2: Axis-aligned box",
@@ -1066,16 +1066,16 @@ namespace Collision {
                     "Esc: Exit (or hide this help)",
                 ];
                 for (let i = 0; i < controls.length; i++) {
-                    Donut_ImGuiDrawText(left, y + (i + 2) * LINE_SPACING, controls[i], WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
+                    ImGui.drawText(left, y + (i + 2) * LINE_SPACING, controls[i], WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
                 }
-                Donut_ImGuiPopFont();
+                ImGui.popFont();
                 return;
             }
 
             this.font.push();
-            Donut_ImGuiDrawText(left, top, sample.name, WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
-            Donut_ImGuiDrawText(left, bottom - LINE_SPACING, "Esc - Exit   F1 - Help", LIGHT_GREY[0], LIGHT_GREY[1], LIGHT_GREY[2], 1.0, 0);
-            Donut_ImGuiPopFont();
+            ImGui.drawText(left, top, sample.name, WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
+            ImGui.drawText(left, bottom - LINE_SPACING, "Esc - Exit   F1 - Help", LIGHT_GREY[0], LIGHT_GREY[1], LIGHT_GREY[2], 1.0, 0);
+            ImGui.popFont();
         }
     }
 

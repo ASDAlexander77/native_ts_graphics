@@ -853,74 +853,74 @@ namespace Msaa {
         buildUI() {
             const m = this.msaa;
             const msaaEnabled = m.sampleCount > 1;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
 
-            if (Donut_ImGuiBeginCombo("##sample_count", sampleCountName(m.sampleCount))) {
+            if (ImGui.beginCombo("##sample_count", sampleCountName(m.sampleCount))) {
                 for (const count of SAMPLE_COUNTS) {
                     if ((m.supportedSampleCounts & count) == 0) {
                         continue;
                     }
                     const selected = count == m.sampleCount;
-                    if (Donut_ImGuiSelectable(sampleCountName(count), selected)) {
+                    if (ImGui.selectable(sampleCountName(count), selected)) {
                         m.sampleCount = count;
                     }
                     if (selected) {
-                        Donut_ImGuiSetItemDefaultFocus();
+                        ImGui.setItemDefaultFocus();
                     }
                 }
-                Donut_ImGuiEndCombo();
+                ImGui.endCombo();
             }
-            Donut_ImGuiSameLine();
-            m.postprocessing = Donut_ImGuiCheckbox("Post-processing (2 renderpasses)", m.postprocessing);
+            ImGui.sameLine();
+            m.postprocessing = ImGui.checkbox("Post-processing (2 renderpasses)", m.postprocessing);
 
-            Donut_ImGuiText("Resolve color: ");
-            Donut_ImGuiSameLine();
+            ImGui.text("Resolve color: ");
+            ImGui.sameLine();
             if (!msaaEnabled) {
-                Donut_ImGuiText("n/a");
+                ImGui.text("n/a");
             } else if (m.renderPassResolve) {
-                if (Donut_ImGuiRadioButton("On writeback", m.colorResolveMethod == MsaaResolve.OnWriteback)) {
+                if (ImGui.radioButton("On writeback", m.colorResolveMethod == MsaaResolve.OnWriteback)) {
                     m.colorResolveMethod = MsaaResolve.OnWriteback;
                 }
-                Donut_ImGuiSameLine();
-                if (Donut_ImGuiRadioButton("Separate", m.colorResolveMethod == MsaaResolve.Separate)) {
+                ImGui.sameLine();
+                if (ImGui.radioButton("Separate", m.colorResolveMethod == MsaaResolve.Separate)) {
                     m.colorResolveMethod = MsaaResolve.Separate;
                 }
             } else {
                 // No render pass resolves (D3D, as NVRHI runs it).
-                Donut_ImGuiText("Separate");
+                ImGui.text("Separate");
             }
 
-            Donut_ImGuiText("Resolve depth: ");
-            Donut_ImGuiSameLine();
+            ImGui.text("Resolve depth: ");
+            ImGui.sameLine();
             if (!msaaEnabled || !m.postprocessing) {
-                Donut_ImGuiText("n/a");
+                ImGui.text("n/a");
             } else if (m.canResolveDepthOnWriteback()) {
-                m.resolveDepthOnWriteback = Donut_ImGuiCheckbox("##resolve_depth", m.resolveDepthOnWriteback);
-                Donut_ImGuiSameLine();
-                Donut_ImGuiText("On writeback");
-                Donut_ImGuiSameLine();
-                Donut_ImGuiPushItemWidth(120.0);
-                if (Donut_ImGuiBeginCombo("##resolve_mode", resolveModeName(m.depthResolveMode))) {
+                m.resolveDepthOnWriteback = ImGui.checkbox("##resolve_depth", m.resolveDepthOnWriteback);
+                ImGui.sameLine();
+                ImGui.text("On writeback");
+                ImGui.sameLine();
+                ImGui.pushItemWidth(120.0);
+                if (ImGui.beginCombo("##resolve_mode", resolveModeName(m.depthResolveMode))) {
                     for (const mode of DEPTH_RESOLVE_MODES) {
                         if ((m.depthResolveModes & (1 << mode)) == 0) {
                             continue;
                         }
                         const selected = mode == m.depthResolveMode;
-                        if (Donut_ImGuiSelectable(resolveModeName(mode), selected)) {
+                        if (ImGui.selectable(resolveModeName(mode), selected)) {
                             m.depthResolveMode = mode;
                         }
                         if (selected) {
-                            Donut_ImGuiSetItemDefaultFocus();
+                            ImGui.setItemDefaultFocus();
                         }
                     }
-                    Donut_ImGuiEndCombo();
+                    ImGui.endCombo();
                 }
-                Donut_ImGuiPopItemWidth();
+                ImGui.popItemWidth();
             } else {
-                Donut_ImGuiText("Not supported");
+                ImGui.text("Not supported");
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

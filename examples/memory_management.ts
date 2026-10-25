@@ -587,7 +587,7 @@ namespace MemoryManagement {
             const frameTime = this.getFrameTime();
             const fps = frameTime > 0.0 ? Math.floor(1.0 / frameTime) : 0;
             const ms = frameTime * 1000.0;
-            Donut_ImGuiDrawText(8.0, 8.0, `FPS: ${fps} (${ms.toFixed(2)}ms)`, 1.0, 1.0, 1.0, 1.0, 0);
+            ImGui.drawText(8.0, 8.0, `FPS: ${fps} (${ms.toFixed(2)}ms)`, 1.0, 1.0, 1.0, 1.0, 0);
 
             const usage = this.images.getUsage();
             const budget = this.images.getBudget();
@@ -618,7 +618,7 @@ namespace MemoryManagement {
             const left = right - GRAPH_WIDTH;
             const top = GRAPH_PADDING;
             const bottom = top + GRAPH_HEIGHT;
-            Donut_ImGuiDrawRect(left, top, right, bottom, 0.1, 0.1, 0.1, 0.85);
+            ImGui.drawRect(left, top, right, bottom, 0.1, 0.1, 0.1, 0.85);
             // The usage history, oldest first, as strips.
             const step = GRAPH_WIDTH / GRAPH_SEGMENTS;
             for (let i = 0; i < GRAPH_SEGMENTS; i++) {
@@ -626,34 +626,34 @@ namespace MemoryManagement {
                 const b = this.graphPoints[(i + 1 + this.currentGraphPoint) % NUM_GRAPH_POINTS];
                 const value = (a + b) / 2.0 / MB;
                 const y = bottom - value / graphSizeMB * heightPadded;
-                Donut_ImGuiDrawRect(left + i * step, y, left + (i + 1) * step, bottom, 0.5, 0.5, 0.0, 0.75);
+                ImGui.drawRect(left + i * step, y, left + (i + 1) * step, bottom, 0.5, 0.5, 0.0, 0.75);
             }
             // The border.
-            Donut_ImGuiDrawRect(left - 1.0, top - 1.0, right + 1.0, top + 1.0, 0.75, 0.75, 0.75, 0.75);
-            Donut_ImGuiDrawRect(left - 1.0, bottom - 1.0, right + 1.0, bottom + 1.0, 0.75, 0.75, 0.75, 0.75);
-            Donut_ImGuiDrawRect(left - 1.0, top - 1.0, left + 1.0, bottom + 1.0, 0.75, 0.75, 0.75, 0.75);
-            Donut_ImGuiDrawRect(right - 1.0, top - 1.0, right + 1.0, bottom + 1.0, 0.75, 0.75, 0.75, 0.75);
+            ImGui.drawRect(left - 1.0, top - 1.0, right + 1.0, top + 1.0, 0.75, 0.75, 0.75, 0.75);
+            ImGui.drawRect(left - 1.0, bottom - 1.0, right + 1.0, bottom + 1.0, 0.75, 0.75, 0.75, 0.75);
+            ImGui.drawRect(left - 1.0, top - 1.0, left + 1.0, bottom + 1.0, 0.75, 0.75, 0.75, 0.75);
+            ImGui.drawRect(right - 1.0, top - 1.0, right + 1.0, bottom + 1.0, 0.75, 0.75, 0.75, 0.75);
             // The notches.
             const sizePerNotch = Math.floor(graphSizeMB / GRAPH_NOTCH_COUNT);
             for (let i = 0; i <= GRAPH_NOTCH_COUNT; i++) {
                 const y = top + paddingTop + (GRAPH_NOTCH_COUNT - i) * (heightPadded / GRAPH_NOTCH_COUNT);
-                Donut_ImGuiDrawText(left - 5.0, y - 8.0, `${sizePerNotch * i}MB`, 1.0, 1.0, 1.0, 1.0, 1);
+                ImGui.drawText(left - 5.0, y - 8.0, `${sizePerNotch * i}MB`, 1.0, 1.0, 1.0, 1.0, 1);
                 if (i > 0) {
-                    Donut_ImGuiDrawRect(left, y, right, y + 1.0, 0.75, 0.75, 0.75, 0.4);
+                    ImGui.drawRect(left, y, right, y + 1.0, 0.75, 0.75, 0.75, 0.4);
                 }
             }
             // The current usage and budget.
             const usageMB = Math.floor(usage / MB);
             const usageY = bottom - usageMB / graphSizeMB * heightPadded;
-            Donut_ImGuiDrawRect(left, usageY, right, usageY + 1.0, 0.8, 0.8, 0.0, 1.0);
-            Donut_ImGuiDrawText(right - 5.0, usageY, `${usageMB}MB`, 1.0, 1.0, 1.0, 1.0, 1);
+            ImGui.drawRect(left, usageY, right, usageY + 1.0, 0.8, 0.8, 0.0, 1.0);
+            ImGui.drawText(right - 5.0, usageY, `${usageMB}MB`, 1.0, 1.0, 1.0, 1.0, 1);
             const budgetMB = Math.floor(budget / MB);
             let budgetY = bottom - budgetMB / graphSizeMB * heightPadded;
             if (budgetY < top) {
                 budgetY = top;
             }
-            Donut_ImGuiDrawRect(left, budgetY, right, budgetY + 1.0, 0.8, 0.0, 0.0, 1.0);
-            Donut_ImGuiDrawText(right - 5.0, budgetY - 16.0, `${budgetMB}MB`, 1.0, 1.0, 1.0, 1.0, 1);
+            ImGui.drawRect(left, budgetY, right, budgetY + 1.0, 0.8, 0.0, 0.0, 1.0);
+            ImGui.drawText(right - 5.0, budgetY - 16.0, `${budgetMB}MB`, 1.0, 1.0, 1.0, 1.0, 1);
         }
     }
 

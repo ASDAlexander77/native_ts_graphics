@@ -113,10 +113,10 @@ namespace ShaderQuadControl {
         }
 
         buildUI() {
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
-            this.pass.broadcast = Donut_ImGuiCheckbox("Broadcast from the quad leader", this.pass.broadcast);
-            Donut_ImGuiEnd();
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
+            this.pass.broadcast = ImGui.checkbox("Broadcast from the quad leader", this.pass.broadcast);
+            ImGui.end();
         }
     }
 

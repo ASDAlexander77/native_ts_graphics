@@ -531,13 +531,13 @@ namespace DynamicRenderingLocalRead {
         }
 
         buildUI() {
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Dynamic Rendering Local Read", true);
-            Donut_ImGuiText("Using separate passes (no local read)");
-            if (Donut_ImGuiButton("Randomize lights")) {
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Dynamic Rendering Local Read", true);
+            ImGui.text("Using separate passes (no local read)");
+            if (ImGui.button("Randomize lights")) {
                 this.sample.randomizeLights();
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

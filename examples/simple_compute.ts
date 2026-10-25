@@ -370,7 +370,7 @@ namespace SimpleCompute {
         }
 
         line(x: number, y: number, text: string) {
-            Donut_ImGuiDrawText(x, y, text, 1.0, 1.0, 1.0, 1.0, 0);
+            ImGui.drawText(x, y, text, 1.0, 1.0, 1.0, 1.0, 0);
         }
 
         buildUI() {
@@ -393,7 +393,7 @@ namespace SimpleCompute {
             }
             this.line(left, bottom - LINE_SPACING,
                 "WASD: Pan viewport   PageUp/Down: Zoom viewport    Space: Toggle async   Esc: Exit");
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

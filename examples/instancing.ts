@@ -440,10 +440,10 @@ namespace Instancing {
         }
 
         buildUI() {
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Statistics", true);
-            Donut_ImGuiText(`Instances: ${INSTANCE_COUNT}`);
-            Donut_ImGuiEnd();
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Statistics", true);
+            ImGui.text(`Instances: ${INSTANCE_COUNT}`);
+            ImGui.end();
         }
     }
 

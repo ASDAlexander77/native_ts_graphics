@@ -254,14 +254,14 @@ namespace HostImageCopy {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Host image copy", true);
-            Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                sample.lodBias = Donut_ImGuiSliderFloat("LOD bias", sample.lodBias, 0.0, MIP_LEVELS);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Host image copy", true);
+            ImGui.pushItemWidth(110.0);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                sample.lodBias = ImGui.sliderFloat("LOD bias", sample.lodBias, 0.0, MIP_LEVELS);
             }
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiEnd();
+            ImGui.popItemWidth();
+            ImGui.end();
         }
     }
 

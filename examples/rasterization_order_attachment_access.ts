@@ -502,20 +502,20 @@ namespace RasterizationOrderAttachmentAccess {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
+            ImGui.begin("Vulkan Example", true);
             if (sample.rovSupported) {
-                sample.rovEnabled = Donut_ImGuiCheckbox("Enable ROAA", sample.rovEnabled);
+                sample.rovEnabled = ImGui.checkbox("Enable ROAA", sample.rovEnabled);
             } else {
-                Donut_ImGuiText("ROAA not supported on this device");
+                ImGui.text("ROAA not supported on this device");
             }
-            Donut_ImGuiText(`Draw calls: ${sample.drawCallCount()}`);
-            Donut_ImGuiText(`Barriers: ${sample.barrierCount()}`);
+            ImGui.text(`Draw calls: ${sample.drawCallCount()}`);
+            ImGui.text(`Barriers: ${sample.barrierCount()}`);
             if (sample.hasGpuTime) {
-                Donut_ImGuiText(`GPU time: ${formatFixed3(sample.gpuDrawTimeMs)} ms`);
+                ImGui.text(`GPU time: ${formatFixed3(sample.gpuDrawTimeMs)} ms`);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

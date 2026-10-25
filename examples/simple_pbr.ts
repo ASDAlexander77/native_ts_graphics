@@ -1023,10 +1023,10 @@ namespace SimplePbr {
             const top: int = Math.floor(safeH);
             const bottom: int = Math.floor(sample.frameHeight - safeH + 0.5);
             this.font.push();
-            Donut_ImGuiDrawText(left, top, "SimplePBR Sample", LIGHT_GREY_HDR, LIGHT_GREY_HDR, LIGHT_GREY_HDR, 1.0, 0);
-            Donut_ImGuiDrawText(left, bottom - LINE_SPACING, "Mouse, W,A,S,D: Move Camera   Esc: Exit ", LIGHT_GREY_HDR, LIGHT_GREY_HDR,
+            ImGui.drawText(left, top, "SimplePBR Sample", LIGHT_GREY_HDR, LIGHT_GREY_HDR, LIGHT_GREY_HDR, 1.0, 0);
+            ImGui.drawText(left, bottom - LINE_SPACING, "Mouse, W,A,S,D: Move Camera   Esc: Exit ", LIGHT_GREY_HDR, LIGHT_GREY_HDR,
                 LIGHT_GREY_HDR, 1.0, 0);
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

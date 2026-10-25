@@ -998,7 +998,7 @@ namespace ShaderObjectSample {
         }
 
         checkbox(label: string, value: boolean) {
-            return Donut_ImGuiCheckbox(label, value);
+            return ImGui.checkbox(label, value);
         }
 
         // The sample's imgui_slider: a checkbox (iterate this choice), the slider (grayed out when
@@ -1006,16 +1006,16 @@ namespace ShaderObjectSample {
         slider(enabled: boolean, label: string, name: string, value: int, max: int, alignment: number,
             checkboxAlignment: number) {
             const result = this.checkbox(`##${label}`, enabled);
-            Donut_ImGuiSameLineAt(checkboxAlignment);
+            ImGui.sameLineAt(checkboxAlignment);
             if (result) {
-                Donut_ImGuiPushTextColor(1.0, 1.0, 1.0, 1.0);
+                ImGui.pushTextColor(1.0, 1.0, 1.0, 1.0);
             } else {
-                Donut_ImGuiPushTextColor(0.3, 0.3, 0.3, 1.0);
+                ImGui.pushTextColor(0.3, 0.3, 0.3, 1.0);
             }
-            this.sliderValue = Donut_ImGuiSliderInt(label, value, 0, max);
-            Donut_ImGuiPopStyleColor();
-            Donut_ImGuiSameLineAt(alignment);
-            Donut_ImGuiText(name);
+            this.sliderValue = ImGui.sliderInt(label, value, 0, max);
+            ImGui.popStyleColor();
+            ImGui.sameLineAt(alignment);
+            ImGui.text(name);
             return result;
         }
 
@@ -1023,35 +1023,35 @@ namespace ShaderObjectSample {
             const s = this.sample;
             const width = this.app.getWindowWidth();
             const height = this.app.getWindowHeight();
-            const fontSize = Donut_ImGuiGetFontSize();
+            const fontSize = ImGui.getFontSize();
             // The sample's DPI factor (ImGui's font is 13 pixels unscaled).
             const dpiFactor = fontSize / 13.0;
 
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Shader Object", true);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Shader Object", true);
             // The framework's drawer narrows the items to 110 pixels (scaled).
-            Donut_ImGuiPushItemWidth(110.0 * dpiFactor);
-            if (Donut_ImGuiCollapsingHeader("Options")) {
+            ImGui.pushItemWidth(110.0 * dpiFactor);
+            if (ImGui.collapsingHeader("Options")) {
                 const span = Math.min(Math.max(width, 1300), 2000);
                 const checkboxOptionSpacing = Math.floor(span * 0.12 * dpiFactor);
                 const sliderSpacing = Math.floor(span * 0.24 * dpiFactor);
                 const checkboxSpacing = Math.floor(span * 0.025 * dpiFactor);
 
                 s.wireframeMode = this.checkbox("Wireframe Mode", s.wireframeMode);
-                Donut_ImGuiSameLineAt(checkboxOptionSpacing);
+                ImGui.sameLineAt(checkboxOptionSpacing);
                 s.iteratePermutations = this.checkbox("Iterate Mode", s.iteratePermutations);
-                Donut_ImGuiSameLineAt(checkboxOptionSpacing * 2);
+                ImGui.sameLineAt(checkboxOptionSpacing * 2);
                 s.postProcessing = this.checkbox("Post Processing Enabled", s.postProcessing);
                 s.enableGeometryPass = this.checkbox("Material Shader Geometry Pass Enabled", s.enableGeometryPass);
-                Donut_ImGuiText("Checkbox Enables Random Shader Iterate");
+                ImGui.text("Checkbox Enables Random Shader Iterate");
 
-                s.selectedBasicObject = Donut_ImGuiSliderInt("Selected Basic Object:", s.selectedBasicObject, 0, NUM_BASIC_OBJECTS - 1);
+                s.selectedBasicObject = ImGui.sliderInt("Selected Basic Object:", s.selectedBasicObject, 0, NUM_BASIC_OBJECTS - 1);
                 const basic = s.selectedBasicObject;
                 s.iterateBasic = this.slider(s.iterateBasic, "Basic Linked Shader Set:", BASIC_NAMES[s.currentBasicLinkedShaders[basic]],
                     s.currentBasicLinkedShaders[basic], BASIC_VS.length - 1, sliderSpacing, checkboxSpacing);
                 s.currentBasicLinkedShaders[basic] = this.sliderValue;
 
-                s.selectedMaterialObject = Donut_ImGuiSliderInt("Selected Material Object:", s.selectedMaterialObject, 0, NUM_MATERIAL_OBJECTS - 1);
+                s.selectedMaterialObject = ImGui.sliderInt("Selected Material Object:", s.selectedMaterialObject, 0, NUM_MATERIAL_OBJECTS - 1);
                 const material = s.selectedMaterialObject;
                 s.iterateMaterialVert = this.slider(s.iterateMaterialVert, "Material Vert Shader:", MATERIAL_VS_NAMES[s.currentMaterialVert[material]],
                     s.currentMaterialVert[material], MATERIAL_VS.length - 1, sliderSpacing, checkboxSpacing);
@@ -1072,28 +1072,28 @@ namespace ShaderObjectSample {
                     s.currentDepthFormat, s.depthFormats.length - 1, sliderSpacing, checkboxSpacing);
                 s.currentDepthFormat = this.sliderValue;
 
-                if (Donut_ImGuiButton("Randomize All")) {
+                if (ImGui.button("Randomize All")) {
                     s.randomizeCurrent();
                 }
             }
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiEnd();
+            ImGui.popItemWidth();
+            ImGui.end();
 
             // The CPU frame time graph (16.667 ms at the top) along the bottom of the screen.
             const graphHeight = Math.min(height, 400) * 0.25 * dpiFactor;
             const windowHeight = graphHeight + fontSize * 2.0;
-            Donut_ImGuiBeginOverlay("Histograms of CPU Frame time in (ms) of last 2000 frames", 0.0, height - windowHeight,
+            ImGui.beginOverlay("Histograms of CPU Frame time in (ms) of last 2000 frames", 0.0, height - windowHeight,
                 width, windowHeight);
             let maxValue = 0.0;
             for (let i = 0; i < TIMESTAMP_COUNT; i++) {
                 maxValue = Math.max(maxValue, s.timestampValues[i]);
             }
-            Donut_ImGuiText("16.667 ms");
-            Donut_ImGuiSameLineAt(-fontSize);
-            Donut_ImGuiPlotLines("##Frame Times", Ref(s.timestampValues[0]), TIMESTAMP_COUNT, s.currentTimestamp + 1, 0.0, 16.667,
+            ImGui.text("16.667 ms");
+            ImGui.sameLineAt(-fontSize);
+            ImGui.plotLines("##Frame Times", Ref(s.timestampValues[0]), TIMESTAMP_COUNT, s.currentTimestamp + 1, 0.0, 16.667,
                 1.08 * width, graphHeight, 0);
-            Donut_ImGuiText(`CPU Frame Time: ${formatFixed(s.timestampValues[s.currentTimestamp], 6)} ms (max ${formatFixed(maxValue, 6)} ms)`);
-            Donut_ImGuiEnd();
+            ImGui.text(`CPU Frame Time: ${formatFixed(s.timestampValues[s.currentTimestamp], 6)} ms (max ${formatFixed(maxValue, 6)} ms)`);
+            ImGui.end();
             s.currentTimestamp = (s.currentTimestamp + 1) % TIMESTAMP_COUNT;
         }
     }

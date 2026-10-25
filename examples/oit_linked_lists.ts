@@ -476,17 +476,17 @@ namespace OitLinkedLists {
 
         buildUI() {
             const oit = this.oit;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                oit.sortFragments = Donut_ImGuiCheckbox("Sort fragments", oit.sortFragments);
-                oit.cameraAutoRotation = Donut_ImGuiCheckbox("Camera auto-rotation", oit.cameraAutoRotation);
-                oit.sortedFragmentCount = Donut_ImGuiSliderInt("Sorted fragments per pixel", oit.sortedFragmentCount,
+            ImGui.begin("Vulkan Example", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                oit.sortFragments = ImGui.checkbox("Sort fragments", oit.sortFragments);
+                oit.cameraAutoRotation = ImGui.checkbox("Camera auto-rotation", oit.cameraAutoRotation);
+                oit.sortedFragmentCount = ImGui.sliderInt("Sorted fragments per pixel", oit.sortedFragmentCount,
                     SORTED_FRAGMENT_MIN_COUNT, SORTED_FRAGMENT_MAX_COUNT);
-                oit.backgroundGrayscale = Donut_ImGuiSliderFloat("Background grayscale", oit.backgroundGrayscale, 0.0, 1.0);
+                oit.backgroundGrayscale = ImGui.sliderFloat("Background grayscale", oit.backgroundGrayscale, 0.0, 1.0);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

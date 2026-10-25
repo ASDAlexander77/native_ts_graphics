@@ -130,4 +130,6 @@ declare global {
     var StagingTexture: typeof Donut.StagingTexture;
     type RandomEngine = Donut.RandomEngine;
     var RandomEngine: typeof Donut.RandomEngine;
+    type ImGui = Donut.ImGui;
+    var ImGui: typeof Donut.ImGui;
 }

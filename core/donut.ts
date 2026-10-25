@@ -4704,3 +4704,221 @@ export class RandomEngine {
         Donut_RandomNormalFloats(this.handle, mean, stddev, count, dst);
     }
 }
+
+export class ImGui {
+    static setNextWindowPos(x: number, y: number): void {
+        Donut_ImGuiSetNextWindowPos(x, y);
+    }
+
+    // autoResize != 0: the window fits its contents. Pair with ImGui.end.
+    static begin(title: string, autoResize: boolean): void {
+        Donut_ImGuiBegin(title, autoResize);
+    }
+
+    static end(): void {
+        Donut_ImGuiEnd();
+    }
+
+    static text(text: string): void {
+        Donut_ImGuiText(text);
+    }
+
+    static separator(): void {
+        Donut_ImGuiSeparator();
+    }
+
+    static indent(): void {
+        Donut_ImGuiIndent();
+    }
+
+    static unindent(): void {
+        Donut_ImGuiUnindent();
+    }
+
+    static pushItemWidth(width: number): void {
+        Donut_ImGuiPushItemWidth(width);
+    }
+
+    static popItemWidth(): void {
+        Donut_ImGuiPopItemWidth();
+    }
+
+    // Value in, new value out.
+    static checkbox(label: string, value: boolean): boolean {
+        return Donut_ImGuiCheckbox(label, value);
+    }
+
+    // True if clicked.
+    static button(label: string): boolean {
+        return Donut_ImGuiButton(label);
+    }
+
+    // items separated by '|'; returns the new selection.
+    static combo(label: string, current: int, items: string): int {
+        return Donut_ImGuiCombo(label, current, items);
+    }
+
+    // True while the list is open: then add ImGui.selectable items and ImGui.endCombo.
+    static beginCombo(label: string, preview: string): boolean {
+        return Donut_ImGuiBeginCombo(label, preview);
+    }
+
+    // True if clicked.
+    static selectable(label: string, selected: boolean): boolean {
+        return Donut_ImGuiSelectable(label, selected);
+    }
+
+    // Shown selected when active; true if clicked.
+    static radioButton(label: string, active: boolean): boolean {
+        return Donut_ImGuiRadioButton(label, active);
+    }
+
+    // 4 floats (RGBA) at values (Ref of a `let` f32 array element), width pixels wide (0: default);
+    // true if changed.
+    static colorEdit4(label: string, values: Ref<f32>, width: number): boolean {
+        return Donut_ImGuiColorEdit4(label, values, width);
+    }
+
+    // A color picker of 3 floats (Ref of a `let` f32 array; RGB, unbounded) without previews; non-zero
+    // when changed.
+    static colorPicker3(label: string, values: Ref<f32>, width: number): boolean {
+        return Donut_ImGuiColorPicker3(label, values, width);
+    }
+
+    // Scopes the IDs of the widgets that follow (same labels apart) until ImGui.popID.
+    static pushID(id: int): void {
+        Donut_ImGuiPushID(id);
+    }
+
+    static popID(): void {
+        Donut_ImGuiPopID();
+    }
+
+    static endCombo(): void {
+        Donut_ImGuiEndCombo();
+    }
+
+    // 3 floats at values (Ref of a `let` f32 array element); true if changed.
+    static dragFloat3(label: string, values: Ref<f32>, speed: number): boolean {
+        return Donut_ImGuiDragFloat3(label, values, speed);
+    }
+
+    // Places the next window with its pivot (0..1 of its size; 1, 0 = top right corner) at x, y.
+    static setNextWindowPosPivot(x: number, y: number, pivotX: number, pivotY: number): void {
+        Donut_ImGuiSetNextWindowPosPivot(x, y, pivotX, pivotY);
+    }
+
+    // Value in, new value out.
+    static sliderFloat(label: string, value: number, min: number, max: number): number {
+        return Donut_ImGuiSliderFloat(label, value, min, max);
+    }
+
+    // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space, Escape); after
+    // Donut_AddImGuiPass. ImGui then takes the keyboard while one of its windows has the focus.
+    static setKeyboardNavigation(enable: boolean): void {
+        Donut_ImGuiSetKeyboardNavigation(enable);
+    }
+
+    // Value in, new value out.
+    static sliderInt(label: string, value: int, min: int, max: int): int {
+        return Donut_ImGuiSliderInt(label, value, min, max);
+    }
+
+    // The next item on this line, offsetFromStartX pixels from the window's left (0: right after the
+    // previous item).
+    static sameLineAt(offsetFromStartX: number): void {
+        Donut_ImGuiSameLineAt(offsetFromStartX);
+    }
+
+    // The text color of the items that follow, until ImGui.popStyleColor.
+    static pushTextColor(r: number, g: number, b: number, a: number): void {
+        Donut_ImGuiPushTextColor(r, g, b, a);
+    }
+
+    static popStyleColor(): void {
+        Donut_ImGuiPopStyleColor();
+    }
+
+    // A window drawn over the scene at (x, y), width x height: no title bar, background or
+    // scrollbars, not movable, ignoring the mouse (an overlay graph). Pair with ImGui.end.
+    static beginOverlay(title: string, x: number, y: number, width: number, height: number): void {
+        Donut_ImGuiBeginOverlay(title, x, y, width, height);
+    }
+
+    // count values (Ref of a `let` f32 array element) as a line graph, starting at valuesOffset
+    // (wrapping around), scaleMin at the bottom and scaleMax at the top, width x height pixels;
+    // frameBackground 0: without the frame's background.
+    static plotLines(label: string, values: Ref<f32>, count: int, valuesOffset: int, scaleMin: number, scaleMax: number, width: number, height: number, frameBackground: int): void {
+        Donut_ImGuiPlotLines(label, values, count, valuesOffset, scaleMin, scaleMax, width, height, frameBackground);
+    }
+
+    // Value in, new value out: edited by dragging (speed per pixel), clamped to min .. max.
+    static dragFloat(label: string, value: number, speed: number, min: number, max: number): number {
+        return Donut_ImGuiDragFloat(label, value, speed, min, max);
+    }
+
+    // A number field with - and + buttons stepping it by step, shown with a printf format ("%.3f");
+    // returns the new value.
+    static inputFloat(label: string, value: number, step: number, format: string): number {
+        return Donut_ImGuiInputFloat(label, value, step, format);
+    }
+
+    // True while expanded.
+    static collapsingHeader(label: string): boolean {
+        return Donut_ImGuiCollapsingHeader(label);
+    }
+
+    // Same, expanded until the user collapses it.
+    static collapsingHeaderDefaultOpen(label: string): boolean {
+        return Donut_ImGuiCollapsingHeaderDefaultOpen(label);
+    }
+
+    static sameLine(): void {
+        Donut_ImGuiSameLine();
+    }
+
+    // Ends the line: the next item starts on a new one (after ImGui.sameLine, an empty line).
+    static newLine(): void {
+        Donut_ImGuiNewLine();
+    }
+
+    // A scrolling region of width x height pixels (0: the rest of the window); end it with
+    // ImGui.endChild whatever this returns.
+    static beginChild(id: string, width: number, height: number, border: boolean): boolean {
+        return Donut_ImGuiBeginChild(id, width, height, border);
+    }
+
+    static endChild(): void {
+        Donut_ImGuiEndChild();
+    }
+
+    // Inside a combo box, after the selected item: scrolls to it when the list opens.
+    static setItemDefaultFocus(): void {
+        Donut_ImGuiSetItemDefaultFocus();
+    }
+
+    static getFontSize(): number {
+        return Donut_ImGuiGetFontSize();
+    }
+
+    static popFont(): void {
+        Donut_ImGuiPopFont();
+    }
+
+    // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in
+    // the current font and color, behind the windows (no window needed).
+    static drawText(x: number, y: number, text: string, r: number, g: number, b: number, a: number, alignRight: int): void {
+        Donut_ImGuiDrawText(x, y, text, r, g, b, a, alignRight);
+    }
+
+    // A filled rectangle from (x0, y0) to (x1, y1) in UI coordinates, behind the windows, over what
+    // was drawn behind them before (e.g. a box for ImGui.drawText's text to go on).
+    static drawRect(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number, a: number): void {
+        Donut_ImGuiDrawRect(x0, y0, x1, y1, r, g, b, a);
+    }
+
+    // The width of a line of text in the current font, in UI coordinates.
+    static calcTextWidth(text: string): number {
+        return Donut_ImGuiCalcTextWidth(text);
+    }
+}

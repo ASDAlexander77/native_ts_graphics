@@ -300,17 +300,17 @@ namespace DynamicPrimitiveClipping {
 
         buildUI() {
             const p = this.pass;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                p.objectIndex = Donut_ImGuiCombo("Object type", p.objectIndex, comboItems(MODEL_NAMES));
-                p.usePrimitiveClipping = Donut_ImGuiCheckbox("Use primitive clipping", p.usePrimitiveClipping);
-                p.visualization = Donut_ImGuiCombo("Visualization", p.visualization, comboItems(VISUALIZATION_NAMES));
-                p.drawObject[0] = Donut_ImGuiCheckbox("Draw object 1", p.drawObject[0]);
-                p.drawObject[1] = Donut_ImGuiCheckbox("Draw object 2", p.drawObject[1]);
-                p.useDepthClipping = Donut_ImGuiCheckbox("Use depth clipping", p.useDepthClipping);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                p.objectIndex = ImGui.combo("Object type", p.objectIndex, comboItems(MODEL_NAMES));
+                p.usePrimitiveClipping = ImGui.checkbox("Use primitive clipping", p.usePrimitiveClipping);
+                p.visualization = ImGui.combo("Visualization", p.visualization, comboItems(VISUALIZATION_NAMES));
+                p.drawObject[0] = ImGui.checkbox("Draw object 1", p.drawObject[0]);
+                p.drawObject[1] = ImGui.checkbox("Draw object 2", p.drawObject[1]);
+                p.useDepthClipping = ImGui.checkbox("Use depth clipping", p.useDepthClipping);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

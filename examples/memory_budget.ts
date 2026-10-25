@@ -513,20 +513,20 @@ namespace MemoryBudget {
 
         buildUI() {
             const h = this.heaps;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Memory Budget", true);
-            Donut_ImGuiText(`Total Memory Usage: ${formatMemory(h.totalUsage)}`);
-            Donut_ImGuiText(`Total Memory Budget: ${formatMemory(h.totalBudget)}`);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Memory Heap Details")) {
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Memory Budget", true);
+            ImGui.text(`Total Memory Usage: ${formatMemory(h.totalUsage)}`);
+            ImGui.text(`Total Memory Budget: ${formatMemory(h.totalBudget)}`);
+            if (ImGui.collapsingHeaderDefaultOpen("Memory Heap Details")) {
                 for (let i = 0; i < h.usage.length; i++) {
-                    if (Donut_ImGuiCollapsingHeaderDefaultOpen(`Memory Heap Index: ${i}`)) {
-                        Donut_ImGuiText(`Usage: ${formatMemory(h.usage[i])}`);
-                        Donut_ImGuiText(`Budget: ${formatMemory(h.budget[i])}`);
-                        Donut_ImGuiText(`Heap Flag: ${heapFlagName(h.flags[i])}`);
+                    if (ImGui.collapsingHeaderDefaultOpen(`Memory Heap Index: ${i}`)) {
+                        ImGui.text(`Usage: ${formatMemory(h.usage[i])}`);
+                        ImGui.text(`Budget: ${formatMemory(h.budget[i])}`);
+                        ImGui.text(`Heap Flag: ${heapFlagName(h.flags[i])}`);
                     }
                 }
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

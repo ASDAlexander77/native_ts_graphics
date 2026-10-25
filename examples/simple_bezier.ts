@@ -502,7 +502,7 @@ namespace SimpleBezier {
         }
 
         line(x: number, y: number, text: string) {
-            Donut_ImGuiDrawText(x, y, text, LIGHT_GREY, LIGHT_GREY, LIGHT_GREY, 1.0, 0);
+            ImGui.drawText(x, y, text, LIGHT_GREY, LIGHT_GREY, LIGHT_GREY, 1.0, 0);
         }
 
         buildUI() {
@@ -517,7 +517,7 @@ namespace SimpleBezier {
             if (sample.showHelp) {
                 this.titleFont.push();
                 this.line(left, top, "Simple Bezier Sample");
-                Donut_ImGuiPopFont();
+                ImGui.popFont();
                 this.font.push();
                 const y = top + TITLE_FONT_SIZE + LINE_SPACING;
                 this.line(left, y, "Demonstrates how to create hull and domain shaders to draw a");
@@ -536,7 +536,7 @@ namespace SimpleBezier {
                 for (let i = 0; i < controls.length; i++) {
                     this.line(left, y + (i + 3) * LINE_SPACING, controls[i]);
                 }
-                Donut_ImGuiPopFont();
+                ImGui.popFont();
                 return;
             }
 
@@ -544,7 +544,7 @@ namespace SimpleBezier {
             this.line(left, top, `Subdivisions: ${formatFixed(sample.subdivs, 2)}   Partition Mode: ${PARTITION_NAMES[sample.partitionMode]}`);
             this.line(left, bottom - 2 * LINE_SPACING, "Left/Right - Rotate   Up/Down - Increase/decrease subdivisions");
             this.line(left, bottom - LINE_SPACING, "1/2/3 - Change partition mode   W - Toggle wireframe   Esc - Exit   F1 - Help");
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

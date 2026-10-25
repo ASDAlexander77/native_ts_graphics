@@ -632,30 +632,30 @@ namespace CalibratedTimestampsSample {
             const hdr = this.hdr;
             const timestamps = hdr.timestamps;
             const timestampPeriod = Math.fround(this.timestampPeriod);
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Calibrated Timestamps", true);
-            Donut_ImGuiPushItemWidth(110.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Calibrated Timestamps", true);
+            ImGui.pushItemWidth(110.0);
             // The sample's two-line texts, a line at a time.
-            Donut_ImGuiText("Timestamps Period:");
-            Donut_ImGuiText(` ${timestampPeriod.toFixed(1)} Nanoseconds`);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                hdr.objectIndex = Donut_ImGuiCombo("Object type", hdr.objectIndex, OBJECT_NAMES);
-                hdr.bloom = Donut_ImGuiCheckbox("Bloom", hdr.bloom);
-                hdr.displaySkybox = Donut_ImGuiCheckbox("Skybox", hdr.displaySkybox);
+            ImGui.text("Timestamps Period:");
+            ImGui.text(` ${timestampPeriod.toFixed(1)} Nanoseconds`);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                hdr.objectIndex = ImGui.combo("Object type", hdr.objectIndex, OBJECT_NAMES);
+                hdr.bloom = ImGui.checkbox("Bloom", hdr.bloom);
+                hdr.displaySkybox = ImGui.checkbox("Skybox", hdr.displaySkybox);
             }
             if (timestamps.anyMeasured()) {
-                Donut_ImGuiText("Time Domain Selected:");
-                Donut_ImGuiText(` ${timeDomainToString(timestamps.selectedTimeDomain)}`);
+                ImGui.text("Time Domain Selected:");
+                ImGui.text(` ${timeDomainToString(timestamps.selectedTimeDomain)}`);
                 for (let i = 0; i < TAGS.length; i++) {
                     if (timestamps.measured[i]) {
                         const microseconds = Math.fround(Math.fround(Math.fround(timestamps.deltas[i]) * timestampPeriod) * Math.fround(0.001));
-                        Donut_ImGuiText(`${TAGS[i]}:`);
-                        Donut_ImGuiText(` ${microseconds.toFixed(1)} Microseconds`);
+                        ImGui.text(`${TAGS[i]}:`);
+                        ImGui.text(` ${microseconds.toFixed(1)} Microseconds`);
                     }
                 }
             }
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiEnd();
+            ImGui.popItemWidth();
+            ImGui.end();
         }
     }
 

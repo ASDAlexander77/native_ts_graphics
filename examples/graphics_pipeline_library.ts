@@ -329,14 +329,14 @@ namespace GraphicsPipelineLibrary {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Graphics Pipeline Library", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                if (Donut_ImGuiButton("Add pipeline")) {
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Graphics Pipeline Library", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                if (ImGui.button("Add pipeline")) {
                     sample.pendingPipelines++;
                 }
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

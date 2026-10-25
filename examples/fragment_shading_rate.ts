@@ -479,15 +479,15 @@ namespace FragmentShadingRate {
 
         buildUI() {
             const p = this.pass;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                p.enableAttachmentShadingRate = Donut_ImGuiCheckbox("Enable attachment shading rate",
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                p.enableAttachmentShadingRate = ImGui.checkbox("Enable attachment shading rate",
                     p.enableAttachmentShadingRate);
-                p.colorShadingRate = Donut_ImGuiCheckbox("Color shading rates", p.colorShadingRate);
-                p.displaySkySphere = Donut_ImGuiCheckbox("skysphere", p.displaySkySphere);
+                p.colorShadingRate = ImGui.checkbox("Color shading rates", p.colorShadingRate);
+                p.displaySkySphere = ImGui.checkbox("skysphere", p.displaySkySphere);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

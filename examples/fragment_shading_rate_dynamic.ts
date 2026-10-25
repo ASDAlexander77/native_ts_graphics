@@ -522,21 +522,21 @@ namespace FragmentShadingRateDynamic {
 
         buildUI() {
             const p = this.pass;
-            Donut_ImGuiSetNextWindowPos(10.0, p.getSubpassHeight() + 10.0);
-            Donut_ImGuiBegin("Options", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                p.enableAttachmentShadingRate = Donut_ImGuiCheckbox("Enable attachment shading rate",
+            ImGui.setNextWindowPos(10.0, p.getSubpassHeight() + 10.0);
+            ImGui.begin("Options", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                p.enableAttachmentShadingRate = ImGui.checkbox("Enable attachment shading rate",
                     p.enableAttachmentShadingRate);
                 let selection = 0;
                 while ((1 << (selection + 1)) <= p.subpassExtentRatio && selection < 4) {
                     selection++;
                 }
-                selection = Donut_ImGuiCombo("Subpass size reduction", selection, SUBPASS_RATIOS);
+                selection = ImGui.combo("Subpass size reduction", selection, SUBPASS_RATIOS);
                 p.subpassExtentRatio = 1 << selection;
-                p.colorShadingRate = Donut_ImGuiCombo("Data visualize", p.colorShadingRate, VISUALIZE_NAMES);
-                p.displaySkySphere = Donut_ImGuiCheckbox("sky-sphere", p.displaySkySphere);
+                p.colorShadingRate = ImGui.combo("Data visualize", p.colorShadingRate, VISUALIZE_NAMES);
+                p.displaySkySphere = ImGui.checkbox("sky-sphere", p.displaySkySphere);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

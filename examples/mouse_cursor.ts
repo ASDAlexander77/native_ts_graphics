@@ -1061,11 +1061,11 @@ namespace MouseCursor {
         // SpriteFont::DrawString with its origin at MeasureString / 2: the lines' block centered
         // on (x, y), each line placed in its sprite font line.
         centered(x: number, y: number, lines: string[], fontSize: number, lineSpacing: number) {
-            const width = lines.reduce((w, line) => Math.max(w, Donut_ImGuiCalcTextWidth(line)), 0.0);
+            const width = lines.reduce((w, line) => Math.max(w, ImGui.calcTextWidth(line)), 0.0);
             const left = x - width / 2.0;
             const top = y - lines.length * lineSpacing / 2.0 + (lineSpacing - fontSize) / 2.0;
             for (let i = 0; i < lines.length; i++) {
-                Donut_ImGuiDrawText(left, top + i * lineSpacing, lines[i], 1.0, 1.0, 1.0, 1.0, 0);
+                ImGui.drawText(left, top + i * lineSpacing, lines[i], 1.0, 1.0, 1.0, 1.0, 0);
             }
         }
 
@@ -1073,15 +1073,15 @@ namespace MouseCursor {
             const cx = Math.floor(x) + 4.0;
             const cy = Math.floor(y) - 1.0;
             const side = 0.333;
-            Donut_ImGuiDrawRect(cx, cy - 11.0, cx + 1.0, cy + 12.0, 1.0, 1.0, 1.0, 1.0);
-            Donut_ImGuiDrawRect(cx - 1.0, cy - 11.0, cx, cy + 12.0, 1.0, 1.0, 1.0, side);
-            Donut_ImGuiDrawRect(cx + 1.0, cy - 11.0, cx + 2.0, cy + 12.0, 1.0, 1.0, 1.0, side);
-            Donut_ImGuiDrawRect(cx - 10.0, cy, cx, cy + 1.0, 1.0, 1.0, 1.0, 1.0);
-            Donut_ImGuiDrawRect(cx + 1.0, cy, cx + 11.0, cy + 1.0, 1.0, 1.0, 1.0, 1.0);
-            Donut_ImGuiDrawRect(cx - 10.0, cy - 1.0, cx - 1.0, cy, 1.0, 1.0, 1.0, side);
-            Donut_ImGuiDrawRect(cx + 2.0, cy - 1.0, cx + 11.0, cy, 1.0, 1.0, 1.0, side);
-            Donut_ImGuiDrawRect(cx - 10.0, cy + 1.0, cx - 1.0, cy + 2.0, 1.0, 1.0, 1.0, side);
-            Donut_ImGuiDrawRect(cx + 2.0, cy + 1.0, cx + 11.0, cy + 2.0, 1.0, 1.0, 1.0, side);
+            ImGui.drawRect(cx, cy - 11.0, cx + 1.0, cy + 12.0, 1.0, 1.0, 1.0, 1.0);
+            ImGui.drawRect(cx - 1.0, cy - 11.0, cx, cy + 12.0, 1.0, 1.0, 1.0, side);
+            ImGui.drawRect(cx + 1.0, cy - 11.0, cx + 2.0, cy + 12.0, 1.0, 1.0, 1.0, side);
+            ImGui.drawRect(cx - 10.0, cy, cx, cy + 1.0, 1.0, 1.0, 1.0, 1.0);
+            ImGui.drawRect(cx + 1.0, cy, cx + 11.0, cy + 1.0, 1.0, 1.0, 1.0, 1.0);
+            ImGui.drawRect(cx - 10.0, cy - 1.0, cx - 1.0, cy, 1.0, 1.0, 1.0, side);
+            ImGui.drawRect(cx + 2.0, cy - 1.0, cx + 11.0, cy, 1.0, 1.0, 1.0, side);
+            ImGui.drawRect(cx - 10.0, cy + 1.0, cx - 1.0, cy + 2.0, 1.0, 1.0, 1.0, side);
+            ImGui.drawRect(cx + 2.0, cy + 1.0, cx + 11.0, cy + 2.0, 1.0, 1.0, 1.0, side);
         }
 
         buildUI() {
@@ -1089,14 +1089,14 @@ namespace MouseCursor {
             if (sample.isAbsolute) {
                 this.titleFont.push();
                 this.centered(sample.fontPosTitle[0], sample.fontPosTitle[1], ["Mouse Cursor Sample: 0"], TITLE_FONT_SIZE, TITLE_LINE_SPACING);
-                Donut_ImGuiPopFont();
+                ImGui.popFont();
                 this.subtitleFont.push();
                 this.centered(sample.fontPosSubtitle[0], sample.fontPosSubtitle[1], ["Choose a game mode"], SUBTITLE_FONT_SIZE, SUBTITLE_LINE_SPACING);
-                Donut_ImGuiPopFont();
+                ImGui.popFont();
                 this.tileFont.push();
                 this.centered(sample.fontPosFPS[0], sample.fontPosFPS[1], ["First-person ", "   Shooter"], TILE_FONT_SIZE, TILE_LINE_SPACING);
                 this.centered(sample.fontPosRTS[0], sample.fontPosRTS[1], ["Real-time ", " Strategy"], TILE_FONT_SIZE, TILE_LINE_SPACING);
-                Donut_ImGuiPopFont();
+                ImGui.popFont();
             } else {
                 this.cursor(sample.screenX, sample.screenY);
             }

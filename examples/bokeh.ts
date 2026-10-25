@@ -1092,7 +1092,7 @@ namespace Bokeh {
         }
 
         line(x: number, y: number, text: string) {
-            Donut_ImGuiDrawText(x, y, text, GREEN_R, GREEN_G, GREEN_B, 1.0, 0);
+            ImGui.drawText(x, y, text, GREEN_R, GREEN_G, GREEN_B, 1.0, 0);
         }
 
         buildUI() {
@@ -1123,7 +1123,7 @@ namespace Bokeh {
             this.line(left, y + LINE_SPACING * 5.0, `[7][8] CoC Far: ${formatFixed(sample.maxCoCSizeFar, 1)}`);
             this.line(left, y + LINE_SPACING * 6.0, "[A][D] [W][S] [Q][E] Camera");
             this.line(left, y + LINE_SPACING * 7.0, "[Esc] Exit");
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

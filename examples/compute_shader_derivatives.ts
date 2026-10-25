@@ -192,23 +192,23 @@ namespace ComputeShaderDerivatives {
         }
 
         buildUI() {
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Compute Shader Derivatives")) {
-                Donut_ImGuiText("Visualization:");
-                Donut_ImGuiText("- Blue: Base procedural radial pattern");
-                Donut_ImGuiText("- Red/Yellow: Edges (high gradient magnitude)");
-                Donut_ImGuiText("- Gradient magnitude = sqrt(dx^2 + dy^2)");
-                Donut_ImGuiText("");
+            ImGui.begin("Vulkan Example", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Compute Shader Derivatives")) {
+                ImGui.text("Visualization:");
+                ImGui.text("- Blue: Base procedural radial pattern");
+                ImGui.text("- Red/Yellow: Edges (high gradient magnitude)");
+                ImGui.text("- Gradient magnitude = sqrt(dx^2 + dy^2)");
+                ImGui.text("");
 
-                Donut_ImGuiText("This demonstrates edge detection using compute shader");
-                Donut_ImGuiText("derivatives, useful for LOD selection, filtering, and");
-                Donut_ImGuiText("spatial analysis in compute pipelines.");
-                Donut_ImGuiText("");
-                Donut_ImGuiText(this.sample.useLinear ? "Derivative groups: linear (4 threads in a row)" : "Derivative groups: quads (2 x 2 threads)");
+                ImGui.text("This demonstrates edge detection using compute shader");
+                ImGui.text("derivatives, useful for LOD selection, filtering, and");
+                ImGui.text("spatial analysis in compute pipelines.");
+                ImGui.text("");
+                ImGui.text(this.sample.useLinear ? "Derivative groups: linear (4 threads in a row)" : "Derivative groups: quads (2 x 2 threads)");
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

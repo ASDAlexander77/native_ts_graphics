@@ -516,17 +516,17 @@ namespace Hdr {
 
         buildUI() {
             const hdr = this.hdr;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("High dynamic range rendering", true);
-            Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                hdr.objectIndex = Donut_ImGuiCombo("Object type", hdr.objectIndex, OBJECT_NAMES);
-                hdr.exposure = Donut_ImGuiInputFloat("Exposure", hdr.exposure, 0.025, "%.3f");
-                hdr.bloom = Donut_ImGuiCheckbox("Bloom", hdr.bloom);
-                hdr.displaySkybox = Donut_ImGuiCheckbox("Skybox", hdr.displaySkybox);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("High dynamic range rendering", true);
+            ImGui.pushItemWidth(110.0);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                hdr.objectIndex = ImGui.combo("Object type", hdr.objectIndex, OBJECT_NAMES);
+                hdr.exposure = ImGui.inputFloat("Exposure", hdr.exposure, 0.025, "%.3f");
+                hdr.bloom = ImGui.checkbox("Bloom", hdr.bloom);
+                hdr.displaySkybox = ImGui.checkbox("Skybox", hdr.displaySkybox);
             }
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiEnd();
+            ImGui.popItemWidth();
+            ImGui.end();
         }
     }
 
