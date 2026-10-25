@@ -159,7 +159,7 @@ export class TestCheck {
         }
         const read = this.app.readBuffer(readback, Ref(values[0]), byteSize);
         this.app.releaseResource(readback);
-        if (read == 0) {
+        if (!read) {
             return [];
         }
         return values;
