@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { dot3, matrixInverse, matrixMultiply, matrixPerspectiveFovRH } from "../core/directx_math";
 import { SimpleCamera } from "../core/simple_camera";
+import { MsvcRandom } from "../core/random";
 
 namespace NBodyGravity {
     const WINDOW_TITLE = "D3D12 n-Body Gravity Simulation";
@@ -32,37 +33,24 @@ namespace NBodyGravity {
     // Test mode: the frames rendered (200 steps at the default steps per frame).
     const TEST_FRAMES = 20;
 
-    // The C runtime's rand() as MSVC's has it, seeded with srand(0) as the sample does for each
-    // group, and the sample's RandomPercent over it, in float: -1 to 1.
-    class Rand {
-        private state: number;
-
-        constructor() {
-            this.state = 0;
-        }
-
-        next() {
-            this.state = (this.state * 214013 + 2531011) % 4294967296;
-            return Math.floor(this.state / 65536) & 0x7FFF;
-        }
-
-        percent() {
-            const value = Math.fround((this.next() % 10000) - 5000);
-            return Math.fround(value / 5000.0);
-        }
+    // The sample's RandomPercent over MSVC's rand() seeded with srand(0), as it does for each group, in
+    // float: -1 to 1.
+    function randomPercent(rand: MsvcRandom) {
+        const value = Math.fround((rand.next() % 10000) - 5000);
+        return Math.fround(value / 5000.0);
     }
 
     // The sample's LoadParticles: count particles at random within a sphere of radius spread around
     // (centerX, 0, 0), their mass (10000 * 10000) in position.w, all moving along z at velocityZ.
     function loadParticles(data: f32[], first: int, count: int, centerX: number, velocityZ: number, spread: number) {
-        const rand = new Rand();
+        const rand = new MsvcRandom(0);
         const spreadSquared = Math.fround(spread * spread);
         for (let i = 0; i < count; i++) {
             let delta = [spread, spread, spread, 0.0];
             while (dot3(delta, delta) > spreadSquared) {
-                const x = Math.fround(rand.percent() * spread);
-                const y = Math.fround(rand.percent() * spread);
-                const z = Math.fround(rand.percent() * spread);
+                const x = Math.fround(randomPercent(rand) * spread);
+                const y = Math.fround(randomPercent(rand) * spread);
+                const z = Math.fround(randomPercent(rand) * spread);
                 delta = [x, y, z, 0.0];
             }
             const base = (first + i) * 8;

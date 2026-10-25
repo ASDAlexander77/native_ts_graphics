@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { matrixPerspectiveFovLH, matrixTranspose } from "../core/directx_math";
+import { MsvcRandom } from "../core/random";
 
 namespace ExecuteIndirect {
     const WINDOW_TITLE = "D3D12 Execute Indirect sample - Press the SPACE bar to toggle GPU primitive culling";
@@ -37,25 +38,11 @@ namespace ExecuteIndirect {
     // Test mode: the frames rendered, culling on: the triangles start left of the screen and drift in.
     const TEST_FRAMES = 300;
 
-    // The C runtime's rand() as MSVC's has it (the sample never seeds it: seed 1) and the sample's
-    // GetRandomFloat over it, in float.
-    class Rand {
-        private state: number;
-
-        constructor() {
-            this.state = 1;
-        }
-
-        next() {
-            this.state = (this.state * 214013 + 2531011) % 4294967296;
-            return Math.floor(this.state / 65536) & 0x7FFF;
-        }
-
-        float(min: number, max: number) {
-            const scale = Math.fround(Math.fround(this.next()) / 32767.0);
-            const range = Math.fround(Math.fround(max) - Math.fround(min));
-            return Math.fround(Math.fround(scale * range) + Math.fround(min));
-        }
+    // The sample's GetRandomFloat over MSVC's rand() (seed 1, the default), in float.
+    function randomFloat(rand: MsvcRandom, min: number, max: number) {
+        const scale = Math.fround(Math.fround(rand.next()) / 32767.0);
+        const range = Math.fround(Math.fround(max) - Math.fround(min));
+        return Math.fround(Math.fround(scale * range) + Math.fround(min));
     }
 
     // Port of DirectX-Graphics-Samples' D3D12ExecuteIndirect: 1024 triangles drifting across the
@@ -93,7 +80,7 @@ namespace ExecuteIndirect {
         private constants: f32[];
         private rootConstants: f32[];
         private zero: int[];
-        private rand: Rand;
+        private rand: MsvcRandom;
         private frameIndex: int;
         private width: int;
         private height: int;
@@ -108,7 +95,7 @@ namespace ExecuteIndirect {
             this.constants = [];
             this.rootConstants = [TRIANGLE_HALF_WIDTH, TRIANGLE_DEPTH, CULLING_CUTOFF, TRIANGLE_COUNT, 0.0];
             this.zero = [0];
-            this.rand = new Rand();
+            this.rand = new MsvcRandom(1);
             this.frameIndex = 0;
             this.width = 1280;
             this.height = 720;
@@ -189,7 +176,7 @@ namespace ExecuteIndirect {
                 const base = n * CONSTANT_FLOATS;
                 c[base + 4] = Math.fround(c[base + 4] + c[base]);
                 if (c[base + 4] > offsetBounds) {
-                    c[base] = this.rand.float(0.01, 0.02);
+                    c[base] = randomFloat(this.rand, 0.01, 0.02);
                     c[base + 4] = -offsetBounds;
                 }
             }
@@ -314,13 +301,13 @@ namespace ExecuteIndirect {
             const aspectRatio = Math.fround(Math.fround(this.width) / Math.fround(this.height));
             const projection = matrixTranspose(matrixPerspectiveFovLH(Math.fround(0.785398163), aspectRatio, 0.01, 20.0));
             for (let n = 0; n < TRIANGLE_COUNT; n++) {
-                const velocity = this.rand.float(0.01, 0.02);
-                const oz = this.rand.float(0.0, 2.0);
-                const oy = this.rand.float(-1.0, 1.0);
-                const ox = this.rand.float(-5.0, -1.5);
-                const cg = this.rand.float(0.5, 1.0);
-                const cr = this.rand.float(0.5, 1.0);
-                const cb = this.rand.float(0.5, 1.0);
+                const velocity = randomFloat(this.rand, 0.01, 0.02);
+                const oz = randomFloat(this.rand, 0.0, 2.0);
+                const oy = randomFloat(this.rand, -1.0, 1.0);
+                const ox = randomFloat(this.rand, -5.0, -1.5);
+                const cg = randomFloat(this.rand, 0.5, 1.0);
+                const cr = randomFloat(this.rand, 0.5, 1.0);
+                const cb = randomFloat(this.rand, 0.5, 1.0);
                 const values = [velocity, 0.0, 0.0, 0.0, ox, oy, oz, 0.0, cr, cg, cb, 1.0];
                 for (let i = 0; i < 12; i++) {
                     this.constants.push(values[i]);

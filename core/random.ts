@@ -12,3 +12,23 @@ export function randomFloat() {
     seed = (seed * 16807.0) % 2147483647.0;
     return seed / 2147483647.0;
 }
+
+// MSVC's rand() after srand(seed) (the C runtime the samples are built with: srand(1) unless they
+// seed it), RAND_MAX 32767, so that what the samples draw from it comes out the same.
+export class MsvcRandom {
+    private state: number;
+
+    constructor(seed: number) {
+        this.state = seed;
+    }
+
+    next(): int {
+        this.state = (this.state * 214013 + 2531011) % 4294967296;
+        return Math.floor(this.state / 65536) % 32768;
+    }
+
+    // static_cast<float>(rand()) / RAND_MAX.
+    nextFloat() {
+        return this.next() / 32767.0;
+    }
+}
