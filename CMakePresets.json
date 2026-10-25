@@ -73,7 +73,7 @@
       "displayName": "Default with RTXCR (Ninja)",
       "description": "Debug with the rtxcr_pathtracer example (RTXCR_DIR: a checkout of github.com/NVIDIA-RTX/RTXCR with submodules and assets). Override the path with -DRTXCR_DIR=<path>.",
       "inherits": "default",
-      "binaryDir": "${sourceDir}/build-debug-rtxcr",
+      "binaryDir": "${sourceDir}/build-rtxcr",
       "cacheVariables": {
         "RTXCR_DIR": "E:/Gits/RTXCR"
       }
@@ -83,7 +83,7 @@
       "displayName": "Release with RTXCR (Ninja)",
       "description": "Release with the rtxcr_pathtracer example (RTXCR_DIR: a checkout of github.com/NVIDIA-RTX/RTXCR with submodules and assets). Override the path with -DRTXCR_DIR=<path>.",
       "inherits": "release",
-      "binaryDir": "${sourceDir}/build-rtxcr",
+      "binaryDir": "${sourceDir}/build-release-rtxcr",
       "cacheVariables": {
         "RTXCR_DIR": "E:/Gits/RTXCR"
       }
