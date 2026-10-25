@@ -28,8 +28,10 @@ namespace ShaderDebugPrintf {
     // The push constants: float4 offset; float4 color; int object_type.
     const PUSH_FLOATS = 9;
     const PUSH_SIZE = PUSH_FLOATS * 4;
-    const OBJECT_SKYSPHERE = 0;
-    const OBJECT_SPHERE = 1;
+    enum ObjectKind {
+        Skysphere = 0,
+        Sphere = 1
+    }
 
     // The three spheres' offsets and colors.
     const MESH_OFFSETS = [-2.5, 0.0, 0.0, 0.0, 0.0, 0.0, 2.5, 0.0, 0.0];
@@ -351,7 +353,7 @@ namespace ShaderDebugPrintf {
                 for (let i = 0; i < 8; i++) {
                     this.push[i] = 0.0;
                 }
-                Donut_StoreInt32(Ref(this.push[8]), OBJECT_SKYSPHERE);
+                Donut_StoreInt32(Ref(this.push[8]), ObjectKind.Skysphere);
                 frame.drawIndexedWithPushConstants(this.geosphere.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
 
@@ -366,7 +368,7 @@ namespace ShaderDebugPrintf {
                 }
                 this.push[3] = 0.0;
                 this.push[7] = 0.0;
-                Donut_StoreInt32(Ref(this.push[8]), OBJECT_SPHERE);
+                Donut_StoreInt32(Ref(this.push[8]), ObjectKind.Sphere);
                 frame.drawIndexedWithPushConstants(this.geosphere.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
         }

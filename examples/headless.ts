@@ -229,10 +229,12 @@ namespace Headless {
     }
 
     // What the command line asks for instead of the test (the first of them on the command line).
-    const EXIT_NONE = 0;
-    const EXIT_HELP = 1;
-    const EXIT_LIST_ADAPTERS = 2;
-    const EXIT_ADAPTER_MISSING = 3;
+    enum ExitCode {
+        None = 0,
+        Help = 1,
+        ListAdapters = 2,
+        AdapterMissing = 3
+    }
 
     class HeadlessArgs extends Args {
         // --adapter <n>: use graphics adapter with index <n> as reported by --list-adapters.
@@ -241,14 +243,14 @@ namespace Headless {
         forceDonut = false;
         // --help, --list-adapters and --adapter without its value: the first of them, which ends the
         // program before the test.
-        firstExit = EXIT_NONE;
+        firstExit: int = ExitCode.None;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "--help") {
-                    if (this.firstExit == EXIT_NONE) {
-                        this.firstExit = EXIT_HELP;
+                    if (this.firstExit == ExitCode.None) {
+                        this.firstExit = ExitCode.Help;
                     }
                 }
 
@@ -257,15 +259,15 @@ namespace Headless {
                 }
 
                 if (arg == "--list-adapters") {
-                    if (this.firstExit == EXIT_NONE) {
-                        this.firstExit = EXIT_LIST_ADAPTERS;
+                    if (this.firstExit == ExitCode.None) {
+                        this.firstExit = ExitCode.ListAdapters;
                     }
                 }
 
                 if (arg == "--adapter") {
                     if (i + 1 >= this.argc) {
-                        if (this.firstExit == EXIT_NONE) {
-                            this.firstExit = EXIT_ADAPTER_MISSING;
+                        if (this.firstExit == ExitCode.None) {
+                            this.firstExit = ExitCode.AdapterMissing;
                         }
                     } else {
                         this.adapterIndex = parseInt(this[i + 1]);
@@ -286,7 +288,7 @@ namespace Headless {
         // The C++ sample does this in release builds only.
         Donut_SetLogMinSeverity(LogSeverity.Warning);
 
-        if (args.firstExit == EXIT_HELP) {
+        if (args.firstExit == ExitCode.Help) {
             console.log(`Usage: ${args[0]} [options]
  -dx11            Use DX11 API
  -dx12            Use DX12 API (default)
@@ -298,11 +300,11 @@ namespace Headless {
             return 0;
         }
 
-        if (args.firstExit == EXIT_LIST_ADAPTERS) {
+        if (args.firstExit == ExitCode.ListAdapters) {
             return listAdapters(args.api);
         }
 
-        if (args.firstExit == EXIT_ADAPTER_MISSING) {
+        if (args.firstExit == ExitCode.AdapterMissing) {
             console.log("--adapter requires a parameter");
             return 1;
         }

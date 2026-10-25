@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
-import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
+import { KEY_SPACE, Action } from "../core/glfw_input";
 import { randomFloat } from "../core/random";
 
 namespace RtParticles {
@@ -45,10 +45,12 @@ namespace RtParticles {
     const INSTANCE_MASK_PARTICLE_GEOMETRY = 2;
     const INSTANCE_MASK_INTERSECTION_PARTICLE = 4;
 
-    const ORIENTATION_MODE_AVT_MATRIX = 0;
-    const ORIENTATION_MODE_QUATERNION = 1;
-    const ORIENTATION_MODE_BEAM = 2;
-    const ORIENTATION_MODE_BASIS = 3;
+    enum OrientationMode {
+        AvtMatrix = 0,
+        Quaternion = 1,
+        Beam = 2,
+        Basis = 3
+    }
 
     // struct ParticleInfo (64 bytes), as f32 offsets.
     const PARTICLE_INFO_FLOATS = 16;
@@ -70,8 +72,10 @@ namespace RtParticles {
     const GLOBAL_ENVIRONMENT_MAP = 4;    // int
     const GLOBAL_TAIL_FLOATS = 5;
 
-    const PARTICLE_TEXTURE_SMOKE = 0;
-    const PARTICLE_TEXTURE_LOGO = 1;
+    enum ParticleTexture {
+        Smoke = 0,
+        Logo = 1
+    }
 
     // --- Math ---------------------------------------------------------------------------------
 
@@ -156,7 +160,7 @@ namespace RtParticles {
         public alwaysUpdateOrientation: boolean;
         public reorientParticlesInPrimaryRays: boolean;
         public reorientParticlesInSecondaryRays: boolean;
-        public orientationMode: int;
+        public orientationMode: OrientationMode;
         public mlabFragments: int;
         public particleTexture: int;
         // x, y, z; `let`-style storage for Donut_ImGuiDragFloat3.
@@ -168,9 +172,9 @@ namespace RtParticles {
             this.alwaysUpdateOrientation = true;
             this.reorientParticlesInPrimaryRays = false;
             this.reorientParticlesInSecondaryRays = true;
-            this.orientationMode = ORIENTATION_MODE_QUATERNION;
+            this.orientationMode = OrientationMode.Quaternion;
             this.mlabFragments = 4;
-            this.particleTexture = PARTICLE_TEXTURE_SMOKE;
+            this.particleTexture = ParticleTexture.Smoke;
             this.emitterPosition = [];
             for (let i = 0; i < 3; i++) {
                 this.emitterPosition.push(0.0);
@@ -370,7 +374,7 @@ namespace RtParticles {
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
-            if (key == KEY_SPACE && action == ACTION_PRESS) {
+            if (key == KEY_SPACE && action == Action.Press) {
                 this.ui.enableAnimations = !this.ui.enableAnimations;
             }
 
@@ -485,7 +489,7 @@ namespace RtParticles {
 
             // To demonstrate beam orientation, we create vertical sprites that are free to rotate
             // around the world-space Y axis, simulating what old Doom-like games used.
-            if (this.ui.orientationMode == ORIENTATION_MODE_BEAM) {
+            if (this.ui.orientationMode == OrientationMode.Beam) {
                 if (Math.abs(forwardY) > 0.999) {
                     forwardX = upX;
                     forwardY = upY;
@@ -506,7 +510,7 @@ namespace RtParticles {
             const rightY = forwardZ * upX - forwardX * upZ;
             const rightZ = forwardX * upY - forwardY * upX;
 
-            const textureIndex = (this.ui.particleTexture == PARTICLE_TEXTURE_SMOKE
+            const textureIndex = (this.ui.particleTexture == ParticleTexture.Smoke
                 ? this.smokeTexture : this.logoTexture).getDescriptorIndex();
 
             let numParticles = 0;
@@ -528,7 +532,7 @@ namespace RtParticles {
                 this.indices[baseIndex + 5] = baseVertex + 3;
 
                 // The quad orientation in world space.
-                const rotation = this.ui.orientationMode == ORIENTATION_MODE_BEAM ? 0.0 : particle.rotation;
+                const rotation = this.ui.orientationMode == OrientationMode.Beam ? 0.0 : particle.rotation;
                 const localRightX = Math.cos(rotation);
                 const localRightY = Math.sin(rotation);
                 const localUpX = -localRightY;
@@ -658,7 +662,7 @@ namespace RtParticles {
 
             if (this.appliedParticleTexture != this.ui.particleTexture) {
                 this.app.setDynamicMeshTexture(this.particleMesh,
-                    this.ui.particleTexture == PARTICLE_TEXTURE_SMOKE ? this.smokeTexture : this.logoTexture);
+                    this.ui.particleTexture == ParticleTexture.Smoke ? this.smokeTexture : this.logoTexture);
                 this.appliedParticleTexture = this.ui.particleTexture;
                 this.materialDirty = true;
             }

@@ -5,8 +5,8 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
 import {
-    KEY_1, KEY_2, KEY_3, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_F1, KEY_KP_1,
-    KEY_KP_2, KEY_KP_3, ACTION_RELEASE, ACTION_PRESS,
+    KEY_1, KEY_2, KEY_3, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_F1, KEY_KP_1, KEY_KP_2,
+    KEY_KP_3, Action,
 } from "../core/glfw_input";
 
 namespace SimpleBezier {
@@ -60,9 +60,11 @@ namespace SimpleBezier {
     const LIGHT_GREY = 0.478431374;
 
     // Partition modes: the hull shaders' order.
-    const PARTITION_INTEGER = 0;
-    const PARTITION_FRACTIONAL_EVEN = 1;
-    const PARTITION_FRACTIONAL_ODD = 2;
+    enum PartitionMode {
+        Integer = 0,
+        FractionalEven = 1,
+        FractionalOdd = 2
+    }
     const HULL_SHADERS = ["BezierHS_int", "BezierHS_fracEven", "BezierHS_fracOdd"];
     const PARTITION_NAMES = ["Integer", "Fractional Even", "Fractional Odd"];
 
@@ -254,7 +256,7 @@ namespace SimpleBezier {
             this.app = app;
             this.subdivs = DEFAULT_SUBDIVS;
             this.drawWires = false;
-            this.partitionMode = PARTITION_INTEGER;
+            this.partitionMode = PartitionMode.Integer;
             this.showHelp = false;
             this.cameraEye = [CAMERA_EYE[0], CAMERA_EYE[1], CAMERA_EYE[2]];
             this.viewMatrix = lookAtLH(this.cameraEye, CAMERA_AT, CAMERA_UP);
@@ -339,9 +341,9 @@ namespace SimpleBezier {
         // Sample::Update's key presses: one action per press, in the sample's order.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
-                this.held[key] = action != ACTION_RELEASE;
+                this.held[key] = action != Action.Release;
             }
-            if (action != ACTION_PRESS) {
+            if (action != Action.Press) {
                 return 0;
             }
             if (key == KEY_F1) {
@@ -351,11 +353,11 @@ namespace SimpleBezier {
             } else if (key == KEY_W) {
                 this.drawWires = !this.drawWires;
             } else if (key == KEY_1 || key == KEY_KP_1) {
-                this.partitionMode = PARTITION_INTEGER;
+                this.partitionMode = PartitionMode.Integer;
             } else if (key == KEY_2 || key == KEY_KP_2) {
-                this.partitionMode = PARTITION_FRACTIONAL_EVEN;
+                this.partitionMode = PartitionMode.FractionalEven;
             } else if (key == KEY_3 || key == KEY_KP_3) {
-                this.partitionMode = PARTITION_FRACTIONAL_ODD;
+                this.partitionMode = PartitionMode.FractionalOdd;
             } else {
                 // Escape (outside the help screen) goes on to InputPass, which closes the window.
                 return 0;
@@ -555,7 +557,7 @@ namespace SimpleBezier {
     // screen).
     class SimpleBezierArgs extends Args {
         wireframe = false;
-        partitionMode = PARTITION_INTEGER;
+        partitionMode: int = PartitionMode.Integer;
         subdivs = DEFAULT_SUBDIVS;
         rotateSteps = 0;
         showHelp = false;

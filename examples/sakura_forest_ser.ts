@@ -9,8 +9,8 @@ import {
     normalize4, radians, transform3, transformNormal3, vadd, vmul, vsub,
 } from "../core/directx_math";
 import {
-    KEY_A, KEY_B, KEY_D, KEY_E, KEY_H, KEY_M, KEY_P, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT,
-    KEY_DOWN, KEY_UP, ACTION_RELEASE, ACTION_PRESS,
+    KEY_A, KEY_B, KEY_D, KEY_E, KEY_H, KEY_M, KEY_P, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
+    Action,
 } from "../core/glfw_input";
 
 namespace SakuraForestSER {
@@ -37,11 +37,13 @@ namespace SakuraForestSER {
     // The hit groups by material ID (ObjectConstantBuffer.materialID): floor cubes, reflective cubes,
     // trunks, leaves, bushes.
     const HIT_GROUPS = "MyHitGroup,TCubeHitGroup,TrunkHitGroup,LeavesHitGroup,BushHitGroup";
-    const MATERIAL_FLOOR = 0;
-    const MATERIAL_REFLECTIVE_CUBE = 1;
-    const MATERIAL_TRUNK = 2;
-    const MATERIAL_LEAVES = 3;
-    const MATERIAL_BUSH = 4;
+    enum MaterialId {
+        Floor = 0,
+        ReflectiveCube = 1,
+        Trunk = 2,
+        Leaves = 3,
+        Bush = 4
+    }
     // ObjectConstantBuffer (float4 albedo, uint materialID) as local root constants: 5 dwords.
     const OBJECT_CONSTANTS = 5;
     // 1.0f's bits, the albedo of every record.
@@ -73,10 +75,12 @@ namespace SakuraForestSER {
     const CB_SIZE = 256;
 
     // SortMode.
-    const SORTMODE_OFF = 0;
-    const SORTMODE_BY_HIT = 1;
-    const SORTMODE_BY_MATERIAL = 2;
-    const SORTMODE_BY_BOTH = 3;
+    enum SortMode {
+        Off = 0,
+        ByHit = 1,
+        ByMaterial = 2,
+        ByBoth = 3
+    }
 
     // D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE.
     const INSTANCE_TRIANGLE_CULL_DISABLE = 1;
@@ -261,11 +265,11 @@ namespace SakuraForestSER {
             return true;
         }
 
-        setSortMode(mode: int) {
-            this.serEnabled = mode != SORTMODE_OFF;
-            this.sortByHit = mode == SORTMODE_BY_HIT;
-            this.sortByMaterial = mode == SORTMODE_BY_MATERIAL;
-            this.sortByBoth = mode == SORTMODE_BY_BOTH;
+        setSortMode(mode: SortMode) {
+            this.serEnabled = mode != SortMode.Off;
+            this.sortByHit = mode == SortMode.ByHit;
+            this.sortByMaterial = mode == SortMode.ByMaterial;
+            this.sortByBoth = mode == SortMode.ByBoth;
         }
 
         heldIndex(key: int) {
@@ -283,23 +287,23 @@ namespace SakuraForestSER {
         onKey(key: int, scancode: int, action: int, mods: int) {
             const index = this.heldIndex(key);
             if (index >= 0) {
-                if (action == ACTION_PRESS) {
+                if (action == Action.Press) {
                     this.held[index] = 1;
-                } else if (action == ACTION_RELEASE) {
+                } else if (action == Action.Release) {
                     this.held[index] = 0;
                 }
             }
-            if (action != ACTION_PRESS) {
+            if (action != Action.Press) {
                 return 0;
             }
             if (key == KEY_P) {
-                this.setSortMode(this.serEnabled ? SORTMODE_OFF : SORTMODE_BY_HIT);
+                this.setSortMode(this.serEnabled ? SortMode.Off : SortMode.ByHit);
             } else if (key == KEY_H) {
-                this.setSortMode(SORTMODE_BY_HIT);
+                this.setSortMode(SortMode.ByHit);
             } else if (key == KEY_M) {
-                this.setSortMode(SORTMODE_BY_MATERIAL);
+                this.setSortMode(SortMode.ByMaterial);
             } else if (key == KEY_B) {
-                this.setSortMode(SORTMODE_BY_BOTH);
+                this.setSortMode(SortMode.ByBoth);
             }
             return 0;
         }
@@ -406,15 +410,15 @@ namespace SakuraForestSER {
             for (let i = 0; i < colors.length; i++) {
                 this.sceneData[24 + i] = colors[i];
             }
-            let sortMode = SORTMODE_OFF;
+            let sortMode = SortMode.Off;
             if (!this.serEnabled) {
-                sortMode = SORTMODE_OFF;
+                sortMode = SortMode.Off;
             } else if (this.sortByHit) {
-                sortMode = SORTMODE_BY_HIT;
+                sortMode = SortMode.ByHit;
             } else if (this.sortByMaterial) {
-                sortMode = SORTMODE_BY_MATERIAL;
+                sortMode = SortMode.ByMaterial;
             } else if (this.sortByBoth) {
-                sortMode = SORTMODE_BY_BOTH;
+                sortMode = SortMode.ByBoth;
             }
             this.sortModeData[0] = sortMode;
         }
@@ -653,7 +657,7 @@ namespace SakuraForestSER {
         // white, the material ID.
         createShaderTable() {
             const counts: int[] = [441, 961, 961, 961, 10201];
-            const materials = [MATERIAL_FLOOR, MATERIAL_REFLECTIVE_CUBE, MATERIAL_TRUNK, MATERIAL_LEAVES, MATERIAL_BUSH];
+            const materials = [MaterialId.Floor, MaterialId.ReflectiveCube, MaterialId.Trunk, MaterialId.Leaves, MaterialId.Bush];
             const recordHitGroups: int[] = [];
             const recordArgs: int[] = [];
             for (let m = 0; m < counts.length; m++) {
@@ -778,7 +782,7 @@ namespace SakuraForestSER {
         seed = -1;
         bushSeed = -1;
         // -sortMode <0..3>: off, by hit, by reflection hint, by both (the sample starts by hit).
-        sortMode = SORTMODE_BY_HIT;
+        sortMode: int = SortMode.ByHit;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {

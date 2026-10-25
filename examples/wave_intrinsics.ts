@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { KEY_1, KEY_9, ACTION_RELEASE, ACTION_PRESS, MOUSE_BUTTON_LEFT } from "../core/glfw_input";
+import { KEY_1, KEY_9, Action, MouseButton } from "../core/glfw_input";
 
 namespace WaveIntrinsics {
     // Test mode: the frames rendered.
@@ -216,7 +216,7 @@ namespace WaveIntrinsics {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action == ACTION_PRESS && key >= KEY_1 && key <= KEY_9) {
+            if (action == Action.Press && key >= KEY_1 && key <= KEY_9) {
                 this.renderMode = key - KEY_1 + 1;
             }
             return 0;
@@ -224,8 +224,8 @@ namespace WaveIntrinsics {
 
         // The magnified area follows the mouse while its left button is down.
         onMouseButton(button: int, action: int, mods: int) {
-            if (button == MOUSE_BUTTON_LEFT) {
-                this.mouseLeftButtonDown = action != ACTION_RELEASE;
+            if (button == MouseButton.Left) {
+                this.mouseLeftButtonDown = action != Action.Release;
             }
             return 0;
         }

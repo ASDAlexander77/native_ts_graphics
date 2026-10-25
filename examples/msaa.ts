@@ -72,8 +72,10 @@ namespace Msaa {
     const DEPTH_RESOLVE_MODES = [ResolveMode.SampleZero, ResolveMode.Min, ResolveMode.Max, ResolveMode.Average];
 
     // The color resolve methods.
-    const RESOLVE_ON_WRITEBACK = 0;
-    const RESOLVE_SEPARATE = 1;
+    enum MsaaResolve {
+        OnWriteback = 0,
+        Separate = 1
+    }
 
     // Bounds start out inverted.
     const HUGE = 1.0e30;
@@ -222,7 +224,7 @@ namespace Msaa {
             this.app = app;
             this.sampleCount = 1;
             this.postprocessing = false;
-            this.colorResolveMethod = RESOLVE_ON_WRITEBACK;
+            this.colorResolveMethod = MsaaResolve.OnWriteback;
             this.resolveDepthOnWriteback = true;
             this.depthResolveMode = ResolveMode.None;
             this.supportedSampleCounts = 1;
@@ -405,7 +407,7 @@ namespace Msaa {
             const msaa = this.sampleCount > 1;
             const colorFormat = this.app.getBackBufferFormat();
             // The color resolves in the scene's render pass where render passes resolve.
-            this.writebackColorResolve = msaa && this.colorResolveMethod == RESOLVE_ON_WRITEBACK && this.renderPassResolve;
+            this.writebackColorResolve = msaa && this.colorResolveMethod == MsaaResolve.OnWriteback && this.renderPassResolve;
             // With post-processing, the multisampled depth resolves in the render pass where it can
             // (and the setting is on); otherwise the post-processing reads it multisampled.
             const writebackDepthResolve = msaa && this.postprocessing && this.resolveDepthOnWriteback
@@ -831,7 +833,7 @@ namespace Msaa {
                 }
             }
             if (!this.renderPassResolve) {
-                this.colorResolveMethod = RESOLVE_SEPARATE;
+                this.colorResolveMethod = MsaaResolve.Separate;
             }
         }
     }
@@ -877,12 +879,12 @@ namespace Msaa {
             if (!msaaEnabled) {
                 Donut_ImGuiText("n/a");
             } else if (m.renderPassResolve) {
-                if (Donut_ImGuiRadioButton("On writeback", m.colorResolveMethod == RESOLVE_ON_WRITEBACK ? 1 : 0) != 0) {
-                    m.colorResolveMethod = RESOLVE_ON_WRITEBACK;
+                if (Donut_ImGuiRadioButton("On writeback", m.colorResolveMethod == MsaaResolve.OnWriteback ? 1 : 0) != 0) {
+                    m.colorResolveMethod = MsaaResolve.OnWriteback;
                 }
                 Donut_ImGuiSameLine();
-                if (Donut_ImGuiRadioButton("Separate", m.colorResolveMethod == RESOLVE_SEPARATE ? 1 : 0) != 0) {
-                    m.colorResolveMethod = RESOLVE_SEPARATE;
+                if (Donut_ImGuiRadioButton("Separate", m.colorResolveMethod == MsaaResolve.Separate ? 1 : 0) != 0) {
+                    m.colorResolveMethod = MsaaResolve.Separate;
                 }
             } else {
                 // No render pass resolves (D3D, as NVRHI runs it).
@@ -993,7 +995,7 @@ namespace Msaa {
         }
         msaa.postprocessing = args.postprocessing;
         if (args.separate) {
-            msaa.colorResolveMethod = RESOLVE_SEPARATE;
+            msaa.colorResolveMethod = MsaaResolve.Separate;
         }
         if (args.noDepthResolve) {
             msaa.resolveDepthOnWriteback = false;

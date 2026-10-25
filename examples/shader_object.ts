@@ -126,10 +126,12 @@ namespace ShaderObjectSample {
 
     // The scene's pipeline combinations: the skybox, the terrain, the basic sets, then the material
     // shaders (vertex, geometry or none, fragment).
-    const COMBO_SKYBOX = 0;
-    const COMBO_TERRAIN = 1;
-    const COMBO_BASIC = 2;
-    const COMBO_MATERIAL = COMBO_BASIC + 4;
+    enum ComboKind {
+        Skybox = 0,
+        Terrain = 1,
+        Basic = 2
+    }
+    const COMBO_MATERIAL = ComboKind.Basic + 4;
     const GEOMETRY_NONE = 3;
     const COMBO_COUNT = COMBO_MATERIAL + 5 * 4 * 4;
 
@@ -739,7 +741,7 @@ namespace ShaderObjectSample {
         // A scene pipeline: the sample's set_initial_state (counter-clockwise front faces, depth
         // tested greater: reversed, the polygon mode) with the draw's shaders, cull mode and depth
         // writes; depth clipped, as Vulkan does.
-        getPipeline(combo: int, framebuffer: FramebufferHandle) {
+        getPipeline(combo: ComboKind, framebuffer: FramebufferHandle) {
             const wireframe = this.wireframeMode ? 1 : 0;
             const key = ((combo * this.outputFormats.length + this.currentOutputFormat) * this.depthFormats.length
                 + this.currentDepthFormat) * 2 + wireframe;
@@ -752,15 +754,15 @@ namespace ShaderObjectSample {
             let gs: int = -1;
             let cullMode = CullMode.None;
             let depthWrite = 1;
-            if (combo == COMBO_SKYBOX) {
+            if (combo == ComboKind.Skybox) {
                 depthWrite = 0;
-            } else if (combo == COMBO_TERRAIN) {
+            } else if (combo == ComboKind.Terrain) {
                 vs = this.terrainVS;
                 ps = this.terrainPS;
                 cullMode = CullMode.Back;
             } else if (combo < COMBO_MATERIAL) {
-                vs = this.basicVS[combo - COMBO_BASIC];
-                ps = this.basicPS[combo - COMBO_BASIC];
+                vs = this.basicVS[combo - ComboKind.Basic];
+                ps = this.basicPS[combo - ComboKind.Basic];
                 cullMode = CullMode.Front;
             } else {
                 const material = combo - COMBO_MATERIAL;
@@ -774,7 +776,7 @@ namespace ShaderObjectSample {
                 desc.setGeometryShader(this.materialGS[gs]);
             }
             // The basic shaders but basic_uv_vs don't read texture coordinates.
-            const noUV = combo >= COMBO_BASIC && combo < COMBO_MATERIAL && BASIC_VS[combo - COMBO_BASIC] != "basic_uv_vs";
+            const noUV = combo >= ComboKind.Basic && combo < COMBO_MATERIAL && BASIC_VS[combo - ComboKind.Basic] != "basic_uv_vs";
             desc.setInputLayout(noUV ? this.noUVInputLayout : this.inputLayout);
             desc.addBindingLayout(this.sceneLayout);
             desc.setDepthState(1, depthWrite, ComparisonFunc.Greater);
@@ -793,7 +795,7 @@ namespace ShaderObjectSample {
             }
         }
 
-        drawMesh(frame: Frame, combo: int, framebuffer: FramebufferHandle, mesh: GltfMesh) {
+        drawMesh(frame: Frame, combo: ComboKind, framebuffer: FramebufferHandle, mesh: GltfMesh) {
             frame.beginDrawToFramebuffer(this.getPipeline(combo, framebuffer), framebuffer);
             frame.drawAddBindingSet(this.sceneBindingSet);
             frame.drawSetIndexBuffer(mesh.getIndexBuffer());
@@ -812,7 +814,7 @@ namespace ShaderObjectSample {
 
         drawBasic(frame: Frame, framebuffer: FramebufferHandle, index: int, mesh: GltfMesh, model: number[]) {
             this.setModel(model);
-            this.drawMesh(frame, COMBO_BASIC + this.currentBasicLinkedShaders[index], framebuffer, mesh);
+            this.drawMesh(frame, ComboKind.Basic + this.currentBasicLinkedShaders[index], framebuffer, mesh);
         }
 
         onRender(frameHandle: FrameHandle) {
@@ -847,11 +849,11 @@ namespace ShaderObjectSample {
 
             // The skybox: cull mode none, no depth writes.
             this.setModel(identity());
-            this.drawMesh(frame, COMBO_SKYBOX, framebuffer, this.skybox);
+            this.drawMesh(frame, ComboKind.Skybox, framebuffer, this.skybox);
 
             // The terrain, culling back faces.
             this.setModel(translation(0.0, -100.0, 0.0));
-            frame.beginDrawToFramebuffer(this.getPipeline(COMBO_TERRAIN, framebuffer), framebuffer);
+            frame.beginDrawToFramebuffer(this.getPipeline(ComboKind.Terrain, framebuffer), framebuffer);
             frame.drawAddBindingSet(this.sceneBindingSet);
             frame.drawSetIndexBuffer(this.terrainIndexBuffer);
             frame.drawAddVertexBuffer(this.terrainVertexBuffer, 0, 0);

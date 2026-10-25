@@ -2,7 +2,7 @@
 // button actions, mouse buttons.
 //
 // Every example compiles it in (TSLANG_CORE_SOURCES): import with
-// `import { KEY_W, ACTION_PRESS, ... } from "../core/glfw_input";` (from examples/).
+// `import { KEY_W, Action, ... } from "../core/glfw_input";` (from examples/).
 
 // Keys.
 export const KEY_SPACE = 32;
@@ -64,12 +64,15 @@ export const KEY_LEFT_SHIFT = 340;
 export const KEY_RIGHT_SHIFT = 344;
 
 // Actions.
-export const ACTION_RELEASE = 0;
-export const ACTION_PRESS = 1;
-export const ACTION_REPEAT = 2;
+export enum Action {
+    Release = 0,
+    Press = 1,
+    Repeat = 2
+}
 
 // Mouse buttons.
-export const MOUSE_BUTTON_LEFT = 0;
-export const MOUSE_BUTTON_2 = 1;
-export const MOUSE_BUTTON_RIGHT = 1;
-export const MOUSE_BUTTON_MIDDLE = 2;
+export enum MouseButton {
+    Left = 0,
+    Right = 1,
+    Middle = 2
+}

@@ -71,9 +71,11 @@ namespace MultiDrawIndirect {
     const CLEAR_COLOR = 0.002;
 
     // The sample's RenderMode: who culls the models.
-    const RENDER_CPU = 0;
-    const RENDER_GPU = 1;
-    const RENDER_GPU_DEVICE_ADDRESS = 2;
+    enum RenderPath {
+        Cpu = 0,
+        Gpu = 1,
+        GpuDeviceAddress = 2
+    }
     const RENDER_MODE_NAMES = "CPU|GPU|GPU Device Address";
 
     // The GPU's commands are read back this many frames after the culling wrote them, when the GPU
@@ -153,7 +155,7 @@ namespace MultiDrawIndirect {
         // The sample's settings.
         enableMdi: boolean;
         freezeCull: boolean;
-        renderMode: int;
+        renderMode: RenderPath;
         // IndirectDrawSupport bits.
         support: int;
         // Visible models, as last counted, and all of them.
@@ -199,7 +201,7 @@ namespace MultiDrawIndirect {
             this.app = app;
             this.enableMdi = true;
             this.freezeCull = false;
-            this.renderMode = RENDER_GPU;
+            this.renderMode = RenderPath.Gpu;
             this.support = 0;
             this.instanceCount = 0;
             this.modelCount = 0;
@@ -459,7 +461,7 @@ namespace MultiDrawIndirect {
         runGpuCull(commandList: CommandList) {
             const groups = Math.floor((this.modelCount + 63) / 64);
             const addressPipeline = this.addressPipeline;
-            if (this.renderMode == RENDER_GPU_DEVICE_ADDRESS) {
+            if (this.renderMode == RenderPath.GpuDeviceAddress) {
                 if (addressPipeline) {
                     // The shader writes the commands through their address, out of NVRHI's sight.
                     commandList.setBufferWrittenByShaders(this.indirectCallBuffer);
@@ -509,22 +511,22 @@ namespace MultiDrawIndirect {
                 return;
             }
 
-            if (this.renderMode == RENDER_GPU_DEVICE_ADDRESS && !this.addressPipeline) {
-                this.renderMode = RENDER_GPU;
+            if (this.renderMode == RenderPath.GpuDeviceAddress && !this.addressPipeline) {
+                this.renderMode = RenderPath.Gpu;
             }
 
             this.updateSceneUniform(width, height);
             commandList.writeBuffer(this.constantBuffer, Ref(this.constants[0]), CONST_FLOATS * 4);
 
             if (!this.freezeCull) {
-                if (this.renderMode == RENDER_CPU) {
+                if (this.renderMode == RenderPath.Cpu) {
                     this.cpuCull();
                     commandList.writeBuffer(this.indirectCallBuffer, Ref(this.commands[0]), this.modelCount * COMMAND_SIZE);
                 } else {
                     this.runGpuCull(commandList);
                 }
             }
-            if (this.renderMode != RENDER_CPU) {
+            if (this.renderMode != RenderPath.Cpu) {
                 this.readBackInstanceCount(commandList);
             }
             this.frameIndex++;
@@ -701,7 +703,7 @@ namespace MultiDrawIndirect {
 
     class MultiDrawIndirectArgs extends Args {
         // -mode <0..2>: the cull mode (CPU, GPU, GPU device address).
-        renderMode = RENDER_GPU;
+        renderMode: int = RenderPath.Gpu;
         // -nomdi: a draw call per model.
         enableMdi = true;
         // -freeze: culling frozen.
@@ -716,7 +718,7 @@ namespace MultiDrawIndirect {
                     this.freezeCull = true;
                 } else if (arg == "-mode" && i + 1 < this.argc) {
                     i++;
-                    this.renderMode = Math.min(Math.max(parseInt(this[i]), RENDER_CPU), RENDER_GPU_DEVICE_ADDRESS);
+                    this.renderMode = Math.min(Math.max(parseInt(this[i]), RenderPath.Cpu), RenderPath.GpuDeviceAddress);
                 }
             }
         }

@@ -4,10 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { multiply, rotation, translation, radians, perspective } from "../core/matrix";
-import {
-    KEY_A, KEY_D, KEY_S, KEY_W, ACTION_RELEASE, ACTION_PRESS, MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT,
-    MOUSE_BUTTON_MIDDLE,
-} from "../core/glfw_input";
+import { KEY_A, KEY_D, KEY_S, KEY_W, Action, MouseButton } from "../core/glfw_input";
 
 namespace SparseImage {
     // Test mode: the frames rendered.
@@ -40,12 +37,14 @@ namespace SparseImage {
     const TEXTURE_PATH = "media/sparse_image/vulkan_logo_full.dds";
 
     // The sample's state machine (Stages).
-    const STAGE_IDLE = 0;
-    const STAGE_CALCULATE_MIPS_TABLE = 1;
-    const STAGE_COMPARE_MIPS_TABLE = 2;
-    const STAGE_FREE_MEMORY = 3;
-    const STAGE_PROCESS_TEXTURE_BLOCKS = 4;
-    const STAGE_UPDATE_AND_GENERATE = 5;
+    enum Stage {
+        Idle = 0,
+        CalculateMipsTable = 1,
+        CompareMipsTable = 2,
+        FreeMemory = 3,
+        ProcessTextureBlocks = 4,
+        UpdateAndGenerate = 5
+    }
 
     const FRAME_COUNTER_CAP = 10;
     const MEMORY_FRAGMENTATION_CAP = 20;
@@ -260,7 +259,7 @@ namespace SparseImage {
 
         private updateRequired: boolean;
         private frameCounterPerTransfer: int;
-        private nextStage: int;
+        private nextStage: Stage;
 
         // The sample's camera: rotation (degrees about x, y, z) and position; keys and mouse.
         private cameraRotation: number[];
@@ -377,7 +376,7 @@ namespace SparseImage {
             this.numHorizontalBlocksUpd = 50;
             this.updateRequired = false;
             this.frameCounterPerTransfer = 0;
-            this.nextStage = STAGE_IDLE;
+            this.nextStage = Stage.Idle;
 
             this.cameraRotation = [0.0, 0.0, 0.0];
             this.cameraPosition = [CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]];
@@ -558,10 +557,10 @@ namespace SparseImage {
 
         // ApiVulkanSample's keys: WASD move the camera while held.
         onKeyboard(key: int, scancode: int, action: int, mods: int) {
-            if (action != ACTION_PRESS && action != ACTION_RELEASE) {
+            if (action != Action.Press && action != Action.Release) {
                 return 0;
             }
-            const pressed = action == ACTION_PRESS;
+            const pressed = action == Action.Press;
             if (key == KEY_W) {
                 this.keyUp = pressed;
             } else if (key == KEY_S) {
@@ -598,12 +597,12 @@ namespace SparseImage {
         }
 
         onMouseButton(button: int, action: int, mods: int) {
-            const pressed = action == ACTION_PRESS;
-            if (button == MOUSE_BUTTON_LEFT) {
+            const pressed = action == Action.Press;
+            if (button == MouseButton.Left) {
                 this.leftButton = pressed;
-            } else if (button == MOUSE_BUTTON_RIGHT) {
+            } else if (button == MouseButton.Right) {
                 this.rightButton = pressed;
-            } else if (button == MOUSE_BUTTON_MIDDLE) {
+            } else if (button == MouseButton.Middle) {
                 this.middleButton = pressed;
             }
             return 1;
@@ -1259,34 +1258,34 @@ namespace SparseImage {
         // process_stage: the state machine, one step per frame.
         processStage(frame: Frame) {
             const stage = this.nextStage;
-            if (stage == STAGE_IDLE) {
-                this.nextStage = STAGE_FREE_MEMORY;
-            } else if (stage == STAGE_CALCULATE_MIPS_TABLE) {
+            if (stage == Stage.Idle) {
+                this.nextStage = Stage.FreeMemory;
+            } else if (stage == Stage.CalculateMipsTable) {
                 this.bindSparseImage(frame);
                 this.calculateMipsTable();
                 this.frameCounterPerTransfer = 0;
-                this.nextStage = STAGE_COMPARE_MIPS_TABLE;
-            } else if (stage == STAGE_COMPARE_MIPS_TABLE) {
+                this.nextStage = Stage.CompareMipsTable;
+            } else if (stage == Stage.CompareMipsTable) {
                 this.bindSparseImage(frame);
                 this.compareMipsTable();
-                this.nextStage = this.updateRequired ? STAGE_FREE_MEMORY : STAGE_CALCULATE_MIPS_TABLE;
-            } else if (stage == STAGE_FREE_MEMORY) {
+                this.nextStage = this.updateRequired ? Stage.FreeMemory : Stage.CalculateMipsTable;
+            } else if (stage == Stage.FreeMemory) {
                 this.freeUnusedMemory(frame);
                 if (this.updateBlockCount() == 0) {
-                    this.nextStage = STAGE_CALCULATE_MIPS_TABLE;
+                    this.nextStage = Stage.CalculateMipsTable;
                     this.updateRequired = false;
                 } else if (this.frameCounterFeature && this.frameCounterPerTransfer > FRAME_COUNTER_CAP) {
-                    this.nextStage = STAGE_CALCULATE_MIPS_TABLE;
+                    this.nextStage = Stage.CalculateMipsTable;
                 } else {
-                    this.nextStage = STAGE_PROCESS_TEXTURE_BLOCKS;
+                    this.nextStage = Stage.ProcessTextureBlocks;
                 }
-            } else if (stage == STAGE_PROCESS_TEXTURE_BLOCKS) {
+            } else if (stage == Stage.ProcessTextureBlocks) {
                 this.bindSparseImage(frame);
                 this.processTextureBlocks();
-                this.nextStage = STAGE_UPDATE_AND_GENERATE;
-            } else if (stage == STAGE_UPDATE_AND_GENERATE) {
+                this.nextStage = Stage.UpdateAndGenerate;
+            } else if (stage == Stage.UpdateAndGenerate) {
                 this.updateAndGenerate(frame);
-                this.nextStage = STAGE_FREE_MEMORY;
+                this.nextStage = Stage.FreeMemory;
             }
         }
 
@@ -1361,7 +1360,7 @@ namespace SparseImage {
                 this.screenHeight = height;
                 this.updateFragSettings(commandList);
                 this.loadLeastDetailedLevel(frame);
-                this.nextStage = STAGE_IDLE;
+                this.nextStage = Stage.Idle;
                 this.started = true;
             }
             if (this.colorHighlightChanged) {

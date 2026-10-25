@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { KEY_A, KEY_D, KEY_S, KEY_W, ACTION_RELEASE, ACTION_PRESS } from "../core/glfw_input";
+import { KEY_A, KEY_D, KEY_S, KEY_W, Action } from "../core/glfw_input";
 
 namespace MeshShaderCulling {
     // Test mode: the frames rendered.
@@ -52,9 +52,11 @@ namespace MeshShaderCulling {
     const CLEAR_COLOR = 0.002;
 
     // Pipeline statistics, as Donut_GetMeshPipelineStatistic numbers them.
-    const STAT_PIXEL = 0;
-    const STAT_TASK = 1;
-    const STAT_MESH = 2;
+    enum StatKind {
+        Pixel = 0,
+        Task = 1,
+        Mesh = 2
+    }
 
     // Task shader workgroups per side for each density level: 4 x 4, 6 x 6, 8 x 8.
     function workGroupsPerSide(densityLevel: int) {
@@ -150,10 +152,10 @@ namespace MeshShaderCulling {
 
         // ApiVulkanSample's keys: WASD move the camera while held.
         onKeyboard(key: int, scancode: int, action: int, mods: int) {
-            if (action != ACTION_PRESS && action != ACTION_RELEASE) {
+            if (action != Action.Press && action != Action.Release) {
                 return 0;
             }
-            const pressed = action == ACTION_PRESS;
+            const pressed = action == Action.Press;
             if (key == KEY_W) {
                 this.keyUp = pressed;
             } else if (key == KEY_S) {
@@ -249,9 +251,9 @@ namespace MeshShaderCulling {
 
                 if (sample.hasStatistics) {
                     if (Donut_ImGuiCollapsingHeaderDefaultOpen("Pipeline statistics") != 0) {
-                        Donut_ImGuiText(`TS invocations: ${sample.statistics.get(STAT_TASK)}`);
-                        Donut_ImGuiText(`MS invocations: ${sample.statistics.get(STAT_MESH)}`);
-                        Donut_ImGuiText(`FS invocations: ${sample.statistics.get(STAT_PIXEL)}`);
+                        Donut_ImGuiText(`TS invocations: ${sample.statistics.get(StatKind.Task)}`);
+                        Donut_ImGuiText(`MS invocations: ${sample.statistics.get(StatKind.Mesh)}`);
+                        Donut_ImGuiText(`FS invocations: ${sample.statistics.get(StatKind.Pixel)}`);
                     }
                 }
             }

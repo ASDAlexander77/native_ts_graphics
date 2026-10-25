@@ -5,8 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiply, rotation, translation, scale, radians, samplePerspective } from "../core/matrix";
 import {
-    KEY_A, KEY_D, KEY_S, KEY_W, KEY_KP_2, KEY_KP_4, KEY_KP_6, KEY_KP_8, ACTION_RELEASE,
-    ACTION_PRESS, MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE,
+    KEY_A, KEY_D, KEY_S, KEY_W, KEY_KP_2, KEY_KP_4, KEY_KP_6, KEY_KP_8, Action, MouseButton,
 } from "../core/glfw_input";
 
 namespace RenderOctomap {
@@ -53,9 +52,11 @@ namespace RenderOctomap {
     ];
 
     // The views.
-    const VIEW_OCTOMAP = 0;
-    const VIEW_GLTF = 1;
-    const VIEW_SPLATS = 2;
+    enum ViewKind {
+        Octomap = 0,
+        Gltf = 1,
+        Splats = 2
+    }
 
     // octomap::OcTree: 16 levels, keys centered on 2^15.
     const TREE_DEPTH = 16;
@@ -354,7 +355,7 @@ namespace RenderOctomap {
         private app: App;
 
         // The view shown, as the overlay picks it.
-        viewState: int;
+        viewState: ViewKind;
 
         // The sample's camera: rotation (degrees about x, y, z) and position, and the keys held.
         private cameraRotation: number[];
@@ -429,7 +430,7 @@ namespace RenderOctomap {
 
         constructor(app: App) {
             this.app = app;
-            this.viewState = VIEW_OCTOMAP;
+            this.viewState = ViewKind.Octomap;
             this.cameraRotation = [0.0, 0.0, 0.0];
             this.cameraPosition = [0.0, 0.0, -1.0];
             this.keyUp = false;
@@ -564,11 +565,11 @@ namespace RenderOctomap {
         // WASD move the camera, numpad 4/6/8/2 turn it. Seen before the overlay (see main), so
         // they work while it has the keyboard; the other keys go on to it.
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action != ACTION_PRESS && action != ACTION_RELEASE) {
+            if (action != Action.Press && action != Action.Release) {
                 return key == KEY_W || key == KEY_A || key == KEY_S || key == KEY_D || key == KEY_KP_2
                     || key == KEY_KP_4 || key == KEY_KP_6 || key == KEY_KP_8 ? 1 : 0;
             }
-            const down = action == ACTION_PRESS;
+            const down = action == Action.Press;
             if (key == KEY_W) {
                 this.keyUp = down;
             } else if (key == KEY_S) {
@@ -613,12 +614,12 @@ namespace RenderOctomap {
         }
 
         onMouseButton(button: int, action: int, mods: int) {
-            const pressed = action == ACTION_PRESS;
-            if (button == MOUSE_BUTTON_LEFT) {
+            const pressed = action == Action.Press;
+            if (button == MouseButton.Left) {
                 this.leftButton = pressed;
-            } else if (button == MOUSE_BUTTON_RIGHT) {
+            } else if (button == MouseButton.Right) {
                 this.rightButton = pressed;
-            } else if (button == MOUSE_BUTTON_MIDDLE) {
+            } else if (button == MouseButton.Middle) {
                 this.middleButton = pressed;
             }
             return 1;
@@ -800,7 +801,7 @@ namespace RenderOctomap {
             const gltfColors = this.gltfColors;
             const gltfIndices = this.gltfIndices;
             const splatBuffer = this.splatBuffer;
-            if (this.viewState == VIEW_OCTOMAP) {
+            if (this.viewState == ViewKind.Octomap) {
                 if (instanceBuffer) {
                     frame.beginDrawToFramebuffer(octomapPipeline, framebuffer);
                     frame.drawAddBindingSet(this.bindingSet);
@@ -809,7 +810,7 @@ namespace RenderOctomap {
                     frame.drawSetIndexBuffer(this.cubeIndices);
                     frame.drawIndexedInstanced(this.cubeIndexCount, this.instanceCount);
                 }
-            } else if (this.viewState == VIEW_GLTF) {
+            } else if (this.viewState == ViewKind.Gltf) {
                 if (gltfPositions && gltfColors && gltfIndices) {
                     frame.beginDrawToFramebuffer(gltfPipeline, framebuffer);
                     frame.drawAddBindingSet(this.gltfBindingSet);
@@ -1076,11 +1077,11 @@ namespace RenderOctomap {
         }
 
         // The sample's on_view_state_changed: the glTF scene and the splats load when first shown.
-        setViewState(viewState: int) {
+        setViewState(viewState: ViewKind) {
             this.viewState = viewState;
-            if (viewState == VIEW_GLTF && !this.gltfLoaded) {
+            if (viewState == ViewKind.Gltf && !this.gltfLoaded) {
                 this.loadGltf();
-            } else if (viewState == VIEW_SPLATS && !this.splatsLoaded) {
+            } else if (viewState == ViewKind.Splats && !this.splatsLoaded) {
                 this.loadSplats();
             }
         }
@@ -1114,13 +1115,13 @@ namespace RenderOctomap {
             // The sample's title (ApiVulkanSample's default).
             Donut_ImGuiBegin("Vulkan Example", 1);
             if (Donut_ImGuiButton("OCTOMAP") != 0) {
-                sample.setViewState(VIEW_OCTOMAP);
+                sample.setViewState(ViewKind.Octomap);
             }
             if (Donut_ImGuiButton("GLTF MAP") != 0) {
-                sample.setViewState(VIEW_GLTF);
+                sample.setViewState(ViewKind.Gltf);
             }
             if (Donut_ImGuiButton("SPLATS") != 0) {
-                sample.setViewState(VIEW_SPLATS);
+                sample.setViewState(ViewKind.Splats);
             }
             Donut_ImGuiEnd();
         }
@@ -1128,14 +1129,14 @@ namespace RenderOctomap {
 
     class RenderOctomapArgs extends Args {
         // -view <0..2>: the view at start (octomap, glTF map, splats).
-        view = VIEW_OCTOMAP;
+        view: int = ViewKind.Octomap;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-view" && i + 1 < this.argc) {
                     i++;
-                    this.view = Math.min(Math.max(parseInt(this[i]), 0), VIEW_SPLATS);
+                    this.view = Math.min(Math.max(parseInt(this[i]), 0), ViewKind.Splats);
                 }
             }
         }

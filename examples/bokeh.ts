@@ -9,8 +9,7 @@ import {
 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
 import {
-    KEY_1, KEY_A, KEY_D, KEY_E, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
-    ACTION_RELEASE, ACTION_PRESS,
+    KEY_1, KEY_A, KEY_D, KEY_E, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, Action,
 } from "../core/glfw_input";
 
 namespace Bokeh {
@@ -613,9 +612,9 @@ namespace Bokeh {
 
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
-                this.held[key] = action != ACTION_RELEASE;
+                this.held[key] = action != Action.Release;
             }
-            if (action == ACTION_PRESS) {
+            if (action == Action.Press) {
                 if (key == KEY_UP) {
                     // Toggle fast bokeh shader
                     this.useFastShader = !this.useFastShader;

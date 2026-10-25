@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { KEY_H, KEY_M, KEY_U, KEY_PAGE_UP, KEY_PAGE_DOWN, ACTION_PRESS } from "../core/glfw_input";
+import { KEY_H, KEY_M, KEY_U, KEY_PAGE_UP, KEY_PAGE_DOWN, Action } from "../core/glfw_input";
 
 namespace HdrDisplay {
     const WINDOW_TITLE = "D3D12 HDR sample";
@@ -12,16 +12,20 @@ namespace HdrDisplay {
     const FONT_SCALE = 23.0 / 18.0;
 
     // The back buffer formats PgUp / PgDn cycle through (SwapChainBitDepth: 8, 10, 16 bits).
-    const BIT_DEPTH_8 = 0;
-    const BIT_DEPTH_10 = 1;
-    const BIT_DEPTH_16 = 2;
+    enum BitDepth {
+        Bits8 = 0,
+        Bits10 = 1,
+        Bits16 = 2
+    }
     const BIT_DEPTH_COUNT = 3;
     const FORMAT_NAMES = ["R8G8B8A8_UNORM", "R10G10B10A2_UNORM", "R16G16B16A16_FLOAT"];
 
     // The display curves (DisplayCurve): what the present shader outputs.
-    const CURVE_SRGB = 0;
-    const CURVE_ST2084 = 1;
-    const CURVE_LINEAR = 2;
+    enum Curve {
+        Srgb = 0,
+        St2084 = 1,
+        Linear = 2
+    }
     const CURVE_NAMES = ["sRGB", "ST.2084", "Linear"];
 
     // HDRMetaDataPool: MaxOutputNits, MinOutputNits, MaxCLL, MaxFALL.
@@ -84,8 +88,8 @@ namespace HdrDisplay {
         imguiPass: ImGuiPass;
         private font: ImGuiFont;
         private smallFont: ImGuiFont;
-        bitDepth: int;
-        displayCurve: int;
+        bitDepth: BitDepth;
+        displayCurve: Curve;
         enableST2084: boolean;
         enableUI: boolean;
         hdrSupport: boolean;
@@ -96,11 +100,11 @@ namespace HdrDisplay {
             this.trianglesBuffer = null;
             this.hasTargets = false;
             this.hasPresentPipeline = false;
-            this.rootConstants = [REFERENCE_WHITE_NITS, CURVE_SRGB];
+            this.rootConstants = [REFERENCE_WHITE_NITS, Curve.Srgb];
             this.width = 1280;
             this.height = 720;
-            this.bitDepth = BIT_DEPTH_8;
-            this.displayCurve = CURVE_SRGB;
+            this.bitDepth = BitDepth.Bits8;
+            this.displayCurve = Curve.Srgb;
             this.enableST2084 = false;
             this.enableUI = true;
             this.hdrSupport = false;
@@ -199,18 +203,18 @@ namespace HdrDisplay {
         // swap chain's color space where it can present it.
         ensureColorSpace() {
             let colorSpace = SwapChainColorSpace.SRGB;
-            if (this.bitDepth == BIT_DEPTH_8) {
-                this.displayCurve = CURVE_SRGB;
-            } else if (this.bitDepth == BIT_DEPTH_10) {
+            if (this.bitDepth == BitDepth.Bits8) {
+                this.displayCurve = Curve.Srgb;
+            } else if (this.bitDepth == BitDepth.Bits10) {
                 if (this.enableST2084) {
                     colorSpace = SwapChainColorSpace.HDR10;
-                    this.displayCurve = CURVE_ST2084;
+                    this.displayCurve = Curve.St2084;
                 } else {
-                    this.displayCurve = CURVE_SRGB;
+                    this.displayCurve = Curve.Srgb;
                 }
             } else {
                 colorSpace = SwapChainColorSpace.ScRGB;
-                this.displayCurve = CURVE_LINEAR;
+                this.displayCurve = Curve.Linear;
             }
             if (this.app.getSwapChainColorSpace() != colorSpace) {
                 this.app.setSwapChainColorSpace(colorSpace);
@@ -218,7 +222,7 @@ namespace HdrDisplay {
         }
 
         // PgUp / PgDn: UpdateSwapChainBuffer with the next format.
-        setBitDepth(bitDepth: int) {
+        setBitDepth(bitDepth: BitDepth) {
             const formats = [Format.RGBA8_UNORM, Format.R10G10B10A2_UNORM, Format.RGBA16_FLOAT];
             if (this.app.setSwapChainFormat(formats[bitDepth]) == 0) {
                 console.log(`The swap chain can't have ${FORMAT_NAMES[bitDepth]} back buffers`);
@@ -229,7 +233,7 @@ namespace HdrDisplay {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action != ACTION_PRESS) {
+            if (action != Action.Press) {
                 return 0;
             }
             if (key == KEY_PAGE_UP) {
@@ -238,7 +242,7 @@ namespace HdrDisplay {
                 this.setBitDepth((this.bitDepth + 1) % BIT_DEPTH_COUNT);
             } else if (key == KEY_H) {
                 this.enableST2084 = !this.enableST2084;
-                if (this.bitDepth == BIT_DEPTH_10) {
+                if (this.bitDepth == BitDepth.Bits10) {
                     this.ensureColorSpace();
                 }
             } else if (key == KEY_U) {
@@ -507,11 +511,11 @@ namespace HdrDisplay {
         if (sdrLeft[0] > 0.02 || sdrRight[0] < 0.97 || !(sdrMiddle[0] > sdrLeft[0] && sdrMiddle[0] < sdrRight[0])) {
             return "the SDR gradient doesn't go from black to white";
         }
-        if (pass.displayCurve == CURVE_LINEAR) {
+        if (pass.displayCurve == Curve.Linear) {
             if (hdrRight[0] < 9.0 || hdrMiddle[0] < 1.5) {
                 return "the HDR gradient doesn't go above 1 in scRGB";
             }
-        } else if (pass.displayCurve == CURVE_SRGB) {
+        } else if (pass.displayCurve == Curve.Srgb) {
             if (hdrMiddle[0] < 0.99 || hdrRight[0] < 0.99) {
                 return "the HDR gradient isn't clipped to white with the sRGB curve";
             }
@@ -582,14 +586,14 @@ namespace HdrDisplay {
             return 1;
         }
         // The sample starts with 8-bit back buffers.
-        pass.setBitDepth(BIT_DEPTH_8);
+        pass.setBitDepth(BitDepth.Bits8);
         if (args.noUI) {
             pass.enableUI = false;
         }
         if (args.test && args.testFormat == 10) {
-            pass.setBitDepth(BIT_DEPTH_10);
+            pass.setBitDepth(BitDepth.Bits10);
         } else if (args.test && args.testFormat == 16) {
-            pass.setBitDepth(BIT_DEPTH_16);
+            pass.setBitDepth(BitDepth.Bits16);
         }
 
         const input = new InputPass(app.handle);

@@ -3,9 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
-import {
-    KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, ACTION_PRESS, ACTION_REPEAT,
-} from "../core/glfw_input";
+import { KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, Action } from "../core/glfw_input";
 
 namespace ReservedResources {
     const WINDOW_TITLE = "D3D12 Reserved resources sample - Use arrow keys to cycle through resources";
@@ -228,7 +226,7 @@ namespace ReservedResources {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action != ACTION_PRESS && action != ACTION_REPEAT) {
+            if (action != Action.Press && action != Action.Repeat) {
                 return 0;
             }
             if (key == KEY_LEFT || key == KEY_UP) {

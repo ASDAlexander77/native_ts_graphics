@@ -7,10 +7,7 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY,
     normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
-import {
-    KEY_A, KEY_B, KEY_F, KEY_H, KEY_O, KEY_Q, KEY_R, KEY_W, KEY_X, KEY_Z, ACTION_RELEASE,
-    ACTION_PRESS,
-} from "../core/glfw_input";
+import { KEY_A, KEY_B, KEY_F, KEY_H, KEY_O, KEY_Q, KEY_R, KEY_W, KEY_X, KEY_Z, Action } from "../core/glfw_input";
 
 namespace OpacityMicromaps {
     // Test mode: the frames rendered.
@@ -324,7 +321,7 @@ namespace OpacityMicromaps {
         // The sample's OnUpdate keys.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_Z || key == KEY_X) {
-                const held = action != ACTION_RELEASE;
+                const held = action != Action.Release;
                 if (key == KEY_Z) {
                     this.zoomIn = held;
                 } else {
@@ -332,7 +329,7 @@ namespace OpacityMicromaps {
                 }
                 return 0;
             }
-            if (action != ACTION_PRESS) {
+            if (action != Action.Press) {
                 return 0;
             }
             if (key == KEY_O) {

@@ -7,7 +7,7 @@ import {
     cross3, matrixIdentity, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH,
     matrixRotationY, matrixScaling, matrixTranslation, normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
-import { KEY_C, KEY_G, KEY_L, ACTION_PRESS } from "../core/glfw_input";
+import { KEY_C, KEY_G, KEY_L, Action } from "../core/glfw_input";
 
 namespace ProceduralGeometry {
     // Test mode: the frames rendered.
@@ -62,16 +62,18 @@ namespace ProceduralGeometry {
     const PRIMITIVE_COUNT = 10;
 
     // The AABB geometries' indices (instanceIndex), AnalyticPrimitive first.
-    const PRIM_AABB = 0;
-    const PRIM_SPHERES = 1;
-    const PRIM_METABALLS = 2;
-    const PRIM_MINI_SPHERES = 3;
-    const PRIM_INTERSECTED_ROUND_CUBE = 4;
-    const PRIM_SQUARE_TORUS = 5;
-    const PRIM_TWISTED_TORUS = 6;
-    const PRIM_COG = 7;
-    const PRIM_CYLINDER = 8;
-    const PRIM_FRACTAL_PYRAMID = 9;
+    enum ProceduralPrimitive {
+        Aabb = 0,
+        Spheres = 1,
+        Metaballs = 2,
+        MiniSpheres = 3,
+        IntersectedRoundCube = 4,
+        SquareTorus = 5,
+        TwistedTorus = 6,
+        Cog = 7,
+        Cylinder = 8,
+        FractalPyramid = 9
+    }
 
     // c_aabbWidth, c_aabbDistance.
     const AABB_WIDTH = 2.0;
@@ -312,7 +314,7 @@ namespace ProceduralGeometry {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action == ACTION_PRESS) {
+            if (action == Action.Press) {
                 if (key == KEY_C) {
                     this.animateCamera = !this.animateCamera;
                 } else if (key == KEY_G) {

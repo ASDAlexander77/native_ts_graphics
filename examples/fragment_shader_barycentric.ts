@@ -4,9 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { multiply, rotation, translation, radians, samplePerspective } from "../core/matrix";
-import {
-    ACTION_PRESS, MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE,
-} from "../core/glfw_input";
+import { Action, MouseButton } from "../core/glfw_input";
 
 namespace FragmentShaderBarycentric {
     // Test mode: the frames rendered.
@@ -215,12 +213,12 @@ namespace FragmentShaderBarycentric {
         }
 
         onMouseButton(button: int, action: int, mods: int) {
-            const pressed = action == ACTION_PRESS;
-            if (button == MOUSE_BUTTON_LEFT) {
+            const pressed = action == Action.Press;
+            if (button == MouseButton.Left) {
                 this.leftButton = pressed;
-            } else if (button == MOUSE_BUTTON_RIGHT) {
+            } else if (button == MouseButton.Right) {
                 this.rightButton = pressed;
-            } else if (button == MOUSE_BUTTON_MIDDLE) {
+            } else if (button == MouseButton.Middle) {
                 this.middleButton = pressed;
             }
             return 1;
