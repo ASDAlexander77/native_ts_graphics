@@ -362,9 +362,23 @@ if (ANDROID)
     target_include_directories(ShaderMakeBlob PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/ShaderMake")
 endif()
 
+# rtxcr_pathtracer (see the end of this file) builds only with RTXCR_DIR: a checkout of NVIDIA's
+# RTXCR (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets.
+set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets")
+
 # Opacity micromaps on D3D12 through the Agility SDK's DXR 1.2 (raytracing tier 1.2) rather than
 # NVAPI (opacity_micromaps; Vulkan has them through VK_EXT_opacity_micromap).
-set(NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP ON CACHE BOOL "Use D3D12 native Opacity Micromaps from DXR 1.2" FORCE)
+if (RTXCR_DIR AND WIN32)
+    # rtxcr_pathtracer's linear swept spheres on D3D12 come through NVAPI, which NVRHI leaves out
+    # while it uses DXR 1.2's opacity micromaps: with RTXCR_DIR the micromaps are NVAPI's too, and
+    # NVAPI is the RTXCR checkout's.
+    set(NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP OFF CACHE BOOL "Use D3D12 native Opacity Micromaps from DXR 1.2" FORCE)
+    set(NVRHI_WITH_NVAPI ON CACHE BOOL "Include NVAPI support (requires NVAPI SDK)" FORCE)
+    set(NVAPI_INCLUDE_DIR "${RTXCR_DIR}/external/nvapi" CACHE PATH "NVAPI headers" FORCE)
+    set(NVAPI_LIBRARY "${RTXCR_DIR}/external/nvapi/amd64/nvapi64.lib" CACHE FILEPATH "NVAPI library" FORCE)
+else()
+    set(NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP ON CACHE BOOL "Use D3D12 native Opacity Micromaps from DXR 1.2" FORCE)
+endif()
 
 set(CMAKE_PROJECT_zstd_INCLUDE_BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/zstd_policies.cmake")
 set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
@@ -445,8 +459,6 @@ add_dependencies(donut_interop_static check_interop_types)
 # some examples link into their executables (their add_tslang_example sources), with what those
 # need: the OBJ, SDKMESH and meshlet loaders, the PBRT scene, DirectXCollision, Basis Universal's
 # transcoder, the fast block compressor, the paged images, and (Windows) the video player.
-# rtxcr_pathtracer's C++ (core/rtxcr.cpp) includes the RTXCR checkout's headers: only with RTXCR_DIR.
-set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets")
 set(JIT_MODULE_SOURCES
     core/obj_model.cpp
     core/sdkmesh.cpp

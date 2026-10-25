@@ -3815,6 +3815,13 @@ extern "C"
         pipelineDesc->maxAttributeSize = static_cast<uint32_t>(byteSize);
     }
 
+    // The UAV slot (register space 0) the pipeline's shaders reach NVAPI's shader extensions
+    // (nvHLSLExtns.h) through; -1, the default, for none. D3D12 only.
+    DONUT_API void Donut_RtPipelineSetHlslExtensionsUAV(nvrhi::rt::PipelineDesc* pipelineDesc, int slot)
+    {
+        pipelineDesc->hlslExtensionsUAV = static_cast<int32_t>(slot);
+    }
+
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (D3D12's
     // D3D12_RAYTRACING_PIPELINE_FLAG_ALLOW_OPACITY_MICROMAPS, Vulkan's
     // VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT); off by default.
@@ -4562,6 +4569,14 @@ extern "C"
             nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
+    // An empty RWBuffer<T> at u<slot>: the slot the NVAPI shader extensions use (the pipeline's
+    // Donut_RtPipelineSetHlslExtensionsUAV), which no buffer backs.
+    DONUT_API void Donut_BindNullTypedBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot)
+    {
+        bindingSetDesc->addItem(
+            nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), nullptr));
+    }
+
     // Creates a binding set, and a matching layout (in register space 0) visible to the stages
     // in shaderType (nvrhi::ShaderType bits), from a description, which it frees. Returns null
     // on failure.
@@ -4670,6 +4685,13 @@ extern "C"
     {
         bindingLayoutDesc->registerSpace = static_cast<uint32_t>(space);
         bindingLayoutDesc->registerSpaceIsDescriptorSet = true;
+    }
+
+    // RWBuffer<T> at u<slot>.
+    DONUT_API void Donut_LayoutTypedBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    {
+        bindingLayoutDesc->addItem(
+            nvrhi::BindingLayoutItem::TypedBuffer_UAV(static_cast<uint32_t>(slot)));
     }
 
     // Buffer<T> at t<slot>.

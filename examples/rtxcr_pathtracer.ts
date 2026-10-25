@@ -38,6 +38,9 @@ namespace RtxcrPathtracer {
 
     // sizeof(RayPayload) in payloads.h: 17 floats / uints.
     const PAYLOAD_SIZE = 17 * 4;
+    // RTXCR_NVAPI_SHADER_EXT_SLOT (shared/shared.h): the UAV slot of NVAPI's shader extensions, which
+    // the LSS hit shaders read the swept spheres through.
+    const NVAPI_SHADER_EXT_SLOT = 10;
 
     // GlobalConstants (shared/globalCb.h), as byte offsets: the HLSL constant buffer's layout, which
     // the C++ struct matches (checked for the sample at 448 bytes).
@@ -269,6 +272,8 @@ namespace RtxcrPathtracer {
         private scenePath: string;
         private hairTessellationType: int;
         private hairRadiusScale: number;
+        // Whether the hair is linear swept spheres, which the shaders reach through NVAPI (D3D12).
+        private useLss: boolean;
 
         private scene: Scene;
         private sceneGraph: SceneGraph;
@@ -348,6 +353,7 @@ namespace RtxcrPathtracer {
             this.scenePath = scenePath;
             this.hairTessellationType = hairTessellationType;
             this.hairRadiusScale = hairRadiusScale;
+            this.useLss = hairTessellationType == HairTessellation.Lss;
             this.lights = [];
             this.tonemapPipelineReady = false;
             this.targetsReady = false;
@@ -619,6 +625,9 @@ namespace RtxcrPathtracer {
                 if (kind == 1) {
                     desc.layoutTextureUAV(0);
                 }
+                if (this.useLss) {
+                    desc.layoutTypedBufferUAV(NVAPI_SHADER_EXT_SLOT);
+                }
             } else if (kind == 2) {
                 // Space 1 of the G-buffer pass: eight UAVs.
                 for (let i = 0; i < 8; i++) {
@@ -643,8 +652,8 @@ namespace RtxcrPathtracer {
             this.ptLayout = this.makeLayout(0, 1);
             this.ptDenoiserLayout = this.makeLayout(1, 3);
 
-            // Without LSS (the hair is triangles) the shaders are the ones of the sample's other APIs.
-            const macros = "LSS_GEOMETRY_SUPPORTED=0;API_DX12=0";
+            // The shaders with LSS reach the spheres through NVAPI; without it (the hair is triangles) they don't.
+            const macros = this.useLss ? "LSS_GEOMETRY_SUPPORTED=1;API_DX12=1" : "LSS_GEOMETRY_SUPPORTED=0;API_DX12=0";
             const missLibrary = this.app.createShaderLibrary("PathtracingPass.miss.hlsl");
             const closestHitLibrary = this.app.createShaderLibraryWithDefines("PathtracingPass.chs.hlsl", macros);
             const gbufferLibrary = this.app.createShaderLibrary("GBufferPass.rgs.hlsl");
@@ -663,6 +672,9 @@ namespace RtxcrPathtracer {
                 desc.addShader(gbufferLibrary, "RayGen", ShaderType.RayGeneration);
                 desc.addShader(missLibrary, "Miss", ShaderType.Miss);
                 desc.addHitGroup(closestHitLibrary, "HitGroup", "ClosestHit", "", null);
+                if (this.useLss) {
+                    desc.setHlslExtensionsUAV(NVAPI_SHADER_EXT_SLOT);
+                }
                 const pipeline = this.app.createRayTracingPipelineFromDesc(desc);
                 if (!pipeline) {
                     return false;
@@ -685,6 +697,9 @@ namespace RtxcrPathtracer {
                 desc.addShader(missLibrary, "ShadowMiss", ShaderType.Miss);
                 desc.addHitGroup(closestHitLibrary, "HitGroup", "ClosestHit", "", null);
                 desc.addHitGroup(closestHitLibrary, "HitGroupShadow", "ClosestHitShadow", "", null);
+                if (this.useLss) {
+                    desc.setHlslExtensionsUAV(NVAPI_SHADER_EXT_SLOT);
+                }
                 const pipeline = this.app.createRayTracingPipelineFromDesc(desc);
                 if (!pipeline) {
                     return false;
@@ -724,6 +739,9 @@ namespace RtxcrPathtracer {
             gbufferDesc.bindStructuredBufferSRV(3, this.scene.getBuffer(SceneBuffer.Materials));
             gbufferDesc.bindStructuredBufferSRV(4, this.morphTargetMask);
             gbufferDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
+            if (this.useLss) {
+                gbufferDesc.bindNullTypedBufferUAV(NVAPI_SHADER_EXT_SLOT);
+            }
             this.gbufferSet = this.app.createBindingSetForLayout(gbufferDesc, this.gbufferLayout);
 
             const gbufferDenoiserDesc = BindingSetDesc.create();
@@ -749,6 +767,9 @@ namespace RtxcrPathtracer {
             ptDesc.bindStructuredBufferSRV(5, this.morphTargetMask);
             ptDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
             ptDesc.bindTextureUAV(0, output);
+            if (this.useLss) {
+                ptDesc.bindNullTypedBufferUAV(NVAPI_SHADER_EXT_SLOT);
+            }
             this.ptSet = this.app.createBindingSetForLayout(ptDesc, this.ptLayout);
 
             const ptDenoiserDesc = BindingSetDesc.create();
@@ -993,7 +1014,7 @@ namespace RtxcrPathtracer {
 
     class RtxcrArgs extends Args {
         // -hairTessellationType <0 polytubes, 1 DOTS, 2 LSS>
-        hairTessellationType: int = HairTessellation.Dots;
+        hairTessellationType: int = HairTessellation.Lss;
         // -hairRadiusScale <scale>: the sample's ui.hairRadiusScale.
         hairRadiusScale: number = 0.618;
         // -width / -height of the window.
@@ -1044,9 +1065,19 @@ namespace RtxcrPathtracer {
         }
         console.log(`Renderer: ${app.getRendererString()}`);
 
+        // LSS hair needs the device's support and the shaders' NVAPI extensions: D3D12 only (the sample's
+        // shaders of the other APIs have none); else the sample's fallback, DOTS.
+        let hairTessellationType = args.hairTessellationType;
+        if (hairTessellationType == HairTessellation.Lss &&
+            !(args.api == GraphicsAPI.D3D12 && app.isFeatureSupported(Feature.LinearSweptSpheres) &&
+                app.isFeatureSupported(Feature.HlslExtensionUAV))) {
+            console.log("Linear swept spheres aren't available here: the hair is DOTS");
+            hairTessellationType = HairTessellation.Dots;
+        }
+
         const settings = new Settings();
         settings.enableAccumulation = args.accumulate;
-        const renderer = new Renderer(app, settings, args.scenePath, args.hairTessellationType, args.hairRadiusScale);
+        const renderer = new Renderer(app, settings, args.scenePath, hairTessellationType, args.hairRadiusScale);
         if (!renderer.init()) {
             app.destroy();
             return 1;

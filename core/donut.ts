@@ -2468,6 +2468,11 @@ export class BindingSetDesc {
         Donut_BindTypedBufferUAV(this.handle, slot, buffer);
     }
 
+    // An empty RWBuffer<T> at u<slot>: the slot NVAPI's shader extensions use (Donut_RtPipelineSetHlslExtensionsUAV), which no buffer backs.
+    bindNullTypedBufferUAV(slot: int): void {
+        Donut_BindNullTypedBufferUAV(this.handle, slot);
+    }
+
     // cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
     bindConstantBuffer(slot: int, constantBuffer: BufferHandle, byteOffset: int, byteSize: int): void {
         Donut_BindConstantBuffer(this.handle, slot, constantBuffer, byteOffset, byteSize);
@@ -2635,6 +2640,11 @@ export class BindingLayoutDesc {
         Donut_LayoutTypedBufferSRV(this.handle, slot);
     }
 
+    // RWBuffer<T> at u<slot>.
+    layoutTypedBufferUAV(slot: int): void {
+        Donut_LayoutTypedBufferUAV(this.handle, slot);
+    }
+
     // A non-volatile cbuffer.
     layoutConstantBuffer(slot: int): void {
         Donut_LayoutConstantBuffer(this.handle, slot);
@@ -2782,6 +2792,12 @@ export class RtPipelineDesc {
     // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
     setMaxAttributeSize(byteSize: int): void {
         Donut_RtPipelineSetMaxAttributeSize(this.handle, byteSize);
+    }
+
+    // The UAV slot (register space 0) the pipeline's shaders reach NVAPI's shader extensions (nvHLSLExtns.h) through;
+    // -1, the default, for none. D3D12 only.
+    setHlslExtensionsUAV(slot: int): void {
+        Donut_RtPipelineSetHlslExtensionsUAV(this.handle, slot);
     }
 
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).

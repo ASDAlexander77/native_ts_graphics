@@ -115,6 +115,11 @@ enum Feature {
     ComputeQueue = 0,
     ConservativeRasterization = 1,
     FastGeometryShader = 5,
+    // NVAPI's shader extensions through a UAV slot (Donut_RtPipelineSetHlslExtensionsUAV).
+    HlslExtensionUAV = 7,
+    // Linear swept sphere geometry in BLASes (D3D12 through NVAPI, Blackwell GPUs; Vulkan's
+    // VK_NV_ray_tracing_linear_swept_spheres, with AppOptions.RayTracing).
+    LinearSweptSpheres = 8,
     Meshlets = 9,
     RayQuery = 10,
     // Opacity micromaps in BLASes (Donut_CreateOpacityMicromap): D3D12 raytracing tier 1.2 (DXR 1.2,
@@ -1672,6 +1677,8 @@ enum ShaderType {
 @nodrops declare function Donut_BindTypedBufferSRV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // RWBuffer<uint> at u<slot>; the buffer must be writable.
 @nodrops declare function Donut_BindTypedBufferUAV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
+// An empty RWBuffer<T> at u<slot>: the slot NVAPI's shader extensions use (Donut_RtPipelineSetHlslExtensionsUAV), which no buffer backs.
+@nodrops declare function Donut_BindNullTypedBufferUAV(bindingSetDesc: BindingSetDescHandle, slot: int): void;
 // cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
 @nodrops declare function Donut_BindConstantBuffer(bindingSetDesc: BindingSetDescHandle, slot: int, constantBuffer: BufferHandle, byteOffset: int, byteSize: int): void;
 // cbuffer at b<slot>: all of a constant buffer (required for volatile ones).
@@ -1723,6 +1730,8 @@ enum ShaderType {
 @nodrops declare function Donut_LayoutSampler(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutStructuredBufferSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutTypedBufferSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+// RWBuffer<T> at u<slot>.
+@nodrops declare function Donut_LayoutTypedBufferUAV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 // A non-volatile cbuffer.
 @nodrops declare function Donut_LayoutConstantBuffer(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutStructuredBufferUAV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
@@ -1760,6 +1769,9 @@ enum ShaderType {
 // The largest hit attributes the pipeline's shaders pass (ReportHit's attributes; the default is 8
 // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
 @nodrops declare function Donut_RtPipelineSetMaxAttributeSize(pipelineDesc: RtPipelineDescHandle, byteSize: int): void;
+// The UAV slot (register space 0) the pipeline's shaders reach NVAPI's shader extensions (nvHLSLExtns.h) through;
+// -1, the default, for none. D3D12 only.
+@nodrops declare function Donut_RtPipelineSetHlslExtensionsUAV(pipelineDesc: RtPipelineDescHandle, slot: int): void;
 // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
 @nodrops declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: RtPipelineDescHandle, allow: boolean): void;
 @nodrops declare function Donut_CreateRayTracingPipelineFromDesc(app: AppHandle, pipelineDesc: RtPipelineDescHandle): RtPipelineHandle;
