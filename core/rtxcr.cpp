@@ -547,6 +547,23 @@ namespace
     }
 }
 
+// The constant buffer layouts examples/rtxcr_pathtracer.ts writes, as the sample's headers (the
+// checkout's shared/) have them; last, as the headers define macros (PI, ...) of their own.
+#include <cstddef>
+#include <shared/globalCb.h>
+#include <shared/lightingCb.h>
+
+static_assert(sizeof(GlobalConstants) == 448, "GlobalConstants: examples/rtxcr_pathtracer.ts's size");
+static_assert(offsetof(GlobalConstants, enableAccumulation) == 32 && offsetof(GlobalConstants, enableDenoiser) == 44 &&
+    offsetof(GlobalConstants, nrdHitDistanceParams) == 112 && offsetof(GlobalConstants, hairMode) == 128 &&
+    offsetof(GlobalConstants, absorptionModel) == 160 && offsetof(GlobalConstants, enableSssTransmission) == 208 &&
+    offsetof(GlobalConstants, sssTransmissionColor) == 272 && offsetof(GlobalConstants, forceLambertianBRDF) == 312 &&
+    offsetof(GlobalConstants, skyParams) == 320 && offsetof(GlobalConstants, enableAnimation) == 432,
+    "GlobalConstants: examples/rtxcr_pathtracer.ts's offsets");
+static_assert(sizeof(ProceduralSkyShaderParameters) == 96, "the sky parameters: examples/rtxcr_pathtracer.ts's size");
+static_assert(offsetof(LightingConstants, view) == 32 && MAX_LIGHTS == 8,
+    "LightingConstants: examples/rtxcr_pathtracer.ts's layout");
+
 extern "C"
 {
     // Takes a scene loaded by Donut_LoadSceneWithDescriptorTableDeferred (its CPU mesh buffers still
