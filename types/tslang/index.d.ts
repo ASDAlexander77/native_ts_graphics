@@ -50,10 +50,12 @@ declare function slot(index: number): (target: any, context?: any) => any;
 declare function linkname(symbol: string): (target: any, context?: any) => any;
 // ...and of the memory models: a class whose instances are values (docs/superpowers/specs/
 // 2026-10-24-value-types-design.md), a class with no subclass, a method that keeps the parameters it
-// names, and a C function that destroys nothing a TypeScript caller can reach (-mm=own)
+// names, one that keeps them for good in an append-only global (its callers make them immortal), and
+// a C function that destroys nothing a TypeScript caller can reach (-mm=own)
 declare function value(target: any, context?: any): any;
 declare function final(target: any, context?: any): any;
 declare function keeps(...params: string[]): (target: any, context?: any) => any;
+declare function immortalizes(...params: string[]): (target: any, context?: any) => any;
 declare function nodrops(target: any, context?: any): any;
 
 // tslang's compile-time constants: the memory model (-mm) and the target's OS and architecture, as

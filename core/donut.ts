@@ -20,9 +20,10 @@
 // The callbacks handed to Donut, kept for as long as the program runs: a callback is a method of
 // an object (an InputPass, a render pass) that Donut's C++ memory may be the only one to reference
 // once it is set, and the collector doesn't scan that memory on Linux or Android (on Windows it
-// scans all writable memory, so it found them there). Not under -mm=own: there the object's one
-// owner is the code that made it (an example's main, for as long as the app runs), and keeping
-// the callback here would be a second, which own rejects.
+// scans all writable memory, so it found them there). Only ever pushed onto, so under -mm=own what
+// they keep - the object a callback is a method of, a closure's box and what it captures - is made
+// immortal where it is registered (tslang's docs/superpowers/specs/2026-10-25-own-immortal-keepers-
+// design.md).
 let retainedAnimateCallbacks: AnimateCallback[] = [];
 let retainedKeyboardCallbacks: KeyboardCallback[] = [];
 let retainedMouseButtonCallbacks: MouseButtonCallback[] = [];
@@ -1060,10 +1061,9 @@ export class App {
     // Donut's ImGui renderer as a pass drawn after the ones added before (on top) and seeing input
     // before them; buildUI builds the UI every frame with the Donut_ImGui* functions (only valid in
     // it). A null handle if the renderer can't be initialized.
+    @immortalizes("buildUI")
     addImGuiPass(buildUI: VoidCallback): ImGuiPass {
-        if (__MEMORY_MODEL__ !== "own") {
-            retainedVoidCallbacks.push(buildUI);
-        }
+        retainedVoidCallbacks.push(buildUI);
 
         return new ImGuiPass(Donut_AddImGuiPass(this.handle, buildUI));
     }
@@ -1720,62 +1720,55 @@ export class Pass {
         Donut_SetRunWhenUnfocused(this.handle, enabled);
     }
 
+    @immortalizes("handler")
     setRenderCallback(handler: RenderCallback): void {
-        if (__MEMORY_MODEL__ !== "own") {
-            retainedRenderCallbacks.push(handler);
-        }
+        retainedRenderCallbacks.push(handler);
 
         Donut_SetRenderCallback(this.handle, handler);
     }
 
+    @immortalizes("handler")
     setAnimateCallback(handler: AnimateCallback): void {
-        if (__MEMORY_MODEL__ !== "own") {
-            retainedAnimateCallbacks.push(handler);
-        }
+        retainedAnimateCallbacks.push(handler);
 
         Donut_SetAnimateCallback(this.handle, handler);
     }
 
     // Called before the swap chain is resized; release framebuffer-dependent resources here.
+    @immortalizes("handler")
     setBackBufferResizingCallback(handler: VoidCallback): void {
-        if (__MEMORY_MODEL__ !== "own") {
-            retainedVoidCallbacks.push(handler);
-        }
+        retainedVoidCallbacks.push(handler);
 
         Donut_SetBackBufferResizingCallback(this.handle, handler);
     }
 
+    @immortalizes("handler")
     setKeyboardCallback(handler: KeyboardCallback): void {
-        if (__MEMORY_MODEL__ !== "own") {
-            retainedKeyboardCallbacks.push(handler);
-        }
+        retainedKeyboardCallbacks.push(handler);
 
         Donut_SetKeyboardCallback(this.handle, handler);
     }
 
     // Window pixels; same return convention as the keyboard callback.
+    @immortalizes("handler")
     setMousePosCallback(handler: MousePosCallback): void {
-        if (__MEMORY_MODEL__ !== "own") {
-            retainedMousePosCallbacks.push(handler);
-        }
+        retainedMousePosCallbacks.push(handler);
 
         Donut_SetMousePosCallback(this.handle, handler);
     }
 
     // GLFW button / action values; same return convention as the keyboard callback.
+    @immortalizes("handler")
     setMouseButtonCallback(handler: MouseButtonCallback): void {
-        if (__MEMORY_MODEL__ !== "own") {
-            retainedMouseButtonCallbacks.push(handler);
-        }
+        retainedMouseButtonCallbacks.push(handler);
 
         Donut_SetMouseButtonCallback(this.handle, handler);
     }
 
     // Scroll offsets; same return convention as the keyboard callback.
+    @immortalizes("handler")
     setMouseScrollCallback(handler: MouseScrollCallback): void {
-        if (__MEMORY_MODEL__ !== "own") {
-            retainedMouseScrollCallbacks.push(handler);
-        }
+        retainedMouseScrollCallbacks.push(handler);
 
         Donut_SetMouseScrollCallback(this.handle, handler);
     }
