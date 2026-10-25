@@ -5,7 +5,6 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { perspProjReverse, radiansF32 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
-import { Key, Action } from "../core/glfw_input";
 import { randomFloat } from "../core/random";
 
 namespace MemoryBudget {
@@ -232,7 +231,7 @@ namespace MemoryBudget {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == Key.P && action == Action.Press) {
@@ -247,7 +246,7 @@ namespace MemoryBudget {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             this.camera.mouseButtonUpdate(button, action, mods);
             return 1;
         }

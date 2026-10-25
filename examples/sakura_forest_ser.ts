@@ -8,7 +8,6 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationAxis, matrixRotationY, normalize3,
     normalize4, radians, transform3, transformNormal3, vadd, vmul, vsub,
 } from "../core/directx_math";
-import { Key, Action } from "../core/glfw_input";
 
 namespace SakuraForestSER {
     const WINDOW_TITLE = "D3D12 Raytracing - Sakura Scene";
@@ -269,19 +268,19 @@ namespace SakuraForestSER {
             this.sortByBoth = mode == SortMode.ByBoth;
         }
 
-        heldIndex(key: int) {
+        heldIndex(key: Key) {
             const keys = [Key.W, Key.A, Key.S, Key.D, Key.Q, Key.E, Key.Up, Key.Down, Key.Left, Key.Right];
             return keys.indexOf(key);
         }
 
-        isHeld(key: int) {
+        isHeld(key: Key) {
             const index = this.heldIndex(key);
             return index >= 0 && this.held[index] != 0;
         }
 
         // OnUpdate's keys: P toggles SER (sorting by the hit when on), H, M and B pick the sort key
         // (turning SER on); the movement keys are held.
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             const index = this.heldIndex(key);
             if (index >= 0) {
                 if (action == Action.Press) {

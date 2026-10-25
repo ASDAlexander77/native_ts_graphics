@@ -7,7 +7,6 @@ import {
     cross3, matrixIdentity, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH,
     matrixRotationY, matrixScaling, matrixTranslation, normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
-import { Key, Action } from "../core/glfw_input";
 
 namespace ProceduralGeometry {
     // Test mode: the frames rendered.
@@ -313,7 +312,7 @@ namespace ProceduralGeometry {
             }
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action == Action.Press) {
                 if (key == Key.C) {
                     this.animateCamera = !this.animateCamera;

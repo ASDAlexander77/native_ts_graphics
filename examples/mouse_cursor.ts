@@ -5,7 +5,6 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { identity, multiplyF32, inverse } from "../core/matrix";
-import { Key, Action } from "../core/glfw_input";
 
 namespace MouseCursor {
     // Test mode: the frames rendered.
@@ -764,7 +763,7 @@ namespace MouseCursor {
         }
 
         // OnPointerPressed: in absolute mode, a tile clicked enters its mode.
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             if (action == Action.Press && this.absolute) {
                 const mode = this.setMode(this.mouseX, this.mouseY);
                 if (mode == RELATIVE_MOUSE) {
@@ -782,7 +781,7 @@ namespace MouseCursor {
 
         // OnKeyDown: Escape leaves the captured modes (and goes on to InputPass, closing the
         // window, from the menu).
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key == Key.Escape && action == Action.Press && !this.absolute) {
                 this.release();
                 return 1;

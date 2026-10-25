@@ -11,7 +11,6 @@ import {
     SQUID_ROOM_TEXTURE_FIELDS, SQUID_ROOM_TEXTURES, SQUID_ROOM_VERTEX_DATA_OFFSET, SQUID_ROOM_VERTEX_DATA_SIZE,
     SQUID_ROOM_VERTEX_STRIDE,
 } from "../core/squid_room";
-import { Key, Action } from "../core/glfw_input";
 
 namespace Multithreading {
     const WINDOW_TITLE = "D3D12 Multithreading Sample";
@@ -269,7 +268,7 @@ namespace Multithreading {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }

@@ -211,7 +211,7 @@ namespace TextureCompressionBasisu {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             this.view.mouseButton(button, action);
             return 1;
         }

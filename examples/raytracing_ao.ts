@@ -6,7 +6,6 @@ import { TestCheck, unsupported } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { transpose, inverse, cross3, dot3, normalize3, multiplyF32 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
-import { Key, Action } from "../core/glfw_input";
 
 namespace RaytracingAo {
     // Test mode: the frames rendered.
@@ -724,7 +723,7 @@ namespace RaytracingAo {
         }
 
         // Sample::Update's keys and Menus::ProcessKeys.
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key == Key.A) {
                 this.aHeld = action != Action.Release;
             } else if (key == Key.D) {

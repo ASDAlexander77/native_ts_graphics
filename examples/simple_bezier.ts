@@ -4,7 +4,6 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import { Key, Action } from "../core/glfw_input";
 
 namespace SimpleBezier {
     // Test mode: the frames rendered.
@@ -336,7 +335,7 @@ namespace SimpleBezier {
         }
 
         // Sample::Update's key presses: one action per press, in the sample's order.
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != Action.Release;
             }

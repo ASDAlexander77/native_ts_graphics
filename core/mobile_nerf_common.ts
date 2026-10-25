@@ -246,7 +246,7 @@ export class MobileNerfCamera {
     }
 
     // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-    mouseButton(button: int, action: int) {
+    mouseButton(button: MouseButton, action: Action) {
         if (button >= 0 && button < 3) {
             this.buttons[button] = action == 1;
         }

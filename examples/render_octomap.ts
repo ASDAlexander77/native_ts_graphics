@@ -4,7 +4,6 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiply, rotation, translation, scale, radians, samplePerspective } from "../core/matrix";
-import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace RenderOctomap {
     // Test mode: the frames rendered.
@@ -562,7 +561,7 @@ namespace RenderOctomap {
 
         // WASD move the camera, numpad 4/6/8/2 turn it. Seen before the overlay (see main), so
         // they work while it has the keyboard; the other keys go on to it.
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Release) {
                 return key == Key.W || key == Key.A || key == Key.S || key == Key.D || key == Key.Kp2
                     || key == Key.Kp4 || key == Key.Kp6 || key == Key.Kp8 ? 1 : 0;
@@ -611,7 +610,7 @@ namespace RenderOctomap {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             const pressed = action == Action.Press;
             if (button == MouseButton.Left) {
                 this.leftButton = pressed;

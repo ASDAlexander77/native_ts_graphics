@@ -3533,7 +3533,7 @@ export class Camera {
     }
 
     // Forward the pass input callbacks' arguments to these.
-    keyboardUpdate(key: int, scancode: int, action: int, mods: int): void {
+    keyboardUpdate(key: Key, scancode: int, action: Action, mods: KeyMods): void {
         Donut_CameraKeyboardUpdate(this.handle, key, scancode, action, mods);
     }
 
@@ -3541,7 +3541,7 @@ export class Camera {
         Donut_CameraMousePosUpdate(this.handle, x, y);
     }
 
-    mouseButtonUpdate(button: int, action: int, mods: int): void {
+    mouseButtonUpdate(button: MouseButton, action: Action, mods: KeyMods): void {
         Donut_CameraMouseButtonUpdate(this.handle, button, action, mods);
     }
 

@@ -434,7 +434,7 @@ namespace FastBlockCompress {
             return 1;
         }
 
-        onMouseButton(button: int, action: int, mods: int) {
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
             // GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS.
             if (button == 0) {
                 this.dragging = action == 1;

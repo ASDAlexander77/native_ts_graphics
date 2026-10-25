@@ -7,7 +7,6 @@
 // that import it, as tslang would load those files twice if they referenced them too.
 
 import { App } from "./donut";
-import { Key, Action } from "./glfw_input";
 
 @final
 export class InputPass {
@@ -18,7 +17,7 @@ export class InputPass {
         this.app.addPass().setKeyboardCallback(this.onKey);
     }
 
-    onKey(key: int, scancode: int, action: int, mods: int): int {
+    onKey(key: Key, scancode: int, action: Action, mods: KeyMods): int {
         if (key == Key.Escape && action == Action.Press) {
             this.app.closeWindow();
             return 1;

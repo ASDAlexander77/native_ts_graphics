@@ -6,8 +6,8 @@
 // Imported with `import { LookAtCamera, ... } from "../core/vulkan_samples_camera";` (from
 // examples/), and listed with core/matrix.ts in the example's add_tslang_example sources.
 
+/// <reference path="donut_interop.d.ts" />
 import { identity, multiply, rotate, translation, radians } from "./matrix";
-import { Key, Action } from "./glfw_input";
 
 // vkb::Camera, look-at type, with ApiVulkanSample's mouse controls: the left button turns it, the
 // right one (or the wheel) zooms, the middle one pans. Starts at position (a translation) and
@@ -38,7 +38,7 @@ export class LookAtCamera {
     }
 
     // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-    mouseButton(button: int, action: int) {
+    mouseButton(button: MouseButton, action: Action) {
         if (button >= 0 && button < 3) {
             this.buttons[button] = action == 1;
         }
@@ -100,7 +100,7 @@ export class FirstPersonCamera {
         return multiply(r, translation(this.position[0], this.position[1], this.position[2]));
     }
 
-    key(key: int, action: int) {
+    key(key: Key, action: Action) {
         const down = action != Action.Release;
         if (key == Key.W) {
             this.keys[0] = down;
@@ -145,7 +145,7 @@ export class FirstPersonCamera {
     }
 
     // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-    mouseButton(button: int, action: int) {
+    mouseButton(button: MouseButton, action: Action) {
         if (button >= 0 && button < 3) {
             this.buttons[button] = action == 1;
         }
@@ -206,7 +206,7 @@ export class SampleView {
     }
 
     // GLFW buttons: 0 left, 1 right, 2 middle; action 1 press, 0 release.
-    mouseButton(button: int, action: int) {
+    mouseButton(button: MouseButton, action: Action) {
         if (button >= 0 && button < 3) {
             this.buttons[button] = action == 1;
         }

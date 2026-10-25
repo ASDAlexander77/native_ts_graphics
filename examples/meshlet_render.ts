@@ -7,7 +7,6 @@ import { MeshletModel } from "../core/meshlet_model";
 import {
     matrixIdentity, matrixMultiply, matrixPerspectiveFovRH, matrixTranspose, XM_PI,
 } from "../core/directx_math";
-import { Action } from "../core/glfw_input";
 import { SimpleCamera } from "../core/simple_camera";
 
 namespace MeshletRender {
@@ -124,7 +123,7 @@ namespace MeshletRender {
             return true;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int): int {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods): int {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }

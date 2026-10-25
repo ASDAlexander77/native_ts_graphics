@@ -3,7 +3,6 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
-import { Key, Action } from "../core/glfw_input";
 
 namespace ReservedResources {
     const WINDOW_TITLE = "D3D12 Reserved resources sample - Use arrow keys to cycle through resources";
@@ -225,7 +224,7 @@ namespace ReservedResources {
             return this.mips.length;
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Repeat) {
                 return 0;
             }

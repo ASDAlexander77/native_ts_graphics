@@ -2,7 +2,6 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { Key, Action } from "../core/glfw_input";
 
 namespace HdrDisplay {
     const WINDOW_TITLE = "D3D12 HDR sample";
@@ -232,7 +231,7 @@ namespace HdrDisplay {
             this.ensureColorSpace();
         }
 
-        onKey(key: int, scancode: int, action: int, mods: int) {
+        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
             if (action != Action.Press) {
                 return 0;
             }
