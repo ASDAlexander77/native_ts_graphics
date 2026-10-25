@@ -339,6 +339,9 @@ namespace RtxcrRaster {
             const sun = this.sunLight;
             sun.setDirectionalIrradiance(settings.sunIntensity);
 
+            // The animated hair's vertex buffers are drawn from the state they rest in.
+            this.rtxcrScene.beginMorphVertexBuffers(commandList.handle);
+
             if (settings.enableShadows) {
                 sun.setShadowMap(this.shadowMap);
                 // The scene and the sun don't move: one rendering of the shadow map does.
@@ -372,6 +375,8 @@ namespace RtxcrRaster {
             }
             // Adapting over a frame time of 0: the exposure stays what the window says.
             commandList.renderToneMapping(this.toneMappingPass, this.view, targets.getTexture(SceneTexture.HdrColor), 0);
+
+            this.rtxcrScene.endMorphVertexBuffers(commandList.handle);
 
             this.app.blitTexture(frame, targets.getTexture(SceneTexture.LdrColor));
         }

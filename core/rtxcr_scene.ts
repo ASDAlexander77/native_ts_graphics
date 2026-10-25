@@ -55,6 +55,16 @@ export class RtxcrScene {
         Donut_RtxcrBuildTlas(this.handle, openCommandList, showEmissiveSurfaces);
     }
 
+    // The morph target meshes' vertex buffers aren't in a permanent state: a command list that rasterizes them says
+    // they rest as at its start (Begin) and puts them back at its end (End).
+    beginMorphVertexBuffers(openCommandList: CommandListHandle): void {
+        Donut_RtxcrBeginMorphVertexBuffers(this.handle, openCommandList);
+    }
+
+    endMorphVertexBuffers(openCommandList: CommandListHandle): void {
+        Donut_RtxcrEndMorphVertexBuffers(this.handle, openCommandList);
+    }
+
     getTlas(): AccelStructHandle {
         return Donut_RtxcrGetTlas(this.handle);
     }

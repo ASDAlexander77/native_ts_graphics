@@ -352,9 +352,14 @@ namespace
     }
 
     // The states of a vertex buffer between the morph target passes: read by shaders (bindless) and as
-    // acceleration structure input.
-    const nvrhi::ResourceStates VERTEX_BUFFER_REST_STATE = nvrhi::ResourceStates::VertexBuffer |
-        nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput;
+    // acceleration structure input (when the device has them: Vulkan's barriers can't name that stage without).
+    nvrhi::ResourceStates vertexBufferRestState(nvrhi::IDevice* device)
+    {
+        nvrhi::ResourceStates state = nvrhi::ResourceStates::VertexBuffer | nvrhi::ResourceStates::ShaderResource;
+        if (device->queryFeatureSupport(nvrhi::Feature::RayTracingAccelStruct))
+            state = state | nvrhi::ResourceStates::AccelStructBuildInput;
+        return state;
+    }
 
     // The sample's CreateDynamicVertexBuffer: the mesh's vertex buffer, made as Scene::CreateMeshBuffers
     // does but writable by the morph target pass (and registered in the descriptor table); it moves
@@ -373,7 +378,7 @@ namespace
         bufferDesc.debugName = "Dynamic VertexBuffer - " + meshName;
         bufferDesc.canHaveTypedViews = true;
         bufferDesc.canHaveRawViews = true;
-        bufferDesc.isAccelStructBuildInput = true;
+        bufferDesc.isAccelStructBuildInput = s.device->queryFeatureSupport(nvrhi::Feature::RayTracingAccelStruct);
         bufferDesc.canHaveUAVs = true;
 
         // The vertex attributes, in the order Scene::CreateMeshBuffers lays them out.
@@ -430,7 +435,7 @@ namespace
                 const auto& range = meshBuffers->getVertexBufferRange(attribute.attribute);
                 commandList->writeBuffer(buffer, attribute.data, range.byteSize, range.byteOffset);
             }
-            commandList->setBufferState(buffer, VERTEX_BUFFER_REST_STATE);
+            commandList->setBufferState(buffer, vertexBufferRestState(s.device));
         }
         commandList->commitBarriers();
         commandList->close();
@@ -663,7 +668,7 @@ extern "C"
             // The morph target meshes' vertex buffers are not in a permanent state: they rest as
             // the shaders and structures read them.
             if (mesh->isMorphTargetAnimationMesh && mesh->buffers->vertexBuffer)
-                commandList->beginTrackingBufferState(mesh->buffers->vertexBuffer, VERTEX_BUFFER_REST_STATE);
+                commandList->beginTrackingBufferState(mesh->buffers->vertexBuffer, vertexBufferRestState(s->device));
 
             if (rebuild || !mesh->accelStruct)
             {
@@ -977,7 +982,7 @@ extern "C"
             commandList->writeBuffer(resources.constantBuffer, &constants, sizeof(constants));
 
             // The vertex buffer rests as the shaders and acceleration structures read it.
-            commandList->beginTrackingBufferState(mesh->buffers->vertexBuffer, VERTEX_BUFFER_REST_STATE);
+            commandList->beginTrackingBufferState(mesh->buffers->vertexBuffer, vertexBufferRestState(s->device));
             commandList->setBufferState(mesh->buffers->vertexBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->commitBarriers();
 
@@ -1011,11 +1016,34 @@ extern "C"
             nvrhi::rt::AccelStructDesc blasDesc;
             getMeshBlasDesc(*mesh, blasDesc, true);
             nvrhi::utils::BuildBottomLevelAccelStruct(commandList, mesh->accelStruct, blasDesc);
-            commandList->setBufferState(mesh->buffers->vertexBuffer, VERTEX_BUFFER_REST_STATE);
+            commandList->setBufferState(mesh->buffers->vertexBuffer, vertexBufferRestState(s->device));
             commandList->commitBarriers();
             ++animated;
         }
         return animated;
+    }
+
+    // The morph target meshes' vertex buffers have no permanent state: a command list that draws them (rasterizing
+    // the scene, the shadow maps) says they are as they rest at its start (Donut_RtxcrBeginMorphVertexBuffers), and
+    // puts them back at its end (Donut_RtxcrEndMorphVertexBuffers). Ray tracing reads them through descriptors and
+    // needs neither.
+    DONUT_API void Donut_RtxcrBeginMorphVertexBuffers(RtxcrScene* s, nvrhi::ICommandList* commandList)
+    {
+        for (const auto& mesh : s->scene->GetSceneGraph()->GetMeshes())
+        {
+            if (mesh->isMorphTargetAnimationMesh && mesh->buffers->vertexBuffer)
+                commandList->beginTrackingBufferState(mesh->buffers->vertexBuffer, vertexBufferRestState(s->device));
+        }
+    }
+
+    DONUT_API void Donut_RtxcrEndMorphVertexBuffers(RtxcrScene* s, nvrhi::ICommandList* commandList)
+    {
+        for (const auto& mesh : s->scene->GetSceneGraph()->GetMeshes())
+        {
+            if (mesh->isMorphTargetAnimationMesh && mesh->buffers->vertexBuffer)
+                commandList->setBufferState(mesh->buffers->vertexBuffer, vertexBufferRestState(s->device));
+        }
+        commandList->commitBarriers();
     }
 
     // Valid as long as the scene.
