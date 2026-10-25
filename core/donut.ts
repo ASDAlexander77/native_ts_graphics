@@ -1598,6 +1598,20 @@ export class App {
         return new ShadowMap(Donut_CreateCascadedShadowMap(this.handle, resolution, numCascades));
     }
 
+    // A light's shadow map in `slices` slices of a new array texture of arraySize slices: the first a cascade,
+    // the others per-object shadows (shading multiplies them in), each fitted with
+    // Donut_SetupShadowMapViewForBounds. Other lights' go in its other slices (Donut_CreateSlicedShadowMapSharing):
+    // the forward pass binds one shadow map texture for all lights.
+    createSlicedShadowMap(resolution: int, arraySize: int, slices: int): ShadowMap {
+        return new ShadowMap(Donut_CreateSlicedShadowMap(this.handle, resolution, arraySize, slices));
+    }
+
+    // Another light's, in `slices` slices of that shadow map's texture from firstSlice; a null
+    // handle if they aren't in it.
+    createSlicedShadowMapSharing(shadowMap: ShadowMap, firstSlice: int, slices: int): ShadowMap {
+        return new ShadowMap(Donut_CreateSlicedShadowMapSharing(this.handle, shadowMap.handle, firstSlice, slices));
+    }
+
     // A planar shadow map: one orthographic view for a directional light, fitted with
     // Donut_SetupPlanarShadowMapForScene (the cascade fitting functions leave it unchanged).
     createPlanarShadowMap(resolution: int): ShadowMap {
@@ -2291,6 +2305,11 @@ export class CommandList {
     // Opaque meshes into all cascades; materialEvents != 0: a GPU marker per material.
     renderShadowDepth(depthPass: DepthPass, shadowMap: ShadowMap, sceneGraph: SceneGraph, materialEvents: int): void {
         Donut_RenderShadowDepth(this.handle, depthPass.handle, shadowMap.handle, sceneGraph.handle, materialEvents);
+    }
+
+    // Into one view (Donut_SetupShadowMapViewForBounds's index), e.g. a per-object shadow, which the above leaves out.
+    renderShadowDepthView(depthPass: DepthPass, shadowMap: ShadowMap, index: int, sceneGraph: SceneGraph): void {
+        Donut_RenderShadowDepthView(this.handle, depthPass.handle, shadowMap.handle, index, sceneGraph.handle);
     }
 
     // A scene graph's lights, top / bottom ambient, and the enabled probes of a set (or null).
@@ -3834,6 +3853,13 @@ export class ShadowMap {
     // fading out over fadeRangeWorld at its edges. 1 if the view changed (render the shadow map again).
     setupPlanarForScene(light: Light, sceneGraph: SceneGraph, fadeRangeWorld: number): int {
         return Donut_SetupPlanarShadowMapForScene(this.handle, light.handle, sceneGraph.handle, fadeRangeWorld);
+    }
+
+    // Fits one view (a planar shadow map's 0, a sliced one's index-th slice, else a cascade below the cascade count
+    // or the per-object shadow index - cascades) to a directional light and world-space bounds of 6 floats (min x, y, z, max x, y, z).
+    // Fitting a cascade makes the shadow map use at least that many. 1 if the view changed.
+    setupViewForBounds(light: Light, index: int, bounds: Ref<f32>, fadeRangeWorld: number): int {
+        return Donut_SetupShadowMapViewForBounds(this.handle, light.handle, index, bounds, fadeRangeWorld);
     }
 
     // One array slice per cascade (one for a planar shadow map).
