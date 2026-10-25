@@ -2747,12 +2747,23 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 
 // Shadows.
 @nodrops declare function Donut_CreateCascadedShadowMap(app: AppHandle, resolution: int, numCascades: int): ShadowMapHandle;
+// A light's shadow map in `slices` slices of a new array texture of arraySize slices: the first a cascade,
+// the others per-object shadows (shading multiplies them in), each fitted with
+// Donut_SetupShadowMapViewForBounds. Other lights' go in its other slices (Donut_CreateSlicedShadowMapSharing):
+// the forward pass binds one shadow map texture for all lights.
+@nodrops declare function Donut_CreateSlicedShadowMap(app: AppHandle, resolution: int, arraySize: int, slices: int): ShadowMapHandle;
+// Another light's, in `slices` slices of that shadow map's texture from firstSlice; null if they aren't in it.
+@nodrops declare function Donut_CreateSlicedShadowMapSharing(app: AppHandle, shadowMap: ShadowMapHandle, firstSlice: int, slices: int): ShadowMapHandle | null;
 // A planar shadow map: one orthographic view for a directional light, fitted with
 // Donut_SetupPlanarShadowMapForScene (the cascade fitting functions leave it unchanged).
 @nodrops declare function Donut_CreatePlanarShadowMap(app: AppHandle, resolution: int): ShadowMapHandle;
 // Fits a planar shadow map to a directional light and the whole scene graph's bounds, shadows
 // fading out over fadeRangeWorld at its edges. 1 if the view changed (render the shadow map again).
 @nodrops declare function Donut_SetupPlanarShadowMapForScene(shadowMap: ShadowMapHandle, light: LightHandle, sceneGraph: SceneGraphHandle, fadeRangeWorld: number): int;
+// Fits one view (a planar shadow map's 0, a sliced one's index-th slice, else a cascade below the cascade count
+// or the per-object shadow index - cascades) to a directional light and world-space bounds of 6 floats (min x, y, z, max x, y, z).
+// Fitting a cascade makes the shadow map use at least that many. 1 if the view changed.
+@nodrops declare function Donut_SetupShadowMapViewForBounds(shadowMap: ShadowMapHandle, light: LightHandle, index: int, bounds: Ref<f32>, fadeRangeWorld: number): int;
 // One array slice per cascade (one for a planar shadow map).
 @nodrops declare function Donut_GetShadowMapTexture(shadowMap: ShadowMapHandle): TextureHandle;
 // Fits the cascades to a directional light and the view, out to maxShadowDistance (stable).
@@ -2762,6 +2773,8 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_ResetDepthPassBindingCache(depthPass: DepthPassHandle): void;
 // Opaque meshes into all cascades; materialEvents != 0: a GPU marker per material.
 @nodrops declare function Donut_RenderShadowDepth(commandList: CommandListHandle, depthPass: DepthPassHandle, shadowMap: ShadowMapHandle, sceneGraph: SceneGraphHandle, materialEvents: int): void;
+// Into one view (Donut_SetupShadowMapViewForBounds's index), e.g. a per-object shadow, which the above leaves out.
+@nodrops declare function Donut_RenderShadowDepthView(commandList: CommandListHandle, depthPass: DepthPassHandle, shadowMap: ShadowMapHandle, index: int, sceneGraph: SceneGraphHandle): void;
 
 // Geometry passes.
 // singlePassCubemap != 0 renders cube map views in one pass (Feature.FastGeometryShader).

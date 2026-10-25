@@ -927,18 +927,70 @@ namespace
         }
     };
 
-    // A cascaded shadow map and the framebuffer its depth pass renders into.
-    // A cascaded or a planar shadow map (one of the two set), and a framebuffer over its texture.
+    // A light's shadow map in consecutive slices of an array texture that other lights' shadow maps share (the
+    // forward and deferred passes bind one shadow map texture for all the lights): an orthographic view in the
+    // first slice, the cascade, and per-object shadows in the ones after it, each fitted to bounds of its own.
+    class SlicedShadowMap : public donut::engine::IShadowMap
+    {
+    public:
+        // views[0] is the cascade, the rest the per-object shadows.
+        std::vector<std::shared_ptr<donut::render::PlanarShadowMap>> views;
+        donut::engine::CompositeView cascadeView;
+
+        SlicedShadowMap(nvrhi::IDevice* device, nvrhi::ITexture* texture, int firstSlice, int slices)
+        {
+            const nvrhi::TextureDesc& desc = texture->getDesc();
+            const nvrhi::Viewport viewport(float(desc.width), float(desc.height));
+            for (int slice = 0; slice < slices; slice++)
+            {
+                auto view = std::make_shared<donut::render::PlanarShadowMap>(device, texture, uint32_t(firstSlice + slice), viewport);
+                view->SetupProxyView();
+                if (slice > 0)
+                    view->SetFalloffDistance(0.f); // as CascadedShadowMap's per-object shadows
+                views.push_back(view);
+            }
+            cascadeView.AddView(views[0]->GetPlanarView());
+        }
+
+        dm::float4x4 GetWorldToUvzwMatrix() const override { return views[0]->GetWorldToUvzwMatrix(); }
+        const donut::engine::ICompositeView& GetView() const override { return cascadeView; }
+        nvrhi::ITexture* GetTexture() const override { return views[0]->GetTexture(); }
+        uint32_t GetNumberOfCascades() const override { return 1; }
+        const IShadowMap* GetCascade(uint32_t index) const override { return index == 0 ? views[0].get() : nullptr; }
+        uint32_t GetNumberOfPerObjectShadows() const override { return uint32_t(views.size() - 1); }
+        const IShadowMap* GetPerObjectShadow(uint32_t index) const override
+        {
+            return index + 1 < views.size() ? views[index + 1].get() : nullptr;
+        }
+        dm::int2 GetTextureSize() const override { return views[0]->GetTextureSize(); }
+        dm::box2 GetUVRange() const override { return views[0]->GetUVRange(); }
+        dm::float2 GetFadeRangeInTexels() const override { return views[0]->GetFadeRangeInTexels(); }
+        bool IsLitOutOfBounds() const override { return views[0]->IsLitOutOfBounds(); }
+        void FillShadowConstants(ShadowConstants& constants) const override { views[0]->FillShadowConstants(constants); }
+
+        void Clear(nvrhi::ICommandList* commandList)
+        {
+            nvrhi::TextureSubresourceSet subresources = views[0]->GetPlanarView()->GetSubresources();
+            subresources.numArraySlices = nvrhi::ArraySlice(views.size());
+            const nvrhi::FormatInfo& depthFormatInfo = nvrhi::getFormatInfo(GetTexture()->getDesc().format);
+            commandList->clearDepthStencilTexture(GetTexture(), subresources, true, 1.f, depthFormatInfo.hasStencil, 0);
+        }
+    };
+
+    // A cascaded, a planar or a sliced shadow map (one of the three set), and a framebuffer over its texture.
     struct ShadowMapTarget
     {
         std::shared_ptr<donut::render::CascadedShadowMap> cascaded;
         std::shared_ptr<donut::render::PlanarShadowMap> planar;
+        std::shared_ptr<SlicedShadowMap> sliced;
         std::shared_ptr<donut::engine::FramebufferFactory> framebuffer;
 
         std::shared_ptr<donut::engine::IShadowMap> shadowMap() const
         {
             if (cascaded)
                 return cascaded;
+            if (sliced)
+                return sliced;
             return planar;
         }
     };
@@ -11384,6 +11436,49 @@ extern "C"
         return a->OwnObject(target);
     }
 
+    static ShadowMapTarget* CreateSlicedShadowMap(App* app, nvrhi::ITexture* texture, int firstSlice, int slices)
+    {
+        App* a = app;
+        auto target = std::make_shared<ShadowMapTarget>();
+        target->sliced = std::make_shared<SlicedShadowMap>(a->device(), texture, firstSlice, slices);
+        target->framebuffer = std::make_shared<donut::engine::FramebufferFactory>(a->device());
+        target->framebuffer->DepthTarget = texture;
+        return a->OwnObject(target);
+    }
+
+    // A light's shadow map in `slices` slices of a new array texture of arraySize resolution x resolution
+    // slices: the first an orthographic view (the cascade), the others per-object shadows, each fitted with
+    // Donut_SetupShadowMapViewForBounds. Other lights' shadow maps go in the texture's other slices
+    // (Donut_CreateSlicedShadowMapSharing): the forward pass binds one shadow map texture for all lights.
+    DONUT_API ShadowMapTarget* Donut_CreateSlicedShadowMap(App* app, int resolution, int arraySize, int slices)
+    {
+        App* a = app;
+        nvrhi::TextureDesc desc;
+        desc.width = resolution;
+        desc.height = resolution;
+        desc.arraySize = arraySize;
+        desc.dimension = nvrhi::TextureDimension::Texture2DArray;
+        desc.isRenderTarget = true;
+        desc.isTypeless = true;
+        desc.format = ChooseDepthFormat(a->device());
+        desc.debugName = "ShadowMap";
+        desc.useClearValue = true;
+        desc.clearValue = nvrhi::Color(1.f);
+        desc.initialState = nvrhi::ResourceStates::ShaderResource;
+        desc.keepInitialState = true;
+        nvrhi::TextureHandle texture = a->device()->createTexture(desc);
+        return CreateSlicedShadowMap(app, texture, 0, slices);
+    }
+
+    // Another light's shadow map as Donut_CreateSlicedShadowMap's, in `slices` slices of its texture from firstSlice.
+    DONUT_API ShadowMapTarget* Donut_CreateSlicedShadowMapSharing(App* app, ShadowMapTarget* shadowMapTarget, int firstSlice, int slices)
+    {
+        nvrhi::ITexture* texture = shadowMapTarget->shadowMap()->GetTexture();
+        if (firstSlice < 0 || slices < 1 || firstSlice + slices > int(texture->getDesc().arraySize))
+            return nullptr;
+        return CreateSlicedShadowMap(app, texture, firstSlice, slices);
+    }
+
     // A planar shadow map of resolution x resolution: one orthographic view for a directional
     // light (Donut_SetupPlanarShadowMapForScene), no cascades. Works wherever a cascaded one does,
     // except the Donut_SetupShadowMapFor* fitting functions, which leave it unchanged.
@@ -11419,6 +11514,49 @@ extern "C"
             bounds, float(fadeRangeWorld)) ? 1 : 0;
     }
 
+    // A cascaded shadow map's cascades, in use or not: its array slices before the per-object shadows'.
+    static int ShadowMapCascades(ShadowMapTarget* target)
+    {
+        return int(target->cascaded->GetTexture()->getDesc().arraySize - target->cascaded->GetNumberOfPerObjectShadows());
+    }
+
+    // The view of a shadow map: a planar one's (index 0), a sliced one's index-th, else a cascade (index <
+    // cascades) or the per-object shadow index - cascades.
+    static donut::render::PlanarShadowMap* ShadowMapView(ShadowMapTarget* target, int index)
+    {
+        if (target->planar)
+            return index == 0 ? target->planar.get() : nullptr;
+        if (target->sliced)
+            return index >= 0 && index < int(target->sliced->views.size()) ? target->sliced->views[index].get() : nullptr;
+        const int cascades = ShadowMapCascades(target);
+        if (index < 0 || index >= cascades + int(target->cascaded->GetNumberOfPerObjectShadows()))
+            return nullptr;
+        // GetCascade hands out only the cascades in use.
+        if (index < cascades && index >= int(target->cascaded->GetNumberOfCascades()))
+            target->cascaded->SetNumberOfCascadesUnsafe(index + 1);
+        const donut::engine::IShadowMap* view = index < cascades ? target->cascaded->GetCascade(uint32_t(index))
+            : target->cascaded->GetPerObjectShadow(uint32_t(index - cascades));
+        // Both are PlanarShadowMaps; the getters only hand them out const.
+        return const_cast<donut::render::PlanarShadowMap*>(static_cast<const donut::render::PlanarShadowMap*>(view));
+    }
+
+    // Fits one view of a shadow map (ShadowMapView's index) to a directional light and world-space bounds of 6
+    // floats (min x, y, z, max x, y, z; Donut_GetNodeBoundingBox's layout), as Donut_SetupPlanarShadowMapForScene
+    // does to the scene's: e.g. the scene in a cascade and a part of it in more detail in a per-object shadow.
+    // Fitting a cascade makes the shadow map use at least that many. 1 if the view changed.
+    DONUT_API int Donut_SetupShadowMapViewForBounds(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, int index, const float* bounds, double fadeRangeWorld)
+    {
+        auto* target = shadowMapTarget;
+        donut::render::PlanarShadowMap* view = ShadowMapView(target, index);
+        if (!view)
+            return 0;
+        dm::box3 box(dm::float3(bounds[0], bounds[1], bounds[2]), dm::float3(bounds[3], bounds[4], bounds[5]));
+        box = box.grow(dm::float3(0.01f * dm::length(box.diagonal())));
+        return view->SetupWholeSceneDirectionalLightView(
+            *static_cast<donut::engine::DirectionalLight*>(light),
+            box, float(fadeRangeWorld)) ? 1 : 0;
+    }
+
     // The depth texture, one array slice per cascade (one for a planar shadow map).
     DONUT_API nvrhi::ITexture* Donut_GetShadowMapTexture(ShadowMapTarget* shadowMapTarget)
     {
@@ -11446,6 +11584,8 @@ extern "C"
         auto* target = shadowMapTarget;
         if (target->cascaded)
             target->cascaded->Clear(commandList);
+        else if (target->sliced)
+            target->sliced->Clear(commandList);
         else
             target->planar->Clear(commandList);
     }
@@ -11477,6 +11617,21 @@ extern "C"
         donut::render::RenderCompositeView(commandList, &target->shadowMap()->GetView(), nullptr,
             *target->framebuffer, sceneGraph->GetRootNode(), strategy,
             *depthPass, context, "ShadowMap", materialEvents != 0);
+    }
+
+    // Donut_RenderShadowDepth into one view of a shadow map (Donut_SetupShadowMapViewForBounds's index): what
+    // Donut_RenderShadowDepth leaves out, a per-object shadow.
+    DONUT_API void Donut_RenderShadowDepthView(nvrhi::ICommandList* commandList, donut::render::DepthPass* depthPass, ShadowMapTarget* shadowMapTarget, int index, donut::engine::SceneGraph* sceneGraph)
+    {
+        auto* target = shadowMapTarget;
+        donut::render::PlanarShadowMap* view = ShadowMapView(target, index);
+        if (!view)
+            return;
+        donut::render::InstancedOpaqueDrawStrategy strategy;
+        donut::render::DepthPass::Context context;
+        donut::render::RenderCompositeView(commandList, &view->GetView(), nullptr,
+            *target->framebuffer, sceneGraph->GetRootNode(), strategy,
+            *depthPass, context, "ShadowMap", false);
     }
 
     // --- Geometry passes ------------------------------------------------------------------------

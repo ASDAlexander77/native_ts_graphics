@@ -63,6 +63,41 @@ static const uint HAIR_FRESNEL_APPROXIMATION = 1;
 // How much of the sky reaches a strand inside the hair: the path tracer's strands shadow each other, the
 // shadow map can't resolve that, so the sky's light is scaled by this (a look, not a measurement).
 static const float HAIR_SKY_VISIBILITY = 0.5;
+// How fast a light falls off through hair, per world unit (centimetres) of it: in the path
+// tracer the strands nearest the sun shadow those behind them.
+static const float HAIR_SHADOW_DENSITY = 4.0;
+// The texels around a point that its light through the hair is the average of, (2 * radius + 1)^2:
+// the strands are thinner than one.
+static const int HAIR_SHADOW_FILTER_RADIUS = 2;
+
+// The share of the light that reaches surfacePos through the hair, from a per-object shadow of the head and
+// the hair: the shadow map holds the depth of the first surface the light meets, and the light has passed
+// through the hair for the depth beyond it, falling off exponentially (TressFX's approximation of a deep
+// shadow map). Unlike a depth comparison, the strands behind the outermost ones are lit, less and less.
+float LightThroughHair(ShadowConstants shadow, float3 lightDirection, float3 surfacePos)
+{
+    const float4 uvzw = mul(float4(surfacePos, 1.0), shadow.matWorldToUvzwShadow);
+    if (any(uvzw.xy < 0.0) || any(uvzw.xy > 1.0))
+        return 1.0;
+    // The shadow map's depth over a world unit along the light (an orthographic projection: the same everywhere).
+    const float depthPerWorldUnit = abs(mul(float4(lightDirection, 0.0), shadow.matWorldToUvzwShadow).z);
+    const int2 size = int2(shadow.shadowMapSizeTexels);
+    const int2 center = int2(uvzw.xy * shadow.shadowMapSizeTexels);
+
+    float sum = 0;
+    for (int y = -HAIR_SHADOW_FILTER_RADIUS; y <= HAIR_SHADOW_FILTER_RADIUS; y++)
+    {
+        for (int x = -HAIR_SHADOW_FILTER_RADIUS; x <= HAIR_SHADOW_FILTER_RADIUS; x++)
+        {
+            const int2 texel = clamp(center + int2(x, y), 0, size - 1);
+            const float occluderDepth = t_ShadowMapArray.Load(int4(texel, shadow.shadowMapArrayIndex, 0)).r;
+            const float hairDepth = max(uvzw.z - occluderDepth, 0.0) / depthPerWorldUnit;
+            sum += exp(-hairDepth * HAIR_SHADOW_DENSITY);
+        }
+    }
+    const int width = 2 * HAIR_SHADOW_FILTER_RADIUS + 1;
+    return sum / float(width * width);
+}
 
 bool IsHairMaterial(uint flags)
 {
@@ -185,16 +220,13 @@ void main(
 
         shadow.x += (1 - shadow.y) * light.outOfBoundsShadow;
 
+        // The example's per-object shadow is the head and the hair's, through which the light passes.
         float objectShadow = 1;
 
         for (int object = 0; object < 4; object++)
         {
             if (light.perObjectShadows[object] >= 0)
-            {
-                float2 thisObjectShadow = EvaluateShadowGather16(t_ShadowMapArray, s_ShadowSampler, g_ForwardLight.shadows[light.perObjectShadows[object]], surfaceWorldPos, g_ForwardLight.shadowMapTextureSize);
-
-                objectShadow *= saturate(thisObjectShadow.x + (1 - thisObjectShadow.y));
-            }
+                objectShadow *= LightThroughHair(g_ForwardLight.shadows[light.perObjectShadows[object]], light.direction, surfaceWorldPos);
         }
 
         shadow.x *= objectShadow;
