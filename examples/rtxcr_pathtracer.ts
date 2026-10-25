@@ -213,6 +213,7 @@ namespace RtxcrPathtracer {
         enableDenoiser = false;
         nrdMode = 0;
         nrdDisocclusionThreshold = 0.01;
+        nrdMaxAccumulatedFrames = 60;
         nrdAntiFirefly = true;
         nrdValidation = false;
         nrdSplitScreen = 0.0;
@@ -389,12 +390,13 @@ namespace RtxcrPathtracer {
                 ImGui.unindent();
             }
 
-            if (ImGui.collapsingHeader("Denoiser")) {
+            if (ImGui.collapsingHeaderDefaultOpen("Denoiser")) {
                 ImGui.indent();
                 s.enableDenoiser = this.check("NRD denoiser", s.enableDenoiser);
                 if (s.enableDenoiser) {
                     s.nrdMode = this.combo("Method", s.nrdMode, "ReBLUR|ReLAX");
                     s.nrdDisocclusionThreshold = ImGui.sliderFloat("Disocclusion threshold", s.nrdDisocclusionThreshold, 0.01, 0.02);
+                    s.nrdMaxAccumulatedFrames = ImGui.sliderInt("Max accumulated frames", s.nrdMaxAccumulatedFrames, 1, 120);
                     s.nrdAntiFirefly = ImGui.checkbox("Anti-firefly", s.nrdAntiFirefly);
                     s.nrdValidation = ImGui.checkbox("Validation layer", s.nrdValidation);
                     s.nrdSplitScreen = ImGui.sliderFloat("Split screen", s.nrdSplitScreen, 0.0, 1.0);
@@ -1237,6 +1239,7 @@ namespace RtxcrPathtracer {
         denoise(commandList: CommandList, width: int, height: int) {
             const settings = this.settings;
             this.nrd.setSetting(0, settings.nrdDisocclusionThreshold);
+            this.nrd.setSetting(1, settings.nrdMaxAccumulatedFrames);
             this.nrd.setSetting(2, settings.nrdAntiFirefly ? 1.0 : 0.0);
             this.nrd.setSetting(3, settings.nrdValidation ? 1.0 : 0.0);
             this.nrd.setSetting(4, settings.nrdSplitScreen);
