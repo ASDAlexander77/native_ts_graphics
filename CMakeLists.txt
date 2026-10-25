@@ -3653,9 +3653,21 @@ if (RTXCR_DIR)
         DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/dxil
         SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/spirv
     )
-    add_tslang_example(rtxcr_pathtracer core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp)
+    add_tslang_example(rtxcr_pathtracer core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp MEDIA fonts)
     add_dependencies(rtxcr_pathtracer rtxcr_pathtracer_vs_shaders)
     add_tslang_example_test(rtxcr_pathtracer ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.scene.json)
     add_tslang_example_test(rtxcr_pathtracer SUFFIX animation
         ARGS -width 960 -height 540 -enableAnimation 1 --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+    # The hair's tessellation changed while rendering: from DOTS to polytubes, the animated hair too.
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX switch
+        ARGS -width 960 -height 540 -hairTessellationType 1 -switchTessellation 0 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX animation_switch
+        ARGS -width 960 -height 540 -hairTessellationType 1 -switchTessellation 0 -enableAnimation 1
+        --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+    # D3D12: to and from linear swept spheres.
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX lss_switch APIS dx12
+        ARGS -width 960 -height 540 -hairTessellationType 2 -switchTessellation 1 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX animation_lss_switch APIS dx12
+        ARGS -width 960 -height 540 -hairTessellationType 1 -switchTessellation 2 -enableAnimation 1
+        --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
 endif()

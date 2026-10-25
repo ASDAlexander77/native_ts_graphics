@@ -32,6 +32,12 @@ export class RtxcrScene {
         Donut_RtxcrDestroyScene(this.handle);
     }
 
+    // Makes the hair type (0 polytubes, 1 DOTS, 2 LSS) and uploads the scene's buffers again; then make the
+    // morph targets and the acceleration structures again, and what binds the scene's buffers. 1 if it changed.
+    setTessellationType(type: int, frameIndex: int): int {
+        return Donut_RtxcrSetTessellationType(this.handle, type, frameIndex);
+    }
+
     getCurveMeshCount(): int {
         return Donut_RtxcrGetCurveMeshCount(this.handle);
     }

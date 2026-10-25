@@ -205,6 +205,20 @@ namespace RtxcrPathtracer {
         enableAnimationDebugging = false;
         animationKeyFrameIndexOverride = 0;
         animationKeyFrameWeightOverride = 0.0;
+
+        // The hair tessellation the window asks for (HairTessellation).
+        hairTessellationType = 1;
+        // A test's: the tessellation to ask for after the first frames, or -1.
+        switchTessellation = -1;
+        // Set by the window when a setting that changes the picture does: the accumulated samples are
+        // of the old one.
+        dirty = false;
+
+        // What the renderer tells the window.
+        accumulatedFrames = 1;
+        lssSupported = false;
+        morphTargetCount = 0;
+        frameSeconds = 0.0;
     }
 
     // A constant buffer's contents as an f32 array, written by byte offset.
@@ -271,6 +285,192 @@ namespace RtxcrPathtracer {
         return path.substring(0, end + 1);
     }
 
+    // --- Settings window -----------------------------------------------------------------------
+
+    // The sample's UI (Ui/PathtracerUi.cpp) without the denoiser, upscaler and frame generation: the
+    // settings of the path tracer, the hair, the skin and the animation. A setting that changes the
+    // picture marks the settings dirty, which restarts the accumulation.
+    class UserInterface {
+        private settings: Settings;
+        private colorValues: f32[];
+
+        constructor(settings: Settings) {
+            this.settings = settings;
+            this.colorValues = [0.0, 0.0, 0.0, 1.0];
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
+        }
+
+        check(label: string, value: boolean) {
+            const result = Donut_ImGuiCheckbox(label, value);
+            if (result != value) {
+                this.settings.dirty = true;
+            }
+            return result;
+        }
+
+        slider(label: string, value: number, min: number, max: number) {
+            const result = Donut_ImGuiSliderFloat(label, value, min, max);
+            if (result != value) {
+                this.settings.dirty = true;
+            }
+            return result;
+        }
+
+        sliderInt(label: string, value: int, min: int, max: int) {
+            const result = Donut_ImGuiSliderInt(label, value, min, max);
+            if (result != value) {
+                this.settings.dirty = true;
+            }
+            return result;
+        }
+
+        combo(label: string, value: int, items: string) {
+            const result = Donut_ImGuiCombo(label, value, items);
+            if (result != value) {
+                this.settings.dirty = true;
+            }
+            return result;
+        }
+
+        color(label: string, value: number[]) {
+            for (let i = 0; i < 3; i++) {
+                this.colorValues[i] = value[i];
+            }
+            if (Donut_ImGuiColorEdit4(label, Ref(this.colorValues[0]), 0.0)) {
+                for (let i = 0; i < 3; i++) {
+                    value[i] = this.colorValues[i];
+                }
+                this.settings.dirty = true;
+            }
+        }
+
+        buildUI() {
+            const s = this.settings;
+
+            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            Donut_ImGuiBegin("RTX Character Rendering", true);
+
+            const seconds = s.frameSeconds;
+            Donut_ImGuiText(`${seconds > 0.0 ? Math.round(1.0 / seconds) : 0} FPS`);
+            if (s.enableAccumulation) {
+                Donut_ImGuiText(`Accumulated frames: ${s.accumulatedFrames}`);
+            }
+
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Path tracing")) {
+                Donut_ImGuiIndent();
+                s.enableAccumulation = this.check("Accumulate", s.enableAccumulation);
+                s.cameraSpeed = Donut_ImGuiSliderFloat("Camera speed", s.cameraSpeed, 1.0, 500.0);
+                s.bouncesMax = this.sliderInt("Max bounces", s.bouncesMax, 1, 16);
+                s.samplesPerPixel = this.sliderInt("Samples per pixel", s.samplesPerPixel, 1, 8);
+                s.enableBackFaceCull = this.check("Back face culling", s.enableBackFaceCull);
+                s.enableRussianRoulette = this.check("Russian roulette", s.enableRussianRoulette);
+                s.throughputThreshold = this.slider("Throughput threshold", s.throughputThreshold, 0.0, 0.1);
+                s.enableTransmission = this.check("Transmission", s.enableTransmission);
+                s.enableEmissives = this.check("Emissives", s.enableEmissives);
+                s.enableLighting = this.check("Lighting", s.enableLighting);
+                s.enableDirectLighting = this.check("Direct lighting", s.enableDirectLighting);
+                s.enableIndirectLighting = this.check("Indirect lighting", s.enableIndirectLighting);
+                s.enableSoftShadows = this.check("Soft shadows", s.enableSoftShadows);
+                s.enableTransparentShadows = this.check("Transparent shadows", s.enableTransparentShadows);
+                Donut_ImGuiUnindent();
+            }
+
+            if (Donut_ImGuiCollapsingHeader("Sky and tone mapping")) {
+                Donut_ImGuiIndent();
+                s.enableSky = this.check("Sky", s.enableSky);
+                s.skyType = this.combo("Sky type", s.skyType, "Constant|Procedural|Environment map");
+                s.environmentLightIntensity = this.slider("Environment intensity", s.environmentLightIntensity, 0.0, 4.0);
+                this.color("Sky color", s.skyColor);
+                s.exposureAdjustment = Donut_ImGuiSliderFloat("Exposure", s.exposureAdjustment, -8.0, 8.0);
+                s.toneMappingOperator = Donut_ImGuiCombo("Tone mapping", s.toneMappingOperator, "Linear|Reinhard");
+                s.toneMappingClamp = Donut_ImGuiCheckbox("Clamp", s.toneMappingClamp);
+                Donut_ImGuiUnindent();
+            }
+
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Hair")) {
+                Donut_ImGuiIndent();
+                s.enableHair = this.check("Hair shading", s.enableHair);
+                if (s.lssSupported) {
+                    s.hairTessellationType = Donut_ImGuiCombo("Tessellation", s.hairTessellationType, "Polytube|DOTS|LSS");
+                } else {
+                    // LSS needs D3D12 and NVAPI's shader extensions.
+                    s.hairTessellationType = Donut_ImGuiCombo("Tessellation", s.hairTessellationType, "Polytube|DOTS");
+                }
+                s.hairTechSelection = this.combo("BCSDF", s.hairTechSelection, "Chiang|Farfield");
+                s.enableHairMaterialOverride = this.check("Override hair material", s.enableHairMaterialOverride);
+                s.analyticalFresnel = this.check("Analytical Fresnel", s.analyticalFresnel);
+                s.hairIor = this.slider("IOR", s.hairIor, 1.0, 3.0);
+                s.cuticleAngleInDegrees = this.slider("Cuticle angle", s.cuticleAngleInDegrees, 0.0, 10.0);
+                if (s.hairTechSelection == 0) {
+                    this.color("Base color", s.hairBaseColor);
+                    s.anisotropicRoughness = this.check("Anisotropic roughness", s.anisotropicRoughness);
+                    s.longitudinalRoughness = this.slider("Longitudinal roughness", s.longitudinalRoughness, 0.01, 1.0);
+                    s.azimuthalRoughness = this.slider("Azimuthal roughness", s.azimuthalRoughness, 0.01, 1.0);
+                } else {
+                    s.hairAbsorptionModel = this.combo("Absorption", s.hairAbsorptionModel, "Color|Physics|Physics normalized");
+                    if (s.hairAbsorptionModel == 0) {
+                        this.color("Base color", s.hairBaseColor);
+                    } else {
+                        s.melanin = this.slider("Melanin", s.melanin, 0.0, 1.0);
+                        s.melaninRedness = this.slider("Melanin redness", s.melaninRedness, 0.0, 1.0);
+                    }
+                    s.hairRoughness = this.slider("Roughness", s.hairRoughness, 0.01, 1.0);
+                    s.diffuseReflectionWeight = this.slider("Diffuse reflection weight", s.diffuseReflectionWeight, 0.0, 1.0);
+                    this.color("Diffuse reflection tint", s.diffuseReflectionTint);
+                }
+                Donut_ImGuiUnindent();
+            }
+
+            if (Donut_ImGuiCollapsingHeader("Skin")) {
+                Donut_ImGuiIndent();
+                s.enableSss = this.check("Subsurface scattering", s.enableSss);
+                s.enableSssIndirect = this.check("Indirect SSS", s.enableSssIndirect);
+                s.enableDiffusionProfile = this.check("Diffusion profile", s.enableDiffusionProfile);
+                s.enableSssMaterialOverride = this.check("Override SSS material", s.enableSssMaterialOverride);
+                this.color("Scattering color", s.sssScatteringColor);
+                this.color("Transmission color", s.sssTransmissionColor);
+                s.sssScale = this.slider("Scale", s.sssScale, 0.0, 100.0);
+                s.maxSampleRadius = this.slider("Max sample radius", s.maxSampleRadius, 0.0, 5.0);
+                s.sssSampleCount = this.sliderInt("Samples", s.sssSampleCount, 1, 16);
+                s.enableSssTransmission = this.check("Transmission", s.enableSssTransmission);
+                s.sssAnisotropy = this.slider("Anisotropy", s.sssAnisotropy, -0.99, 0.99);
+                s.sssTransmissionBsdfSampleCount = this.sliderInt("Transmission BSDF samples", s.sssTransmissionBsdfSampleCount, 1, 16);
+                s.sssTransmissionPerBsdfScatteringSampleCount = this.sliderInt("Transmission scattering samples",
+                    s.sssTransmissionPerBsdfScatteringSampleCount, 1, 16);
+                s.enableSssMicrofacet = this.check("Specular reflection", s.enableSssMicrofacet);
+                s.sssWeight = this.slider("Diffuse weight", s.sssWeight, 0.0, 1.0);
+                s.sssSpecularWeight = this.slider("Specular weight", s.sssSpecularWeight, 0.0, 1.0);
+                s.enableSssRoughnessOverride = this.check("Override roughness", s.enableSssRoughnessOverride);
+                s.sssRoughnessOverride = this.slider("Roughness", s.sssRoughnessOverride, 0.01, 1.0);
+                s.forceLambertianBrdf = this.check("Force Lambertian BRDF", s.forceLambertianBrdf);
+                Donut_ImGuiUnindent();
+            }
+
+            if (Donut_ImGuiCollapsingHeader("Animation")) {
+                Donut_ImGuiIndent();
+                s.enableAnimations = Donut_ImGuiCheckbox("Animate (Space)", s.enableAnimations);
+                if (s.enableAnimations && s.enableAccumulation) {
+                    Donut_ImGuiText("The picture changes every frame: nothing accumulates.");
+                }
+                Donut_ImGuiText(`Morph target meshes: ${s.morphTargetCount}`);
+                s.animationFps = Donut_ImGuiSliderFloat("Keyframes per second", s.animationFps, 1.0, 120.0);
+                s.enableAnimationSmoothing = Donut_ImGuiCheckbox("Smooth the loop", s.enableAnimationSmoothing);
+                s.animationSmoothingFactor = Donut_ImGuiSliderFloat("Smoothing", s.animationSmoothingFactor, 1.0, 64.0);
+                s.enableAnimationDebugging = Donut_ImGuiCheckbox("Pick the keyframes", s.enableAnimationDebugging);
+                if (s.enableAnimationDebugging) {
+                    s.animationKeyFrameIndexOverride = Donut_ImGuiSliderInt("Keyframe", s.animationKeyFrameIndexOverride, 0, 127);
+                    s.animationKeyFrameWeightOverride = Donut_ImGuiSliderFloat("Blend", s.animationKeyFrameWeightOverride, 0.0, 1.0);
+                }
+                Donut_ImGuiUnindent();
+            }
+
+            Donut_ImGuiEnd();
+        }
+    }
+
     // --- Renderer ----------------------------------------------------------------------------
 
     // The sample's SampleRenderer with its resource manager, G-buffer, path tracing and
@@ -281,8 +481,10 @@ namespace RtxcrPathtracer {
         private scenePath: string;
         private hairTessellationType: int;
         private hairRadiusScale: number;
-        // Whether the hair is linear swept spheres, which the shaders reach through NVAPI (D3D12).
+        // Whether the device traces linear swept spheres, which the shaders reach through NVAPI (D3D12):
+        // the hair can be LSS, and the shaders are the ones with NVAPI's extensions.
         private useLss: boolean;
+        private pendingTessellation: boolean;
 
         private scene: Scene;
         private sceneGraph: SceneGraph;
@@ -363,7 +565,8 @@ namespace RtxcrPathtracer {
             this.scenePath = scenePath;
             this.hairTessellationType = hairTessellationType;
             this.hairRadiusScale = hairRadiusScale;
-            this.useLss = hairTessellationType == HairTessellation.Lss;
+            this.useLss = settings.lssSupported;
+            this.pendingTessellation = false;
             this.lights = [];
             this.tonemapPipelineReady = false;
             this.targetsReady = false;
@@ -482,14 +685,7 @@ namespace RtxcrPathtracer {
 
             // The animated hair (morph targets), and the acceleration structures over the scene.
             this.morphTargetCount = this.rtxcrScene.createMorphTargets();
-            const buildList = this.app.createCommandList();
-            buildList.open();
-            this.rtxcrScene.buildAccelStructs(buildList.handle, true);
-            this.rtxcrScene.buildTlas(buildList.handle, this.settings.showEmissiveSurfaces);
-            buildList.close();
-            this.app.executeCommandList(buildList);
-            this.app.waitForIdle();
-            this.app.releaseResource(buildList.handle);
+            this.buildAccelStructs();
 
             if (!this.createPipelines()) {
                 return false;
@@ -538,6 +734,13 @@ namespace RtxcrPathtracer {
         onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.elapsedSeconds = elapsedSeconds;
+
+            // Another tessellation of the hair makes buffers and acceleration structures in command lists of
+            // their own, which no frame's list may be open beside.
+            if (this.settings.switchTessellation >= 0 && this.frameCounter == 4) {
+                this.settings.hairTessellationType = this.settings.switchTessellation;
+            }
+            this.changeTessellation();
 
             // The sample's SampleScene::Animate: the scene's node animations, each starting a second
             // after the previous one.
@@ -740,14 +943,8 @@ namespace RtxcrPathtracer {
             }
 
             // The morph target pass.
-            if (this.morphTargetCount > 0) {
-                const morphShader = this.app.createShaderWithDefine("morphTargetAnimation.cs.hlsl", "main_cs", ShaderType.Compute,
-                    "RTXCR_CURVE_TESSELLATION_TYPE", `${this.hairTessellationType}`);
-                if (!morphShader) {
-                    console.log("Cannot load the morph target shader");
-                    return false;
-                }
-                this.rtxcrScene.setMorphTargetShader(morphShader);
+            if (!this.createMorphTargetShader()) {
+                return false;
             }
 
             // Tone mapping: the sample's pixel shader over a full-screen strip.
@@ -764,6 +961,51 @@ namespace RtxcrPathtracer {
                 return false;
             }
             return true;
+        }
+
+        // The morph target pass's shader for the hair's tessellation.
+        createMorphTargetShader() {
+            if (this.morphTargetCount > 0) {
+                const morphShader = this.app.createShaderWithDefine("morphTargetAnimation.cs.hlsl", "main_cs", ShaderType.Compute,
+                    "RTXCR_CURVE_TESSELLATION_TYPE", `${this.hairTessellationType}`);
+                if (!morphShader) {
+                    console.log("Cannot load the morph target shader");
+                    return false;
+                }
+                this.rtxcrScene.setMorphTargetShader(morphShader);
+            }
+            return true;
+        }
+
+        // The window asked for another hair tessellation: the scene's hair, morph targets and
+        // acceleration structures are made again, and the render targets' bindings (the scene's buffers).
+        changeTessellation() {
+            const type = this.settings.hairTessellationType;
+            if (type == this.hairTessellationType) {
+                return;
+            }
+            this.app.waitForIdle();
+            if (this.rtxcrScene.setTessellationType(type, this.frameCounter) == 0) {
+                return;
+            }
+            this.hairTessellationType = type;
+            this.morphTargetCount = this.rtxcrScene.createMorphTargets();
+            this.createMorphTargetShader();
+            this.buildAccelStructs();
+            this.releaseTargets();
+        }
+
+        // The bottom level structures of the scene's meshes and the top level one, in a command list of their
+        // own (the frame's might have used the morph targets' vertex buffers already).
+        buildAccelStructs() {
+            const buildList = this.app.createCommandList();
+            buildList.open();
+            this.rtxcrScene.buildAccelStructs(buildList.handle, true);
+            this.rtxcrScene.buildTlas(buildList.handle, this.settings.showEmissiveSurfaces);
+            buildList.close();
+            this.app.executeCommandList(buildList);
+            this.app.waitForIdle();
+            this.app.releaseResource(buildList.handle);
         }
 
         createBindingSets() {
@@ -971,6 +1213,15 @@ namespace RtxcrPathtracer {
             const height = frame.getHeight();
             const commandList = frame.getCommandList();
 
+            this.camera.setMoveSpeed(this.settings.cameraSpeed);
+            this.settings.accumulatedFrames = this.accumulatedFrameCount;
+            this.settings.morphTargetCount = this.morphTargetCount;
+            this.settings.frameSeconds = this.app.getAverageFrameTime();
+            if (this.settings.dirty) {
+                this.resetAccumulation = true;
+                this.settings.dirty = false;
+            }
+
             if (this.targetsReady && (width != this.width || height != this.height)) {
                 this.releaseTargets();
             }
@@ -993,7 +1244,6 @@ namespace RtxcrPathtracer {
             const output = this.pathTracerOutput;
             const cleared: TextureHandle[] = [];
             cleared.push(output);
-            cleared.push(this.postProcessing);
             cleared.push(this.emissive);
             cleared.push(this.albedo);
             cleared.push(this.specularAlbedo);
@@ -1065,6 +1315,9 @@ namespace RtxcrPathtracer {
         height: int = 1080;
         // -noAccumulate: shows every frame as rendered.
         accumulate: boolean = true;
+        // -switchTessellation <type>: the window's tessellation choice, made after the first frames (a test of
+        // changing it while running).
+        switchTessellation: int = -1;
         // -enableAnimation <0 or 1>: the sample's option; Space toggles it.
         enableAnimation: boolean = false;
 
@@ -1082,6 +1335,8 @@ namespace RtxcrPathtracer {
                         this.width = parseInt(this[i + 1]);
                     } else if (arg == "-height") {
                         this.height = parseInt(this[i + 1]);
+                    } else if (arg == "-switchTessellation") {
+                        this.switchTessellation = parseInt(this[i + 1]);
                     } else if (arg == "-enableAnimation") {
                         this.enableAnimation = parseInt(this[i + 1]) != 0;
                     }
@@ -1093,7 +1348,14 @@ namespace RtxcrPathtracer {
     export function main(argc: int, argv: Ref<string>) {
         Donut_SetAppName("rtxcr_pathtracer");
 
-        const args = new RtxcrArgs(argc, argv, TEST_FRAMES);
+        // -frames <n>: the frames -test renders.
+        let testFrames = TEST_FRAMES;
+        for (let i = 1; i + 1 < argc; i++) {
+            if (Donut_GetArg(argv, i) == "-frames") {
+                testFrames = parseInt(Donut_GetArg(argv, i + 1));
+            }
+        }
+        const args = new RtxcrArgs(argc, argv, testFrames);
         args.parseArgs();
 
         if (args.scenePath == "") {
@@ -1114,17 +1376,18 @@ namespace RtxcrPathtracer {
 
         // LSS hair needs the device's support and the shaders' NVAPI extensions: D3D12 only (the sample's
         // shaders of the other APIs have none); else the sample's fallback, DOTS.
+        const settings = new Settings();
+        settings.lssSupported = args.api == GraphicsAPI.D3D12 && app.isFeatureSupported(Feature.LinearSweptSpheres) &&
+            app.isFeatureSupported(Feature.HlslExtensionUAV);
         let hairTessellationType = args.hairTessellationType;
-        if (hairTessellationType == HairTessellation.Lss &&
-            !(args.api == GraphicsAPI.D3D12 && app.isFeatureSupported(Feature.LinearSweptSpheres) &&
-                app.isFeatureSupported(Feature.HlslExtensionUAV))) {
+        if (hairTessellationType == HairTessellation.Lss && !settings.lssSupported) {
             console.log("Linear swept spheres aren't available here: the hair is DOTS");
             hairTessellationType = HairTessellation.Dots;
         }
-
-        const settings = new Settings();
+        settings.hairTessellationType = hairTessellationType;
         settings.enableAccumulation = args.accumulate;
         settings.enableAnimations = args.enableAnimation;
+        settings.switchTessellation = args.switchTessellation;
         const renderer = new Renderer(app, settings, args.scenePath, hairTessellationType, args.hairRadiusScale);
         if (!renderer.init()) {
             app.destroy();
@@ -1132,6 +1395,13 @@ namespace RtxcrPathtracer {
         }
 
         const input = new InputPass(app.handle);
+        if (!args.noUI) {
+            const ui = new UserInterface(settings);
+            if (!ui.init(app)) {
+                app.destroy();
+                return 1;
+            }
+        }
 
         app.run();
         let result = 0;

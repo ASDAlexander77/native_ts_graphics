@@ -2857,6 +2857,9 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_RtxcrCreateScene(device: Opaque, loadedScene: SceneHandle, descriptorTables: DescriptorTableManagerHandle,
     hairRadiusScale: number, tessellationType: int): RtxcrSceneHandle;
 @nodrops declare function Donut_RtxcrDestroyScene(rtxcrScene: RtxcrSceneHandle): void;
+// Makes the hair type (0 polytubes, 1 DOTS, 2 LSS) and uploads the scene's buffers again; then make the
+// morph targets and the acceleration structures again, and what binds the scene's buffers. 1 if it changed.
+@nodrops declare function Donut_RtxcrSetTessellationType(rtxcrScene: RtxcrSceneHandle, type: int, frameIndex: int): int;
 @nodrops declare function Donut_RtxcrGetCurveMeshCount(rtxcrScene: RtxcrSceneHandle): int;
 // The scene's bottom level structures (all of them if rebuild, else the missing ones) and its top level
 // one, recorded into an open command list.

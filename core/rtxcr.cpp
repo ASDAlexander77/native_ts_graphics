@@ -96,9 +96,12 @@ namespace
         // The animated meshes' two vertex buffers: the hit shaders read the one the frame's parity picks
         // (their bindless descriptors are consecutive: the mesh's, then the next one) and the previous
         // frame's, the other.
-        std::unordered_map<const BufferGroup*, nvrhi::BufferHandle[2]> dynamicVertexBuffers;
-        // Keeps the second buffers' descriptors.
-        std::vector<std::shared_ptr<DescriptorHandle>> secondDescriptors;
+        struct DynamicVertexBuffers
+        {
+            nvrhi::BufferHandle buffers[2];
+            std::shared_ptr<DescriptorHandle> secondDescriptor;
+        };
+        std::unordered_map<const BufferGroup*, DynamicVertexBuffers> dynamicVertexBuffers;
         nvrhi::BufferHandle morphTargetMask;
         nvrhi::ShaderHandle morphShader;
         nvrhi::BindingLayoutHandle morphLayout;
@@ -294,7 +297,6 @@ namespace
                     geometry->numVertices = geometryNumVertices;
                     geometry->indexOffsetInMesh = 0;
                     geometry->vertexOffsetInMesh = vertexOffsetInMesh;
-                    geometry->globalGeometryIndex = geometryIndex;
 
                     globalIndex = rtxcr::geometry::convertToLinearSweptSpheres(lineSegments, segmentCount,
                         reinterpret_cast<float*>(meshBuffers->positionData.data()), meshBuffers->radiusData.data(), globalIndex);
@@ -309,7 +311,6 @@ namespace
                 geometry->numVertices = geometryNumVertices;
                 geometry->indexOffsetInMesh = indexOffsetInMesh;
                 geometry->vertexOffsetInMesh = vertexOffsetInMesh;
-                geometry->globalGeometryIndex = geometryIndex;
 
                 if (type == Polytube)
                 {
@@ -383,21 +384,23 @@ namespace
         }
 
         // Both buffers start with the mesh's vertices; the second one's descriptor follows the first's.
-        auto& buffers = s.dynamicVertexBuffers[meshBuffers];
+        auto& dynamicBuffers = s.dynamicVertexBuffers[meshBuffers];
+        auto& buffers = dynamicBuffers.buffers;
         buffers[0] = s.device->createBuffer(bufferDesc);
         bufferDesc.debugName = "Dynamic VertexBuffer - " + meshName + " 1";
         buffers[1] = s.device->createBuffer(bufferDesc);
         meshBuffers->vertexBuffer = buffers[0];
-        std::shared_ptr<DescriptorHandle> secondDescriptor;
         if (s.descriptorTable)
         {
+            // Release the old pair's descriptors first, so these two are consecutive free ones.
+            meshBuffers->vertexBufferDescriptor = nullptr;
+            dynamicBuffers.secondDescriptor = nullptr;
             meshBuffers->vertexBufferDescriptor = std::make_shared<DescriptorHandle>(
                 s.descriptorTable->CreateDescriptorHandle(nvrhi::BindingSetItem::RawBuffer_SRV(0, buffers[0])));
-            secondDescriptor = std::make_shared<DescriptorHandle>(
+            dynamicBuffers.secondDescriptor = std::make_shared<DescriptorHandle>(
                 s.descriptorTable->CreateDescriptorHandle(nvrhi::BindingSetItem::RawBuffer_SRV(0, buffers[1])));
-            assert(secondDescriptor->Get() == meshBuffers->vertexBufferDescriptor->Get() + 1);
+            assert(dynamicBuffers.secondDescriptor->Get() == meshBuffers->vertexBufferDescriptor->Get() + 1);
         }
-        s.secondDescriptors.push_back(secondDescriptor);
 
         nvrhi::CommandListHandle commandList = s.device->createCommandList();
         commandList->open();
@@ -441,8 +444,13 @@ namespace
             if (!mesh->IsCurve())
                 continue;
 
+            // The geometries keep the scene's indices (the tessellations' are per mesh).
             for (uint32_t geometryIndex = 0; geometryIndex < mesh->geometries.size(); ++geometryIndex)
+            {
+                const int globalGeometryIndex = mesh->geometries[geometryIndex]->globalGeometryIndex;
                 *mesh->geometries[geometryIndex] = cache[curveIndex].geometries[geometryIndex];
+                mesh->geometries[geometryIndex]->globalGeometryIndex = globalGeometryIndex;
+            }
 
             mesh->type = type == Polytube ? MeshType::CurvePolytubes :
                 type == DisjointOrthogonalTriangleStrip ? MeshType::CurveDisjointOrthogonalTriangleStrips :
@@ -571,6 +579,24 @@ extern "C"
 
         scene->FinishedLoading(0);
         return s.release();
+    }
+
+    // Makes the scene's hair `type` (0 polytubes, 1 DOTS, 2 LSS) and uploads its buffers again. The morph
+    // targets, bottom level structures and everything bound to the scene's buffers are the caller's to
+    // make again (Donut_RtxcrCreateMorphTargets, Donut_RtxcrBuildAccelStructs). Returns 1 if it changed.
+    DONUT_API int Donut_RtxcrSetTessellationType(RtxcrScene* s, int type, int frameIndex)
+    {
+        if (type == s->tessellationType || type < 0 || type >= TessellationTypeCount)
+            return 0;
+
+        s->device->waitForIdle();
+        s->tessellationType = type;
+        s->morphTargets.clear();
+        s->morphPipeline = nullptr;
+        s->morphLayout = nullptr;
+        replacingSceneMesh(*s, type, s->scene->GetSceneGraph()->GetMeshInstances());
+        s->scene->FinishedLoading(static_cast<uint32_t>(frameIndex));
+        return 1;
     }
 
     DONUT_API void Donut_RtxcrDestroyScene(RtxcrScene* s)
@@ -880,7 +906,7 @@ extern "C"
             // The frame's vertex buffer: the hit shaders read the descriptor index + (frame index % 2).
             const auto dynamicBuffers = s->dynamicVertexBuffers.find(mesh->buffers.get());
             if (dynamicBuffers != s->dynamicVertexBuffers.end())
-                mesh->buffers->vertexBuffer = dynamicBuffers->second[frameIndex & 1];
+                mesh->buffers->vertexBuffer = dynamicBuffers->second.buffers[frameIndex & 1];
 
             const auto& positionRange = mesh->buffers->getVertexBufferRange(VertexAttribute::Position);
             const auto& normalRange = mesh->buffers->getVertexBufferRange(VertexAttribute::Normal);
