@@ -3718,4 +3718,22 @@ if (RTXCR_DIR)
     add_tslang_example_test(rtxcr_pathtracer SUFFIX animation_lss_switch APIS dx12
         ARGS -width 960 -height 540 -hairTessellationType 1 -switchTessellation 2 -enableAnimation 1
         --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+
+    # The same scene rasterized (examples/rtxcr_raster.ts): Donut's forward shading pass with a pixel shader of its
+    # own, which shades the hair with RTXCR's far-field hair BCSDF (RTXCR_DIR's material library, included).
+    donut_compile_shaders(
+        TARGET rtxcr_raster_shaders
+        PROJECT_NAME "RTXCR Raster"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_raster.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_raster_ps.hlsl
+        INCLUDES ${RTXCR_DIR}/libraries/rtxcr/material/shaders/include
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_raster/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_raster/spirv
+    )
+    add_tslang_example(rtxcr_raster core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp MEDIA fonts)
+    add_dependencies(rtxcr_raster rtxcr_raster_shaders)
+    target_link_libraries(rtxcr_raster PRIVATE NRD)
+    add_tslang_example_test(rtxcr_raster ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_raster SUFFIX polytube
+        ARGS -width 960 -height 540 -hairTessellationType 0 --scene ${RTXCR_DIR}/assets/claire.scene.json)
 endif()

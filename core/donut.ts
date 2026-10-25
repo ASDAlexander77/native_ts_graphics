@@ -1614,6 +1614,12 @@ export class App {
         return new ForwardShadingPass(Donut_CreateForwardShadingPassWithOptions(this.handle, singlePassCubemap, trackLiveness));
     }
 
+    // A forward shading pass whose pixel shader is the example's own: fileName in bin/shaders/<example>
+    // (entry point main, the bindings and inputs of Donut's forward_ps.hlsl).
+    createForwardShadingPassWithPixelShader(fileName: string, numConstantBufferVersions: int): ForwardShadingPass {
+        return new ForwardShadingPass(Donut_CreateForwardShadingPassWithPixelShader(this.handle, fileName, numConstantBufferVersions));
+    }
+
     // The lights a forward shading pass renders with, kept between its draws.
     createForwardShadingContext(): ForwardShadingContextHandle {
         return Donut_CreateForwardShadingContext(this.handle);

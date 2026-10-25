@@ -11495,6 +11495,37 @@ extern "C"
         return a->OwnObject(pass);
     }
 
+    // A forward shading pass whose pixel shader is the example's own (compiled from its shaders/<example>.cfg,
+    // bin/shaders/<example>), for the bindings and vertex inputs of Donut's forward_ps.hlsl.
+    class CustomPixelShaderForwardShadingPass : public donut::render::ForwardShadingPass
+    {
+    public:
+        using ForwardShadingPass::ForwardShadingPass;
+        std::string pixelShaderFile;
+
+    protected:
+        nvrhi::ShaderHandle CreatePixelShader(donut::engine::ShaderFactory& shaderFactory, const CreateParameters& params, bool transmissiveMaterial) override
+        {
+            std::vector<donut::engine::ShaderMacro> macros;
+            macros.push_back(donut::engine::ShaderMacro("TRANSMISSIVE_MATERIAL", transmissiveMaterial ? "1" : "0"));
+            return shaderFactory.CreateShader(pixelShaderFile.c_str(), "main", &macros, nvrhi::ShaderType::Pixel);
+        }
+    };
+
+    // Donut's forward shading pass with the example's own pixel shader: fileName (entry point main, macro
+    // TRANSMISSIVE_MATERIAL as in Donut's) is the file of the example's shaders. numConstantBufferVersions
+    // bounds how many views it can render per frame.
+    DONUT_API donut::render::ForwardShadingPass* Donut_CreateForwardShadingPassWithPixelShader(App* app, const char* fileName, int numConstantBufferVersions)
+    {
+        App* a = app;
+        auto pass = std::make_shared<CustomPixelShaderForwardShadingPass>(a->device(), a->sharedCommonPasses());
+        pass->pixelShaderFile = std::string("app/") + fileName;
+        donut::render::ForwardShadingPass::CreateParameters params;
+        params.numConstantBufferVersions = static_cast<uint32_t>(numConstantBufferVersions);
+        pass->Init(*a->shaderFactory, params);
+        return a->OwnObject(std::static_pointer_cast<donut::render::ForwardShadingPass>(pass));
+    }
+
     DONUT_API void Donut_ResetForwardShadingBindingCache(donut::render::ForwardShadingPass* forwardShadingPass)
     {
         forwardShadingPass->ResetBindingCache();

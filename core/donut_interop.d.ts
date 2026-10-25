@@ -2766,6 +2766,9 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // Geometry passes.
 // singlePassCubemap != 0 renders cube map views in one pass (Feature.FastGeometryShader).
 @nodrops declare function Donut_CreateForwardShadingPassWithOptions(app: AppHandle, singlePassCubemap: int, trackLiveness: int): ForwardShadingPassHandle;
+// A forward shading pass whose pixel shader is the example's own: fileName in bin/shaders/<example>
+// (entry point main, the bindings and inputs of Donut's forward_ps.hlsl).
+@nodrops declare function Donut_CreateForwardShadingPassWithPixelShader(app: AppHandle, fileName: string, numConstantBufferVersions: int): ForwardShadingPassHandle;
 @nodrops declare function Donut_ResetForwardShadingBindingCache(forwardShadingPass: ForwardShadingPassHandle): void;
 // The lights a forward shading pass renders with, kept between its draws.
 @nodrops declare function Donut_CreateForwardShadingContext(app: AppHandle): ForwardShadingContextHandle;
