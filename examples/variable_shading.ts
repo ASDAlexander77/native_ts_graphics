@@ -245,7 +245,7 @@ namespace VariableShading {
             } else {
                 // Enable VRS, with a per-draw shading rate of 1x1, and make the shading rate image
                 // result always override all others.
-                this.view.setVariableRateShading(1);
+                this.view.setVariableRateShading(true);
             }
 
             // Forward pass to draw the scene with the VRS surface set above.
@@ -255,7 +255,7 @@ namespace VariableShading {
             if (this.useRawD3D12) {
                 frame.endD3D12ShadingRateImage(shadingRateSurface);
             } else {
-                this.view.setVariableRateShading(0);
+                this.view.setVariableRateShading(false);
             }
             // VRS-specific code ends here
 

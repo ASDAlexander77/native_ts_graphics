@@ -208,7 +208,7 @@ namespace PredicationQueries {
             desc.addBindingLayout(this.bindingLayout);
             desc.setPrimitiveType(PrimitiveType.TriangleStrip);
             desc.setDepthState(1, 1, ComparisonFunc.Less);
-            desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
+            desc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                 BlendFactor.One, BlendFactor.Zero, BlendOp.Add);
             this.pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.framebuffer);
 

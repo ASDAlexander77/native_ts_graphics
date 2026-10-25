@@ -384,7 +384,7 @@ namespace ExtendedDynamicState2 {
             desc.addBindingLayout(this.bindingLayout);
             desc.setDepthState(1, 1, ComparisonFunc.Greater);
             desc.setRasterState(CullMode.Back, FillMode.Solid, 0);
-            desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
+            desc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                 BlendFactor.One, BlendFactor.Zero, BlendOp.Add);
             return desc;
         }
@@ -633,19 +633,19 @@ namespace ExtendedDynamicState2 {
         buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
-                p.tessellation = Donut_ImGuiCheckbox("Tessellation Enable", p.tessellation ? 1 : 0) != 0;
+            Donut_ImGuiBegin("Options", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+                p.tessellation = Donut_ImGuiCheckbox("Tessellation Enable", p.tessellation);
                 // Maximum tessellation factor is set to 4.0
                 p.tessFactor = Donut_ImGuiSliderFloat("Tessellation Factor", p.tessFactor, 1.0, 4.0);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Models") != 0) {
-                p.selectionActive = Donut_ImGuiCheckbox("Selection effect active", p.selectionActive ? 1 : 0) != 0;
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Models")) {
+                p.selectionActive = Donut_ImGuiCheckbox("Selection effect active", p.selectionActive);
                 const names = p.baselineNodes.map((node): string => node.name);
                 p.selectedObject = Donut_ImGuiCombo("Name", p.selectedObject, comboItems(names));
                 const node = p.baselineNodes[p.selectedObject];
-                node.depthBias = Donut_ImGuiCheckbox("Depth Bias Enable", node.depthBias ? 1 : 0) != 0;
-                node.rasterizerDiscard = Donut_ImGuiCheckbox("Rasterizer Discard", node.rasterizerDiscard ? 1 : 0) != 0;
+                node.depthBias = Donut_ImGuiCheckbox("Depth Bias Enable", node.depthBias);
+                node.rasterizerDiscard = Donut_ImGuiCheckbox("Rasterizer Discard", node.rasterizerDiscard);
             }
             Donut_ImGuiEnd();
         }

@@ -713,14 +713,14 @@ namespace RtParticles {
         }
 
         checkbox(label: string, value: boolean) {
-            return Donut_ImGuiCheckbox(label, value ? 1 : 0) != 0;
+            return Donut_ImGuiCheckbox(label, value);
         }
 
         buildUI() {
             const ui = this.ui;
 
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Settings", 1);
+            Donut_ImGuiBegin("Settings", true);
 
             ui.enableAnimations = this.checkbox("Animate particles (Space)", ui.enableAnimations);
             ui.alwaysUpdateOrientation = this.checkbox("Update orientation when paused", ui.alwaysUpdateOrientation);
@@ -743,10 +743,10 @@ namespace RtParticles {
             // MLAB fragment count combo box.
             Donut_ImGuiPushItemWidth(40.0);
             let newFragmentCount = ui.mlabFragments;
-            if (Donut_ImGuiBeginCombo("Blending fragments", `${ui.mlabFragments}`) != 0) {
+            if (Donut_ImGuiBeginCombo("Blending fragments", `${ui.mlabFragments}`)) {
                 for (let i = 0; i < 4; i++) {
                     const fragmentCount = g_MlabFragmentCounts[i];
-                    if (Donut_ImGuiSelectable(`${fragmentCount}`, newFragmentCount == fragmentCount ? 1 : 0) != 0) {
+                    if (Donut_ImGuiSelectable(`${fragmentCount}`, newFragmentCount == fragmentCount)) {
                         newFragmentCount = fragmentCount;
                     }
                 }

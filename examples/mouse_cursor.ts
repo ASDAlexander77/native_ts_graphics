@@ -561,7 +561,7 @@ namespace MouseCursor {
             pass.setBackBufferResizingCallback(this.onBackBufferResizing);
             pass.setRenderCallback(this.onRender);
             // Animate runs unfocused too, to see the focus go (the sample's capture lost).
-            pass.setRunWhenUnfocused(1);
+            pass.setRunWhenUnfocused(true);
             return true;
         }
 
@@ -838,7 +838,7 @@ namespace MouseCursor {
             spriteDesc.addBindingLayout(this.spriteLayout);
             spriteDesc.setDepthState(0, 0, ComparisonFunc.Always);
             spriteDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
-            spriteDesc.setBlendState(1, BlendFactor.One, BlendFactor.InvSrcAlpha, BlendOp.Add,
+            spriteDesc.setBlendState(true, BlendFactor.One, BlendFactor.InvSrcAlpha, BlendOp.Add,
                 BlendFactor.One, BlendFactor.InvSrcAlpha, BlendOp.Add);
             this.spritePipeline = this.app.createGraphicsPipelineFromDesc(spriteDesc, framebuffer);
 
@@ -850,7 +850,7 @@ namespace MouseCursor {
             dualDesc.addBindingLayout(this.modelLayout);
             dualDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
             dualDesc.setRasterState(CullMode.Back, FillMode.Solid, 0);
-            dualDesc.setDepthClip(1);
+            dualDesc.setDepthClip(true);
             this.dualPipeline = this.app.createGraphicsPipelineFromDesc(dualDesc, framebuffer);
 
             const basicDesc = GraphicsPipelineDesc.create(this.basicVS, this.basicPS);
@@ -858,7 +858,7 @@ namespace MouseCursor {
             basicDesc.addBindingLayout(this.modelLayout);
             basicDesc.setDepthState(1, 1, ComparisonFunc.LessOrEqual);
             basicDesc.setRasterState(CullMode.Back, FillMode.Solid, 0);
-            basicDesc.setDepthClip(1);
+            basicDesc.setDepthClip(true);
             this.basicPipeline = this.app.createGraphicsPipelineFromDesc(basicDesc, framebuffer);
             this.pipelinesCreated = true;
         }

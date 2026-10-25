@@ -354,7 +354,7 @@ export class App {
 
     // Apps start with vsync on; the change takes effect at the start of the next frame (on Vulkan it
     // recreates the swap chain, so the passes get onBackBufferResizing).
-    setVsyncEnabled(enabled: int): void {
+    setVsyncEnabled(enabled: boolean): void {
         Donut_SetVsyncEnabled(this.handle, enabled);
     }
 
@@ -731,7 +731,7 @@ export class App {
     // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
     // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
     // one copy of a mesh for rasterization and ray tracing.
-    createStaticGeometryBuffer(commandList: CommandList, data: Opaque, byteSize: int, isIndexBuffer: int, debugName: string): BufferHandle {
+    createStaticGeometryBuffer(commandList: CommandList, data: Opaque, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
         return Donut_CreateStaticGeometryBuffer(this.handle, commandList.handle, data, byteSize, isIndexBuffer, debugName);
     }
 
@@ -772,7 +772,7 @@ export class App {
 
     // A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file from
     // fileOffset, uploaded by an open command list. Null (after logging why) on failure.
-    createStaticBufferFromBinaryFile(commandList: CommandList, binaryFile: BinaryFile, fileOffset: int, byteSize: int, isIndexBuffer: int, debugName: string): BufferHandle {
+    createStaticBufferFromBinaryFile(commandList: CommandList, binaryFile: BinaryFile, fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
         return Donut_CreateStaticBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
     }
 
@@ -1716,7 +1716,7 @@ export class Pass {
         return !this.handle;
     }
 
-    setRunWhenUnfocused(enabled: int): void {
+    setRunWhenUnfocused(enabled: boolean): void {
         Donut_SetRunWhenUnfocused(this.handle, enabled);
     }
 
@@ -1862,7 +1862,7 @@ export class Frame {
         Donut_DrawSetDepthBounds(this.handle, minDepth, maxDepth);
     }
 
-    drawSetVariableRateShading(enabled: int, shadingRate: VariableShadingRate, primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void {
+    drawSetVariableRateShading(enabled: boolean, shadingRate: VariableShadingRate, primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void {
         Donut_DrawSetVariableRateShading(this.handle, enabled, shadingRate, primitiveCombiner, imageCombiner);
     }
 
@@ -2286,7 +2286,7 @@ export class CommandList {
 
     // Lights the G-buffer into HDR color; the targets' ambient occlusion if useAmbientOcclusion != 0,
     // and a light probe set (or null).
-    renderDeferredLightingToHdr(deferredLightingPass: DeferredLightingPass, view: View, sceneRenderTargets: SceneRenderTargets, sceneGraph: SceneGraph, useAmbientOcclusion: int, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: LightProbeSet | null): void {
+    renderDeferredLightingToHdr(deferredLightingPass: DeferredLightingPass, view: View, sceneRenderTargets: SceneRenderTargets, sceneGraph: SceneGraph, useAmbientOcclusion: boolean, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: LightProbeSet | null): void {
         Donut_RenderDeferredLightingToHdr(this.handle, deferredLightingPass.handle, view.handle, sceneRenderTargets.handle, sceneGraph.handle, useAmbientOcclusion, topR, topG, topB, bottomR, bottomG, bottomB, lightProbeSet ? (lightProbeSet as LightProbeSet).handle : null);
     }
 
@@ -2769,7 +2769,7 @@ export class RtPipelineDesc {
     }
 
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
-    setAllowOpacityMicromaps(allow: int): void {
+    setAllowOpacityMicromaps(allow: boolean): void {
         Donut_RtPipelineSetAllowOpacityMicromaps(this.handle, allow);
     }
 }
@@ -2831,7 +2831,7 @@ export class GraphicsPipelineDesc {
 
     // The depth bounds test: pixels whose depth target value is outside the draw's bounds
     // (Donut_DrawSetDepthBounds) are discarded (requires Donut_HasDepthBoundsTest).
-    setDepthBoundsTest(enable: int): void {
+    setDepthBoundsTest(enable: boolean): void {
         Donut_GraphicsPipelineSetDepthBoundsTest(this.handle, enable);
     }
 
@@ -2840,13 +2840,13 @@ export class GraphicsPipelineDesc {
     }
 
     // Whether draws are clipped to their scissor rectangle (Donut_DrawSetScissor; D3D needs it on).
-    setScissorEnable(enable: int): void {
+    setScissorEnable(enable: boolean): void {
         Donut_GraphicsPipelineSetScissorEnable(this.handle, enable);
     }
 
     // Primitives clipped at the near and far planes (as Vulkan by default), or not (the default here:
     // on D3D what lies beyond them is drawn, its depth clamped).
-    setDepthClip(enable: int): void {
+    setDepthClip(enable: boolean): void {
         Donut_GraphicsPipelineSetDepthClip(this.handle, enable);
     }
 
@@ -2863,7 +2863,7 @@ export class GraphicsPipelineDesc {
 
     // Blending of every color target, on or off, by the blend factors and operations of the color and
     // of the alpha; the color write mask stays.
-    setBlendState(enable: int, srcBlend: BlendFactor, destBlend: BlendFactor, blendOp: BlendOp, srcBlendAlpha: BlendFactor, destBlendAlpha: BlendFactor, blendOpAlpha: BlendOp): void {
+    setBlendState(enable: boolean, srcBlend: BlendFactor, destBlend: BlendFactor, blendOp: BlendOp, srcBlendAlpha: BlendFactor, destBlendAlpha: BlendFactor, blendOpAlpha: BlendOp): void {
         Donut_GraphicsPipelineSetBlendState(this.handle, enable, srcBlend, destBlend, blendOp, srcBlendAlpha, destBlendAlpha, blendOpAlpha);
     }
 
@@ -2877,14 +2877,14 @@ export class GraphicsPipelineDesc {
 
     // A logic operation between the pixel shader's output and the targets' bits instead of blending
     // (requires Donut_HasLogicOps; UINT and UNORM targets).
-    setLogicOp(enable: int, logicOp: LogicOp): void {
+    setLogicOp(enable: boolean, logicOp: LogicOp): void {
         Donut_GraphicsPipelineSetLogicOp(this.handle, enable, logicOp);
     }
 
     // Conservative rasterization (requires Feature.ConservativeRasterization): every pixel a triangle
     // touches is drawn; extraOverestimation enlarges triangles further, in pixels, on Vulkan only
     // (clamped to the device's maximum).
-    setConservativeRaster(enable: int, extraOverestimation: number): void {
+    setConservativeRaster(enable: boolean, extraOverestimation: number): void {
         Donut_GraphicsPipelineSetConservativeRaster(this.handle, enable, extraOverestimation);
     }
 
@@ -2915,7 +2915,7 @@ export class GraphicsPipelineDesc {
 
     // Variable rate shading in a pipeline: its draws take the draw state's shading rate
     // (Donut_DrawSetVariableRateShading) combined with the framebuffer's shading rate surface.
-    setVariableRateShading(enabled: int): void {
+    setVariableRateShading(enabled: boolean): void {
         Donut_GraphicsPipelineSetVariableRateShading(this.handle, enabled);
     }
 }
@@ -2977,7 +2977,7 @@ export class AsyncComputeLoop {
     }
 
     // Non-zero: no more runs start until resumed (one under way finishes).
-    setPaused(paused: int): void {
+    setPaused(paused: boolean): void {
         Donut_SetAsyncComputeLoopPaused(this.handle, paused);
     }
 
@@ -3298,7 +3298,7 @@ export class Light {
         return !this.handle;
     }
 
-    imGuiEditor(): int {
+    imGuiEditor(): boolean {
         return Donut_ImGuiLightEditor(this.handle);
     }
 
@@ -3342,8 +3342,8 @@ export class Material {
         return !this.handle;
     }
 
-    // Donut's material / light editor widgets, for a scene material / light; non-zero if it changed.
-    imGuiEditor(allowDomainChanges: int): int {
+    // Donut's material / light editor widgets, for a scene material / light; true if it changed.
+    imGuiEditor(allowDomainChanges: boolean): boolean {
         return Donut_ImGuiMaterialEditor(this.handle, allowDomainChanges);
     }
 
@@ -3360,7 +3360,7 @@ export class Material {
         return Donut_GetMaterialDomain(this.handle);
     }
 
-    setDirty(dirty: int): void {
+    setDirty(dirty: boolean): void {
         Donut_SetMaterialDirty(this.handle, dirty);
     }
 }
@@ -3599,7 +3599,7 @@ export class View {
     }
 
     // enabled != 0: the view's draws use the framebuffer's shading rate surface alone; 0: full rate.
-    setVariableRateShading(enabled: int): void {
+    setVariableRateShading(enabled: boolean): void {
         Donut_SetViewVariableRateShading(this.handle, enabled);
     }
 
@@ -3987,7 +3987,7 @@ export class LightProbeSet {
         return Donut_IsLightProbeEnabled(this.handle, index) != 0;
     }
 
-    setEnabled(index: int, enabled: int): void {
+    setEnabled(index: int, enabled: boolean): void {
         Donut_SetLightProbeEnabled(this.handle, index, enabled);
     }
 

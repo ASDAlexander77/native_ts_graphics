@@ -243,13 +243,13 @@ namespace MeshShaderCulling {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Use WASD to move the square\n Configurations:\n") != 0) {
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Use WASD to move the square\n Configurations:\n")) {
                 sample.cullRadius = Donut_ImGuiSliderFloat("Cull Radius: ", sample.cullRadius, 0.5, 2.0);
                 sample.densityLevel = Donut_ImGuiCombo("Meshlet Density Level: ", sample.densityLevel, "4 x 4|6 x 6|8 x 8");
 
                 if (sample.hasStatistics) {
-                    if (Donut_ImGuiCollapsingHeaderDefaultOpen("Pipeline statistics") != 0) {
+                    if (Donut_ImGuiCollapsingHeaderDefaultOpen("Pipeline statistics")) {
                         Donut_ImGuiText(`TS invocations: ${sample.statistics.get(StatKind.Task)}`);
                         Donut_ImGuiText(`MS invocations: ${sample.statistics.get(StatKind.Mesh)}`);
                         Donut_ImGuiText(`FS invocations: ${sample.statistics.get(StatKind.Pixel)}`);

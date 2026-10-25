@@ -354,7 +354,7 @@ namespace DynamicMultisampleRasterization {
                 const flipped = group == DrawGroup.OpaqueFlipped || group == DrawGroup.TransparentFlipped;
                 desc.setRasterState(CullMode.Back, FillMode.Solid, flipped ? 0 : 1);
                 if (group == DrawGroup.Transparent || group == DrawGroup.TransparentFlipped) {
-                    desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
+                    desc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                         BlendFactor.InvSrcAlpha, BlendFactor.Zero, BlendOp.Add);
                 }
                 this.pipelines.push(this.own(this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0])));
@@ -568,9 +568,9 @@ namespace DynamicMultisampleRasterization {
                 }
             }
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Dynamic Multisample Rasterization", 1);
+            Donut_ImGuiBegin("Dynamic Multisample Rasterization", true);
             Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0 && sample.supportedCounts.length > 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") && sample.supportedCounts.length > 0) {
                 current = Donut_ImGuiCombo("antialiasing", current, this.names);
                 sample.sampleCount = sample.supportedCounts[current];
             }

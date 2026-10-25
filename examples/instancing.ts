@@ -441,7 +441,7 @@ namespace Instancing {
 
         buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Statistics", 1);
+            Donut_ImGuiBegin("Statistics", true);
             Donut_ImGuiText(`Instances: ${INSTANCE_COUNT}`);
             Donut_ImGuiEnd();
         }

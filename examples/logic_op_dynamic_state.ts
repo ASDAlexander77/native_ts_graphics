@@ -345,7 +345,7 @@ namespace LogicOpDynamicState {
             desc.addBindingLayout(this.baselineBindingLayout);
             desc.setDepthState(1, 1, ComparisonFunc.Greater);
             desc.setRasterState(CullMode.Back, FillMode.Solid, 0);
-            desc.setLogicOp(1, logicOp);
+            desc.setLogicOp(true, logicOp);
             const pipeline = this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
             this.baselinePipelines[logicOp] = pipeline;
             return pipeline;
@@ -492,8 +492,8 @@ namespace LogicOpDynamicState {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
                 sample.selectedOperation = Donut_ImGuiCombo("Logic operation", sample.selectedOperation, LOGIC_OP_NAMES);
             }
             Donut_ImGuiEnd();

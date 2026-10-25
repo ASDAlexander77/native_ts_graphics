@@ -781,7 +781,7 @@ namespace ShaderObjectSample {
             desc.addBindingLayout(this.sceneLayout);
             desc.setDepthState(1, depthWrite, ComparisonFunc.Greater);
             desc.setRasterState(cullMode, wireframe != 0 ? FillMode.Wireframe : FillMode.Solid, 1);
-            desc.setDepthClip(1);
+            desc.setDepthClip(true);
             const pipeline = this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
             this.pipelineIndex[key] = this.pipelineList.length;
             this.pipelineList.push(pipeline);
@@ -998,7 +998,7 @@ namespace ShaderObjectSample {
         }
 
         checkbox(label: string, value: boolean) {
-            return Donut_ImGuiCheckbox(label, value ? 1 : 0) != 0;
+            return Donut_ImGuiCheckbox(label, value);
         }
 
         // The sample's imgui_slider: a checkbox (iterate this choice), the slider (grayed out when
@@ -1028,10 +1028,10 @@ namespace ShaderObjectSample {
             const dpiFactor = fontSize / 13.0;
 
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Shader Object", 1);
+            Donut_ImGuiBegin("Shader Object", true);
             // The framework's drawer narrows the items to 110 pixels (scaled).
             Donut_ImGuiPushItemWidth(110.0 * dpiFactor);
-            if (Donut_ImGuiCollapsingHeader("Options") != 0) {
+            if (Donut_ImGuiCollapsingHeader("Options")) {
                 const span = Math.min(Math.max(width, 1300), 2000);
                 const checkboxOptionSpacing = Math.floor(span * 0.12 * dpiFactor);
                 const sliderSpacing = Math.floor(span * 0.24 * dpiFactor);
@@ -1072,7 +1072,7 @@ namespace ShaderObjectSample {
                     s.currentDepthFormat, s.depthFormats.length - 1, sliderSpacing, checkboxSpacing);
                 s.currentDepthFormat = this.sliderValue;
 
-                if (Donut_ImGuiButton("Randomize All") != 0) {
+                if (Donut_ImGuiButton("Randomize All")) {
                     s.randomizeCurrent();
                 }
             }

@@ -684,8 +684,8 @@ namespace MultiDrawIndirect {
             const mdi = this.mdi;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("GPU Rendering") != 0) {
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("GPU Rendering")) {
                 Donut_ImGuiText(`Multi-Draw Indirect: ${supportText((mdi.support & IndirectDrawSupport.MultiDraw) != 0)}`);
                 Donut_ImGuiText(`drawIndirectFirstInstance: ${supportText((mdi.support & IndirectDrawSupport.FirstInstance) != 0)}`);
                 Donut_ImGuiText(`Device buffer address: ${supportText((mdi.support & IndirectDrawSupport.BufferDeviceAddress) != 0)}`);
@@ -693,8 +693,8 @@ namespace MultiDrawIndirect {
                 Donut_ImGuiText("");
                 Donut_ImGuiText(`Instances: ${mdi.instanceCount} / ${mdi.modelCount}`);
 
-                mdi.enableMdi = Donut_ImGuiCheckbox("Enable multi-draw", mdi.enableMdi ? 1 : 0) != 0;
-                mdi.freezeCull = Donut_ImGuiCheckbox("Freeze culling", mdi.freezeCull ? 1 : 0) != 0;
+                mdi.enableMdi = Donut_ImGuiCheckbox("Enable multi-draw", mdi.enableMdi);
+                mdi.freezeCull = Donut_ImGuiCheckbox("Freeze culling", mdi.freezeCull);
                 mdi.renderMode = Donut_ImGuiCombo("Cull mode", mdi.renderMode, RENDER_MODE_NAMES);
             }
             Donut_ImGuiEnd();

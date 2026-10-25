@@ -710,7 +710,7 @@ namespace MeshletCull {
             sphereDesc.addBindingLayout(this.cullDataLayout);
             sphereDesc.setDepthState(0, 0, ComparisonFunc.Less);
             sphereDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
-            sphereDesc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
+            sphereDesc.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                 BlendFactor.Zero, BlendFactor.One, BlendOp.Max);
             this.spherePipeline = this.app.createMeshletPipelineFromDesc(sphereDesc, this.framebuffer);
 

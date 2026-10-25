@@ -830,7 +830,7 @@ namespace Bokeh {
                 desc.setPrimitiveType(PrimitiveType.PointList);
                 desc.setDepthState(0, 0, ComparisonFunc.Always);
                 desc.setRasterState(CullMode.None, FillMode.Solid, 0);
-                desc.setBlendState(1, BlendFactor.One, BlendFactor.One, BlendOp.Add, BlendFactor.One, BlendFactor.One, BlendOp.Add);
+                desc.setBlendState(true, BlendFactor.One, BlendFactor.One, BlendOp.Add, BlendFactor.One, BlendFactor.One, BlendOp.Add);
                 const pipeline = this.app.createGraphicsPipelineFromDesc(desc, this.dofFramebuffer as FramebufferHandle);
                 if (i == 0) {
                     this.quadPointPipeline = pipeline;

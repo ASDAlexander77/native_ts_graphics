@@ -633,15 +633,15 @@ namespace CalibratedTimestampsSample {
             const timestamps = hdr.timestamps;
             const timestampPeriod = Math.fround(this.timestampPeriod);
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Calibrated Timestamps", 1);
+            Donut_ImGuiBegin("Calibrated Timestamps", true);
             Donut_ImGuiPushItemWidth(110.0);
             // The sample's two-line texts, a line at a time.
             Donut_ImGuiText("Timestamps Period:");
             Donut_ImGuiText(` ${timestampPeriod.toFixed(1)} Nanoseconds`);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
                 hdr.objectIndex = Donut_ImGuiCombo("Object type", hdr.objectIndex, OBJECT_NAMES);
-                hdr.bloom = Donut_ImGuiCheckbox("Bloom", hdr.bloom ? 1 : 0) != 0;
-                hdr.displaySkybox = Donut_ImGuiCheckbox("Skybox", hdr.displaySkybox ? 1 : 0) != 0;
+                hdr.bloom = Donut_ImGuiCheckbox("Bloom", hdr.bloom);
+                hdr.displaySkybox = Donut_ImGuiCheckbox("Skybox", hdr.displaySkybox);
             }
             if (timestamps.anyMeasured()) {
                 Donut_ImGuiText("Time Domain Selected:");

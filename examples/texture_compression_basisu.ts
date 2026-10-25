@@ -360,8 +360,8 @@ namespace TextureCompressionBasisu {
         buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Basis Universal texture loading", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Input") != 0) {
+            Donut_ImGuiBegin("Basis Universal texture loading", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Input")) {
                 Donut_ImGuiText("Input image:");
                 Donut_ImGuiPushItemWidth(180.0);
                 sample.selectedInputTexture = Donut_ImGuiCombo("##img", sample.selectedInputTexture, comboItems(TEXTURE_FILE_NAMES));
@@ -370,7 +370,7 @@ namespace TextureCompressionBasisu {
                 Donut_ImGuiPushItemWidth(180.0);
                 sample.selectedTranscodeTargetFormat = Donut_ImGuiCombo("##tt", sample.selectedTranscodeTargetFormat, this.targetNames);
                 Donut_ImGuiPopItemWidth();
-                if (Donut_ImGuiButton("Transcode") != 0) {
+                if (Donut_ImGuiButton("Transcode")) {
                     sample.transcodePending = true;
                 }
                 Donut_ImGuiText(`Transcoded in ${formatFixed(sample.lastTranscodeTime, 2)} ms`);

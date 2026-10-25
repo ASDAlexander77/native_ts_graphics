@@ -268,9 +268,9 @@ namespace TextureLoading {
         buildUI() {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Texture Loading", 1);
+            Donut_ImGuiBegin("Texture Loading", true);
             Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
                 sample.lodBias = Donut_ImGuiSliderFloat("LOD bias", sample.lodBias, 0.0, MIP_LEVELS);
             }
             Donut_ImGuiPopItemWidth();

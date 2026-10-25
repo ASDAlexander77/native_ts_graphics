@@ -186,7 +186,7 @@ namespace SimpleCompute {
                     computeLoop.addTextureWithBindingSet(texture, this.app.getCachedBindingSet(asyncDesc, bindingLayout));
                 }
                 computeLoop.setPushConstants(Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
-                computeLoop.setPaused(1);
+                computeLoop.setPaused(true);
                 computeLoop.start();
             } else {
                 console.log("The graphics device has no compute queue: synchronous compute only");
@@ -223,7 +223,7 @@ namespace SimpleCompute {
                 this.runsAtResume = this.computeLoop.getRunCount();
                 this.lastRunCount = this.runsAtResume;
             }
-            this.computeLoop.setPaused(value ? 0 : 1);
+            this.computeLoop.setPaused(!value);
         }
 
         onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {

@@ -395,7 +395,7 @@ namespace FragmentShadingRateDynamic {
                     const desc = GraphicsPipelineDesc.create(this.sceneVS, this.scenePS);
                     desc.setInputLayout(this.inputLayout);
                     desc.addBindingLayout(this.renderBindingLayout);
-                    desc.setVariableRateShading(1);
+                    desc.setVariableRateShading(true);
                     if (cube == 1) {
                         // Depth tested (greater: reversed) and written, front faces culled.
                         desc.setDepthState(1, 1, ComparisonFunc.Greater);
@@ -424,7 +424,7 @@ namespace FragmentShadingRateDynamic {
             const imageCombiner = useAttachment ? ShadingRateCombiner.Override : ShadingRateCombiner.Passthrough;
             if (this.displaySkySphere) {
                 frame.beginDrawToFramebuffer(this.skyspherePipeline, framebuffer);
-                frame.drawSetVariableRateShading(1, VariableShadingRate.Rate1x1, ShadingRateCombiner.Passthrough, imageCombiner);
+                frame.drawSetVariableRateShading(true, VariableShadingRate.Rate1x1, ShadingRateCombiner.Passthrough, imageCombiner);
                 frame.drawAddBindingSet(bindingSet);
                 frame.drawSetIndexBuffer(this.skysphereMesh.getIndexBuffer());
                 frame.drawAddVertexBuffer(this.skysphereMesh.getVertexBuffer(), 0, 0);
@@ -436,7 +436,7 @@ namespace FragmentShadingRateDynamic {
                 frame.drawIndexedWithPushConstants(this.skysphereMesh.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
             frame.beginDrawToFramebuffer(this.cubePipeline, framebuffer);
-            frame.drawSetVariableRateShading(1, VariableShadingRate.Rate1x1, ShadingRateCombiner.Passthrough, imageCombiner);
+            frame.drawSetVariableRateShading(true, VariableShadingRate.Rate1x1, ShadingRateCombiner.Passthrough, imageCombiner);
             frame.drawAddBindingSet(bindingSet);
             frame.drawSetIndexBuffer(this.sceneMesh.getIndexBuffer());
             frame.drawAddVertexBuffer(this.sceneMesh.getVertexBuffer(), 0, 0);
@@ -523,10 +523,10 @@ namespace FragmentShadingRateDynamic {
         buildUI() {
             const p = this.pass;
             Donut_ImGuiSetNextWindowPos(10.0, p.getSubpassHeight() + 10.0);
-            Donut_ImGuiBegin("Options", 1);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") != 0) {
+            Donut_ImGuiBegin("Options", true);
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
                 p.enableAttachmentShadingRate = Donut_ImGuiCheckbox("Enable attachment shading rate",
-                    p.enableAttachmentShadingRate ? 1 : 0) != 0;
+                    p.enableAttachmentShadingRate);
                 let selection = 0;
                 while ((1 << (selection + 1)) <= p.subpassExtentRatio && selection < 4) {
                     selection++;
@@ -534,7 +534,7 @@ namespace FragmentShadingRateDynamic {
                 selection = Donut_ImGuiCombo("Subpass size reduction", selection, SUBPASS_RATIOS);
                 p.subpassExtentRatio = 1 << selection;
                 p.colorShadingRate = Donut_ImGuiCombo("Data visualize", p.colorShadingRate, VISUALIZE_NAMES);
-                p.displaySkySphere = Donut_ImGuiCheckbox("sky-sphere", p.displaySkySphere ? 1 : 0) != 0;
+                p.displaySkySphere = Donut_ImGuiCheckbox("sky-sphere", p.displaySkySphere);
             }
             Donut_ImGuiEnd();
         }

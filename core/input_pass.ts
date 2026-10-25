@@ -24,7 +24,7 @@ export class InputPass {
         }
 
         if (key == Key.V && action == Action.Press) {
-            this.app.setVsyncEnabled(this.app.isVsyncEnabled() ? 0 : 1);
+            this.app.setVsyncEnabled(!this.app.isVsyncEnabled());
             return 1;
         }
 

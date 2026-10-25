@@ -888,14 +888,14 @@ namespace AsyncComputeBloom {
         buildUI() {
             const post = this.post;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", 1);
+            Donut_ImGuiBegin("Options", true);
             if (post.hasComputeQueue()) {
-                post.asyncEnabled = Donut_ImGuiCheckbox("Enable async queues", post.asyncEnabled ? 1 : 0) != 0;
+                post.asyncEnabled = Donut_ImGuiCheckbox("Enable async queues", post.asyncEnabled);
             } else {
                 Donut_ImGuiText("No compute queue: no async queues");
             }
-            post.doubleBufferHdr = Donut_ImGuiCheckbox("Double buffer HDR", post.doubleBufferHdr ? 1 : 0) != 0;
-            post.rotateShadows = Donut_ImGuiCheckbox("Rotate shadows", post.rotateShadows ? 1 : 0) != 0;
+            post.doubleBufferHdr = Donut_ImGuiCheckbox("Double buffer HDR", post.doubleBufferHdr);
+            post.rotateShadows = Donut_ImGuiCheckbox("Rotate shadows", post.rotateShadows);
             Donut_ImGuiEnd();
         }
     }

@@ -421,7 +421,7 @@ namespace DynamicRenderingLocalRead {
                 transparent.addBindingLayout(this.transparentBindingLayout);
                 transparent.setDepthState(1, 1, ComparisonFunc.Greater);
                 transparent.setRasterState(CullMode.None, FillMode.Solid, 1);
-                transparent.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
+                transparent.setBlendState(true, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                     BlendFactor.Zero, BlendFactor.One, BlendOp.Add);
                 this.transparentPipeline = this.app.createGraphicsPipelineFromDesc(transparent, this.transparentFramebuffers[0]);
                 this.pipelinesCreated = true;
@@ -532,9 +532,9 @@ namespace DynamicRenderingLocalRead {
 
         buildUI() {
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Dynamic Rendering Local Read", 1);
+            Donut_ImGuiBegin("Dynamic Rendering Local Read", true);
             Donut_ImGuiText("Using separate passes (no local read)");
-            if (Donut_ImGuiButton("Randomize lights") != 0) {
+            if (Donut_ImGuiButton("Randomize lights")) {
                 this.sample.randomizeLights();
             }
             Donut_ImGuiEnd();

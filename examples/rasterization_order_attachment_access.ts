@@ -522,9 +522,9 @@ namespace RasterizationOrderAttachmentAccess {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
+            Donut_ImGuiBegin("Vulkan Example", true);
             if (sample.rovSupported) {
-                sample.rovEnabled = Donut_ImGuiCheckbox("Enable ROAA", sample.rovEnabled ? 1 : 0) != 0;
+                sample.rovEnabled = Donut_ImGuiCheckbox("Enable ROAA", sample.rovEnabled);
             } else {
                 Donut_ImGuiText("ROAA not supported on this device");
             }

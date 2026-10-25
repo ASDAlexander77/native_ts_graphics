@@ -514,12 +514,12 @@ namespace MemoryBudget {
         buildUI() {
             const h = this.heaps;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Memory Budget", 1);
+            Donut_ImGuiBegin("Memory Budget", true);
             Donut_ImGuiText(`Total Memory Usage: ${formatMemory(h.totalUsage)}`);
             Donut_ImGuiText(`Total Memory Budget: ${formatMemory(h.totalBudget)}`);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Memory Heap Details") != 0) {
+            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Memory Heap Details")) {
                 for (let i = 0; i < h.usage.length; i++) {
-                    if (Donut_ImGuiCollapsingHeaderDefaultOpen(`Memory Heap Index: ${i}`) != 0) {
+                    if (Donut_ImGuiCollapsingHeaderDefaultOpen(`Memory Heap Index: ${i}`)) {
                         Donut_ImGuiText(`Usage: ${formatMemory(h.usage[i])}`);
                         Donut_ImGuiText(`Budget: ${formatMemory(h.budget[i])}`);
                         Donut_ImGuiText(`Heap Flag: ${heapFlagName(h.flags[i])}`);

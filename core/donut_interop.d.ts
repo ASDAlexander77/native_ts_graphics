@@ -1061,7 +1061,7 @@ enum ComputeDerivatives {
 @nodrops declare function Donut_SetInformativeWindowTitleWithInfo(app: AppHandle, title: string, extraInfo: string): void;
 // Apps start with vsync on; the change takes effect at the start of the next frame (on Vulkan it
 // recreates the swap chain, so the passes get onBackBufferResizing).
-@nodrops declare function Donut_SetVsyncEnabled(app: AppHandle, enabled: int): void;
+@nodrops declare function Donut_SetVsyncEnabled(app: AppHandle, enabled: boolean): void;
 // Lags Donut_SetVsyncEnabled by up to a frame.
 @nodrops declare function Donut_IsVsyncEnabled(app: AppHandle): int;
 // Makes Donut_RunApp return after the current frame, in test mode too (before the frames it was to
@@ -1367,14 +1367,14 @@ enum ShaderType {
     depthFunc: ComparisonFunc): void;
 // The depth bounds test: pixels whose depth target value is outside the draw's bounds
 // (Donut_DrawSetDepthBounds) are discarded (requires Donut_HasDepthBoundsTest).
-@nodrops declare function Donut_GraphicsPipelineSetDepthBoundsTest(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int): void;
+@nodrops declare function Donut_GraphicsPipelineSetDepthBoundsTest(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: boolean): void;
 @nodrops declare function Donut_GraphicsPipelineSetRasterState(graphicsPipelineDesc: GraphicsPipelineDescHandle, cullMode: CullMode, fillMode: FillMode,
     frontCounterClockwise: int): void;
 // Whether draws are clipped to their scissor rectangle (Donut_DrawSetScissor; D3D needs it on).
-@nodrops declare function Donut_GraphicsPipelineSetScissorEnable(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int): void;
+@nodrops declare function Donut_GraphicsPipelineSetScissorEnable(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: boolean): void;
 // Primitives clipped at the near and far planes (as Vulkan by default), or not (the default here:
 // on D3D what lies beyond them is drawn, its depth clamped).
-@nodrops declare function Donut_GraphicsPipelineSetDepthClip(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int): void;
+@nodrops declare function Donut_GraphicsPipelineSetDepthClip(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: boolean): void;
 // depthBias units of the depth format's resolution plus slopeScaledDepthBias times the depth
 // slope, clamped to depthBiasClamp in magnitude (0: no clamp).
 @nodrops declare function Donut_GraphicsPipelineSetDepthBias(graphicsPipelineDesc: GraphicsPipelineDescHandle, depthBias: int, depthBiasClamp: number,
@@ -1383,7 +1383,7 @@ enum ShaderType {
 @nodrops declare function Donut_GraphicsPipelineSetBlendMode(graphicsPipelineDesc: GraphicsPipelineDescHandle, blendMode: BlendMode): void;
 // Blending of every color target, on or off, by the blend factors and operations of the color and
 // of the alpha; the color write mask stays.
-@nodrops declare function Donut_GraphicsPipelineSetBlendState(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int, srcBlend: BlendFactor,
+@nodrops declare function Donut_GraphicsPipelineSetBlendState(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: boolean, srcBlend: BlendFactor,
     destBlend: BlendFactor, blendOp: BlendOp, srcBlendAlpha: BlendFactor, destBlendAlpha: BlendFactor, blendOpAlpha: BlendOp): void;
 // An advanced blend operation for the targets that blend, instead of their factors and operations
 // (Vulkan, with Donut_GetAdvancedBlendOperations): its number from VK_BLEND_OP_ZERO_EXT (0 Zero ...
@@ -1393,11 +1393,11 @@ enum ShaderType {
     srcPremultiplied: int, dstPremultiplied: int, overlap: int): void;
 // A logic operation between the pixel shader's output and the targets' bits instead of blending
 // (requires Donut_HasLogicOps; UINT and UNORM targets).
-@nodrops declare function Donut_GraphicsPipelineSetLogicOp(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int, logicOp: LogicOp): void;
+@nodrops declare function Donut_GraphicsPipelineSetLogicOp(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: boolean, logicOp: LogicOp): void;
 // Conservative rasterization (requires Feature.ConservativeRasterization): every pixel a triangle
 // touches is drawn; extraOverestimation enlarges triangles further, in pixels, on Vulkan only
 // (clamped to the device's maximum).
-@nodrops declare function Donut_GraphicsPipelineSetConservativeRaster(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: int, extraOverestimation: number): void;
+@nodrops declare function Donut_GraphicsPipelineSetConservativeRaster(graphicsPipelineDesc: GraphicsPipelineDescHandle, enable: boolean, extraOverestimation: number): void;
 // Primitive restart: strips restart at the largest index of indexFormat (R16_UINT: 0xFFFF, R32_UINT:
 // 0xFFFFFFFF; UNKNOWN for none), the format of the index buffers the pipeline draws with (D3D12
 // needs it; D3D11 always restarts strips).
@@ -1432,7 +1432,7 @@ enum ShaderType {
 // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
 // one copy of a mesh for rasterization and ray tracing.
 @nodrops declare function Donut_CreateStaticGeometryBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int,
-    isIndexBuffer: int, debugName: string): BufferHandle;
+    isIndexBuffer: boolean, debugName: string): BufferHandle;
 // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
 @nodrops declare function Donut_CreateStaticRawVertexBuffer(app: AppHandle, commandList: CommandListHandle, data: Opaque, byteSize: int, debugName: string): BufferHandle;
 // The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
@@ -1476,7 +1476,7 @@ enum ShaderType {
 // A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file from
 // fileOffset, uploaded by an open command list. Null (after logging why) on failure.
 @nodrops declare function Donut_CreateStaticBufferFromBinaryFile(app: AppHandle, commandList: CommandListHandle, binaryFile: BinaryFileHandle,
-    fileOffset: int, byteSize: int, isIndexBuffer: int, debugName: string): BufferHandle;
+    fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle;
 // A texture level (Donut_CreateTextureWithLevels) from the file's bytes at fileOffset, its rows (of
 // 4 x 4 blocks for block-compressed formats) rowPitch bytes apart, copied during the call into an
 // open command list.
@@ -1755,7 +1755,7 @@ enum ShaderType {
 // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
 @nodrops declare function Donut_RtPipelineSetMaxAttributeSize(pipelineDesc: RtPipelineDescHandle, byteSize: int): void;
 // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
-@nodrops declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: RtPipelineDescHandle, allow: int): void;
+@nodrops declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: RtPipelineDescHandle, allow: boolean): void;
 @nodrops declare function Donut_CreateRayTracingPipelineFromDesc(app: AppHandle, pipelineDesc: RtPipelineDescHandle): RtPipelineHandle;
 // Shader tables of any shape, filled with the Donut_ShaderTable* functions; they keep the
 // pipeline alive. The Add functions return the new entry's index.
@@ -1828,7 +1828,7 @@ enum ShaderType {
 // (Ref of a `let` array element), copied during the call; the layout's push constants' size.
 @nodrops declare function Donut_SetAsyncComputePushConstants(asyncComputeLoop: AsyncComputeLoopHandle, data: Opaque, byteSize: int): void;
 // Non-zero: no more runs start until resumed (one under way finishes).
-@nodrops declare function Donut_SetAsyncComputeLoopPaused(asyncComputeLoop: AsyncComputeLoopHandle, paused: int): void;
+@nodrops declare function Donut_SetAsyncComputeLoopPaused(asyncComputeLoop: AsyncComputeLoopHandle, paused: boolean): void;
 // Runs submitted so far.
 @nodrops declare function Donut_GetAsyncComputeRunCount(asyncComputeLoop: AsyncComputeLoopHandle): int;
 @nodrops declare function Donut_StartAsyncComputeLoop(asyncComputeLoop: AsyncComputeLoopHandle): void;
@@ -1892,7 +1892,7 @@ enum ShaderType {
 
 // Passes are owned by the app; later passes draw on top and get input first.
 @nodrops declare function Donut_AddPass(app: AppHandle): PassHandle;
-@nodrops declare function Donut_SetRunWhenUnfocused(pass: PassHandle, enabled: int): void;
+@nodrops declare function Donut_SetRunWhenUnfocused(pass: PassHandle, enabled: boolean): void;
 @nodrops declare function Donut_SetRenderCallback(pass: PassHandle, handler: RenderCallback): void;
 @nodrops declare function Donut_SetAnimateCallback(pass: PassHandle, handler: AnimateCallback): void;
 // Called before the swap chain is resized; release framebuffer-dependent resources here.
@@ -1915,7 +1915,7 @@ enum ShaderType {
 @nodrops declare function Donut_SetImGuiPassFramebuffer(imguiPass: ImGuiPassHandle, framebuffer: FramebufferHandle | null): void;
 @nodrops declare function Donut_ImGuiSetNextWindowPos(x: number, y: number): void;
 // autoResize != 0: the window fits its contents. Pair with Donut_ImGuiEnd.
-@nodrops declare function Donut_ImGuiBegin(title: string, autoResize: int): void;
+@nodrops declare function Donut_ImGuiBegin(title: string, autoResize: boolean): void;
 @nodrops declare function Donut_ImGuiEnd(): void;
 @nodrops declare function Donut_ImGuiText(text: string): void;
 @nodrops declare function Donut_ImGuiSeparator(): void;
@@ -1924,36 +1924,36 @@ enum ShaderType {
 @nodrops declare function Donut_ImGuiPushItemWidth(width: number): void;
 @nodrops declare function Donut_ImGuiPopItemWidth(): void;
 // Value in, new value out.
-@nodrops declare function Donut_ImGuiCheckbox(label: string, value: int): int;
-// Non-zero if clicked.
-@nodrops declare function Donut_ImGuiButton(label: string): int;
+@nodrops declare function Donut_ImGuiCheckbox(label: string, value: boolean): boolean;
+// True if clicked.
+@nodrops declare function Donut_ImGuiButton(label: string): boolean;
 // items separated by '|'; returns the new selection.
 @nodrops declare function Donut_ImGuiCombo(label: string, current: int, items: string): int;
-// Non-zero while the list is open: then add Donut_ImGuiSelectable items and Donut_ImGuiEndCombo.
-@nodrops declare function Donut_ImGuiBeginCombo(label: string, preview: string): int;
-// Non-zero if clicked.
-@nodrops declare function Donut_ImGuiSelectable(label: string, selected: int): int;
-// Shown selected when active is non-zero; non-zero if clicked.
-@nodrops declare function Donut_ImGuiRadioButton(label: string, active: int): int;
+// True while the list is open: then add Donut_ImGuiSelectable items and Donut_ImGuiEndCombo.
+@nodrops declare function Donut_ImGuiBeginCombo(label: string, preview: string): boolean;
+// True if clicked.
+@nodrops declare function Donut_ImGuiSelectable(label: string, selected: boolean): boolean;
+// Shown selected when active; true if clicked.
+@nodrops declare function Donut_ImGuiRadioButton(label: string, active: boolean): boolean;
 // 4 floats (RGBA) at values (Ref of a `let` f32 array element), width pixels wide (0: default);
-// non-zero if changed.
-@nodrops declare function Donut_ImGuiColorEdit4(label: string, values: Ref<f32>, width: number): int;
+// true if changed.
+@nodrops declare function Donut_ImGuiColorEdit4(label: string, values: Ref<f32>, width: number): boolean;
 // A color picker of 3 floats (Ref of a `let` f32 array; RGB, unbounded) without previews; non-zero
 // when changed.
-@nodrops declare function Donut_ImGuiColorPicker3(label: string, values: Ref<f32>, width: number): int;
+@nodrops declare function Donut_ImGuiColorPicker3(label: string, values: Ref<f32>, width: number): boolean;
 // Scopes the IDs of the widgets that follow (same labels apart) until Donut_ImGuiPopID.
 @nodrops declare function Donut_ImGuiPushID(id: int): void;
 @nodrops declare function Donut_ImGuiPopID(): void;
 @nodrops declare function Donut_ImGuiEndCombo(): void;
-// 3 floats at values (Ref of a `let` f32 array element); non-zero if changed.
-@nodrops declare function Donut_ImGuiDragFloat3(label: string, values: Ref<f32>, speed: number): int;
+// 3 floats at values (Ref of a `let` f32 array element); true if changed.
+@nodrops declare function Donut_ImGuiDragFloat3(label: string, values: Ref<f32>, speed: number): boolean;
 // Places the next window with its pivot (0..1 of its size; 1, 0 = top right corner) at x, y.
 @nodrops declare function Donut_ImGuiSetNextWindowPosPivot(x: number, y: number, pivotX: number, pivotY: number): void;
 // Value in, new value out.
 @nodrops declare function Donut_ImGuiSliderFloat(label: string, value: number, min: number, max: number): number;
 // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space, Escape); after
 // Donut_AddImGuiPass. ImGui then takes the keyboard while one of its windows has the focus.
-@nodrops declare function Donut_ImGuiSetKeyboardNavigation(enable: int): void;
+@nodrops declare function Donut_ImGuiSetKeyboardNavigation(enable: boolean): void;
 // Value in, new value out.
 @nodrops declare function Donut_ImGuiSliderInt(label: string, value: int, min: int, max: int): int;
 // The next item on this line, offsetFromStartX pixels from the window's left (0: right after the
@@ -1975,16 +1975,16 @@ enum ShaderType {
 // A number field with - and + buttons stepping it by step, shown with a printf format ("%.3f");
 // returns the new value.
 @nodrops declare function Donut_ImGuiInputFloat(label: string, value: number, step: number, format: string): number;
-// Non-zero while expanded.
-@nodrops declare function Donut_ImGuiCollapsingHeader(label: string): int;
+// True while expanded.
+@nodrops declare function Donut_ImGuiCollapsingHeader(label: string): boolean;
 // Same, expanded until the user collapses it.
-@nodrops declare function Donut_ImGuiCollapsingHeaderDefaultOpen(label: string): int;
+@nodrops declare function Donut_ImGuiCollapsingHeaderDefaultOpen(label: string): boolean;
 @nodrops declare function Donut_ImGuiSameLine(): void;
 // Ends the line: the next item starts on a new one (after Donut_ImGuiSameLine, an empty line).
 @nodrops declare function Donut_ImGuiNewLine(): void;
 // A scrolling region of width x height pixels (0: the rest of the window); end it with
 // Donut_ImGuiEndChild whatever this returns.
-@nodrops declare function Donut_ImGuiBeginChild(id: string, width: number, height: number, border: int): int;
+@nodrops declare function Donut_ImGuiBeginChild(id: string, width: number, height: number, border: boolean): boolean;
 @nodrops declare function Donut_ImGuiEndChild(): void;
 // Inside a combo box, after the selected item: scrolls to it when the list opens.
 @nodrops declare function Donut_ImGuiSetItemDefaultFocus(): void;
@@ -2006,12 +2006,12 @@ enum ShaderType {
 @nodrops declare function Donut_ImGuiBeginFullScreenWindow(imguiPass: ImGuiPassHandle): void;
 @nodrops declare function Donut_ImGuiDrawScreenCenteredText(imguiPass: ImGuiPassHandle, text: string): void;
 @nodrops declare function Donut_ImGuiEndFullScreenWindow(imguiPass: ImGuiPassHandle): void;
-// Donut's material / light editor widgets, for a scene material / light; non-zero if it changed.
-@nodrops declare function Donut_ImGuiMaterialEditor(material: MaterialHandle, allowDomainChanges: int): int;
-@nodrops declare function Donut_ImGuiLightEditor(light: LightHandle): int;
+// Donut's material / light editor widgets, for a scene material / light; true if it changed.
+@nodrops declare function Donut_ImGuiMaterialEditor(material: MaterialHandle, allowDomainChanges: boolean): boolean;
+@nodrops declare function Donut_ImGuiLightEditor(light: LightHandle): boolean;
 // The system's open (open != 0) or save file dialog; filters as "BMP files|*.bmp|All files|*.*".
 // The chosen path, or "" if cancelled; valid until the next call.
-@nodrops declare function Donut_FileDialog(open: int, filters: string): string;
+@nodrops declare function Donut_FileDialog(open: boolean, filters: string): string;
 
 // C++ objects (scenes, cameras, ...) are owned by the app until released or the app is destroyed.
 @nodrops declare function Donut_ReleaseObject(app: AppHandle, object: ObjectHandle): void;
@@ -2290,21 +2290,21 @@ enum ShaderType {
 @nodrops declare function Donut_GetFragmentShadingRates(app: AppHandle, dst: Ref<int>): int;
 // Variable rate shading in a pipeline: its draws take the draw state's shading rate
 // (Donut_DrawSetVariableRateShading) combined with the framebuffer's shading rate surface.
-@nodrops declare function Donut_GraphicsPipelineSetVariableRateShading(graphicsPipelineDesc: GraphicsPipelineDescHandle, enabled: int): void;
+@nodrops declare function Donut_GraphicsPipelineSetVariableRateShading(graphicsPipelineDesc: GraphicsPipelineDescHandle, enabled: boolean): void;
 // The draw state's shading rate (after Donut_BeginDraw*): the per-draw rate, combined with the
 // primitives' by primitiveCombiner, then with the framebuffer's shading rate surface by
 // imageCombiner (Passthrough keeps the rate so far, Override takes the new one).
 // The draw's depth bounds (after Donut_BeginDraw), for a pipeline with the depth bounds test: depth
 // target values from minDepth to maxDepth pass (0 to 1 by default).
 @nodrops declare function Donut_DrawSetDepthBounds(frame: FrameHandle, minDepth: number, maxDepth: number): void;
-@nodrops declare function Donut_DrawSetVariableRateShading(frame: FrameHandle, enabled: int, shadingRate: VariableShadingRate,
+@nodrops declare function Donut_DrawSetVariableRateShading(frame: FrameHandle, enabled: boolean, shadingRate: VariableShadingRate,
     primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void;
 // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
 // none) whose draws can take their shading rates from shadingRateSurface (null for none).
 @nodrops declare function Donut_CreateFramebufferWithShadingRate(app: AppHandle, colorTexture0: TextureHandle, colorTexture1: TextureHandle | null,
     depthTexture: TextureHandle | null, shadingRateSurface: TextureHandle | null): FramebufferHandle;
 // enabled != 0: the view's draws use the framebuffer's shading rate surface alone; 0: full rate.
-@nodrops declare function Donut_SetViewVariableRateShading(view: ViewHandle, enabled: int): void;
+@nodrops declare function Donut_SetViewVariableRateShading(view: ViewHandle, enabled: boolean): void;
 // The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
 // inside a render callback, Begin and End around the draws.
 @nodrops declare function Donut_BeginD3D12ShadingRateImage(frame: FrameHandle, shadingRateSurface: TextureHandle): void;
@@ -2631,7 +2631,7 @@ enum TemporalJitter {
 @nodrops declare function Donut_GetMaterialName(material: MaterialHandle): string;
 // A donut::engine::MaterialDomain value.
 @nodrops declare function Donut_GetMaterialDomain(material: MaterialHandle): int;
-@nodrops declare function Donut_SetMaterialDirty(material: MaterialHandle, dirty: int): void;
+@nodrops declare function Donut_SetMaterialDirty(material: MaterialHandle, dirty: boolean): void;
 @nodrops declare function Donut_GetSceneGraphMeshInstanceCount(sceneGraph: SceneGraphHandle): int;
 // The instance index (what material ID passes write) and node of the index-th mesh instance.
 @nodrops declare function Donut_GetMeshInstanceIndex(sceneGraph: SceneGraphHandle, index: int): int;
@@ -2753,7 +2753,7 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_RenderMaterialIDs(commandList: CommandListHandle, materialIdPass: MaterialIdPassHandle, view: ViewHandle, previousView: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle, sceneGraph: SceneGraphHandle, transparent: int): void;
 // Lights the G-buffer into HDR color; the targets' ambient occlusion if useAmbientOcclusion != 0,
 // and a light probe set (or null).
-@nodrops declare function Donut_RenderDeferredLightingToHdr(commandList: CommandListHandle, deferredLightingPass: DeferredLightingPassHandle, view: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle, sceneGraph: SceneGraphHandle, useAmbientOcclusion: int, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: LightProbeSetHandle | null): void;
+@nodrops declare function Donut_RenderDeferredLightingToHdr(commandList: CommandListHandle, deferredLightingPass: DeferredLightingPassHandle, view: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle, sceneGraph: SceneGraphHandle, useAmbientOcclusion: boolean, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, lightProbeSet: LightProbeSetHandle | null): void;
 
 // Post-processing and other passes.
 // Single-sample targets only; renders with default parameters.
@@ -2805,7 +2805,7 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_GetLightProbeCount(lightProbeSet: LightProbeSetHandle): int;
 @nodrops declare function Donut_GetLightProbeName(lightProbeSet: LightProbeSetHandle, index: int): string;
 @nodrops declare function Donut_IsLightProbeEnabled(lightProbeSet: LightProbeSetHandle, index: int): int;
-@nodrops declare function Donut_SetLightProbeEnabled(lightProbeSet: LightProbeSetHandle, index: int, enabled: int): void;
+@nodrops declare function Donut_SetLightProbeEnabled(lightProbeSet: LightProbeSetHandle, index: int, enabled: boolean): void;
 @nodrops declare function Donut_SetLightProbeScales(lightProbeSet: LightProbeSetHandle, index: int, diffuseScale: number, specularScale: number): void;
 @nodrops declare function Donut_GetLightProbeSpecularMipLevels(lightProbeSet: LightProbeSetHandle): int;
 @nodrops declare function Donut_CreateLightProbeProcessingPass(app: AppHandle): LightProbeProcessingPassHandle;

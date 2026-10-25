@@ -703,7 +703,7 @@ namespace RenderOctomap {
             desc.setDepthState(1, depthWrite, ComparisonFunc.LessOrEqual);
             desc.setRasterState(cullMode, FillMode.Solid, 1);
             // Clipped at the near plane, as Vulkan does (the camera walks through the map's walls).
-            desc.setDepthClip(1);
+            desc.setDepthClip(true);
             desc.setBlendMode(blendMode);
             return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
@@ -1102,7 +1102,7 @@ namespace RenderOctomap {
                 return false;
             }
             // The overlay works from the keyboard as well (as the framework's).
-            Donut_ImGuiSetKeyboardNavigation(1);
+            Donut_ImGuiSetKeyboardNavigation(true);
             return true;
         }
 
@@ -1110,14 +1110,14 @@ namespace RenderOctomap {
             const sample = this.sample;
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", 1);
-            if (Donut_ImGuiButton("OCTOMAP") != 0) {
+            Donut_ImGuiBegin("Vulkan Example", true);
+            if (Donut_ImGuiButton("OCTOMAP")) {
                 sample.setViewState(ViewKind.Octomap);
             }
-            if (Donut_ImGuiButton("GLTF MAP") != 0) {
+            if (Donut_ImGuiButton("GLTF MAP")) {
                 sample.setViewState(ViewKind.Gltf);
             }
-            if (Donut_ImGuiButton("SPLATS") != 0) {
+            if (Donut_ImGuiButton("SPLATS")) {
                 sample.setViewState(ViewKind.Splats);
             }
             Donut_ImGuiEnd();

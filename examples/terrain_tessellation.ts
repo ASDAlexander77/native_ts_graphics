@@ -399,14 +399,14 @@ namespace TerrainTessellation {
         }
 
         checkbox(label: string, value: boolean) {
-            return Donut_ImGuiCheckbox(label, value ? 1 : 0) != 0;
+            return Donut_ImGuiCheckbox(label, value);
         }
 
         buildUI() {
             const ui = this.ui;
 
             Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Settings", 1);
+            Donut_ImGuiBegin("Settings", true);
             ui.tessellation = this.checkbox("Tessellation", ui.tessellation);
             ui.tessellationFactor = Donut_ImGuiDragFloat("Factor", ui.tessellationFactor, 0.05, 0.0, 4.0);
             ui.wireframe = this.checkbox("Wireframe", ui.wireframe);

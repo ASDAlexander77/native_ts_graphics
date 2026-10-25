@@ -145,7 +145,7 @@ namespace DepthBoundsTest {
             boundsDesc.setInputLayout(this.inputLayout);
             boundsDesc.setDepthState(0, 1, ComparisonFunc.Less);
             if (this.depthBoundsTestSupported) {
-                boundsDesc.setDepthBoundsTest(1);
+                boundsDesc.setDepthBoundsTest(true);
             }
             this.boundsPipeline = this.app.createGraphicsPipelineFromDesc(boundsDesc, this.framebuffer);
             this.hasTargets = true;

@@ -710,7 +710,7 @@ namespace OpacityMicromaps {
                 return false;
             }
             const pipelineDesc = RtPipelineDesc.create(PAYLOAD_SIZE, MAX_RECURSION_DEPTH);
-            pipelineDesc.setAllowOpacityMicromaps(1);
+            pipelineDesc.setAllowOpacityMicromaps(true);
             pipelineDesc.addGlobalBindingLayout(this.bindingLayout);
             pipelineDesc.addShader(shaderLibrary, "MyRaygenShader", ShaderType.RayGeneration);
             pipelineDesc.addShader(shaderLibrary, "MyMissShader", ShaderType.Miss);
