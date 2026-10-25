@@ -445,6 +445,8 @@ add_dependencies(donut_interop_static check_interop_types)
 # some examples link into their executables (their add_tslang_example sources), with what those
 # need: the OBJ, SDKMESH and meshlet loaders, the PBRT scene, DirectXCollision, Basis Universal's
 # transcoder, the fast block compressor, the paged images, and (Windows) the video player.
+# rtxcr_pathtracer's C++ (core/rtxcr.cpp) includes the RTXCR checkout's headers: only with RTXCR_DIR.
+set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets")
 set(JIT_MODULE_SOURCES
     core/obj_model.cpp
     core/sdkmesh.cpp
@@ -458,6 +460,10 @@ if (WIN32)
     # denoised_rtao is Windows only (its PBRT parser includes windows.h, it decodes with WIC).
     list(APPEND JIT_MODULE_SOURCES core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
         core/video_player.cpp)
+endif()
+if (RTXCR_DIR)
+    list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
+    set_source_files_properties(core/rtxcr.cpp PROPERTIES INCLUDE_DIRECTORIES "${RTXCR_DIR}/libraries")
 endif()
 if (NOT ANDROID)
     add_library(donut_interop_shared SHARED core/donut_interop.cpp ${JIT_MODULE_SOURCES})
@@ -3606,3 +3612,26 @@ endif()
 add_tslang_example(feature_demo core/matrix.ts core/text_format.ts MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
 add_tslang_example_test(feature_demo)
 copy_dlss_library(feature_demo)
+
+# Port of NVIDIA's RTX Character Rendering pathtracer sample (github.com/NVIDIA-RTX/RTXCR): a path
+# tracer for hair and skin (the Claire scene). The sample is under the NVIDIA RTX SDKs License,
+# which doesn't allow copying it into an open source repository, so nothing of it is copied: with
+# RTXCR_DIR set to a checkout (with its submodules and assets pulled, see its README), the sample's
+# shaders compile in place (shaders/rtxcr_pathtracer.cfg names them) and the example loads its
+# scene from RTXCR_DIR/assets.
+if (RTXCR_DIR)
+    donut_compile_shaders(
+        TARGET rtxcr_pathtracer_shaders
+        PROJECT_NAME "RTXCR Pathtracer"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_pathtracer.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_pathtracer.cfg
+        INCLUDES
+            ${RTXCR_DIR}/samples/pathtracer
+            ${RTXCR_DIR}/libraries/rtxcr/material/shaders/include
+            ${RTXCR_DIR}/libraries/rtxcr/geometry/shaders/include
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/spirv
+        SHADERMAKE_OPTIONS "--sourceDir ${RTXCR_DIR}/samples/pathtracer/shaders"
+    )
+    add_tslang_example(rtxcr_pathtracer core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp)
+endif()

@@ -89,6 +89,7 @@ CLASSES = {
     "predicationBuffer": "PredicationBuffer",
     "binaryFile": "BinaryFile",
     "pbrtScene": "PbrtScene",
+    "rtxcrScene": "RtxcrScene",
     "sdkMesh": "SdkMesh",
     "meshletModel": "MeshletModel",
     "objModel": "ObjModel",
@@ -105,6 +106,7 @@ CLASSES = {
 # the module rather than donut.ts, for the examples linking the file to import.
 MODULES = {
     "PbrtScene": ("pbrt_scene", "core/denoised_rtao.cpp"),
+    "RtxcrScene": ("rtxcr_scene", "core/rtxcr.cpp"),
     "SdkMesh": ("sdk_mesh", "core/sdkmesh.cpp"),
     "MeshletModel": ("meshlet_model", "core/meshlet_model.cpp"),
     "ObjModel": ("obj_model", "core/obj_model.cpp"),
@@ -147,6 +149,7 @@ NOUNS = {
     "AsyncComputeLoop": ["AsyncCompute"],
     "BindingLayoutDesc": ["BindingLayout"],
     "PbrtScene": ["Pbrt"],
+    "RtxcrScene": ["Rtxcr"],
     "FbcTexture": ["Fbc"],
     "TranscodedTexture": ["Transcoded"],
     "VideoPlayer": ["Video"],
@@ -160,6 +163,8 @@ NOUNS = {
 # Method names that the rules above get wrong.
 METHOD_NAMES = {
     "Donut_SetViewVariableRateShading": "setVariableRateShading",
+    "Donut_RtxcrCreateScene": "create",
+    "Donut_RtxcrDestroyScene": "destroy",
     "Donut_CreateRayTracingPipelineDesc": "create",
     "Donut_CreateGraphicsPipelineDesc": "create",
     "Donut_CreateMeshletPipelineDesc": "createMeshlet",
@@ -323,6 +328,12 @@ class Function:
         first = self.params[0] if self.params else None
         self.is_method = bool(first and first.cls and not first.nullable)
         self.target = first.cls if self.is_method else self.returns_class
+        # A module is compiled apart from donut.ts, which it can't import (tslang would load it
+        # twice): its functions take other classes' objects as the raw handles.
+        if self.target in MODULES:
+            for param in self.params[1 if self.is_method else 0:]:
+                if param.cls and param.cls != self.target:
+                    param.cls = None
         # The function declared before it.
         self.previous = None
 

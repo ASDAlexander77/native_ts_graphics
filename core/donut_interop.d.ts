@@ -2109,6 +2109,8 @@ enum ShaderType {
 // Like Donut_LoadScene, registering the scene's buffers and textures in a descriptor table; the
 // scene's geometry and material buffers index into it.
 @nodrops declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: DescriptorTableManagerHandle): SceneHandle;
+// Same, leaving the scene's meshes in CPU memory, unuploaded, for core/rtxcr.cpp's Donut_RtxcrCreateScene to edit.
+@nodrops declare function Donut_LoadSceneWithDescriptorTableDeferred(app: AppHandle, path: string, descriptorTableManager: DescriptorTableManagerHandle): SceneHandle;
 // InstanceData / GeometryData / MaterialConstants structured buffers; valid as long as the scene.
 @nodrops declare function Donut_GetSceneBuffer(scene: SceneHandle, which: SceneBuffer): BufferHandle;
 // Geometries of a loaded scene, addressed by global geometry index (0 .. count - 1).
@@ -2827,3 +2829,19 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_RenderEnvironmentBrdf(commandList: CommandListHandle, lightProbeProcessingPass: LightProbeProcessingPassHandle): void;
 // Once the GPU is done: enables the probe within 10 units of where it was rendered from.
 @nodrops declare function Donut_FinishLightProbe(lightProbeSet: LightProbeSetHandle, index: int, lightProbeProcessingPass: LightProbeProcessingPassHandle, x: number, y: number, z: number): void;
+
+// --- RTX Character Rendering (core/rtxcr.cpp; the rtxcr_pathtracer example links it) ---
+// Takes a scene loaded by Donut_LoadSceneWithDescriptorTableDeferred: tessellates its hair curves into
+// polytubes, DOTS and LSS (hairRadiusScale scales their radii), makes tessellationType (0 polytubes,
+// 1 DOTS, 2 LSS) the scene's and uploads its buffers. `device` is Donut_GetNvrhiDevice's.
+@nodrops declare function Donut_RtxcrCreateScene(device: Opaque, loadedScene: SceneHandle, descriptorTables: DescriptorTableManagerHandle,
+    hairRadiusScale: number, tessellationType: int): RtxcrSceneHandle;
+@nodrops declare function Donut_RtxcrDestroyScene(rtxcrScene: RtxcrSceneHandle): void;
+@nodrops declare function Donut_RtxcrGetCurveMeshCount(rtxcrScene: RtxcrSceneHandle): int;
+// The scene's bottom level structures (all of them if rebuild, else the missing ones) and its top level
+// one, recorded into an open command list.
+@nodrops declare function Donut_RtxcrBuildAccelStructs(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, rebuild: boolean): void;
+// Builds the top level structure over the scene's instances (mask 4 for mirrors, 2 for emissive
+// surfaces unless showEmissiveSurfaces, else 1).
+@nodrops declare function Donut_RtxcrBuildTlas(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, showEmissiveSurfaces: boolean): void;
+@nodrops declare function Donut_RtxcrGetTlas(rtxcrScene: RtxcrSceneHandle): AccelStructHandle;

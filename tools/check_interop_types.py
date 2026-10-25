@@ -127,6 +127,7 @@ HANDLES = {
     "MeshletModel": "MeshletModelHandle",
     "ObjModel": "ObjModelHandle",
     "PbrtScene": "PbrtSceneHandle",
+    "RtxcrScene": "RtxcrSceneHandle",
     "GltfModel": "GltfModelHandle",
     "GltfMesh": "GltfMeshHandle",
     "BinaryFile": "BinaryFileHandle",
@@ -172,6 +173,7 @@ RAW_MEMORY = {
     # An nvrhi::IMessageCallback implemented in tslang (core/nvrhi.ts), handed to NVRHI.
     ("Donut_SetNvrhiMessageCallback", "callback"),
     ("Donut_InitPagedImageSet", "device"),
+    ("Donut_RtxcrCreateScene", "device"),
     ("Donut_CopyPbrtMeshMaterial", "dst"),
     ("Donut_FillLightConstants", "dst"),
     ("Donut_FillPlanarViewConstants", "dst"),

@@ -1143,6 +1143,11 @@ export class App {
         return new Scene(Donut_LoadSceneWithDescriptorTable(this.handle, path, descriptorTableManager.handle));
     }
 
+    // Same, leaving the scene's meshes in CPU memory, unuploaded, for core/rtxcr.cpp's Donut_RtxcrCreateScene to edit.
+    loadSceneWithDescriptorTableDeferred(path: string, descriptorTableManager: DescriptorTableManager): Scene {
+        return new Scene(Donut_LoadSceneWithDescriptorTableDeferred(this.handle, path, descriptorTableManager.handle));
+    }
+
     bindGeometryMaterialTexture(bindingSetDesc: BindingSetDesc, slot: int, scene: Scene, geometryIndex: int, which: MaterialTexture, fallback: FallbackTexture): void {
         Donut_BindGeometryMaterialTexture(this.handle, bindingSetDesc.handle, slot, scene.handle, geometryIndex, which, fallback);
     }

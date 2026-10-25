@@ -1291,7 +1291,7 @@ namespace
     // Loads a scene (path relative to the executable's directory, or absolute) on the app's thread
     // pool into textureCache, and descriptorTable if given, then finishes uploading its textures.
     donut::engine::Scene* LoadScene(App* a, const char* path, const std::shared_ptr<donut::engine::TextureCache>& textureCache,
-        const std::shared_ptr<donut::engine::DescriptorTableManager>& descriptorTable)
+        const std::shared_ptr<donut::engine::DescriptorTableManager>& descriptorTable, bool finishLoading = true)
     {
         auto nativeFS = std::make_shared<donut::vfs::NativeFileSystem>();
         auto scene = std::make_shared<donut::engine::Scene>(a->device(), *a->shaderFactory, nativeFS,
@@ -1304,7 +1304,8 @@ namespace
         textureCache->ProcessRenderingThreadCommands(*a->commonPasses(), 0.f);
         textureCache->LoadingFinished();
 
-        scene->FinishedLoading(a->deviceManager->GetFrameIndex());
+        if (finishLoading)
+            scene->FinishedLoading(a->deviceManager->GetFrameIndex());
         return a->OwnObject(scene);
     }
 
@@ -7768,6 +7769,18 @@ extern "C"
         auto textureCache = std::make_shared<donut::engine::TextureCache>(
             a->device(), std::make_shared<donut::vfs::NativeFileSystem>(), descriptorTable);
         return LoadScene(a, path, textureCache, descriptorTable);
+    }
+
+    // Same, leaving the scene's meshes as the file made them, in CPU memory: the caller edits them,
+    // then calls scene->FinishedLoading, which uploads them (and drops the CPU copies). The RTXCR
+    // example tessellates the hair curves this way (core/rtxcr.cpp).
+    DONUT_API donut::engine::Scene* Donut_LoadSceneWithDescriptorTableDeferred(App* app, const char* path, donut::engine::DescriptorTableManager* descriptorTableManager)
+    {
+        App* a = app;
+        auto descriptorTable = a->SharedObject<donut::engine::DescriptorTableManager>(descriptorTableManager);
+        auto textureCache = std::make_shared<donut::engine::TextureCache>(
+            a->device(), std::make_shared<donut::vfs::NativeFileSystem>(), descriptorTable);
+        return LoadScene(a, path, textureCache, descriptorTable, false);
     }
 
     // Values of `which` for Donut_GetSceneBuffer.
