@@ -5,10 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { rotationY, transpose, inverse, cross3, dot3, multiplyF32 } from "../core/matrix";
-import {
-    KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_END,
-    KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, Action, MouseButton,
-} from "../core/glfw_input";
+import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace SimplePbr {
     // Test mode: the frames rendered.
@@ -249,7 +246,7 @@ namespace SimplePbr {
             for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
                 this.indexBuffers.push(app.createStaticIndexBuffer(commandList, mesh.getIndexBufferData(i),
                     mesh.getIndexBufferSize(i), name));
-                this.index32.push(mesh.isIndexBuffer32Bit(i) != 0);
+                this.index32.push(mesh.isIndexBuffer32Bit(i));
             }
             for (let m = 0; m < mesh.getMeshCount(); m++) {
                 for (let j = 0; j < mesh.getMeshSubsetCount(m); j++) {
@@ -415,25 +412,25 @@ namespace SimplePbr {
                 // Arrow keys & WASD control translation of camera focus
                 const move = [0.0, 0.0, 0.0];
                 let scale = this.radius;
-                if (input.held[KEY_LEFT_SHIFT] || input.held[KEY_RIGHT_SHIFT]) {
+                if (input.held[Key.LeftShift] || input.held[Key.RightShift]) {
                     scale = Math.fround(scale * 0.5);
                 }
-                if (input.held[KEY_UP] || input.held[KEY_W]) {
+                if (input.held[Key.Up] || input.held[Key.W]) {
                     move[1] += scale;
                 }
-                if (input.held[KEY_DOWN] || input.held[KEY_S]) {
+                if (input.held[Key.Down] || input.held[Key.S]) {
                     move[1] -= scale;
                 }
-                if (input.held[KEY_PAGE_UP]) {
+                if (input.held[Key.PageUp]) {
                     move[2] += scale * handed;
                 }
-                if (input.held[KEY_PAGE_DOWN]) {
+                if (input.held[Key.PageDown]) {
                     move[2] -= scale * handed;
                 }
-                if (input.held[KEY_RIGHT] || input.held[KEY_D]) {
+                if (input.held[Key.Right] || input.held[Key.D]) {
                     move[0] += scale;
                 }
-                if (input.held[KEY_LEFT] || input.held[KEY_A]) {
+                if (input.held[Key.Left] || input.held[Key.A]) {
                     move[0] -= scale;
                 }
                 if (move[0] != 0.0 || move[1] != 0.0 || move[2] != 0.0) {
@@ -443,9 +440,9 @@ namespace SimplePbr {
                         this.focus[i] = Math.fround(this.focus[i] + Math.fround(moved * elapsedTime));
                     }
                 }
-                if (input.held[KEY_HOME]) {
+                if (input.held[Key.Home]) {
                     this.reset();
-                } else if (input.held[KEY_END]) {
+                } else if (input.held[Key.End]) {
                     this.radius = this.defaultRadius;
                     this.focus = [this.homeFocus[0], this.homeFocus[1], this.homeFocus[2]];
                 }
@@ -455,7 +452,7 @@ namespace SimplePbr {
             if (input.relative) {
                 // Translate camera
                 let delta = [0.0, 0.0, 0.0];
-                if (input.held[KEY_LEFT_SHIFT] || input.held[KEY_RIGHT_SHIFT]) {
+                if (input.held[Key.LeftShift] || input.held[Key.RightShift]) {
                     delta = [0.0, 0.0, -input.deltaY * handed * this.radius * elapsedTime];
                 } else {
                     delta = [-input.deltaX * this.radius * elapsedTime, input.deltaY * this.radius * elapsedTime, 0.0];
@@ -747,7 +744,7 @@ namespace SimplePbr {
 
         // DeviceResources::UpdateColorSpace: HDR10 when the window's display is in HDR mode.
         updateColorSpace() {
-            const wanted = this.app.isDisplayHdr() != 0 && !this.forceSdr ? SwapChainColorSpace.HDR10 : SwapChainColorSpace.SRGB;
+            const wanted = this.app.isDisplayHdr() && !this.forceSdr ? SwapChainColorSpace.HDR10 : SwapChainColorSpace.SRGB;
             if (wanted != this.app.getSwapChainColorSpace()) {
                 this.app.setSwapChainColorSpace(wanted);
             }

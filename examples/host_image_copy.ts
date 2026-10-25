@@ -327,7 +327,7 @@ namespace HostImageCopy {
         }
 
         console.log(`Renderer: ${app.getRendererString()}`);
-        if (app.hasHostImageCopy() == 0) {
+        if (!app.hasHostImageCopy()) {
             app.destroy();
             return unsupported(args.test, "The device can't write images from the CPU (VK_EXT_host_image_copy on Vulkan; D3D12).");
         }

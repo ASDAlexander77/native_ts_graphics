@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { KEY_1, KEY_9, Action, MouseButton } from "../core/glfw_input";
+import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace WaveIntrinsics {
     // Test mode: the frames rendered.
@@ -216,8 +216,8 @@ namespace WaveIntrinsics {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action == Action.Press && key >= KEY_1 && key <= KEY_9) {
-                this.renderMode = key - KEY_1 + 1;
+            if (action == Action.Press && key >= Key.Num1 && key <= Key.Num9) {
+                this.renderMode = key - Key.Num1 + 1;
             }
             return 0;
         }

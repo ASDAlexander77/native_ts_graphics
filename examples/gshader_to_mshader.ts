@@ -288,7 +288,7 @@ namespace GshaderToMshader {
         }
 
         init() {
-            this.meshShadersSupported = this.app.isFeatureSupported(Feature.Meshlets) != 0;
+            this.meshShadersSupported = this.app.isFeatureSupported(Feature.Meshlets);
             if (!this.meshShadersSupported) {
                 console.log("The device has no mesh shaders: the normals are drawn by the geometry shader only");
             }

@@ -5,7 +5,7 @@
 // and core/directx_math.ts's listed in the example's add_tslang_example sources.
 
 import { matrixLookToRH, XM_PI } from "./directx_math";
-import { KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP } from "./glfw_input";
+import { Key } from "./glfw_input";
 
 // DirectX-Graphics-Samples' SimpleCamera: WASD move it, the arrow keys turn it (pitch within 45
 // degrees up and down), at its move and turn speeds per second. Escape closes the window, as in
@@ -52,21 +52,21 @@ export class SimpleCamera {
     // True if it took the key.
     onKey(key: int, down: boolean): boolean {
         let index = -1;
-        if (key == KEY_W) {
+        if (key == Key.W) {
             index = 0;
-        } else if (key == KEY_A) {
+        } else if (key == Key.A) {
             index = 1;
-        } else if (key == KEY_S) {
+        } else if (key == Key.S) {
             index = 2;
-        } else if (key == KEY_D) {
+        } else if (key == Key.D) {
             index = 3;
-        } else if (key == KEY_LEFT) {
+        } else if (key == Key.Left) {
             index = 4;
-        } else if (key == KEY_RIGHT) {
+        } else if (key == Key.Right) {
             index = 5;
-        } else if (key == KEY_UP) {
+        } else if (key == Key.Up) {
             index = 6;
-        } else if (key == KEY_DOWN) {
+        } else if (key == Key.Down) {
             index = 7;
         }
         if (index < 0) {

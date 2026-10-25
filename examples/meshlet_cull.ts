@@ -9,10 +9,7 @@ import {
     matrixScaling, matrixTranspose, normalize3, planeNormalize, row, transform3, transformCoord3,
     transformNormal3, vadd, vsub, XM_PI,
 } from "../core/directx_math";
-import {
-    KEY_SPACE, KEY_A, KEY_D, KEY_S, KEY_W, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_LEFT_SHIFT,
-    KEY_RIGHT_SHIFT, Action,
-} from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace MeshletCull {
     const WINDOW_TITLE = "D3D12 Mesh Shader Culling";
@@ -112,21 +109,21 @@ namespace MeshletCull {
 
         onKey(key: int, down: boolean) {
             let index = -1;
-            if (key == KEY_W) {
+            if (key == Key.W) {
                 index = 0;
-            } else if (key == KEY_A) {
+            } else if (key == Key.A) {
                 index = 1;
-            } else if (key == KEY_S) {
+            } else if (key == Key.S) {
                 index = 2;
-            } else if (key == KEY_D) {
+            } else if (key == Key.D) {
                 index = 3;
-            } else if (key == KEY_LEFT) {
+            } else if (key == Key.Left) {
                 index = 4;
-            } else if (key == KEY_RIGHT) {
+            } else if (key == Key.Right) {
                 index = 5;
-            } else if (key == KEY_UP) {
+            } else if (key == Key.Up) {
                 index = 6;
-            } else if (key == KEY_DOWN) {
+            } else if (key == Key.Down) {
                 index = 7;
             }
             if (index >= 0) {
@@ -478,13 +475,13 @@ namespace MeshletCull {
         // OnKeyDown / OnKeyUp.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == Action.Press) {
-                if (key == KEY_SPACE) {
+                if (key == Key.Space) {
                     this.drawMeshlets = !this.drawMeshlets;
                     this.selectedIndex = -1;
                     this.highlightedIndex = -1;
-                } else if (key == KEY_TAB) {
+                } else if (key == Key.Tab) {
                     this.selectedIndex = this.highlightedIndex;
-                } else if (key == KEY_LEFT_SHIFT || key == KEY_RIGHT_SHIFT) {
+                } else if (key == Key.LeftShift || key == Key.RightShift) {
                     this.moveCam = true;
                 }
                 if (!this.moveCam) {
@@ -495,7 +492,7 @@ namespace MeshletCull {
                 return 1;
             }
             if (action == Action.Release) {
-                if (key == KEY_LEFT_SHIFT || key == KEY_RIGHT_SHIFT) {
+                if (key == Key.LeftShift || key == Key.RightShift) {
                     this.moveCam = false;
                 }
                 this.mainCam.onKey(key, false);
@@ -996,7 +993,7 @@ namespace MeshletCull {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
-        if (app.isFeatureSupported(Feature.Meshlets) == 0) {
+        if (!app.isFeatureSupported(Feature.Meshlets)) {
             app.destroy();
             return unsupported(args.test, "The graphics device has no mesh shaders");
         }

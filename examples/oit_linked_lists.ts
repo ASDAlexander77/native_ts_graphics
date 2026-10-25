@@ -191,7 +191,7 @@ namespace OitLinkedLists {
         }
 
         init() {
-            if (this.app.hasFragmentStoresAndAtomics() == 0) {
+            if (!this.app.hasFragmentStoresAndAtomics()) {
                 console.log("This example requires support for buffers and images stores and atomic operations in the fragment shader stage");
                 return false;
             }

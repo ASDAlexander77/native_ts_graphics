@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { matrixPerspectiveFovLH, matrixTranspose } from "../core/directx_math";
-import { KEY_SPACE, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace ExecuteIndirect {
     const WINDOW_TITLE = "D3D12 Execute Indirect sample - Press the SPACE bar to toggle GPU primitive culling";
@@ -173,7 +173,7 @@ namespace ExecuteIndirect {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_SPACE && action == Action.Press) {
+            if (key == Key.Space && action == Action.Press) {
                 this.enableCulling = !this.enableCulling;
                 return 1;
             }

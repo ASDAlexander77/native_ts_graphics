@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
-import { KEY_SPACE, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 import { randomFloat } from "../core/random";
 
 namespace ComputeNBody {
@@ -156,7 +156,7 @@ namespace ComputeNBody {
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
-            if (key == KEY_SPACE && action == Action.Press) {
+            if (key == Key.Space && action == Action.Press) {
                 this.paused = !this.paused;
             }
 

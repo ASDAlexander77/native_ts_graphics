@@ -3,10 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import {
-    KEY_1, KEY_4, KEY_A, KEY_D, KEY_S, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_HOME, KEY_END,
-    KEY_F1, Action, MouseButton,
-} from "../core/glfw_input";
+import { Key, Action, MouseButton } from "../core/glfw_input";
 import { multiplyF32, inverse } from "../core/matrix";
 
 namespace Collision {
@@ -331,16 +328,16 @@ namespace Collision {
                 // Keyboard controls
                 let orbitX = 0.0;
                 let orbitY = 0.0;
-                if (held[KEY_UP] || held[KEY_W]) {
+                if (held[Key.Up] || held[Key.W]) {
                     orbitY = 1.0;
                 }
-                if (held[KEY_DOWN] || held[KEY_S]) {
+                if (held[Key.Down] || held[Key.S]) {
                     orbitY = -1.0;
                 }
-                if (held[KEY_RIGHT] || held[KEY_D]) {
+                if (held[Key.Right] || held[Key.D]) {
                     orbitX = 1.0;
                 }
-                if (held[KEY_LEFT] || held[KEY_A]) {
+                if (held[Key.Left] || held[Key.A]) {
                     orbitX = -1.0;
                 }
                 if (orbitX != 0.0 || orbitY != 0.0) {
@@ -353,9 +350,9 @@ namespace Collision {
                     this.rotation = quaternionNormalize(this.rotation);
                 }
 
-                if (held[KEY_HOME]) {
+                if (held[Key.Home]) {
                     this.reset();
-                } else if (held[KEY_END]) {
+                } else if (held[Key.End]) {
                     this.radius = this.defaultRadius;
                     this.focus = [this.homeFocus[0], this.homeFocus[1], this.homeFocus[2]];
                 }
@@ -735,12 +732,12 @@ namespace Collision {
                 return 0;
             }
             // Keyboard input handling for controller help menu.
-            if (key == KEY_F1) {
+            if (key == Key.F1) {
                 this.showHelp = !this.showHelp;
-            } else if (this.showHelp && key == KEY_ESCAPE) {
+            } else if (this.showHelp && key == Key.Escape) {
                 this.showHelp = false;
-            } else if (!this.showHelp && key >= KEY_1 && key <= KEY_4) {
-                this.setViewForGroup(key - KEY_1);
+            } else if (!this.showHelp && key >= Key.Num1 && key <= Key.Num4) {
+                this.setViewForGroup(key - Key.Num1);
             } else {
                 // Escape (outside the help screen) goes on to InputPass, which closes the window.
                 return 0;

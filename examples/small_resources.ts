@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
-import { KEY_SPACE, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace SmallResources {
     // Test mode: the frames rendered.
@@ -168,7 +168,7 @@ namespace SmallResources {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_SPACE && action == Action.Press) {
+            if (key == Key.Space && action == Action.Press) {
                 this.usePlacedResources = !this.usePlacedResources;
                 this.recreate = true;
             }

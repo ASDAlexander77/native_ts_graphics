@@ -64,10 +64,10 @@ export class PbrtScene {
         Donut_CopyPbrtMeshMaterial(this.handle, mesh, dst);
     }
 
-    // Non-zero if a mesh is opaque as the sample flags its geometry: unless see-through (opacity
+    // True if a mesh is opaque as the sample flags its geometry: unless see-through (opacity
     // below 0.99) or a perfect mirror (AO rays skip those).
-    isMeshOpaque(mesh: int): int {
-        return Donut_IsPbrtMeshOpaque(this.handle, mesh);
+    isMeshOpaque(mesh: int): boolean {
+        return Donut_IsPbrtMeshOpaque(this.handle, mesh) != 0;
     }
 
     // A mesh's diffuse / normal map texture file as the scene names it (its directory prepended), ""

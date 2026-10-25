@@ -11,7 +11,7 @@ import {
     SQUID_ROOM_TEXTURE_FIELDS, SQUID_ROOM_TEXTURES, SQUID_ROOM_VERTEX_DATA_OFFSET, SQUID_ROOM_VERTEX_DATA_SIZE,
     SQUID_ROOM_VERTEX_STRIDE,
 } from "../core/squid_room";
-import { KEY_SPACE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace Multithreading {
     const WINDOW_TITLE = "D3D12 Multithreading Sample";
@@ -274,15 +274,15 @@ namespace Multithreading {
                 return 0;
             }
             const down = action == Action.Press ? 1 : 0;
-            if (key == KEY_LEFT) {
+            if (key == Key.Left) {
                 this.keys[0] = down;
-            } else if (key == KEY_RIGHT) {
+            } else if (key == Key.Right) {
                 this.keys[1] = down;
-            } else if (key == KEY_UP) {
+            } else if (key == Key.Up) {
                 this.keys[2] = down;
-            } else if (key == KEY_DOWN) {
+            } else if (key == Key.Down) {
                 this.keys[3] = down;
-            } else if (key == KEY_SPACE) {
+            } else if (key == Key.Space) {
                 if (action == Action.Press) {
                     this.animate = !this.animate;
                 }

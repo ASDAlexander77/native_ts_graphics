@@ -3,9 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { PagedImageSet } from "../core/paged_images";
-import {
-    KEY_MINUS, KEY_EQUAL, KEY_C, KEY_D, KEY_M, KEY_S, KEY_V, KEY_KP_SUBTRACT, KEY_KP_ADD, Action,
-} from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace MemoryManagement {
     const WINDOW_TITLE = "Donut Example: Memory Management";
@@ -341,25 +339,25 @@ namespace MemoryManagement {
             if (action == Action.Release) {
                 return 0;
             }
-            if (key == KEY_S) {
+            if (key == Key.S) {
                 this.renderStats = !this.renderStats;
-            } else if (key == KEY_M) {
+            } else if (key == Key.M) {
                 this.drawMipColors = !this.drawMipColors;
-            } else if (key == KEY_V) {
+            } else if (key == Key.V) {
                 this.vsync = !this.vsync;
                 this.app.setVsyncEnabled(this.vsync ? 1 : 0);
-            } else if (key == KEY_C) {
+            } else if (key == Key.C) {
                 this.capturedIsDebug = !this.capturedIsDebug;
-            } else if (key == KEY_D) {
+            } else if (key == Key.D) {
                 if (!this.sceneIsDebug) {
                     this.sceneIsDebug = true;
                 } else {
                     this.sceneIsDebug = false;
                     this.capturedIsDebug = false;
                 }
-            } else if (key == KEY_EQUAL || key == KEY_KP_ADD) {
+            } else if (key == Key.Equal || key == Key.KpAdd) {
                 this.images.setBudgetOverride(this.images.getBudgetOverride() + BUDGET_STEP);
-            } else if (key == KEY_MINUS || key == KEY_KP_SUBTRACT) {
+            } else if (key == Key.Minus || key == Key.KpSubtract) {
                 const current = this.images.getBudgetOverride();
                 this.images.setBudgetOverride(current > BUDGET_STEP ? current - BUDGET_STEP : 0.0);
             } else {

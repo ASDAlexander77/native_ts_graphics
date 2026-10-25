@@ -159,8 +159,8 @@ namespace Khr16BitArithmetic {
         }
 
         init() {
-            this.native16Bit = this.app.hasNative16BitShaderOps() != 0;
-            this.native16BitConstants = this.app.hasNative16BitConstants() != 0;
+            this.native16Bit = this.app.hasNative16BitShaderOps();
+            this.native16BitConstants = this.app.hasNative16BitConstants();
 
             const shader = "16bit_arithmetic.hlsl";
             const computeFP32 = this.app.createShader(shader, "compute_fp32", ShaderType.Compute);

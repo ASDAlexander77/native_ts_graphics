@@ -7,7 +7,7 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY,
     normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
-import { KEY_A, KEY_B, KEY_F, KEY_H, KEY_O, KEY_Q, KEY_R, KEY_W, KEY_X, KEY_Z, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace OpacityMicromaps {
     // Test mode: the frames rendered.
@@ -320,9 +320,9 @@ namespace OpacityMicromaps {
 
         // The sample's OnUpdate keys.
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_Z || key == KEY_X) {
+            if (key == Key.Z || key == Key.X) {
                 const held = action != Action.Release;
-                if (key == KEY_Z) {
+                if (key == Key.Z) {
                     this.zoomIn = held;
                 } else {
                     this.zoomOut = held;
@@ -332,16 +332,16 @@ namespace OpacityMicromaps {
             if (action != Action.Press) {
                 return 0;
             }
-            if (key == KEY_O) {
+            if (key == Key.O) {
                 this.ommEnabled = !this.ommEnabled;
                 this.rebuildASNextFrame = true;
-            } else if (key == KEY_R) {
+            } else if (key == Key.R) {
                 this.rotateCamera = !this.rotateCamera;
-            } else if (key == KEY_F) {
+            } else if (key == Key.F) {
                 this.use4State = !this.use4State;
                 this.rebuildASNextFrame = true;
-            } else if (key == KEY_Q || key == KEY_W) {
-                const sign = key == KEY_Q ? -1 : 1;
+            } else if (key == Key.Q || key == Key.W) {
+                const sign = key == Key.Q ? -1 : 1;
                 // The next level with a set loaded.
                 for (let i = 0; i < MAX_SUBDIVISION_LEVELS; i++) {
                     this.currentSubDLevel = (this.currentSubDLevel + sign + MAX_SUBDIVISION_LEVELS) % MAX_SUBDIVISION_LEVELS;
@@ -350,12 +350,12 @@ namespace OpacityMicromaps {
                     }
                 }
                 this.rebuildASNextFrame = true;
-            } else if (key == KEY_H) {
+            } else if (key == Key.H) {
                 this.configFlags = this.configFlags ^ SHOW_AHS;
-            } else if (key == KEY_A) {
+            } else if (key == Key.A) {
                 this.extraPrimaryRayFlags = this.extraPrimaryRayFlags ^ RAY_FLAG_FORCE_OPAQUE;
                 this.extraShadowRayFlags = this.extraShadowRayFlags ^ RAY_FLAG_FORCE_OPAQUE;
-            } else if (key == KEY_B) {
+            } else if (key == Key.B) {
                 this.rebuildASEveryFrame = !this.rebuildASEveryFrame;
             }
             return 0;

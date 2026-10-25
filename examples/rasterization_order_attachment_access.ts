@@ -187,7 +187,7 @@ namespace RasterizationOrderAttachmentAccess {
         }
 
         init() {
-            this.rovSupported = this.app.hasRasterizerOrderedViews() != 0;
+            this.rovSupported = this.app.hasRasterizerOrderedViews();
             this.rovEnabled = this.rovSupported;
 
             const shader = "rasterization_order_attachment_access.hlsl";

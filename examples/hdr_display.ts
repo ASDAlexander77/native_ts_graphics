@@ -2,7 +2,7 @@
 // would load it twice if this file referenced it too.
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
-import { KEY_H, KEY_M, KEY_U, KEY_PAGE_UP, KEY_PAGE_DOWN, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace HdrDisplay {
     const WINDOW_TITLE = "D3D12 HDR sample";
@@ -169,7 +169,7 @@ namespace HdrDisplay {
             this.app.releaseResource(commandList.handle);
 
             // CheckDisplayHDRSupport: ST.2084 on where the display is in HDR mode.
-            this.hdrSupport = this.app.isDisplayHdr() != 0;
+            this.hdrSupport = this.app.isDisplayHdr();
             this.enableST2084 = this.hdrSupport;
             this.ensureColorSpace();
 
@@ -236,18 +236,18 @@ namespace HdrDisplay {
             if (action != Action.Press) {
                 return 0;
             }
-            if (key == KEY_PAGE_UP) {
+            if (key == Key.PageUp) {
                 this.setBitDepth((this.bitDepth - 1 + BIT_DEPTH_COUNT) % BIT_DEPTH_COUNT);
-            } else if (key == KEY_PAGE_DOWN) {
+            } else if (key == Key.PageDown) {
                 this.setBitDepth((this.bitDepth + 1) % BIT_DEPTH_COUNT);
-            } else if (key == KEY_H) {
+            } else if (key == Key.H) {
                 this.enableST2084 = !this.enableST2084;
                 if (this.bitDepth == BitDepth.Bits10) {
                     this.ensureColorSpace();
                 }
-            } else if (key == KEY_U) {
+            } else if (key == Key.U) {
                 this.enableUI = !this.enableUI;
-            } else if (key == KEY_M) {
+            } else if (key == Key.M) {
                 this.metaDataIndex = (this.metaDataIndex + 1) % 4;
             } else {
                 return 0;

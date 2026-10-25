@@ -4,9 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiply, rotation, translation, scale, radians, samplePerspective } from "../core/matrix";
-import {
-    KEY_A, KEY_D, KEY_S, KEY_W, KEY_KP_2, KEY_KP_4, KEY_KP_6, KEY_KP_8, Action, MouseButton,
-} from "../core/glfw_input";
+import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace RenderOctomap {
     // Test mode: the frames rendered.
@@ -566,25 +564,25 @@ namespace RenderOctomap {
         // they work while it has the keyboard; the other keys go on to it.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (action != Action.Press && action != Action.Release) {
-                return key == KEY_W || key == KEY_A || key == KEY_S || key == KEY_D || key == KEY_KP_2
-                    || key == KEY_KP_4 || key == KEY_KP_6 || key == KEY_KP_8 ? 1 : 0;
+                return key == Key.W || key == Key.A || key == Key.S || key == Key.D || key == Key.Kp2
+                    || key == Key.Kp4 || key == Key.Kp6 || key == Key.Kp8 ? 1 : 0;
             }
             const down = action == Action.Press;
-            if (key == KEY_W) {
+            if (key == Key.W) {
                 this.keyUp = down;
-            } else if (key == KEY_S) {
+            } else if (key == Key.S) {
                 this.keyDown = down;
-            } else if (key == KEY_A) {
+            } else if (key == Key.A) {
                 this.keyLeft = down;
-            } else if (key == KEY_D) {
+            } else if (key == Key.D) {
                 this.keyRight = down;
-            } else if (key == KEY_KP_4) {
+            } else if (key == Key.Kp4) {
                 this.lookLeft = down;
-            } else if (key == KEY_KP_6) {
+            } else if (key == Key.Kp6) {
                 this.lookRight = down;
-            } else if (key == KEY_KP_8) {
+            } else if (key == Key.Kp8) {
                 this.lookUp = down;
-            } else if (key == KEY_KP_2) {
+            } else if (key == Key.Kp2) {
                 this.lookDown = down;
             } else {
                 return 0;

@@ -7,7 +7,7 @@
 // examples/), and listed with core/matrix.ts in the example's add_tslang_example sources.
 
 import { identity, multiply, rotate, translation, radians } from "./matrix";
-import { KEY_A, KEY_D, KEY_S, KEY_W, Action } from "./glfw_input";
+import { Key, Action } from "./glfw_input";
 
 // vkb::Camera, look-at type, with ApiVulkanSample's mouse controls: the left button turns it, the
 // right one (or the wheel) zooms, the middle one pans. Starts at position (a translation) and
@@ -102,13 +102,13 @@ export class FirstPersonCamera {
 
     key(key: int, action: int) {
         const down = action != Action.Release;
-        if (key == KEY_W) {
+        if (key == Key.W) {
             this.keys[0] = down;
-        } else if (key == KEY_S) {
+        } else if (key == Key.S) {
             this.keys[1] = down;
-        } else if (key == KEY_A) {
+        } else if (key == Key.A) {
             this.keys[2] = down;
-        } else if (key == KEY_D) {
+        } else if (key == Key.D) {
             this.keys[3] = down;
         }
     }

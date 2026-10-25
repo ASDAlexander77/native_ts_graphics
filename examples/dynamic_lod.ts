@@ -8,7 +8,7 @@ import {
     matrixInverse, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
     planeNormalize, row, vadd, vsub, XM_PI,
 } from "../core/directx_math";
-import { KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_KP_SUBTRACT, KEY_KP_ADD, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 import { SimpleCamera } from "../core/simple_camera";
 
 namespace DynamicLod {
@@ -165,15 +165,15 @@ namespace DynamicLod {
         // OnKeyDown / OnKeyUp.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == Action.Press) {
-                if (key == KEY_EQUAL || key == KEY_KP_ADD) {
+                if (key == Key.Equal || key == Key.KpAdd) {
                     this.instanceLevel++;
                     this.regenerateInstances();
-                } else if (key == KEY_MINUS || key == KEY_KP_SUBTRACT) {
+                } else if (key == Key.Minus || key == Key.KpSubtract) {
                     if (this.instanceLevel != 0) {
                         this.instanceLevel--;
                         this.regenerateInstances();
                     }
-                } else if (key == KEY_SPACE) {
+                } else if (key == Key.Space) {
                     this.renderMode = (this.renderMode + 1) % RENDER_MODE_COUNT;
                 }
                 this.camera.onKey(key, true);
@@ -524,7 +524,7 @@ namespace DynamicLod {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
-        if (app.isFeatureSupported(Feature.Meshlets) == 0) {
+        if (!app.isFeatureSupported(Feature.Meshlets)) {
             app.destroy();
             return unsupported(args.test, "The graphics device has no mesh shaders");
         }

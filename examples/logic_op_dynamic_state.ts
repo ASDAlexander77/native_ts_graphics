@@ -171,7 +171,7 @@ namespace LogicOpDynamicState {
         }
 
         init() {
-            if (this.app.hasLogicOps() == 0) {
+            if (!this.app.hasLogicOps()) {
                 console.log("This example needs logic operations in blend states (OutputMergerLogicOp, Vulkan's logicOp)");
                 return false;
             }

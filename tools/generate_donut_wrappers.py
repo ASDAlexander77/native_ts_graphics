@@ -418,6 +418,9 @@ def comments_for(function, previous):
     return comments
 
 
+PREDICATE_NAME = re.compile(r"(has|is)[A-Z]")
+
+
 def emit_method(out, function, cls, is_static):
     params = function.params if is_static else function.params[1:]
     args = [p.argument() for p in function.params]
@@ -430,6 +433,11 @@ def emit_method(out, function, cls, is_static):
     else:
         returns = function.returns
         body = [f"{call};" if returns == "void" else f"return {call};"]
+    # The has*/is* predicates return int (0 or 1) over the C ABI; the methods return boolean.
+    is_predicate = not is_static and returns == "int" and PREDICATE_NAME.match(method_name(function, cls))
+    if is_predicate:
+        returns = "boolean"
+        body = [f"return {call} != 0;"]
     # The callbacks are kept in their retained arrays for good (see RETAINED_COMMENT), which the
     # method says with @immortalizes: under -mm=own its callers make what they pass immortal.
     kept = [p for p in params if p.is_callback]
@@ -440,6 +448,8 @@ def emit_method(out, function, cls, is_static):
 
     out.append("")
     for comment in comments_for(function, function.previous):
+        if is_predicate:
+            comment = comment.replace("// Non-zero if ", "// True if ").replace("// Non-zero for ", "// True for ")
         out.append(f"    {comment}")
     if kept:
         out.append(f"    @immortalizes({', '.join(repr(p.name).replace(chr(39), chr(34)) for p in kept)})")

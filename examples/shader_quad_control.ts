@@ -149,7 +149,7 @@ namespace ShaderQuadControl {
 
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        if (app.hasShaderQuadControl() == 0) {
+        if (!app.hasShaderQuadControl()) {
             app.destroy();
             return unsupported(args.test, "The graphics device has no shader quad control (Vulkan's VK_KHR_shader_quad_control, or D3D12)");
         }

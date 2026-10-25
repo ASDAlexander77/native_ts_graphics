@@ -96,9 +96,9 @@ export class App {
         return Donut_FinishTest(this.handle, failure);
     }
 
-    // Non-zero for an app created in test mode.
-    isTestMode(): int {
-        return Donut_IsTestMode(this.handle);
+    // True for an app created in test mode.
+    isTestMode(): boolean {
+        return Donut_IsTestMode(this.handle) != 0;
     }
 
     // Destroys the app with all its passes and resources.
@@ -106,8 +106,8 @@ export class App {
         Donut_DestroyApp(this.handle);
     }
 
-    isFeatureSupported(feature: Feature): int {
-        return Donut_IsFeatureSupported(this.handle, feature);
+    isFeatureSupported(feature: Feature): boolean {
+        return Donut_IsFeatureSupported(this.handle, feature) != 0;
     }
 
     // What the app's device does with indirect draws (a headless app's too). Vulkan devices are
@@ -117,57 +117,57 @@ export class App {
         return Donut_GetIndirectDrawSupport(this.handle);
     }
 
-    // Non-zero if pixel shaders can write to UAVs and do atomics on them (Vulkan devices are created
+    // True if pixel shaders can write to UAVs and do atomics on them (Vulkan devices are created
     // with fragmentStoresAndAtomics when the GPU has it; D3D11 and D3D12 always can).
-    hasFragmentStoresAndAtomics(): int {
-        return Donut_HasFragmentStoresAndAtomics(this.handle);
+    hasFragmentStoresAndAtomics(): boolean {
+        return Donut_HasFragmentStoresAndAtomics(this.handle) != 0;
     }
 
-    // Non-zero if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether what
+    // True if 2D textures can be tiled (Donut_CreateTiledTexture) and shaders can tell whether what
     // they sample is mapped (CheckAccessFullyMapped): D3D12 with tiled resources tier 2, Vulkan with
     // sparse residency; never D3D11.
-    hasSparseResidency(): int {
-        return Donut_HasSparseResidency(this.handle);
+    hasSparseResidency(): boolean {
+        return Donut_HasSparseResidency(this.handle) != 0;
     }
 
-    // Non-zero if draws can be skipped by a value in a buffer (Donut_CreatePredicationBuffer): D3D12's
+    // True if draws can be skipped by a value in a buffer (Donut_CreatePredicationBuffer): D3D12's
     // predication, Vulkan's VK_EXT_conditional_rendering; not D3D11 (whose predicates are queries).
-    hasConditionalRendering(): int {
-        return Donut_HasConditionalRendering(this.handle);
+    hasConditionalRendering(): boolean {
+        return Donut_HasConditionalRendering(this.handle) != 0;
     }
 
-    // Non-zero if pixel shaders can use rasterizer ordered views (RasterizerOrderedTexture2D...):
+    // True if pixel shaders can use rasterizer ordered views (RasterizerOrderedTexture2D...):
     // accesses from overlapping pixels happen in primitive order. D3D11/D3D12 with ROVsSupported,
     // Vulkan with fragment shader pixel interlock.
-    hasRasterizerOrderedViews(): int {
-        return Donut_HasRasterizerOrderedViews(this.handle);
+    hasRasterizerOrderedViews(): boolean {
+        return Donut_HasRasterizerOrderedViews(this.handle) != 0;
     }
 
-    // Non-zero if pixel shaders can read their barycentrics (SV_Barycentrics) and the triangle's vertex
+    // True if pixel shaders can read their barycentrics (SV_Barycentrics) and the triangle's vertex
     // attributes (GetAttributeAtVertex): D3D12 with BarycentricsSupported, Vulkan with
     // VK_KHR_fragment_shader_barycentric.
-    hasBarycentrics(): int {
-        return Donut_HasBarycentrics(this.handle);
+    hasBarycentrics(): boolean {
+        return Donut_HasBarycentrics(this.handle) != 0;
     }
 
-    // Non-zero if shaders can compute with native 16-bit types (float16_t, int16_t, uint16_t) and read
+    // True if shaders can compute with native 16-bit types (float16_t, int16_t, uint16_t) and read
     // them from structured buffers: D3D12 with Native16BitShaderOpsSupported, Vulkan with shaderFloat16,
     // shaderInt16 and storageBuffer16BitAccess.
-    hasNative16BitShaderOps(): int {
-        return Donut_HasNative16BitShaderOps(this.handle);
+    hasNative16BitShaderOps(): boolean {
+        return Donut_HasNative16BitShaderOps(this.handle) != 0;
     }
 
-    // Non-zero if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
+    // True if blend states can do logic operations (Donut_GraphicsPipelineSetLogicOp): D3D11 and
     // D3D12 with OutputMergerLogicOp, Vulkan with the logicOp feature.
-    hasLogicOps(): int {
-        return Donut_HasLogicOps(this.handle);
+    hasLogicOps(): boolean {
+        return Donut_HasLogicOps(this.handle) != 0;
     }
 
-    // Non-zero if pipelines can test the depth target against bounds
+    // True if pipelines can test the depth target against bounds
     // (Donut_GraphicsPipelineSetDepthBoundsTest): D3D12 with DepthBoundsTestSupported, Vulkan with the
     // depthBounds feature; never D3D11.
-    hasDepthBoundsTest(): int {
-        return Donut_HasDepthBoundsTest(this.handle);
+    hasDepthBoundsTest(): boolean {
+        return Donut_HasDepthBoundsTest(this.handle) != 0;
     }
 
     // The device's memory heaps now (their count): this process's usage of each and its budget, the
@@ -218,11 +218,11 @@ export class App {
         return Donut_GetMaxLineWidth(this.handle);
     }
 
-    // Non-zero if pixel shaders can run in full quads, helper invocations taking part in quad operations
+    // True if pixel shaders can run in full quads, helper invocations taking part in quad operations
     // (QuadReadLaneAt...): Vulkan with VK_KHR_shader_quad_control (SPIR-V's RequireFullQuadsKHR and
     // QuadDerivativesKHR execution modes), D3D12 always.
-    hasShaderQuadControl(): int {
-        return Donut_HasShaderQuadControl(this.handle);
+    hasShaderQuadControl(): boolean {
+        return Donut_HasShaderQuadControl(this.handle) != 0;
     }
 
     // AdvancedBlend bits: the advanced blend operations blend states can do
@@ -257,16 +257,16 @@ export class App {
         return Donut_GetShaderExecutionReordering(this.handle);
     }
 
-    // Non-zero if push constants and constant buffers can hold 16-bit values as well (Vulkan's
+    // True if push constants and constant buffers can hold 16-bit values as well (Vulkan's
     // storagePushConstant16 and uniformAndStorageBuffer16BitAccess).
-    hasNative16BitConstants(): int {
-        return Donut_HasNative16BitConstants(this.handle);
+    hasNative16BitConstants(): boolean {
+        return Donut_HasNative16BitConstants(this.handle) != 0;
     }
 
-    // Non-zero if descriptors can be pushed into command buffers (Vulkan's VK_KHR_push_descriptor;
+    // True if descriptors can be pushed into command buffers (Vulkan's VK_KHR_push_descriptor;
     // not D3D): Donut_CreatePushDescriptorPipeline.
-    hasPushDescriptors(): int {
-        return Donut_HasPushDescriptors(this.handle);
+    hasPushDescriptors(): boolean {
+        return Donut_HasPushDescriptors(this.handle) != 0;
     }
 
     // The most descriptors one push can set (maxPushDescriptors); 0 without push descriptors.
@@ -283,10 +283,10 @@ export class App {
         return new PushDescriptorPipeline(Donut_CreatePushDescriptorPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
     }
 
-    // Non-zero if descriptor sets can live in buffers (Vulkan's VK_EXT_descriptor_buffer, for apps
+    // True if descriptor sets can live in buffers (Vulkan's VK_EXT_descriptor_buffer, for apps
     // created with AppOptions.DescriptorBuffers; not D3D): Donut_CreateDescriptorBufferPipeline.
-    hasDescriptorBuffers(): int {
-        return Donut_HasDescriptorBuffers(this.handle);
+    hasDescriptorBuffers(): boolean {
+        return Donut_HasDescriptorBuffers(this.handle) != 0;
     }
 
     // How many descriptor buffers with resource descriptors a pass can bind; 0 without them.
@@ -308,10 +308,10 @@ export class App {
         return new DescriptorBufferPipeline(Donut_CreateDescriptorBufferPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
     }
 
-    // Non-zero if shaders can reach buffers through device addresses (Vulkan's bufferDeviceAddress;
+    // True if shaders can reach buffers through device addresses (Vulkan's bufferDeviceAddress;
     // not D3D, whose shaders have no pointers).
-    hasBufferDeviceAddress(): int {
-        return Donut_HasBufferDeviceAddress(this.handle);
+    hasBufferDeviceAddress(): boolean {
+        return Donut_HasBufferDeviceAddress(this.handle) != 0;
     }
 
     // Vulkan's conservative rasterization properties into dst (Ref of a `let` f32 array of 9):
@@ -359,8 +359,8 @@ export class App {
     }
 
     // Lags Donut_SetVsyncEnabled by up to a frame.
-    isVsyncEnabled(): int {
-        return Donut_IsVsyncEnabled(this.handle);
+    isVsyncEnabled(): boolean {
+        return Donut_IsVsyncEnabled(this.handle) != 0;
     }
 
     // Makes Donut_RunApp return after the current frame, in test mode too (before the frames it was to
@@ -380,8 +380,8 @@ export class App {
     }
 
     // Non-zero while the window has the keyboard focus.
-    isWindowFocused(): int {
-        return Donut_IsWindowFocused(this.handle);
+    isWindowFocused(): boolean {
+        return Donut_IsWindowFocused(this.handle) != 0;
     }
 
     // Resources are owned by the app until released or the app is destroyed; null on failure.
@@ -590,10 +590,10 @@ export class App {
         return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
     }
 
-    // Non-zero if shaders' printf output reaches Donut_UpdateShaderPrintfOutput: Vulkan apps created
+    // True if shaders' printf output reaches Donut_UpdateShaderPrintfOutput: Vulkan apps created
     // with AppOptions.ShaderPrintf where the validation layer is installed (not D3D).
-    hasShaderPrintf(): int {
-        return Donut_HasShaderPrintf(this.handle);
+    hasShaderPrintf(): boolean {
+        return Donut_HasShaderPrintf(this.handle) != 0;
     }
 
     // Takes the shaders' printf messages the validation layer delivered since the last call (once the
@@ -608,10 +608,10 @@ export class App {
         return Donut_GetShaderPrintfLine(this.handle, index);
     }
 
-    // Non-zero if textures can be written by the CPU without a copy on the GPU: Vulkan with
+    // True if textures can be written by the CPU without a copy on the GPU: Vulkan with
     // VK_EXT_host_image_copy, D3D12.
-    hasHostImageCopy(): int {
-        return Donut_HasHostImageCopy(this.handle);
+    hasHostImageCopy(): boolean {
+        return Donut_HasHostImageCopy(this.handle) != 0;
     }
 
     // A DDS file's texture (path relative to the executable's directory, all its levels; sRGB != 0
@@ -1501,10 +1501,10 @@ export class App {
         return Donut_GetSupportedSampleCounts(this.handle, colorFormat, depthFormat);
     }
 
-    // Non-zero if render passes resolve multisampled targets as they end (Vulkan's dynamic rendering;
+    // True if render passes resolve multisampled targets as they end (Vulkan's dynamic rendering;
     // Donut_CreateResolveFramebuffer). NVRHI runs D3D without render passes: use Donut_ResolveTexture.
-    hasRenderPassResolve(): int {
-        return Donut_HasRenderPassResolve(this.handle);
+    hasRenderPassResolve(): boolean {
+        return Donut_HasRenderPassResolve(this.handle) != 0;
     }
 
     // The ResolveModes render passes can resolve depth by, as bits 1 << mode (Vulkan's
@@ -1577,10 +1577,10 @@ export class App {
         return Donut_SetSwapChainFormat(this.handle, format);
     }
 
-    // Non-zero if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
+    // True if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
     // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
-    isDisplayHdr(): int {
-        return Donut_IsDisplayHdr(this.handle);
+    isDisplayHdr(): boolean {
+        return Donut_IsDisplayHdr(this.handle) != 0;
     }
 
     // Shadows.
@@ -3076,13 +3076,13 @@ export class SceneLoader {
 
     // Non-zero once a scene has loaded, until the next Donut_BeginLoadingScene: unload what
     // references it (the passes' binding caches) before starting another load.
-    isSceneLoaded(): int {
-        return Donut_IsSceneLoaded(this.handle);
+    isSceneLoaded(): boolean {
+        return Donut_IsSceneLoaded(this.handle) != 0;
     }
 
     // Non-zero while the loading thread runs.
-    isSceneLoading(): int {
-        return Donut_IsSceneLoading(this.handle);
+    isSceneLoading(): boolean {
+        return Donut_IsSceneLoading(this.handle) != 0;
     }
 
     // Starts loading a scene (absolute path, or relative to the executable's directory), dropping
@@ -3957,8 +3957,8 @@ export class Dlss {
         return Donut_InitDlss(this.handle, inputWidth, inputHeight, outputWidth, outputHeight);
     }
 
-    isInitialized(): int {
-        return Donut_IsDlssInitialized(this.handle);
+    isInitialized(): boolean {
+        return Donut_IsDlssInitialized(this.handle) != 0;
     }
 }
 
@@ -3983,8 +3983,8 @@ export class LightProbeSet {
         return Donut_GetLightProbeName(this.handle, index);
     }
 
-    isEnabled(index: int): int {
-        return Donut_IsLightProbeEnabled(this.handle, index);
+    isEnabled(index: int): boolean {
+        return Donut_IsLightProbeEnabled(this.handle, index) != 0;
     }
 
     setEnabled(index: int, enabled: int): void {

@@ -427,7 +427,7 @@ namespace DescriptorBufferBasic {
             return 1;
         }
         console.log(`Renderer: ${app.getRendererString()}`);
-        if (app.hasDescriptorBuffers() == 0) {
+        if (!app.hasDescriptorBuffers()) {
             app.destroy();
             return unsupported(args.test, "The device doesn't support descriptor buffers (VK_EXT_descriptor_buffer).");
         }
