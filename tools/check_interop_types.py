@@ -240,6 +240,9 @@ def parse_ts(root):
     i = 0
     while i < len(lines):
         line = lines[i]
+        # -mm=own's mark of a C function that can't call back into TypeScript
+        if line.startswith("@nodrops "):
+            line = line[len("@nodrops "):]
         m = re.match(r"(?:declare )?(?:const )?enum (\w+)", line)
         if m:
             enums.add(m.group(1))

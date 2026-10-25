@@ -348,6 +348,9 @@ def parse(source):
     i = 0
     while i < len(lines):
         line = lines[i].strip()
+        # -mm=own's mark of a C function that can't call back into TypeScript
+        if line.startswith("@nodrops "):
+            line = line[len("@nodrops "):]
         if line.startswith("declare function "):
             text = line
             while not text.rstrip().endswith(";"):
@@ -525,6 +528,10 @@ def generate(functions, handles, module=None):
             continue
         out.append("")
         handle = handle_type(cls, handles)
+        # @value: a wrapper is its handle and nothing else, copied rather than referenced, so
+        # -mm=own has no ownership to prove when one is kept in a field (this.app.f() would
+        # otherwise borrow the field) and -mm=rc no count to keep.
+        out.append("@value")
         out.append(f"export class {cls} {{")
         out.append(f"    readonly handle: {handle};")
         out.append("")

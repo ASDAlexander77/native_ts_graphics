@@ -29,6 +29,7 @@ let retainedMouseScrollCallbacks: MouseScrollCallback[] = [];
 let retainedRenderCallbacks: RenderCallback[] = [];
 let retainedVoidCallbacks: VoidCallback[] = [];
 
+@value
 export class App {
     readonly handle: AppHandle;
 
@@ -1697,6 +1698,7 @@ export class App {
     }
 }
 
+@value
 export class Pass {
     readonly handle: PassHandle;
 
@@ -1753,6 +1755,7 @@ export class Pass {
     }
 }
 
+@value
 export class Frame {
     readonly handle: FrameHandle;
 
@@ -2078,6 +2081,7 @@ export class Frame {
     }
 }
 
+@value
 export class CommandList {
     readonly handle: CommandListHandle;
 
@@ -2336,6 +2340,7 @@ export class CommandList {
     }
 }
 
+@value
 export class AdapterList {
     readonly handle: AdapterListHandle;
 
@@ -2370,6 +2375,7 @@ export class AdapterList {
     }
 }
 
+@value
 export class InputLayoutDesc {
     readonly handle: InputLayoutDescHandle;
 
@@ -2399,6 +2405,7 @@ export class InputLayoutDesc {
     }
 }
 
+@value
 export class BindingSetDesc {
     readonly handle: BindingSetDescHandle;
 
@@ -2527,6 +2534,7 @@ export class BindingSetDesc {
     }
 }
 
+@value
 export class BindingSet {
     readonly handle: BindingSetHandle;
 
@@ -2545,6 +2553,7 @@ export class BindingSet {
     }
 }
 
+@value
 export class BindingLayoutDesc {
     readonly handle: BindingLayoutDescHandle;
 
@@ -2646,6 +2655,7 @@ export class BindingLayoutDesc {
     }
 }
 
+@value
 export class BindlessLayoutDesc {
     readonly handle: BindlessLayoutDescHandle;
 
@@ -2674,6 +2684,7 @@ export class BindlessLayoutDesc {
     }
 }
 
+@value
 export class DescriptorTableManager {
     readonly handle: DescriptorTableManagerHandle;
 
@@ -2692,6 +2703,7 @@ export class DescriptorTableManager {
     }
 }
 
+@value
 export class RtPipelineDesc {
     readonly handle: RtPipelineDescHandle;
 
@@ -2743,6 +2755,7 @@ export class RtPipelineDesc {
     }
 }
 
+@value
 export class GraphicsPipelineDesc {
     readonly handle: GraphicsPipelineDescHandle;
 
@@ -2888,6 +2901,7 @@ export class GraphicsPipelineDesc {
     }
 }
 
+@value
 export class ShaderTable {
     readonly handle: ShaderTableHandle;
 
@@ -2913,6 +2927,7 @@ export class ShaderTable {
     }
 }
 
+@value
 export class AsyncComputeLoop {
     readonly handle: AsyncComputeLoopHandle;
 
@@ -2968,6 +2983,7 @@ export class AsyncComputeLoop {
     }
 }
 
+@value
 export class ImGuiPass {
     readonly handle: ImGuiPassHandle;
 
@@ -3008,6 +3024,7 @@ export class ImGuiPass {
     }
 }
 
+@value
 export class ImGuiFont {
     readonly handle: ImGuiFontHandle;
 
@@ -3025,6 +3042,7 @@ export class ImGuiFont {
     }
 }
 
+@value
 export class SceneLoader {
     readonly handle: SceneLoaderHandle;
 
@@ -3071,6 +3089,7 @@ export class SceneLoader {
     }
 }
 
+@value
 export class StringList {
     readonly handle: StringListHandle;
 
@@ -3092,6 +3111,7 @@ export class StringList {
     }
 }
 
+@value
 export class Scene {
     readonly handle: SceneHandle;
 
@@ -3142,6 +3162,7 @@ export class Scene {
     }
 }
 
+@value
 export class SceneGraph {
     readonly handle: SceneGraphHandle;
 
@@ -3216,6 +3237,7 @@ export class SceneGraph {
     }
 }
 
+@value
 export class Node {
     readonly handle: NodeHandle;
 
@@ -3244,6 +3266,7 @@ export class Node {
     }
 }
 
+@value
 export class Light {
     readonly handle: LightHandle;
 
@@ -3287,6 +3310,7 @@ export class Light {
     }
 }
 
+@value
 export class Material {
     readonly handle: MaterialHandle;
 
@@ -3322,6 +3346,7 @@ export class Material {
     }
 }
 
+@value
 export class SceneCamera {
     readonly handle: SceneCameraHandle;
 
@@ -3357,6 +3382,7 @@ export class SceneCamera {
     }
 }
 
+@value
 export class SceneAccelStructs {
     readonly handle: SceneAccelStructsHandle;
 
@@ -3399,6 +3425,7 @@ export class SceneAccelStructs {
     }
 }
 
+@value
 export class LoadedTexture {
     readonly handle: LoadedTextureHandle;
 
@@ -3417,6 +3444,7 @@ export class LoadedTexture {
     }
 }
 
+@value
 export class Camera {
     readonly handle: CameraHandle;
 
@@ -3523,6 +3551,7 @@ export class Camera {
     }
 }
 
+@value
 export class View {
     readonly handle: ViewHandle;
 
@@ -3575,6 +3604,7 @@ export class View {
     }
 }
 
+@value
 export class CubemapTarget {
     readonly handle: CubemapTargetHandle;
 
@@ -3602,6 +3632,7 @@ export class CubemapTarget {
     }
 }
 
+@value
 export class DrawBatch {
     readonly handle: DrawBatchHandle;
 
@@ -3647,6 +3678,7 @@ export class DrawBatch {
     }
 }
 
+@value
 export class GBufferTargets {
     readonly handle: GBufferTargetsHandle;
 
@@ -3671,6 +3703,7 @@ export class GBufferTargets {
     }
 }
 
+@value
 export class TemporalTargets {
     readonly handle: TemporalTargetsHandle;
 
@@ -3695,6 +3728,7 @@ export class TemporalTargets {
     }
 }
 
+@value
 export class SceneRenderTargets {
     readonly handle: SceneRenderTargetsHandle;
 
@@ -3716,6 +3750,7 @@ export class SceneRenderTargets {
     }
 }
 
+@value
 export class ShadowMap {
     readonly handle: ShadowMapHandle;
 
@@ -3749,6 +3784,7 @@ export class ShadowMap {
     }
 }
 
+@value
 export class DepthPass {
     readonly handle: DepthPassHandle;
 
@@ -3766,6 +3802,7 @@ export class DepthPass {
     }
 }
 
+@value
 export class ForwardShadingPass {
     readonly handle: ForwardShadingPassHandle;
 
@@ -3783,6 +3820,7 @@ export class ForwardShadingPass {
     }
 }
 
+@value
 export class GBufferFillPass {
     readonly handle: GBufferFillPassHandle;
 
@@ -3800,6 +3838,7 @@ export class GBufferFillPass {
     }
 }
 
+@value
 export class DeferredLightingPass {
     readonly handle: DeferredLightingPassHandle;
 
@@ -3818,6 +3857,7 @@ export class DeferredLightingPass {
     }
 }
 
+@value
 export class TemporalAntiAliasingPass {
     readonly handle: TemporalAntiAliasingPassHandle;
 
@@ -3844,6 +3884,7 @@ export class TemporalAntiAliasingPass {
     }
 }
 
+@value
 export class ToneMappingPass {
     readonly handle: ToneMappingPassHandle;
 
@@ -3861,6 +3902,7 @@ export class ToneMappingPass {
     }
 }
 
+@value
 export class PixelReadbackPass {
     readonly handle: PixelReadbackPassHandle;
 
@@ -3878,6 +3920,7 @@ export class PixelReadbackPass {
     }
 }
 
+@value
 export class Dlss {
     readonly handle: DlssHandle;
 
@@ -3900,6 +3943,7 @@ export class Dlss {
     }
 }
 
+@value
 export class LightProbeSet {
     readonly handle: LightProbeSetHandle;
 
@@ -3942,6 +3986,7 @@ export class LightProbeSet {
     }
 }
 
+@value
 export class LightProbeCapture {
     readonly handle: LightProbeCaptureHandle;
 
@@ -3967,6 +4012,7 @@ export class LightProbeCapture {
     }
 }
 
+@value
 export class LightProbeProcessingPass {
     readonly handle: LightProbeProcessingPassHandle;
 
@@ -3984,6 +4030,7 @@ export class LightProbeProcessingPass {
     }
 }
 
+@value
 export class GltfMesh {
     readonly handle: GltfMeshHandle;
 
@@ -4010,6 +4057,7 @@ export class GltfMesh {
     }
 }
 
+@value
 export class GltfModel {
     readonly handle: GltfModelHandle;
 
@@ -4115,6 +4163,7 @@ export class GltfModel {
     }
 }
 
+@value
 export class TriangleBlas {
     readonly handle: TriangleBlasHandle;
 
@@ -4192,6 +4241,7 @@ export class TriangleBlas {
     }
 }
 
+@value
 export class TileMappings {
     readonly handle: TileMappingsHandle;
 
@@ -4221,6 +4271,7 @@ export class TileMappings {
     }
 }
 
+@value
 export class D3D12LibraryRtPipeline {
     readonly handle: D3D12LibraryRtPipelineHandle;
 
@@ -4248,6 +4299,7 @@ export class D3D12LibraryRtPipeline {
     }
 }
 
+@value
 export class CalibratedTimestamps {
     readonly handle: CalibratedTimestampsHandle;
 
@@ -4285,6 +4337,7 @@ export class CalibratedTimestamps {
     }
 }
 
+@value
 export class PushDescriptorPipeline {
     readonly handle: PushDescriptorPipelineHandle;
 
@@ -4337,6 +4390,7 @@ export class PushDescriptorPipeline {
     }
 }
 
+@value
 export class DescriptorBuffer {
     readonly handle: DescriptorBufferHandle;
 
@@ -4361,6 +4415,7 @@ export class DescriptorBuffer {
     }
 }
 
+@value
 export class DescriptorBufferPipeline {
     readonly handle: DescriptorBufferPipelineHandle;
 
@@ -4420,6 +4475,7 @@ export class DescriptorBufferPipeline {
     }
 }
 
+@value
 export class MeshPipelineStatistics {
     readonly handle: MeshPipelineStatisticsHandle;
 
@@ -4438,6 +4494,7 @@ export class MeshPipelineStatistics {
     }
 }
 
+@value
 export class PredicationBuffer {
     readonly handle: PredicationBufferHandle;
 
@@ -4455,6 +4512,7 @@ export class PredicationBuffer {
     }
 }
 
+@value
 export class BinaryFile {
     readonly handle: BinaryFileHandle;
 
@@ -4509,6 +4567,7 @@ export class BinaryFile {
     }
 }
 
+@value
 export class SharedTexture {
     readonly handle: SharedTextureHandle;
 
@@ -4531,6 +4590,7 @@ export class SharedTexture {
     }
 }
 
+@value
 export class StagingTexture {
     readonly handle: StagingTextureHandle;
 
@@ -4552,6 +4612,7 @@ export class StagingTexture {
     }
 }
 
+@value
 export class RandomEngine {
     readonly handle: RandomEngineHandle;
 

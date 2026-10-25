@@ -8,6 +8,7 @@
 
 /// <reference path="donut_interop.d.ts" />
 
+@value
 export class VideoPlayer {
     readonly handle: VideoPlayerHandle;
 

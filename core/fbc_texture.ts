@@ -8,6 +8,7 @@
 
 /// <reference path="donut_interop.d.ts" />
 
+@value
 export class FbcTexture {
     readonly handle: FbcTextureHandle;
 

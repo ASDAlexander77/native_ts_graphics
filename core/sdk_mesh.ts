@@ -7,6 +7,7 @@
 
 /// <reference path="donut_interop.d.ts" />
 
+@value
 export class SdkMesh {
     readonly handle: SdkMeshHandle;
 
