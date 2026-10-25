@@ -196,6 +196,15 @@ namespace RtxcrPathtracer {
 
         // The sample's cameraSpeed.
         cameraSpeed = 50.0;
+
+        // The sample's animation settings: the scene's node animations and the hair's morph targets.
+        enableAnimations = false;
+        animationFps = 30.0;
+        enableAnimationSmoothing = true;
+        animationSmoothingFactor = 16.0;
+        enableAnimationDebugging = false;
+        animationKeyFrameIndexOverride = 0;
+        animationKeyFrameWeightOverride = 0.0;
     }
 
     // A constant buffer's contents as an f32 array, written by byte offset.
@@ -299,7 +308,9 @@ namespace RtxcrPathtracer {
         private globalBuffer: BufferHandle;
         private viewConstantsSize: int;
         private lightConstantsSize: int;
-        private morphTargetMask: BufferHandle;
+        private morphTargetCount: int;
+        private wallclockTime: number;
+        private elapsedSeconds: number;
 
         // Pipelines
         private gbufferLayout: BindingLayoutHandle;
@@ -339,7 +350,6 @@ namespace RtxcrPathtracer {
         private ptDenoiserSet: BindingSet;
         private tonemapSet: BindingSet;
 
-        private accelStructsBuilt: boolean;
         private frameCounter: int;
         // The sample's PathTracingPass accumulation state.
         private accumulatedFrameCount: int;
@@ -364,7 +374,9 @@ namespace RtxcrPathtracer {
             this.ptSet = new BindingSet(null);
             this.ptDenoiserSet = new BindingSet(null);
             this.tonemapSet = new BindingSet(null);
-            this.accelStructsBuilt = false;
+            this.morphTargetCount = 0;
+            this.wallclockTime = 0.0;
+            this.elapsedSeconds = 0.0;
             this.frameCounter = 0;
             this.accumulatedFrameCount = 1;
             this.resetAccumulation = true;
@@ -468,20 +480,16 @@ namespace RtxcrPathtracer {
             this.lightingBuffer = this.app.createVolatileConstantBuffer(lightingSize, "LightingConstants");
             this.globalBuffer = this.app.createVolatileConstantBuffer(GLOBAL_CONSTANTS_SIZE, "GlobalConstants");
 
-            // The sample's morph target meta data: one uint per instance, 0 for the static scene.
-            const instanceCount = this.scene.getInstanceCount();
-            const mask: int[] = [];
-            for (let i = 0; i < instanceCount; i++) {
-                mask.push(0);
-            }
-            const uploadList = this.app.createCommandList();
-            uploadList.open();
-            this.morphTargetMask = this.app.createStaticShaderBuffer(uploadList, Ref(mask[0]), instanceCount * 4, 4,
-                "Instance Morph Target Meta Data");
-            uploadList.close();
-            this.app.executeCommandList(uploadList);
+            // The animated hair (morph targets), and the acceleration structures over the scene.
+            this.morphTargetCount = this.rtxcrScene.createMorphTargets();
+            const buildList = this.app.createCommandList();
+            buildList.open();
+            this.rtxcrScene.buildAccelStructs(buildList.handle, true);
+            this.rtxcrScene.buildTlas(buildList.handle, this.settings.showEmissiveSurfaces);
+            buildList.close();
+            this.app.executeCommandList(buildList);
             this.app.waitForIdle();
-            this.app.releaseResource(uploadList.handle);
+            this.app.releaseResource(buildList.handle);
 
             if (!this.createPipelines()) {
                 return false;
@@ -506,6 +514,9 @@ namespace RtxcrPathtracer {
 
         onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
+            if (key == Key.Space && action == Action.Press) {
+                this.settings.enableAnimations = !this.settings.enableAnimations;
+            }
             return 1;
         }
 
@@ -526,6 +537,21 @@ namespace RtxcrPathtracer {
 
         onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
+            this.elapsedSeconds = elapsedSeconds;
+
+            // The sample's SampleScene::Animate: the scene's node animations, each starting a second
+            // after the previous one.
+            if (this.settings.enableAnimations) {
+                this.wallclockTime += elapsedSeconds;
+                let offset = 0.0;
+                const animationCount = this.scene.getAnimationCount();
+                for (let i = 0; i < animationCount; i++) {
+                    const duration = this.scene.getAnimationDuration(i);
+                    const cycles = (this.wallclockTime + offset) / duration;
+                    this.scene.applyAnimation(i, (cycles - Math.floor(cycles)) * duration);
+                    offset += 1.0;
+                }
+            }
         }
 
         onBackBufferResizing() {
@@ -713,6 +739,17 @@ namespace RtxcrPathtracer {
                 this.ptTable = table;
             }
 
+            // The morph target pass.
+            if (this.morphTargetCount > 0) {
+                const morphShader = this.app.createShaderWithDefine("morphTargetAnimation.cs.hlsl", "main_cs", ShaderType.Compute,
+                    "RTXCR_CURVE_TESSELLATION_TYPE", `${this.hairTessellationType}`);
+                if (!morphShader) {
+                    console.log("Cannot load the morph target shader");
+                    return false;
+                }
+                this.rtxcrScene.setMorphTargetShader(morphShader);
+            }
+
             // Tone mapping: the sample's pixel shader over a full-screen strip.
             const tonemapDesc = BindingLayoutDesc.create();
             tonemapDesc.layoutVolatileConstantBuffer(0);
@@ -737,7 +774,7 @@ namespace RtxcrPathtracer {
             gbufferDesc.bindStructuredBufferSRV(1, this.scene.getBuffer(SceneBuffer.Instances));
             gbufferDesc.bindStructuredBufferSRV(2, this.scene.getBuffer(SceneBuffer.Geometries));
             gbufferDesc.bindStructuredBufferSRV(3, this.scene.getBuffer(SceneBuffer.Materials));
-            gbufferDesc.bindStructuredBufferSRV(4, this.morphTargetMask);
+            gbufferDesc.bindStructuredBufferSRV(4, this.rtxcrScene.getMorphTargetMask());
             gbufferDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
             if (this.useLss) {
                 gbufferDesc.bindNullTypedBufferUAV(NVAPI_SHADER_EXT_SLOT);
@@ -764,7 +801,7 @@ namespace RtxcrPathtracer {
             ptDesc.bindStructuredBufferSRV(2, this.scene.getBuffer(SceneBuffer.Geometries));
             ptDesc.bindStructuredBufferSRV(3, this.scene.getBuffer(SceneBuffer.Materials));
             ptDesc.bindTextureSRV(4, Donut_GetLoadedTextureTexture(this.envMap.handle));
-            ptDesc.bindStructuredBufferSRV(5, this.morphTargetMask);
+            ptDesc.bindStructuredBufferSRV(5, this.rtxcrScene.getMorphTargetMask());
             ptDesc.bindSampler(0, this.app.getCommonSampler(CommonSampler.AnisotropicWrap));
             ptDesc.bindTextureUAV(0, output);
             if (this.useLss) {
@@ -920,7 +957,7 @@ namespace RtxcrPathtracer {
                 settings.skyType, Ref(g.data[G_SKY_PARAMS / 4]));
 
             g.setInt(G_TARGET_LIGHT, -1);
-            g.setBool(G_ENABLE_ANIMATION, false);
+            g.setBool(G_ENABLE_ANIMATION, settings.enableAnimations);
             g.setInt(G_DEBUG_OUTPUT_MODE, 0);
             g.setFloat(G_DEBUG_SCALE, 1.0);
             g.setFloat(G_DEBUG_MIN, 0.0);
@@ -936,13 +973,6 @@ namespace RtxcrPathtracer {
 
             if (this.targetsReady && (width != this.width || height != this.height)) {
                 this.releaseTargets();
-            }
-
-            // The acceleration structures over the scene's hair and surfaces, built once.
-            if (!this.accelStructsBuilt) {
-                this.rtxcrScene.buildAccelStructs(commandList.handle, true);
-                this.rtxcrScene.buildTlas(commandList.handle, this.settings.showEmissiveSurfaces);
-                this.accelStructsBuilt = true;
             }
 
             if (!this.targetsReady) {
@@ -977,6 +1007,19 @@ namespace RtxcrPathtracer {
             }
 
             this.app.refreshScene(frame, this.scene);
+
+            // Animation: the hair's vertices and their structures follow the keyframes, the
+            // instances their nodes; the samples accumulated so far are of another picture.
+            if (this.settings.enableAnimations) {
+                this.resetAccumulation = true;
+                if (this.morphTargetCount > 0) {
+                    this.rtxcrScene.animateMorphTargets(commandList.handle, this.frameCounter, this.elapsedSeconds,
+                        Math.max(1.0 / this.settings.animationFps, 0.001), this.settings.enableAnimationDebugging,
+                        this.settings.animationKeyFrameIndexOverride, this.settings.animationKeyFrameWeightOverride,
+                        this.settings.enableAnimationSmoothing ? this.settings.animationSmoothingFactor : 1.0);
+                }
+                this.rtxcrScene.buildTlas(commandList.handle, this.settings.showEmissiveSurfaces);
+            }
             this.updateConstants(commandList, width, height);
 
             frame.dispatchRaysWithBindingSets(this.gbufferTable, this.gbufferSet, this.gbufferDenoiserSet, this.descriptorTable,
@@ -1022,6 +1065,8 @@ namespace RtxcrPathtracer {
         height: int = 1080;
         // -noAccumulate: shows every frame as rendered.
         accumulate: boolean = true;
+        // -enableAnimation <0 or 1>: the sample's option; Space toggles it.
+        enableAnimation: boolean = false;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
@@ -1037,6 +1082,8 @@ namespace RtxcrPathtracer {
                         this.width = parseInt(this[i + 1]);
                     } else if (arg == "-height") {
                         this.height = parseInt(this[i + 1]);
+                    } else if (arg == "-enableAnimation") {
+                        this.enableAnimation = parseInt(this[i + 1]) != 0;
                     }
                 }
             }
@@ -1077,6 +1124,7 @@ namespace RtxcrPathtracer {
 
         const settings = new Settings();
         settings.enableAccumulation = args.accumulate;
+        settings.enableAnimations = args.enableAnimation;
         const renderer = new Renderer(app, settings, args.scenePath, hairTessellationType, args.hairRadiusScale);
         if (!renderer.init()) {
             app.destroy();

@@ -2865,6 +2865,23 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // surfaces unless showEmissiveSurfaces, else 1).
 @nodrops declare function Donut_RtxcrBuildTlas(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, showEmissiveSurfaces: boolean): void;
 @nodrops declare function Donut_RtxcrGetTlas(rtxcrScene: RtxcrSceneHandle): AccelStructHandle;
+// Makes the animated hair's keyframe, line segment and constant buffers (for the meshes with morph targets)
+// and the per-instance mask of them; the number of such meshes.
+@nodrops declare function Donut_RtxcrCreateMorphTargets(rtxcrScene: RtxcrSceneHandle): int;
+// One uint per mesh instance, 1 where its mesh has morph targets (the shaders' instance meta data).
+@nodrops declare function Donut_RtxcrGetMorphTargetMask(rtxcrScene: RtxcrSceneHandle): BufferHandle;
+// The morph target pass's compute shader for the scene's tessellation.
+@nodrops declare function Donut_RtxcrSetMorphTargetShader(rtxcrScene: RtxcrSceneHandle, shader: ShaderHandle): void;
+// Restarts the morph target animation.
+@nodrops declare function Donut_RtxcrResetMorphTargetAnimation(rtxcrScene: RtxcrSceneHandle): void;
+// Blends the keyframes around the animation's time (animationTimestampPerFrame seconds apart; the last
+// blends back to the first over animationSmoothingFactor of them) into the hair's vertex buffers and
+// updates their bottom level structures, into an open command list. The frame's vertex buffer is the one the
+// parity of frameIndex picks (the hit shaders read the global GlobalConstants' frameIndex % 2). With
+// enableDebugOverride the keyframe and weight are the given ones. Returns the number of meshes animated.
+@nodrops declare function Donut_RtxcrAnimateMorphTargets(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, frameIndex: int, elapsedSeconds: number,
+    animationTimestampPerFrame: number, enableDebugOverride: boolean, overrideKeyFrameIndex: int, overrideKeyFrameWeight: number,
+    animationSmoothingFactor: number): int;
 // The sample's sky constants (GlobalConstants::skyParams, 96 bytes into dst) for a directional light.
 // skyType: 0 constant, 1 procedural, 2 environment map.
 @nodrops declare function Donut_RtxcrFillSkyParameters(rtxcrScene: RtxcrSceneHandle, sun: LightHandle, skyR: number, skyG: number, skyB: number, enableSky: boolean, skyType: int, dst: Opaque): void;

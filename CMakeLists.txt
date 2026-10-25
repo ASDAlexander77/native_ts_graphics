@@ -3656,4 +3656,6 @@ if (RTXCR_DIR)
     add_tslang_example(rtxcr_pathtracer core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp)
     add_dependencies(rtxcr_pathtracer rtxcr_pathtracer_vs_shaders)
     add_tslang_example_test(rtxcr_pathtracer ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX animation
+        ARGS -width 960 -height 540 -enableAnimation 1 --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
 endif()

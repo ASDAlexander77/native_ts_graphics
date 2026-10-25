@@ -16,6 +16,7 @@
 // license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -30,6 +31,7 @@
 #include <donut/engine/Scene.h>
 #include <donut/engine/SceneGraph.h>
 #include <donut/render/SkyPass.h>
+#include <nvrhi/common/misc.h>
 #include <nvrhi/nvrhi.h>
 #include <nvrhi/utils.h>
 #include <rtxcr/geometry/include/CurveTessellation.h>
@@ -77,6 +79,53 @@ namespace
         std::vector<MeshBuffersCache> meshBuffersCache[TessellationTypeCount];
 
         nvrhi::rt::AccelStructHandle tlas;
+
+        // The curve meshes' line segments by mesh name (the morph target passes' input).
+        std::unordered_map<std::string, uint32_t> lineSegmentIndexByMeshName;
+
+        // The morph target animation: per animated mesh its keyframes, the line segments they move,
+        // the constants; the pass's shader and pipeline; the time it has run.
+        struct MorphTargetResources
+        {
+            nvrhi::BufferHandle dataBuffer;
+            nvrhi::BufferHandle lineSegmentsBuffer;
+            nvrhi::BufferHandle constantBuffer;
+            uint32_t vertexSize = 0;
+        };
+        std::unordered_map<const MeshInfo*, MorphTargetResources> morphTargets;
+        // The animated meshes' two vertex buffers: the hit shaders read the one the frame's parity picks
+        // (their bindless descriptors are consecutive: the mesh's, then the next one) and the previous
+        // frame's, the other.
+        std::unordered_map<const BufferGroup*, nvrhi::BufferHandle[2]> dynamicVertexBuffers;
+        // Keeps the second buffers' descriptors.
+        std::vector<std::shared_ptr<DescriptorHandle>> secondDescriptors;
+        nvrhi::BufferHandle morphTargetMask;
+        nvrhi::ShaderHandle morphShader;
+        nvrhi::BindingLayoutHandle morphLayout;
+        nvrhi::ComputePipelineHandle morphPipeline;
+        float totalTime = 0.0f;
+        float prevAnimationTimestampPerFrame = 0.0f;
+    };
+
+    // The sample's LineSegment (shared/shared.h) as the shaders read it: 48 bytes.
+    struct GpuLineSegment
+    {
+        int32_t geometryIndex;
+        float pad0[3];
+        float point0[3];
+        float radius0;
+        float point1[3];
+        float radius1;
+    };
+    static_assert(sizeof(GpuLineSegment) == 48, "LineSegment layout");
+
+    // MorphTargetConstants (shared/shared.h).
+    struct GpuMorphTargetConstants
+    {
+        int32_t vertexCount;
+        float lerpWeight;
+        float prevLerpWeight;
+        float pad0;
     };
 
     bool isNear(float a, float b)
@@ -95,6 +144,7 @@ namespace
             const auto& mesh = meshInstances[meshIndex]->GetMesh();
             if (!mesh->IsCurve())
                 continue;
+            s.lineSegmentIndexByMeshName[mesh->name] = meshIndex;
 
             const auto& indices = mesh->buffers->indexData;
             const auto& positions = mesh->buffers->positionData;
@@ -284,6 +334,100 @@ namespace
         }
     }
 
+    // The states of a vertex buffer between the morph target passes: read by shaders (bindless) and as
+    // acceleration structure input.
+    const nvrhi::ResourceStates VERTEX_BUFFER_REST_STATE = nvrhi::ResourceStates::VertexBuffer |
+        nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput;
+
+    // The sample's CreateDynamicVertexBuffer: the mesh's vertex buffer, made as Scene::CreateMeshBuffers
+    // does but writable by the morph target pass (and registered in the descriptor table); it moves
+    // the curve's CPU vertex data in.
+    void createDynamicVertexBuffer(RtxcrScene& s, BufferGroup* meshBuffers, const std::string& meshName)
+    {
+        auto appendBufferRange = [](nvrhi::BufferRange& range, size_t size, uint64_t& currentBufferSize) {
+            range.byteOffset = currentBufferSize;
+            range.byteSize = nvrhi::align(size, size_t(16));
+            currentBufferSize += range.byteSize;
+        };
+
+        nvrhi::BufferDesc bufferDesc;
+        bufferDesc.isVertexBuffer = true;
+        bufferDesc.byteSize = 0;
+        bufferDesc.debugName = "Dynamic VertexBuffer - " + meshName;
+        bufferDesc.canHaveTypedViews = true;
+        bufferDesc.canHaveRawViews = true;
+        bufferDesc.isAccelStructBuildInput = true;
+        bufferDesc.canHaveUAVs = true;
+
+        // The vertex attributes, in the order Scene::CreateMeshBuffers lays them out.
+        struct Attribute
+        {
+            VertexAttribute attribute;
+            const void* data;
+            size_t byteSize;
+        };
+        const Attribute attributes[] = {
+            { VertexAttribute::Position, meshBuffers->positionData.data(), meshBuffers->positionData.size() * sizeof(meshBuffers->positionData[0]) },
+            { VertexAttribute::Normal, meshBuffers->normalData.data(), meshBuffers->normalData.size() * sizeof(meshBuffers->normalData[0]) },
+            { VertexAttribute::Tangent, meshBuffers->tangentData.data(), meshBuffers->tangentData.size() * sizeof(meshBuffers->tangentData[0]) },
+            { VertexAttribute::TexCoord1, meshBuffers->texcoord1Data.data(), meshBuffers->texcoord1Data.size() * sizeof(meshBuffers->texcoord1Data[0]) },
+            { VertexAttribute::TexCoord2, meshBuffers->texcoord2Data.data(), meshBuffers->texcoord2Data.size() * sizeof(meshBuffers->texcoord2Data[0]) },
+            { VertexAttribute::JointWeights, meshBuffers->weightData.data(), meshBuffers->weightData.size() * sizeof(meshBuffers->weightData[0]) },
+            { VertexAttribute::JointIndices, meshBuffers->jointData.data(), meshBuffers->jointData.size() * sizeof(meshBuffers->jointData[0]) },
+            { VertexAttribute::CurveRadius, meshBuffers->radiusData.data(), meshBuffers->radiusData.size() * sizeof(meshBuffers->radiusData[0]) },
+        };
+        for (const auto& attribute : attributes)
+        {
+            if (attribute.byteSize > 0)
+                appendBufferRange(meshBuffers->getVertexBufferRange(attribute.attribute), attribute.byteSize, bufferDesc.byteSize);
+        }
+
+        // Both buffers start with the mesh's vertices; the second one's descriptor follows the first's.
+        auto& buffers = s.dynamicVertexBuffers[meshBuffers];
+        buffers[0] = s.device->createBuffer(bufferDesc);
+        bufferDesc.debugName = "Dynamic VertexBuffer - " + meshName + " 1";
+        buffers[1] = s.device->createBuffer(bufferDesc);
+        meshBuffers->vertexBuffer = buffers[0];
+        std::shared_ptr<DescriptorHandle> secondDescriptor;
+        if (s.descriptorTable)
+        {
+            meshBuffers->vertexBufferDescriptor = std::make_shared<DescriptorHandle>(
+                s.descriptorTable->CreateDescriptorHandle(nvrhi::BindingSetItem::RawBuffer_SRV(0, buffers[0])));
+            secondDescriptor = std::make_shared<DescriptorHandle>(
+                s.descriptorTable->CreateDescriptorHandle(nvrhi::BindingSetItem::RawBuffer_SRV(0, buffers[1])));
+            assert(secondDescriptor->Get() == meshBuffers->vertexBufferDescriptor->Get() + 1);
+        }
+        s.secondDescriptors.push_back(secondDescriptor);
+
+        nvrhi::CommandListHandle commandList = s.device->createCommandList();
+        commandList->open();
+        for (const auto& buffer : buffers)
+        {
+            commandList->beginTrackingBufferState(buffer, nvrhi::ResourceStates::Common);
+            for (const auto& attribute : attributes)
+            {
+                if (attribute.byteSize == 0)
+                    continue;
+                const auto& range = meshBuffers->getVertexBufferRange(attribute.attribute);
+                commandList->writeBuffer(buffer, attribute.data, range.byteSize, range.byteOffset);
+            }
+            commandList->setBufferState(buffer, VERTEX_BUFFER_REST_STATE);
+        }
+        commandList->commitBarriers();
+        commandList->close();
+        s.device->executeCommandList(commandList);
+        s.device->waitForIdle();
+
+        std::vector<dm::float3>().swap(meshBuffers->positionData);
+        std::vector<uint32_t>().swap(meshBuffers->normalData);
+        std::vector<uint32_t>().swap(meshBuffers->tangentData);
+        std::vector<dm::float2>().swap(meshBuffers->texcoord1Data);
+        std::vector<dm::float2>().swap(meshBuffers->texcoord2Data);
+        std::vector<dm::float4>().swap(meshBuffers->weightData);
+        std::vector<dm::vector<uint16_t, 4>>().swap(meshBuffers->jointData);
+        std::vector<float>().swap(meshBuffers->radiusData);
+    }
+
     // Makes the scene's curve meshes the cached tessellation of `type`, their GPU buffers to be
     // created again.
     void replacingSceneMesh(RtxcrScene& s, int type, const std::vector<std::shared_ptr<MeshInstance>>& meshInstances)
@@ -317,12 +461,16 @@ namespace
             meshBuffers->vertexBuffer = nullptr;
             meshBuffers->instanceBuffer = nullptr;
 
+            // Morph target animation writes the vertices on the GPU.
+            if (!meshBuffers->morphTargetData.empty())
+                createDynamicVertexBuffer(s, meshBuffers.get(), mesh->name);
+
             ++curveIndex;
         }
     }
 
     // The sample's GetMeshBlasDesc: triangles, or linear swept spheres for LSS curves.
-    void getMeshBlasDesc(const MeshInfo& mesh, nvrhi::rt::AccelStructDesc& blasDesc)
+    void getMeshBlasDesc(const MeshInfo& mesh, nvrhi::rt::AccelStructDesc& blasDesc, bool isUpdate = false)
     {
         blasDesc.isTopLevel = false;
         blasDesc.debugName = mesh.name;
@@ -377,6 +525,8 @@ namespace
         if (mesh.isMorphTargetAnimationMesh)
         {
             blasDesc.buildFlags = nvrhi::rt::AccelStructBuildFlags::AllowUpdate | nvrhi::rt::AccelStructBuildFlags::PreferFastTrace;
+            if (isUpdate)
+                blasDesc.buildFlags = blasDesc.buildFlags | nvrhi::rt::AccelStructBuildFlags::PerformUpdate;
         }
         else if (mesh.skinPrototype)
         {
@@ -450,6 +600,11 @@ extern "C"
 
             nvrhi::rt::AccelStructDesc blasDesc;
             getMeshBlasDesc(*mesh, blasDesc);
+
+            // The morph target meshes' vertex buffers are not in a permanent state: they rest as
+            // the shaders and structures read them.
+            if (mesh->isMorphTargetAnimationMesh && mesh->buffers->vertexBuffer)
+                commandList->beginTrackingBufferState(mesh->buffers->vertexBuffer, VERTEX_BUFFER_REST_STATE);
 
             if (rebuild || !mesh->accelStruct)
             {
@@ -543,6 +698,265 @@ extern "C"
         else if (skyType == 2)
             params.angularSizeOfLight = -1.0f;
         std::memcpy(dst, &params, sizeof(params));
+    }
+
+    // The sample's CreateMorphTargetBuffers: for each mesh with morph targets (the animated hair), its
+    // keyframes, line segments and constants for the animation pass, and for every mesh instance a uint
+    // that says whether its mesh has them (the shaders' t_instanceMorphTargetMetaDataBuffer). Returns
+    // the number of morph target meshes.
+    DONUT_API int Donut_RtxcrCreateMorphTargets(RtxcrScene* s)
+    {
+        s->morphTargets.clear();
+        s->totalTime = 0.0f;
+        s->prevAnimationTimestampPerFrame = 0.0f;
+
+        auto createBuffer = [&](size_t byteSize, uint32_t stride, const std::string& name, bool raw) {
+            nvrhi::BufferDesc bufferDesc;
+            bufferDesc.byteSize = byteSize;
+            bufferDesc.structStride = stride;
+            bufferDesc.debugName = name;
+            bufferDesc.canHaveTypedViews = true;
+            bufferDesc.canHaveRawViews = raw;
+            bufferDesc.initialState = nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::CopyDest;
+            return s->device->createBuffer(bufferDesc);
+        };
+
+        nvrhi::CommandListHandle commandList = s->device->createCommandList();
+        int count = 0;
+        for (const auto& mesh : s->scene->GetSceneGraph()->GetMeshes())
+        {
+            const auto found = s->lineSegmentIndexByMeshName.find(mesh->name);
+            if (!mesh->isMorphTargetAnimationMesh || found == s->lineSegmentIndexByMeshName.end() ||
+                s->lineSegments[found->second].empty())
+                continue;
+            const auto& lineSegments = s->lineSegments[found->second];
+
+            RtxcrScene::MorphTargetResources resources;
+            const std::string name = std::to_string(mesh->globalMeshIndex);
+
+            commandList->open();
+
+            // All the keyframes in one buffer, which the pass binds two ranges of.
+            const auto& keyframes = mesh->buffers->morphTargetData;
+            const size_t keyframesSize = sizeof(dm::float4) * keyframes.size();
+            resources.dataBuffer = createBuffer(keyframesSize, sizeof(dm::float4), "Morph Target Data Buffer " + name, true);
+            commandList->beginTrackingBufferState(resources.dataBuffer, nvrhi::ResourceStates::Common);
+            commandList->writeBuffer(resources.dataBuffer, keyframes.data(), keyframesSize);
+            commandList->setPermanentBufferState(resources.dataBuffer, nvrhi::ResourceStates::ShaderResource);
+
+            // The vertices the animation makes, per segment, by the tessellation.
+            if (s->tessellationType == Polytube)
+                resources.vertexSize = static_cast<uint32_t>(lineSegments.size()) * POLYTUBE_ORDER * 6;
+            else if (s->tessellationType == DisjointOrthogonalTriangleStrip)
+                resources.vertexSize = static_cast<uint32_t>(lineSegments.size()) * 3 * 4;
+            else
+                resources.vertexSize = static_cast<uint32_t>(lineSegments.size()) * 2;
+
+            std::vector<GpuLineSegment> segments(lineSegments.size());
+            for (size_t i = 0; i < lineSegments.size(); ++i)
+            {
+                const auto& segment = lineSegments[i];
+                GpuLineSegment& gpu = segments[i];
+                std::memset(&gpu, 0, sizeof(gpu));
+                gpu.geometryIndex = static_cast<int32_t>(segment.geometryIndex);
+                std::memcpy(gpu.point0, segment.vertices[0].position, sizeof(gpu.point0));
+                gpu.radius0 = segment.vertices[0].radius;
+                std::memcpy(gpu.point1, segment.vertices[1].position, sizeof(gpu.point1));
+                gpu.radius1 = segment.vertices[1].radius;
+            }
+            const size_t segmentsSize = sizeof(GpuLineSegment) * segments.size();
+            resources.lineSegmentsBuffer = createBuffer(segmentsSize, sizeof(GpuLineSegment), "Mesh Line Segments Buffer " + name, false);
+            commandList->beginTrackingBufferState(resources.lineSegmentsBuffer, nvrhi::ResourceStates::Common);
+            commandList->writeBuffer(resources.lineSegmentsBuffer, segments.data(), segmentsSize);
+            commandList->setPermanentBufferState(resources.lineSegmentsBuffer, nvrhi::ResourceStates::ShaderResource);
+
+            resources.constantBuffer = s->device->createBuffer(
+                nvrhi::utils::CreateStaticConstantBufferDesc(sizeof(GpuMorphTargetConstants), "MorphTargetConstants"));
+            commandList->beginTrackingBufferState(resources.constantBuffer, nvrhi::ResourceStates::Common);
+
+            commandList->commitBarriers();
+            commandList->close();
+            s->device->executeCommandList(commandList);
+
+            s->morphTargets[mesh.get()] = resources;
+            ++count;
+        }
+
+        // The mask: 1 for the instances of the meshes with morph targets.
+        const auto& meshInstances = s->scene->GetSceneGraph()->GetMeshInstances();
+        std::vector<uint32_t> mask(std::max<size_t>(meshInstances.size(), 1), 0);
+        for (size_t i = 0; i < meshInstances.size(); ++i)
+        {
+            if (!meshInstances[i]->GetMesh()->buffers->morphTargetData.empty())
+                mask[i] = 1;
+        }
+        nvrhi::BufferDesc maskDesc;
+        maskDesc.byteSize = mask.size() * sizeof(uint32_t);
+        maskDesc.structStride = sizeof(uint32_t);
+        maskDesc.debugName = "Instance Morph Target Meta Data";
+        maskDesc.initialState = nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::CopyDest;
+        s->morphTargetMask = s->device->createBuffer(maskDesc);
+        commandList->open();
+        commandList->beginTrackingBufferState(s->morphTargetMask, nvrhi::ResourceStates::Common);
+        commandList->writeBuffer(s->morphTargetMask, mask.data(), mask.size() * sizeof(uint32_t));
+        commandList->setPermanentBufferState(s->morphTargetMask, nvrhi::ResourceStates::ShaderResource);
+        commandList->commitBarriers();
+        commandList->close();
+        s->device->executeCommandList(commandList);
+        return count;
+    }
+
+    // The buffer of one uint per mesh instance, 1 where the mesh has morph targets; valid as long as
+    // the scene (Donut_RtxcrCreateMorphTargets makes it).
+    DONUT_API nvrhi::IBuffer* Donut_RtxcrGetMorphTargetMask(RtxcrScene* s)
+    {
+        return s->morphTargetMask;
+    }
+
+    // The compute shader of the morph target pass for the scene's tessellation (the sample's
+    // morphTargetAnimation.cs.hlsl with RTXCR_CURVE_TESSELLATION_TYPE).
+    DONUT_API void Donut_RtxcrSetMorphTargetShader(RtxcrScene* s, nvrhi::IShader* shader)
+    {
+        s->morphShader = shader;
+        s->morphPipeline = nullptr;
+        s->morphLayout = nullptr;
+    }
+
+    // Restarts the morph target animation.
+    DONUT_API void Donut_RtxcrResetMorphTargetAnimation(RtxcrScene* s)
+    {
+        s->totalTime = 0.0f;
+        s->prevAnimationTimestampPerFrame = 0.0f;
+    }
+
+    // The sample's MorphTargetAnimationPass for every morph target mesh, then their bottom level
+    // structures' update: blends the two keyframes around the animation's time into the vertex
+    // buffers. animationTimestampPerFrame is the time between keyframes; the last keyframe blends back
+    // to the first over animationSmoothingFactor of them. With enableDebugOverride the keyframe and
+    // blend weight are the given ones. Returns the number of meshes animated.
+    DONUT_API int Donut_RtxcrAnimateMorphTargets(RtxcrScene* s, nvrhi::ICommandList* commandList, int frameIndex, double elapsedSeconds,
+        double animationTimestampPerFrame, bool enableDebugOverride, int overrideKeyFrameIndex, double overrideKeyFrameWeight,
+        double animationSmoothingFactor)
+    {
+        if (s->morphTargets.empty() || !s->morphShader)
+            return 0;
+
+        s->totalTime += static_cast<float>(elapsedSeconds);
+
+        if (!s->morphPipeline)
+        {
+            nvrhi::BindingLayoutDesc layoutDesc;
+            layoutDesc.visibility = nvrhi::ShaderType::Compute;
+            layoutDesc.bindings = {
+                nvrhi::BindingLayoutItem::ConstantBuffer(0),
+                nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
+                nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
+                nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2),
+                nvrhi::BindingLayoutItem::RawBuffer_UAV(0),
+                nvrhi::BindingLayoutItem::RawBuffer_UAV(1),
+                nvrhi::BindingLayoutItem::RawBuffer_UAV(2),
+            };
+            // LSS has no index buffer.
+            if (s->tessellationType != LinearSweptSphere)
+                layoutDesc.bindings.push_back(nvrhi::BindingLayoutItem::TypedBuffer_SRV(3));
+            s->morphLayout = s->device->createBindingLayout(layoutDesc);
+
+            nvrhi::ComputePipelineDesc pipelineDesc;
+            pipelineDesc.CS = s->morphShader;
+            pipelineDesc.addBindingLayout(s->morphLayout);
+            s->morphPipeline = s->device->createComputePipeline(pipelineDesc);
+        }
+
+        const float timestamp = static_cast<float>(animationTimestampPerFrame);
+        const float smoothing = static_cast<float>(animationSmoothingFactor);
+        int animated = 0;
+        for (const auto& mesh : s->scene->GetSceneGraph()->GetMeshes())
+        {
+            const auto found = s->morphTargets.find(mesh.get());
+            if (found == s->morphTargets.end() || found->second.vertexSize == 0)
+                continue;
+            const auto& resources = found->second;
+
+            // The frame's vertex buffer: the hit shaders read the descriptor index + (frame index % 2).
+            const auto dynamicBuffers = s->dynamicVertexBuffers.find(mesh->buffers.get());
+            if (dynamicBuffers != s->dynamicVertexBuffers.end())
+                mesh->buffers->vertexBuffer = dynamicBuffers->second[frameIndex & 1];
+
+            const auto& positionRange = mesh->buffers->getVertexBufferRange(VertexAttribute::Position);
+            const auto& normalRange = mesh->buffers->getVertexBufferRange(VertexAttribute::Normal);
+            const auto& tangentRange = mesh->buffers->getVertexBufferRange(VertexAttribute::Tangent);
+
+            // The keyframes to blend: the time of the animation, wrapped.
+            const uint32_t morphTargetSize = static_cast<uint32_t>(mesh->buffers->morphTargetBufferRange.size());
+            const float totalAnimationTime = (morphTargetSize - 1) * timestamp;
+            const float adjustedTotalAnimationTime = totalAnimationTime + smoothing * timestamp;
+            s->totalTime *= s->prevAnimationTimestampPerFrame != 0.0f ? (timestamp / s->prevAnimationTimestampPerFrame) : 1.0f;
+            while (s->totalTime > adjustedTotalAnimationTime)
+                s->totalTime -= adjustedTotalAnimationTime;
+
+            uint32_t keyFrameIndex = 0;
+            if (!enableDebugOverride)
+                keyFrameIndex = s->totalTime < totalAnimationTime ? static_cast<uint32_t>(s->totalTime / timestamp) : morphTargetSize - 1;
+            else
+                keyFrameIndex = static_cast<uint32_t>(overrideKeyFrameIndex) % morphTargetSize;
+
+            const auto& keyframeRange = mesh->buffers->morphTargetBufferRange[keyFrameIndex];
+            const auto& nextKeyframeRange = mesh->buffers->morphTargetBufferRange[(keyFrameIndex + 1) % morphTargetSize];
+
+            // The last keyframe's blend back to the first is slowed to avoid flickering.
+            float adjustedTimestamp = timestamp;
+            if ((keyFrameIndex + 1) % morphTargetSize == 0)
+                adjustedTimestamp *= smoothing;
+
+            GpuMorphTargetConstants constants = {};
+            constants.vertexCount = static_cast<int32_t>(resources.vertexSize);
+            const float weight = !enableDebugOverride ?
+                (s->totalTime - keyFrameIndex * timestamp) / adjustedTimestamp : static_cast<float>(overrideKeyFrameWeight);
+            constants.lerpWeight = std::min(std::max(weight, 0.0f), 1.0f);
+
+            commandList->beginTrackingBufferState(resources.constantBuffer, nvrhi::ResourceStates::Common);
+            commandList->writeBuffer(resources.constantBuffer, &constants, sizeof(constants));
+
+            // The vertex buffer rests as the shaders and acceleration structures read it.
+            commandList->beginTrackingBufferState(mesh->buffers->vertexBuffer, VERTEX_BUFFER_REST_STATE);
+            commandList->setBufferState(mesh->buffers->vertexBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+
+            nvrhi::BindingSetDesc bindingSetDesc;
+            bindingSetDesc.bindings = {
+                nvrhi::BindingSetItem::ConstantBuffer(0, resources.constantBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(0, resources.dataBuffer, nvrhi::Format::UNKNOWN, keyframeRange),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(1, resources.dataBuffer, nvrhi::Format::UNKNOWN, nextKeyframeRange),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(2, resources.lineSegmentsBuffer),
+                nvrhi::BindingSetItem::RawBuffer_UAV(0, mesh->buffers->vertexBuffer, positionRange),
+                nvrhi::BindingSetItem::RawBuffer_UAV(1, mesh->buffers->vertexBuffer, normalRange),
+                nvrhi::BindingSetItem::RawBuffer_UAV(2, mesh->buffers->vertexBuffer, tangentRange),
+            };
+            if (s->tessellationType != LinearSweptSphere)
+                bindingSetDesc.bindings.push_back(nvrhi::BindingSetItem::TypedBuffer_SRV(3, mesh->buffers->indexBuffer));
+            nvrhi::BindingSetHandle bindingSet = s->device->createBindingSet(bindingSetDesc, s->morphLayout);
+
+            nvrhi::ComputeState state;
+            state.setPipeline(s->morphPipeline);
+            state.addBindingSet(bindingSet);
+            commandList->setComputeState(state);
+            commandList->dispatch((resources.vertexSize - 1) / 32 + 1);
+
+            s->prevAnimationTimestampPerFrame = timestamp;
+            while (s->totalTime > adjustedTotalAnimationTime)
+                s->totalTime -= adjustedTotalAnimationTime;
+
+            // The bottom level structure follows the vertices.
+            commandList->setBufferState(mesh->buffers->vertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
+            commandList->commitBarriers();
+            nvrhi::rt::AccelStructDesc blasDesc;
+            getMeshBlasDesc(*mesh, blasDesc, true);
+            nvrhi::utils::BuildBottomLevelAccelStruct(commandList, mesh->accelStruct, blasDesc);
+            commandList->setBufferState(mesh->buffers->vertexBuffer, VERTEX_BUFFER_REST_STATE);
+            commandList->commitBarriers();
+            ++animated;
+        }
+        return animated;
     }
 
     // Valid as long as the scene.

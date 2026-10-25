@@ -52,6 +52,36 @@ export class RtxcrScene {
         return Donut_RtxcrGetTlas(this.handle);
     }
 
+    // Makes the animated hair's keyframe, line segment and constant buffers (for the meshes with morph targets)
+    // and the per-instance mask of them; the number of such meshes.
+    createMorphTargets(): int {
+        return Donut_RtxcrCreateMorphTargets(this.handle);
+    }
+
+    // One uint per mesh instance, 1 where its mesh has morph targets (the shaders' instance meta data).
+    getMorphTargetMask(): BufferHandle {
+        return Donut_RtxcrGetMorphTargetMask(this.handle);
+    }
+
+    // The morph target pass's compute shader for the scene's tessellation.
+    setMorphTargetShader(shader: ShaderHandle): void {
+        Donut_RtxcrSetMorphTargetShader(this.handle, shader);
+    }
+
+    // Restarts the morph target animation.
+    resetMorphTargetAnimation(): void {
+        Donut_RtxcrResetMorphTargetAnimation(this.handle);
+    }
+
+    // Blends the keyframes around the animation's time (animationTimestampPerFrame seconds apart; the last
+    // blends back to the first over animationSmoothingFactor of them) into the hair's vertex buffers and
+    // updates their bottom level structures, into an open command list. The frame's vertex buffer is the one the
+    // parity of frameIndex picks (the hit shaders read the global GlobalConstants' frameIndex % 2). With
+    // enableDebugOverride the keyframe and weight are the given ones. Returns the number of meshes animated.
+    animateMorphTargets(openCommandList: CommandListHandle, frameIndex: int, elapsedSeconds: number, animationTimestampPerFrame: number, enableDebugOverride: boolean, overrideKeyFrameIndex: int, overrideKeyFrameWeight: number, animationSmoothingFactor: number): int {
+        return Donut_RtxcrAnimateMorphTargets(this.handle, openCommandList, frameIndex, elapsedSeconds, animationTimestampPerFrame, enableDebugOverride, overrideKeyFrameIndex, overrideKeyFrameWeight, animationSmoothingFactor);
+    }
+
     // The sample's sky constants (GlobalConstants::skyParams, 96 bytes into dst) for a directional light.
     // skyType: 0 constant, 1 procedural, 2 environment map.
     fillSkyParameters(sun: LightHandle, skyR: number, skyG: number, skyB: number, enableSky: boolean, skyType: int, dst: Opaque): void {
