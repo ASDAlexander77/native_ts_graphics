@@ -192,6 +192,13 @@ checkout's NRD (`external/RayTracingDenoiser`, built by this repository's CMake 
 build uses that checkout's NVAPI (and NVAPI's opacity micromaps, not DXR 1.2's) for the D3D12 swept
 spheres. This software contains source code provided by NVIDIA Corporation.
 
+`rtxcr_raster` renders the same scene without ray tracing, with the same `RTXCR_DIR` and `--scene`: Donut's
+forward shading pass over the scene, the hair curves tessellated into polytubes or DOTS (`-hairTessellationType 0|1`)
+by `core/rtxcr.cpp`, and a pixel shader of its own (`shaders/rtxcr_raster_ps.hlsl`, Donut's forward shader with
+RTXCR's far-field hair BCSDF for the hair materials). The sun casts a shadow map and the environment map is
+the background, with a flat sky as ambient light (not the path tracer's environment lighting); there is no
+subsurface scattering for the skin, no anti-aliasing (the strands are sub-pixel) and no hair animation yet.
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
