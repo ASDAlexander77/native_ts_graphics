@@ -1291,7 +1291,7 @@ namespace
     // Loads a scene (path relative to the executable's directory, or absolute) on the app's thread
     // pool into textureCache, and descriptorTable if given, then finishes uploading its textures.
     donut::engine::Scene* LoadScene(App* a, const char* path, const std::shared_ptr<donut::engine::TextureCache>& textureCache,
-        const std::shared_ptr<donut::engine::DescriptorTableManager>& descriptorTable)
+        const std::shared_ptr<donut::engine::DescriptorTableManager>& descriptorTable, bool finishLoading = true)
     {
         auto nativeFS = std::make_shared<donut::vfs::NativeFileSystem>();
         auto scene = std::make_shared<donut::engine::Scene>(a->device(), *a->shaderFactory, nativeFS,
@@ -1304,7 +1304,8 @@ namespace
         textureCache->ProcessRenderingThreadCommands(*a->commonPasses(), 0.f);
         textureCache->LoadingFinished();
 
-        scene->FinishedLoading(a->deviceManager->GetFrameIndex());
+        if (finishLoading)
+            scene->FinishedLoading(a->deviceManager->GetFrameIndex());
         return a->OwnObject(scene);
     }
 
@@ -3658,6 +3659,28 @@ extern "C"
         return a->Own(a->shaderFactory->CreateShaderLibrary(path.c_str(), &defines));
     }
 
+    // Same with several defines, "NAME=value;NAME=value".
+    DONUT_API nvrhi::IShaderLibrary* Donut_CreateShaderLibraryWithDefines(App* app, const char* fileName, const char* defines)
+    {
+        App* a = app;
+        const std::string path = std::string("app/") + fileName;
+        std::vector<donut::engine::ShaderMacro> macros;
+        const std::string list = defines;
+        size_t start = 0;
+        while (start < list.size())
+        {
+            size_t end = list.find(';', start);
+            if (end == std::string::npos)
+                end = list.size();
+            const std::string item = list.substr(start, end - start);
+            const size_t equals = item.find('=');
+            if (equals != std::string::npos)
+                macros.push_back({ item.substr(0, equals), item.substr(equals + 1) });
+            start = end + 1;
+        }
+        return a->Own(a->shaderFactory->CreateShaderLibrary(path.c_str(), &macros));
+    }
+
     // Loads a shader library (compiled with -T lib) from the example's shaders/<example>.cfg.
     // Returns null on failure.
     DONUT_API nvrhi::IShaderLibrary* Donut_CreateShaderLibrary(App* app, const char* fileName)
@@ -3790,6 +3813,13 @@ extern "C"
     DONUT_API void Donut_RtPipelineSetMaxAttributeSize(nvrhi::rt::PipelineDesc* pipelineDesc, int byteSize)
     {
         pipelineDesc->maxAttributeSize = static_cast<uint32_t>(byteSize);
+    }
+
+    // The UAV slot (register space 0) the pipeline's shaders reach NVAPI's shader extensions
+    // (nvHLSLExtns.h) through; -1, the default, for none. D3D12 only.
+    DONUT_API void Donut_RtPipelineSetHlslExtensionsUAV(nvrhi::rt::PipelineDesc* pipelineDesc, int slot)
+    {
+        pipelineDesc->hlslExtensionsUAV = static_cast<int32_t>(slot);
     }
 
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (D3D12's
@@ -4539,6 +4569,14 @@ extern "C"
             nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), buffer));
     }
 
+    // An empty RWBuffer<T> at u<slot>: the slot the NVAPI shader extensions use (the pipeline's
+    // Donut_RtPipelineSetHlslExtensionsUAV), which no buffer backs.
+    DONUT_API void Donut_BindNullTypedBufferUAV(nvrhi::BindingSetDesc* bindingSetDesc, int slot)
+    {
+        bindingSetDesc->addItem(
+            nvrhi::BindingSetItem::TypedBuffer_UAV(static_cast<uint32_t>(slot), nullptr));
+    }
+
     // Creates a binding set, and a matching layout (in register space 0) visible to the stages
     // in shaderType (nvrhi::ShaderType bits), from a description, which it frees. Returns null
     // on failure.
@@ -4647,6 +4685,13 @@ extern "C"
     {
         bindingLayoutDesc->registerSpace = static_cast<uint32_t>(space);
         bindingLayoutDesc->registerSpaceIsDescriptorSet = true;
+    }
+
+    // RWBuffer<T> at u<slot>.
+    DONUT_API void Donut_LayoutTypedBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    {
+        bindingLayoutDesc->addItem(
+            nvrhi::BindingLayoutItem::TypedBuffer_UAV(static_cast<uint32_t>(slot)));
     }
 
     // Buffer<T> at t<slot>.
@@ -7770,6 +7815,18 @@ extern "C"
         return LoadScene(a, path, textureCache, descriptorTable);
     }
 
+    // Same, leaving the scene's meshes as the file made them, in CPU memory: the caller edits them,
+    // then calls scene->FinishedLoading, which uploads them (and drops the CPU copies). The RTXCR
+    // example tessellates the hair curves this way (core/rtxcr.cpp).
+    DONUT_API donut::engine::Scene* Donut_LoadSceneWithDescriptorTableDeferred(App* app, const char* path, donut::engine::DescriptorTableManager* descriptorTableManager)
+    {
+        App* a = app;
+        auto descriptorTable = a->SharedObject<donut::engine::DescriptorTableManager>(descriptorTableManager);
+        auto textureCache = std::make_shared<donut::engine::TextureCache>(
+            a->device(), std::make_shared<donut::vfs::NativeFileSystem>(), descriptorTable);
+        return LoadScene(a, path, textureCache, descriptorTable, false);
+    }
+
     // Values of `which` for Donut_GetSceneBuffer.
     enum SceneBuffer
     {
@@ -7950,6 +8007,12 @@ extern "C"
     DONUT_API int Donut_GetTextureDescriptorIndex(donut::engine::LoadedTexture* loadedTexture)
     {
         return loadedTexture->bindlessDescriptor.Get();
+    }
+
+    // The texture of a Donut_LoadBindlessTexture texture; valid as long as it.
+    DONUT_API nvrhi::ITexture* Donut_GetLoadedTextureTexture(donut::engine::LoadedTexture* loadedTexture)
+    {
+        return loadedTexture->texture.Get();
     }
 
     // Loaded scene queries: the number of mesh instances (e.g. to size a TLAS), and a node's
@@ -12140,6 +12203,24 @@ extern "C"
         nvrhi::rt::State state;
         state.shaderTable = shaderTable;
         state.bindings = { bindingSet, descriptorTable };
+        ctx->commandList->setRayTracingState(state);
+
+        nvrhi::rt::DispatchRaysArguments args;
+        args.width = static_cast<uint32_t>(width);
+        args.height = static_cast<uint32_t>(height);
+        ctx->commandList->dispatchRays(args);
+    }
+
+    // Same as Donut_DispatchRaysWithDescriptorTable, with two binding sets before the descriptor table
+    // (pipelines with three binding layouts: two ordinary ones, then a bindless one).
+    DONUT_API void Donut_DispatchRaysWithBindingSets(FrameContext* frame, nvrhi::rt::IShaderTable* shaderTable, nvrhi::IBindingSet* bindingSet,
+        nvrhi::IBindingSet* secondBindingSet, nvrhi::IDescriptorTable* descriptorTable, int width, int height)
+    {
+        FrameContext* ctx = frame;
+
+        nvrhi::rt::State state;
+        state.shaderTable = shaderTable;
+        state.bindings = { bindingSet, secondBindingSet, descriptorTable };
         ctx->commandList->setRayTracingState(state);
 
         nvrhi::rt::DispatchRaysArguments args;

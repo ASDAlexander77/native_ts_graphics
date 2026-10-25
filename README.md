@@ -171,6 +171,24 @@ build time:
 cmake --preset default -DVULKAN_SAMPLES_ASSETS_DIR=E:/Vulkan-Samples/assets
 ```
 
+One example builds from a checkout of its own, and nothing of it is copied into this repository:
+`rtxcr_pathtracer`, a port of NVIDIA's [RTX Character Rendering](https://github.com/NVIDIA-RTX/RTXCR)
+pathtracer sample (hair and skin; D3D12 and Vulkan, hair as linear swept spheres on D3D12). The sample is
+under the NVIDIA RTX SDKs License, which doesn't allow that: with `-DRTXCR_DIR=<checkout>` (submodules
+and assets pulled, as its README says) the sample's shaders compile where they are, `core/rtxcr.cpp`
+includes its headers, and the example loads the scene from the checkout's `assets`:
+
+```
+cmake --preset default -DRTXCR_DIR=E:/RTXCR
+build/bin/rtxcr_pathtracer.exe --scene E:/RTXCR/assets/claire.scene.json
+```
+
+(`--scene .../claire.animation.scene.json -enableAnimation 1` for the animated hair; `-vk` for Vulkan,
+where the hair is DOTS.) The sample's denoisers (NRD, DLSS ray reconstruction), upscalers and frame
+generation are not ported: it accumulates samples while the camera stands still. With `RTXCR_DIR`, the
+build uses that checkout's NVAPI (and NVAPI's opacity micromaps, not DXR 1.2's) for the D3D12 swept
+spheres. This software contains source code provided by NVIDIA Corporation.
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 

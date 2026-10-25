@@ -362,9 +362,23 @@ if (ANDROID)
     target_include_directories(ShaderMakeBlob PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/ShaderMake")
 endif()
 
+# rtxcr_pathtracer (see the end of this file) builds only with RTXCR_DIR: a checkout of NVIDIA's
+# RTXCR (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets.
+set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets")
+
 # Opacity micromaps on D3D12 through the Agility SDK's DXR 1.2 (raytracing tier 1.2) rather than
 # NVAPI (opacity_micromaps; Vulkan has them through VK_EXT_opacity_micromap).
-set(NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP ON CACHE BOOL "Use D3D12 native Opacity Micromaps from DXR 1.2" FORCE)
+if (RTXCR_DIR AND WIN32)
+    # rtxcr_pathtracer's linear swept spheres on D3D12 come through NVAPI, which NVRHI leaves out
+    # while it uses DXR 1.2's opacity micromaps: with RTXCR_DIR the micromaps are NVAPI's too, and
+    # NVAPI is the RTXCR checkout's.
+    set(NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP OFF CACHE BOOL "Use D3D12 native Opacity Micromaps from DXR 1.2" FORCE)
+    set(NVRHI_WITH_NVAPI ON CACHE BOOL "Include NVAPI support (requires NVAPI SDK)" FORCE)
+    set(NVAPI_INCLUDE_DIR "${RTXCR_DIR}/external/nvapi" CACHE PATH "NVAPI headers" FORCE)
+    set(NVAPI_LIBRARY "${RTXCR_DIR}/external/nvapi/amd64/nvapi64.lib" CACHE FILEPATH "NVAPI library" FORCE)
+else()
+    set(NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP ON CACHE BOOL "Use D3D12 native Opacity Micromaps from DXR 1.2" FORCE)
+endif()
 
 set(CMAKE_PROJECT_zstd_INCLUDE_BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/zstd_policies.cmake")
 set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
@@ -458,6 +472,10 @@ if (WIN32)
     # denoised_rtao is Windows only (its PBRT parser includes windows.h, it decodes with WIC).
     list(APPEND JIT_MODULE_SOURCES core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
         core/video_player.cpp)
+endif()
+if (RTXCR_DIR)
+    list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
+    set_source_files_properties(core/rtxcr.cpp PROPERTIES INCLUDE_DIRECTORIES "${RTXCR_DIR}/libraries;${RTXCR_DIR}/samples/pathtracer")
 endif()
 if (NOT ANDROID)
     add_library(donut_interop_shared SHARED core/donut_interop.cpp ${JIT_MODULE_SOURCES})
@@ -3606,3 +3624,50 @@ endif()
 add_tslang_example(feature_demo core/matrix.ts core/text_format.ts MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
 add_tslang_example_test(feature_demo)
 copy_dlss_library(feature_demo)
+
+# Port of NVIDIA's RTX Character Rendering pathtracer sample (github.com/NVIDIA-RTX/RTXCR): a path
+# tracer for hair and skin (the Claire scene). The sample is under the NVIDIA RTX SDKs License,
+# which doesn't allow copying it into an open source repository, so nothing of it is copied: with
+# RTXCR_DIR set to a checkout (with its submodules and assets pulled, see its README), the sample's
+# shaders compile in place (shaders/rtxcr_pathtracer.cfg names them) and the example loads its
+# scene from RTXCR_DIR/assets.
+if (RTXCR_DIR)
+    donut_compile_shaders(
+        TARGET rtxcr_pathtracer_shaders
+        PROJECT_NAME "RTXCR Pathtracer"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_pathtracer.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_pathtracer.cfg
+        INCLUDES
+            ${RTXCR_DIR}/samples/pathtracer
+            ${RTXCR_DIR}/libraries/rtxcr/material/shaders/include
+            ${RTXCR_DIR}/libraries/rtxcr/geometry/shaders/include
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/spirv
+        SHADERMAKE_OPTIONS "--sourceDir ${RTXCR_DIR}/samples/pathtracer/shaders"
+    )
+    donut_compile_shaders(
+        TARGET rtxcr_pathtracer_vs_shaders
+        PROJECT_NAME "RTXCR Pathtracer Full-screen"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_pathtracer_vs.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_pathtracer_vs.hlsl
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_pathtracer/spirv
+    )
+    add_tslang_example(rtxcr_pathtracer core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp MEDIA fonts)
+    add_dependencies(rtxcr_pathtracer rtxcr_pathtracer_vs_shaders)
+    add_tslang_example_test(rtxcr_pathtracer ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX animation
+        ARGS -width 960 -height 540 -enableAnimation 1 --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+    # The hair's tessellation changed while rendering: from DOTS to polytubes, the animated hair too.
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX switch
+        ARGS -width 960 -height 540 -hairTessellationType 1 -switchTessellation 0 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX animation_switch
+        ARGS -width 960 -height 540 -hairTessellationType 1 -switchTessellation 0 -enableAnimation 1
+        --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+    # D3D12: to and from linear swept spheres.
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX lss_switch APIS dx12
+        ARGS -width 960 -height 540 -hairTessellationType 2 -switchTessellation 1 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    add_tslang_example_test(rtxcr_pathtracer SUFFIX animation_lss_switch APIS dx12
+        ARGS -width 960 -height 540 -hairTessellationType 1 -switchTessellation 2 -enableAnimation 1
+        --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+endif()

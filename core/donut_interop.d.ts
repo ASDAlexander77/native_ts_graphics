@@ -115,6 +115,11 @@ enum Feature {
     ComputeQueue = 0,
     ConservativeRasterization = 1,
     FastGeometryShader = 5,
+    // NVAPI's shader extensions through a UAV slot (Donut_RtPipelineSetHlslExtensionsUAV).
+    HlslExtensionUAV = 7,
+    // Linear swept sphere geometry in BLASes (D3D12 through NVAPI, Blackwell GPUs; Vulkan's
+    // VK_NV_ray_tracing_linear_swept_spheres, with AppOptions.RayTracing).
+    LinearSweptSpheres = 8,
     Meshlets = 9,
     RayQuery = 10,
     // Opacity micromaps in BLASes (Donut_CreateOpacityMicromap): D3D12 raytracing tier 1.2 (DXR 1.2,
@@ -1179,6 +1184,8 @@ enum ShaderType {
 @nodrops declare function Donut_CreateShaderWithDefine(app: AppHandle, fileName: string, entryName: string, shaderType: ShaderType,
     defineName: string, defineValue: string): ShaderHandle;
 @nodrops declare function Donut_CreateShaderLibraryWithDefine(app: AppHandle, fileName: string, defineName: string, defineValue: string): ShaderLibraryHandle;
+// Same with several defines, "NAME=value;NAME=value".
+@nodrops declare function Donut_CreateShaderLibraryWithDefines(app: AppHandle, fileName: string, defines: string): ShaderLibraryHandle;
 // Triangle list, no depth test, for the frame's framebuffer layout.
 @nodrops declare function Donut_CreateGraphicsPipeline(app: AppHandle, frame: FrameHandle, vertexShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineHandle;
 // Same, with an input layout and one binding layout.
@@ -1670,6 +1677,8 @@ enum ShaderType {
 @nodrops declare function Donut_BindTypedBufferSRV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // RWBuffer<uint> at u<slot>; the buffer must be writable.
 @nodrops declare function Donut_BindTypedBufferUAV(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
+// An empty RWBuffer<T> at u<slot>: the slot NVAPI's shader extensions use (Donut_RtPipelineSetHlslExtensionsUAV), which no buffer backs.
+@nodrops declare function Donut_BindNullTypedBufferUAV(bindingSetDesc: BindingSetDescHandle, slot: int): void;
 // cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
 @nodrops declare function Donut_BindConstantBuffer(bindingSetDesc: BindingSetDescHandle, slot: int, constantBuffer: BufferHandle, byteOffset: int, byteSize: int): void;
 // cbuffer at b<slot>: all of a constant buffer (required for volatile ones).
@@ -1721,6 +1730,8 @@ enum ShaderType {
 @nodrops declare function Donut_LayoutSampler(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutStructuredBufferSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutTypedBufferSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+// RWBuffer<T> at u<slot>.
+@nodrops declare function Donut_LayoutTypedBufferUAV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 // A non-volatile cbuffer.
 @nodrops declare function Donut_LayoutConstantBuffer(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutStructuredBufferUAV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
@@ -1758,6 +1769,9 @@ enum ShaderType {
 // The largest hit attributes the pipeline's shaders pass (ReportHit's attributes; the default is 8
 // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
 @nodrops declare function Donut_RtPipelineSetMaxAttributeSize(pipelineDesc: RtPipelineDescHandle, byteSize: int): void;
+// The UAV slot (register space 0) the pipeline's shaders reach NVAPI's shader extensions (nvHLSLExtns.h) through;
+// -1, the default, for none. D3D12 only.
+@nodrops declare function Donut_RtPipelineSetHlslExtensionsUAV(pipelineDesc: RtPipelineDescHandle, slot: int): void;
 // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
 @nodrops declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: RtPipelineDescHandle, allow: boolean): void;
 @nodrops declare function Donut_CreateRayTracingPipelineFromDesc(app: AppHandle, pipelineDesc: RtPipelineDescHandle): RtPipelineHandle;
@@ -2109,6 +2123,8 @@ enum ShaderType {
 // Like Donut_LoadScene, registering the scene's buffers and textures in a descriptor table; the
 // scene's geometry and material buffers index into it.
 @nodrops declare function Donut_LoadSceneWithDescriptorTable(app: AppHandle, path: string, descriptorTableManager: DescriptorTableManagerHandle): SceneHandle;
+// Same, leaving the scene's meshes in CPU memory, unuploaded, for core/rtxcr.cpp's Donut_RtxcrCreateScene to edit.
+@nodrops declare function Donut_LoadSceneWithDescriptorTableDeferred(app: AppHandle, path: string, descriptorTableManager: DescriptorTableManagerHandle): SceneHandle;
 // InstanceData / GeometryData / MaterialConstants structured buffers; valid as long as the scene.
 @nodrops declare function Donut_GetSceneBuffer(scene: SceneHandle, which: SceneBuffer): BufferHandle;
 // Geometries of a loaded scene, addressed by global geometry index (0 .. count - 1).
@@ -2147,6 +2163,8 @@ enum ShaderType {
 @nodrops declare function Donut_LoadBindlessTexture(app: AppHandle, descriptorTableManager: DescriptorTableManagerHandle, path: string, sRGB: int): LoadedTextureHandle;
 // Its index in the descriptor table (the shaders' array index).
 @nodrops declare function Donut_GetTextureDescriptorIndex(loadedTexture: LoadedTextureHandle): int;
+// The texture itself; valid as long as the loaded texture.
+@nodrops declare function Donut_GetLoadedTextureTexture(loadedTexture: LoadedTextureHandle): TextureHandle;
 @nodrops declare function Donut_GetSceneInstanceCount(scene: SceneHandle): int;
 // A node's world-space position into dst (3 floats); 0 if there's no node at path ("/Emitter").
 @nodrops declare function Donut_GetSceneNodePosition(scene: SceneHandle, path: string, dst: Ref<f32>): int;
@@ -2393,6 +2411,10 @@ enum ShaderType {
 // Same, with a descriptor table bound after the binding set.
 @nodrops declare function Donut_DispatchRaysWithDescriptorTable(frame: FrameHandle, shaderTable: ShaderTableHandle, bindingSet: BindingSetHandle,
     descriptorTable: DescriptorTableHandle, width: int, height: int): void;
+// Same, with two binding sets before the descriptor table (a pipeline of two ordinary binding layouts
+// and a bindless one).
+@nodrops declare function Donut_DispatchRaysWithBindingSets(frame: FrameHandle, shaderTable: ShaderTableHandle, bindingSet: BindingSetHandle,
+    secondBindingSet: BindingSetHandle, descriptorTable: DescriptorTableHandle, width: int, height: int): void;
 // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
 // textures blitted before.
 @nodrops declare function Donut_BlitTexture(app: AppHandle, frame: FrameHandle, texture: TextureHandle): void;
@@ -2827,3 +2849,42 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_RenderEnvironmentBrdf(commandList: CommandListHandle, lightProbeProcessingPass: LightProbeProcessingPassHandle): void;
 // Once the GPU is done: enables the probe within 10 units of where it was rendered from.
 @nodrops declare function Donut_FinishLightProbe(lightProbeSet: LightProbeSetHandle, index: int, lightProbeProcessingPass: LightProbeProcessingPassHandle, x: number, y: number, z: number): void;
+
+// --- RTX Character Rendering (core/rtxcr.cpp; the rtxcr_pathtracer example links it) ---
+// Takes a scene loaded by Donut_LoadSceneWithDescriptorTableDeferred: tessellates its hair curves into
+// polytubes, DOTS and LSS (hairRadiusScale scales their radii), makes tessellationType (0 polytubes,
+// 1 DOTS, 2 LSS) the scene's and uploads its buffers. `device` is Donut_GetNvrhiDevice's.
+@nodrops declare function Donut_RtxcrCreateScene(device: Opaque, loadedScene: SceneHandle, descriptorTables: DescriptorTableManagerHandle,
+    hairRadiusScale: number, tessellationType: int): RtxcrSceneHandle;
+@nodrops declare function Donut_RtxcrDestroyScene(rtxcrScene: RtxcrSceneHandle): void;
+// Makes the hair type (0 polytubes, 1 DOTS, 2 LSS) and uploads the scene's buffers again; then make the
+// morph targets and the acceleration structures again, and what binds the scene's buffers. 1 if it changed.
+@nodrops declare function Donut_RtxcrSetTessellationType(rtxcrScene: RtxcrSceneHandle, type: int, frameIndex: int): int;
+@nodrops declare function Donut_RtxcrGetCurveMeshCount(rtxcrScene: RtxcrSceneHandle): int;
+// The scene's bottom level structures (all of them if rebuild, else the missing ones) and its top level
+// one, recorded into an open command list.
+@nodrops declare function Donut_RtxcrBuildAccelStructs(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, rebuild: boolean): void;
+// Builds the top level structure over the scene's instances (mask 4 for mirrors, 2 for emissive
+// surfaces unless showEmissiveSurfaces, else 1).
+@nodrops declare function Donut_RtxcrBuildTlas(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, showEmissiveSurfaces: boolean): void;
+@nodrops declare function Donut_RtxcrGetTlas(rtxcrScene: RtxcrSceneHandle): AccelStructHandle;
+// Makes the animated hair's keyframe, line segment and constant buffers (for the meshes with morph targets)
+// and the per-instance mask of them; the number of such meshes.
+@nodrops declare function Donut_RtxcrCreateMorphTargets(rtxcrScene: RtxcrSceneHandle): int;
+// One uint per mesh instance, 1 where its mesh has morph targets (the shaders' instance meta data).
+@nodrops declare function Donut_RtxcrGetMorphTargetMask(rtxcrScene: RtxcrSceneHandle): BufferHandle;
+// The morph target pass's compute shader for the scene's tessellation.
+@nodrops declare function Donut_RtxcrSetMorphTargetShader(rtxcrScene: RtxcrSceneHandle, shader: ShaderHandle): void;
+// Restarts the morph target animation.
+@nodrops declare function Donut_RtxcrResetMorphTargetAnimation(rtxcrScene: RtxcrSceneHandle): void;
+// Blends the keyframes around the animation's time (animationTimestampPerFrame seconds apart; the last
+// blends back to the first over animationSmoothingFactor of them) into the hair's vertex buffers and
+// updates their bottom level structures, into an open command list. The frame's vertex buffer is the one the
+// parity of frameIndex picks (the hit shaders read the global GlobalConstants' frameIndex % 2). With
+// enableDebugOverride the keyframe and weight are the given ones. Returns the number of meshes animated.
+@nodrops declare function Donut_RtxcrAnimateMorphTargets(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, frameIndex: int, elapsedSeconds: number,
+    animationTimestampPerFrame: number, enableDebugOverride: boolean, overrideKeyFrameIndex: int, overrideKeyFrameWeight: number,
+    animationSmoothingFactor: number): int;
+// The sample's sky constants (GlobalConstants::skyParams, 96 bytes into dst) for a directional light.
+// skyType: 0 constant, 1 procedural, 2 environment map.
+@nodrops declare function Donut_RtxcrFillSkyParameters(rtxcrScene: RtxcrSceneHandle, sun: LightHandle, skyR: number, skyG: number, skyB: number, enableSky: boolean, skyType: int, dst: Opaque): void;

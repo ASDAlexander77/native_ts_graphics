@@ -414,6 +414,11 @@ export class App {
         return Donut_CreateShaderLibraryWithDefine(this.handle, fileName, defineName, defineValue);
     }
 
+    // Same with several defines, "NAME=value;NAME=value".
+    createShaderLibraryWithDefines(fileName: string, defines: string): ShaderLibraryHandle {
+        return Donut_CreateShaderLibraryWithDefines(this.handle, fileName, defines);
+    }
+
     // Triangle list, no depth test, for the frame's framebuffer layout.
     createGraphicsPipeline(frame: Frame, vertexShader: ShaderHandle, pixelShader: ShaderHandle): GraphicsPipelineHandle {
         return Donut_CreateGraphicsPipeline(this.handle, frame.handle, vertexShader, pixelShader);
@@ -1141,6 +1146,11 @@ export class App {
     // scene's geometry and material buffers index into it.
     loadSceneWithDescriptorTable(path: string, descriptorTableManager: DescriptorTableManager): Scene {
         return new Scene(Donut_LoadSceneWithDescriptorTable(this.handle, path, descriptorTableManager.handle));
+    }
+
+    // Same, leaving the scene's meshes in CPU memory, unuploaded, for core/rtxcr.cpp's Donut_RtxcrCreateScene to edit.
+    loadSceneWithDescriptorTableDeferred(path: string, descriptorTableManager: DescriptorTableManager): Scene {
+        return new Scene(Donut_LoadSceneWithDescriptorTableDeferred(this.handle, path, descriptorTableManager.handle));
     }
 
     bindGeometryMaterialTexture(bindingSetDesc: BindingSetDesc, slot: int, scene: Scene, geometryIndex: int, which: MaterialTexture, fallback: FallbackTexture): void {
@@ -1907,6 +1917,12 @@ export class Frame {
         Donut_DispatchRaysWithDescriptorTable(this.handle, shaderTable.handle, bindingSet.handle, descriptorTable, width, height);
     }
 
+    // Same, with two binding sets before the descriptor table (a pipeline of two ordinary binding layouts
+    // and a bindless one).
+    dispatchRaysWithBindingSets(shaderTable: ShaderTable, bindingSet: BindingSet, secondBindingSet: BindingSet, descriptorTable: DescriptorTableHandle, width: int, height: int): void {
+        Donut_DispatchRaysWithBindingSets(this.handle, shaderTable.handle, bindingSet.handle, secondBindingSet.handle, descriptorTable, width, height);
+    }
+
     // The frame's open command list, for the command list functions (e.g. Donut_WriteBuffer). Don't
     // open, close or execute it.
     getCommandList(): CommandList {
@@ -2452,6 +2468,11 @@ export class BindingSetDesc {
         Donut_BindTypedBufferUAV(this.handle, slot, buffer);
     }
 
+    // An empty RWBuffer<T> at u<slot>: the slot NVAPI's shader extensions use (Donut_RtPipelineSetHlslExtensionsUAV), which no buffer backs.
+    bindNullTypedBufferUAV(slot: int): void {
+        Donut_BindNullTypedBufferUAV(this.handle, slot);
+    }
+
     // cbuffer at b<slot>: byteSize bytes of a constant buffer from byteOffset (multiples of 256).
     bindConstantBuffer(slot: int, constantBuffer: BufferHandle, byteOffset: int, byteSize: int): void {
         Donut_BindConstantBuffer(this.handle, slot, constantBuffer, byteOffset, byteSize);
@@ -2619,6 +2640,11 @@ export class BindingLayoutDesc {
         Donut_LayoutTypedBufferSRV(this.handle, slot);
     }
 
+    // RWBuffer<T> at u<slot>.
+    layoutTypedBufferUAV(slot: int): void {
+        Donut_LayoutTypedBufferUAV(this.handle, slot);
+    }
+
     // A non-volatile cbuffer.
     layoutConstantBuffer(slot: int): void {
         Donut_LayoutConstantBuffer(this.handle, slot);
@@ -2766,6 +2792,12 @@ export class RtPipelineDesc {
     // bytes, the triangles' barycentrics). D3D12 only: Vulkan takes it from the shaders.
     setMaxAttributeSize(byteSize: int): void {
         Donut_RtPipelineSetMaxAttributeSize(this.handle, byteSize);
+    }
+
+    // The UAV slot (register space 0) the pipeline's shaders reach NVAPI's shader extensions (nvHLSLExtns.h) through;
+    // -1, the default, for none. D3D12 only.
+    setHlslExtensionsUAV(slot: int): void {
+        Donut_RtPipelineSetHlslExtensionsUAV(this.handle, slot);
     }
 
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
@@ -3460,6 +3492,11 @@ export class LoadedTexture {
     // Its index in the descriptor table (the shaders' array index).
     getDescriptorIndex(): int {
         return Donut_GetTextureDescriptorIndex(this.handle);
+    }
+
+    // The texture itself; valid as long as the loaded texture.
+    getTexture(): TextureHandle {
+        return Donut_GetLoadedTextureTexture(this.handle);
     }
 }
 
