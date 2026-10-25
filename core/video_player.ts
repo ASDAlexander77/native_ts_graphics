@@ -39,8 +39,8 @@ export class VideoPlayer {
     }
 
     // Non-zero once it played to its end.
-    isFinished(): int {
-        return Donut_IsVideoFinished(this.handle);
+    isFinished(): boolean {
+        return Donut_IsVideoFinished(this.handle) != 0;
     }
 
     // The current frame, if there is a new one, into a shared texture (Donut_GetSharedTextureHandle),

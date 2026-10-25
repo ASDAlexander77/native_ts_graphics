@@ -156,7 +156,7 @@ namespace ConservativeRasterization {
         }
 
         init() {
-            if (this.app.isFeatureSupported(Feature.ConservativeRasterization) == 0) {
+            if (!this.app.isFeatureSupported(Feature.ConservativeRasterization)) {
                 this.unsupportedReason = "This example needs conservative rasterization";
                 return false;
             }

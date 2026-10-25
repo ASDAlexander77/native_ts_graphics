@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { multiply, rotation, translation, radians, perspective } from "../core/matrix";
-import { KEY_A, KEY_D, KEY_S, KEY_W, Action, MouseButton } from "../core/glfw_input";
+import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace SparseImage {
     // Test mode: the frames rendered.
@@ -452,7 +452,7 @@ namespace SparseImage {
         }
 
         init() {
-            if (this.app.hasSparseResidency() == 0) {
+            if (!this.app.hasSparseResidency()) {
                 this.unsupportedReason = "Sparse binding not supported: this example needs tiled textures with residency queries (D3D12 or Vulkan)";
                 return false;
             }
@@ -561,13 +561,13 @@ namespace SparseImage {
                 return 0;
             }
             const pressed = action == Action.Press;
-            if (key == KEY_W) {
+            if (key == Key.W) {
                 this.keyUp = pressed;
-            } else if (key == KEY_S) {
+            } else if (key == Key.S) {
                 this.keyDown = pressed;
-            } else if (key == KEY_A) {
+            } else if (key == Key.A) {
                 this.keyLeft = pressed;
-            } else if (key == KEY_D) {
+            } else if (key == Key.D) {
                 this.keyRight = pressed;
             } else {
                 return 0;

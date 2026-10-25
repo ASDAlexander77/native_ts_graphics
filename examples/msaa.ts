@@ -816,7 +816,7 @@ namespace Msaa {
         // the device has, and the defaults (the first supported in order of preference).
         querySupport() {
             this.supportedSampleCounts = this.app.getSupportedSampleCounts(this.app.getBackBufferFormat(), DEPTH_FORMAT);
-            this.renderPassResolve = this.app.hasRenderPassResolve() != 0;
+            this.renderPassResolve = this.app.hasRenderPassResolve();
             this.depthResolveModes = this.app.getDepthResolveModes();
             this.sampleCount = 1;
             for (let i = 0; i < SAMPLE_COUNTS.length; i++) {

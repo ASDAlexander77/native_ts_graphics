@@ -5,7 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { VideoPlayer } from "../core/video_player";
 import { rotationY, cross3, dot3, normalize3 } from "../core/matrix";
-import { KEY_SPACE, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace VideoTexture {
     // Test mode: the frames rendered.
@@ -264,7 +264,7 @@ namespace VideoTexture {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_SPACE && action == Action.Press) {
+            if (key == Key.Space && action == Action.Press) {
                 this.show3D = !this.show3D;
             }
             return 0;
@@ -275,7 +275,7 @@ namespace VideoTexture {
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             this.time += elapsedSeconds;
-            if (this.player.isFinished() != 0) {
+            if (this.player.isFinished()) {
                 Donut_CloseWindow(this.app.handle);
             }
         }

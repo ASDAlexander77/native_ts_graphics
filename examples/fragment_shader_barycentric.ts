@@ -130,7 +130,7 @@ namespace FragmentShaderBarycentric {
         }
 
         init() {
-            if (this.app.hasBarycentrics() == 0) {
+            if (!this.app.hasBarycentrics()) {
                 this.unsupportedReason = "This example needs barycentrics in pixel shaders (D3D12 shader model 6.1 or Vulkan's VK_KHR_fragment_shader_barycentric)";
                 return false;
             }

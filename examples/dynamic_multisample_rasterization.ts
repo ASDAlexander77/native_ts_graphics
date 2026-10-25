@@ -235,7 +235,7 @@ namespace DynamicMultisampleRasterization {
                 }
             }
             this.sampleCount = this.supportedCounts.length > 0 ? this.supportedCounts[0] : 1;
-            this.renderPassResolve = this.app.hasRenderPassResolve() != 0;
+            this.renderPassResolve = this.app.hasRenderPassResolve();
 
             const layoutDesc = InputLayoutDesc.create();
             layoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, 0, 0, VERTEX_SIZE);

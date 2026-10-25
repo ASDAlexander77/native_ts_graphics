@@ -4,10 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import {
-    KEY_1, KEY_2, KEY_3, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_F1, KEY_KP_1, KEY_KP_2,
-    KEY_KP_3, Action,
-} from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace SimpleBezier {
     // Test mode: the frames rendered.
@@ -346,17 +343,17 @@ namespace SimpleBezier {
             if (action != Action.Press) {
                 return 0;
             }
-            if (key == KEY_F1) {
+            if (key == Key.F1) {
                 this.showHelp = !this.showHelp;
-            } else if (this.showHelp && key == KEY_ESCAPE) {
+            } else if (this.showHelp && key == Key.Escape) {
                 this.showHelp = false;
-            } else if (key == KEY_W) {
+            } else if (key == Key.W) {
                 this.drawWires = !this.drawWires;
-            } else if (key == KEY_1 || key == KEY_KP_1) {
+            } else if (key == Key.Num1 || key == Key.Kp1) {
                 this.partitionMode = PartitionMode.Integer;
-            } else if (key == KEY_2 || key == KEY_KP_2) {
+            } else if (key == Key.Num2 || key == Key.Kp2) {
                 this.partitionMode = PartitionMode.FractionalEven;
-            } else if (key == KEY_3 || key == KEY_KP_3) {
+            } else if (key == Key.Num3 || key == Key.Kp3) {
                 this.partitionMode = PartitionMode.FractionalOdd;
             } else {
                 // Escape (outside the help screen) goes on to InputPass, which closes the window.
@@ -369,15 +366,15 @@ namespace SimpleBezier {
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
             const held = this.held;
-            if (held[KEY_DOWN]) {
+            if (held[Key.Down]) {
                 this.subdivs = Math.max(f(this.subdivs - f(0.1)), MIN_DIVS);
             }
-            if (held[KEY_UP]) {
+            if (held[Key.Up]) {
                 this.subdivs = Math.min(f(this.subdivs + f(0.1)), MAX_DIVS);
             }
-            if (held[KEY_LEFT]) {
+            if (held[Key.Left]) {
                 this.rotateCamera(ROTATION_ANGLE_PER_STEP, 1);
-            } else if (held[KEY_RIGHT]) {
+            } else if (held[Key.Right]) {
                 this.rotateCamera(-ROTATION_ANGLE_PER_STEP, 1);
             }
         }

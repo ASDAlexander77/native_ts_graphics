@@ -528,7 +528,7 @@ namespace FragmentShadingRate {
 
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        if (app.isFeatureSupported(Feature.VariableRateShading) == 0) {
+        if (!app.isFeatureSupported(Feature.VariableRateShading)) {
             app.destroy();
             return unsupported(args.test, "The graphics device has no variable rate shading (D3D12 tier 2 or Vulkan's VK_KHR_fragment_shading_rate)");
         }

@@ -5,7 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { identity, multiplyF32, inverse } from "../core/matrix";
-import { KEY_ESCAPE, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace MouseCursor {
     // Test mode: the frames rendered.
@@ -248,7 +248,7 @@ namespace MouseCursor {
             for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
                 this.indexBuffers.push(app.createStaticIndexBuffer(commandList, mesh.getIndexBufferData(i),
                     mesh.getIndexBufferSize(i), file));
-                this.index32.push(mesh.isIndexBuffer32Bit(i) != 0);
+                this.index32.push(mesh.isIndexBuffer32Bit(i));
             }
 
             // LoadMaterial: a material whose ambient and diffuse colors are all zero is white; the
@@ -783,7 +783,7 @@ namespace MouseCursor {
         // OnKeyDown: Escape leaves the captured modes (and goes on to InputPass, closing the
         // window, from the menu).
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_ESCAPE && action == Action.Press && !this.absolute) {
+            if (key == Key.Escape && action == Action.Press && !this.absolute) {
                 this.release();
                 return 1;
             }
@@ -795,7 +795,7 @@ namespace MouseCursor {
         // window loses the focus.
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(WINDOW_TITLE);
-            if (!this.absolute && this.app.isWindowFocused() == 0) {
+            if (!this.absolute && !this.app.isWindowFocused()) {
                 this.release();
             }
 

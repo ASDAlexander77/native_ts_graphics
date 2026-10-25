@@ -5,7 +5,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import { KEY_SPACE, KEY_T, KEY_V, KEY_GRAVE_ACCENT, KEY_ESCAPE, Action, MouseButton } from "../core/glfw_input";
+import { Key, Action, MouseButton } from "../core/glfw_input";
 import { radiansF32 } from "../core/matrix";
 
 namespace FeatureDemoExample {
@@ -281,7 +281,7 @@ namespace FeatureDemoExample {
             this.pick = false;
             this.wallclockTime = 0.0;
             this.readyFrames = 0;
-            this.testMode = app.isTestMode() != 0;
+            this.testMode = app.isTestMode();
 
             this.viewMatrix = [];
             this.rightViewMatrix = [];
@@ -423,7 +423,7 @@ namespace FeatureDemoExample {
             this.currentSceneName = sceneName;
 
             // BeginLoadingScene
-            if (this.sceneLoader.isSceneLoaded() != 0) {
+            if (this.sceneLoader.isSceneLoaded()) {
                 this.sceneUnloading();
             }
             this.scene = new Scene(null);
@@ -668,7 +668,7 @@ namespace FeatureDemoExample {
                 const height = this.renderTargetsHeight;
                 dlss.init(width, height, width, height);
 
-                this.ui.dlssAvailable = dlss.isInitialized() != 0;
+                this.ui.dlssAvailable = dlss.isInitialized();
             }
 
             this.previousViewsValid = false;
@@ -808,7 +808,7 @@ namespace FeatureDemoExample {
             if (ui.enableLightProbe) {
                 const probeCount = this.lightProbes.getCount();
                 for (let i = 0; i < probeCount; i++) {
-                    if (this.lightProbes.isEnabled(i) != 0) {
+                    if (this.lightProbes.isEnabled(i)) {
                         this.lightProbes.setScales(i, ui.lightProbeDiffuseScale, ui.lightProbeSpecularScale);
                     }
                 }
@@ -876,7 +876,7 @@ namespace FeatureDemoExample {
                     let evaluated = false;
                     const dlss = this.dlss;
                     if (!dlss.isNull()) {
-                        if (dlss.isInitialized() != 0 && !ui.stereo) {
+                        if (dlss.isInitialized() && !ui.stereo) {
                             commandList.evaluateDlss(dlss, view, targets, toneMappingPass);
                             evaluated = true;
                         }
@@ -991,7 +991,7 @@ namespace FeatureDemoExample {
             const skyPass = app.createSkyPass(framebuffer, view);
 
             const forwardPass = app.createForwardShadingPassWithOptions(
-                app.isFeatureSupported(Feature.FastGeometryShader) != 0 ? 1 : 0, 1);
+                app.isFeatureSupported(Feature.FastGeometryShader) ? 1 : 0, 1);
             const forwardContext = app.createForwardShadingContext();
 
             const commandList = app.createCommandList();
@@ -1046,29 +1046,29 @@ namespace FeatureDemoExample {
         // --- Pass callbacks ---
 
         onKeyboard(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_ESCAPE && action == Action.Press) {
+            if (key == Key.Escape && action == Action.Press) {
                 this.ui.showUI = !this.ui.showUI;
                 return 1;
             }
 
-            if (key == KEY_GRAVE_ACCENT && action == Action.Press) {
+            if (key == Key.GraveAccent && action == Action.Press) {
                 this.ui.showConsole = !this.ui.showConsole;
                 return 1;
             }
 
-            if (key == KEY_SPACE && action == Action.Press) {
+            if (key == Key.Space && action == Action.Press) {
                 this.ui.enableAnimations = !this.ui.enableAnimations;
                 return 1;
             }
 
             // As in the other examples (not in the C++ sample): V toggles vertical sync, like the
             // VSync checkbox.
-            if (key == KEY_V && action == Action.Press) {
+            if (key == Key.V && action == Action.Press) {
                 this.ui.enableVsync = !this.ui.enableVsync;
                 return 1;
             }
 
-            if (key == KEY_T && action == Action.Press) {
+            if (key == Key.T && action == Action.Press) {
                 this.copyActiveCameraToFirstPerson();
                 if (!this.ui.activeSceneCamera.isNull()) {
                     this.ui.useThirdPersonCamera = false;
@@ -1231,7 +1231,7 @@ namespace FeatureDemoExample {
             const width = app.getWindowWidth();
 
             const sceneGraph = demo.sceneGraph;
-            if (demo.sceneLoader.isSceneLoading() != 0 || sceneGraph.isNull()) {
+            if (demo.sceneLoader.isSceneLoading() || sceneGraph.isNull()) {
                 this.imguiPass.beginFullScreenWindow();
                 this.fontOpenSans.push();
 

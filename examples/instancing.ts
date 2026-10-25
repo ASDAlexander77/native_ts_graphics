@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { perspProjReverse, radiansF32 } from "../core/matrix";
-import { KEY_P, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 import { randomFloat } from "../core/random";
 
 namespace Instancing {
@@ -202,7 +202,7 @@ namespace Instancing {
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
-            if (key == KEY_P && action == Action.Press) {
+            if (key == Key.P && action == Action.Press) {
                 this.paused = !this.paused;
             }
 

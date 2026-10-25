@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
-import { KEY_A, KEY_D, KEY_S, KEY_W, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace MeshShaderCulling {
     // Test mode: the frames rendered.
@@ -117,7 +117,7 @@ namespace MeshShaderCulling {
         }
 
         init() {
-            if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
+            if (!this.app.isFeatureSupported(Feature.Meshlets)) {
                 this.unsupportedReason = "This example needs task and mesh shaders (D3D12 or Vulkan)";
                 return false;
             }
@@ -156,13 +156,13 @@ namespace MeshShaderCulling {
                 return 0;
             }
             const pressed = action == Action.Press;
-            if (key == KEY_W) {
+            if (key == Key.W) {
                 this.keyUp = pressed;
-            } else if (key == KEY_S) {
+            } else if (key == Key.S) {
                 this.keyDown = pressed;
-            } else if (key == KEY_A) {
+            } else if (key == Key.A) {
                 this.keyLeft = pressed;
-            } else if (key == KEY_D) {
+            } else if (key == Key.D) {
                 this.keyRight = pressed;
             } else {
                 return 0;

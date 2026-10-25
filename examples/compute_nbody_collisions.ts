@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
-import { KEY_SPACE, KEY_C, KEY_H, KEY_P, KEY_T, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace ComputeNBodyCollisions {
     const WINDOW_TITLE = "Donut Example: Compute N-Body Collisions";
@@ -620,22 +620,22 @@ namespace ComputeNBodyCollisions {
             this.idleSeconds = 0.0;
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
-            if (key == KEY_SPACE && action == Action.Press) {
+            if (key == Key.Space && action == Action.Press) {
                 this.paused = !this.paused;
             }
-            if (key == KEY_C && action == Action.Press) {
+            if (key == Key.C && action == Action.Press) {
                 this.collisions = !this.collisions;
                 Donut_StoreInt32(Ref(this.simulationConstants[2]), this.collisions ? 1 : 0);
             }
-            if (key == KEY_H && action == Action.Press) {
+            if (key == Key.H && action == Action.Press) {
                 this.heating = !this.heating;
                 Donut_StoreInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
             }
 
-            if (key == KEY_P && action == Action.Press) {
+            if (key == Key.P && action == Action.Press) {
                 this.showPlanes = !this.showPlanes;
             }
-            if (key == KEY_T && action == Action.Press) {
+            if (key == Key.T && action == Action.Press) {
                 this.showTrails = !this.showTrails;
             }
 

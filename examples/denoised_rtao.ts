@@ -8,10 +8,7 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, matrixScaling,
     matrixTranslation, normalize3, radians, transformCoord3, transformNormal3, vadd, vsub,
 } from "../core/directx_math";
-import {
-    KEY_SPACE, KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_A, KEY_C, KEY_D, KEY_E, KEY_H, KEY_J, KEY_K, KEY_L, KEY_M,
-    KEY_Q, KEY_S, KEY_T, KEY_U, KEY_W, KEY_Y, KEY_ENTER, KEY_LEFT_SHIFT, Action, MouseButton,
-} from "../core/glfw_input";
+import { Key, Action, MouseButton } from "../core/glfw_input";
 
 namespace DenoisedRtao {
     const WINDOW_TITLE = "D3D12 Raytracing Real-Time Denoised Ambient Occlusion";
@@ -510,7 +507,7 @@ namespace DenoisedRtao {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            const held = [KEY_W, KEY_S, KEY_A, KEY_D, KEY_E, KEY_Q];
+            const held = [Key.W, Key.S, Key.A, Key.D, Key.E, Key.Q];
             for (let i = 0; i < 6; i++) {
                 if (key == held[i] && (action == Action.Press || action == Action.Release)) {
                     this.keys[i] = action == Action.Press ? 1 : 0;
@@ -520,41 +517,41 @@ namespace DenoisedRtao {
             if (action != Action.Press) {
                 return 0;
             }
-            if (key == KEY_LEFT_SHIFT) {
+            if (key == Key.LeftShift) {
                 this.fineMovement = !this.fineMovement;
-            } else if (key == KEY_1) {
+            } else if (key == Key.Num1) {
                 this.compositionMode = CompositionMode.AoRaw;
-            } else if (key == KEY_2) {
+            } else if (key == Key.Num2) {
                 this.compositionMode = CompositionMode.AoDenoised;
-            } else if (key == KEY_3) {
+            } else if (key == Key.Num3) {
                 this.compositionMode = CompositionMode.PbrShading;
-            } else if (key == KEY_4) {
+            } else if (key == Key.Num4) {
                 // RTAO ray lengths: short or long.
                 this.maxRayHitTime = this.maxRayHitTime > 3.9 && this.maxRayHitTime < 4.1 ? 22.0 : 4.0;
-            } else if (key == KEY_ENTER) {
+            } else if (key == Key.Enter) {
                 this.aoEnabled = !this.aoEnabled;
-            } else if (key == KEY_SPACE) {
+            } else if (key == Key.Space) {
                 this.renderOnce = !this.renderOnce;
                 this.framesToRender = this.renderOnce ? 1 : 0;
-            } else if (key == KEY_U) {
+            } else if (key == Key.U) {
                 this.carByTheHousePosition = Math.fround(this.carByTheHousePosition + Math.fround(0.2));
-            } else if (key == KEY_Y) {
+            } else if (key == Key.Y) {
                 this.carByTheHousePosition = Math.fround(this.carByTheHousePosition - Math.fround(0.2));
-            } else if (key == KEY_J) {
+            } else if (key == Key.J) {
                 this.spaceshipHeight = Math.fround(this.spaceshipHeight + Math.fround(0.3));
-            } else if (key == KEY_M) {
+            } else if (key == Key.M) {
                 this.spaceshipHeight = Math.fround(this.spaceshipHeight - Math.fround(0.3));
-            } else if (key == KEY_H) {
+            } else if (key == Key.H) {
                 this.spaceshipAngle = Math.fround(this.spaceshipAngle + 45.0);
-            } else if (key == KEY_K) {
+            } else if (key == Key.K) {
                 this.spaceshipAngle = Math.fround(this.spaceshipAngle - 45.0);
-            } else if (key == KEY_L) {
+            } else if (key == Key.L) {
                 this.animateLight = !this.animateLight;
-            } else if (key == KEY_C) {
+            } else if (key == Key.C) {
                 this.animateCamera = !this.animateCamera;
-            } else if (key == KEY_T) {
+            } else if (key == Key.T) {
                 this.animateScene = !this.animateScene;
-            } else if (key == KEY_0) {
+            } else if (key == Key.Num0) {
                 // The sample's ground truth toggle (256 rays per pixel, raw AO): not ported.
                 return 1;
             } else {
@@ -1065,7 +1062,7 @@ namespace DenoisedRtao {
                     blas.addGeometry(this.indexBuffer, indexOffset * 4, indexCount, this.sceneVertexBuffer, vertexOffset * VERTEX_STRIDE,
                         vertexCount, VERTEX_STRIDE, null);
                     // Opaque unless see-through or a perfect mirror (AO rays skip those).
-                    if (scene.isMeshOpaque(m) == 0) {
+                    if (!scene.isMeshOpaque(m)) {
                         blas.setGeometryFlags(m, 0);
                     }
                     vertexOffset += vertexCount;
@@ -1677,7 +1674,7 @@ namespace DenoisedRtao {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
-        if (app.isFeatureSupported(Feature.RayTracingPipeline) == 0) {
+        if (!app.isFeatureSupported(Feature.RayTracingPipeline)) {
             app.destroy();
             return unsupported(args.test, "Ray tracing pipelines are not supported by this device");
         }

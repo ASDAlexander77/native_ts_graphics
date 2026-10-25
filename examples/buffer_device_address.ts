@@ -340,7 +340,7 @@ namespace BufferDeviceAddress {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
-        if (app.hasBufferDeviceAddress() == 0) {
+        if (!app.hasBufferDeviceAddress()) {
             app.destroy();
             return unsupported(args.test, "The device doesn't support buffer device addresses (bufferDeviceAddress).");
         }

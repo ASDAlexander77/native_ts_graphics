@@ -52,7 +52,7 @@ namespace MeshShading {
         }
 
         init() {
-            if (this.app.isFeatureSupported(Feature.Meshlets) == 0) {
+            if (!this.app.isFeatureSupported(Feature.Meshlets)) {
                 this.unsupportedReason = "The graphics device does not support mesh shaders";
                 return false;
             }

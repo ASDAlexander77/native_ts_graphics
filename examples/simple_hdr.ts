@@ -4,10 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import {
-    KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_ENTER, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_KP_SUBTRACT, KEY_KP_ADD,
-    KEY_KP_ENTER, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, Action,
-} from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace SimpleHdr {
     // Test mode: the frames rendered.
@@ -238,7 +235,7 @@ namespace SimpleHdr {
         // The sample's DeviceResources::UpdateColorSpace: HDR10 when the window's display is in HDR
         // mode (the swap chain takes it from the next frame on), sRGB otherwise.
         updateColorSpace() {
-            const wanted = this.app.isDisplayHdr() != 0 && !this.forceSdr ? SwapChainColorSpace.HDR10 : SwapChainColorSpace.SRGB;
+            const wanted = this.app.isDisplayHdr() && !this.forceSdr ? SwapChainColorSpace.HDR10 : SwapChainColorSpace.SRGB;
             if (wanted != this.app.getSwapChainColorSpace()) {
                 this.app.setSwapChainColorSpace(wanted);
             }
@@ -249,20 +246,20 @@ namespace SimpleHdr {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_UP || key == KEY_RIGHT) {
+            if (key == Key.Up || key == Key.Right) {
                 this.upHeld = action != Action.Release;
-            } else if (key == KEY_DOWN || key == KEY_LEFT) {
+            } else if (key == Key.Down || key == Key.Left) {
                 this.downHeld = action != Action.Release;
-            } else if (key == KEY_LEFT_SHIFT || key == KEY_RIGHT_SHIFT) {
+            } else if (key == Key.LeftShift || key == Key.RightShift) {
                 this.shiftHeld = action != Action.Release;
             } else if (action == Action.Press) {
-                if (key == KEY_SPACE) {
+                if (key == Key.Space) {
                     this.render2084Curve = !this.render2084Curve;
-                } else if (key == KEY_ENTER || key == KEY_KP_ENTER) {
+                } else if (key == Key.Enter || key == Key.KpEnter) {
                     this.showOnlyPaperWhite = !this.showOnlyPaperWhite;
-                } else if (key == KEY_MINUS || key == KEY_KP_SUBTRACT) {
+                } else if (key == Key.Minus || key == Key.KpSubtract) {
                     this.paperWhiteNits = Math.max(this.paperWhiteNits - 20.0, 80.0);
-                } else if (key == KEY_EQUAL || key == KEY_KP_ADD) {
+                } else if (key == Key.Equal || key == Key.KpAdd) {
                     this.paperWhiteNits = Math.min(this.paperWhiteNits + 20.0, MAX_NITS_FOR_2084);
                 }
             }
@@ -734,7 +731,7 @@ namespace SimpleHdr {
             sample.showOnlyPaperWhite = false;
         }
         sample.updateColorSpace();
-        console.log(`Display in HDR mode: ${app.isDisplayHdr() != 0 ? "yes" : "no"}`);
+        console.log(`Display in HDR mode: ${app.isDisplayHdr() ? "yes" : "no"}`);
 
         const input = new InputPass(app.handle);
 

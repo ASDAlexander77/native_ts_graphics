@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
-import { KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace ReservedResources {
     const WINDOW_TITLE = "D3D12 Reserved resources sample - Use arrow keys to cycle through resources";
@@ -229,12 +229,12 @@ namespace ReservedResources {
             if (action != Action.Press && action != Action.Repeat) {
                 return 0;
             }
-            if (key == KEY_LEFT || key == KEY_UP) {
+            if (key == Key.Left || key == Key.Up) {
                 if (this.activeMip != 0) {
                     this.activeMip--;
                     this.activeMipChanged = true;
                 }
-            } else if (key == KEY_RIGHT || key == KEY_DOWN) {
+            } else if (key == Key.Right || key == Key.Down) {
                 if (this.activeMip < this.mips.length - 1) {
                     this.activeMip++;
                     this.activeMipChanged = true;
@@ -426,7 +426,7 @@ namespace ReservedResources {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
-        if (app.hasSparseResidency() == 0) {
+        if (!app.hasSparseResidency()) {
             app.destroy();
             return unsupported(args.test, "Reserved resources are not supported by your GPU.");
         }

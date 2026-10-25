@@ -7,7 +7,7 @@ import {
     cross3, matrixIdentity, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH,
     matrixRotationY, matrixScaling, matrixTranslation, normalize3, normalize4, radians, transform3, vsub,
 } from "../core/directx_math";
-import { KEY_C, KEY_G, KEY_L, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace ProceduralGeometry {
     // Test mode: the frames rendered.
@@ -315,11 +315,11 @@ namespace ProceduralGeometry {
 
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (action == Action.Press) {
-                if (key == KEY_C) {
+                if (key == Key.C) {
                     this.animateCamera = !this.animateCamera;
-                } else if (key == KEY_G) {
+                } else if (key == Key.G) {
                     this.animateGeometry = !this.animateGeometry;
-                } else if (key == KEY_L) {
+                } else if (key == Key.L) {
                     this.animateLight = !this.animateLight;
                 }
             }

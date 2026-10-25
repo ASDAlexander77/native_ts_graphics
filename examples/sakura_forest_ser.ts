@@ -8,10 +8,7 @@ import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationAxis, matrixRotationY, normalize3,
     normalize4, radians, transform3, transformNormal3, vadd, vmul, vsub,
 } from "../core/directx_math";
-import {
-    KEY_A, KEY_B, KEY_D, KEY_E, KEY_H, KEY_M, KEY_P, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
-    Action,
-} from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace SakuraForestSER {
     const WINDOW_TITLE = "D3D12 Raytracing - Sakura Scene";
@@ -273,7 +270,7 @@ namespace SakuraForestSER {
         }
 
         heldIndex(key: int) {
-            const keys = [KEY_W, KEY_A, KEY_S, KEY_D, KEY_Q, KEY_E, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT];
+            const keys = [Key.W, Key.A, Key.S, Key.D, Key.Q, Key.E, Key.Up, Key.Down, Key.Left, Key.Right];
             return keys.indexOf(key);
         }
 
@@ -296,13 +293,13 @@ namespace SakuraForestSER {
             if (action != Action.Press) {
                 return 0;
             }
-            if (key == KEY_P) {
+            if (key == Key.P) {
                 this.setSortMode(this.serEnabled ? SortMode.Off : SortMode.ByHit);
-            } else if (key == KEY_H) {
+            } else if (key == Key.H) {
                 this.setSortMode(SortMode.ByHit);
-            } else if (key == KEY_M) {
+            } else if (key == Key.M) {
                 this.setSortMode(SortMode.ByMaterial);
-            } else if (key == KEY_B) {
+            } else if (key == Key.B) {
                 this.setSortMode(SortMode.ByBoth);
             }
             return 0;
@@ -324,49 +321,49 @@ namespace SakuraForestSER {
             const elapsedTime = Math.fround(elapsedSeconds);
             const movementSpeed = Math.fround(5.0 * elapsedTime);
             const speed = [movementSpeed, movementSpeed, movementSpeed, movementSpeed];
-            if (this.isHeld(KEY_W)) {
+            if (this.isHeld(Key.W)) {
                 const forward = normalize3(vsub(this.at, this.eye));
                 this.eye = vadd(this.eye, vmul(forward, speed));
                 this.at = vadd(this.at, vmul(forward, speed));
             }
-            if (this.isHeld(KEY_S)) {
+            if (this.isHeld(Key.S)) {
                 const backward = normalize3(vsub(this.eye, this.at));
                 this.eye = vadd(this.eye, vmul(backward, speed));
                 this.at = vadd(this.at, vmul(backward, speed));
             }
-            if (this.isHeld(KEY_A)) {
+            if (this.isHeld(Key.A)) {
                 const forward = normalize3(vsub(this.at, this.eye));
                 const left = normalize3(cross3(forward, this.up));
                 this.eye = vadd(this.eye, vmul(left, speed));
                 this.at = vadd(this.at, vmul(left, speed));
             }
-            if (this.isHeld(KEY_D)) {
+            if (this.isHeld(Key.D)) {
                 const forward = normalize3(vsub(this.at, this.eye));
                 const right = normalize3(cross3(this.up, forward));
                 this.eye = vadd(this.eye, vmul(right, speed));
                 this.at = vadd(this.at, vmul(right, speed));
             }
-            if (this.isHeld(KEY_Q)) {
+            if (this.isHeld(Key.Q)) {
                 this.eye = vadd(this.eye, vmul(this.up, speed));
                 this.at = vadd(this.at, vmul(this.up, speed));
             }
-            if (this.isHeld(KEY_E)) {
+            if (this.isHeld(Key.E)) {
                 this.eye = vsub(this.eye, vmul(this.up, speed));
                 this.at = vsub(this.at, vmul(this.up, speed));
             }
             // Looking down and up, left and right.
             const turnSpeed = Math.fround(radians(30.0) * elapsedTime);
             const negativeTurnSpeed = Math.fround(radians(-30.0) * elapsedTime);
-            if (this.isHeld(KEY_DOWN)) {
+            if (this.isHeld(Key.Down)) {
                 this.turn(true, turnSpeed);
             }
-            if (this.isHeld(KEY_UP)) {
+            if (this.isHeld(Key.Up)) {
                 this.turn(true, negativeTurnSpeed);
             }
-            if (this.isHeld(KEY_LEFT)) {
+            if (this.isHeld(Key.Left)) {
                 this.turn(false, negativeTurnSpeed);
             }
-            if (this.isHeld(KEY_RIGHT)) {
+            if (this.isHeld(Key.Right)) {
                 this.turn(false, turnSpeed);
             }
             const minCameraHeight = Math.fround(2.02);

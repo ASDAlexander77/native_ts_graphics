@@ -197,7 +197,7 @@ namespace DepthBoundsTest {
             return 1;
         }
         // Without it the sample draws the whole triangle, as here.
-        const supported = app.hasDepthBoundsTest() != 0;
+        const supported = app.hasDepthBoundsTest();
         let support = "not supported";
         if (supported) {
             support = "supported";

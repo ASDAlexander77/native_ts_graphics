@@ -7,7 +7,7 @@
 // that import it, as tslang would load those files twice if they referenced them too.
 
 import { App } from "./donut";
-import { KEY_V, KEY_ESCAPE, Action } from "./glfw_input";
+import { Key, Action } from "./glfw_input";
 
 @final
 export class InputPass {
@@ -19,13 +19,13 @@ export class InputPass {
     }
 
     onKey(key: int, scancode: int, action: int, mods: int): int {
-        if (key == KEY_ESCAPE && action == Action.Press) {
+        if (key == Key.Escape && action == Action.Press) {
             this.app.closeWindow();
             return 1;
         }
 
-        if (key == KEY_V && action == Action.Press) {
-            this.app.setVsyncEnabled(this.app.isVsyncEnabled() != 0 ? 0 : 1);
+        if (key == Key.V && action == Action.Press) {
+            this.app.setVsyncEnabled(this.app.isVsyncEnabled() ? 0 : 1);
             return 1;
         }
 

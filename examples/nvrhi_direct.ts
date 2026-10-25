@@ -2663,7 +2663,7 @@ namespace NvrhiDirect {
     // updateTextureTileMappings of its top right tile to a heap of one tile. Cleared, and the top
     // right tile copied into a staging texture: the clear color.
     function testTiledTexture(app: App, device: nvrhi.IDevice) {
-        if (app.hasSparseResidency() == 0) {
+        if (!app.hasSparseResidency()) {
             console.log("Tiled textures: none, not tested");
             return;
         }

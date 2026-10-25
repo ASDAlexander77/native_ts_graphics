@@ -358,7 +358,7 @@ namespace MeshletRender {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
-        if (app.isFeatureSupported(Feature.Meshlets) == 0) {
+        if (!app.isFeatureSupported(Feature.Meshlets)) {
             app.destroy();
             return unsupported(args.test, "The graphics device has no mesh shaders");
         }

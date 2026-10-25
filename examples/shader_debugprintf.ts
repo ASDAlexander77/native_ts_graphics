@@ -454,7 +454,7 @@ namespace ShaderDebugPrintf {
             return 1;
         }
         console.log(`Renderer: ${app.getRendererString()}`);
-        if (app.hasShaderPrintf() == 0) {
+        if (!app.hasShaderPrintf()) {
             app.destroy();
             return unsupported(args.test, "Shader printf needs the Vulkan validation layer (VK_LAYER_KHRONOS_validation, from the Vulkan SDK).");
         }

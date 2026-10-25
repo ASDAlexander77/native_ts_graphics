@@ -398,7 +398,7 @@ namespace PushDescriptors {
             return 1;
         }
         console.log(`Renderer: ${app.getRendererString()}`);
-        if (app.hasPushDescriptors() == 0) {
+        if (!app.hasPushDescriptors()) {
             app.destroy();
             return unsupported(args.test, "The device doesn't support push descriptors (VK_KHR_push_descriptor).");
         }

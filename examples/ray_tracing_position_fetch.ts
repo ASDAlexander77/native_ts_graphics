@@ -411,8 +411,8 @@ namespace RayTracingPositionFetch {
 
         console.log(`Renderer: ${app.getRendererString()}`);
 
-        if (app.isFeatureSupported(Feature.RayTracingPipeline) == 0
-            || app.isFeatureSupported(Feature.RayTracingPositionFetch) == 0) {
+        if (!app.isFeatureSupported(Feature.RayTracingPipeline)
+            || !app.isFeatureSupported(Feature.RayTracingPositionFetch)) {
             app.destroy();
             return unsupported(args.test, "The graphics device has no ray tracing pipelines with position fetch (VK_KHR_ray_tracing_position_fetch)");
         }

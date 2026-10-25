@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { identity, multiply, rotate, radians, perspective } from "../core/matrix";
-import { KEY_A, KEY_D, KEY_S, KEY_W, Action } from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace TextureMipmapGeneration {
     // Test mode: the frames rendered.
@@ -95,13 +95,13 @@ namespace TextureMipmapGeneration {
 
         key(key: int, action: int) {
             const down = action != Action.Release;
-            if (key == KEY_W) {
+            if (key == Key.W) {
                 this.keys[0] = down;
-            } else if (key == KEY_S) {
+            } else if (key == Key.S) {
                 this.keys[1] = down;
-            } else if (key == KEY_A) {
+            } else if (key == Key.A) {
                 this.keys[2] = down;
-            } else if (key == KEY_D) {
+            } else if (key == Key.D) {
                 this.keys[3] = down;
             }
         }

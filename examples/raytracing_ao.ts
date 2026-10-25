@@ -6,9 +6,7 @@ import { TestCheck, unsupported } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { transpose, inverse, cross3, dot3, normalize3, multiplyF32 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
-import {
-    KEY_SPACE, KEY_A, KEY_D, KEY_F, KEY_R, KEY_S, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_F1, Action,
-} from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace RaytracingAo {
     // Test mode: the frames rendered.
@@ -239,7 +237,7 @@ namespace RaytracingAo {
             const subset = mesh.getMeshSubset(0, 0);
             const vb = mesh.getMeshVertexBuffer(0);
             const ib = mesh.getMeshIndexBuffer(0);
-            if (mesh.isIndexBuffer32Bit(ib) == 0) {
+            if (!mesh.isIndexBuffer32Bit(ib)) {
                 console.log(`${file}: Only 32bit unsigned int indices can be used for this sample.`);
                 ok = false;
             }
@@ -727,41 +725,41 @@ namespace RaytracingAo {
 
         // Sample::Update's keys and Menus::ProcessKeys.
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_A) {
+            if (key == Key.A) {
                 this.aHeld = action != Action.Release;
-            } else if (key == KEY_D) {
+            } else if (key == Key.D) {
                 this.dHeld = action != Action.Release;
             }
             if (action == Action.Press) {
-                if (key == KEY_SPACE) {
+                if (key == Key.Space) {
                     this.meshIndex = (this.meshIndex + 1) % MESH_FILES.length;
-                } else if (key == KEY_S) {
+                } else if (key == Key.S) {
                     this.isSplit = !this.isSplit;
-                } else if (key == KEY_F1) {
+                } else if (key == Key.F1) {
                     this.showHelp = !this.showHelp;
-                } else if (key == KEY_TAB) {
+                } else if (key == Key.Tab) {
                     this.lightingModel = (this.lightingModel + 1) % LIGHTING_MODEL_COUNT;
-                } else if (key == KEY_F) {
+                } else if (key == Key.F) {
                     this.showFPS = !this.showFPS;
                 } else if (this.showHelp) {
                     // The sample's option list has a ninth slot that is null (selecting it and
                     // pressing Left or Right would crash it); it selects nothing here.
-                    if (key == KEY_UP) {
+                    if (key == Key.Up) {
                         this.selection = (this.selection + 8) % 9;
-                    } else if (key == KEY_DOWN) {
+                    } else if (key == Key.Down) {
                         this.selection = (this.selection + 1) % 9;
-                    } else if (key == KEY_LEFT) {
+                    } else if (key == Key.Left) {
                         this.delta = -1.0;
-                    } else if (key == KEY_RIGHT) {
+                    } else if (key == Key.Right) {
                         this.delta = 1.0;
-                    } else if (key == KEY_R) {
+                    } else if (key == Key.R) {
                         for (const option of this.options) {
                             option.reset();
                         }
                         this.updateOptions = true;
                     }
                 }
-            } else if (action == Action.Release && (key == KEY_LEFT || key == KEY_RIGHT)) {
+            } else if (action == Action.Release && (key == Key.Left || key == Key.Right)) {
                 this.delta = 0.0;
             }
             return 1;
@@ -1476,7 +1474,7 @@ namespace RaytracingAo {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
         }
-        if (app.isFeatureSupported(Feature.RayTracingPipeline) == 0) {
+        if (!app.isFeatureSupported(Feature.RayTracingPipeline)) {
             app.destroy();
             return unsupported(args.test, "The graphics device doesn't support ray tracing pipelines");
         }

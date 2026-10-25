@@ -2,66 +2,69 @@
 // button actions, mouse buttons.
 //
 // Every example compiles it in (TSLANG_CORE_SOURCES): import with
-// `import { KEY_W, Action, ... } from "../core/glfw_input";` (from examples/).
+// `import { Key, Action, ... } from "../core/glfw_input";` (from examples/).
 
 // Keys.
-export const KEY_SPACE = 32;
-export const KEY_MINUS = 45;
-export const KEY_0 = 48;
-export const KEY_1 = 49;
-export const KEY_2 = 50;
-export const KEY_3 = 51;
-export const KEY_4 = 52;
-export const KEY_9 = 57;
-export const KEY_EQUAL = 61;
-export const KEY_A = 65;
-export const KEY_B = 66;
-export const KEY_C = 67;
-export const KEY_D = 68;
-export const KEY_E = 69;
-export const KEY_F = 70;
-export const KEY_G = 71;
-export const KEY_H = 72;
-export const KEY_J = 74;
-export const KEY_K = 75;
-export const KEY_L = 76;
-export const KEY_M = 77;
-export const KEY_O = 79;
-export const KEY_P = 80;
-export const KEY_Q = 81;
-export const KEY_R = 82;
-export const KEY_S = 83;
-export const KEY_T = 84;
-export const KEY_U = 85;
-export const KEY_V = 86;
-export const KEY_W = 87;
-export const KEY_X = 88;
-export const KEY_Y = 89;
-export const KEY_Z = 90;
-export const KEY_GRAVE_ACCENT = 96;
-export const KEY_ESCAPE = 256;
-export const KEY_ENTER = 257;
-export const KEY_TAB = 258;
-export const KEY_RIGHT = 262;
-export const KEY_LEFT = 263;
-export const KEY_DOWN = 264;
-export const KEY_UP = 265;
-export const KEY_PAGE_UP = 266;
-export const KEY_PAGE_DOWN = 267;
-export const KEY_HOME = 268;
-export const KEY_END = 269;
-export const KEY_F1 = 290;
-export const KEY_KP_1 = 321;
-export const KEY_KP_2 = 322;
-export const KEY_KP_3 = 323;
-export const KEY_KP_4 = 324;
-export const KEY_KP_6 = 326;
-export const KEY_KP_8 = 328;
-export const KEY_KP_SUBTRACT = 333;
-export const KEY_KP_ADD = 334;
-export const KEY_KP_ENTER = 335;
-export const KEY_LEFT_SHIFT = 340;
-export const KEY_RIGHT_SHIFT = 344;
+export enum Key {
+    Space = 32,
+    Minus = 45,
+    Num0 = 48,
+    Num1 = 49,
+    Num2 = 50,
+    Num3 = 51,
+    Num4 = 52,
+    Num9 = 57,
+    Equal = 61,
+    A = 65,
+    B = 66,
+    C = 67,
+    D = 68,
+    E = 69,
+    F = 70,
+    G = 71,
+    H = 72,
+    J = 74,
+    K = 75,
+    L = 76,
+    M = 77,
+    O = 79,
+    P = 80,
+    Q = 81,
+    R = 82,
+    S = 83,
+    T = 84,
+    U = 85,
+    V = 86,
+    W = 87,
+    X = 88,
+    Y = 89,
+    Z = 90,
+    GraveAccent = 96,
+    Escape = 256,
+    Enter = 257,
+    Tab = 258,
+    Right = 262,
+    Left = 263,
+    Down = 264,
+    Up = 265,
+    PageUp = 266,
+    PageDown = 267,
+    Home = 268,
+    End = 269,
+    F1 = 290,
+    Kp1 = 321,
+    Kp2 = 322,
+    Kp3 = 323,
+    Kp4 = 324,
+    Kp6 = 326,
+    Kp8 = 328,
+    KpSubtract = 333,
+    KpAdd = 334,
+    KpEnter = 335,
+    LeftShift = 340,
+    RightShift = 344
+}
+
 
 // Actions.
 export enum Action {

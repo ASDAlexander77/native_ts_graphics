@@ -8,9 +8,7 @@ import {
     rotationY, transpose, inverse, cross3, dot3, normalize3, multiplyF32,
 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
-import {
-    KEY_1, KEY_A, KEY_D, KEY_E, KEY_Q, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, Action,
-} from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace Bokeh {
     // Test mode: the frames rendered.
@@ -200,7 +198,7 @@ namespace Bokeh {
             for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
                 this.indexBuffers.push(app.createStaticIndexBuffer(commandList, mesh.getIndexBufferData(i),
                     mesh.getIndexBufferSize(i), file));
-                this.index32.push(mesh.isIndexBuffer32Bit(i) != 0);
+                this.index32.push(mesh.isIndexBuffer32Bit(i));
             }
 
             // InitMaterial: a material whose colors are all zero is white.
@@ -615,10 +613,10 @@ namespace Bokeh {
                 this.held[key] = action != Action.Release;
             }
             if (action == Action.Press) {
-                if (key == KEY_UP) {
+                if (key == Key.Up) {
                     // Toggle fast bokeh shader
                     this.useFastShader = !this.useFastShader;
-                } else if (key == KEY_DOWN) {
+                } else if (key == Key.Down) {
                     // Iterate through preset parameters & cam position
                     this.presetScene = (this.presetScene + 1) % PRESET_SCENE_COUNT;
                     this.setPredefinedScene(this.presetScene);
@@ -650,52 +648,52 @@ namespace Bokeh {
             const steps = elapsedSeconds * STEPS_PER_SECOND;
 
             // The left stick (A / D, W / S) and the right stick's Y (Q / E).
-            const leftX = this.axis(KEY_D, KEY_A);
-            const leftY = this.axis(KEY_W, KEY_S);
-            const rightY = this.axis(KEY_Q, KEY_E);
+            const leftX = this.axis(Key.D, Key.A);
+            const leftY = this.axis(Key.W, Key.S);
+            const rightY = this.axis(Key.Q, Key.E);
             this.cameraAngle -= leftX * 0.2 * steps;
             this.cameraElevation = Math.max(-10.0, Math.min(10.0, this.cameraElevation - leftY * 0.2 * steps));
             this.cameraDistance = Math.max(1.0, Math.min(10.0, this.cameraDistance - rightY * 0.2 * steps));
 
             // Focus Length
-            if (this.isHeld(KEY_LEFT)) {
+            if (this.isHeld(Key.Left)) {
                 // longest super telephoto Canon F/11 lens is 1.2 meter
                 // so let's limit it to 200mm because even that can produce blurs of radius of 100+ in the near plane
                 this.focusLength = Math.min(0.2, this.focusLength + 0.01 * steps);
             }
-            if (this.isHeld(KEY_RIGHT)) {
+            if (this.isHeld(Key.Right)) {
                 this.focusLength = Math.max(0.025, this.focusLength - 0.01 * steps);
             }
 
             // FNumber: [A] 2, [B] 1.
-            if (this.isHeld(KEY_1 + 1)) {
+            if (this.isHeld(Key.Num1 + 1)) {
                 this.fNumber = Math.min(64.0, this.fNumber + 0.1 * steps);
             }
-            if (this.isHeld(KEY_1)) {
+            if (this.isHeld(Key.Num1)) {
                 this.fNumber = Math.max(1.0, this.fNumber - 0.1 * steps);
             }
 
             // Focal Plane: [Y] 4, [X] 3.
-            if (this.isHeld(KEY_1 + 3)) {
+            if (this.isHeld(Key.Num1 + 3)) {
                 this.focalPlane = Math.min(10.0, this.focalPlane + 0.01 * steps);
             }
-            if (this.isHeld(KEY_1 + 2)) {
+            if (this.isHeld(Key.Num1 + 2)) {
                 this.focalPlane = Math.max(0.5, this.focalPlane - 0.01 * steps);
             }
 
             // Max Near CoC Size: [LB] 5, [LT] 6.
-            if (this.isHeld(KEY_1 + 4)) {
+            if (this.isHeld(Key.Num1 + 4)) {
                 this.maxCoCSizeNear = Math.max(1.0, this.maxCoCSizeNear - 1.0 * steps);
             }
-            if (this.isHeld(KEY_1 + 5)) {
+            if (this.isHeld(Key.Num1 + 5)) {
                 this.maxCoCSizeNear = Math.min(128.0, this.maxCoCSizeNear + 1.0 * steps);
             }
 
             // Max Far CoC Size: [RB] 7, [RT] 8.
-            if (this.isHeld(KEY_1 + 6)) {
+            if (this.isHeld(Key.Num1 + 6)) {
                 this.maxCoCSizeFar = Math.max(1.0, this.maxCoCSizeFar - 1.0 * steps);
             }
-            if (this.isHeld(KEY_1 + 7)) {
+            if (this.isHeld(Key.Num1 + 7)) {
                 this.maxCoCSizeFar = Math.min(128.0, this.maxCoCSizeFar + 1.0 * steps);
             }
 

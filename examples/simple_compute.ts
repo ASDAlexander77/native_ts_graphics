@@ -4,10 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import {
-    KEY_SPACE, KEY_A, KEY_D, KEY_S, KEY_W, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT,
-    Action,
-} from "../core/glfw_input";
+import { Key, Action } from "../core/glfw_input";
 
 namespace SimpleCompute {
     // Test mode: the frames rendered.
@@ -235,9 +232,9 @@ namespace SimpleCompute {
                 this.held[key] = action != Action.Release;
             }
             if (action == Action.Press) {
-                if (key == KEY_SPACE) {
+                if (key == Key.Space) {
                     this.setUsingAsyncCompute(!this.usingAsyncCompute);
-                } else if (key == KEY_HOME) {
+                } else if (key == Key.Home) {
                     this.resetWindow();
                 }
             }
@@ -271,27 +268,27 @@ namespace SimpleCompute {
             }
 
             const held = this.held;
-            if (held[KEY_W] || held[KEY_S] || held[KEY_A] || held[KEY_D] || held[KEY_PAGE_UP] || held[KEY_PAGE_DOWN]) {
+            if (held[Key.W] || held[Key.S] || held[Key.A] || held[Key.D] || held[Key.PageUp] || held[Key.PageDown]) {
                 let scaleSpeed = 1.0;
-                if (held[KEY_LEFT_SHIFT] || held[KEY_RIGHT_SHIFT]) {
+                if (held[Key.LeftShift] || held[Key.RightShift]) {
                     scaleSpeed = 4.0;
                 }
                 let zoom = 0.0;
-                if (held[KEY_PAGE_DOWN]) {
+                if (held[Key.PageDown]) {
                     zoom = 1.0;
-                } else if (held[KEY_PAGE_UP]) {
+                } else if (held[Key.PageUp]) {
                     zoom = -1.0;
                 }
                 let x = 0.0;
-                if (held[KEY_D]) {
+                if (held[Key.D]) {
                     x = 1.0;
-                } else if (held[KEY_A]) {
+                } else if (held[Key.A]) {
                     x = -1.0;
                 }
                 let y = 0.0;
-                if (held[KEY_W]) {
+                if (held[Key.W]) {
                     y = 1.0;
-                } else if (held[KEY_S]) {
+                } else if (held[Key.S]) {
                     y = -1.0;
                 }
 

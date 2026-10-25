@@ -137,7 +137,7 @@ namespace ConditionalRendering {
         }
 
         init() {
-            if (this.app.hasConditionalRendering() == 0) {
+            if (!this.app.hasConditionalRendering()) {
                 this.unsupportedReason = "This example needs conditional rendering (D3D12 predication or Vulkan's VK_EXT_conditional_rendering)";
                 return false;
             }

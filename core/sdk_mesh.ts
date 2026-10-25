@@ -88,8 +88,8 @@ export class SdkMesh {
         return Donut_GetSdkMeshIndexBufferIndexCount(this.handle, indexBuffer);
     }
 
-    isIndexBuffer32Bit(indexBuffer: int): int {
-        return Donut_IsSdkMeshIndexBuffer32Bit(this.handle, indexBuffer);
+    isIndexBuffer32Bit(indexBuffer: int): boolean {
+        return Donut_IsSdkMeshIndexBuffer32Bit(this.handle, indexBuffer) != 0;
     }
 
     // Meshes: their name, vertex and index buffers, subsets (indices into the file's subsets), and
