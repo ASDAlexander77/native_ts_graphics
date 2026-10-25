@@ -231,7 +231,7 @@ namespace HdrDisplay {
             this.ensureColorSpace();
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action != Action.Press) {
                 return 0;
             }

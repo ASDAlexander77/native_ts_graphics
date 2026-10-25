@@ -561,7 +561,7 @@ namespace RenderOctomap {
 
         // WASD move the camera, numpad 4/6/8/2 turn it. Seen before the overlay (see main), so
         // they work while it has the keyboard; the other keys go on to it.
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Release) {
                 return key == Key.W || key == Key.A || key == Key.S || key == Key.D || key == Key.Kp2
                     || key == Key.Kp4 || key == Key.Kp6 || key == Key.Kp8 ? 1 : 0;

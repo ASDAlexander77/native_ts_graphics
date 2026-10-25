@@ -268,7 +268,7 @@ namespace Multithreading {
             return true;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }

@@ -224,7 +224,7 @@ namespace ReservedResources {
             return this.mips.length;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Repeat) {
                 return 0;
             }

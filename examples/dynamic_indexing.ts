@@ -164,7 +164,7 @@ namespace DynamicIndexing {
             return true;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods): int {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods): int {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }

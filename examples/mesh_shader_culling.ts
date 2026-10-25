@@ -150,7 +150,7 @@ namespace MeshShaderCulling {
         }
 
         // ApiVulkanSample's keys: WASD move the camera while held.
-        onKeyboard(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKeyboard(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action != Action.Press && action != Action.Release) {
                 return 0;
             }

@@ -226,7 +226,7 @@ namespace SimpleCompute {
             this.computeLoop.setPaused(!value);
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (key >= 0 && key < 512) {
                 this.held[key] = action != Action.Release;
             }

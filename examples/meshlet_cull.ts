@@ -472,7 +472,7 @@ namespace MeshletCull {
         }
 
         // OnKeyDown / OnKeyUp.
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action == Action.Press) {
                 if (key == Key.Space) {
                     this.drawMeshlets = !this.drawMeshlets;

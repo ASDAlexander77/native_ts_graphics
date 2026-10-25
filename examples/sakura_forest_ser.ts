@@ -280,7 +280,7 @@ namespace SakuraForestSER {
 
         // OnUpdate's keys: P toggles SER (sorting by the hit when on), H, M and B pick the sort key
         // (turning SER on); the movement keys are held.
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             const index = this.heldIndex(key);
             if (index >= 0) {
                 if (action == Action.Press) {

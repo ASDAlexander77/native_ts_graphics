@@ -326,7 +326,7 @@ namespace DynamicRenderingLocalRead {
             return true;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             this.camera.key(key, action);
             return 1;
         }

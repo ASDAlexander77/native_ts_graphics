@@ -505,7 +505,7 @@ namespace DenoisedRtao {
             return true;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             const held = [Key.W, Key.S, Key.A, Key.D, Key.E, Key.Q];
             for (let i = 0; i < 6; i++) {
                 if (key == held[i] && (action == Action.Press || action == Action.Release)) {

@@ -781,7 +781,7 @@ namespace MouseCursor {
 
         // OnKeyDown: Escape leaves the captured modes (and goes on to InputPass, closing the
         // window, from the menu).
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (key == Key.Escape && action == Action.Press && !this.absolute) {
                 this.release();
                 return 1;

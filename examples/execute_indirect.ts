@@ -171,7 +171,7 @@ namespace ExecuteIndirect {
             return true;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (key == Key.Space && action == Action.Press) {
                 this.enableCulling = !this.enableCulling;
                 return 1;

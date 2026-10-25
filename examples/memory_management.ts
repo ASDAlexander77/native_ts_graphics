@@ -334,7 +334,7 @@ namespace MemoryManagement {
             return total / STATISTIC_COUNT;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action == Action.Release) {
                 return 0;
             }
