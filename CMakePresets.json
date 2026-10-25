@@ -27,6 +27,28 @@
       }
     },
     {
+      "name": "default-rc",
+      "displayName": "Default (Ninja)",
+      "description": "TSLANG custom language requires the Ninja generator (the Visual Studio generator ignores custom languages).",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+	"TSLANG_MEMORY_MODEL": "rc"
+      }
+    },
+    {
+      "name": "release-rc",
+      "displayName": "Release (Ninja)",
+      "description": "Ninja is a single-config generator, so Release builds use their own binary directory.",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+	"TSLANG_MEMORY_MODEL": "rc"
+      }
+    },
+    {
       "name": "dlss",
       "displayName": "Default with DLSS (Ninja)",
       "description": "Debug with NVIDIA DLSS (DONUT_WITH_DLSS): Donut fetches the DLSS SDK from GitHub at configure time.",
@@ -57,7 +79,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "ANDROID_ABI": "x86_64",
         "ANDROID_PLATFORM": "android-29",
-        "ANDROID_STL": "c++_static"
+        "ANDROID_STL": "c++_static",
+	"TSLANG_MEMORY_MODEL": "rc"
       }
     },
     {
@@ -67,7 +90,8 @@
       "inherits": "android-x86_64",
       "binaryDir": "${sourceDir}/build-android-arm64",
       "cacheVariables": {
-        "ANDROID_ABI": "arm64-v8a"
+        "ANDROID_ABI": "arm64-v8a",
+	"TSLANG_MEMORY_MODEL": "rc"
       }
     },
     {
@@ -77,7 +101,8 @@
       "inherits": "android-x86_64",
       "binaryDir": "${sourceDir}/build-android-arm32",
       "cacheVariables": {
-        "ANDROID_ABI": "armeabi-v7a"
+        "ANDROID_ABI": "armeabi-v7a",
+	"TSLANG_MEMORY_MODEL": "rc"
       }
     }
   ],

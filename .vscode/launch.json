@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [        
         {
-            "name": "VS: tslang JIT (Current File)",
+            "name": "VS: tslang JIT (Current File) GC",
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${env:TSLANG_HOME}/tslang.exe",
@@ -30,6 +30,32 @@
                 ]
             }
         },
+        {
+            "name": "VS: tslang JIT (Current File) RC",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${env:TSLANG_HOME}/tslang.exe",
+            "args": ["--di", "--opt_level=0", "--mm=rc", "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "internalConsole",
+            "windows": {
+                // --jit-native links the JIT cache into a DLL + PDB with lld-link (LLVM\bin). It loads
+                // donut_interop_shared.dll and its dependencies from build\bin, and links its import library
+                // donut_interop_shared.lib.
+                "args": [
+                    "--jit-native", "--jit-cache=true", "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
+                    "--tslang-lib-path=${env:TSLANG_HOME}",
+                    "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
+                    "--lib=build/donut_interop_shared.lib",
+                    "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"
+                ],
+                "environment": [
+                    { "name": "PATH", "value": "${workspaceFolder}\\build\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}" }
+                ]
+            }
+        },        
         {
             "name": "GDB: tslang JIT (Current File)",
             "type": "cppdbg",
