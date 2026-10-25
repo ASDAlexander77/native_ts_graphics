@@ -149,7 +149,7 @@ namespace EnvironmentMap {
             return true;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
             if (key == Key.Space && action == Action.Press) {

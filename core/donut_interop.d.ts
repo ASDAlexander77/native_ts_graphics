@@ -89,12 +89,16 @@ enum KeyMods {
     NumLock = 32
 }
 
+// A key's platform-specific scancode (GLFW: not stable across keyboards or systems), which the
+// samples don't use.
+type ScanCode = int;
+
 // A method passed as one of these (e.g. `this.onRender`) reaches C++ as a function pointer
 // plus its `this` value.
 type VoidCallback = () => void;
 type RenderCallback = (frame: FrameHandle) => void;
 type AnimateCallback = (elapsedSeconds: number) => void;
-type KeyboardCallback = (key: Key, scancode: int, action: Action, mods: KeyMods) => int;
+type KeyboardCallback = (key: Key, scancode: ScanCode, action: Action, mods: KeyMods) => int;
 type MousePosCallback = (x: number, y: number) => int;
 type MouseButtonCallback = (button: MouseButton, action: Action, mods: KeyMods) => int;
 type MouseScrollCallback = (xOffset: number, yOffset: number) => int;
@@ -2085,7 +2089,7 @@ enum ShaderType {
 // Mouse sensitivity, radians per pixel.
 @nodrops declare function Donut_CameraSetRotateSpeed(camera: CameraHandle, speed: number): void;
 // Forward the pass input callbacks' arguments to these.
-@nodrops declare function Donut_CameraKeyboardUpdate(camera: CameraHandle, key: Key, scancode: int, action: Action, mods: KeyMods): void;
+@nodrops declare function Donut_CameraKeyboardUpdate(camera: CameraHandle, key: Key, scancode: ScanCode, action: Action, mods: KeyMods): void;
 @nodrops declare function Donut_CameraMousePosUpdate(camera: CameraHandle, x: number, y: number): void;
 @nodrops declare function Donut_CameraMouseButtonUpdate(camera: CameraHandle, button: MouseButton, action: Action, mods: KeyMods): void;
 @nodrops declare function Donut_CameraMouseScrollUpdate(camera: CameraHandle, xOffset: number, yOffset: number): void;

@@ -312,7 +312,7 @@ namespace ProceduralGeometry {
             }
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action == Action.Press) {
                 if (key == Key.C) {
                     this.animateCamera = !this.animateCamera;

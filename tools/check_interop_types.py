@@ -25,7 +25,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # C++ types of plain values and raw memory -> the TypeScript types they may be declared as.
-# `int` may also be any enum declared in donut_interop.d.ts.
+# `int` may also be any enum, or alias of int, declared in donut_interop.d.ts.
 TYPES = {
     "void": {"void"},
     "int": {"int"},
@@ -244,6 +244,10 @@ def parse_ts(root):
         if line.startswith("@nodrops "):
             line = line[len("@nodrops "):]
         m = re.match(r"(?:declare )?(?:const )?enum (\w+)", line)
+        if m:
+            enums.add(m.group(1))
+        # `type ScanCode = int;`: an alias of int is as good as an enum.
+        m = re.match(r"type (\w+) = int;", line)
         if m:
             enums.add(m.group(1))
         m = re.match(r"type (\w+)Callback = \(([^)]*)\) => (\w+);", line)

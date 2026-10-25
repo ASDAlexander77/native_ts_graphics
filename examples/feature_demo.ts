@@ -1044,7 +1044,7 @@ namespace FeatureDemoExample {
 
         // --- Pass callbacks ---
 
-        onKeyboard(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKeyboard(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (key == Key.Escape && action == Action.Press) {
                 this.ui.showUI = !this.ui.showUI;
                 return 1;

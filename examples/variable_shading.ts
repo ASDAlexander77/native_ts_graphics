@@ -112,7 +112,7 @@ namespace VariableShading {
             return true;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
             return 1;
         }

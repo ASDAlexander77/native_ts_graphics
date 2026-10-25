@@ -723,7 +723,7 @@ namespace RaytracingAo {
         }
 
         // Sample::Update's keys and Menus::ProcessKeys.
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (key == Key.A) {
                 this.aHeld = action != Action.Release;
             } else if (key == Key.D) {

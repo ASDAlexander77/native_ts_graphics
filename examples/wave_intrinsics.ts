@@ -214,7 +214,7 @@ namespace WaveIntrinsics {
             this.hasTargets = false;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (action == Action.Press && key >= Key.Num1 && key <= Key.Num9) {
                 this.renderMode = key - Key.Num1 + 1;
             }

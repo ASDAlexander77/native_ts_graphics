@@ -318,7 +318,7 @@ namespace OpacityMicromaps {
         }
 
         // The sample's OnUpdate keys.
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (key == Key.Z || key == Key.X) {
                 const held = action != Action.Release;
                 if (key == Key.Z) {

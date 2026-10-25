@@ -244,7 +244,7 @@ namespace SimpleHdr {
             return this.app.getSwapChainColorSpace() == SwapChainColorSpace.HDR10;
         }
 
-        onKey(key: Key, scancode: int, action: Action, mods: KeyMods) {
+        onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
             if (key == Key.Up || key == Key.Right) {
                 this.upHeld = action != Action.Release;
             } else if (key == Key.Down || key == Key.Left) {
