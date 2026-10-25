@@ -696,7 +696,7 @@ namespace SakuraForestSER {
         }
 
         line(y: number, text: string) {
-            Donut_ImGuiDrawText(30.0, y, text, 1.0, 1.0, 0.0, 1.0, 0);
+            ImGui.drawText(30.0, y, text, 1.0, 1.0, 0.0, 1.0, 0);
         }
 
         enabled(on: boolean) {
@@ -723,7 +723,7 @@ namespace SakuraForestSER {
             this.line(y, "Use WASD to move around");
             y += LINE_SPACING;
             this.line(y, "Use Arrow keys to look around");
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

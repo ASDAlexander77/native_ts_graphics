@@ -568,9 +568,9 @@ namespace SimpleHdr {
         text(font: FontKind, x: number, y: number, text: string, alignRight: boolean) {
             const sample = this.sample;
             sample.fonts[font].push();
-            Donut_ImGuiDrawText(x * sample.frameWidth / LAYOUT_WIDTH, y * sample.frameHeight / LAYOUT_HEIGHT, text,
+            ImGui.drawText(x * sample.frameWidth / LAYOUT_WIDTH, y * sample.frameHeight / LAYOUT_HEIGHT, text,
                 1.0, 1.0, 1.0, 1.0, alignRight ? 1 : 0);
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
 
         // RenderHDRScene's text: the values of each block, in the HDR scene, SDR and HDR10.

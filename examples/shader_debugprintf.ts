@@ -388,17 +388,17 @@ namespace ShaderDebugPrintf {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Shader debugprintf", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                sample.displaySkysphere = Donut_ImGuiCheckbox("skysphere", sample.displaySkysphere);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Shader debugprintf", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                sample.displaySkysphere = ImGui.checkbox("skysphere", sample.displaySkysphere);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Debug output")) {
+            if (ImGui.collapsingHeaderDefaultOpen("Debug output")) {
                 for (const line of sample.output) {
-                    Donut_ImGuiText(line);
+                    ImGui.text(line);
                 }
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

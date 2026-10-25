@@ -1334,15 +1334,15 @@ namespace WorkGraphs {
         buildUI() {
             const ui = this.ui;
 
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options/Stats", true);
-            ui.currentTechnique = Donut_ImGuiCombo("Current Technique", ui.currentTechnique,
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options/Stats", true);
+            ui.currentTechnique = ImGui.combo("Current Technique", ui.currentTechnique,
                 "Work Graph (Broadcast Launch)|Compute Dispatches");
-            ui.paused = Donut_ImGuiCheckbox("Pause Animation", ui.paused);
-            ui.resetAnim = Donut_ImGuiButton("Reset Animation");
-            Donut_ImGuiText(`Frame Time (GPU): ${ui.gpuFrameTime.toFixed(3)} ms`);
-            Donut_ImGuiText(`Shading Time (GPU): ${ui.gpuShadingTime.toFixed(3)} ms`);
-            Donut_ImGuiEnd();
+            ui.paused = ImGui.checkbox("Pause Animation", ui.paused);
+            ui.resetAnim = ImGui.button("Reset Animation");
+            ImGui.text(`Frame Time (GPU): ${ui.gpuFrameTime.toFixed(3)} ms`);
+            ImGui.text(`Shading Time (GPU): ${ui.gpuShadingTime.toFixed(3)} ms`);
+            ImGui.end();
         }
     }
 

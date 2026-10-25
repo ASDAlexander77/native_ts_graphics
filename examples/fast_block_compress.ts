@@ -743,23 +743,23 @@ namespace FastBlockCompress {
         }
 
         label(text: string, x: number, y: number) {
-            Donut_ImGuiBeginOverlay(text, x, y, 300.0, Donut_ImGuiGetFontSize() * 1.6);
-            Donut_ImGuiPushTextColor(GREEN[0], GREEN[1], GREEN[2], 1.0);
-            Donut_ImGuiText(text);
-            Donut_ImGuiPopStyleColor();
-            Donut_ImGuiEnd();
+            ImGui.beginOverlay(text, x, y, 300.0, ImGui.getFontSize() * 1.6);
+            ImGui.pushTextColor(GREEN[0], GREEN[1], GREEN[2], 1.0);
+            ImGui.text(text);
+            ImGui.popStyleColor();
+            ImGui.end();
         }
 
         buildUI() {
             const sample = this.sample;
             // Three rows above the images, as the sample's text.
-            Donut_ImGuiSetNextWindowPos(10.0, 4.0);
-            Donut_ImGuiBegin("Fast Block Compress", true);
-            Donut_ImGuiText("[LB/RB] Image");
-            Donut_ImGuiSameLine();
-            Donut_ImGuiPushItemWidth(110.0);
-            const image = Donut_ImGuiCombo("##image", sample.currentImage, comboItems(IMAGE_NAMES));
-            Donut_ImGuiPopItemWidth();
+            ImGui.setNextWindowPos(10.0, 4.0);
+            ImGui.begin("Fast Block Compress", true);
+            ImGui.text("[LB/RB] Image");
+            ImGui.sameLine();
+            ImGui.pushItemWidth(110.0);
+            const image = ImGui.combo("##image", sample.currentImage, comboItems(IMAGE_NAMES));
+            ImGui.popItemWidth();
             if (image != sample.currentImage) {
                 sample.currentImage = image;
                 sample.currentMethod = 0;
@@ -769,74 +769,74 @@ namespace FastBlockCompress {
             for (let m = 0; m < MAX_METHOD; m++) {
                 methods.push(sample.methodLabel(m));
             }
-            Donut_ImGuiSameLine();
-            Donut_ImGuiText("[DPad L/R]");
-            Donut_ImGuiSameLine();
-            Donut_ImGuiPushItemWidth(110.0);
-            sample.currentMethod = Donut_ImGuiCombo("##method", sample.currentMethod, comboItems(methods));
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiSameLine();
-            Donut_ImGuiText("[DPad U/D] Mip Level");
-            Donut_ImGuiSameLine();
-            Donut_ImGuiPushItemWidth(80.0);
+            ImGui.sameLine();
+            ImGui.text("[DPad L/R]");
+            ImGui.sameLine();
+            ImGui.pushItemWidth(110.0);
+            sample.currentMethod = ImGui.combo("##method", sample.currentMethod, comboItems(methods));
+            ImGui.popItemWidth();
+            ImGui.sameLine();
+            ImGui.text("[DPad U/D] Mip Level");
+            ImGui.sameLine();
+            ImGui.pushItemWidth(80.0);
             const levels = sample.images[sample.currentImage].levels;
-            sample.mipLevel = Donut_ImGuiSliderInt("##mip", sample.mipLevel, 0, levels - 1);
-            Donut_ImGuiPopItemWidth();
+            sample.mipLevel = ImGui.sliderInt("##mip", sample.mipLevel, 0, levels - 1);
+            ImGui.popItemWidth();
 
-            sample.highlightBlocks = Donut_ImGuiCheckbox("[A] Highlight blocks", sample.highlightBlocks);
-            Donut_ImGuiSameLine();
-            const fullscreen = Donut_ImGuiCheckbox("[X] Fullscreen", sample.fullscreen);
+            sample.highlightBlocks = ImGui.checkbox("[A] Highlight blocks", sample.highlightBlocks);
+            ImGui.sameLine();
+            const fullscreen = ImGui.checkbox("[X] Fullscreen", sample.fullscreen);
             if (fullscreen != sample.fullscreen) {
                 sample.fullscreen = fullscreen;
                 sample.toggleOriginal = false;
             }
             if (sample.fullscreen) {
-                Donut_ImGuiSameLine();
-                sample.toggleOriginal = Donut_ImGuiCheckbox("Original image", sample.toggleOriginal);
+                ImGui.sameLine();
+                sample.toggleOriginal = ImGui.checkbox("Original image", sample.toggleOriginal);
             }
 
-            Donut_ImGuiText("[Y] Diffs (10x scale):");
-            Donut_ImGuiSameLine();
-            if (Donut_ImGuiRadioButton("None", !sample.colorDiffs && !sample.alphaDiffs)) {
+            ImGui.text("[Y] Diffs (10x scale):");
+            ImGui.sameLine();
+            if (ImGui.radioButton("None", !sample.colorDiffs && !sample.alphaDiffs)) {
                 sample.colorDiffs = false;
                 sample.alphaDiffs = false;
             }
-            Donut_ImGuiSameLine();
-            if (Donut_ImGuiRadioButton("Color", sample.colorDiffs)) {
+            ImGui.sameLine();
+            if (ImGui.radioButton("Color", sample.colorDiffs)) {
                 sample.colorDiffs = true;
                 sample.alphaDiffs = false;
             }
-            Donut_ImGuiSameLine();
-            if (Donut_ImGuiRadioButton("Alpha", sample.alphaDiffs)) {
+            ImGui.sameLine();
+            if (ImGui.radioButton("Alpha", sample.alphaDiffs)) {
                 sample.colorDiffs = false;
                 sample.alphaDiffs = true;
             }
-            Donut_ImGuiSameLine();
-            if (Donut_ImGuiButton("[RS] Reset camera")) {
+            ImGui.sameLine();
+            if (ImGui.button("[RS] Reset camera")) {
                 sample.resetCamera();
             }
-            Donut_ImGuiSameLine();
-            Donut_ImGuiText("(mouse wheel: zoom, left drag: pan)");
-            Donut_ImGuiEnd();
+            ImGui.sameLine();
+            ImGui.text("(mouse wheel: zoom, left drag: pan)");
+            ImGui.end();
 
             // The sample's right column of text.
             const shown = sample.images[sample.currentImage];
             const sx = sample.frameWidth / LAYOUT_WIDTH;
-            Donut_ImGuiBeginOverlay("Stats", 1490.0 * sx, 4.0, 420.0 * sx, Donut_ImGuiGetFontSize() * 7.0);
-            Donut_ImGuiPushTextColor(LIGHT_GREY[0], LIGHT_GREY[1], LIGHT_GREY[2], 1.0);
-            Donut_ImGuiText(`Texture dimensions: ${shown.width} x ${shown.width}`);
+            ImGui.beginOverlay("Stats", 1490.0 * sx, 4.0, 420.0 * sx, ImGui.getFontSize() * 7.0);
+            ImGui.pushTextColor(LIGHT_GREY[0], LIGHT_GREY[1], LIGHT_GREY[2], 1.0);
+            ImGui.text(`Texture dimensions: ${shown.width} x ${shown.width}`);
             if (!sample.fullscreen || !sample.toggleOriginal) {
-                Donut_ImGuiText(`RGB RMS Error (Mip ${sample.mipLevel}): ${formatFixed(sample.rmsError[0], 6)}`);
-                Donut_ImGuiText(`Alpha RMS Error (Mip ${sample.mipLevel}): ${formatFixed(sample.rmsError[1], 6)}`);
+                ImGui.text(`RGB RMS Error (Mip ${sample.mipLevel}): ${formatFixed(sample.rmsError[0], 6)}`);
+                ImGui.text(`Alpha RMS Error (Mip ${sample.mipLevel}): ${formatFixed(sample.rmsError[1], 6)}`);
                 if (sample.currentMethod == CompressionMethod.RtcGpu || sample.currentMethod == CompressionMethod.RtcCpu) {
-                    Donut_ImGuiText(`Time (Top) ${formatFixed(sample.times[0], 3)} ms; (All) ${formatFixed(sample.times[1], 3)} ms`);
+                    ImGui.text(`Time (Top) ${formatFixed(sample.times[0], 3)} ms; (All) ${formatFixed(sample.times[1], 3)} ms`);
                 }
             }
-            Donut_ImGuiPopStyleColor();
-            Donut_ImGuiEnd();
+            ImGui.popStyleColor();
+            ImGui.end();
 
             const sy = sample.frameHeight / LAYOUT_HEIGHT;
-            const lineHeight = Donut_ImGuiGetFontSize() * 1.6;
+            const lineHeight = ImGui.getFontSize() * 1.6;
             if (sample.fullscreen) {
                 this.label(sample.toggleOriginal ? "Original Image" : sample.methodLabel(sample.currentMethod), 448.0 * sx, 28.0 * sy - lineHeight);
             } else {

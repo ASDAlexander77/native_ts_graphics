@@ -567,15 +567,15 @@ namespace DynamicMultisampleRasterization {
                     current = i;
                 }
             }
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Dynamic Multisample Rasterization", true);
-            Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings") && sample.supportedCounts.length > 0) {
-                current = Donut_ImGuiCombo("antialiasing", current, this.names);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Dynamic Multisample Rasterization", true);
+            ImGui.pushItemWidth(110.0);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings") && sample.supportedCounts.length > 0) {
+                current = ImGui.combo("antialiasing", current, this.names);
                 sample.sampleCount = sample.supportedCounts[current];
             }
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiEnd();
+            ImGui.popItemWidth();
+            ImGui.end();
         }
     }
 

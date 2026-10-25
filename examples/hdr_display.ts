@@ -415,9 +415,9 @@ namespace HdrDisplay {
         drawLabel(text: string, left: number, right: number, top: number, centered: boolean) {
             let x = left;
             if (centered) {
-                x = left + (right - left - Donut_ImGuiCalcTextWidth(text)) * 0.5;
+                x = left + (right - left - ImGui.calcTextWidth(text)) * 0.5;
             }
-            Donut_ImGuiDrawText(x, top, text, 1.0, 1.0, 1.0, 1.0, 0);
+            ImGui.drawText(x, top, text, 1.0, 1.0, 1.0, 1.0, 0);
         }
 
         // UILayer: the format, signal and HDR support at the top; the gradients' and gamuts' names
@@ -439,14 +439,14 @@ namespace HdrDisplay {
             this.drawLabel("HDR Gradient [0,9]", 0.0, w * 0.5, h * 0.75 + fontSize, true);
             this.drawLabel("Rec 709", w * 0.5, w * 0.8, h * 0.25 + fontSize, true);
             this.drawLabel("Rec 2020", w * 0.5, w * 0.8, h * 0.75 + fontSize, true);
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
             this.smallFont.push();
             this.drawLabel("PgUp/PgDn    Change back buffer format", smallFontSize, w, h - fontSize * 5.0, false);
             this.drawLabel("H    Toggle between sRGB and ST.2084 (10-bit swap chain only)", smallFontSize, w, h - fontSize * 3.0, false);
             this.drawLabel("U    Toggle UI Visibility", smallFontSize, w, h - fontSize * 2.0, false);
             this.drawLabel(`M    Toggle HDR Meta Data     MaxOutputNits:${meta[0].toFixed(3)}     MinOutputNits:${meta[1].toFixed(3)}     MaxCLL:${meta[2].toFixed(3)}     MaxFALL:${meta[3].toFixed(3)}`,
                 smallFontSize, w, h - fontSize, false);
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

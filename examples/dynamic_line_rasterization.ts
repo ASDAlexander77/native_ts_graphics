@@ -382,36 +382,36 @@ namespace DynamicLineRasterization {
 
         buildUI() {
             const l = this.lines;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Primitive options")) {
-                l.fillEnabled = Donut_ImGuiCheckbox("Fill", l.fillEnabled);
-                l.gridEnabled = Donut_ImGuiCheckbox("Grid", l.gridEnabled);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Primitive options")) {
+                l.fillEnabled = ImGui.checkbox("Fill", l.fillEnabled);
+                l.gridEnabled = ImGui.checkbox("Grid", l.gridEnabled);
                 // Only the modes the device has (DEFAULT always).
-                const mode = Donut_ImGuiCombo("Rasterization mode", l.rasterizationMode, comboItems(MODE_NAMES));
+                const mode = ImGui.combo("Rasterization mode", l.rasterizationMode, comboItems(MODE_NAMES));
                 if (mode == 0 || (l.modes & MODE_BITS[mode]) != 0) {
                     l.rasterizationMode = mode;
                 }
                 // Wide lines and stipple: Vulkan's only.
                 if (l.maxLineWidth > 1.0) {
-                    l.lineWidth = Donut_ImGuiSliderFloat("Line width", l.lineWidth, 1.0, Math.min(64.0, l.maxLineWidth));
+                    l.lineWidth = ImGui.sliderFloat("Line width", l.lineWidth, 1.0, Math.min(64.0, l.maxLineWidth));
                 }
                 if (l.canStipple()) {
-                    l.stippleEnabled = Donut_ImGuiCheckbox("Stipple enabled", l.stippleEnabled);
+                    l.stippleEnabled = ImGui.checkbox("Stipple enabled", l.stippleEnabled);
                     // The stipple factor has a maximum value of 256. Here, a limit of 64 has been chosen to achieve a scroll step equal to 1.
-                    l.stippleFactor = Donut_ImGuiSliderInt("Stipple factor", l.stippleFactor, 1, 64);
-                    Donut_ImGuiText(`Stipple pattern: ${hex(l.pattern())}`);
+                    l.stippleFactor = ImGui.sliderInt("Stipple factor", l.stippleFactor, 1, 64);
+                    ImGui.text(`Stipple pattern: ${hex(l.pattern())}`);
                     for (let i = 0; i < 16; i++) {
-                        Donut_ImGuiPushID(i);
-                        l.stipplePattern[i] = Donut_ImGuiCheckbox("", l.stipplePattern[i]);
-                        Donut_ImGuiPopID();
+                        ImGui.pushID(i);
+                        l.stipplePattern[i] = ImGui.checkbox("", l.stipplePattern[i]);
+                        ImGui.popID();
                         if (i % 8 != 7) {
-                            Donut_ImGuiSameLine();
+                            ImGui.sameLine();
                         }
                     }
                 }
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

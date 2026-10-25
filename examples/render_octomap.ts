@@ -1102,25 +1102,25 @@ namespace RenderOctomap {
                 return false;
             }
             // The overlay works from the keyboard as well (as the framework's).
-            Donut_ImGuiSetKeyboardNavigation(true);
+            ImGui.setKeyboardNavigation(true);
             return true;
         }
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            if (Donut_ImGuiButton("OCTOMAP")) {
+            ImGui.begin("Vulkan Example", true);
+            if (ImGui.button("OCTOMAP")) {
                 sample.setViewState(ViewKind.Octomap);
             }
-            if (Donut_ImGuiButton("GLTF MAP")) {
+            if (ImGui.button("GLTF MAP")) {
                 sample.setViewState(ViewKind.Gltf);
             }
-            if (Donut_ImGuiButton("SPLATS")) {
+            if (ImGui.button("SPLATS")) {
                 sample.setViewState(ViewKind.Splats);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

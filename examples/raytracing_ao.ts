@@ -1290,14 +1290,14 @@ namespace RaytracingAo {
         }
 
         box(x0: number, y0: number, x1: number, y1: number, value: number, alpha: number) {
-            Donut_ImGuiDrawRect(x0, y0, x1, y1, value, value, value, alpha);
+            ImGui.drawRect(x0, y0, x1, y1, value, value, value, alpha);
         }
 
         // A label in a 0.2-grey box MENU_BORDER around it (DrawSplitLabels, DrawLabel).
         label(text: string, x: number, y: number, r: number, g: number, b: number) {
-            const width = Donut_ImGuiCalcTextWidth(text);
+            const width = ImGui.calcTextWidth(text);
             this.box(x - MENU_BORDER, y - MENU_BORDER, x + width + MENU_BORDER, y + LINE_SPACING + MENU_BORDER, 0.2, 1.0);
-            Donut_ImGuiDrawText(x, y, text, r, g, b, 1.0, 0);
+            ImGui.drawText(x, y, text, r, g, b, 1.0, 0);
         }
 
         private menuLines: string[];
@@ -1369,7 +1369,7 @@ namespace RaytracingAo {
             this.addMenuLine("  Misc: ", false, -1);
             this.addMenuLine(`     Normal Factor: ${this.optionValue(7)}`, true, 7);
 
-            const wExtent = this.menuLines.reduce((w, menuLine) => Math.max(w, Donut_ImGuiCalcTextWidth(menuLine)), 0.0);
+            const wExtent = this.menuLines.reduce((w, menuLine) => Math.max(w, ImGui.calcTextWidth(menuLine)), 0.0);
             const height = this.menuLines.length * LINE_SPACING;
             let startX = 0.0;
             let startY = 0.0;
@@ -1384,7 +1384,7 @@ namespace RaytracingAo {
             // Backing: 80% black.
             this.box(startX - MENU_BORDER, startY - MENU_BORDER, startX + wExtent + MENU_BORDER, startY + height + MENU_BORDER, 0.0, 0.8);
             for (let i = 0; i < this.menuLines.length; i++) {
-                Donut_ImGuiDrawText(startX, startY + i * LINE_SPACING, this.menuLines[i], this.menuColors[i * 3], this.menuColors[i * 3 + 1],
+                ImGui.drawText(startX, startY + i * LINE_SPACING, this.menuLines[i], this.menuColors[i * 3], this.menuColors[i * 3 + 1],
                     this.menuColors[i * 3 + 2], 1.0, 0);
             }
         }
@@ -1397,10 +1397,10 @@ namespace RaytracingAo {
             this.font.push();
             if (sample.isSplit) {
                 // DrawSplitLabels
-                const ssaoWidth = Donut_ImGuiCalcTextWidth("SSAO");
+                const ssaoWidth = ImGui.calcTextWidth("SSAO");
                 this.label("SSAO", ((screenWidth - MENU_LINE_THICKNESS) / 2.0 - ssaoWidth) / 2.0 + MENU_LINE_THICKNESS / 2.0 - MENU_BORDER,
                     screenHeight - LINE_SPACING - MENU_BORDER, WHITE, WHITE, WHITE);
-                const aoWidth = Donut_ImGuiCalcTextWidth("AO");
+                const aoWidth = ImGui.calcTextWidth("AO");
                 this.label("AO", ((screenWidth - MENU_LINE_THICKNESS) / 2.0 - aoWidth) / 2.0 + (screenWidth + MENU_LINE_THICKNESS) / 2.0
                     - MENU_BORDER, screenHeight - LINE_SPACING - MENU_BORDER, WHITE, WHITE, WHITE);
                 // DrawCenterLine
@@ -1409,21 +1409,21 @@ namespace RaytracingAo {
             } else {
                 // DrawLabel
                 const text = sample.lightingModel == LightingMode.Ao ? "AO" : "SSAO";
-                const width = Donut_ImGuiCalcTextWidth(text);
+                const width = ImGui.calcTextWidth(text);
                 this.label(text, (screenWidth - width) / 2.0, screenHeight - LINE_SPACING - MENU_BORDER, WHITE, WHITE, WHITE);
             }
             if (sample.showFPS) {
                 // DrawFrameRate
-                const dim = Donut_ImGuiCalcTextWidth("FPS: 0000");
+                const dim = ImGui.calcTextWidth("FPS: 0000");
                 const text = `FPS: ${sample.fps}`;
                 const x = screenWidth - dim - MENU_BORDER;
                 this.box(x - MENU_BORDER, 0.0, x + dim + MENU_BORDER, MENU_BORDER + LINE_SPACING + MENU_BORDER, 0.2, 1.0);
-                Donut_ImGuiDrawText(x + (dim - Donut_ImGuiCalcTextWidth(text)) / 2.0, MENU_BORDER, text, GREEN[0], GREEN[1], GREEN[2], 1.0, 0);
+                ImGui.drawText(x + (dim - ImGui.calcTextWidth(text)) / 2.0, MENU_BORDER, text, GREEN[0], GREEN[1], GREEN[2], 1.0, 0);
             }
             if (sample.showHelp) {
                 this.mainMenu(sample.isSplit);
             }
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

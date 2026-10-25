@@ -285,14 +285,14 @@ namespace SeparateImageSampler {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Separate Image Sampler", true);
-            Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                sample.selectedSampler = Donut_ImGuiCombo("Sampler", sample.selectedSampler, SAMPLER_NAMES);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Separate Image Sampler", true);
+            ImGui.pushItemWidth(110.0);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                sample.selectedSampler = ImGui.combo("Sampler", sample.selectedSampler, SAMPLER_NAMES);
             }
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiEnd();
+            ImGui.popItemWidth();
+            ImGui.end();
         }
     }
 

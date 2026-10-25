@@ -352,13 +352,13 @@ namespace FragmentShaderBarycentric {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                sample.selectedEffect = Donut_ImGuiCombo("Effects", sample.selectedEffect, EFFECT_NAMES);
+            ImGui.begin("Vulkan Example", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                sample.selectedEffect = ImGui.combo("Effects", sample.selectedEffect, EFFECT_NAMES);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

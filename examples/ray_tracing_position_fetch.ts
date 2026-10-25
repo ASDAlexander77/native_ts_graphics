@@ -368,10 +368,10 @@ namespace RayTracingPositionFetch {
         }
 
         buildUI() {
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
-            this.pass.displayMode = Donut_ImGuiCombo("Display mode", this.pass.displayMode, DISPLAY_MODE_NAMES);
-            Donut_ImGuiEnd();
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
+            this.pass.displayMode = ImGui.combo("Display mode", this.pass.displayMode, DISPLAY_MODE_NAMES);
+            ImGui.end();
         }
     }
 

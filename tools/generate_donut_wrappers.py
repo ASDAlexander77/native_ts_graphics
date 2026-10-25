@@ -4,7 +4,8 @@ Every Donut_* function whose first parameter is a C++ object handle (`app: Opaqu
 `frame: Opaque`, ...) becomes a method of the class for that object (App, Frame, ...), which holds
 the handle. Handle-less functions returning such an object become static methods of its class
 (App.create, BindingSetDesc.create, ...); the other handle-less functions (ImGui, command line
-helpers, ...) stay free functions only.
+helpers, ...) stay free functions only, except the Donut_ImGui* ones, which become the static methods
+of ImGui (STATIC_ONLY: a class of static methods, holding no handle).
 
     python tools/generate_donut_wrappers.py
 
@@ -127,12 +128,17 @@ PARAMETER_ALIASES = {
     "previousToneMappingPass": "ToneMappingPass",
 }
 
+# Classes of static methods only, holding no handle: the handle-less functions whose names start with
+# the prefix go to them (Donut_ImGuiBegin -> ImGui.begin).
+STATIC_ONLY = {"ImGui": "Donut_ImGui"}
+
 # Words dropped from a function's name to make its method's name, besides the class name itself
 # (Donut_GetShadowMapTexture -> shadowMap.getTexture).
 NOUNS = {
     "BindlessLayoutDesc": ["BindlessLayout"],
     "RtPipelineDesc": ["RtPipeline"],
     "GraphicsPipelineDesc": ["GraphicsPipeline"],
+    "ImGui": ["ImGui"],
     "ImGuiPass": ["ImGui"],
     "ImGuiFont": ["ImGui"],
     "CubemapTarget": ["Cubemap"],
@@ -328,6 +334,10 @@ class Function:
         first = self.params[0] if self.params else None
         self.is_method = bool(first and first.cls and not first.nullable)
         self.target = first.cls if self.is_method else self.returns_class
+        if not self.target:
+            for cls, prefix in STATIC_ONLY.items():
+                if name.startswith(prefix):
+                    self.target = cls
         # A module is compiled apart from donut.ts, which it can't import (tslang would load it
         # twice): its functions take other classes' objects as the raw handles.
         if self.target in MODULES:
@@ -336,6 +346,10 @@ class Function:
                     param.cls = None
         # The function declared before it.
         self.previous = None
+
+
+# The functions of the STATIC_ONLY classes by name, for the comments that refer to each other.
+STATIC_FUNCTIONS = {}
 
 
 def split_params(text):
@@ -372,6 +386,8 @@ def parse(source):
                 sys.exit(f"can't parse: {text}")
             function = Function(match.group(1), match.group(2), match.group(3), comments)
             function.previous = functions[-1] if functions else None
+            if function.target in STATIC_ONLY:
+                STATIC_FUNCTIONS[function.name] = function
             functions.append(function)
             comments = []
         elif line.startswith("//"):
@@ -419,6 +435,12 @@ def comments_for(function, previous):
     # "Same, ..." refers to the function declared before, which may be in another class now.
     if comments and comments[0].startswith("// Same,") and previous and previous.target != function.target:
         comments[0] = comments[0].replace("// Same,", f"// Same as {previous.name},", 1)
+    if function.target in STATIC_ONLY:
+        # "Pair with Donut_ImGuiEnd" -> "Pair with ImGui.end"
+        prefix = STATIC_ONLY[function.target]
+        comments = [re.sub(prefix + r"\w+", lambda m: f"{function.target}.{method_name(STATIC_FUNCTIONS[m.group(0)], function.target)}"
+                           if m.group(0) in STATIC_FUNCTIONS else m.group(0), c)
+                    for c in comments]
     if function.returns_class:
         comments = [NULL_RESULT.sub(lambda m: ("A" if m.group(1) == "N" else "a") + " null handle", c)
                     for c in comments]
@@ -530,8 +552,9 @@ EXTRA_METHODS = {
 
 
 def generate(functions, handles, module=None):
-    methods = {cls: [] for cls in CLASSES.values()}
-    statics = {cls: [] for cls in CLASSES.values()}
+    all_classes = list(CLASSES.values()) + list(STATIC_ONLY)
+    methods = {cls: [] for cls in all_classes}
+    statics = {cls: [] for cls in all_classes}
     for function in functions:
         if function.target and function.is_method:
             methods[function.target].append(function)
@@ -548,7 +571,7 @@ def generate(functions, handles, module=None):
         out += ["// " + line for line in textwrap.wrap(text, 100 - len("// "), break_on_hyphens=False)]
         out += ["", '/// <reference path="donut_interop.d.ts" />']
     else:
-        classes = [cls for cls in CLASSES.values() if cls not in MODULES]
+        classes = [cls for cls in all_classes if cls not in MODULES]
         out = [HEADER.rstrip("\n")]
 
     callback_types = sorted({p.type for f in functions if f.target in classes for p in f.params if p.is_callback})
@@ -562,6 +585,18 @@ def generate(functions, handles, module=None):
         if not methods[cls] and not statics[cls]:
             continue
         out.append("")
+        if cls in STATIC_ONLY:
+            out.append(f"export class {cls} {{")
+            first = len(out)
+            names = set()
+            for function in statics[cls]:
+                name = emit_method(out, function, cls, True)
+                if name in names:
+                    sys.exit(f"{cls}.{name} twice ({function.name})")
+                names.add(name)
+            del out[first]
+            out.append("}")
+            continue
         handle = handle_type(cls, handles)
         # @value: a wrapper is its handle and nothing else, copied rather than referenced, so
         # -mm=own has no ownership to prove when one is kept in a field (this.app.f() would

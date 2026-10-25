@@ -599,25 +599,25 @@ namespace GshaderToMshader {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
+            ImGui.begin("Vulkan Example", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
                 // One at a time: checking one unchecks the other.
-                const showNormalsGeo = Donut_ImGuiCheckbox("Display normals - gshader", sample.showNormalsGeo);
+                const showNormalsGeo = ImGui.checkbox("Display normals - gshader", sample.showNormalsGeo);
                 if (showNormalsGeo != sample.showNormalsGeo) {
                     sample.showNormalsGeo = showNormalsGeo;
                     sample.showNormalsMesh = false;
                 }
                 if (sample.meshShadersSupported) {
-                    const showNormalsMesh = Donut_ImGuiCheckbox("Display normals - mshader", sample.showNormalsMesh);
+                    const showNormalsMesh = ImGui.checkbox("Display normals - mshader", sample.showNormalsMesh);
                     if (showNormalsMesh != sample.showNormalsMesh) {
                         sample.showNormalsMesh = showNormalsMesh;
                         sample.showNormalsGeo = false;
                     }
                 }
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

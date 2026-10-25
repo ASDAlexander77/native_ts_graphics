@@ -438,14 +438,14 @@ namespace TextureMipmapGeneration {
 
         buildUI() {
             const p = this.pass;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                p.rotateScene = Donut_ImGuiCheckbox("Rotate", p.rotateScene);
-                p.lodBias = Donut_ImGuiSliderFloat("LOD bias", p.lodBias, 0.0, p.mipLevels);
-                p.samplerIndex = Donut_ImGuiCombo("Sampler type", p.samplerIndex, SAMPLER_NAMES);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                p.rotateScene = ImGui.checkbox("Rotate", p.rotateScene);
+                p.lodBias = ImGui.sliderFloat("LOD bias", p.lodBias, 0.0, p.mipLevels);
+                p.samplerIndex = ImGui.combo("Sampler type", p.samplerIndex, SAMPLER_NAMES);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

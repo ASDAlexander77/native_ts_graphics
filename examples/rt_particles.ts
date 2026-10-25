@@ -162,7 +162,7 @@ namespace RtParticles {
         public orientationMode: OrientationMode;
         public mlabFragments: int;
         public particleTexture: int;
-        // x, y, z; `let`-style storage for Donut_ImGuiDragFloat3.
+        // x, y, z; `let`-style storage for ImGui.dragFloat3.
         public emitterPosition: f32[];
 
         constructor() {
@@ -713,63 +713,63 @@ namespace RtParticles {
         }
 
         checkbox(label: string, value: boolean) {
-            return Donut_ImGuiCheckbox(label, value);
+            return ImGui.checkbox(label, value);
         }
 
         buildUI() {
             const ui = this.ui;
 
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Settings", true);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Settings", true);
 
             ui.enableAnimations = this.checkbox("Animate particles (Space)", ui.enableAnimations);
             ui.alwaysUpdateOrientation = this.checkbox("Update orientation when paused", ui.alwaysUpdateOrientation);
-            Donut_ImGuiSeparator();
+            ImGui.separator();
 
-            Donut_ImGuiText("Orientation mode:");
-            Donut_ImGuiIndent();
-            ui.orientationMode = Donut_ImGuiCombo("##orientationMode", ui.orientationMode,
+            ImGui.text("Orientation mode:");
+            ImGui.indent();
+            ui.orientationMode = ImGui.combo("##orientationMode", ui.orientationMode,
                 "Accumulated Vector Transform|Quaternion Rotation|Beam or Vertical Sprite|Basis (RTG2)");
-            Donut_ImGuiUnindent();
-            Donut_ImGuiSeparator();
+            ImGui.unindent();
+            ImGui.separator();
 
-            Donut_ImGuiText("Reorient particles:");
-            Donut_ImGuiIndent();
+            ImGui.text("Reorient particles:");
+            ImGui.indent();
             ui.reorientParticlesInPrimaryRays = this.checkbox("In primary rays", ui.reorientParticlesInPrimaryRays);
             ui.reorientParticlesInSecondaryRays = this.checkbox("In secondary rays", ui.reorientParticlesInSecondaryRays);
-            Donut_ImGuiUnindent();
-            Donut_ImGuiSeparator();
+            ImGui.unindent();
+            ImGui.separator();
 
             // MLAB fragment count combo box.
-            Donut_ImGuiPushItemWidth(40.0);
+            ImGui.pushItemWidth(40.0);
             let newFragmentCount = ui.mlabFragments;
-            if (Donut_ImGuiBeginCombo("Blending fragments", `${ui.mlabFragments}`)) {
+            if (ImGui.beginCombo("Blending fragments", `${ui.mlabFragments}`)) {
                 for (let i = 0; i < 4; i++) {
                     const fragmentCount = g_MlabFragmentCounts[i];
-                    if (Donut_ImGuiSelectable(`${fragmentCount}`, newFragmentCount == fragmentCount)) {
+                    if (ImGui.selectable(`${fragmentCount}`, newFragmentCount == fragmentCount)) {
                         newFragmentCount = fragmentCount;
                     }
                 }
-                Donut_ImGuiEndCombo();
+                ImGui.endCombo();
             }
-            Donut_ImGuiPopItemWidth();
+            ImGui.popItemWidth();
             if (newFragmentCount != ui.mlabFragments) {
                 ui.mlabFragments = newFragmentCount;
                 ui.updatePipeline = true;
             }
-            Donut_ImGuiSeparator();
+            ImGui.separator();
 
-            Donut_ImGuiText("Emitter position:");
-            Donut_ImGuiIndent();
-            Donut_ImGuiDragFloat3("##emitterPosition", Ref(ui.emitterPosition[0]), 0.01);
-            Donut_ImGuiUnindent();
+            ImGui.text("Emitter position:");
+            ImGui.indent();
+            ImGui.dragFloat3("##emitterPosition", Ref(ui.emitterPosition[0]), 0.01);
+            ImGui.unindent();
 
-            Donut_ImGuiText("Particle texture:");
-            Donut_ImGuiIndent();
-            ui.particleTexture = Donut_ImGuiCombo("##particleTexture", ui.particleTexture, "Smoke|Logo");
-            Donut_ImGuiUnindent();
+            ImGui.text("Particle texture:");
+            ImGui.indent();
+            ui.particleTexture = ImGui.combo("##particleTexture", ui.particleTexture, "Smoke|Logo");
+            ImGui.unindent();
 
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

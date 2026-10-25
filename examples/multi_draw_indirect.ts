@@ -682,22 +682,22 @@ namespace MultiDrawIndirect {
 
         buildUI() {
             const mdi = this.mdi;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("GPU Rendering")) {
-                Donut_ImGuiText(`Multi-Draw Indirect: ${supportText((mdi.support & IndirectDrawSupport.MultiDraw) != 0)}`);
-                Donut_ImGuiText(`drawIndirectFirstInstance: ${supportText((mdi.support & IndirectDrawSupport.FirstInstance) != 0)}`);
-                Donut_ImGuiText(`Device buffer address: ${supportText((mdi.support & IndirectDrawSupport.BufferDeviceAddress) != 0)}`);
+            ImGui.begin("Vulkan Example", true);
+            if (ImGui.collapsingHeaderDefaultOpen("GPU Rendering")) {
+                ImGui.text(`Multi-Draw Indirect: ${supportText((mdi.support & IndirectDrawSupport.MultiDraw) != 0)}`);
+                ImGui.text(`drawIndirectFirstInstance: ${supportText((mdi.support & IndirectDrawSupport.FirstInstance) != 0)}`);
+                ImGui.text(`Device buffer address: ${supportText((mdi.support & IndirectDrawSupport.BufferDeviceAddress) != 0)}`);
 
-                Donut_ImGuiText("");
-                Donut_ImGuiText(`Instances: ${mdi.instanceCount} / ${mdi.modelCount}`);
+                ImGui.text("");
+                ImGui.text(`Instances: ${mdi.instanceCount} / ${mdi.modelCount}`);
 
-                mdi.enableMdi = Donut_ImGuiCheckbox("Enable multi-draw", mdi.enableMdi);
-                mdi.freezeCull = Donut_ImGuiCheckbox("Freeze culling", mdi.freezeCull);
-                mdi.renderMode = Donut_ImGuiCombo("Cull mode", mdi.renderMode, RENDER_MODE_NAMES);
+                mdi.enableMdi = ImGui.checkbox("Enable multi-draw", mdi.enableMdi);
+                mdi.freezeCull = ImGui.checkbox("Freeze culling", mdi.freezeCull);
+                mdi.renderMode = ImGui.combo("Cull mode", mdi.renderMode, RENDER_MODE_NAMES);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

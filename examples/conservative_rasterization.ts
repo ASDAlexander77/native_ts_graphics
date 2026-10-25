@@ -372,28 +372,28 @@ namespace ConservativeRasterization {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                sample.conservativeRasterEnabled = Donut_ImGuiCheckbox("Conservative rasterization", sample.conservativeRasterEnabled);
+            ImGui.begin("Vulkan Example", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                sample.conservativeRasterEnabled = ImGui.checkbox("Conservative rasterization", sample.conservativeRasterEnabled);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Device properties")) {
+            if (ImGui.collapsingHeaderDefaultOpen("Device properties")) {
                 if (sample.hasVulkanProperties) {
                     const p = sample.vulkanProperties;
-                    Donut_ImGuiText(`maxExtraPrimitiveOverestimationSize: ${formatFloat(p[1])}`);
-                    Donut_ImGuiText(`extraPrimitiveOverestimationSizeGranularity: ${formatFloat(p[2])}`);
-                    Donut_ImGuiText(`primitiveUnderestimation:  ${this.yesNo(p[3])}`);
-                    Donut_ImGuiText(`conservativePointAndLineRasterization:  ${this.yesNo(p[4])}`);
-                    Donut_ImGuiText(`degenerateTrianglesRasterized: ${this.yesNo(p[5])}`);
-                    Donut_ImGuiText(`degenerateLinesRasterized: ${this.yesNo(p[6])}`);
-                    Donut_ImGuiText(`fullyCoveredFragmentShaderInputVariable: ${this.yesNo(p[7])}`);
-                    Donut_ImGuiText(`conservativeRasterizationPostDepthCoverage: ${this.yesNo(p[8])}`);
+                    ImGui.text(`maxExtraPrimitiveOverestimationSize: ${formatFloat(p[1])}`);
+                    ImGui.text(`extraPrimitiveOverestimationSizeGranularity: ${formatFloat(p[2])}`);
+                    ImGui.text(`primitiveUnderestimation:  ${this.yesNo(p[3])}`);
+                    ImGui.text(`conservativePointAndLineRasterization:  ${this.yesNo(p[4])}`);
+                    ImGui.text(`degenerateTrianglesRasterized: ${this.yesNo(p[5])}`);
+                    ImGui.text(`degenerateLinesRasterized: ${this.yesNo(p[6])}`);
+                    ImGui.text(`fullyCoveredFragmentShaderInputVariable: ${this.yesNo(p[7])}`);
+                    ImGui.text(`conservativeRasterizationPostDepthCoverage: ${this.yesNo(p[8])}`);
                 } else if (sample.d3d12Tier > 0) {
-                    Donut_ImGuiText(`ConservativeRasterizationTier: ${sample.d3d12Tier}`);
+                    ImGui.text(`ConservativeRasterizationTier: ${sample.d3d12Tier}`);
                 }
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

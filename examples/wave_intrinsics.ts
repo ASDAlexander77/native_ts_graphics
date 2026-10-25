@@ -364,9 +364,9 @@ namespace WaveIntrinsics {
                 if (i == this.renderMode) {
                     label = label + "[x]";
                 }
-                Donut_ImGuiDrawText(0.0, i * lineSpacing, label, 1.0, 1.0, 1.0, 1.0, 0);
+                ImGui.drawText(0.0, i * lineSpacing, label, 1.0, 1.0, 1.0, 1.0, 0);
             }
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

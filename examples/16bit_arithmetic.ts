@@ -371,17 +371,17 @@ namespace Khr16BitArithmetic {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("16-bit arithmetic", true);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("16-bit arithmetic", true);
             if (sample.native16Bit) {
-                sample.fp16Enabled = Donut_ImGuiCheckbox("Enable 16-bit arithmetic", sample.fp16Enabled);
+                sample.fp16Enabled = ImGui.checkbox("Enable 16-bit arithmetic", sample.fp16Enabled);
             } else {
-                Donut_ImGuiText("16-bit arithmetic (unsupported features)");
+                ImGui.text("16-bit arithmetic (unsupported features)");
             }
             if (sample.hasGpuTime) {
-                Donut_ImGuiText(`Compute shader: ${sample.gpuTimeMs.toFixed(3)} ms`);
+                ImGui.text(`Compute shader: ${sample.gpuTimeMs.toFixed(3)} ms`);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

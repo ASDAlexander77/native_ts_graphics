@@ -427,21 +427,21 @@ namespace DynamicBlending {
 
         // A color editor (as the sample's, 200 pixels wide).
         colorEdit(id: int, caption: string, colors: f32[], first: int) {
-            Donut_ImGuiPushID(id);
-            Donut_ImGuiColorEdit4(caption, Ref(colors[first]), 200.0);
-            Donut_ImGuiPopID();
+            ImGui.pushID(id);
+            ImGui.colorEdit4(caption, Ref(colors[first]), 200.0);
+            ImGui.popID();
         }
 
         // A "Next" button, then a combo of names; returns the new index.
         comboWithButton(id: int, caption: string, index: int, names: string[]) {
             let result = index;
-            Donut_ImGuiPushID(id);
-            if (Donut_ImGuiButton("Next")) {
+            ImGui.pushID(id);
+            if (ImGui.button("Next")) {
                 result = (result + 1) % names.length;
             }
-            Donut_ImGuiPopID();
-            Donut_ImGuiSameLine();
-            return Donut_ImGuiCombo(caption, result, comboItems(names));
+            ImGui.popID();
+            ImGui.sameLine();
+            return ImGui.combo(caption, result, comboItems(names));
         }
 
         // The sample's random colors (alpha kept).
@@ -456,8 +456,8 @@ namespace DynamicBlending {
         buildUI() {
             const b = this.blending;
             let id = 0;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
 
             id++;
             this.colorEdit(id, "Background", b.clearColor, 0);
@@ -466,28 +466,28 @@ namespace DynamicBlending {
             // together.)
             for (let f = 0; f < 2; f++) {
                 const face = b.faces[f];
-                if (Donut_ImGuiCollapsingHeaderDefaultOpen(f == 0 ? "First face" : "Second face")) {
+                if (ImGui.collapsingHeaderDefaultOpen(f == 0 ? "First face" : "Second face")) {
                     const corners = ["Top left", "Top right", "Bottom left", "Bottom right"];
                     for (let c = 0; c < 4; c++) {
                         id++;
                         this.colorEdit(id, corners[c], face.colors, c * 4);
                     }
                     id++;
-                    Donut_ImGuiPushID(id);
-                    if (Donut_ImGuiButton("Random")) {
+                    ImGui.pushID(id);
+                    if (ImGui.button("Random")) {
                         this.randomize(face.colors);
                     }
-                    Donut_ImGuiPopID();
+                    ImGui.popID();
 
-                    Donut_ImGuiText("Color write mask");
+                    ImGui.text("Color write mask");
                     const channels = ["Red", "Green", "Blue", "Alpha"];
                     for (let c = 0; c < 4; c++) {
                         id++;
-                        Donut_ImGuiPushID(id);
-                        face.colorBitEnabled[c] = Donut_ImGuiCheckbox(channels[c], face.colorBitEnabled[c]);
-                        Donut_ImGuiPopID();
+                        ImGui.pushID(id);
+                        face.colorBitEnabled[c] = ImGui.checkbox(channels[c], face.colorBitEnabled[c]);
+                        ImGui.popID();
                         if (c < 3) {
-                            Donut_ImGuiSameLine();
+                            ImGui.sameLine();
                         }
                     }
                 } else {
@@ -495,19 +495,19 @@ namespace DynamicBlending {
                 }
             }
 
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Blending")) {
-                b.blendEnable = Donut_ImGuiCheckbox("Enabled", b.blendEnable);
+            if (ImGui.collapsingHeaderDefaultOpen("Blending")) {
+                b.blendEnable = ImGui.checkbox("Enabled", b.blendEnable);
                 // Advanced blend operations: Vulkan's VK_EXT_blend_operation_advanced only.
                 if ((b.advancedBlendOperations & AdvancedBlend.Available) != 0) {
-                    if (Donut_ImGuiRadioButton("BlendEquationEXT", b.blendOption == BlendOption.Equation)) {
+                    if (ImGui.radioButton("BlendEquationEXT", b.blendOption == BlendOption.Equation)) {
                         b.blendOption = BlendOption.Equation;
                     }
-                    if (Donut_ImGuiRadioButton("BlendAdvancedEXT", b.blendOption == BlendOption.Advanced)) {
+                    if (ImGui.radioButton("BlendAdvancedEXT", b.blendOption == BlendOption.Advanced)) {
                         b.blendOption = BlendOption.Advanced;
                     }
                 }
                 if (b.blendOption == BlendOption.Equation) {
-                    if (Donut_ImGuiCollapsingHeaderDefaultOpen("BlendEquationEXT")) {
+                    if (ImGui.collapsingHeaderDefaultOpen("BlendEquationEXT")) {
                         b.colorOperator = this.comboWithButton(++id, "Color operator", b.colorOperator, BLEND_OP_NAMES);
                         b.srcColorBlendFactor = this.comboWithButton(++id, "SrcColorBlendFactor", b.srcColorBlendFactor, BLEND_FACTOR_NAMES);
                         b.dstColorBlendFactor = this.comboWithButton(++id, "DstColorBlendFactor", b.dstColorBlendFactor, BLEND_FACTOR_NAMES);
@@ -516,14 +516,14 @@ namespace DynamicBlending {
                         b.dstAlphaBlendFactor = this.comboWithButton(++id, "DstAlphaBlendFactor", b.dstAlphaBlendFactor, BLEND_FACTOR_NAMES);
                     }
                 } else {
-                    if (Donut_ImGuiCollapsingHeaderDefaultOpen("BlendAdvancedEXT")) {
+                    if (ImGui.collapsingHeaderDefaultOpen("BlendAdvancedEXT")) {
                         b.advancedOperator = this.comboWithButton(++id, "Operator", b.advancedOperator, ADVANCED_BLEND_OP_NAMES);
-                        b.srcPremultiplied = Donut_ImGuiCheckbox("Src premultiplied", b.srcPremultiplied);
-                        b.dstPremultiplied = Donut_ImGuiCheckbox("Dst premultiplied", b.dstPremultiplied);
+                        b.srcPremultiplied = ImGui.checkbox("Src premultiplied", b.srcPremultiplied);
+                        b.dstPremultiplied = ImGui.checkbox("Dst premultiplied", b.dstPremultiplied);
                     }
                 }
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

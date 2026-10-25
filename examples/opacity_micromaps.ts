@@ -534,8 +534,8 @@ namespace OpacityMicromaps {
         line(y: number, text: string, r: number, g: number, b: number) {
             const scale = this.height / LAYOUT_HEIGHT;
             this.font.push();
-            Donut_ImGuiDrawText(30.0 * scale, y * scale, text, r, g, b, 1.0, 0);
-            Donut_ImGuiPopFont();
+            ImGui.drawText(30.0 * scale, y * scale, text, r, g, b, 1.0, 0);
+            ImGui.popFont();
         }
 
         onOff(value: boolean) {
@@ -575,10 +575,10 @@ namespace OpacityMicromaps {
             if (showAhs) {
                 const scale = this.height / LAYOUT_HEIGHT;
                 this.font.push();
-                Donut_ImGuiDrawText(60.0 * scale, y * scale, "Hits not needing AHS: Normal material colour", 0.25, 0.75, 0.25, 1.0, 0);
-                Donut_ImGuiDrawText(60.0 * scale, (y + LINE_SPACING) * scale, "Hits needing AHS: Magenta-tinted material colour", 0.65, 0.25, 0.65, 1.0, 0);
-                Donut_ImGuiDrawText(60.0 * scale, (y + LINE_SPACING * 2.0) * scale, "Misses needing AHS: Magenta", 1.0, 0.0, 1.0, 1.0, 0);
-                Donut_ImGuiPopFont();
+                ImGui.drawText(60.0 * scale, y * scale, "Hits not needing AHS: Normal material colour", 0.25, 0.75, 0.25, 1.0, 0);
+                ImGui.drawText(60.0 * scale, (y + LINE_SPACING) * scale, "Hits needing AHS: Magenta-tinted material colour", 0.65, 0.25, 0.65, 1.0, 0);
+                ImGui.drawText(60.0 * scale, (y + LINE_SPACING * 2.0) * scale, "Misses needing AHS: Magenta", 1.0, 0.0, 1.0, 1.0, 0);
+                ImGui.popFont();
                 y += LINE_SPACING * 3.0;
             }
             this.line(y, `Build OMM/BLAS/TLAS every frame (${this.onOff(this.rebuildASEveryFrame)}) - Press 'B'`, 1.0, 1.0, 1.0);

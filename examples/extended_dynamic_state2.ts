@@ -632,22 +632,22 @@ namespace ExtendedDynamicState2 {
 
         buildUI() {
             const p = this.pass;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                p.tessellation = Donut_ImGuiCheckbox("Tessellation Enable", p.tessellation);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                p.tessellation = ImGui.checkbox("Tessellation Enable", p.tessellation);
                 // Maximum tessellation factor is set to 4.0
-                p.tessFactor = Donut_ImGuiSliderFloat("Tessellation Factor", p.tessFactor, 1.0, 4.0);
+                p.tessFactor = ImGui.sliderFloat("Tessellation Factor", p.tessFactor, 1.0, 4.0);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Models")) {
-                p.selectionActive = Donut_ImGuiCheckbox("Selection effect active", p.selectionActive);
+            if (ImGui.collapsingHeaderDefaultOpen("Models")) {
+                p.selectionActive = ImGui.checkbox("Selection effect active", p.selectionActive);
                 const names = p.baselineNodes.map((node): string => node.name);
-                p.selectedObject = Donut_ImGuiCombo("Name", p.selectedObject, comboItems(names));
+                p.selectedObject = ImGui.combo("Name", p.selectedObject, comboItems(names));
                 const node = p.baselineNodes[p.selectedObject];
-                node.depthBias = Donut_ImGuiCheckbox("Depth Bias Enable", node.depthBias);
-                node.rasterizerDiscard = Donut_ImGuiCheckbox("Rasterizer Discard", node.rasterizerDiscard);
+                node.depthBias = ImGui.checkbox("Depth Bias Enable", node.depthBias);
+                node.rasterizerDiscard = ImGui.checkbox("Rasterizer Discard", node.rasterizerDiscard);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

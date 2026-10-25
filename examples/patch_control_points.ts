@@ -310,16 +310,16 @@ namespace PatchControlPoints {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Patch Control Points", true);
-            Donut_ImGuiPushItemWidth(110.0);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                sample.tessellation = Donut_ImGuiCheckbox("Tessellation Enable", sample.tessellation);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Patch Control Points", true);
+            ImGui.pushItemWidth(110.0);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                sample.tessellation = ImGui.checkbox("Tessellation Enable", sample.tessellation);
                 // Maximum tessellation level is set to 7.0
-                sample.tessLevel = Donut_ImGuiSliderFloat("Tessellation level", sample.tessLevel, 3.0, 7.0);
+                sample.tessLevel = ImGui.sliderFloat("Tessellation level", sample.tessLevel, 3.0, 7.0);
             }
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiEnd();
+            ImGui.popItemWidth();
+            ImGui.end();
         }
     }
 

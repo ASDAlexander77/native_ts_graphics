@@ -577,9 +577,9 @@ namespace TextureCompressionComparison {
                     this.items += (i > 0 ? "|" : "") + SHORT_NAMES[i] + " " + (p.isFormatSupported(i) ? "" : "(not supported)");
                 }
             }
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Options", true);
-            const selection = Donut_ImGuiCombo("Compressed Format", p.guiFormat, this.items);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Options", true);
+            const selection = ImGui.combo("Compressed Format", p.guiFormat, this.items);
             if (selection != p.guiFormat) {
                 p.guiFormat = selection;
                 p.requireRedraw = true;
@@ -588,13 +588,13 @@ namespace TextureCompressionComparison {
                 }
             }
             if (p.isFormatSupported(p.guiFormat)) {
-                Donut_ImGuiText(`Format name: ${FORMAT_NAMES[p.guiFormat]}`);
-                Donut_ImGuiText(`Bytes: ${(p.totalBytes / 1024.0 / 1024.0).toFixed(6)} MB`);
-                Donut_ImGuiText(`Compression Time: ${p.compressTimeMs.toFixed(6)} (ms)`);
+                ImGui.text(`Format name: ${FORMAT_NAMES[p.guiFormat]}`);
+                ImGui.text(`Bytes: ${(p.totalBytes / 1024.0 / 1024.0).toFixed(6)} MB`);
+                ImGui.text(`Compression Time: ${p.compressTimeMs.toFixed(6)} (ms)`);
             } else {
-                Donut_ImGuiText(`${SHORT_NAMES[p.guiFormat]} not supported on this GPU.`);
+                ImGui.text(`${SHORT_NAMES[p.guiFormat]} not supported on this GPU.`);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

@@ -442,15 +442,15 @@ namespace OitDepthPeeling {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            sample.cameraAutoRotation = Donut_ImGuiCheckbox("Camera auto-rotation", sample.cameraAutoRotation);
-            sample.backgroundGrayscale = Donut_ImGuiSliderFloat("Background grayscale", sample.backgroundGrayscale, 0.0, 1.0);
-            sample.objectAlpha = Donut_ImGuiSliderFloat("Object opacity", sample.objectAlpha, 0.0, 1.0);
-            sample.frontLayerIndex = Donut_ImGuiSliderInt("Front layer index", sample.frontLayerIndex, 0, sample.backLayerIndex);
-            sample.backLayerIndex = Donut_ImGuiSliderInt("Back layer index", sample.backLayerIndex, sample.frontLayerIndex, LAYER_MAX_COUNT - 1);
-            Donut_ImGuiEnd();
+            ImGui.begin("Vulkan Example", true);
+            sample.cameraAutoRotation = ImGui.checkbox("Camera auto-rotation", sample.cameraAutoRotation);
+            sample.backgroundGrayscale = ImGui.sliderFloat("Background grayscale", sample.backgroundGrayscale, 0.0, 1.0);
+            sample.objectAlpha = ImGui.sliderFloat("Object opacity", sample.objectAlpha, 0.0, 1.0);
+            sample.frontLayerIndex = ImGui.sliderInt("Front layer index", sample.frontLayerIndex, 0, sample.backLayerIndex);
+            sample.backLayerIndex = ImGui.sliderInt("Back layer index", sample.backLayerIndex, sample.frontLayerIndex, LAYER_MAX_COUNT - 1);
+            ImGui.end();
         }
     }
 

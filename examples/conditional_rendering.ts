@@ -437,33 +437,33 @@ namespace ConditionalRendering {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
+            ImGui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Donut_ImGuiBegin("Vulkan Example", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Visibility")) {
-                if (Donut_ImGuiButton("All")) {
+            ImGui.begin("Vulkan Example", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Visibility")) {
+                if (ImGui.button("All")) {
                     for (let i = 0; i < sample.names.length; i++) {
                         sample.setVisible(i, true);
                     }
                 }
-                Donut_ImGuiSameLine();
-                if (Donut_ImGuiButton("None")) {
+                ImGui.sameLine();
+                if (ImGui.button("None")) {
                     for (let i = 0; i < sample.names.length; i++) {
                         sample.setVisible(i, false);
                     }
                 }
-                Donut_ImGuiNewLine();
+                ImGui.newLine();
 
-                Donut_ImGuiBeginChild("InnerRegion", 200.0, 400.0, false);
+                ImGui.beginChild("InnerRegion", 200.0, 400.0, false);
                 for (let i = 0; i < sample.names.length; i++) {
-                    const visible = Donut_ImGuiCheckbox(`[${i}] ${sample.names[i]}`, sample.visible[i]);
+                    const visible = ImGui.checkbox(`[${i}] ${sample.names[i]}`, sample.visible[i]);
                     if (visible != sample.visible[i]) {
                         sample.setVisible(i, visible);
                     }
                 }
-                Donut_ImGuiEndChild();
+                ImGui.endChild();
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

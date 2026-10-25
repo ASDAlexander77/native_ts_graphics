@@ -1713,144 +1713,144 @@ namespace ComputeNBodyCollisions {
 
         // Slider and checkbox values are written back to the simulation as they change.
         buildUI() {
-            Donut_ImGuiSetNextWindowPosPivot(this.frameWidth - 10.0, 10.0, 1.0, 0.0);
-            Donut_ImGuiBegin("N-Body Collisions", true);
-            Donut_ImGuiPushItemWidth(180.0);
+            ImGui.setNextWindowPosPivot(this.frameWidth - 10.0, 10.0, 1.0, 0.0);
+            ImGui.begin("N-Body Collisions", true);
+            ImGui.pushItemWidth(180.0);
 
             // Every feature has a switch; a slider beneath one sets how much, while it is on.
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Simulation")) {
-                this.paused = Donut_ImGuiCheckbox("Paused (Space)", this.paused);
-                const collisions = Donut_ImGuiCheckbox("Collisions (C)", this.collisions);
+            if (ImGui.collapsingHeaderDefaultOpen("Simulation")) {
+                this.paused = ImGui.checkbox("Paused (Space)", this.paused);
+                const collisions = ImGui.checkbox("Collisions (C)", this.collisions);
                 if (collisions != this.collisions) {
                     this.collisions = collisions;
                     Donut_StoreInt32(Ref(this.simulationConstants[2]), collisions ? 1 : 0);
                 }
-                const heating = Donut_ImGuiCheckbox("Heating (H)", this.heating);
+                const heating = ImGui.checkbox("Heating (H)", this.heating);
                 if (heating != this.heating) {
                     this.heating = heating;
                     Donut_StoreInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
                 }
-                const fullGravity = Donut_ImGuiCheckbox("Gravity between all pairs", this.fullGravity);
+                const fullGravity = ImGui.checkbox("Gravity between all pairs", this.fullGravity);
                 if (fullGravity != this.fullGravity) {
                     this.setFullGravity(fullGravity);
                 }
-                this.contactSprings = Donut_ImGuiCheckbox("Contact springs (off: push-outs)", this.contactSprings);
-                this.frictionOn = Donut_ImGuiCheckbox("Friction", this.frictionOn);
+                this.contactSprings = ImGui.checkbox("Contact springs (off: push-outs)", this.contactSprings);
+                this.frictionOn = ImGui.checkbox("Friction", this.frictionOn);
                 if (this.frictionOn) {
-                    this.frictionValue = Donut_ImGuiSliderFloat("Friction mu", this.frictionValue, 0.0, 1.0);
+                    this.frictionValue = ImGui.sliderFloat("Friction mu", this.frictionValue, 0.0, 1.0);
                 }
-                this.rollingOn = Donut_ImGuiCheckbox("Rolling resistance", this.rollingOn);
+                this.rollingOn = ImGui.checkbox("Rolling resistance", this.rollingOn);
                 if (this.rollingOn) {
-                    this.rollingValue = Donut_ImGuiSliderFloat("Rolling mu_r", this.rollingValue, 0.0, ROLLING_RESISTANCE_MAX);
+                    this.rollingValue = ImGui.sliderFloat("Rolling mu_r", this.rollingValue, 0.0, ROLLING_RESISTANCE_MAX);
                 }
-                this.restitutionSpeedOn = Donut_ImGuiCheckbox("Hard hits bounce less", this.restitutionSpeedOn);
+                this.restitutionSpeedOn = ImGui.checkbox("Hard hits bounce less", this.restitutionSpeedOn);
                 if (this.restitutionSpeedOn) {
-                    this.restitutionSpeedValue = Donut_ImGuiSliderFloat("Above (u/s)", this.restitutionSpeedValue, 0.0, RESTITUTION_SPEED_MAX);
+                    this.restitutionSpeedValue = ImGui.sliderFloat("Above (u/s)", this.restitutionSpeedValue, 0.0, RESTITUTION_SPEED_MAX);
                 }
-                this.sizeSoftening = Donut_ImGuiCheckbox("Gravity softened by size", this.sizeSoftening);
-                this.mergeOn = Donut_ImGuiCheckbox("Merging", this.mergeOn);
+                this.sizeSoftening = ImGui.checkbox("Gravity softened by size", this.sizeSoftening);
+                this.mergeOn = ImGui.checkbox("Merging", this.mergeOn);
                 if (this.mergeOn) {
-                    this.mergeValue = Donut_ImGuiSliderFloat("Merge below (u/s)", this.mergeValue, 0.0, MERGE_SPEED_MAX);
-                    this.hotStickOn = Donut_ImGuiCheckbox("Hot particles stick", this.hotStickOn);
+                    this.mergeValue = ImGui.sliderFloat("Merge below (u/s)", this.mergeValue, 0.0, MERGE_SPEED_MAX);
+                    this.hotStickOn = ImGui.checkbox("Hot particles stick", this.hotStickOn);
                     if (this.hotStickOn) {
-                        this.hotStickValue = Donut_ImGuiSliderFloat("Glowing: + (u/s)", this.hotStickValue, 0.0, HOT_MERGE_SPEED_MAX);
+                        this.hotStickValue = ImGui.sliderFloat("Glowing: + (u/s)", this.hotStickValue, 0.0, HOT_MERGE_SPEED_MAX);
                     }
                 }
-                this.breakOn = Donut_ImGuiCheckbox("Breaking", this.breakOn);
+                this.breakOn = ImGui.checkbox("Breaking", this.breakOn);
                 if (this.breakOn) {
-                    this.breakValue = Donut_ImGuiSliderFloat("Break above (u/s)", this.breakValue, 0.0, FRAGMENT_SPEED_MAX);
+                    this.breakValue = ImGui.sliderFloat("Break above (u/s)", this.breakValue, 0.0, FRAGMENT_SPEED_MAX);
                 }
                 this.applySwitches();
 
-                this.simulationConstants[CONSTANT_TIME_FACTOR] = Donut_ImGuiSliderFloat("Time scale (sim s / s)",
+                this.simulationConstants[CONSTANT_TIME_FACTOR] = ImGui.sliderFloat("Time scale (sim s / s)",
                     this.simulationConstants[CONSTANT_TIME_FACTOR], 0.0, 0.2);
-                this.simulationConstants[CONSTANT_GRAVITY] = Donut_ImGuiSliderFloat("Gravity G",
+                this.simulationConstants[CONSTANT_GRAVITY] = ImGui.sliderFloat("Gravity G",
                     this.simulationConstants[CONSTANT_GRAVITY], 0.0, 0.01);
-                this.simulationConstants[CONSTANT_RESTITUTION] = Donut_ImGuiSliderFloat("Bounciness e",
+                this.simulationConstants[CONSTANT_RESTITUTION] = ImGui.sliderFloat("Bounciness e",
                     this.simulationConstants[CONSTANT_RESTITUTION], 0.0, 1.0);
-                this.simulationConstants[CONSTANT_HEAT_FACTOR] = Donut_ImGuiSliderFloat("Heat per energy",
+                this.simulationConstants[CONSTANT_HEAT_FACTOR] = ImGui.sliderFloat("Heat per energy",
                     this.simulationConstants[CONSTANT_HEAT_FACTOR], 0.0, 0.02);
-                this.simulationConstants[CONSTANT_COOL_SECONDS] = Donut_ImGuiSliderFloat("Cooling time (s)",
+                this.simulationConstants[CONSTANT_COOL_SECONDS] = ImGui.sliderFloat("Cooling time (s)",
                     this.simulationConstants[CONSTANT_COOL_SECONDS], 0.5, 10.0);
-                if (Donut_ImGuiButton("Defaults")) {
+                if (ImGui.button("Defaults")) {
                     this.resetSimulationConstants();
                 }
             }
 
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Display")) {
-                this.showPlanes = Donut_ImGuiCheckbox("Planes (P)", this.showPlanes);
-                this.showGizmo = Donut_ImGuiCheckbox("Axis gizmo", this.showGizmo);
-                this.autoRotate = Donut_ImGuiCheckbox("Orbit when idle", this.autoRotate);
-                this.litSpheres = Donut_ImGuiCheckbox("Lit spheres", this.litSpheres);
-                this.spinMarks = Donut_ImGuiCheckbox("Spin marks", this.spinMarks);
-                this.showTrails = Donut_ImGuiCheckbox("Trails (T)", this.showTrails);
+            if (ImGui.collapsingHeaderDefaultOpen("Display")) {
+                this.showPlanes = ImGui.checkbox("Planes (P)", this.showPlanes);
+                this.showGizmo = ImGui.checkbox("Axis gizmo", this.showGizmo);
+                this.autoRotate = ImGui.checkbox("Orbit when idle", this.autoRotate);
+                this.litSpheres = ImGui.checkbox("Lit spheres", this.litSpheres);
+                this.spinMarks = ImGui.checkbox("Spin marks", this.spinMarks);
+                this.showTrails = ImGui.checkbox("Trails (T)", this.showTrails);
                 if (this.showTrails) {
-                    this.trailSeconds = Donut_ImGuiSliderFloat("Trail length (s)", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
+                    this.trailSeconds = ImGui.sliderFloat("Trail length (s)", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
                 }
-                this.bloomOn = Donut_ImGuiCheckbox("Bloom", this.bloomOn);
+                this.bloomOn = ImGui.checkbox("Bloom", this.bloomOn);
                 if (this.bloomOn) {
-                    this.bloomStrength = Donut_ImGuiSliderFloat("Bloom strength", this.bloomStrength, 0.0, 2.0);
-                    this.bloomThreshold = Donut_ImGuiSliderFloat("Bloom threshold", this.bloomThreshold, 0.0, 2.0);
+                    this.bloomStrength = ImGui.sliderFloat("Bloom strength", this.bloomStrength, 0.0, 2.0);
+                    this.bloomThreshold = ImGui.sliderFloat("Bloom threshold", this.bloomThreshold, 0.0, 2.0);
                 }
             }
 
             // What the sliders' units are: the simulation's own (its scene units, simulated seconds,
             // the masses it places), and compute_nbody's softened gravity.
-            if (Donut_ImGuiCollapsingHeader("Units")) {
-                Donut_ImGuiText("u: scene unit; the planes' grid lines are 2 u apart");
-                Donut_ImGuiText("s: second. Speeds are in u per simulated second;");
-                Donut_ImGuiText("  the time scale is simulated seconds per real one;");
-                Donut_ImGuiText("  trail length and cooling time are real seconds");
-                Donut_ImGuiText("Masses follow the volume: 20 at radius 0.04 (312 at 0.1),");
-                Donut_ImGuiText("  90000 at the attractors' radius 0.5");
-                Donut_ImGuiText("Gravity: a = G m r / (r^2 + s)^0.75 (not 1 / r^2), s = 0.05,");
-                Donut_ImGuiText("  softened by size: at least the two's mean radius^2");
-                Donut_ImGuiText("e: speed apart after a bounce over speed together before;");
-                Donut_ImGuiText("  hard hits: e (above / impact speed)^(1/4)");
-                Donut_ImGuiText("mu: friction impulse over the normal one, at most");
-                Donut_ImGuiText("Merging: below the merge speed, plus as much as");
-                Donut_ImGuiText("  'Glowing: +' times the pair's glow (1 - e^-heat)");
-                Donut_ImGuiText("mu_r: rolling couple over contact radius times the");
-                Donut_ImGuiText("  normal impulse, at most");
-                Donut_ImGuiText("Heat rises by heat per energy times the kinetic");
-                Donut_ImGuiText("  energy lost per unit of the particle's mass (u^2/s^2)");
-                Donut_ImGuiText("Cooling time: the heat falls to 1/e in it");
-                Donut_ImGuiText("Fragment room: free slots at the start, a share of");
-                Donut_ImGuiText("  the particles placed");
+            if (ImGui.collapsingHeader("Units")) {
+                ImGui.text("u: scene unit; the planes' grid lines are 2 u apart");
+                ImGui.text("s: second. Speeds are in u per simulated second;");
+                ImGui.text("  the time scale is simulated seconds per real one;");
+                ImGui.text("  trail length and cooling time are real seconds");
+                ImGui.text("Masses follow the volume: 20 at radius 0.04 (312 at 0.1),");
+                ImGui.text("  90000 at the attractors' radius 0.5");
+                ImGui.text("Gravity: a = G m r / (r^2 + s)^0.75 (not 1 / r^2), s = 0.05,");
+                ImGui.text("  softened by size: at least the two's mean radius^2");
+                ImGui.text("e: speed apart after a bounce over speed together before;");
+                ImGui.text("  hard hits: e (above / impact speed)^(1/4)");
+                ImGui.text("mu: friction impulse over the normal one, at most");
+                ImGui.text("Merging: below the merge speed, plus as much as");
+                ImGui.text("  'Glowing: +' times the pair's glow (1 - e^-heat)");
+                ImGui.text("mu_r: rolling couple over contact radius times the");
+                ImGui.text("  normal impulse, at most");
+                ImGui.text("Heat rises by heat per energy times the kinetic");
+                ImGui.text("  energy lost per unit of the particle's mass (u^2/s^2)");
+                ImGui.text("Cooling time: the heat falls to 1/e in it");
+                ImGui.text("Fragment room: free slots at the start, a share of");
+                ImGui.text("  the particles placed");
             }
 
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("New simulation")) {
-                this.uiAttractors = Donut_ImGuiSliderInt("Attractors", this.uiAttractors, 1, MAX_ATTRACTORS);
-                const choice = Donut_ImGuiCombo("Particles each", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
+            if (ImGui.collapsingHeaderDefaultOpen("New simulation")) {
+                this.uiAttractors = ImGui.sliderInt("Attractors", this.uiAttractors, 1, MAX_ATTRACTORS);
+                const choice = ImGui.combo("Particles each", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
                 if (choice >= 0 && choice != particleChoiceIndex(this.uiParticles)) {
                     this.uiParticles = particleChoice(choice);
                 }
-                this.uiAttractorLayout = Donut_ImGuiCombo("Attractor layout", this.uiAttractorLayout, ATTRACTOR_LAYOUTS);
+                this.uiAttractorLayout = ImGui.combo("Attractor layout", this.uiAttractorLayout, ATTRACTOR_LAYOUTS);
                 if (this.uiAttractorLayout != AttractorLayout.Preset) {
-                    this.uiLayoutRadius = Donut_ImGuiSliderFloat("Layout radius (u)", this.uiLayoutRadius, 1.0, LAYOUT_RADIUS_MAX);
+                    this.uiLayoutRadius = ImGui.sliderFloat("Layout radius (u)", this.uiLayoutRadius, 1.0, LAYOUT_RADIUS_MAX);
                 }
-                this.uiHeavyRadius = Donut_ImGuiSliderFloat("Attractor radius (u)", this.uiHeavyRadius, 0.1, HEAVY_RADIUS_MAX);
-                this.uiParticleLayout = Donut_ImGuiCombo("Particle layout", this.uiParticleLayout, PARTICLE_LAYOUTS);
-                this.uiLightRadiusMin = Donut_ImGuiSliderFloat("Particle radius min (u)", this.uiLightRadiusMin,
+                this.uiHeavyRadius = ImGui.sliderFloat("Attractor radius (u)", this.uiHeavyRadius, 0.1, HEAVY_RADIUS_MAX);
+                this.uiParticleLayout = ImGui.combo("Particle layout", this.uiParticleLayout, PARTICLE_LAYOUTS);
+                this.uiLightRadiusMin = ImGui.sliderFloat("Particle radius min (u)", this.uiLightRadiusMin,
                     LIGHT_RADIUS_SLIDER_MIN, LIGHT_RADIUS_SLIDER_MAX);
-                this.uiLightRadiusMax = Donut_ImGuiSliderFloat("Particle radius max (u)", this.uiLightRadiusMax,
+                this.uiLightRadiusMax = ImGui.sliderFloat("Particle radius max (u)", this.uiLightRadiusMax,
                     LIGHT_RADIUS_SLIDER_MIN, LIGHT_RADIUS_SLIDER_MAX);
                 if (this.uiLightRadiusMax < this.uiLightRadiusMin) {
                     this.uiLightRadiusMax = this.uiLightRadiusMin;
                 }
-                this.uiSpread = Donut_ImGuiSliderFloat("Cloud spread (u)", this.uiSpread, 0.2, 3.0);
-                this.uiFragmentRoom = 0.01 * Donut_ImGuiSliderFloat("Fragment room (%)", 100.0 * this.uiFragmentRoom, 0.0, 100.0);
-                this.uiSeed = Donut_ImGuiSliderInt("Random seed", this.uiSeed, 1, 99999);
-                if (Donut_ImGuiButton("Restart")) {
+                this.uiSpread = ImGui.sliderFloat("Cloud spread (u)", this.uiSpread, 0.2, 3.0);
+                this.uiFragmentRoom = 0.01 * ImGui.sliderFloat("Fragment room (%)", 100.0 * this.uiFragmentRoom, 0.0, 100.0);
+                this.uiSeed = ImGui.sliderInt("Random seed", this.uiSeed, 1, 99999);
+                if (ImGui.button("Restart")) {
                     this.restartRequested = true;
                 }
-                Donut_ImGuiText(this.aliveCount == this.numParticles
+                ImGui.text(this.aliveCount == this.numParticles
                     ? this.numParticles + " particles running"
                     : this.aliveCount + " particles running, in " + this.numParticles + " slots");
             }
 
-            Donut_ImGuiPopItemWidth();
-            Donut_ImGuiEnd();
+            ImGui.popItemWidth();
+            ImGui.end();
         }
     }
 

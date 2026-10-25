@@ -320,15 +320,15 @@ namespace PushDescriptors {
 
         buildUI() {
             const sample = this.sample;
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("Push descriptors", true);
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Settings")) {
-                sample.animate = Donut_ImGuiCheckbox("Animate", sample.animate);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Push descriptors", true);
+            if (ImGui.collapsingHeaderDefaultOpen("Settings")) {
+                sample.animate = ImGui.checkbox("Animate", sample.animate);
             }
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Device properties")) {
-                Donut_ImGuiText(`maxPushDescriptors: ${sample.maxPushDescriptors}`);
+            if (ImGui.collapsingHeaderDefaultOpen("Device properties")) {
+                ImGui.text(`maxPushDescriptors: ${sample.maxPushDescriptors}`);
             }
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 

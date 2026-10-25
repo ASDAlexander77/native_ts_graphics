@@ -488,9 +488,9 @@ namespace VideoTexture {
             const safeH = (sample.frameHeight + 19.0) / 20.0;
             const bottom = Math.floor(sample.frameHeight - safeH + 0.5);
             sample.font.push();
-            Donut_ImGuiDrawText(left, bottom - FONT_SIZE, "Esc  Exit   Space  Toggle texture vs. cutscene",
+            ImGui.drawText(left, bottom - FONT_SIZE, "Esc  Exit   Space  Toggle texture vs. cutscene",
                 LIGHT_GREY, LIGHT_GREY, LIGHT_GREY, 1.0, 0);
-            Donut_ImGuiPopFont();
+            ImGui.popFont();
         }
     }
 

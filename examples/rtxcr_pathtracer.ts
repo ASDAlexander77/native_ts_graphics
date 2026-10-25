@@ -304,7 +304,7 @@ namespace RtxcrPathtracer {
         }
 
         check(label: string, value: boolean) {
-            const result = Donut_ImGuiCheckbox(label, value);
+            const result = ImGui.checkbox(label, value);
             if (result != value) {
                 this.settings.dirty = true;
             }
@@ -312,7 +312,7 @@ namespace RtxcrPathtracer {
         }
 
         slider(label: string, value: number, min: number, max: number) {
-            const result = Donut_ImGuiSliderFloat(label, value, min, max);
+            const result = ImGui.sliderFloat(label, value, min, max);
             if (result != value) {
                 this.settings.dirty = true;
             }
@@ -320,7 +320,7 @@ namespace RtxcrPathtracer {
         }
 
         sliderInt(label: string, value: int, min: int, max: int) {
-            const result = Donut_ImGuiSliderInt(label, value, min, max);
+            const result = ImGui.sliderInt(label, value, min, max);
             if (result != value) {
                 this.settings.dirty = true;
             }
@@ -328,7 +328,7 @@ namespace RtxcrPathtracer {
         }
 
         combo(label: string, value: int, items: string) {
-            const result = Donut_ImGuiCombo(label, value, items);
+            const result = ImGui.combo(label, value, items);
             if (result != value) {
                 this.settings.dirty = true;
             }
@@ -339,7 +339,7 @@ namespace RtxcrPathtracer {
             for (let i = 0; i < 3; i++) {
                 this.colorValues[i] = value[i];
             }
-            if (Donut_ImGuiColorEdit4(label, Ref(this.colorValues[0]), 0.0)) {
+            if (ImGui.colorEdit4(label, Ref(this.colorValues[0]), 0.0)) {
                 for (let i = 0; i < 3; i++) {
                     value[i] = this.colorValues[i];
                 }
@@ -350,19 +350,19 @@ namespace RtxcrPathtracer {
         buildUI() {
             const s = this.settings;
 
-            Donut_ImGuiSetNextWindowPos(10.0, 10.0);
-            Donut_ImGuiBegin("RTX Character Rendering", true);
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("RTX Character Rendering", true);
 
             const seconds = s.frameSeconds;
-            Donut_ImGuiText(`${seconds > 0.0 ? Math.round(1.0 / seconds) : 0} FPS`);
+            ImGui.text(`${seconds > 0.0 ? Math.round(1.0 / seconds) : 0} FPS`);
             if (s.enableAccumulation) {
-                Donut_ImGuiText(`Accumulated frames: ${s.accumulatedFrames}`);
+                ImGui.text(`Accumulated frames: ${s.accumulatedFrames}`);
             }
 
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Path tracing")) {
-                Donut_ImGuiIndent();
+            if (ImGui.collapsingHeaderDefaultOpen("Path tracing")) {
+                ImGui.indent();
                 s.enableAccumulation = this.check("Accumulate", s.enableAccumulation);
-                s.cameraSpeed = Donut_ImGuiSliderFloat("Camera speed", s.cameraSpeed, 1.0, 500.0);
+                s.cameraSpeed = ImGui.sliderFloat("Camera speed", s.cameraSpeed, 1.0, 500.0);
                 s.bouncesMax = this.sliderInt("Max bounces", s.bouncesMax, 1, 16);
                 s.samplesPerPixel = this.sliderInt("Samples per pixel", s.samplesPerPixel, 1, 8);
                 s.enableBackFaceCull = this.check("Back face culling", s.enableBackFaceCull);
@@ -375,29 +375,29 @@ namespace RtxcrPathtracer {
                 s.enableIndirectLighting = this.check("Indirect lighting", s.enableIndirectLighting);
                 s.enableSoftShadows = this.check("Soft shadows", s.enableSoftShadows);
                 s.enableTransparentShadows = this.check("Transparent shadows", s.enableTransparentShadows);
-                Donut_ImGuiUnindent();
+                ImGui.unindent();
             }
 
-            if (Donut_ImGuiCollapsingHeader("Sky and tone mapping")) {
-                Donut_ImGuiIndent();
+            if (ImGui.collapsingHeader("Sky and tone mapping")) {
+                ImGui.indent();
                 s.enableSky = this.check("Sky", s.enableSky);
                 s.skyType = this.combo("Sky type", s.skyType, "Constant|Procedural|Environment map");
                 s.environmentLightIntensity = this.slider("Environment intensity", s.environmentLightIntensity, 0.0, 4.0);
                 this.color("Sky color", s.skyColor);
-                s.exposureAdjustment = Donut_ImGuiSliderFloat("Exposure", s.exposureAdjustment, -8.0, 8.0);
-                s.toneMappingOperator = Donut_ImGuiCombo("Tone mapping", s.toneMappingOperator, "Linear|Reinhard");
-                s.toneMappingClamp = Donut_ImGuiCheckbox("Clamp", s.toneMappingClamp);
-                Donut_ImGuiUnindent();
+                s.exposureAdjustment = ImGui.sliderFloat("Exposure", s.exposureAdjustment, -8.0, 8.0);
+                s.toneMappingOperator = ImGui.combo("Tone mapping", s.toneMappingOperator, "Linear|Reinhard");
+                s.toneMappingClamp = ImGui.checkbox("Clamp", s.toneMappingClamp);
+                ImGui.unindent();
             }
 
-            if (Donut_ImGuiCollapsingHeaderDefaultOpen("Hair")) {
-                Donut_ImGuiIndent();
+            if (ImGui.collapsingHeaderDefaultOpen("Hair")) {
+                ImGui.indent();
                 s.enableHair = this.check("Hair shading", s.enableHair);
                 if (s.lssSupported) {
-                    s.hairTessellationType = Donut_ImGuiCombo("Tessellation", s.hairTessellationType, "Polytube|DOTS|LSS");
+                    s.hairTessellationType = ImGui.combo("Tessellation", s.hairTessellationType, "Polytube|DOTS|LSS");
                 } else {
                     // LSS needs D3D12 and NVAPI's shader extensions.
-                    s.hairTessellationType = Donut_ImGuiCombo("Tessellation", s.hairTessellationType, "Polytube|DOTS");
+                    s.hairTessellationType = ImGui.combo("Tessellation", s.hairTessellationType, "Polytube|DOTS");
                 }
                 s.hairTechSelection = this.combo("BCSDF", s.hairTechSelection, "Chiang|Farfield");
                 s.enableHairMaterialOverride = this.check("Override hair material", s.enableHairMaterialOverride);
@@ -421,11 +421,11 @@ namespace RtxcrPathtracer {
                     s.diffuseReflectionWeight = this.slider("Diffuse reflection weight", s.diffuseReflectionWeight, 0.0, 1.0);
                     this.color("Diffuse reflection tint", s.diffuseReflectionTint);
                 }
-                Donut_ImGuiUnindent();
+                ImGui.unindent();
             }
 
-            if (Donut_ImGuiCollapsingHeader("Skin")) {
-                Donut_ImGuiIndent();
+            if (ImGui.collapsingHeader("Skin")) {
+                ImGui.indent();
                 s.enableSss = this.check("Subsurface scattering", s.enableSss);
                 s.enableSssIndirect = this.check("Indirect SSS", s.enableSssIndirect);
                 s.enableDiffusionProfile = this.check("Diffusion profile", s.enableDiffusionProfile);
@@ -446,28 +446,28 @@ namespace RtxcrPathtracer {
                 s.enableSssRoughnessOverride = this.check("Override roughness", s.enableSssRoughnessOverride);
                 s.sssRoughnessOverride = this.slider("Roughness", s.sssRoughnessOverride, 0.01, 1.0);
                 s.forceLambertianBrdf = this.check("Force Lambertian BRDF", s.forceLambertianBrdf);
-                Donut_ImGuiUnindent();
+                ImGui.unindent();
             }
 
-            if (Donut_ImGuiCollapsingHeader("Animation")) {
-                Donut_ImGuiIndent();
-                s.enableAnimations = Donut_ImGuiCheckbox("Animate (Space)", s.enableAnimations);
+            if (ImGui.collapsingHeader("Animation")) {
+                ImGui.indent();
+                s.enableAnimations = ImGui.checkbox("Animate (Space)", s.enableAnimations);
                 if (s.enableAnimations && s.enableAccumulation) {
-                    Donut_ImGuiText("The picture changes every frame: nothing accumulates.");
+                    ImGui.text("The picture changes every frame: nothing accumulates.");
                 }
-                Donut_ImGuiText(`Morph target meshes: ${s.morphTargetCount}`);
-                s.animationFps = Donut_ImGuiSliderFloat("Keyframes per second", s.animationFps, 1.0, 120.0);
-                s.enableAnimationSmoothing = Donut_ImGuiCheckbox("Smooth the loop", s.enableAnimationSmoothing);
-                s.animationSmoothingFactor = Donut_ImGuiSliderFloat("Smoothing", s.animationSmoothingFactor, 1.0, 64.0);
-                s.enableAnimationDebugging = Donut_ImGuiCheckbox("Pick the keyframes", s.enableAnimationDebugging);
+                ImGui.text(`Morph target meshes: ${s.morphTargetCount}`);
+                s.animationFps = ImGui.sliderFloat("Keyframes per second", s.animationFps, 1.0, 120.0);
+                s.enableAnimationSmoothing = ImGui.checkbox("Smooth the loop", s.enableAnimationSmoothing);
+                s.animationSmoothingFactor = ImGui.sliderFloat("Smoothing", s.animationSmoothingFactor, 1.0, 64.0);
+                s.enableAnimationDebugging = ImGui.checkbox("Pick the keyframes", s.enableAnimationDebugging);
                 if (s.enableAnimationDebugging) {
-                    s.animationKeyFrameIndexOverride = Donut_ImGuiSliderInt("Keyframe", s.animationKeyFrameIndexOverride, 0, 127);
-                    s.animationKeyFrameWeightOverride = Donut_ImGuiSliderFloat("Blend", s.animationKeyFrameWeightOverride, 0.0, 1.0);
+                    s.animationKeyFrameIndexOverride = ImGui.sliderInt("Keyframe", s.animationKeyFrameIndexOverride, 0, 127);
+                    s.animationKeyFrameWeightOverride = ImGui.sliderFloat("Blend", s.animationKeyFrameWeightOverride, 0.0, 1.0);
                 }
-                Donut_ImGuiUnindent();
+                ImGui.unindent();
             }
 
-            Donut_ImGuiEnd();
+            ImGui.end();
         }
     }
 
