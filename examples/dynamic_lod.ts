@@ -34,7 +34,6 @@ namespace DynamicLod {
     const VERTEX_STRIDE = 24;
     const MESHLET_STRIDE = 16;
     const INSTANCE_STRIDE = 144;
-    const INSTANCE_FLOATS = 36;
 
     // The render modes Space cycles through: flat, meshlet colors, LOD colors (red LOD 0 to green
     // LOD n). The sample starts with LOD colors.

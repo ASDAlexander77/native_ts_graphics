@@ -74,7 +74,6 @@ namespace MobileNerfRayQuery {
     const BIAS_0_COUNT = 16;
     const BIAS_1_COUNT = 16;
     const BIAS_2_COUNT = 4;
-    const MLP_FLOATS = WEIGHTS_0_COUNT + WEIGHTS_1_COUNT + WEIGHTS_2_COUNT + BIAS_0_COUNT + BIAS_1_COUNT + BIAS_2_COUNT;
 
     // nvrhi::rt::InstanceFlags::TriangleCullDisable.
     const INSTANCE_FLAGS_CULL_DISABLE = 1;

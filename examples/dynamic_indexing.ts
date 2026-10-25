@@ -221,7 +221,6 @@ namespace DynamicIndexing {
 
             const view = this.camera.viewMatrix();
             const projection = matrixPerspectiveFovRH(Math.fround(0.8), Math.fround(width / height), 1.0, 1000.0);
-            const viewProjection = matrixMultiply(view, projection);
             frame.beginDrawToFramebuffer(this.pipeline, this.framebuffer);
             frame.drawAddBindingSet(this.bindingSet);
             frame.drawAddVertexBuffer(this.vertexBuffer, 0, 0);

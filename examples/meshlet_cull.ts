@@ -5,7 +5,7 @@ import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
 import { MeshletModel } from "../core/meshlet_model";
 import {
-    dot3, matrixIdentity, matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH,
+    dot3, matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH,
     matrixScaling, matrixTranspose, normalize3, planeNormalize, row, transform3, transformCoord3,
     transformNormal3, vadd, vsub, XM_PI,
 } from "../core/directx_math";

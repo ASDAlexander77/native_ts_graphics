@@ -26,9 +26,6 @@ namespace RaytracingLibrarySubobjects {
     const VERTEX_BUFFER_DESCRIPTOR = 2;
     const DESCRIPTOR_COUNT = 3;
 
-    // SceneConstantBuffer: projectionToWorld (row-major), cameraPosition, lightPosition,
-    // lightAmbientColor, lightDiffuseColor; CubeConstantBuffer: albedo.
-    const SCENE_CB_FLOATS = 32;
     const CUBE_CB_FLOATS = 4;
     // Constant buffers are 256-byte multiples.
     const CB_SIZE = 256;

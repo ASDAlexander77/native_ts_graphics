@@ -67,7 +67,6 @@ namespace Bokeh {
     // BasicEffect's constant buffer (bokeh_scene.hlsl): DiffuseColor, EmissiveColor, SpecularColor
     // and SpecularPower, the three lights' directions, diffuse and specular colors, EyePosition,
     // World, WorldInverseTranspose, WorldViewProj; one 512-byte slice per object.
-    const PARAMETERS_FLOATS = 100;
     const PARAMETERS_EMISSIVE = 4;
     const PARAMETERS_SPECULAR = 8;
     const PARAMETERS_LIGHTS = 12;
