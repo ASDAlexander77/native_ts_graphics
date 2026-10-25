@@ -25,7 +25,6 @@ namespace ExecuteIndirect {
     const CONSTANT_FLOATS = 64;
     // An indexed indirect draw's arguments: 5 uints.
     const COMMAND_SIZE = 20;
-    const COMMAND_INTS = 5;
     // The culling shader's push constants: xOffset, zOffset, cullOffset, commandCount, frameOffset
     // (floats).
     const ROOT_CONSTANTS_SIZE = 20;

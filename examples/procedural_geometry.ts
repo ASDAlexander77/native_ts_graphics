@@ -60,20 +60,6 @@ namespace ProceduralGeometry {
     // IntersectionShaderType::TotalPrimitiveCount.
     const PRIMITIVE_COUNT = 10;
 
-    // The AABB geometries' indices (instanceIndex), AnalyticPrimitive first.
-    enum ProceduralPrimitive {
-        Aabb = 0,
-        Spheres = 1,
-        Metaballs = 2,
-        MiniSpheres = 3,
-        IntersectedRoundCube = 4,
-        SquareTorus = 5,
-        TwistedTorus = 6,
-        Cog = 7,
-        Cylinder = 8,
-        FractalPyramid = 9
-    }
-
     // c_aabbWidth, c_aabbDistance.
     const AABB_WIDTH = 2.0;
     const AABB_DISTANCE = 2.0;

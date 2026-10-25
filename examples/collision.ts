@@ -106,15 +106,6 @@ namespace Collision {
         return result;
     }
 
-    // v (a direction) * m.
-    function transformNormal(v: number[], m: number[]) {
-        let result: number[] = [];
-        for (let i = 0; i < 3; i++) {
-            result.push(f(v[0] * m[i] + v[1] * m[4 + i] + v[2] * m[8 + i]));
-        }
-        return result;
-    }
-
     // Quaternions (x, y, z, w). XMQuaternionMultiply(q1, q2): q1's rotation, then q2's.
     function quaternionMultiply(q1: number[], q2: number[]) {
         return [
