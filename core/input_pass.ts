@@ -9,6 +9,7 @@
 import { App } from "./donut";
 import { KEY_V, KEY_ESCAPE, ACTION_PRESS } from "./glfw_input";
 
+@final
 export class InputPass {
     private app: App;
 

@@ -7,6 +7,7 @@
 
 import { App } from "./donut";
 
+@final
 export class TestCheck {
     // The last frame's pixels, RGBA8 packed as 0xAABBGGRR, row after row; empty if it can't be read.
     pixels: int[] = [];

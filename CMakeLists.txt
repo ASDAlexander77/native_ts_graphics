@@ -641,6 +641,111 @@ set(TSLANG_CORE_SOURCES_WITH_DECLARATIONS
     ${TSLANG_CORE_SOURCES}
     ${TSLANG_DONUT_DECLARATIONS})
 set_source_files_properties(core/donut.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_DONUT_DECLARATIONS}")
+
+# -mm=own: a call into another module may destroy anything unless the compiler knows that
+# module's ownership facts, which tslang reads from the module's object (--own-facts). So under
+# own each .ts object is compiled after objects of the modules it imports, directly or not, and
+# given them. Not the objects a target links: a source compiled in every target that lists it has
+# one per target, which a source's OBJECT_DEPENDS can't name (it takes no generator expression).
+# Each imported module is compiled once more instead, into own-facts/<path>.obj, from the same
+# source with the same flags, so its facts are those of every copy linked. tslang picks
+# <name>.<os>.ts for `import "./<name>"`.
+if (WIN32)
+    set(TSLANG_IMPORT_OS_SUFFIX win32)
+else()
+    set(TSLANG_IMPORT_OS_SUFFIX linux)
+endif()
+
+# The .ts files a .ts file imports, directly or not (absolute paths).
+function(tslang_module_imports source out)
+    set(found)
+    set(work "${source}")
+    while(work)
+        list(POP_FRONT work current)
+        get_filename_component(dir "${current}" DIRECTORY)
+        # `from "./x"` anywhere outside a line comment (a module's header shows how to import it):
+        # an import's names may span lines, and `export ... from` imports too
+        file(READ "${current}" text)
+        string(REGEX REPLACE "//[^\n]*" "" text "${text}")
+        string(REGEX MATCHALL "from[ \t\r\n]+\"\\.\\.?/[A-Za-z0-9_/]+\"" lines "${text}")
+        foreach(line IN LISTS lines)
+            if (NOT line MATCHES "\"(\\.\\.?/[A-Za-z0-9_/]+)\"")
+                continue()
+            endif()
+            set(relative "${CMAKE_MATCH_1}")
+            foreach(candidate "${dir}/${relative}.ts" "${dir}/${relative}.${TSLANG_IMPORT_OS_SUFFIX}.ts")
+                get_filename_component(candidate "${candidate}" ABSOLUTE)
+                if (EXISTS "${candidate}")
+                    if (NOT candidate IN_LIST found)
+                        list(APPEND found "${candidate}")
+                        list(APPEND work "${candidate}")
+                    endif()
+                    break()
+                endif()
+            endforeach()
+        endforeach()
+    endwhile()
+    list(REMOVE_ITEM found "${source}")
+    set(${out} ${found} PARENT_SCOPE)
+endfunction()
+
+# The facts object of a module (own-facts/<path>.obj), its compile added once.
+function(tslang_own_facts_object source out)
+    file(RELATIVE_PATH relative "${CMAKE_CURRENT_SOURCE_DIR}" "${source}")
+    set(object "${CMAKE_CURRENT_BINARY_DIR}/own-facts/${relative}.obj")
+    set(${out} "${object}" PARENT_SCOPE)
+    get_property(added GLOBAL PROPERTY TSLANG_OWN_FACTS_OBJECTS)
+    if (object IN_LIST added)
+        return()
+    endif()
+    set_property(GLOBAL APPEND PROPERTY TSLANG_OWN_FACTS_OBJECTS "${object}")
+    tslang_own_facts_of("${source}" options depends)
+    separate_arguments(flags NATIVE_COMMAND "${CMAKE_TSLANG_FLAGS}")
+    get_filename_component(object_dir "${object}" DIRECTORY)
+    add_custom_command(OUTPUT "${object}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${object_dir}"
+        COMMAND "${CMAKE_TSLANG_COMPILER}" ${flags} ${options} "--default-lib-path=${CMAKE_TSLANG_DIR}"
+                --emit=obj "-o=${object}" "${source}"
+        DEPENDS "${source}" ${depends} ${TSLANG_DONUT_DECLARATIONS}
+        COMMENT "Compiling ${relative} for its -mm=own facts"
+        VERBATIM)
+endfunction()
+
+# What a module is compiled with to know its imports' facts: --own-facts options, and the objects.
+function(tslang_own_facts_of source out_options out_objects)
+    tslang_module_imports("${source}" imports)
+    set(objects)
+    foreach(import IN LISTS imports)
+        tslang_own_facts_object("${import}" object)
+        list(APPEND objects "${object}")
+    endforeach()
+    set(options ${objects})
+    list(TRANSFORM options PREPEND "--own-facts=")
+    set(${out_options} ${options} PARENT_SCOPE)
+    set(${out_objects} ${objects} PARENT_SCOPE)
+endfunction()
+
+# Gives each of the .ts sources the facts objects of the modules it imports: --own-facts, and the
+# objects among its OBJECT_DEPENDS (kept beside the ones it has: add_tslang_example sets those).
+function(tslang_own_facts)
+    if (NOT TSLANG_MEMORY_MODEL STREQUAL "own")
+        return()
+    endif()
+    foreach(source IN LISTS ARGN)
+        get_filename_component(source "${source}" ABSOLUTE)
+        tslang_own_facts_of("${source}" options objects)
+        if (NOT objects)
+            continue()
+        endif()
+        get_source_file_property(depends "${source}" OBJECT_DEPENDS)
+        if (NOT depends)
+            set(depends)
+        endif()
+        list(APPEND depends ${objects})
+        list(REMOVE_DUPLICATES depends)
+        set_source_files_properties("${source}" PROPERTIES OBJECT_DEPENDS "${depends}" COMPILE_OPTIONS "${options}")
+    endforeach()
+endfunction()
 foreach(TSLANG_CORE_SOURCE IN LISTS TSLANG_CORE_SOURCES)
     set_source_files_properties(${TSLANG_CORE_SOURCE} PROPERTIES OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts;${TSLANG_DONUT_DECLARATIONS}")
@@ -663,6 +768,7 @@ function(add_tslang_example name)
     list(TRANSFORM module_ts_paths PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     set_source_files_properties(${module_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES_WITH_DECLARATIONS};${module_ts_paths}")
     set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES_WITH_DECLARATIONS};${module_ts_paths}")
+    tslang_own_facts(examples/${name}.ts ${TSLANG_CORE_SOURCES} ${module_ts})
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop_static)
     if (TARGET ${name}_shaders)
