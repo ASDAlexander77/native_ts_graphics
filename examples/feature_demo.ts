@@ -5,9 +5,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
-import {
-    KEY_SPACE, KEY_T, KEY_V, KEY_GRAVE_ACCENT, KEY_ESCAPE, ACTION_PRESS, MOUSE_BUTTON_2,
-} from "../core/glfw_input";
+import { KEY_SPACE, KEY_T, KEY_V, KEY_GRAVE_ACCENT, KEY_ESCAPE, Action, MouseButton } from "../core/glfw_input";
 import { radiansF32 } from "../core/matrix";
 
 namespace FeatureDemoExample {
@@ -1048,29 +1046,29 @@ namespace FeatureDemoExample {
         // --- Pass callbacks ---
 
         onKeyboard(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_ESCAPE && action == ACTION_PRESS) {
+            if (key == KEY_ESCAPE && action == Action.Press) {
                 this.ui.showUI = !this.ui.showUI;
                 return 1;
             }
 
-            if (key == KEY_GRAVE_ACCENT && action == ACTION_PRESS) {
+            if (key == KEY_GRAVE_ACCENT && action == Action.Press) {
                 this.ui.showConsole = !this.ui.showConsole;
                 return 1;
             }
 
-            if (key == KEY_SPACE && action == ACTION_PRESS) {
+            if (key == KEY_SPACE && action == Action.Press) {
                 this.ui.enableAnimations = !this.ui.enableAnimations;
                 return 1;
             }
 
             // As in the other examples (not in the C++ sample): V toggles vertical sync, like the
             // VSync checkbox.
-            if (key == KEY_V && action == ACTION_PRESS) {
+            if (key == KEY_V && action == Action.Press) {
                 this.ui.enableVsync = !this.ui.enableVsync;
                 return 1;
             }
 
-            if (key == KEY_T && action == ACTION_PRESS) {
+            if (key == KEY_T && action == Action.Press) {
                 this.copyActiveCameraToFirstPerson();
                 if (!this.ui.activeSceneCamera.isNull()) {
                     this.ui.useThirdPersonCamera = false;
@@ -1103,7 +1101,7 @@ namespace FeatureDemoExample {
                 this.getActiveCamera().mouseButtonUpdate(button, action, mods);
             }
 
-            if (action == ACTION_PRESS && button == MOUSE_BUTTON_2) {
+            if (action == Action.Press && button == MouseButton.Right) {
                 this.pick = true;
             }
 

@@ -49,14 +49,18 @@ namespace RayTracingExtended {
     // Triangle: three uint32 indices.
     const TRIANGLE_SIZE = 12;
 
-    // enum RenderMode (RENDER_BARYCENTRIC .. RENDER_AO in between).
-    const RENDER_DEFAULT = 0;
-    const RENDER_AO = 6;
+    // enum RenderMode (RENDER_BARYCENTRIC .. RenderMode.Ao in between).
+    enum RenderMode {
+        Default = 0,
+        Ao = 6
+    }
 
     // enum ObjectType
-    const OBJECT_NORMAL = 0;     // has AO and ray traced shadows
-    const OBJECT_REFRACTION = 1; // pass-through with IOR
-    const OBJECT_FLAME = 2;      // emission surface; constant amplitude
+    enum ObjectType {
+        Normal = 0, // has AO and ray traced shadows
+        Refraction = 1, // pass-through with IOR
+        Flame = 2 // emission surface; constant amplitude
+    }
 
     // struct CameraProperties in shaders/ray_tracing_extended.hlsl, as f32 offsets.
     const CONST_VIEW_INVERSE = 0;
@@ -89,7 +93,7 @@ namespace RayTracingExtended {
     class RayTracingExtendedPass {
         private app: App;
         private camera: Camera;
-        renderMode: int;
+        renderMode: RenderMode;
 
         private bindingLayout: BindingLayoutHandle;
         private bindlessLayout: BindingLayoutHandle;
@@ -125,7 +129,7 @@ namespace RayTracingExtended {
 
         constructor(app: App) {
             this.app = app;
-            this.renderMode = RENDER_DEFAULT;
+            this.renderMode = RenderMode.Default;
             this.models = [];
             this.modelBuffers = [];
             this.storageImage = null;
@@ -339,11 +343,11 @@ namespace RayTracingExtended {
             for (let i = 0; i < this.modelBuffers.length; i++) {
                 const modelBuffer = this.modelBuffers[i];
                 // these objects have a single instance with the identity transform
-                if (modelBuffer.objectType == OBJECT_NORMAL) {
+                if (modelBuffer.objectType == ObjectType.Normal) {
                     for (let k = 0; k < 12; k++) {
                         this.transform[k] = k % 5 == 0 ? 1.0 : 0.0;
                     }
-                } else if (modelBuffer.objectType == OBJECT_REFRACTION) {
+                } else if (modelBuffer.objectType == ObjectType.Refraction) {
                     this.calculateRotation([-0.25, -2.5, -2.35], 1.0, true);
                 } else {
                     // handle flame separately
@@ -525,7 +529,7 @@ namespace RayTracingExtended {
                     vertices[v + 2] = sponzaScale * x + tz;
                 }
 
-                this.models.push(new Model(vertices, triangles, texture.getDescriptorIndex(), OBJECT_NORMAL));
+                this.models.push(new Model(vertices, triangles, texture.getDescriptorIndex(), ObjectType.Normal));
             }
             return true;
         }
@@ -551,7 +555,7 @@ namespace RayTracingExtended {
                 vertices.push(1.0 - pt[1]);
             }
             const triangles: int[] = [0, 1, 2, 0, 2, 3];
-            this.models.push(new Model(vertices, triangles, texture.getDescriptorIndex(), OBJECT_FLAME));
+            this.models.push(new Model(vertices, triangles, texture.getDescriptorIndex(), ObjectType.Flame));
 
             this.flameGenerator.init();
             return true;
@@ -592,7 +596,7 @@ namespace RayTracingExtended {
             this.dynamicIndexBuffer = this.app.createAccelStructInputStructuredBuffer(4, gridTriangles * 3, "Dynamic Indices");
             commandList.writeBuffer(this.dynamicVertexBuffer, Ref(this.refractionModel[0]), gridVertices * VERTEX_SIZE);
             commandList.writeBuffer(this.dynamicIndexBuffer, Ref(this.refractionIndices[0]), gridTriangles * TRIANGLE_SIZE);
-            this.modelBuffers.push(new ModelBuffer(0, 0, gridVertices, gridTriangles, -1, OBJECT_REFRACTION, false));
+            this.modelBuffers.push(new ModelBuffer(0, 0, gridVertices, gridTriangles, -1, ObjectType.Refraction, false));
 
             // Static objects prefer fast tracing; the refraction model fast builds and updates.
             for (let i = 0; i < this.modelBuffers.length; i++) {
@@ -641,14 +645,14 @@ namespace RayTracingExtended {
         // 1 barycentric, 2 instance ID, 3 distance, 4 global XYZ, 5 shadow map, 6 ambient occlusion
         // (as in the sample, 5 and 6 show the hit's texture: its ray generation shader stops before
         // their shadow and AO output).
-        renderMode = RENDER_DEFAULT;
+        renderMode: int = RenderMode.Default;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-mode" && i + 1 < this.argc) {
                     i++;
-                    this.renderMode = Math.min(Math.max(parseInt(this[i]), RENDER_DEFAULT), RENDER_AO);
+                    this.renderMode = Math.min(Math.max(parseInt(this[i]), RenderMode.Default), RenderMode.Ao);
                 }
             }
         }

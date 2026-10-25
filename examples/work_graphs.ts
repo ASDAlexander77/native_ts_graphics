@@ -53,8 +53,10 @@ namespace WorkGraphs {
     const D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION = 65535;
 
     // The techniques of the UI's combo box.
-    const TECHNIQUE_WORK_GRAPH_BROADCASTING_LAUNCH = 0;
-    const TECHNIQUE_DISPATCH = 1;
+    enum Technique {
+        WorkGraphBroadcastingLaunch = 0,
+        Dispatch = 1
+    }
 
     // --- Scene parameters (the list at the top of the sample's scene.cpp) ----------------------
 
@@ -94,23 +96,29 @@ namespace WorkGraphs {
     const SCENE_CHECKERS_SPECULAR_POWER_RANGE = 25.0;
 
     // enum AnimType, MeshType and MaterialType (as in shaders/work_graphs_scene_data.hlsli).
-    const ANIM_STATIC = 0;
-    const ANIM_ROTATE_Y = 1;
-    const ANIM_DANCE = 2;
+    enum Animation {
+        Static = 0,
+        RotateY = 1,
+        Dance = 2
+    }
 
-    const MESH_PLANE = 0;
-    const MESH_BOX = 1;
-    const MESH_SPHERE = 2;
+    enum MeshKind {
+        Plane = 0,
+        Box = 1,
+        Sphere = 2
+    }
     const MESH_COUNT = 3;
 
-    const MATERIAL_LAMBERT = 0;
-    const MATERIAL_PHONG = 1;
-    const MATERIAL_METALLIC = 2;
-    const MATERIAL_VELVET = 3;
-    const MATERIAL_FLAKES = 4;
-    const MATERIAL_FACETED = 5;
-    const MATERIAL_STAN = 6;
-    const MATERIAL_CHECKER = 7;
+    enum MaterialKind {
+        Lambert = 0,
+        Phong = 1,
+        Metallic = 2,
+        Velvet = 3,
+        Flakes = 4,
+        Faceted = 5,
+        Stan = 6,
+        Checker = 7
+    }
 
     // The shaders' structures, as f32 counts; the int fields are written with Donut_StoreInt32.
     // struct Material (36 bytes): baseColor, materialType (uint), param1 (float3), param2, param3.
@@ -416,13 +424,13 @@ namespace WorkGraphs {
 
     class Material {
         public baseColor: Float3;
-        public materialType: int;
+        public materialType: MaterialKind;
         // The type's parameters (the union in the sample's Scene::Material).
         public param1: Float3;
         public param2: number;
         public param3: number;
 
-        constructor(baseColor: Float3, materialType: int) {
+        constructor(baseColor: Float3, materialType: MaterialKind) {
             this.baseColor = baseColor;
             this.materialType = materialType;
             this.param1 = new Float3(0.0, 0.0, 0.0);
@@ -435,11 +443,11 @@ namespace WorkGraphs {
         public position: Float3;
         public rotationY: number;
         public size: Float3;
-        public meshType: int;
+        public meshType: MeshKind;
         public material: int;
-        public animType: int;
+        public animType: Animation;
 
-        constructor(position: Float3, rotationY: number, size: Float3, meshType: int, material: int, animType: int) {
+        constructor(position: Float3, rotationY: number, size: Float3, meshType: MeshKind, material: int, animType: Animation) {
             this.position = position;
             this.rotationY = rotationY;
             this.size = size;
@@ -510,9 +518,9 @@ namespace WorkGraphs {
         createAssets(app: App, commandList: CommandList) {
             // Generate geometry data.
             const meshSet = [new MeshData(), new MeshData(), new MeshData()];
-            generatePlane(meshSet[MESH_PLANE]);
-            generateBox(SCENE_BOX_SUBDIVISIONS, meshSet[MESH_BOX]);
-            generateSphere(SCENE_SPHERE_SIDES, SCENE_SPHERE_SLICES, meshSet[MESH_SPHERE]);
+            generatePlane(meshSet[MeshKind.Plane]);
+            generateBox(SCENE_BOX_SUBDIVISIONS, meshSet[MeshKind.Box]);
+            generateSphere(SCENE_SPHERE_SIDES, SCENE_SPHERE_SLICES, meshSet[MeshKind.Sphere]);
 
             this.populateWorld();
 
@@ -607,17 +615,17 @@ namespace WorkGraphs {
 
             // Generate materials.
             const groundColor = new Float3(SCENE_GROUND_COLOR, SCENE_GROUND_COLOR, SCENE_GROUND_COLOR);
-            this.materials.push(new Material(groundColor, MATERIAL_LAMBERT)); // Material 0 is lambert.
-            this.materials.push(new Material(new Float3(1.0, 1.0, 1.0), MATERIAL_FACETED)); // Material 1 is faceted.
+            this.materials.push(new Material(groundColor, MaterialKind.Lambert)); // Material 0 is lambert.
+            this.materials.push(new Material(new Float3(1.0, 1.0, 1.0), MaterialKind.Faceted)); // Material 1 is faceted.
 
             // Lamberts.
             for (let i = 0; i < SCENE_MATERIAL_COUNT_OF_EACH_TYPE; i++) {
-                this.materials.push(new Material(randomColor(true), MATERIAL_LAMBERT));
+                this.materials.push(new Material(randomColor(true), MaterialKind.Lambert));
             }
 
             // Phongs: specular color, specular power.
             for (let i = 0; i < SCENE_MATERIAL_COUNT_OF_EACH_TYPE; i++) {
-                const material = new Material(randomColor(true), MATERIAL_PHONG);
+                const material = new Material(randomColor(true), MaterialKind.Phong);
                 const specularColor = randomColor(true);
                 material.param1 = new Float3(specularColor.x * SCENE_PHONG_SPECULAR_COLOR_SCALE,
                     specularColor.y * SCENE_PHONG_SPECULAR_COLOR_SCALE, specularColor.z * SCENE_PHONG_SPECULAR_COLOR_SCALE);
@@ -627,19 +635,19 @@ namespace WorkGraphs {
 
             // Metallics.
             for (let i = 0; i < SCENE_MATERIAL_COUNT_OF_EACH_TYPE; i++) {
-                this.materials.push(new Material(randomColor(true), MATERIAL_METALLIC));
+                this.materials.push(new Material(randomColor(true), MaterialKind.Metallic));
             }
 
             // Velvets: roughness.
             for (let i = 0; i < SCENE_MATERIAL_COUNT_OF_EACH_TYPE; i++) {
-                const material = new Material(randomColor(true), MATERIAL_VELVET);
+                const material = new Material(randomColor(true), MaterialKind.Velvet);
                 material.param1.x = random01() * SCENE_VELVET_ROUGHNESS_RANGE + SCENE_VELVET_ROUGHNESS_MIN;
                 this.materials.push(material);
             }
 
             // Flakes: specular color, specular power, granularity.
             for (let i = 0; i < SCENE_MATERIAL_COUNT_OF_EACH_TYPE; i++) {
-                const material = new Material(randomColor(true), MATERIAL_FLAKES);
+                const material = new Material(randomColor(true), MaterialKind.Flakes);
                 const specularColor = randomColor(true);
                 material.param1 = new Float3(specularColor.x * SCENE_FLAKES_SPECULAR_COLOR_SCALE,
                     specularColor.y * SCENE_FLAKES_SPECULAR_COLOR_SCALE, specularColor.z * SCENE_FLAKES_SPECULAR_COLOR_SCALE);
@@ -650,7 +658,7 @@ namespace WorkGraphs {
 
             // Stans: lines color, lines thickness, lines spacing.
             for (let i = 0; i < SCENE_MATERIAL_COUNT_OF_EACH_TYPE; i++) {
-                const material = new Material(randomColor(true), MATERIAL_STAN);
+                const material = new Material(randomColor(true), MaterialKind.Stan);
                 material.param1 = randomColor(false);
                 material.param2 = random01() * SCENE_STAN_LINE_THICKNESS_RANGE + SCENE_STAN_LINE_THICKNESS_MIN;
                 material.param3 = random01() * SCENE_STAN_LINE_SPACING_RANGE + SCENE_STAN_LINE_SPACING_MIN;
@@ -659,7 +667,7 @@ namespace WorkGraphs {
 
             // Checkers: second base color, checker size, specular power.
             for (let i = 0; i < SCENE_MATERIAL_COUNT_OF_EACH_TYPE; i++) {
-                const material = new Material(randomColor(true), MATERIAL_CHECKER);
+                const material = new Material(randomColor(true), MaterialKind.Checker);
                 material.param1 = randomColor(false);
                 material.param2 = SCENE_CHECKERS_SIZE;
                 material.param3 = random01() * SCENE_CHECKERS_SPECULAR_POWER_RANGE + SCENE_CHECKERS_SPECULAR_POWER_MIN;
@@ -673,7 +681,7 @@ namespace WorkGraphs {
 
                 // Ground.
                 this.worldObjects.push(new Instance(new Float3(0.0, floorHeight, 0.0), 0.0,
-                    new Float3(SCENE_FLOOR_SIZE, 0.0, SCENE_FLOOR_SIZE), MESH_PLANE, 0, ANIM_STATIC));
+                    new Float3(SCENE_FLOOR_SIZE, 0.0, SCENE_FLOOR_SIZE), MeshKind.Plane, 0, Animation.Static));
 
                 // Multiple balls hung from the ceiling, emitting lights.
                 const ballRoomCount1D = roomCount1D(SCENE_BALL_ROOM_SIZE);
@@ -687,7 +695,7 @@ namespace WorkGraphs {
                         ballPos.x += roomCenterX;
                         ballPos.z += roomCenterZ;
                         this.worldObjects.push(new Instance(ballPos, randomAngle(),
-                            new Float3(SCENE_BALL_SIZE, SCENE_BALL_SIZE, SCENE_BALL_SIZE), MESH_SPHERE, 1, ANIM_ROTATE_Y));
+                            new Float3(SCENE_BALL_SIZE, SCENE_BALL_SIZE, SCENE_BALL_SIZE), MeshKind.Sphere, 1, Animation.RotateY));
 
                         // From each ball, generate a few lights.
                         for (let light = 0; light < SCENE_LIGHTS_PER_BALL; light++) {
@@ -720,7 +728,7 @@ namespace WorkGraphs {
                         pos.z += roomCenterZ;
                         const material: int = msvcRand() % (this.materials.length - 2) + 2; // Skip the first two hard-coded materials.
 
-                        this.worldObjects.push(new Instance(pos, randomAngle(), size, MESH_BOX, material, ANIM_DANCE));
+                        this.worldObjects.push(new Instance(pos, randomAngle(), size, MeshKind.Box, material, Animation.Dance));
                     }
                 }
             }
@@ -738,7 +746,7 @@ namespace WorkGraphs {
         public gpuShadingTime: number;
 
         constructor() {
-            this.currentTechnique = TECHNIQUE_WORK_GRAPH_BROADCASTING_LAUNCH;
+            this.currentTechnique = Technique.WorkGraphBroadcastingLaunch;
             this.paused = false;
             this.resetAnim = false;
             this.gpuFrameTime = 0.0;
@@ -842,7 +850,7 @@ namespace WorkGraphs {
             this.workGraphBindings = new BindingSet(null);
             this.workGraph = null;
 
-            this.currentTechnique = TECHNIQUE_WORK_GRAPH_BROADCASTING_LAUNCH;
+            this.currentTechnique = Technique.WorkGraphBroadcastingLaunch;
             this.initWorkGraphBackingMemory = true;
 
             this.frameTimers = [];
@@ -1294,7 +1302,7 @@ namespace WorkGraphs {
             this.populateGBufferPass(frame, commandList, depth, gbufferFramebuffer, gbufferFillPSO, gbufferFillBindings);
 
             commandList.beginTimerQuery(shadingTimer);
-            if (this.currentTechnique == TECHNIQUE_DISPATCH) {
+            if (this.currentTechnique == Technique.Dispatch) {
                 // Light culling and deferred shading passes.
                 this.populateDeferredShadingDispatches(commandList, lightCullingBindings, deferredShadingBindings);
             } else {

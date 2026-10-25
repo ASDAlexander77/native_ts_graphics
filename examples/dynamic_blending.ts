@@ -91,8 +91,10 @@ namespace DynamicBlending {
     const ADVANCED_OVERLAP_CONJOINT = 2;
 
     // The blend options.
-    const BLEND_EQUATION = 0;
-    const BLEND_ADVANCED = 1;
+    enum BlendOption {
+        Equation = 0,
+        Advanced = 1
+    }
 
     // ColorUbo: 8 float4 colors.
     const COLOR_FLOATS = 32;
@@ -148,7 +150,7 @@ namespace DynamicBlending {
         clearColor: f32[];
         faces: FacePreferences[];
         blendEnable: boolean;
-        blendOption: int;
+        blendOption: BlendOption;
         colorOperator: int;
         alphaOperator: int;
         srcColorBlendFactor: int;
@@ -201,7 +203,7 @@ namespace DynamicBlending {
                     1.0, 1.0, 1.0, 0.5]),
             ];
             this.blendEnable = true;
-            this.blendOption = BLEND_EQUATION;
+            this.blendOption = BlendOption.Equation;
             this.colorOperator = 0;
             this.alphaOperator = 0;
             this.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -318,7 +320,7 @@ namespace DynamicBlending {
         pipelineKey(face: FacePreferences) {
             const mask = colorMask(face.colorBitEnabled);
             const blend = this.blendEnable ? 1 : 0;
-            if (this.blendOption == BLEND_ADVANCED) {
+            if (this.blendOption == BlendOption.Advanced) {
                 return `a ${blend} ${this.advancedOperator} ${this.srcPremultiplied ? 1 : 0} ${this.dstPremultiplied ? 1 : 0} ${mask}`;
             }
             return `e ${blend} ${this.colorOperator} ${this.srcColorBlendFactor} ${this.dstColorBlendFactor} `
@@ -343,7 +345,7 @@ namespace DynamicBlending {
                 BLEND_FACTORS[this.srcColorBlendFactor], BLEND_FACTORS[this.dstColorBlendFactor], BLEND_OPS[this.colorOperator],
                 ALPHA_BLEND_FACTORS[this.srcAlphaBlendFactor], ALPHA_BLEND_FACTORS[this.dstAlphaBlendFactor],
                 BLEND_OPS[this.alphaOperator]);
-            if (this.blendOption == BLEND_ADVANCED) {
+            if (this.blendOption == BlendOption.Advanced) {
                 desc.setAdvancedBlendOp(this.advancedOperator, this.srcPremultiplied ? 1 : 0, this.dstPremultiplied ? 1 : 0,
                     ADVANCED_OVERLAP_CONJOINT);
             }
@@ -497,14 +499,14 @@ namespace DynamicBlending {
                 b.blendEnable = Donut_ImGuiCheckbox("Enabled", b.blendEnable ? 1 : 0) != 0;
                 // Advanced blend operations: Vulkan's VK_EXT_blend_operation_advanced only.
                 if ((b.advancedBlendOperations & AdvancedBlend.Available) != 0) {
-                    if (Donut_ImGuiRadioButton("BlendEquationEXT", b.blendOption == BLEND_EQUATION ? 1 : 0) != 0) {
-                        b.blendOption = BLEND_EQUATION;
+                    if (Donut_ImGuiRadioButton("BlendEquationEXT", b.blendOption == BlendOption.Equation ? 1 : 0) != 0) {
+                        b.blendOption = BlendOption.Equation;
                     }
-                    if (Donut_ImGuiRadioButton("BlendAdvancedEXT", b.blendOption == BLEND_ADVANCED ? 1 : 0) != 0) {
-                        b.blendOption = BLEND_ADVANCED;
+                    if (Donut_ImGuiRadioButton("BlendAdvancedEXT", b.blendOption == BlendOption.Advanced ? 1 : 0) != 0) {
+                        b.blendOption = BlendOption.Advanced;
                     }
                 }
-                if (b.blendOption == BLEND_EQUATION) {
+                if (b.blendOption == BlendOption.Equation) {
                     if (Donut_ImGuiCollapsingHeaderDefaultOpen("BlendEquationEXT") != 0) {
                         b.colorOperator = this.comboWithButton(++id, "Color operator", b.colorOperator, BLEND_OP_NAMES);
                         b.srcColorBlendFactor = this.comboWithButton(++id, "SrcColorBlendFactor", b.srcColorBlendFactor, BLEND_FACTOR_NAMES);
@@ -566,7 +568,7 @@ namespace DynamicBlending {
         }
         if (args.advanced >= 0) {
             if ((blending.advancedBlendOperations & AdvancedBlend.Available) != 0 && args.advanced < ADVANCED_BLEND_OP_NAMES.length) {
-                blending.blendOption = BLEND_ADVANCED;
+                blending.blendOption = BlendOption.Advanced;
                 blending.advancedOperator = args.advanced;
             } else {
                 console.log("No advanced blend operations (Vulkan's VK_EXT_blend_operation_advanced)");

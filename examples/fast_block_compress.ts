@@ -49,10 +49,12 @@ namespace FastBlockCompress {
 
     // The sample's methods: run-time compression on the GPU and on the CPU, offline compression
     // (into the image's format and into BC7).
-    const RTC_GPU = 0;
-    const RTC_CPU = 1;
-    const OFFLINE = 2;
-    const OFFLINE_BC7 = 3;
+    enum CompressionMethod {
+        RtcGpu = 0,
+        RtcCpu = 1,
+        Offline = 2,
+        OfflineBc7 = 3
+    }
     const MAX_METHOD = 4;
 
     // FBC_GPU.cpp's constants.
@@ -62,9 +64,11 @@ namespace FastBlockCompress {
 
     // The compression shaders: one mip, two mips at once (through group shared memory), the tail
     // mips (16x16 to 1x1) in one group; the views they write.
-    const KIND_ONE_MIP = 0;
-    const KIND_TWO_MIPS = 1;
-    const KIND_TAIL = 2;
+    enum PassKind {
+        OneMip = 0,
+        TwoMips = 1,
+        Tail = 2
+    }
     const KIND_ENTRIES = ["compress_cs", "compress_2mips_cs", "compress_tail_cs"];
     const KIND_OUTPUTS = [1, 2, 5];
 
@@ -213,7 +217,7 @@ namespace FastBlockCompress {
 
         // The sample's state: what is shown and how.
         currentImage: int;
-        currentMethod: int;
+        currentMethod: CompressionMethod;
         mipLevel: int;
         fullscreen: boolean;
         toggleOriginal: boolean;
@@ -378,14 +382,14 @@ namespace FastBlockCompress {
         // The texture the current method shows.
         compressedTexture(image: Image) {
             const method = this.currentMethod;
-            return method == RTC_GPU ? image.gpuBC : method == RTC_CPU ? image.cpuBC
-                : method == OFFLINE ? image.offlineBC : image.offlineBC7;
+            return method == CompressionMethod.RtcGpu ? image.gpuBC : method == CompressionMethod.RtcCpu ? image.cpuBC
+                : method == CompressionMethod.Offline ? image.offlineBC : image.offlineBC7;
         }
 
-        methodLabel(method: int) {
+        methodLabel(method: CompressionMethod) {
             const bc = formatName(this.images[this.currentImage].format);
-            return method == RTC_GPU ? `GPU (${bc})` : method == RTC_CPU ? `CPU (${bc})`
-                : method == OFFLINE ? `Offline (${bc})` : "Offline (BC7)";
+            return method == CompressionMethod.RtcGpu ? `GPU (${bc})` : method == CompressionMethod.RtcCpu ? `CPU (${bc})`
+                : method == CompressionMethod.Offline ? `Offline (${bc})` : "Offline (BC7)";
         }
 
         // The viewports of the sample's layout (left, top, width, height), scaled to the frame, their
@@ -571,9 +575,9 @@ namespace FastBlockCompress {
             // Make sure we're not trying to display a mip that is unavailable in the source image
             this.mipLevel = Math.min(this.mipLevel, image.levels - 1);
 
-            if (this.currentMethod == RTC_GPU) {
+            if (this.currentMethod == CompressionMethod.RtcGpu) {
                 this.compressGPU(commandList, image);
-            } else if (this.currentMethod == RTC_CPU) {
+            } else if (this.currentMethod == CompressionMethod.RtcCpu) {
                 this.compressCPU(commandList, image);
             }
 
@@ -674,11 +678,11 @@ namespace FastBlockCompress {
             return image;
         }
 
-        compressPass(image: Image, kind: int, level: int, groups: int, oneOverTextureWidth: number) {
+        compressPass(image: Image, kind: PassKind, level: int, groups: int, oneOverTextureWidth: number) {
             const formatIndex = image.format == Format.BC1_UNORM ? 0 : image.format == Format.BC3_UNORM ? 1 : 2;
             const desc = BindingSetDesc.create();
             desc.bindPushConstants(0, COMPRESS_CONSTANTS_SIZE);
-            if (kind == KIND_TAIL) {
+            if (kind == PassKind.Tail) {
                 // The tail shader samples levels 0 to 4 of its view.
                 desc.bindTextureSRVMips(0, image.source, level, image.levels - level);
             } else {
@@ -696,7 +700,7 @@ namespace FastBlockCompress {
         // all of them.
         createPasses(image: Image) {
             const texSize = image.width;
-            image.topPass = this.compressPass(image, KIND_ONE_MIP, 0,
+            image.topPass = this.compressPass(image, PassKind.OneMip, 0,
                 Math.max(1, Math.floor(texSize / 4 / COMPRESS_ONE_MIP_THREADGROUP_WIDTH)), 1.0 / texSize);
 
             const numMips = image.levels;
@@ -709,7 +713,7 @@ namespace FastBlockCompress {
                 // If we've reached the 16x16 mip, use our "tail mips" shader that compresses the remaining
                 //  mips (from 16x16 to 1x1) in one pass
                 if (mipWidth == 16) {
-                    image.passes.push(this.compressPass(image, KIND_TAIL, i, 1, 1.0 / mipWidth));
+                    image.passes.push(this.compressPass(image, PassKind.Tail, i, 1, 1.0 / mipWidth));
                     break;
                 }
 
@@ -721,7 +725,7 @@ namespace FastBlockCompress {
 
                 const dispatchWidth = Math.max(1,
                     Math.floor(mipWidth / 4 / (twoMips ? COMPRESS_TWO_MIPS_THREADGROUP_WIDTH : COMPRESS_ONE_MIP_THREADGROUP_WIDTH)));
-                image.passes.push(this.compressPass(image, twoMips ? KIND_TWO_MIPS : KIND_ONE_MIP, i, dispatchWidth, 1.0 / mipWidth));
+                image.passes.push(this.compressPass(image, twoMips ? PassKind.TwoMips : PassKind.OneMip, i, dispatchWidth, 1.0 / mipWidth));
             }
         }
     }
@@ -824,7 +828,7 @@ namespace FastBlockCompress {
             if (!sample.fullscreen || !sample.toggleOriginal) {
                 Donut_ImGuiText(`RGB RMS Error (Mip ${sample.mipLevel}): ${formatFixed(sample.rmsError[0], 6)}`);
                 Donut_ImGuiText(`Alpha RMS Error (Mip ${sample.mipLevel}): ${formatFixed(sample.rmsError[1], 6)}`);
-                if (sample.currentMethod == RTC_GPU || sample.currentMethod == RTC_CPU) {
+                if (sample.currentMethod == CompressionMethod.RtcGpu || sample.currentMethod == CompressionMethod.RtcCpu) {
                     Donut_ImGuiText(`Time (Top) ${formatFixed(sample.times[0], 3)} ms; (All) ${formatFixed(sample.times[1], 3)} ms`);
                 }
             }

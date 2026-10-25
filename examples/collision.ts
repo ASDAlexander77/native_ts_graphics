@@ -4,8 +4,8 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import {
-    KEY_1, KEY_4, KEY_A, KEY_D, KEY_S, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
-    KEY_HOME, KEY_END, KEY_F1, ACTION_RELEASE, ACTION_PRESS,
+    KEY_1, KEY_4, KEY_A, KEY_D, KEY_S, KEY_W, KEY_ESCAPE, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_HOME, KEY_END,
+    KEY_F1, Action, MouseButton,
 } from "../core/glfw_input";
 import { multiplyF32, inverse } from "../core/matrix";
 
@@ -55,10 +55,6 @@ namespace Collision {
     // VertexPositionColor: float3 position, float4 color.
     const VERTEX_FLOATS = 7;
     const MAX_VERTICES = 8192;
-
-    // GLFW values.
-    const MOUSE_LEFT = 0;
-    const MOUSE_RIGHT = 1;
 
     // --- Math (DirectXMath's layout: 4 x 4 matrices by rows, for row vectors; float precision) -
 
@@ -733,9 +729,9 @@ namespace Collision {
 
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
-                this.held[key] = action != ACTION_RELEASE;
+                this.held[key] = action != Action.Release;
             }
-            if (action != ACTION_PRESS) {
+            if (action != Action.Press) {
                 return 0;
             }
             // Keyboard input handling for controller help menu.
@@ -759,10 +755,10 @@ namespace Collision {
         }
 
         onMouseButton(button: int, action: int, mods: int) {
-            if (button == MOUSE_LEFT) {
-                this.leftButton = action != ACTION_RELEASE;
-            } else if (button == MOUSE_RIGHT) {
-                this.rightButton = action != ACTION_RELEASE;
+            if (button == MouseButton.Left) {
+                this.leftButton = action != Action.Release;
+            } else if (button == MouseButton.Right) {
+                this.rightButton = action != Action.Release;
             }
             return 1;
         }

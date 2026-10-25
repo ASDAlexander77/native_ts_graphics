@@ -10,8 +10,8 @@ import {
     transformNormal3, vadd, vsub, XM_PI,
 } from "../core/directx_math";
 import {
-    KEY_SPACE, KEY_A, KEY_D, KEY_S, KEY_W, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
-    KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, ACTION_RELEASE, ACTION_PRESS,
+    KEY_SPACE, KEY_A, KEY_D, KEY_S, KEY_W, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_LEFT_SHIFT,
+    KEY_RIGHT_SHIFT, Action,
 } from "../core/glfw_input";
 
 namespace MeshletCull {
@@ -477,7 +477,7 @@ namespace MeshletCull {
 
         // OnKeyDown / OnKeyUp.
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action == ACTION_PRESS) {
+            if (action == Action.Press) {
                 if (key == KEY_SPACE) {
                     this.drawMeshlets = !this.drawMeshlets;
                     this.selectedIndex = -1;
@@ -494,7 +494,7 @@ namespace MeshletCull {
                 }
                 return 1;
             }
-            if (action == ACTION_RELEASE) {
+            if (action == Action.Release) {
                 if (key == KEY_LEFT_SHIFT || key == KEY_RIGHT_SHIFT) {
                     this.moveCam = false;
                 }

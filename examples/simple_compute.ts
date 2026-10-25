@@ -5,8 +5,8 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
 import {
-    KEY_SPACE, KEY_A, KEY_D, KEY_S, KEY_W, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_LEFT_SHIFT,
-    KEY_RIGHT_SHIFT, ACTION_RELEASE, ACTION_PRESS,
+    KEY_SPACE, KEY_A, KEY_D, KEY_S, KEY_W, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT,
+    Action,
 } from "../core/glfw_input";
 
 namespace SimpleCompute {
@@ -232,9 +232,9 @@ namespace SimpleCompute {
 
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
-                this.held[key] = action != ACTION_RELEASE;
+                this.held[key] = action != Action.Release;
             }
-            if (action == ACTION_PRESS) {
+            if (action == Action.Press) {
                 if (key == KEY_SPACE) {
                     this.setUsingAsyncCompute(!this.usingAsyncCompute);
                 } else if (key == KEY_HOME) {

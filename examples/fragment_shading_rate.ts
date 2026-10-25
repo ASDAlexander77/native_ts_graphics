@@ -53,8 +53,10 @@ namespace FragmentShadingRate {
     // The push constants: float4 offset; int object_type.
     const PUSH_FLOATS = 5;
     const PUSH_SIZE = PUSH_FLOATS * 4;
-    const OBJECT_SKYSPHERE = 0;
-    const OBJECT_CUBE = 1;
+    enum ObjectKind {
+        Skysphere = 0,
+        Cube = 1
+    }
 
     // The three cubes' offsets.
     const MESH_OFFSETS = [-2.5, 0.0, 0.0, 0.0, 0.0, 0.0, 2.5, 0.0, 0.0];
@@ -444,7 +446,7 @@ namespace FragmentShadingRate {
                 this.push[1] = 0.0;
                 this.push[2] = 0.0;
                 this.push[3] = 0.0;
-                Donut_StoreInt32(Ref(this.push[4]), OBJECT_SKYSPHERE);
+                Donut_StoreInt32(Ref(this.push[4]), ObjectKind.Skysphere);
                 frame.drawIndexedWithPushConstants(this.skysphereMesh.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
             frame.beginDrawToFramebuffer(this.cubePipeline, framebuffer);
@@ -457,7 +459,7 @@ namespace FragmentShadingRate {
                 this.push[1] = MESH_OFFSETS[j * 3 + 1];
                 this.push[2] = MESH_OFFSETS[j * 3 + 2];
                 this.push[3] = 0.0;
-                Donut_StoreInt32(Ref(this.push[4]), OBJECT_CUBE);
+                Donut_StoreInt32(Ref(this.push[4]), ObjectKind.Cube);
                 frame.drawIndexedWithPushConstants(this.sceneMesh.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
         }

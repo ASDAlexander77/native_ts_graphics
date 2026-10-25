@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose } from "../core/directx_math";
 import { SimpleCamera } from "../core/simple_camera";
-import { ACTION_RELEASE, ACTION_PRESS } from "../core/glfw_input";
+import { Action } from "../core/glfw_input";
 
 namespace Bundles {
     const WINDOW_TITLE = "D3D12 Bundles Sample";
@@ -132,10 +132,10 @@ namespace Bundles {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int): int {
-            if (action != ACTION_PRESS && action != ACTION_RELEASE) {
+            if (action != Action.Press && action != Action.Release) {
                 return 0;
             }
-            return this.camera.onKey(key, action == ACTION_PRESS) ? 1 : 0;
+            return this.camera.onKey(key, action == Action.Press) ? 1 : 0;
         }
 
         // OnUpdate: the camera.

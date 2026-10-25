@@ -6,8 +6,8 @@ import { TestCheck } from "../core/test_check";
 import { SdkMesh } from "../core/sdk_mesh";
 import { rotationY, transpose, inverse, cross3, dot3, multiplyF32 } from "../core/matrix";
 import {
-    KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_PAGE_UP, KEY_PAGE_DOWN,
-    KEY_HOME, KEY_END, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, ACTION_RELEASE,
+    KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_END,
+    KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, Action, MouseButton,
 } from "../core/glfw_input";
 
 namespace SimplePbr {
@@ -71,9 +71,6 @@ namespace SimplePbr {
     ];
 
     // GLFW keys and mouse buttons.
-    const MOUSE_LEFT = 0;
-    const MOUSE_RIGHT = 1;
-
     // --- DirectXMath ----------------------------------------------------------------------------
 
     function normalize3(v: number[]) {
@@ -758,7 +755,7 @@ namespace SimplePbr {
 
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key >= 0 && key < 512) {
-                this.input.held[key] = action != ACTION_RELEASE;
+                this.input.held[key] = action != Action.Release;
             }
             return 0;
         }
@@ -774,10 +771,10 @@ namespace SimplePbr {
         }
 
         onMouseButton(button: int, action: int, mods: int) {
-            if (button == MOUSE_LEFT) {
-                this.input.leftButton = action != ACTION_RELEASE;
-            } else if (button == MOUSE_RIGHT) {
-                this.input.rightButton = action != ACTION_RELEASE;
+            if (button == MouseButton.Left) {
+                this.input.leftButton = action != Action.Release;
+            } else if (button == MouseButton.Right) {
+                this.input.rightButton = action != Action.Release;
             }
             return 0;
         }

@@ -4,8 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { PagedImageSet } from "../core/paged_images";
 import {
-    KEY_MINUS, KEY_EQUAL, KEY_C, KEY_D, KEY_M, KEY_S, KEY_V, KEY_KP_SUBTRACT, KEY_KP_ADD,
-    ACTION_RELEASE,
+    KEY_MINUS, KEY_EQUAL, KEY_C, KEY_D, KEY_M, KEY_S, KEY_V, KEY_KP_SUBTRACT, KEY_KP_ADD, Action,
 } from "../core/glfw_input";
 
 namespace MemoryManagement {
@@ -339,7 +338,7 @@ namespace MemoryManagement {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action == ACTION_RELEASE) {
+            if (action == Action.Release) {
                 return 0;
             }
             if (key == KEY_S) {

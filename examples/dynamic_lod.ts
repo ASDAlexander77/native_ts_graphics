@@ -8,9 +8,7 @@ import {
     matrixInverse, matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose,
     planeNormalize, row, vadd, vsub, XM_PI,
 } from "../core/directx_math";
-import {
-    KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_KP_SUBTRACT, KEY_KP_ADD, ACTION_RELEASE, ACTION_PRESS,
-} from "../core/glfw_input";
+import { KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_KP_SUBTRACT, KEY_KP_ADD, Action } from "../core/glfw_input";
 import { SimpleCamera } from "../core/simple_camera";
 
 namespace DynamicLod {
@@ -166,7 +164,7 @@ namespace DynamicLod {
 
         // OnKeyDown / OnKeyUp.
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (action == ACTION_PRESS) {
+            if (action == Action.Press) {
                 if (key == KEY_EQUAL || key == KEY_KP_ADD) {
                     this.instanceLevel++;
                     this.regenerateInstances();
@@ -181,7 +179,7 @@ namespace DynamicLod {
                 this.camera.onKey(key, true);
                 return 1;
             }
-            if (action == ACTION_RELEASE) {
+            if (action == Action.Release) {
                 this.camera.onKey(key, false);
                 return 1;
             }

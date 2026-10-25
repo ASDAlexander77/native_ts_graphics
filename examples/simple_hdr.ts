@@ -5,9 +5,8 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
 import {
-    KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_ENTER, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
-    KEY_KP_SUBTRACT, KEY_KP_ADD, KEY_KP_ENTER, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, ACTION_RELEASE,
-    ACTION_PRESS,
+    KEY_SPACE, KEY_MINUS, KEY_EQUAL, KEY_ENTER, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_KP_SUBTRACT, KEY_KP_ADD,
+    KEY_KP_ENTER, KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT, Action,
 } from "../core/glfw_input";
 
 namespace SimpleHdr {
@@ -65,11 +64,13 @@ namespace SimpleHdr {
     // DroidSans Mono at 36 pixels), in layout pixels.
     const FONT_LAYOUT_SIZE = 57.6;
     const FONT_SCALES = [1.0, 0.75, 0.65, 0.4, 1.75];
-    const FONT_TITLE = 0;
-    const FONT_TEXT = 1;
-    const FONT_HELP = 2;
-    const FONT_SMALL = 3;
-    const FONT_COUNTDOWN = 4;
+    enum FontKind {
+        Title = 0,
+        Text = 1,
+        Help = 2,
+        Small = 3,
+        Countdown = 4
+    }
 
     // DrawConstants of simple_hdr_scene.hlsl: rect, color, the pixels-to-clip-space scale and offset.
     const DRAW_CONSTANTS_FLOATS = 12;
@@ -249,12 +250,12 @@ namespace SimpleHdr {
 
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_UP || key == KEY_RIGHT) {
-                this.upHeld = action != ACTION_RELEASE;
+                this.upHeld = action != Action.Release;
             } else if (key == KEY_DOWN || key == KEY_LEFT) {
-                this.downHeld = action != ACTION_RELEASE;
+                this.downHeld = action != Action.Release;
             } else if (key == KEY_LEFT_SHIFT || key == KEY_RIGHT_SHIFT) {
-                this.shiftHeld = action != ACTION_RELEASE;
-            } else if (action == ACTION_PRESS) {
+                this.shiftHeld = action != Action.Release;
+            } else if (action == Action.Press) {
                 if (key == KEY_SPACE) {
                     this.render2084Curve = !this.render2084Curve;
                 } else if (key == KEY_ENTER || key == KEY_KP_ENTER) {
@@ -568,7 +569,7 @@ namespace SimpleHdr {
 
         // Text at the sample's layout position, in one of its font scales; right-aligned at x if
         // alignRight (where the sample's text is rotated by -90 degrees).
-        text(font: int, x: number, y: number, text: string, alignRight: boolean) {
+        text(font: FontKind, x: number, y: number, text: string, alignRight: boolean) {
             const sample = this.sample;
             sample.fonts[font].push();
             Donut_ImGuiDrawText(x * sample.frameWidth / LAYOUT_WIDTH, y * sample.frameHeight / LAYOUT_HEIGHT, text,
@@ -583,26 +584,26 @@ namespace SimpleHdr {
             const startY = 40.0;
             const startX = 50.0;
             let y = startY + 270.0;
-            this.text(FONT_TEXT, startX, y, "HDR Scene Values", false);
-            this.text(FONT_TEXT, startX, y + 40.0, "SDR sRGB Curve", false);
-            this.text(FONT_TEXT, startX, y + 80.0, "HDR ST.2084 Curve", false);
-            this.text(FONT_TEXT, startX, y + 120.0, "HDR Nits Output", false);
+            this.text(FontKind.Text, startX, y, "HDR Scene Values", false);
+            this.text(FontKind.Text, startX, y + 40.0, "SDR sRGB Curve", false);
+            this.text(FontKind.Text, startX, y + 80.0, "HDR ST.2084 Curve", false);
+            this.text(FontKind.Text, startX, y + 120.0, "HDR Nits Output", false);
 
             let x = startX + 100.0;
             for (let i = 0; i < NUM_INPUT_VALUES; i++) {
                 const hdrSceneValue = sample.hdrSceneValues[i];
                 x += step;
-                this.text(FONT_TEXT, x, y, formatFixed(hdrSceneValue, 6), false);
-                this.text(FONT_TEXT, x, y + 40.0, formatFixed(linearToSRGB(hdrSceneValue), 6), false);
-                this.text(FONT_TEXT, x, y + 80.0, formatFixed(sceneValueToST2084(hdrSceneValue, sample.paperWhiteNits), 6), false);
-                this.text(FONT_TEXT, x, y + 120.0, formatFixed(calcNits(hdrSceneValue, sample.paperWhiteNits), 6), false);
+                this.text(FontKind.Text, x, y, formatFixed(hdrSceneValue, 6), false);
+                this.text(FontKind.Text, x, y + 40.0, formatFixed(linearToSRGB(hdrSceneValue), 6), false);
+                this.text(FontKind.Text, x, y + 80.0, formatFixed(sceneValueToST2084(hdrSceneValue, sample.paperWhiteNits), 6), false);
+                this.text(FontKind.Text, x, y + 120.0, formatFixed(calcNits(hdrSceneValue, sample.paperWhiteNits), 6), false);
             }
 
             y = startY + 700.0;
             x = startX + 100.0 + step + step - 15.0;
-            this.text(FONT_TEXT, x, y, "Paper White", false);
+            this.text(FontKind.Text, x, y, "Paper White", false);
             if (!sample.showOnlyPaperWhite) {
-                this.text(FONT_TEXT, x + step + 45.0, y, "Bright", false);
+                this.text(FontKind.Text, x + step + 45.0, y, "Bright", false);
             }
         }
 
@@ -614,37 +615,37 @@ namespace SimpleHdr {
             const viewportWidth = 1675.0;
             const viewportHeight = 600.0;
             let y = startY + viewportHeight + 5.0;
-            this.text(FONT_SMALL, startX - 100.0, y, "Linear", false);
-            this.text(FONT_SMALL, startX - 100.0, y + 20.0, "Nits", false);
-            this.text(FONT_SMALL, startX - 100.0, y + 40.0, "HDR Scene", false);
+            this.text(FontKind.Small, startX - 100.0, y, "Linear", false);
+            this.text(FontKind.Small, startX - 100.0, y + 20.0, "Nits", false);
+            this.text(FontKind.Small, startX - 100.0, y + 40.0, "HDR Scene", false);
 
-            this.text(FONT_SMALL, startX + viewportWidth - 5.0, y, "1.0", false);      // Always [0..1]
-            this.text(FONT_SMALL, startX + viewportWidth - 5.0, y + 20.0, "10K", false);  // Spec defines 10K nits
+            this.text(FontKind.Small, startX + viewportWidth - 5.0, y, "1.0", false);      // Always [0..1]
+            this.text(FontKind.Small, startX + viewportWidth - 5.0, y + 20.0, "10K", false);  // Spec defines 10K nits
             // Max HDR scene value changes as white paper nits change
-            this.text(FONT_SMALL, startX + viewportWidth - 5.0, y + 40.0, formatFixed(MAX_NITS_FOR_2084 / sample.paperWhiteNits, 0), false);
+            this.text(FontKind.Small, startX + viewportWidth - 5.0, y + 40.0, formatFixed(MAX_NITS_FOR_2084 / sample.paperWhiteNits, 0), false);
 
             const normalizedLinearValue = Math.fround(sample.current2084CurveRenderingNits / MAX_NITS_FOR_2084);
             const normalizedNonLinearValue = linearToST2084(normalizedLinearValue);
             const hdrSceneValue = sample.current2084CurveRenderingNits / sample.paperWhiteNits;
             const x = normalizedLinearValue * viewportWidth + 1.0;
             const curveY = viewportHeight - normalizedNonLinearValue * viewportHeight;
-            this.text(FONT_SMALL, startX + x, y, formatFixed(normalizedLinearValue, 2), false);
-            this.text(FONT_SMALL, startX + x, y + 20.0, formatFixed(sample.current2084CurveRenderingNits, 0), false);
-            this.text(FONT_SMALL, startX + x, y + 40.0, formatFixed(hdrSceneValue, 2), false);
+            this.text(FontKind.Small, startX + x, y, formatFixed(normalizedLinearValue, 2), false);
+            this.text(FontKind.Small, startX + x, y + 20.0, formatFixed(sample.current2084CurveRenderingNits, 0), false);
+            this.text(FontKind.Small, startX + x, y + 40.0, formatFixed(hdrSceneValue, 2), false);
 
             // The sample's vertical labels (rotated by -90 degrees), here horizontal, right-aligned
             // left of the curve.
-            this.text(FONT_SMALL, startX - 5.0, startY - 50.0, "ST.2084", true);
-            this.text(FONT_SMALL, startX - 5.0, startY - 30.0, "Nits", true);
-            this.text(FONT_SMALL, startX - 5.0, curveY + startY - 20.0, formatFixed(normalizedNonLinearValue, 2), true);
-            this.text(FONT_SMALL, startX - 5.0, curveY + startY, formatFixed(sample.current2084CurveRenderingNits, 0), true);
+            this.text(FontKind.Small, startX - 5.0, startY - 50.0, "ST.2084", true);
+            this.text(FontKind.Small, startX - 5.0, startY - 30.0, "Nits", true);
+            this.text(FontKind.Small, startX - 5.0, curveY + startY - 20.0, formatFixed(normalizedNonLinearValue, 2), true);
+            this.text(FontKind.Small, startX - 5.0, curveY + startY, formatFixed(sample.current2084CurveRenderingNits, 0), true);
 
             // Text for blocks
             const size = 150.0;
-            this.text(FONT_SMALL, LAYOUT_WIDTH - size * 4.0 - 5.0, 50.0 + size / 2.0, "Paper White", true);
+            this.text(FontKind.Small, LAYOUT_WIDTH - size * 4.0 - 5.0, 50.0 + size / 2.0, "Paper White", true);
             y = 50.0 + size;
-            this.text(FONT_SMALL, LAYOUT_WIDTH - size * 4.0 + 25.0, y, `${formatFixed(sample.paperWhiteNits, 0)} nits`, false);
-            this.text(FONT_SMALL, LAYOUT_WIDTH - size * 4.0 + 25.0 + size * 2.0, y, `${formatFixed(sample.current2084CurveRenderingNits, 0)} nits`, false);
+            this.text(FontKind.Small, LAYOUT_WIDTH - size * 4.0 + 25.0, y, `${formatFixed(sample.paperWhiteNits, 0)} nits`, false);
+            this.text(FontKind.Small, LAYOUT_WIDTH - size * 4.0 + 25.0 + size * 2.0, y, `${formatFixed(sample.current2084CurveRenderingNits, 0)} nits`, false);
         }
 
         // The sample's RenderUI, with its keyboard controls.
@@ -652,23 +653,23 @@ namespace SimpleHdr {
             const sample = this.sample;
             const startX = 50.0;
             const startY = 40.0;
-            this.text(FONT_TITLE, startX, startY, `SimpleHDR Sample for ${sample.apiName}`, false);
+            this.text(FontKind.Title, startX, startY, `SimpleHDR Sample for ${sample.apiName}`, false);
 
             if (sample.render2084Curve) {
                 this.curveText();
             } else {
-                this.text(FONT_TEXT, startX, startY + 100.0, sample.hdrMode() ? "TV in HDR Mode: TRUE" : "TV in HDR Mode: FALSE", false);
+                this.text(FontKind.Text, startX, startY + 100.0, sample.hdrMode() ? "TV in HDR Mode: TRUE" : "TV in HDR Mode: FALSE", false);
                 this.hdrSceneText();
             }
 
-            this.text(FONT_HELP, startX, 955.0, "Space - Toggle displaying ST.2084 curve", false);
-            this.text(FONT_HELP, startX, 990.0, "Enter - Toggle displaying only paper white block", false);
-            this.text(FONT_HELP, LAYOUT_WIDTH / 2.0 + startX, 955.0, "+ / - - Adjust paper white nits", false);
-            this.text(FONT_HELP, LAYOUT_WIDTH / 2.0 + startX, 990.0, "Up/Down - Adjust values quickly", false);
-            this.text(FONT_HELP, LAYOUT_WIDTH / 2.0 + startX, 1025.0, "Shift + Up/Down - Adjust values slowly", false);
+            this.text(FontKind.Help, startX, 955.0, "Space - Toggle displaying ST.2084 curve", false);
+            this.text(FontKind.Help, startX, 990.0, "Enter - Toggle displaying only paper white block", false);
+            this.text(FontKind.Help, LAYOUT_WIDTH / 2.0 + startX, 955.0, "+ / - - Adjust paper white nits", false);
+            this.text(FontKind.Help, LAYOUT_WIDTH / 2.0 + startX, 990.0, "Up/Down - Adjust values quickly", false);
+            this.text(FontKind.Help, LAYOUT_WIDTH / 2.0 + startX, 1025.0, "Shift + Up/Down - Adjust values slowly", false);
 
             if (sample.countDownToBright >= 0.0) {
-                this.text(FONT_COUNTDOWN, 1170.0, 550.0, formatFixed(sample.countDownToBright, 0), false);
+                this.text(FontKind.Countdown, 1170.0, 550.0, formatFixed(sample.countDownToBright, 0), false);
             }
         }
     }

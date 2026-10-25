@@ -7,8 +7,7 @@ import { SdkMesh } from "../core/sdk_mesh";
 import { transpose, inverse, cross3, dot3, normalize3, multiplyF32 } from "../core/matrix";
 import { formatFixed } from "../core/text_format";
 import {
-    KEY_SPACE, KEY_A, KEY_D, KEY_F, KEY_R, KEY_S, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP,
-    KEY_F1, ACTION_RELEASE, ACTION_PRESS,
+    KEY_SPACE, KEY_A, KEY_D, KEY_F, KEY_R, KEY_S, KEY_TAB, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_F1, Action,
 } from "../core/glfw_input";
 
 namespace RaytracingAo {
@@ -73,8 +72,10 @@ namespace RaytracingAo {
     const SSAO_SLICES = 12;
 
     // Menus.h: the lighting model shown when not split.
-    const LIGHTING_AO = 0;
-    const LIGHTING_SSAO = 1;
+    enum LightingMode {
+        Ao = 0,
+        Ssao = 1
+    }
     const LIGHTING_MODEL_COUNT = 2;
     const MENU_LINE_THICKNESS = 20.0;
     const MENU_BORDER = 20.0;
@@ -433,7 +434,7 @@ namespace RaytracingAo {
         meshIndex: int;
         isSplit: boolean;
         radius: number;
-        lightingModel: int;
+        lightingModel: LightingMode;
         showFPS: boolean;
         showHelp: boolean;
         selection: int;
@@ -516,7 +517,7 @@ namespace RaytracingAo {
             this.meshIndex = 0;
             this.isSplit = true;
             this.radius = INITIAL_RADIUS;
-            this.lightingModel = LIGHTING_AO;
+            this.lightingModel = LightingMode.Ao;
             this.showFPS = true;
             this.showHelp = false;
             this.selection = 0;
@@ -727,11 +728,11 @@ namespace RaytracingAo {
         // Sample::Update's keys and Menus::ProcessKeys.
         onKey(key: int, scancode: int, action: int, mods: int) {
             if (key == KEY_A) {
-                this.aHeld = action != ACTION_RELEASE;
+                this.aHeld = action != Action.Release;
             } else if (key == KEY_D) {
-                this.dHeld = action != ACTION_RELEASE;
+                this.dHeld = action != Action.Release;
             }
-            if (action == ACTION_PRESS) {
+            if (action == Action.Press) {
                 if (key == KEY_SPACE) {
                     this.meshIndex = (this.meshIndex + 1) % MESH_FILES.length;
                 } else if (key == KEY_S) {
@@ -760,7 +761,7 @@ namespace RaytracingAo {
                         this.updateOptions = true;
                     }
                 }
-            } else if (action == ACTION_RELEASE && (key == KEY_LEFT || key == KEY_RIGHT)) {
+            } else if (action == Action.Release && (key == KEY_LEFT || key == KEY_RIGHT)) {
                 this.delta = 0.0;
             }
             return 1;
@@ -1247,8 +1248,8 @@ namespace RaytracingAo {
             commandList.writeBuffer(this.ssaoBuffer, Ref(this.ssaoConstants[0]), SSAO_SLICE_FLOATS * SSAO_SLICES * 4);
 
             // Apply lighting model: split, SSAO left and AO right.
-            const runAo = this.isSplit || this.lightingModel == LIGHTING_AO;
-            const runSsao = this.isSplit || this.lightingModel == LIGHTING_SSAO;
+            const runAo = this.isSplit || this.lightingModel == LightingMode.Ao;
+            const runSsao = this.isSplit || this.lightingModel == LightingMode.Ssao;
             if (runAo) {
                 this.runAo(frame);
             }
@@ -1410,7 +1411,7 @@ namespace RaytracingAo {
                 this.box(start, 0.0, start + MENU_LINE_THICKNESS, screenHeight, 0.1, 1.0);
             } else {
                 // DrawLabel
-                const text = sample.lightingModel == LIGHTING_AO ? "AO" : "SSAO";
+                const text = sample.lightingModel == LightingMode.Ao ? "AO" : "SSAO";
                 const width = Donut_ImGuiCalcTextWidth(text);
                 this.label(text, (screenWidth - width) / 2.0, screenHeight - LINE_SPACING - MENU_BORDER, WHITE, WHITE, WHITE);
             }
@@ -1494,7 +1495,7 @@ namespace RaytracingAo {
         }
         sample.meshIndex = args.maze ? 1 : 0;
         sample.isSplit = !args.full;
-        sample.lightingModel = args.ssao ? LIGHTING_SSAO : LIGHTING_AO;
+        sample.lightingModel = args.ssao ? LightingMode.Ssao : LightingMode.Ao;
         sample.showHelp = args.help;
 
         const input = new InputPass(app.handle);

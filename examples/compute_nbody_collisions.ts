@@ -4,9 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, isFinite32 } from "../core/test_check";
 import { radians, perspProjD3DStyleReverse } from "../core/matrix";
-import {
-    KEY_SPACE, KEY_C, KEY_H, KEY_P, KEY_T, ACTION_RELEASE, ACTION_PRESS,
-} from "../core/glfw_input";
+import { KEY_SPACE, KEY_C, KEY_H, KEY_P, KEY_T, Action } from "../core/glfw_input";
 
 namespace ComputeNBodyCollisions {
     const WINDOW_TITLE = "Donut Example: Compute N-Body Collisions";
@@ -142,16 +140,20 @@ namespace ComputeNBodyCollisions {
     // How the light particles are placed around their attractor (sigma / radius from the cloud
     // spread), and how the attractors are laid out (the radius is the layout's, in scene units).
     const PARTICLE_LAYOUTS = "Gaussian cloud|Uniform ball|Spherical shell|Flat disk";
-    const PARTICLE_LAYOUT_GAUSSIAN = 0;
-    const PARTICLE_LAYOUT_BALL = 1;
-    const PARTICLE_LAYOUT_SHELL = 2;
-    const PARTICLE_LAYOUT_DISK = 3;
+    enum ParticleLayout {
+        Gaussian = 0,
+        Ball = 1,
+        Shell = 2,
+        Disk = 3
+    }
     const ATTRACTOR_LAYOUTS = "Preset (random beyond 6)|Random in a ball|Ring|Sphere|Line";
-    const ATTRACTOR_LAYOUT_PRESET = 0;
-    const ATTRACTOR_LAYOUT_RANDOM = 1;
-    const ATTRACTOR_LAYOUT_RING = 2;
-    const ATTRACTOR_LAYOUT_SPHERE = 3;
-    const ATTRACTOR_LAYOUT_LINE = 4;
+    enum AttractorLayout {
+        Preset = 0,
+        Random = 1,
+        Ring = 2,
+        Sphere = 3,
+        Line = 4
+    }
     const DEFAULT_LAYOUT_RADIUS = 8.0;
     const LAYOUT_RADIUS_MAX = 30.0;
     // Longest simulation step, in seconds: a stall (window dragged, breakpoint) would otherwise move
@@ -430,8 +432,8 @@ namespace ComputeNBodyCollisions {
             this.uiHeavyRadius = HEAVY_RADIUS;
             this.uiLightRadiusMin = LIGHT_RADIUS_MIN;
             this.uiLightRadiusMax = LIGHT_RADIUS_MAX;
-            this.uiParticleLayout = PARTICLE_LAYOUT_GAUSSIAN;
-            this.uiAttractorLayout = ATTRACTOR_LAYOUT_PRESET;
+            this.uiParticleLayout = ParticleLayout.Gaussian;
+            this.uiAttractorLayout = AttractorLayout.Preset;
             this.uiLayoutRadius = DEFAULT_LAYOUT_RADIUS;
             this.uiSpread = DEFAULT_SPREAD;
             this.uiSeed = DEFAULT_SEED;
@@ -618,22 +620,22 @@ namespace ComputeNBodyCollisions {
             this.idleSeconds = 0.0;
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
-            if (key == KEY_SPACE && action == ACTION_PRESS) {
+            if (key == KEY_SPACE && action == Action.Press) {
                 this.paused = !this.paused;
             }
-            if (key == KEY_C && action == ACTION_PRESS) {
+            if (key == KEY_C && action == Action.Press) {
                 this.collisions = !this.collisions;
                 Donut_StoreInt32(Ref(this.simulationConstants[2]), this.collisions ? 1 : 0);
             }
-            if (key == KEY_H && action == ACTION_PRESS) {
+            if (key == KEY_H && action == Action.Press) {
                 this.heating = !this.heating;
                 Donut_StoreInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
             }
 
-            if (key == KEY_P && action == ACTION_PRESS) {
+            if (key == KEY_P && action == Action.Press) {
                 this.showPlanes = !this.showPlanes;
             }
-            if (key == KEY_T && action == ACTION_PRESS) {
+            if (key == KEY_T && action == Action.Press) {
                 this.showTrails = !this.showTrails;
             }
 
@@ -651,9 +653,9 @@ namespace ComputeNBodyCollisions {
 
         onMouseButton(button: int, action: int, mods: int) {
             this.idleSeconds = 0.0;
-            if (action == ACTION_PRESS) {
+            if (action == Action.Press) {
                 this.buttonsDown++;
-            } else if (action == ACTION_RELEASE && this.buttonsDown > 0) {
+            } else if (action == Action.Release && this.buttonsDown > 0) {
                 this.buttonsDown--;
             }
             this.camera.mouseButtonUpdate(button, action, mods);
@@ -1081,7 +1083,7 @@ namespace ComputeNBodyCollisions {
                 let x = 0.0;
                 let y = 0.0;
                 let z = 0.0;
-                if (layout == ATTRACTOR_LAYOUT_PRESET && i < 6) {
+                if (layout == AttractorLayout.Preset && i < 6) {
                     x = preset[i * 3 + 0] * 1.5;
                     y = preset[i * 3 + 1] * 1.5;
                     z = preset[i * 3 + 2] * 1.5;
@@ -1089,18 +1091,18 @@ namespace ComputeNBodyCollisions {
                     clouds.push(preset[i * 3 + 1]);
                     clouds.push(preset[i * 3 + 2]);
                 } else {
-                    if (layout == ATTRACTOR_LAYOUT_RING) {
+                    if (layout == AttractorLayout.Ring) {
                         const angle = 2.0 * Math.PI * i / n;
                         x = radius * Math.cos(angle);
                         z = radius * Math.sin(angle);
-                    } else if (layout == ATTRACTOR_LAYOUT_SPHERE) {
+                    } else if (layout == AttractorLayout.Sphere) {
                         // A Fibonacci spiral over the sphere (one at the pole for a single attractor).
                         const sy = n > 1 ? 1.0 - 2.0 * (i + 0.5) / n : 0.0;
                         const ring = Math.sqrt(1.0 - sy * sy);
                         x = radius * ring * Math.cos(i * 2.399963);
                         y = radius * sy;
                         z = radius * ring * Math.sin(i * 2.399963);
-                    } else if (layout == ATTRACTOR_LAYOUT_LINE) {
+                    } else if (layout == AttractorLayout.Line) {
                         x = n > 1 ? radius * (2.0 * i / (n - 1) - 1.0) : 0.0;
                     } else {
                         // Random in a ball (also the preset's attractors beyond the sixth), drawn
@@ -1189,11 +1191,11 @@ namespace ComputeNBodyCollisions {
                         let py = 0.0;
                         let pz = 0.0;
                         for (let attempt = 0; attempt < MAX_PLACEMENT_ATTEMPTS; attempt++) {
-                            if (layout == PARTICLE_LAYOUT_GAUSSIAN) {
+                            if (layout == ParticleLayout.Gaussian) {
                                 px = ax + randomNormal() * this.spread;
                                 py = ay + randomNormal() * this.spread;
                                 pz = az + randomNormal() * this.spread;
-                            } else if (layout == PARTICLE_LAYOUT_DISK) {
+                            } else if (layout == ParticleLayout.Disk) {
                                 // In the XZ plane (thin), out from the heavy center's surface.
                                 const angle = 2.0 * Math.PI * randomFloat();
                                 const reach = heavyRadius + 2.0 * this.spread * Math.sqrt(randomFloat());
@@ -1207,7 +1209,7 @@ namespace ComputeNBodyCollisions {
                                 const gz = randomNormal();
                                 const length = Math.max(Math.sqrt(gx * gx + gy * gy + gz * gz), 1.0e-6);
                                 const outer = heavyRadius + 2.0 * this.spread;
-                                const fill = layout == PARTICLE_LAYOUT_BALL ? Math.pow(randomFloat(), 1.0 / 3.0) : 1.0;
+                                const fill = layout == ParticleLayout.Ball ? Math.pow(randomFloat(), 1.0 / 3.0) : 1.0;
                                 const reach = outer * fill / length;
                                 px = ax + gx * reach;
                                 py = ay + gy * reach;
@@ -1825,7 +1827,7 @@ namespace ComputeNBodyCollisions {
                     this.uiParticles = particleChoice(choice);
                 }
                 this.uiAttractorLayout = Donut_ImGuiCombo("Attractor layout", this.uiAttractorLayout, ATTRACTOR_LAYOUTS);
-                if (this.uiAttractorLayout != ATTRACTOR_LAYOUT_PRESET) {
+                if (this.uiAttractorLayout != AttractorLayout.Preset) {
                     this.uiLayoutRadius = Donut_ImGuiSliderFloat("Layout radius (u)", this.uiLayoutRadius, 1.0, LAYOUT_RADIUS_MAX);
                 }
                 this.uiHeavyRadius = Donut_ImGuiSliderFloat("Attractor radius (u)", this.uiHeavyRadius, 0.1, HEAVY_RADIUS_MAX);

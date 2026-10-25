@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { perspProjD3DStyleReverse } from "../core/matrix";
-import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
+import { KEY_SPACE, Action } from "../core/glfw_input";
 
 namespace EnvironmentMap {
     // Test mode: the frames rendered.
@@ -153,7 +153,7 @@ namespace EnvironmentMap {
         onKey(key: int, scancode: int, action: int, mods: int) {
             this.camera.keyboardUpdate(key, scancode, action, mods);
 
-            if (key == KEY_SPACE && action == ACTION_PRESS) {
+            if (key == KEY_SPACE && action == Action.Press) {
                 this.enableShadows = !this.enableShadows;
             }
 

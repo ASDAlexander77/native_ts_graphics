@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { dot3, matrixInverse, matrixMultiply, matrixPerspectiveFovRH } from "../core/directx_math";
-import { ACTION_RELEASE, ACTION_PRESS } from "../core/glfw_input";
+import { Action } from "../core/glfw_input";
 import { SimpleCamera } from "../core/simple_camera";
 
 namespace NBodyGravity {
@@ -222,10 +222,10 @@ namespace NBodyGravity {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int): int {
-            if (action != ACTION_PRESS && action != ACTION_RELEASE) {
+            if (action != Action.Press && action != Action.Release) {
                 return 0;
             }
-            return this.camera.onKey(key, action == ACTION_PRESS) ? 1 : 0;
+            return this.camera.onKey(key, action == Action.Press) ? 1 : 0;
         }
 
         // OnUpdate: the camera, by a tenth of a second whatever the frame time (as the sample's).

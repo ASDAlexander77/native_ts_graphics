@@ -9,9 +9,8 @@ import {
     matrixTranslation, normalize3, radians, transformCoord3, transformNormal3, vadd, vsub,
 } from "../core/directx_math";
 import {
-    KEY_SPACE, KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_A, KEY_C, KEY_D, KEY_E, KEY_H, KEY_J, KEY_K,
-    KEY_L, KEY_M, KEY_Q, KEY_S, KEY_T, KEY_U, KEY_W, KEY_Y, KEY_ENTER, KEY_LEFT_SHIFT,
-    ACTION_RELEASE, ACTION_PRESS,
+    KEY_SPACE, KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_A, KEY_C, KEY_D, KEY_E, KEY_H, KEY_J, KEY_K, KEY_L, KEY_M,
+    KEY_Q, KEY_S, KEY_T, KEY_U, KEY_W, KEY_Y, KEY_ENTER, KEY_LEFT_SHIFT, Action, MouseButton,
 } from "../core/glfw_input";
 
 namespace DenoisedRtao {
@@ -22,13 +21,12 @@ namespace DenoisedRtao {
     const ASSETS = "media/denoised_rtao/Assets/";
 
     // GLFW values, as passed to the keyboard and mouse callbacks.
-    const MOUSE_LEFT = 0;
-    const MOUSE_RIGHT = 1;
-
     // CompositionType (RaytracingHlslCompat.h): the views keys 1 to 3 select.
-    const COMPOSITION_PBR_SHADING = 0;
-    const COMPOSITION_AO_DENOISED = 1;
-    const COMPOSITION_AO_RAW = 2;
+    enum CompositionMode {
+        PbrShading = 0,
+        AoDenoised = 1,
+        AoRaw = 2
+    }
 
     // RaytracingHlslCompat.h's grass straws, and the scene's grass LODs (SceneParameters.h).
     const NUM_GRASS_LODS = 5;
@@ -324,7 +322,7 @@ namespace DenoisedRtao {
         // Input for the camera controller: keys held (w, s, a, d, e, q), fine movement, mouse.
         private keys: int[];
         private fineMovement: boolean;
-        private mouseButton: int;
+        private mouseButton: MouseButton;
         private mouseX: number;
         private mouseY: number;
         private mouseDX: number;
@@ -335,7 +333,7 @@ namespace DenoisedRtao {
         private framesToRender: int;
 
         // Settings the keys change.
-        compositionMode: int;
+        compositionMode: CompositionMode;
         private aoEnabled: boolean;
         private maxRayHitTime: number;
 
@@ -431,7 +429,7 @@ namespace DenoisedRtao {
             this.hasMouse = false;
             this.renderOnce = false;
             this.framesToRender = 0;
-            this.compositionMode = COMPOSITION_AO_DENOISED;
+            this.compositionMode = CompositionMode.AoDenoised;
             this.aoEnabled = true;
             this.maxRayHitTime = MAX_RAY_HIT_TIME;
             this.grassSets = [];
@@ -514,22 +512,22 @@ namespace DenoisedRtao {
         onKey(key: int, scancode: int, action: int, mods: int) {
             const held = [KEY_W, KEY_S, KEY_A, KEY_D, KEY_E, KEY_Q];
             for (let i = 0; i < 6; i++) {
-                if (key == held[i] && (action == ACTION_PRESS || action == ACTION_RELEASE)) {
-                    this.keys[i] = action == ACTION_PRESS ? 1 : 0;
+                if (key == held[i] && (action == Action.Press || action == Action.Release)) {
+                    this.keys[i] = action == Action.Press ? 1 : 0;
                     return 1;
                 }
             }
-            if (action != ACTION_PRESS) {
+            if (action != Action.Press) {
                 return 0;
             }
             if (key == KEY_LEFT_SHIFT) {
                 this.fineMovement = !this.fineMovement;
             } else if (key == KEY_1) {
-                this.compositionMode = COMPOSITION_AO_RAW;
+                this.compositionMode = CompositionMode.AoRaw;
             } else if (key == KEY_2) {
-                this.compositionMode = COMPOSITION_AO_DENOISED;
+                this.compositionMode = CompositionMode.AoDenoised;
             } else if (key == KEY_3) {
-                this.compositionMode = COMPOSITION_PBR_SHADING;
+                this.compositionMode = CompositionMode.PbrShading;
             } else if (key == KEY_4) {
                 // RTAO ray lengths: short or long.
                 this.maxRayHitTime = this.maxRayHitTime > 3.9 && this.maxRayHitTime < 4.1 ? 22.0 : 4.0;
@@ -578,9 +576,9 @@ namespace DenoisedRtao {
         }
 
         onMouseButton(button: int, action: int, mods: int) {
-            if (action == ACTION_PRESS && (button == MOUSE_LEFT || button == MOUSE_RIGHT)) {
+            if (action == Action.Press && (button == MouseButton.Left || button == MouseButton.Right)) {
                 this.mouseButton = button;
-            } else if (action == ACTION_RELEASE && button == this.mouseButton) {
+            } else if (action == Action.Release && button == this.mouseButton) {
                 this.mouseButton = -1;
             }
             return 0;
@@ -659,7 +657,7 @@ namespace DenoisedRtao {
             let yaw = 0.0;
             let pitch = 0.0;
             if (this.mouseButton >= 0) {
-                const sign = this.mouseButton == MOUSE_LEFT ? 1.0 : -1.0;
+                const sign = this.mouseButton == MouseButton.Left ? 1.0 : -1.0;
                 yaw = Math.fround(sign * this.mouseDX * 0.0018);
                 pitch = Math.fround(-sign * this.mouseDY * 0.0018);
             }
@@ -812,7 +810,7 @@ namespace DenoisedRtao {
             c[65] = 1000.0;
             storeInt(c, 66, 3);
             // Shadow rays only for the shaded view.
-            storeInt(c, 67, this.compositionMode == COMPOSITION_PBR_SHADING ? 4 : 0);
+            storeInt(c, 67, this.compositionMode == CompositionMode.PbrShading ? 4 : 0);
         }
 
         // RTAO::UpdateConstantBuffer (RTAOConstantBuffer): a new seed from the sample's generator.
@@ -972,7 +970,7 @@ namespace DenoisedRtao {
             cc[5] = 1.0;
             cc[6] = 0.0;
             cc[7] = 0.0;
-            const raw = this.compositionMode == COMPOSITION_AO_RAW ? 1 : 0;
+            const raw = this.compositionMode == CompositionMode.AoRaw ? 1 : 0;
             this.compositionKernel.dispatch(commandList, 0, this.compositionSets[this.temporalCacheIndex * 2 + raw],
                 ceilDivide(WIDTH, 8), ceilDivide(HEIGHT, 8));
 
@@ -1578,7 +1576,7 @@ namespace DenoisedRtao {
     // the house, cars and grass (darker pixels); the denoised AO smooth (few neighboring pixels
     // differ much), the raw one noisy (many do: the denoiser is what smooths it). The shaded view:
     // colored (the cars, the dragon, the grass) as well as gray.
-    function checkFrame(app: App, mode: int) {
+    function checkFrame(app: App, mode: CompositionMode) {
         const width = app.getWindowWidth();
         const height = app.getWindowHeight();
         const pixels: int[] = [];
@@ -1622,7 +1620,7 @@ namespace DenoisedRtao {
         const roughFraction = rough / count;
         const coloredFraction = colored / count;
         console.log(`Mean ${mean}, dark fraction ${darkFraction}, rough fraction ${roughFraction}, colored fraction ${coloredFraction}`);
-        if (mode == COMPOSITION_PBR_SHADING) {
+        if (mode == CompositionMode.PbrShading) {
             if (coloredFraction < 0.04) {
                 return `only ${coloredFraction} of the pixels are colored in the shaded view`;
             }
@@ -1637,7 +1635,7 @@ namespace DenoisedRtao {
         if (coloredFraction > 0.001) {
             return `${coloredFraction} of the AO view's pixels are colored`;
         }
-        if (mode == COMPOSITION_AO_RAW) {
+        if (mode == CompositionMode.AoRaw) {
             if (roughFraction < 0.1) {
                 return `${roughFraction} of the neighboring pixels differ much: the raw AO isn't noisy`;
             }
@@ -1649,15 +1647,15 @@ namespace DenoisedRtao {
 
     class DenoisedRtaoArgs extends Args {
         // -raw / -shaded: start in the raw AO (key 1) or shaded (key 3) view.
-        mode = COMPOSITION_AO_DENOISED;
+        mode: int = CompositionMode.AoDenoised;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-raw") {
-                    this.mode = COMPOSITION_AO_RAW;
+                    this.mode = CompositionMode.AoRaw;
                 } else if (arg == "-shaded") {
-                    this.mode = COMPOSITION_PBR_SHADING;
+                    this.mode = CompositionMode.PbrShading;
                 }
             }
         }

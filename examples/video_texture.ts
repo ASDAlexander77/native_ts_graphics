@@ -5,7 +5,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { VideoPlayer } from "../core/video_player";
 import { rotationY, cross3, dot3, normalize3 } from "../core/matrix";
-import { KEY_SPACE, ACTION_PRESS } from "../core/glfw_input";
+import { KEY_SPACE, Action } from "../core/glfw_input";
 
 namespace VideoTexture {
     // Test mode: the frames rendered.
@@ -264,7 +264,7 @@ namespace VideoTexture {
         }
 
         onKey(key: int, scancode: int, action: int, mods: int) {
-            if (key == KEY_SPACE && action == ACTION_PRESS) {
+            if (key == KEY_SPACE && action == Action.Press) {
                 this.show3D = !this.show3D;
             }
             return 0;

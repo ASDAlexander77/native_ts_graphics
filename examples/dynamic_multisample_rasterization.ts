@@ -72,10 +72,12 @@ namespace DynamicMultisampleRasterization {
     const SAMPLE_COUNTS = [4, 2, 8, 16, 32, 64, 1];
 
     // The draws' groups, in drawing order.
-    const GROUP_OPAQUE = 0;
-    const GROUP_OPAQUE_FLIPPED = 1;
-    const GROUP_TRANSPARENT = 2;
-    const GROUP_TRANSPARENT_FLIPPED = 3;
+    enum DrawGroup {
+        Opaque = 0,
+        OpaqueFlipped = 1,
+        Transparent = 2,
+        TransparentFlipped = 3
+    }
 
     function sampleCountName(count: int) {
         return count == 1 ? "No MSAA" : `${count}X MSAA`;
@@ -349,9 +351,9 @@ namespace DynamicMultisampleRasterization {
                 desc.setInputLayout(this.inputLayout);
                 desc.addBindingLayout(this.bindingLayout);
                 desc.setDepthState(1, 1, ComparisonFunc.Greater);
-                const flipped = group == GROUP_OPAQUE_FLIPPED || group == GROUP_TRANSPARENT_FLIPPED;
+                const flipped = group == DrawGroup.OpaqueFlipped || group == DrawGroup.TransparentFlipped;
                 desc.setRasterState(CullMode.Back, FillMode.Solid, flipped ? 0 : 1);
-                if (group == GROUP_TRANSPARENT || group == GROUP_TRANSPARENT_FLIPPED) {
+                if (group == DrawGroup.Transparent || group == DrawGroup.TransparentFlipped) {
                     desc.setBlendState(1, BlendFactor.SrcAlpha, BlendFactor.InvSrcAlpha, BlendOp.Add,
                         BlendFactor.InvSrcAlpha, BlendFactor.Zero, BlendOp.Add);
                 }
@@ -504,8 +506,8 @@ namespace DynamicMultisampleRasterization {
                         }
                         const transparent = scene.getPrimitiveAlphaMode(p) == AlphaMode.Blend;
                         const flipped = determinant < 0.0;
-                        this.drawGroup.push(transparent ? (flipped ? GROUP_TRANSPARENT_FLIPPED : GROUP_TRANSPARENT)
-                            : (flipped ? GROUP_OPAQUE_FLIPPED : GROUP_OPAQUE));
+                        this.drawGroup.push(transparent ? (flipped ? DrawGroup.TransparentFlipped : DrawGroup.Transparent)
+                            : (flipped ? DrawGroup.OpaqueFlipped : DrawGroup.Opaque));
                         this.drawFirstIndex.push(firstIndex[p]);
                         this.drawIndexCount.push(scene.getIndexCount(p));
                         this.drawBaseVertex.push(baseVertex[p]);
