@@ -2873,6 +2873,10 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // Builds the top level structure over the scene's instances (mask 4 for mirrors, 2 for emissive
 // surfaces unless showEmissiveSurfaces, else 1).
 @nodrops declare function Donut_RtxcrBuildTlas(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle, showEmissiveSurfaces: boolean): void;
+// The morph target meshes' vertex buffers aren't in a permanent state: a command list that rasterizes them says
+// they rest as at its start (Begin) and puts them back at its end (End).
+@nodrops declare function Donut_RtxcrBeginMorphVertexBuffers(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle): void;
+@nodrops declare function Donut_RtxcrEndMorphVertexBuffers(rtxcrScene: RtxcrSceneHandle, openCommandList: CommandListHandle): void;
 @nodrops declare function Donut_RtxcrGetTlas(rtxcrScene: RtxcrSceneHandle): AccelStructHandle;
 // Makes the animated hair's keyframe, line segment and constant buffers (for the meshes with morph targets)
 // and the per-instance mask of them; the number of such meshes.

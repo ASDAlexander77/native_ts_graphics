@@ -3736,4 +3736,7 @@ if (RTXCR_DIR)
     add_tslang_example_test(rtxcr_raster ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.scene.json)
     add_tslang_example_test(rtxcr_raster SUFFIX polytube
         ARGS -width 960 -height 540 -hairTessellationType 0 --scene ${RTXCR_DIR}/assets/claire.scene.json)
+    # The animation scene's hair has morph target vertex buffers, with no permanent state.
+    add_tslang_example_test(rtxcr_raster SUFFIX animation
+        ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
 endif()
