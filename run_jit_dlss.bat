@@ -4,7 +4,5 @@
 @rem core/input_pass.ts for its declarations.
 @pushd %~dp0
 set D=build-release-dlss/bin
-rem set D=build-release-rtxcr/bin
-rem set D=build-release/bin
-"tslang.exe" --shared-libs=%D%/donut_interop_shared.dll %* -- -dx12
+"tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/feature_demo.ts -- -dx12 %*
 @popd

@@ -3,8 +3,7 @@
 @rem imports. From the repo root, where no ../core/input_pass.dll is, so the import reads
 @rem core/input_pass.ts for its declarations.
 @pushd %~dp0
-rem set D=build-release-dlss/bin
 set D=build-release-rtxcr/bin
-rem set D=build-release/bin
-"tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_pathtracer.ts %* -- -dx12 --scene E:/Gits/RTXCR/assets/claire.animation.scene.json
+rem "tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_pathtracer.ts -- -dx12 --scene E:/Gits/RTXCR/assets/claire.animation.scene.json %*
+"tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_raster.ts -- -dx12 --scene E:/Gits/RTXCR/assets/claire.animation.scene.json %*
 @popd

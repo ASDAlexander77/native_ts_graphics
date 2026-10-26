@@ -318,7 +318,7 @@ namespace DenoisedRtao {
         // Input for the camera controller: keys held (w, s, a, d, e, q), fine movement, mouse.
         private keys: int[];
         private fineMovement: boolean;
-        private mouseButton: MouseButton;
+        private mouseButton: MouseButton | undefined;
         private mouseX: number;
         private mouseY: number;
         private mouseDX: number;
@@ -417,7 +417,7 @@ namespace DenoisedRtao {
             this.test = false;
             this.keys = [0, 0, 0, 0, 0, 0];
             this.fineMovement = false;
-            this.mouseButton = -1;
+            this.mouseButton = undefined;
             this.mouseX = 0.0;
             this.mouseY = 0.0;
             this.mouseDX = 0.0;
@@ -561,7 +561,7 @@ namespace DenoisedRtao {
         }
 
         onMousePos(x: number, y: number) {
-            if (this.hasMouse && this.mouseButton >= 0) {
+            if (this.hasMouse && this.mouseButton !== undefined) {
                 this.mouseDX += x - this.mouseX;
                 this.mouseDY += y - this.mouseY;
             }
@@ -572,10 +572,13 @@ namespace DenoisedRtao {
         }
 
         onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
+            const held = this.mouseButton;
             if (action == Action.Press && (button == MouseButton.Left || button == MouseButton.Right)) {
                 this.mouseButton = button;
-            } else if (action == Action.Release && button == this.mouseButton) {
-                this.mouseButton = -1;
+            } else if (action == Action.Release && held !== undefined) {
+                if (held == button) {
+                    this.mouseButton = undefined;
+                }
             }
             return 0;
         }
@@ -652,7 +655,7 @@ namespace DenoisedRtao {
             const ascent = Math.fround(Math.fround(250.0 * speedScale) * ascentKeys);
             let yaw = 0.0;
             let pitch = 0.0;
-            if (this.mouseButton >= 0) {
+            if (this.mouseButton !== undefined) {
                 const sign = this.mouseButton == MouseButton.Left ? 1.0 : -1.0;
                 yaw = Math.fround(sign * this.mouseDX * 0.0018);
                 pitch = Math.fround(-sign * this.mouseDY * 0.0018);
