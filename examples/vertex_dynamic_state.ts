@@ -321,7 +321,7 @@ namespace VertexDynamicState {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("vertex_dynamic_state");
+        Program.setAppName("vertex_dynamic_state");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

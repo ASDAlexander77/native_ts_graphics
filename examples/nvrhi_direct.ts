@@ -102,7 +102,7 @@ namespace NvrhiDirect {
                 return;
             }
 
-            Donut_LogNvrhiMessage(severity, text);
+            NvrhiInterop.logMessage(severity, text);
         }
     }
 
@@ -3923,12 +3923,12 @@ namespace NvrhiDirect {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("nvrhi_direct");
+        Program.setAppName("nvrhi_direct");
 
         const args = new NvrhiDirectArgs(argc, argv);
         args.parseArgs();
 
-        Donut_SetLogMinSeverity(LogSeverity.Warning);
+        Program.setLogMinSeverity(LogSeverity.Warning);
 
         const api = args.api;
         const options = args.options;
@@ -3942,7 +3942,7 @@ namespace NvrhiDirect {
         }
 
         // the devices made from here on report to messageLog
-        Donut_SetNvrhiMessageCallback(<Opaque>messageLog);
+        NvrhiInterop.setMessageCallback(<Opaque>messageLog);
 
         // with a compute queue (testComputeQueue) and Vulkan's ray tracing extensions
         // (testRayTracing) where the device has them; without, elsewhere
@@ -3955,11 +3955,11 @@ namespace NvrhiDirect {
             return 1;
         }
 
-        console.log(`Using ${Donut_GraphicsAPIToString(api)} API with ${app.getRendererString()}.`);
+        console.log(`Using ${Program.graphicsAPIToString(api)} API with ${app.getRendererString()}.`);
 
         runTest(app, api, options == AppOptions.DebugRuntime);
         app.destroy();
-        Donut_SetNvrhiMessageCallback(null);
+        NvrhiInterop.setMessageCallback(null);
 
         if (failures > 0) {
             console.log("Test FAILED!");

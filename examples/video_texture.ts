@@ -361,7 +361,7 @@ namespace VideoTexture {
             if (this.waitForVideo) {
                 let frames = transferred;
                 for (let i = 0; i < 1000 && frames < TEST_VIDEO_FRAMES; i++) {
-                    Donut_SleepMilliseconds(10);
+                    Program.sleepMilliseconds(10);
                     frames += this.transferVideoFrame(commandList);
                 }
                 this.waitForVideo = false;
@@ -514,7 +514,7 @@ namespace VideoTexture {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("video_texture");
+        Program.setAppName("video_texture");
 
         const args = new VideoTextureArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -3,7 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { unsupported } from "../core/test_check";
-import { PbrtScene } from "../core/pbrt_scene";
+import { PbrtScene, Images, Rtao } from "../core/pbrt_scene";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY, matrixScaling,
     matrixTranslation, normalize3, radians, transformCoord3, transformNormal3, vadd, vsub,
@@ -67,7 +67,7 @@ namespace DenoisedRtao {
 
     // Sets a float array's element to an int's bits (uint fields of constant buffers).
     function storeInt(values: f32[], index: int, value: int) {
-        Donut_StoreInt32(Ref(values[index]), value);
+        RawMemory.storeInt32(Ref(values[index]), value);
     }
 
     // A matrix (16 floats, XMMATRIX's memory) into a constant buffer's floats.
@@ -469,15 +469,15 @@ namespace DenoisedRtao {
             const ok = this.loadScenes(commandList);
             if (ok) {
                 // The grass's wind map, decoded by WIC as the sample's loader does.
-                const windPath = Donut_GetExecutableDirectory() + "/" + ASSETS + "wind/wind2.jpg";
-                const size = Donut_DecodeWicImageRGBA8(windPath, null);
+                const windPath = Program.getExecutableDirectory() + "/" + ASSETS + "wind/wind2.jpg";
+                const size = Images.decodeWicRgba8(windPath, null);
                 const width = size & 0xFFFF;
                 const height = (size >> 16) & 0xFFFF;
                 const pixels: int[] = [];
                 for (let i = 0; i < width * height; i++) {
                     pixels.push(0);
                 }
-                Donut_DecodeWicImageRGBA8(windPath, Ref(pixels[0]));
+                Images.decodeWicRgba8(windPath, Ref(pixels[0]));
                 this.windMap = this.app.createTextureWithLevels(width, height, 1, Format.RGBA8_UNORM, "WindMap");
                 commandList.writeTextureLevel(this.windMap, 0, Ref(pixels[0]), width * 4);
                 this.createTargets(commandList);
@@ -981,7 +981,7 @@ namespace DenoisedRtao {
         // perfect mirrors, which AO rays skip), their materials and textures.
         loadScenes(commandList: CommandList) {
             const sceneNames = ["spaceship", "groundplane", "car", "dragon", "house", "mirrorquad", "quad"];
-            const directory = Donut_GetExecutableDirectory() + "/" + ASSETS;
+            const directory = Program.getExecutableDirectory() + "/" + ASSETS;
             const scenes: PbrtScene[] = [];
             let totalVertices = 0;
             let totalIndices = 0;
@@ -1103,10 +1103,10 @@ namespace DenoisedRtao {
                 for (let n = 0; n < 19; n++) {
                     material[n] = Math.fround(values[n]);
                 }
-                Donut_StoreInt32(Ref(material[19]), 1);
-                Donut_StoreInt32(Ref(material[20]), 0);
-                Donut_StoreInt32(Ref(material[21]), 0);
-                Donut_StoreInt32(Ref(material[22]), MATERIAL_TYPE_MATTE);
+                RawMemory.storeInt32(Ref(material[19]), 1);
+                RawMemory.storeInt32(Ref(material[20]), 0);
+                RawMemory.storeInt32(Ref(material[21]), 0);
+                RawMemory.storeInt32(Ref(material[22]), MATERIAL_TYPE_MATTE);
                 material[23] = 0.0;
                 for (let n = 0; n < MATERIAL_VALUES; n++) {
                     materials.push(material[n]);
@@ -1365,7 +1365,7 @@ namespace DenoisedRtao {
             for (let i = 0; i < SAMPLES_PER_SET * NUM_SAMPLE_SETS * 4; i++) {
                 samples.push(0.0);
             }
-            Donut_GenerateRtaoHemisphereSamples(SAMPLES_PER_SET, NUM_SAMPLE_SETS, Ref(samples[0]));
+            Rtao.generateHemisphereSamples(SAMPLES_PER_SET, NUM_SAMPLE_SETS, Ref(samples[0]));
             const commandList = this.app.createCommandList();
             commandList.open();
             const sampleBuffer = this.app.createStaticShaderBuffer(commandList, Ref(samples[0]), samples.length * 4, 16, "HemisphereSamples");
@@ -1662,7 +1662,7 @@ namespace DenoisedRtao {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("denoised_rtao");
+        Program.setAppName("denoised_rtao");
 
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).

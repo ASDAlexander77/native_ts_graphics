@@ -267,8 +267,8 @@ namespace DescriptorIndexing {
             frame.drawSetIndexBuffer(this.quadIndexBuffer);
             for (let i = 0; i < NUM_DESCRIPTORS_NON_UNIFORM; i++) {
                 this.app.writeDescriptorTableTexture(this.updateAfterBindTable, this.descriptorOffset, this.textures[i]);
-                Donut_StoreInt32(Ref(this.push[1]), this.descriptorOffset);
-                Donut_StoreInt32(Ref(this.push[2]), i);
+                RawMemory.storeInt32(Ref(this.push[1]), this.descriptorOffset);
+                RawMemory.storeInt32(Ref(this.push[2]), i);
                 this.descriptorOffset = (this.descriptorOffset + 1) % NUM_DESCRIPTORS_STREAMING;
                 frame.drawIndexedWithPushConstants(4, Ref(this.push[0]), PUSH_SIZE);
             }
@@ -294,7 +294,7 @@ namespace DescriptorIndexing {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("descriptor_indexing");
+        Program.setAppName("descriptor_indexing");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -401,7 +401,7 @@ namespace TextureCompressionBasisu {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("texture_compression_basisu");
+        Program.setAppName("texture_compression_basisu");
 
         const args = new TextureCompressionBasisuArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

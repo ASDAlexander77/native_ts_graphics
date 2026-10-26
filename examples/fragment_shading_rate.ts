@@ -424,7 +424,7 @@ namespace FragmentShadingRate {
                 u[UBO_MODELVIEW + i] = view[i];
                 u[UBO_SKYSPHERE_MODELVIEW + i] = view[i];
             }
-            Donut_StoreInt32(Ref(u[UBO_COLOR_SHADING_RATE]), this.colorShadingRate ? 1 : 0);
+            RawMemory.storeInt32(Ref(u[UBO_COLOR_SHADING_RATE]), this.colorShadingRate ? 1 : 0);
             commandList.writeBuffer(this.uniformBuffer, Ref(u[0]), UBO_FLOATS * 4);
 
             // The render pass: color cleared to transparent black, depth to 0.
@@ -446,7 +446,7 @@ namespace FragmentShadingRate {
                 this.push[1] = 0.0;
                 this.push[2] = 0.0;
                 this.push[3] = 0.0;
-                Donut_StoreInt32(Ref(this.push[4]), ObjectKind.Skysphere);
+                RawMemory.storeInt32(Ref(this.push[4]), ObjectKind.Skysphere);
                 frame.drawIndexedWithPushConstants(this.skysphereMesh.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
             frame.beginDrawToFramebuffer(this.cubePipeline, framebuffer);
@@ -459,7 +459,7 @@ namespace FragmentShadingRate {
                 this.push[1] = MESH_OFFSETS[j * 3 + 1];
                 this.push[2] = MESH_OFFSETS[j * 3 + 2];
                 this.push[3] = 0.0;
-                Donut_StoreInt32(Ref(this.push[4]), ObjectKind.Cube);
+                RawMemory.storeInt32(Ref(this.push[4]), ObjectKind.Cube);
                 frame.drawIndexedWithPushConstants(this.sceneMesh.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
         }
@@ -515,7 +515,7 @@ namespace FragmentShadingRate {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("fragment_shading_rate");
+        Program.setAppName("fragment_shading_rate");
 
         const args = new FragmentShadingRateArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -543,7 +543,7 @@ namespace DynamicRenderingLocalRead {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("dynamic_rendering_local_read");
+        Program.setAppName("dynamic_rendering_local_read");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -620,13 +620,13 @@ export class App {
     }
 
     // A DDS file's texture (path relative to the executable's directory, all its levels; sRGB != 0
-    // views RGBA8 data as sRGB) written by the CPU, with no staging buffer or command list: Vulkan's
-    // VK_EXT_host_image_copy (vkTransitionImageLayoutEXT, vkCopyMemoryToImageEXT into an optimally
-    // tiled device-local image), D3D12's WriteToSubresource (a texture in a CPU-writable custom heap).
-    // It rests as a shader resource. Release it with Donut_ReleaseObject; null (after logging why) on
-    // failure.
-    createHostCopiedTexture(path: string, sRGB: int, debugName: string): HostCopiedTextureHandle | null {
-        return Donut_CreateHostCopiedTexture(this.handle, path, sRGB, debugName);
+    // views RGBA8 data as sRGB) written by the CPU, with no staging buffer or command list:
+    // Vulkan's VK_EXT_host_image_copy (vkTransitionImageLayoutEXT, vkCopyMemoryToImageEXT into an
+    // optimally tiled device-local image), D3D12's WriteToSubresource (a texture in a CPU-writable
+    // custom heap). It rests as a shader resource. Release it with Donut_ReleaseObject; a null
+    // handle (after logging why) on failure.
+    createHostCopiedTexture(path: string, sRGB: int, debugName: string): HostCopiedTexture {
+        return new HostCopiedTexture(Donut_CreateHostCopiedTexture(this.handle, path, sRGB, debugName));
     }
 
     // Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
@@ -4790,6 +4790,24 @@ export class RandomEngine {
     }
 }
 
+@value
+export class HostCopiedTexture {
+    readonly handle: HostCopiedTextureHandle;
+
+    constructor(handle: HostCopiedTextureHandle | null) {
+        this.handle = handle as HostCopiedTextureHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    getTexture(): TextureHandle {
+        return Donut_GetHostCopiedTexture(this.handle);
+    }
+}
+
 export class ImGui {
     static setNextWindowPos(x: number, y: number): void {
         Donut_ImGuiSetNextWindowPos(x, y);
@@ -5005,5 +5023,144 @@ export class ImGui {
     // The width of a line of text in the current font, in UI coordinates.
     static calcTextWidth(text: string): number {
         return Donut_ImGuiCalcTextWidth(text);
+    }
+}
+
+export class CommandLine {
+    // Command line helpers: argv is main's argv.
+    static getArg(argv: Ref<string>, index: int): string {
+        return Donut_GetArg(argv, index);
+    }
+
+    // -d3d11 / -dx11, -d3d12 / -dx12, -vk / -vulkan; D3D12 by default on Windows.
+    static getGraphicsAPI(argc: int, argv: Ref<string>): GraphicsAPI {
+        return Donut_GetGraphicsAPIFromCommandLine(argc, argv);
+    }
+
+    // The examples' test options: -test renders frameCount frames, frameSeconds each, without a
+    // window (Program.setTestMode, for the app created next); -testOutput <file> names an image
+    // file for the last one (Donut_FinishTest). Non-zero if -test is given.
+    static parseTestArgs(argc: int, argv: Ref<string>, frameCount: int, frameSeconds: number): int {
+        return Donut_ParseTestArgs(argc, argv, frameCount, frameSeconds);
+    }
+}
+
+export class Program {
+    static graphicsAPIToString(api: GraphicsAPI): string {
+        return Donut_GraphicsAPIToString(api);
+    }
+
+    // Shaders load from bin/shaders/<name>/<api>; the executable's name by default. Under the
+    // JIT the executable is donut_interop.dll, so name the example before creating the app.
+    static setAppName(name: string): void {
+        Donut_SetAppName(name);
+    }
+
+    // Messages below the severity are dropped.
+    static setLogMinSeverity(severity: LogSeverity): void {
+        Donut_SetLogMinSeverity(severity);
+    }
+
+    // Test mode for the apps created after it: a headless device rendering frameCount frames, each
+    // frameSeconds long, into back buffers that can be read back; no window, input or title.
+    static setTestMode(frameCount: int, frameSeconds: number): void {
+        Donut_SetTestMode(frameCount, frameSeconds);
+    }
+
+    // Blocks the calling thread for `milliseconds` (-test waiting on work that runs in real time, as a
+    // video's decoding).
+    static sleepMilliseconds(milliseconds: int): void {
+        Donut_SleepMilliseconds(milliseconds);
+    }
+
+    // Writes byteSize bytes of data (Ref of a `let` array element, or a Donut data pointer) to a file
+    // (path as given: absolute, or relative to the current directory). 1 on success.
+    static writeBinaryFile(path: string, data: Opaque, byteSize: int): int {
+        return Donut_WriteBinaryFile(path, data, byteSize);
+    }
+
+    // The system's open (open != 0) or save file dialog; filters as "BMP files|*.bmp|All files|*.*".
+    // The chosen path, or "" if cancelled; valid until the next call.
+    static fileDialog(open: boolean, filters: string): string {
+        return Donut_FileDialog(open, filters);
+    }
+
+    // The directory of the executable (of donut_interop.dll under the JIT), '/'-separated.
+    static getExecutableDirectory(): string {
+        return Donut_GetExecutableDirectory();
+    }
+}
+
+export class RawMemory {
+    // A buffer's device address (uint64) into the 8 bytes at dst (Ref of an array element, e.g. of
+    // push constants), for shaders' vk::RawBufferLoad / vk::RawBufferStore.
+    static copyBufferDeviceAddress(buffer: BufferHandle, dst: Opaque): void {
+        Donut_CopyBufferDeviceAddress(buffer, dst);
+    }
+
+    // Stores an int's bits at dst (Ref of an f32 array element), for int / uint fields of structures
+    // laid out as f32 arrays.
+    static storeInt32(dst: Opaque, value: int): void {
+        Donut_StoreInt32(dst, value);
+    }
+
+    // A buffer's GPU address (8 bytes; its device address on Vulkan) into dst (Ref of a `let` array
+    // element), for shaders that write it through the address; 0 if it has none.
+    static storeBufferDeviceAddress(dst: Opaque, buffer: BufferHandle): void {
+        Donut_StoreBufferDeviceAddress(dst, buffer);
+    }
+}
+
+export class ConstantSizes {
+    // For constant buffers that embed a LightConstants (donut/shaders/light_cb.h): its size in
+    // bytes (a multiple of 16), and a light's constants written to dst (Ref of a `let` array element).
+    static light(): int {
+        return Donut_GetLightConstantsSize();
+    }
+
+    // For constant buffers that embed a PlanarViewConstants (donut/shaders/view_cb.h): its size in
+    // bytes (a multiple of 16), and the view's constants written to dst (Ref of a `let` array element).
+    static planarView(): int {
+        return Donut_GetPlanarViewConstantsSize();
+    }
+}
+
+export class Formats {
+    // nvrhi::Format values 0 .. count-1, their names and nvrhi::FormatSupport bits.
+    static count(): int {
+        return Donut_GetFormatCount();
+    }
+
+    static name(format: int): string {
+        return Donut_GetFormatName(format);
+    }
+}
+
+export class NvrhiInterop {
+    // 1 if core/nvrhi.ts can call NVRHI's interfaces in this build: their vtables, member function
+    // convention and std::string are MSVC x64's (core/nvrhi_abi.win32.ts) or those of Android's clang
+    // and libc++ on x86-64 or AArch64 (core/nvrhi_abi.linux.ts); 0 otherwise.
+    static canCallDirectly(): int {
+        return Donut_CanCallNvrhiDirectly();
+    }
+
+    // The nvrhi::IMessageCallback the devices created after this get: an object of a tslang class
+    // implementing nvrhi.IMessageCallback (core/nvrhi.ts), which the caller keeps alive - in a global -
+    // for as long as the devices live, as C++ holds it where the collector doesn't look; null for
+    // Donut's, which logs the messages.
+    static setMessageCallback(callback: Opaque | null): void {
+        Donut_SetNvrhiMessageCallback(callback);
+    }
+
+    // What Donut does with an NVRHI message (an nvrhi.MESSAGE_SEVERITY_* value): logs it, and a Fatal
+    // one ends the program. For a callback that passes messages on.
+    static logMessage(severity: int, text: string): void {
+        Donut_LogNvrhiMessage(severity, text);
+    }
+
+    // sizeof an NVRHI struct core/nvrhi.ts lays out as a tuple (named as in NVRHI), or -1: its layout
+    // depends on the C++ build (std::string's on the CRT), so nvrhi.layoutMatches() compares the two.
+    static getStructSize(name: string): int {
+        return Donut_GetNvrhiStructSize(name);
     }
 }

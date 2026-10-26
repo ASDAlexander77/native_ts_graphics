@@ -419,7 +419,7 @@ namespace RayTracingReflection {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("ray_tracing_reflection");
+        Program.setAppName("ray_tracing_reflection");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

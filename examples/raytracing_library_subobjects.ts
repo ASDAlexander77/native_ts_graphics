@@ -359,7 +359,7 @@ namespace RaytracingLibrarySubobjects {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("raytracing_library_subobjects");
+        Program.setAppName("raytracing_library_subobjects");
 
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).

@@ -242,8 +242,8 @@ namespace DynamicPrimitiveClipping {
             u[UBO_COLOR_TRANSFORMATION + 1] = colorOffset;
             u[UBO_COLOR_TRANSFORMATION + 2] = 0.0;
             u[UBO_COLOR_TRANSFORMATION + 3] = 0.0;
-            Donut_StoreInt32(Ref(u[UBO_SCENE_TRANSFORMATION]), this.visualization);
-            Donut_StoreInt32(Ref(u[UBO_SCENE_TRANSFORMATION + 1]), sign);
+            RawMemory.storeInt32(Ref(u[UBO_SCENE_TRANSFORMATION]), this.visualization);
+            RawMemory.storeInt32(Ref(u[UBO_SCENE_TRANSFORMATION + 1]), sign);
             u[UBO_USE_PRIMITIVE_CLIPPING] = this.usePrimitiveClipping ? 1.0 : -1.0;
             commandList.writeBuffer(buffer, Ref(u[0]), UBO_FLOATS * 4);
         }
@@ -349,7 +349,7 @@ namespace DynamicPrimitiveClipping {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("dynamic_primitive_clipping");
+        Program.setAppName("dynamic_primitive_clipping");
 
         const args = new DynamicPrimitiveClippingArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

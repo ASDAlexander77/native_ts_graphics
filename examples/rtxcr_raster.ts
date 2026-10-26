@@ -678,7 +678,7 @@ namespace RtxcrRaster {
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        Donut_SetAppName("rtxcr_raster");
+        Program.setAppName("rtxcr_raster");
 
         const args = new RtxcrRasterArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

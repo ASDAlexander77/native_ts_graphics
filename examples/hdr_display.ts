@@ -562,7 +562,7 @@ namespace HdrDisplay {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("hdr_display");
+        Program.setAppName("hdr_display");
 
         // -noui: without the UI layer (U).
         // -test [-testOutput <file>] [-testFormat 8|10|16]: render a few frames without a window,

@@ -1148,7 +1148,7 @@ namespace Bokeh {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("bokeh");
+        Program.setAppName("bokeh");
 
         const args = new BokehArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

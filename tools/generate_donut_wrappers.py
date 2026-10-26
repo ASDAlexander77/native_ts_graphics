@@ -4,8 +4,8 @@ Every Donut_* function whose first parameter is a C++ object handle (`app: Opaqu
 `frame: Opaque`, ...) becomes a method of the class for that object (App, Frame, ...), which holds
 the handle. Handle-less functions returning such an object become static methods of its class
 (App.create, BindingSetDesc.create, ...); the other handle-less functions (ImGui, command line
-helpers, ...) stay free functions only, except the Donut_ImGui* ones, which become the static methods
-of ImGui (STATIC_ONLY: a class of static methods, holding no handle).
+helpers, ...) become the static methods of the classes of STATIC_ONLY (ImGui, Program, CommandLine, ...:
+classes of static methods, holding no handle).
 
     python tools/generate_donut_wrappers.py
 
@@ -103,6 +103,7 @@ CLASSES = {
     "sharedTexture": "SharedTexture",
     "stagingTexture": "StagingTexture",
     "randomEngine": "RandomEngine",
+    "hostCopiedTexture": "HostCopiedTexture",
 }
 
 # Classes whose functions an optional C++ file defines -> (module in core/, that file): emitted into
@@ -118,6 +119,10 @@ MODULES = {
     "FbcTexture": ("fbc_texture", "core/fast_block_compress.cpp"),
     "TranscodedTexture": ("transcoded_texture", "core/basis_transcoder.cpp"),
     "VideoPlayer": ("video_player", "core/video_player.cpp"),
+    "DirectXCollision": ("directx_collision", "core/directx_collision.cpp"),
+    "Rotation": ("directx_collision", "core/directx_collision.cpp"),
+    "Rtao": ("pbrt_scene", "core/denoised_rtao.cpp"),
+    "Images": ("pbrt_scene", "core/denoised_rtao.cpp"),
 }
 
 # Further parameter names that hold one of those objects.
@@ -133,7 +138,27 @@ PARAMETER_ALIASES = {
 
 # Classes of static methods only, holding no handle: the handle-less functions whose names start with
 # the prefix go to them (Donut_ImGuiBegin -> ImGui.begin).
-STATIC_ONLY = {"ImGui": "Donut_ImGui"}
+STATIC_ONLY = {
+    "ImGui": ("Donut_ImGui",),
+    # The command line and the process: what a program does before it has an App.
+    "CommandLine": ("Donut_GetArg", "Donut_GetGraphicsAPIFromCommandLine", "Donut_ParseTestArgs"),
+    "Program": ("Donut_SetAppName", "Donut_SetTestMode", "Donut_SetLogMinSeverity", "Donut_GraphicsAPIToString",
+                "Donut_GetExecutableDirectory", "Donut_SleepMilliseconds", "Donut_FileDialog",
+                "Donut_WriteBinaryFile"),
+    # Raw memory for the constants and push constants a program fills by hand.
+    "RawMemory": ("Donut_StoreInt32", "Donut_StoreBufferDeviceAddress", "Donut_CopyBufferDeviceAddress"),
+    # The sizes of Donut's constant structures, and its list of texture formats.
+    "ConstantSizes": ("Donut_GetLightConstantsSize", "Donut_GetPlanarViewConstantsSize"),
+    "Formats": ("Donut_GetFormatCount", "Donut_GetFormatName"),
+    # Calls NVRHI makes through Donut's device, for the programs using NVRHI's classes directly.
+    "NvrhiInterop": ("Donut_CanCallNvrhiDirectly", "Donut_SetNvrhiMessageCallback", "Donut_LogNvrhiMessage",
+                     "Donut_GetNvrhiStructSize"),
+    # DirectXCollision's shapes and frustums, as float arrays.
+    "DirectXCollision": ("Donut_Collision",),
+    "Rotation": ("Donut_QuaternionRotation", "Donut_MatrixRotation"),
+    "Images": ("Donut_DecodeWicImage",),
+    "Rtao": ("Donut_GenerateRtao",),
+}
 
 # Words dropped from a function's name to make its method's name, besides the class name itself
 # (Donut_GetShadowMapTexture -> shadowMap.getTexture).
@@ -164,6 +189,8 @@ NOUNS = {
     "VideoPlayer": ["Video"],
     "D3D12LibraryRtPipeline": ["D3D12LibraryRt"],
     "RandomEngine": ["Random"],
+    "NvrhiInterop": ["Nvrhi", "NvrhiDirectly"],
+    "DirectXCollision": ["Collision"],
     "PagedImageSet": ["PagedImages", "PagedImage"],
     # Views are planar or stereo: keep "PlanarView" / "StereoView" in the names.
     "View": [],
@@ -209,6 +236,14 @@ METHOD_NAMES = {
     "Donut_GetMeshPipelineStatistic": "get",
     "Donut_SetPredicationValue": "setValue",
     "Donut_ImGuiPushFont": "push",
+    "Donut_GetGraphicsAPIFromCommandLine": "getGraphicsAPI",
+    "Donut_GetLightConstantsSize": "light",
+    "Donut_GetPlanarViewConstantsSize": "planarView",
+    "Donut_GetFormatCount": "count",
+    "Donut_GetFormatName": "name",
+    "Donut_DecodeWicImageRGBA8": "decodeWicRgba8",
+    "Donut_CanCallNvrhiDirectly": "canCallDirectly",
+    "Donut_GetHostCopiedTexture": "getTexture",
     "Donut_GetSceneTopLevelAS": "getTopLevelAS",
     "Donut_AddSceneTopLevelASInstances": "addSceneInstances",
     "Donut_AddTopLevelASInstance": "addInstance",
@@ -339,8 +374,8 @@ class Function:
         self.is_method = bool(first and first.cls and not first.nullable)
         self.target = first.cls if self.is_method else self.returns_class
         if not self.target:
-            for cls, prefix in STATIC_ONLY.items():
-                if name.startswith(prefix):
+            for cls, prefixes in STATIC_ONLY.items():
+                if name.startswith(prefixes):
                     self.target = cls
         # A module is compiled apart from donut.ts, which it can't import (tslang would load it
         # twice): its functions take other classes' objects as the raw handles.
@@ -441,8 +476,7 @@ def comments_for(function, previous):
         comments[0] = comments[0].replace("// Same,", f"// Same as {previous.name},", 1)
     if function.target in STATIC_ONLY:
         # "Pair with Donut_ImGuiEnd" -> "Pair with ImGui.end"
-        prefix = STATIC_ONLY[function.target]
-        comments = [re.sub(prefix + r"\w+", lambda m: f"{function.target}.{method_name(STATIC_FUNCTIONS[m.group(0)], function.target)}"
+        comments = [re.sub(r"Donut_\w+", lambda m: (lambda f: f"{f.target}.{method_name(f, f.target)}")(STATIC_FUNCTIONS[m.group(0)])
                            if m.group(0) in STATIC_FUNCTIONS else m.group(0), c)
                     for c in comments]
     if function.returns_class:
@@ -566,7 +600,7 @@ def generate(functions, handles, module=None):
             statics[function.target].append(function)
 
     if module:
-        classes = [cls for cls in CLASSES.values() if MODULES.get(cls, (None,))[0] == module]
+        classes = [cls for cls in all_classes if MODULES.get(cls, (None,))[0] == module]
         source = MODULES[classes[0]][1]
         text = MODULE_HEADER.format(
             classes=("The " + classes[0] + " class" if len(classes) == 1 else "The classes " + ", ".join(classes)),

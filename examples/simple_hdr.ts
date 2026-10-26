@@ -694,7 +694,7 @@ namespace SimpleHdr {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("simple_hdr");
+        Program.setAppName("simple_hdr");
 
         const args = new SimpleHdrArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

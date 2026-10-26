@@ -385,7 +385,7 @@ namespace Instancing {
                     // A layer of the texture array (the sample's distribution also picks one past the
                     // last layer, which the sampler clamps to it).
                     const layer: int = Math.min(Math.floor(randomFloat() * ROCK_TEXTURE_LAYERS), ROCK_TEXTURE_LAYERS - 1);
-                    Donut_StoreInt32(Ref(instanceData[instance + 7]), layer);
+                    RawMemory.storeInt32(Ref(instanceData[instance + 7]), layer);
                 }
             }
 
@@ -449,7 +449,7 @@ namespace Instancing {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("instancing");
+        Program.setAppName("instancing");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

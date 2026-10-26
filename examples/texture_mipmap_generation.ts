@@ -360,7 +360,7 @@ namespace TextureMipmapGeneration {
                 u[UBO_MODELVIEW + i] = model[i];
             }
             u[UBO_LOD_BIAS] = this.lodBias;
-            Donut_StoreInt32(Ref(u[UBO_SAMPLER_INDEX]), this.samplerIndex);
+            RawMemory.storeInt32(Ref(u[UBO_SAMPLER_INDEX]), this.samplerIndex);
             commandList.writeBuffer(this.uniformBuffer, Ref(u[0]), UBO_FLOATS * 4);
 
             // The render pass: the framework's clear color, depth cleared to 1.
@@ -475,7 +475,7 @@ namespace TextureMipmapGeneration {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("texture_mipmap_generation");
+        Program.setAppName("texture_mipmap_generation");
 
         const args = new TextureMipmapGenerationArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

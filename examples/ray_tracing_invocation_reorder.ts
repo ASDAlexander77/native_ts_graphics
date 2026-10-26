@@ -439,12 +439,12 @@ namespace RayTracingInvocationReorder {
                 c[CONST_PROJ_INVERSE + i] = projInverse[i];
             }
 
-            Donut_StoreInt32(Ref(c[CONST_RENDER_MODE]), this.renderMode);
-            Donut_StoreInt32(Ref(c[CONST_MAX_RAYS]), MAX_RAYS);
+            RawMemory.storeInt32(Ref(c[CONST_RENDER_MODE]), this.renderMode);
+            RawMemory.storeInt32(Ref(c[CONST_MAX_RAYS]), MAX_RAYS);
             // SER only with the library that has it (see createRayTracingPipeline).
             const ser = this.serEnabled && this.serSupport != ShaderExecutionReordering.None;
-            Donut_StoreInt32(Ref(c[CONST_ENABLE_SER]), ser ? 1 : 0);
-            Donut_StoreInt32(Ref(c[CONST_USE_COHERENCE_HINT]), this.coherenceHintEnabled ? 1 : 0);
+            RawMemory.storeInt32(Ref(c[CONST_ENABLE_SER]), ser ? 1 : 0);
+            RawMemory.storeInt32(Ref(c[CONST_USE_COHERENCE_HINT]), this.coherenceHintEnabled ? 1 : 0);
         }
 
         onRender(frameHandle: FrameHandle) {
@@ -737,7 +737,7 @@ namespace RayTracingInvocationReorder {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("ray_tracing_invocation_reorder");
+        Program.setAppName("ray_tracing_invocation_reorder");
 
         const args = new RayTracingInvocationReorderArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -362,7 +362,7 @@ namespace GraphicsPipelineLibrary {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("graphics_pipeline_library");
+        Program.setAppName("graphics_pipeline_library");
 
         // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).
         const args = new GraphicsPipelineLibraryArgs(argc, argv, TEST_FRAMES);

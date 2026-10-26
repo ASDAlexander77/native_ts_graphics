@@ -527,7 +527,7 @@ namespace DynamicMultisampleRasterization {
                         this.drawPush[pushStart + PUSH_METALLIC_FACTOR] = scene.getMaterialFactor(p, 0);
                         this.drawPush[pushStart + PUSH_ROUGHNESS_FACTOR] = scene.getMaterialFactor(p, 1);
                         for (let k = 0; k < 3; k++) {
-                            Donut_StoreInt32(Ref(this.drawPush[pushStart + PUSH_TEXTURE_INDICES + k]), scene.getMaterialTexture(p, k));
+                            RawMemory.storeInt32(Ref(this.drawPush[pushStart + PUSH_TEXTURE_INDICES + k]), scene.getMaterialTexture(p, k));
                         }
                     }
                 }
@@ -595,7 +595,7 @@ namespace DynamicMultisampleRasterization {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("dynamic_multisample_rasterization");
+        Program.setAppName("dynamic_multisample_rasterization");
 
         const args = new DynamicMultisampleArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

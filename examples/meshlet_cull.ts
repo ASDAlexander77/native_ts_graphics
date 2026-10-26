@@ -979,7 +979,7 @@ namespace MeshletCull {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("meshlet_cull");
+        Program.setAppName("meshlet_cull");
 
         // -test [-testOutput <file>]: render a few frames without a window, the meshlet under the
         // window's center selected, and check the last one (see checkFrame).

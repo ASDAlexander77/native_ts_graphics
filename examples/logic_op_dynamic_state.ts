@@ -517,7 +517,7 @@ namespace LogicOpDynamicState {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("logic_op_dynamic_state");
+        Program.setAppName("logic_op_dynamic_state");
 
         const args = new LogicOpDynamicStateArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

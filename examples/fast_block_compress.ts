@@ -520,10 +520,10 @@ namespace FastBlockCompress {
 
             // We pass in the width of the full texture, but we need the width of the current mip level
             const width = image.width >> this.mipLevel;
-            Donut_StoreInt32(Ref(this.rmsConstants[0]), width);
-            Donut_StoreInt32(Ref(this.rmsConstants[1]), this.mipLevel);
-            Donut_StoreInt32(Ref(this.rmsConstants[2]), 0);
-            Donut_StoreInt32(Ref(this.rmsConstants[3]), image.format == Format.BC5_UNORM ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.rmsConstants[0]), width);
+            RawMemory.storeInt32(Ref(this.rmsConstants[1]), this.mipLevel);
+            RawMemory.storeInt32(Ref(this.rmsConstants[2]), 0);
+            RawMemory.storeInt32(Ref(this.rmsConstants[3]), image.format == Format.BC5_UNORM ? 1 : 0);
 
             commandList.beginMarker("RMS Error");
             let groupsX = Math.max(1, Math.floor(width / 2 / RMS_THREADGROUP_WIDTH));
@@ -553,11 +553,11 @@ namespace FastBlockCompress {
             this.quadConstants[2] = this.offsetY;
             this.quadConstants[3] = image.width / Math.pow(2.0, this.mipLevel);
             this.quadConstants[4] = this.quadConstants[3];
-            Donut_StoreInt32(Ref(this.quadConstants[5]), this.mipLevel);
-            Donut_StoreInt32(Ref(this.quadConstants[6]), this.highlightBlocks ? 1 : 0);
-            Donut_StoreInt32(Ref(this.quadConstants[7]), diffs && this.colorDiffs ? 1 : 0);
-            Donut_StoreInt32(Ref(this.quadConstants[8]), diffs && this.alphaDiffs ? 1 : 0);
-            Donut_StoreInt32(Ref(this.quadConstants[9]), image.format == Format.BC5_UNORM ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.quadConstants[5]), this.mipLevel);
+            RawMemory.storeInt32(Ref(this.quadConstants[6]), this.highlightBlocks ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.quadConstants[7]), diffs && this.colorDiffs ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.quadConstants[8]), diffs && this.alphaDiffs ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.quadConstants[9]), image.format == Format.BC5_UNORM ? 1 : 0);
 
             const vp = this.viewport(viewportIndex);
             frame.beginDraw(this.quadPipeline as GraphicsPipelineHandle);
@@ -889,7 +889,7 @@ namespace FastBlockCompress {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("fast_block_compress");
+        Program.setAppName("fast_block_compress");
 
         const args = new FastBlockCompressArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -132,6 +132,20 @@ declare global {
     var StagingTexture: typeof Donut.StagingTexture;
     type RandomEngine = Donut.RandomEngine;
     var RandomEngine: typeof Donut.RandomEngine;
+    type HostCopiedTexture = Donut.HostCopiedTexture;
+    var HostCopiedTexture: typeof Donut.HostCopiedTexture;
     type ImGui = Donut.ImGui;
     var ImGui: typeof Donut.ImGui;
+    type CommandLine = Donut.CommandLine;
+    var CommandLine: typeof Donut.CommandLine;
+    type Program = Donut.Program;
+    var Program: typeof Donut.Program;
+    type RawMemory = Donut.RawMemory;
+    var RawMemory: typeof Donut.RawMemory;
+    type ConstantSizes = Donut.ConstantSizes;
+    var ConstantSizes: typeof Donut.ConstantSizes;
+    type Formats = Donut.Formats;
+    var Formats: typeof Donut.Formats;
+    type NvrhiInterop = Donut.NvrhiInterop;
+    var NvrhiInterop: typeof Donut.NvrhiInterop;
 }

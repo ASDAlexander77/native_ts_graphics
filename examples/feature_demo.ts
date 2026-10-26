@@ -337,7 +337,7 @@ namespace FeatureDemoExample {
 
             // The whole media folder (the C++ sample lists media/glTF-Sample-Assets/Models only), so
             // that the default scene, media/sponza-plus.scene.json, is in the list too.
-            this.sceneDir = `${Donut_GetExecutableDirectory()}/media/`;
+            this.sceneDir = `${Program.getExecutableDirectory()}/media/`;
             this.sceneFilesAvailable = app.findScenes(this.sceneDir);
 
             const sceneCount = this.sceneFilesAvailable.getCount();
@@ -1194,7 +1194,7 @@ namespace FeatureDemoExample {
             if (state == SceneLoaderState.Loading) {
                 this.renderSplashScreen(frame);
                 if (this.testMode) {
-                    Donut_SleepMilliseconds(TEST_LOADING_WAIT_MS);
+                    Program.sleepMilliseconds(TEST_LOADING_WAIT_MS);
                 }
                 return;
             }
@@ -1471,7 +1471,7 @@ namespace FeatureDemoExample {
             }
 
             if (ImGui.button("Screenshot")) {
-                const fileName = Donut_FileDialog(false, "BMP files|*.bmp|All files|*.*");
+                const fileName = Program.fileDialog(false, "BMP files|*.bmp|All files|*.*");
                 if (fileName != "") {
                     // A copy: the dialog's result is overwritten by its next call.
                     ui.screenshotFileName = `${fileName}`;
@@ -1517,10 +1517,10 @@ namespace FeatureDemoExample {
     // --- Main -------------------------------------------------------------------------------
 
     function printFormats(app: App) {
-        const formatCount = Donut_GetFormatCount();
+        const formatCount = Formats.count();
         for (let format = 0; format < formatCount; format++) {
             const support = app.queryFormatSupport(format);
-            let name = Donut_GetFormatName(format);
+            let name = Formats.name(format);
             while (name.length < 17) {
                 name = " " + name;
             }
@@ -1593,7 +1593,7 @@ namespace FeatureDemoExample {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("feature_demo");
+        Program.setAppName("feature_demo");
 
         const args = new FeatureDemoExampleArgs(argc, argv, TEST_FRAMES_MAX);
         args.parseArgs();
@@ -1611,7 +1611,7 @@ namespace FeatureDemoExample {
             options = options | AppOptions.NoVsync;
         }
 
-        const apiString = Donut_GraphicsAPIToString(args.api);
+        const apiString = Program.graphicsAPIToString(args.api);
         const windowTitle = `Donut Feature Demo (${apiString})`;
 
         const app = App.createWithOptions(args.api, windowTitle, args.width, args.height, options);

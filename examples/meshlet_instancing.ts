@@ -447,7 +447,7 @@ namespace MeshletInstancing {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("meshlet_instancing");
+        Program.setAppName("meshlet_instancing");
 
         // -test [-testOutput <file>]: render a few frames without a window at instance level 2 and
         // check the last one (see checkFrame).

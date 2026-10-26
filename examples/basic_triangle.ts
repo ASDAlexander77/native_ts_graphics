@@ -82,7 +82,7 @@ namespace BasicTriangle {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("basic_triangle");
+        Program.setAppName("basic_triangle");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

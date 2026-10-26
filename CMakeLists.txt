@@ -3049,7 +3049,7 @@ if (NOT WIN32)
     set_source_files_properties(core/directx_collision.cpp PROPERTIES
         INCLUDE_DIRECTORIES "${directxmath_SOURCE_DIR}/Inc;${CMAKE_CURRENT_SOURCE_DIR}/core/sal")
 endif()
-add_tslang_example(collision core/matrix.ts core/directx_collision.cpp MEDIA fonts)
+add_tslang_example(collision core/matrix.ts core/directx_collision.ts core/directx_collision.cpp MEDIA fonts)
 add_tslang_example_test(collision)
 
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three

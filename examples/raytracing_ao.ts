@@ -291,9 +291,9 @@ namespace RaytracingAo {
             const diffuseName = mesh.getMaterialTexture(material, 0);
             const specularName = mesh.getMaterialTexture(material, 2);
             const normalName = mesh.getMaterialTexture(material, 1);
-            Donut_StoreInt32(Ref(constants[3]), diffuseName != "" ? 1 : 0);
-            Donut_StoreInt32(Ref(constants[7]), specularName != "" ? 1 : 0);
-            Donut_StoreInt32(Ref(constants[11]), normalName != "" ? 1 : 0);
+            RawMemory.storeInt32(Ref(constants[3]), diffuseName != "" ? 1 : 0);
+            RawMemory.storeInt32(Ref(constants[7]), specularName != "" ? 1 : 0);
+            RawMemory.storeInt32(Ref(constants[11]), normalName != "" ? 1 : 0);
             this.materialBuffer = app.createConstantBuffer(256, "MaterialConstantBuffer");
             commandList.writeBuffer(this.materialBuffer, Ref(constants[0]), 48);
 
@@ -799,8 +799,8 @@ namespace RaytracingAo {
             const sampleType: int = this.aoSampleType.value();
             this.aoOptions[0] = this.aoDistance.value();
             this.aoOptions[1] = this.aoFalloff.value();
-            Donut_StoreInt32(Ref(this.aoOptions[2]), numSamples);
-            Donut_StoreInt32(Ref(this.aoOptions[3]), sampleType);
+            RawMemory.storeInt32(Ref(this.aoOptions[2]), numSamples);
+            RawMemory.storeInt32(Ref(this.aoOptions[3]), sampleType);
             commandList.writeBuffer(this.aoOptionsBuffer, Ref(this.aoOptions[0]), 16);
 
             // std::uniform_real_distribution<float>(0, nextafter(1.f)) over std::mt19937(0).
@@ -1455,7 +1455,7 @@ namespace RaytracingAo {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("raytracing_ao");
+        Program.setAppName("raytracing_ao");
 
         const args = new RaytracingAoArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

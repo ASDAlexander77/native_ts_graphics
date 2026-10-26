@@ -449,7 +449,7 @@ namespace DynamicLineRasterization {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("dynamic_line_rasterization");
+        Program.setAppName("dynamic_line_rasterization");
 
         const args = new DynamicLineRasterizationArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
