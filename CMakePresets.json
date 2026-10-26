@@ -71,20 +71,22 @@
     {
       "name": "dlss-nr",
       "displayName": "Default with DLSS-NR (Ninja)",
-      "description": "Debug with NVIDIA DLSS-NR (DONUT_WITH_DLSS_NR): Donut fetches the DLSS-NR SDK from GitHub at configure time.",
+      "description": "Debug with NVIDIA DLSS-NR (DONUT_WITH_DLSS_NR, which needs DONUT_WITH_DLSS): Donut fetches the DLSS-NR SDK from GitHub at configure time.",
       "inherits": "default",
       "binaryDir": "${sourceDir}/build-dlss-nr",
       "cacheVariables": {
+        "DONUT_WITH_DLSS": "ON",
         "DONUT_WITH_DLSS_NR": "ON"
       }
     },
     {
       "name": "release-dlss-nr",
       "displayName": "Release with DLSS-NR (Ninja)",
-      "description": "Release with NVIDIA DLSS-NR (DONUT_WITH_DLSS_NR).",
+      "description": "Release with NVIDIA DLSS-NR (DONUT_WITH_DLSS_NR, which needs DONUT_WITH_DLSS).",
       "inherits": "release",
       "binaryDir": "${sourceDir}/build-release-dlss-nr",
       "cacheVariables": {
+        "DONUT_WITH_DLSS": "ON",
         "DONUT_WITH_DLSS_NR": "ON"
       }
     },    
