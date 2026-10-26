@@ -722,7 +722,7 @@ namespace CalibratedTimestampsSample {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("calibrated_timestamps");
+        Program.setAppName("calibrated_timestamps");
 
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // and the times (see checkFrame).

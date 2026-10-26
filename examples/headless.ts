@@ -280,13 +280,13 @@ namespace Headless {
 
     export function main(argc: int, argv: Ref<string>): int {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("headless");
+        Program.setAppName("headless");
 
         const args = new HeadlessArgs(argc, argv);
         args.parseArgs();
 
         // The C++ sample does this in release builds only.
-        Donut_SetLogMinSeverity(LogSeverity.Warning);
+        Program.setLogMinSeverity(LogSeverity.Warning);
 
         if (args.firstExit == ExitCode.Help) {
             console.log(`Usage: ${args[0]} [options]
@@ -315,7 +315,7 @@ namespace Headless {
             return 1;
         }
 
-        console.log(`Using ${Donut_GraphicsAPIToString(args.api)} API with ${app.getRendererString()}.`);
+        console.log(`Using ${Program.graphicsAPIToString(args.api)} API with ${app.getRendererString()}.`);
 
         const passed = runTest(app, args.forceDonut);
         app.destroy();

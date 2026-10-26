@@ -642,7 +642,7 @@ namespace GshaderToMshader {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("gshader_to_mshader");
+        Program.setAppName("gshader_to_mshader");
 
         const args = new GshaderToMshaderArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

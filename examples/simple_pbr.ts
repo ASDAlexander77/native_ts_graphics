@@ -835,7 +835,7 @@ namespace SimplePbr {
             c[PBR_CONSTANT_ALBEDO + 2] = 1.0;
             c[PBR_CONSTANT_METALLIC] = 0.5;
             c[PBR_CONSTANT_METALLIC + 1] = 0.2;
-            Donut_StoreInt32(Ref(c[PBR_NUM_RADIANCE_MIPS]), this.numRadianceMips);
+            RawMemory.storeInt32(Ref(c[PBR_NUM_RADIANCE_MIPS]), this.numRadianceMips);
 
             // SkyboxEffect::SetMatrices: the view without its translation, no world.
             const skyView = [view[0], view[1], view[2], view[3], view[4], view[5], view[6], view[7], view[8], view[9], view[10], view[11],
@@ -1046,7 +1046,7 @@ namespace SimplePbr {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("simple_pbr");
+        Program.setAppName("simple_pbr");
 
         const args = new SimplePbrArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

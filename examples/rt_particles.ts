@@ -337,7 +337,7 @@ namespace RtParticles {
 
             this.view = this.app.createPlanarView();
 
-            this.viewFloats = Donut_GetPlanarViewConstantsSize() / 4;
+            this.viewFloats = ConstantSizes.planarView() / 4;
             this.constantsSize = (this.viewFloats + GLOBAL_TAIL_FLOATS) * 4;
             for (let i = 0; i < this.viewFloats + GLOBAL_TAIL_FLOATS; i++) {
                 this.constants.push(0.0);
@@ -583,7 +583,7 @@ namespace RtParticles {
                 this.particleInfos[info + PARTICLE_INFO_Y_AXIS + 0] = worldUpX;
                 this.particleInfos[info + PARTICLE_INFO_Y_AXIS + 1] = worldUpY;
                 this.particleInfos[info + PARTICLE_INFO_Y_AXIS + 2] = worldUpZ;
-                Donut_StoreInt32(Ref(this.particleInfos[info + PARTICLE_INFO_TEXTURE_INDEX]), textureIndex);
+                RawMemory.storeInt32(Ref(this.particleInfos[info + PARTICLE_INFO_TEXTURE_INDEX]), textureIndex);
                 this.particleInfos[info + PARTICLE_INFO_COLOR_FACTOR + 0] = particle.colorR;
                 this.particleInfos[info + PARTICLE_INFO_COLOR_FACTOR + 1] = particle.colorG;
                 this.particleInfos[info + PARTICLE_INFO_COLOR_FACTOR + 2] = particle.colorB;
@@ -685,10 +685,10 @@ namespace RtParticles {
             const tail = this.viewFloats;
             this.view.fillPlanarViewConstants(Ref(this.constants[0]));
             this.constants[tail + GLOBAL_PRIMARY_RAY_CONE_ANGLE] = verticalFovRadians / height;
-            Donut_StoreInt32(Ref(this.constants[tail + GLOBAL_REORIENT_PRIMARY]), this.ui.reorientParticlesInPrimaryRays ? 1 : 0);
-            Donut_StoreInt32(Ref(this.constants[tail + GLOBAL_REORIENT_SECONDARY]), this.ui.reorientParticlesInSecondaryRays ? 1 : 0);
-            Donut_StoreInt32(Ref(this.constants[tail + GLOBAL_ORIENTATION_MODE]), this.ui.orientationMode);
-            Donut_StoreInt32(Ref(this.constants[tail + GLOBAL_ENVIRONMENT_MAP]), this.environmentMap.getDescriptorIndex());
+            RawMemory.storeInt32(Ref(this.constants[tail + GLOBAL_REORIENT_PRIMARY]), this.ui.reorientParticlesInPrimaryRays ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.constants[tail + GLOBAL_REORIENT_SECONDARY]), this.ui.reorientParticlesInSecondaryRays ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.constants[tail + GLOBAL_ORIENTATION_MODE]), this.ui.orientationMode);
+            RawMemory.storeInt32(Ref(this.constants[tail + GLOBAL_ENVIRONMENT_MAP]), this.environmentMap.getDescriptorIndex());
             frame.getCommandList().writeBuffer(this.constantBuffer, Ref(this.constants[0]), this.constantsSize);
 
             const groupsX: int = Math.floor((width + COMPUTE_GROUP_SIZE - 1) / COMPUTE_GROUP_SIZE);
@@ -775,7 +775,7 @@ namespace RtParticles {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("rt_particles");
+        Program.setAppName("rt_particles");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

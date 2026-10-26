@@ -111,10 +111,10 @@ namespace ComputeNBody {
             computeSetDesc.bindStructuredBufferUAV(0, this.particleBuffer);
             this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, computeBindingLayout);
 
-            Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
+            RawMemory.storeInt32(Ref(this.simulationConstants[1]), this.numParticles);
 
             // Drawing: the view constants and the particles, read by the vertex shader.
-            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
+            this.viewConstantsSize = ConstantSizes.planarView();
             for (let i = 0; i < this.viewConstantsSize / 4; i++) {
                 this.viewConstants.push(0.0);
             }
@@ -335,7 +335,7 @@ namespace ComputeNBody {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("compute_nbody");
+        Program.setAppName("compute_nbody");
 
         // -test [-testOutput <file>]: render TEST_FRAMES frames without a window and check the
         // particles and the last frame (see checkTest).

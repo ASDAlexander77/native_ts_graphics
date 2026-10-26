@@ -341,7 +341,7 @@ namespace MeshletRender {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("meshlet_render");
+        Program.setAppName("meshlet_render");
 
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).

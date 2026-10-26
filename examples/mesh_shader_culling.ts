@@ -211,8 +211,8 @@ namespace MeshShaderCulling {
             c[CONST_CULL_CENTER_Y] = -this.cameraZ;
             c[CONST_CULL_RADIUS] = this.cullRadius;
             c[CONST_MESHLET_DENSITY] = this.densityLevel;
-            Donut_StoreInt32(Ref(c[CONST_NUM_WORK_GROUPS_X]), groups);
-            Donut_StoreInt32(Ref(c[CONST_NUM_WORK_GROUPS_Y]), groups);
+            RawMemory.storeInt32(Ref(c[CONST_NUM_WORK_GROUPS_X]), groups);
+            RawMemory.storeInt32(Ref(c[CONST_NUM_WORK_GROUPS_Y]), groups);
             commandList.writeBuffer(this.constantBuffer, Ref(c[0]), CONST_FLOATS * 4);
 
             frame.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
@@ -282,7 +282,7 @@ namespace MeshShaderCulling {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("mesh_shader_culling");
+        Program.setAppName("mesh_shader_culling");
 
         const args = new MeshShaderCullingArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

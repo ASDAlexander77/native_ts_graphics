@@ -762,7 +762,7 @@ namespace MemoryManagement {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("memory_management");
+        Program.setAppName("memory_management");
 
         // -test [-testOutput <file>]: render a few frames without a window, each after the paging
         // thread goes idle, and check the result (see checkResult).

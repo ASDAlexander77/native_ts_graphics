@@ -119,11 +119,11 @@ namespace HostImageCopy {
 
             // load_texture: the texture written by the CPU, no command list involved.
             const hostCopiedTexture = this.app.createHostCopiedTexture(TEXTURE_PATH, 1, "Texture");
-            if (!hostCopiedTexture) {
+            if (hostCopiedTexture.isNull()) {
                 console.log("Cannot load the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return false;
             }
-            const texture = Donut_GetHostCopiedTexture(hostCopiedTexture as HostCopiedTextureHandle);
+            const texture = hostCopiedTexture.getTexture();
 
             // The sample's sampler: trilinear, repeating, all the levels, the device's widest
             // anisotropic filtering.
@@ -313,7 +313,7 @@ namespace HostImageCopy {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("host_image_copy");
+        Program.setAppName("host_image_copy");
 
         // -test [-testOutput <file>]: render a few frames without a window and check the last one
         // (see checkFrame).

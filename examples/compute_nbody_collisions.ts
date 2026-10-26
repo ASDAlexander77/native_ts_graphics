@@ -553,11 +553,11 @@ namespace ComputeNBodyCollisions {
             this.fragmentPipeline = this.app.createComputePipelineWithLayout(fragmentShader, computeBindingLayout);
             this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
 
-            Donut_StoreInt32(Ref(this.simulationConstants[2]), 1);
-            Donut_StoreInt32(Ref(this.simulationConstants[3]), 1);
+            RawMemory.storeInt32(Ref(this.simulationConstants[2]), 1);
+            RawMemory.storeInt32(Ref(this.simulationConstants[3]), 1);
 
             // Drawing: the view constants and the particles, read by the vertex shader.
-            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
+            this.viewConstantsSize = ConstantSizes.planarView();
             for (let i = 0; i < this.viewConstantsSize / 4; i++) {
                 this.viewConstants.push(0.0);
             }
@@ -624,11 +624,11 @@ namespace ComputeNBodyCollisions {
             }
             if (key == Key.C && action == Action.Press) {
                 this.collisions = !this.collisions;
-                Donut_StoreInt32(Ref(this.simulationConstants[2]), this.collisions ? 1 : 0);
+                RawMemory.storeInt32(Ref(this.simulationConstants[2]), this.collisions ? 1 : 0);
             }
             if (key == Key.H && action == Action.Press) {
                 this.heating = !this.heating;
-                Donut_StoreInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
+                RawMemory.storeInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
             }
 
             if (key == Key.P && action == Action.Press) {
@@ -942,8 +942,8 @@ namespace ComputeNBodyCollisions {
         dispatchBlurPass(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet,
             width: int, height: int, inputWidth: int, inputHeight: int) {
             const b = this.blurConstants;
-            Donut_StoreInt32(Ref(b[0]), width);
-            Donut_StoreInt32(Ref(b[1]), height);
+            RawMemory.storeInt32(Ref(b[0]), width);
+            RawMemory.storeInt32(Ref(b[1]), height);
             b[2] = 1.0 / width;
             b[3] = 1.0 / height;
             b[4] = 1.0 / inputWidth;
@@ -1291,7 +1291,7 @@ namespace ComputeNBodyCollisions {
             // Written by collide_cs before integrate_cs reads it, every frame.
             this.contactBuffer = this.app.createRWStructuredBuffer(CONTACT_FLOATS * 4, this.numParticles, "Contacts");
             this.freeBuffer = this.app.createRWStructuredBuffer(4, this.numParticles + 2, "Free slots");
-            Donut_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
+            RawMemory.storeInt32(Ref(this.simulationConstants[1]), this.numParticles);
             this.aliveCount = this.placedCount;
         }
 
@@ -1449,7 +1449,7 @@ namespace ComputeNBodyCollisions {
 
         setFullGravity(full: boolean) {
             this.fullGravity = full;
-            Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_FULL_GRAVITY]), full ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.simulationConstants[CONSTANT_FULL_GRAVITY]), full ? 1 : 0);
         }
 
         // The free slots left for fragments at the start, as a share of the particles placed: for the
@@ -1487,10 +1487,10 @@ namespace ComputeNBodyCollisions {
             this.simulationConstants[CONSTANT_MERGE_SPEED] = this.mergeOn ? this.mergeValue : 0.0;
             this.simulationConstants[CONSTANT_HOT_MERGE_SPEED] = this.hotStickOn ? this.hotStickValue : 0.0;
             this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = this.breakOn ? this.breakValue : 0.0;
-            Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_CONTACT_SPRINGS]), this.contactSprings ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.simulationConstants[CONSTANT_CONTACT_SPRINGS]), this.contactSprings ? 1 : 0);
             this.simulationConstants[CONSTANT_RESTITUTION_SPEED] = this.restitutionSpeedOn ? this.restitutionSpeedValue : 0.0;
             this.simulationConstants[CONSTANT_ROLLING_RESISTANCE] = this.rollingOn ? this.rollingValue : 0.0;
-            Donut_StoreInt32(Ref(this.simulationConstants[CONSTANT_SIZE_SOFTENING]), this.sizeSoftening ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.simulationConstants[CONSTANT_SIZE_SOFTENING]), this.sizeSoftening ? 1 : 0);
         }
 
         // The simulation's live settings back to their defaults (the UI's Defaults button); the
@@ -1723,12 +1723,12 @@ namespace ComputeNBodyCollisions {
                 const collisions = ImGui.checkbox("Collisions (C)", this.collisions);
                 if (collisions != this.collisions) {
                     this.collisions = collisions;
-                    Donut_StoreInt32(Ref(this.simulationConstants[2]), collisions ? 1 : 0);
+                    RawMemory.storeInt32(Ref(this.simulationConstants[2]), collisions ? 1 : 0);
                 }
                 const heating = ImGui.checkbox("Heating (H)", this.heating);
                 if (heating != this.heating) {
                     this.heating = heating;
-                    Donut_StoreInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
+                    RawMemory.storeInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
                 }
                 const fullGravity = ImGui.checkbox("Gravity between all pairs", this.fullGravity);
                 if (fullGravity != this.fullGravity) {
@@ -1908,7 +1908,7 @@ namespace ComputeNBodyCollisions {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("compute_nbody_collisions");
+        Program.setAppName("compute_nbody_collisions");
 
         // -test [-testOutput <file>]: render TEST_FRAMES frames without a window and check the
         // particles and the last frame (see checkTest).

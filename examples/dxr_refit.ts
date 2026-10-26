@@ -350,7 +350,7 @@ namespace DxrRefit {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("dxr_refit");
+        Program.setAppName("dxr_refit");
 
         // -benchmark: 0.005 radians a frame, as the tutorial.
         const args = new DxrRefitArgs(argc, argv, TEST_FRAMES);

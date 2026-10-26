@@ -548,7 +548,7 @@ namespace DynamicBlending {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("dynamic_blending");
+        Program.setAppName("dynamic_blending");
 
         const args = new DynamicBlendingArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

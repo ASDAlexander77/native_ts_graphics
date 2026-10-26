@@ -262,7 +262,7 @@ namespace RayTracingPositionFetch {
                 u[UBO_VIEW_INVERSE + i] = viewInverse[i];
                 u[UBO_PROJ_INVERSE + i] = projInverse[i];
             }
-            Donut_StoreInt32(Ref(u[UBO_DISPLAY_MODE]), this.displayMode);
+            RawMemory.storeInt32(Ref(u[UBO_DISPLAY_MODE]), this.displayMode);
             commandList.writeBuffer(this.uniformBuffer, Ref(u[0]), UBO_FLOATS * 4);
         }
 
@@ -392,7 +392,7 @@ namespace RayTracingPositionFetch {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("ray_tracing_position_fetch");
+        Program.setAppName("ray_tracing_position_fetch");
 
         const args = new RayTracingPositionFetchArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

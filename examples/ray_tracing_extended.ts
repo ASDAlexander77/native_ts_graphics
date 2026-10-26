@@ -420,8 +420,8 @@ namespace RayTracingExtended {
                 c[CONST_PROJ_INVERSE + i] = projInverse[i];
             }
 
-            Donut_StoreInt32(Ref(c[CONST_RENDER_MODE]), this.renderMode);
-            Donut_StoreInt32(Ref(c[CONST_MAX_RAYS]), MAX_RAYS);
+            RawMemory.storeInt32(Ref(c[CONST_RENDER_MODE]), this.renderMode);
+            RawMemory.storeInt32(Ref(c[CONST_MAX_RAYS]), MAX_RAYS);
         }
 
         onRender(frameHandle: FrameHandle) {
@@ -660,7 +660,7 @@ namespace RayTracingExtended {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("ray_tracing_extended");
+        Program.setAppName("ray_tracing_extended");
 
         const args = new RayTracingExtendedArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

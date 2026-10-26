@@ -392,9 +392,9 @@ namespace OitLinkedLists {
                 c[CONST_VIEW + i] = view[i];
             }
             c[CONST_BACKGROUND_GRAYSCALE] = this.backgroundGrayscale;
-            Donut_StoreInt32(Ref(c[CONST_SORT_FRAGMENTS]), this.sortFragments ? 1 : 0);
-            Donut_StoreInt32(Ref(c[CONST_FRAGMENT_MAX_COUNT]), this.fragmentMaxCount);
-            Donut_StoreInt32(Ref(c[CONST_SORTED_FRAGMENT_COUNT]), this.sortedFragmentCount);
+            RawMemory.storeInt32(Ref(c[CONST_SORT_FRAGMENTS]), this.sortFragments ? 1 : 0);
+            RawMemory.storeInt32(Ref(c[CONST_FRAGMENT_MAX_COUNT]), this.fragmentMaxCount);
+            RawMemory.storeInt32(Ref(c[CONST_SORTED_FRAGMENT_COUNT]), this.sortedFragmentCount);
         }
 
         onRender(frameHandle: FrameHandle) {
@@ -520,7 +520,7 @@ namespace OitLinkedLists {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("oit_linked_lists");
+        Program.setAppName("oit_linked_lists");
 
         const args = new OitLinkedListsArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

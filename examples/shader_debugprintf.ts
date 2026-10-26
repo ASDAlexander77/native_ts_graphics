@@ -353,7 +353,7 @@ namespace ShaderDebugPrintf {
                 for (let i = 0; i < 8; i++) {
                     this.push[i] = 0.0;
                 }
-                Donut_StoreInt32(Ref(this.push[8]), ObjectKind.Skysphere);
+                RawMemory.storeInt32(Ref(this.push[8]), ObjectKind.Skysphere);
                 frame.drawIndexedWithPushConstants(this.geosphere.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
 
@@ -368,7 +368,7 @@ namespace ShaderDebugPrintf {
                 }
                 this.push[3] = 0.0;
                 this.push[7] = 0.0;
-                Donut_StoreInt32(Ref(this.push[8]), ObjectKind.Sphere);
+                RawMemory.storeInt32(Ref(this.push[8]), ObjectKind.Sphere);
                 frame.drawIndexedWithPushConstants(this.geosphere.getIndexCount(), Ref(this.push[0]), PUSH_SIZE);
             }
         }
@@ -436,7 +436,7 @@ namespace ShaderDebugPrintf {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("shader_debugprintf");
+        Program.setAppName("shader_debugprintf");
 
         // -test [-testOutput <file>]: render a few frames without a window and check the shader's
         // output (see checkOutput).

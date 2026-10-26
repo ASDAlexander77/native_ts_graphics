@@ -368,8 +368,8 @@ namespace OitDepthPeeling {
             }
             c[CONST_BACKGROUND_GRAYSCALE] = this.backgroundGrayscale;
             c[CONST_OBJECT_ALPHA] = this.objectAlpha;
-            Donut_StoreInt32(Ref(c[CONST_FRONT_LAYER_INDEX]), this.frontLayerIndex);
-            Donut_StoreInt32(Ref(c[CONST_BACK_LAYER_INDEX]), this.backLayerIndex);
+            RawMemory.storeInt32(Ref(c[CONST_FRONT_LAYER_INDEX]), this.frontLayerIndex);
+            RawMemory.storeInt32(Ref(c[CONST_BACK_LAYER_INDEX]), this.backLayerIndex);
         }
 
         onRender(frameHandle: FrameHandle) {
@@ -486,7 +486,7 @@ namespace OitDepthPeeling {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("oit_depth_peeling");
+        Program.setAppName("oit_depth_peeling");
 
         const args = new OitDepthPeelingArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

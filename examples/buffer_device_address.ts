@@ -143,7 +143,7 @@ namespace BufferDeviceAddress {
             for (let i = 0; i < MESH_COUNT; i++) {
                 const buffer = this.app.createRWStructuredBuffer(POSITION_SIZE, MESH_WIDTH * MESH_HEIGHT, `Mesh${i}`);
                 this.meshBuffers.push(buffer);
-                Donut_CopyBufferDeviceAddress(buffer, Ref(this.pointers[i * 2]));
+                RawMemory.copyBufferDeviceAddress(buffer, Ref(this.pointers[i * 2]));
             }
             this.pointerBuffer = this.app.createRWStructuredBuffer(ADDRESS_SIZE, MESH_COUNT, "PointerBuffer");
 
@@ -242,7 +242,7 @@ namespace BufferDeviceAddress {
 
             // update_meshlets: the compute shader writes every mesh through its address. NVRHI
             // doesn't see those accesses: the barriers before and after are explicit.
-            Donut_CopyBufferDeviceAddress(this.pointerBuffer, Ref(this.pushCompute[0]));
+            RawMemory.copyBufferDeviceAddress(this.pointerBuffer, Ref(this.pushCompute[0]));
             this.pushCompute[2] = this.accumulatedTime;
             commandList.dispatchWithPushConstants(this.computePipeline, this.computeBindingSet, Ref(this.pushCompute[0]),
                 PUSH_COMPUTE_FLOATS * 4, GROUPS_X, GROUPS_Y, MESH_COUNT);
@@ -258,7 +258,7 @@ namespace BufferDeviceAddress {
             for (let i = 0; i < 16; i++) {
                 this.pushVertex[i] = i % 4 == 1 ? -viewProjection[i] : viewProjection[i];
             }
-            Donut_CopyBufferDeviceAddress(this.pointerBuffer, Ref(this.pushVertex[16]));
+            RawMemory.copyBufferDeviceAddress(this.pointerBuffer, Ref(this.pushVertex[16]));
             frame.clearColor(CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
             frame.beginDraw(pipeline);
             frame.drawAddBindingSet(this.vertexBindingSet);
@@ -323,7 +323,7 @@ namespace BufferDeviceAddress {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("buffer_device_address");
+        Program.setAppName("buffer_device_address");
 
         // -test [-testOutput <file>]: render 60 frames (at 60 a second) without a window and check
         // the last one (see checkFrame).

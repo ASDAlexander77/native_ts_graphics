@@ -277,7 +277,7 @@ namespace MultiDrawIndirect {
             let addressBuffer: BufferHandle | null = null;
             if ((this.support & IndirectDrawSupport.BufferDeviceAddress) != 0) {
                 const address: f32[] = [0.0, 0.0];
-                Donut_StoreBufferDeviceAddress(Ref(address[0]), this.indirectCallBuffer);
+                RawMemory.storeBufferDeviceAddress(Ref(address[0]), this.indirectCallBuffer);
                 addressBuffer = this.app.createStructuredBuffer(8, 1, "Device Address");
                 commandList.writeBuffer(addressBuffer, Ref(address[0]), 8);
             }
@@ -438,7 +438,7 @@ namespace MultiDrawIndirect {
                 }
             }
 
-            Donut_StoreInt32(Ref(c[CONST_MODEL_COUNT]), this.modelCount);
+            RawMemory.storeInt32(Ref(c[CONST_MODEL_COUNT]), this.modelCount);
         }
 
         // The sample's cpu_cull: every model's draw, visible (one instance) or not (none).
@@ -643,9 +643,9 @@ namespace MultiDrawIndirect {
                     modelInformation.push(0.0);
                 }
                 const info = p * MODEL_INFORMATION_FLOATS;
-                Donut_StoreInt32(Ref(modelInformation[info + 4]), p);
-                Donut_StoreInt32(Ref(modelInformation[info + 5]), firstIndex);
-                Donut_StoreInt32(Ref(modelInformation[info + 6]), indexCount / 3);
+                RawMemory.storeInt32(Ref(modelInformation[info + 4]), p);
+                RawMemory.storeInt32(Ref(modelInformation[info + 5]), firstIndex);
+                RawMemory.storeInt32(Ref(modelInformation[info + 6]), indexCount / 3);
 
                 // The model's draw: its triangles, one instance until culled.
                 this.commands.push(indexCount);
@@ -726,7 +726,7 @@ namespace MultiDrawIndirect {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("multi_draw_indirect");
+        Program.setAppName("multi_draw_indirect");
 
         const args = new MultiDrawIndirectArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

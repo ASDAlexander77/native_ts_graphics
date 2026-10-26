@@ -1100,7 +1100,7 @@ namespace ShaderObjectSample {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("shader_object");
+        Program.setAppName("shader_object");
 
         // -noui: without the options and the frame time graph.
         // -benchmark: 1/60 second per frame (as vulkan_samples' --benchmark).

@@ -119,7 +119,7 @@ namespace BindlessRendering {
 
             this.view = this.app.createPlanarView();
 
-            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
+            this.viewConstantsSize = ConstantSizes.planarView();
             for (let i = 0; i < this.viewConstantsSize / 4; i++) {
                 this.viewConstantsData.push(0.0);
             }
@@ -260,7 +260,7 @@ namespace BindlessRendering {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("bindless_rendering");
+        Program.setAppName("bindless_rendering");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -650,8 +650,8 @@ namespace AsyncComputeBloom {
         dispatchBlurPass(commandList: CommandList, pipeline: ComputePipelineHandle, bindingSet: BindingSet,
             width: int, height: int, inputWidth: int, inputHeight: int) {
             const b = this.blurConstants;
-            Donut_StoreInt32(Ref(b[0]), width);
-            Donut_StoreInt32(Ref(b[1]), height);
+            RawMemory.storeInt32(Ref(b[0]), width);
+            RawMemory.storeInt32(Ref(b[1]), height);
             b[2] = 1.0 / width;
             b[3] = 1.0 / height;
             b[4] = 1.0 / inputWidth;
@@ -924,7 +924,7 @@ namespace AsyncComputeBloom {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("async_compute_bloom");
+        Program.setAppName("async_compute_bloom");
 
         const args = new AsyncComputeBloomArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

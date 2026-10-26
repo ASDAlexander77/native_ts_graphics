@@ -94,8 +94,8 @@ namespace RtShadows {
 
             this.view = this.app.createPlanarView();
 
-            this.viewOffset = LIGHT_OFFSET + Donut_GetLightConstantsSize() / 4;
-            this.constantsSize = this.viewOffset * 4 + Donut_GetPlanarViewConstantsSize();
+            this.viewOffset = LIGHT_OFFSET + ConstantSizes.light() / 4;
+            this.constantsSize = this.viewOffset * 4 + ConstantSizes.planarView();
             for (let i = 0; i < this.constantsSize / 4; i++) {
                 this.constants.push(0.0);
             }
@@ -255,7 +255,7 @@ namespace RtShadows {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("rt_shadows");
+        Program.setAppName("rt_shadows");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

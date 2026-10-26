@@ -379,7 +379,7 @@ namespace FragmentShaderBarycentric {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("fragment_shader_barycentric");
+        Program.setAppName("fragment_shader_barycentric");
 
         const args = new FragmentShaderBarycentricArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

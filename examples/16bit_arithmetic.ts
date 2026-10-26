@@ -334,10 +334,10 @@ namespace Khr16BitArithmetic {
         }
 
         writePush32(seedValue: number) {
-            Donut_StoreInt32(Ref(this.push32[0]), NUM_BLOBS);
+            RawMemory.storeInt32(Ref(this.push32[0]), NUM_BLOBS);
             this.push32[1] = seedValue;
-            Donut_StoreInt32(Ref(this.push32[2]), RANGE_X);
-            Donut_StoreInt32(Ref(this.push32[3]), RANGE_Y);
+            RawMemory.storeInt32(Ref(this.push32[2]), RANGE_X);
+            RawMemory.storeInt32(Ref(this.push32[3]), RANGE_Y);
         }
 
         createComputeBindingSet(layout: BindingLayoutHandle, pushConstantsSize: int) {
@@ -401,7 +401,7 @@ namespace Khr16BitArithmetic {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("16bit_arithmetic");
+        Program.setAppName("16bit_arithmetic");
 
         const args = new Khr16BitArithmeticArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -391,7 +391,7 @@ namespace RayQueries {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("ray_queries");
+        Program.setAppName("ray_queries");
 
         const args = new RayQueriesArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

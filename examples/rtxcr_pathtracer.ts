@@ -266,11 +266,11 @@ namespace RtxcrPathtracer {
         }
 
         setInt(offset: int, value: int) {
-            Donut_StoreInt32(Ref(this.data[offset / 4]), value);
+            RawMemory.storeInt32(Ref(this.data[offset / 4]), value);
         }
 
         setBool(offset: int, value: boolean) {
-            Donut_StoreInt32(Ref(this.data[offset / 4]), value ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.data[offset / 4]), value ? 1 : 0);
         }
 
         setFloat3(offset: int, value: number[]) {
@@ -809,8 +809,8 @@ namespace RtxcrPathtracer {
             }
             this.envMap = envMap;
 
-            this.viewConstantsSize = Donut_GetPlanarViewConstantsSize();
-            this.lightConstantsSize = Donut_GetLightConstantsSize();
+            this.viewConstantsSize = ConstantSizes.planarView();
+            this.lightConstantsSize = ConstantSizes.light();
             const lightingSize = L_VIEW + this.viewConstantsSize * 2 + this.lightConstantsSize * (2 + MAX_LIGHTS);
             this.lighting = new ConstantBlock(lightingSize);
             this.global = new ConstantBlock(GLOBAL_CONSTANTS_SIZE);
@@ -1740,13 +1740,13 @@ namespace RtxcrPathtracer {
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        Donut_SetAppName("rtxcr_pathtracer");
+        Program.setAppName("rtxcr_pathtracer");
 
         // -frames <n>: the frames -test renders.
         let testFrames = TEST_FRAMES;
         for (let i = 1; i + 1 < argc; i++) {
-            if (Donut_GetArg(argv, i) == "-frames") {
-                testFrames = parseInt(Donut_GetArg(argv, i + 1));
+            if (CommandLine.getArg(argv, i) == "-frames") {
+                testFrames = parseInt(CommandLine.getArg(argv, i + 1));
             }
         }
         const args = new RtxcrArgs(argc, argv, testFrames);

@@ -36,7 +36,7 @@ class GenerateTest(unittest.TestCase):
 
     def test_typed_parameter_takes_the_wrapper_class(self):
         text = self.generate({"AppHandle", "FrameHandle"})
-        self.assertIn("saveFrameToFile(frame: Frame, path: string): int {", text)
+        self.assertIn("saveFrameToFile(frame: Frame, path: string): boolean {", text)
         self.assertIn("Donut_SaveFrameToFile(this.handle, frame.handle, path)", text)
 
     def test_typed_return_makes_the_wrapper(self):

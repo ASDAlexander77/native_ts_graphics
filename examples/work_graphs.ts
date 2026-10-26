@@ -562,7 +562,7 @@ namespace WorkGraphs {
                 this.materialData[m + 0] = material.baseColor.x;
                 this.materialData[m + 1] = material.baseColor.y;
                 this.materialData[m + 2] = material.baseColor.z;
-                Donut_StoreInt32(Ref(this.materialData[m + 3]), material.materialType);
+                RawMemory.storeInt32(Ref(this.materialData[m + 3]), material.materialType);
                 this.materialData[m + 4] = material.param1.x;
                 this.materialData[m + 5] = material.param1.y;
                 this.materialData[m + 6] = material.param1.z;
@@ -583,9 +583,9 @@ namespace WorkGraphs {
                 this.instanceData[o + 4] = instance.size.x;
                 this.instanceData[o + 5] = instance.size.y;
                 this.instanceData[o + 6] = instance.size.z;
-                Donut_StoreInt32(Ref(this.instanceData[o + 7]), instance.meshType);
-                Donut_StoreInt32(Ref(this.instanceData[o + 8]), instance.material);
-                Donut_StoreInt32(Ref(this.instanceData[o + 9]), instance.animType);
+                RawMemory.storeInt32(Ref(this.instanceData[o + 7]), instance.meshType);
+                RawMemory.storeInt32(Ref(this.instanceData[o + 8]), instance.material);
+                RawMemory.storeInt32(Ref(this.instanceData[o + 9]), instance.animType);
             }
 
             for (let i = 0; i < this.lights.length * LIGHT_FLOATS; i++) {
@@ -1164,7 +1164,7 @@ namespace WorkGraphs {
             const resetAnim = this.forceResetAnimation || this.ui.resetAnim;
             this.animationConstants[0] = this.timeInSeconds;
             this.animationConstants[1] = this.timeDiffThisFrame;
-            Donut_StoreInt32(Ref(this.animationConstants[2]), resetAnim ? 1 : 0);
+            RawMemory.storeInt32(Ref(this.animationConstants[2]), resetAnim ? 1 : 0);
 
             // Object animation, then light animation.
             this.dispatchAnimation(commandList, this.animateObjectsPSO, objectsBindings, this.scene.worldObjects.length);
@@ -1348,7 +1348,7 @@ namespace WorkGraphs {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("work_graphs");
+        Program.setAppName("work_graphs");
 
         const args = new Args(argc, argv, TEST_FRAMES);
         args.parseArgs();

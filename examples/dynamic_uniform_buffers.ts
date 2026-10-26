@@ -349,7 +349,7 @@ namespace DynamicUniformBuffers {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("dynamic_uniform_buffers");
+        Program.setAppName("dynamic_uniform_buffers");
 
         const args = new DynamicUniformBuffersArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();

@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { multiplyF32, inverse } from "../core/matrix";
+import { DirectXCollision, Rotation } from "../core/directx_collision";
 
 namespace Collision {
     // Test mode: the frames rendered.
@@ -158,7 +159,7 @@ namespace Collision {
     // DirectXMath's (exact) XMQuaternionRotationRollPitchYaw and XMMatrixRotationRollPitchYaw.
     function quaternionRollPitchYaw(pitch: number, yaw: number, roll: number): number[] {
         const q: f32[] = [0.0, 0.0, 0.0, 1.0];
-        Donut_QuaternionRotationRollPitchYaw(pitch, yaw, roll, Ref(q[0]));
+        Rotation.quaternionRollPitchYaw(pitch, yaw, roll, Ref(q[0]));
         return [q[0], q[1], q[2], q[3]];
     }
 
@@ -167,7 +168,7 @@ namespace Collision {
         for (let i = 0; i < 16; i++) {
             m.push(0.0);
         }
-        Donut_MatrixRotationRollPitchYaw(pitch, yaw, roll, Ref(m[0]));
+        Rotation.matrixRollPitchYaw(pitch, yaw, roll, Ref(m[0]));
         let result: number[] = [];
         for (let i = 0; i < 16; i++) {
             result.push(m[i]);
@@ -509,7 +510,7 @@ namespace Collision {
             for (let i = 0; i < 13; i++) {
                 this.primaryFrustum.push(0.0);
             }
-            Donut_CollisionFrustumFromMatrix(Ref(projection[0]), Ref(this.primaryFrustum[0]));
+            DirectXCollision.frustumFromMatrix(Ref(projection[0]), Ref(this.primaryFrustum[0]));
             this.primaryFrustum[2] = -7.0;
             this.cameraOrigins.push([0.0, 0.0, 0.0]);
 
@@ -663,15 +664,15 @@ namespace Collision {
 
         // The containment of group g's objects in its primary (shape, floats).
         collideGroup(g: int, primaryShape: CollisionShape, primary: f32[]) {
-            this.collisions[g * 4] = Donut_CollisionContains(primaryShape, Ref(primary[0]), CollisionShape.Sphere, Ref(this.spheres[g][0]));
-            this.collisions[g * 4 + 1] = Donut_CollisionContains(primaryShape, Ref(primary[0]), CollisionShape.OrientedBox, Ref(this.orientedBoxes[g][0]));
-            this.collisions[g * 4 + 2] = Donut_CollisionContains(primaryShape, Ref(primary[0]), CollisionShape.Box, Ref(this.aaBoxes[g][0]));
-            this.collisions[g * 4 + 3] = Donut_CollisionContains(primaryShape, Ref(primary[0]), CollisionShape.Triangle, Ref(this.triangles[g][0]));
+            this.collisions[g * 4] = DirectXCollision.contains(primaryShape, Ref(primary[0]), CollisionShape.Sphere, Ref(this.spheres[g][0]));
+            this.collisions[g * 4 + 1] = DirectXCollision.contains(primaryShape, Ref(primary[0]), CollisionShape.OrientedBox, Ref(this.orientedBoxes[g][0]));
+            this.collisions[g * 4 + 2] = DirectXCollision.contains(primaryShape, Ref(primary[0]), CollisionShape.Box, Ref(this.aaBoxes[g][0]));
+            this.collisions[g * 4 + 3] = DirectXCollision.contains(primaryShape, Ref(primary[0]), CollisionShape.Triangle, Ref(this.triangles[g][0]));
         }
 
         // A ray test: the hit's distance in fDistance (the last hit wins, as in the sample).
         rayTest(shape: CollisionShape, s: f32[], index: int, fDistance: number): number {
-            if (Donut_CollisionIntersectsRay(shape, Ref(s[0]), Ref(this.rayOrigin[0]), Ref(this.rayDirection[0]), Ref(this.distance[0])) != 0) {
+            if (DirectXCollision.intersectsRay(shape, Ref(s[0]), Ref(this.rayOrigin[0]), Ref(this.rayDirection[0]), Ref(this.distance[0])) != 0) {
                 this.collisions[3 * 4 + index] = Containment.Intersects;
                 return this.distance[0];
             }
@@ -833,7 +834,7 @@ namespace Collision {
             for (let i = 0; i < 24; i++) {
                 c.push(0.0);
             }
-            Donut_CollisionFrustumCorners(Ref(frustum[0]), Ref(c[0]));
+            DirectXCollision.frustumCorners(Ref(frustum[0]), Ref(c[0]));
             const edges = [0, 1, 1, 2, 2, 3, 3, 0, 0, 4, 1, 5, 2, 6, 3, 7, 4, 5, 5, 6, 6, 7, 7, 4];
             for (const k of edges) {
                 const corner: number[] = [c[k * 3], c[k * 3 + 1], c[k * 3 + 2]];
@@ -1105,7 +1106,7 @@ namespace Collision {
 
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
-        Donut_SetAppName("collision");
+        Program.setAppName("collision");
 
         const args = new CollisionArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
