@@ -51,7 +51,7 @@
     {
       "name": "dlss",
       "displayName": "Default with DLSS (Ninja)",
-      "description": "Debug with NVIDIA DLSS (DONUT_WITH_DLSS): Donut fetches the DLSS SDK from GitHub at configure time.",
+      "description": "Debug with NVIDIA DLSS (DONUT_WITH_DLSS): Donut fetches the DLSS SDK from GitHub at configure time, and this project the DLSS-NR (DLSS 5) SDK (DONUT_WITH_DLSS_NR, ~370 MB).",
       "inherits": "default",
       "binaryDir": "${sourceDir}/build-dlss",
       "cacheVariables": {
@@ -61,7 +61,7 @@
     {
       "name": "release-dlss",
       "displayName": "Release with DLSS (Ninja)",
-      "description": "Release with NVIDIA DLSS (DONUT_WITH_DLSS).",
+      "description": "Release with NVIDIA DLSS (DONUT_WITH_DLSS) and DLSS 5 (DONUT_WITH_DLSS_NR).",
       "inherits": "release",
       "binaryDir": "${sourceDir}/build-release-dlss",
       "cacheVariables": {

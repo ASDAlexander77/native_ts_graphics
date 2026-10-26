@@ -94,6 +94,8 @@ declare global {
     var PixelReadbackPass: typeof Donut.PixelReadbackPass;
     type Dlss = Donut.Dlss;
     var Dlss: typeof Donut.Dlss;
+    type DlssNeuralRendering = Donut.DlssNeuralRendering;
+    var DlssNeuralRendering: typeof Donut.DlssNeuralRendering;
     type LightProbeSet = Donut.LightProbeSet;
     var LightProbeSet: typeof Donut.LightProbeSet;
     type LightProbeCapture = Donut.LightProbeCapture;

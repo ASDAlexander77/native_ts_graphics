@@ -159,6 +159,9 @@ set(DONUT_PATCHES
     # Scene::CreateMeshBuffers passes a size_t as the uint64_t& AppendBufferRange takes: 32-bit targets
     # have the two apart.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-skinned-buffer-size-uint64.patch"
+    # DLSS::Init creates its feature on a command list of its own while the frame's is open: as a second
+    # immediate one, which NVRHI's validation (-debug) refuses (feature_demo's tests with DONUT_WITH_DLSS).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-dlss-non-immediate-command-list.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
@@ -315,6 +318,8 @@ endif()
 # than into the external/Donut submodule (set DONUT_DLSS_FETCH_DIR to share one checkout).
 option(DONUT_WITH_DLSS "Enable the NGX DLSS integration (fetches the DLSS SDK)" OFF)
 set(DONUT_DLSS_FETCH_DIR "" CACHE STRING "Directory to fetch DLSS to, empty uses build directory default")
+# DLSS SDK 310.9.16 (Donut pins 310.3.0): the NGX headers the DLSS-NR package below is built against.
+set(DONUT_DLSS_FETCH_TAG "9981c6350dc58c0ce21f024fd65e31e851c31689" CACHE STRING "Git commit hash or tag for DLSS")
 if (MSVC AND DONUT_WITH_DLSS)
     # The SDK's debug library (IMPORTED_IMPLIB_DEBUG of Donut's DLSS target) is built against the
     # debug CRT (/MTd); everything here uses the release static CRT (/MT, see above), so Debug links
@@ -401,6 +406,30 @@ if (NVRHI_WITH_DX12)
         COMPILE_DEFINITIONS DONUT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
 endif()
 
+# DLSS 5, NVIDIA's DLSS 3D-Guided Neural Rendering (DLSS-NR), for feature_demo (Vulkan, RTX GPU,
+# driver 616.92+). Its SDK isn't in the public DLSS one: RTX Remix's build fetches it as a packman
+# package (dxvk-remix/packman-external.xml), from the public remote downloaded here, at configure
+# time, into the build folder (DONUT_DLSS_NR_FETCH_DIR to share one). It's under the NVIDIA RTX SDKs
+# license (LICENSE.txt in it): its headers and nvngx_dlssnr.dll must not be committed here.
+option(DONUT_WITH_DLSS_NR "With DONUT_WITH_DLSS, also fetch the DLSS-NR (DLSS 5) SDK (~370 MB)" ON)
+set(DONUT_DLSS_NR_FETCH_DIR "" CACHE STRING "Directory to fetch DLSS-NR to, empty uses build directory default")
+if (DONUT_WITH_DLSS AND DONUT_WITH_DLSS_NR AND WIN32 AND DONUT_WITH_VULKAN)
+    if (DONUT_DLSS_NR_FETCH_DIR)
+        set(DLSS_NR_SOURCE_DIR_OPTION SOURCE_DIR "${DONUT_DLSS_NR_FETCH_DIR}")
+    endif()
+    message(STATUS "Fetching the DLSS-NR SDK (rtx-remix-ngx_sdk_dlnr 2, ~370 MB the first time)")
+    include(FetchContent)
+    FetchContent_Declare(dlss_nr
+        URL "https://d1oqksizpb0e3d.cloudfront.net/rtx-remix-ngx_sdk_dlnr@2.7z"
+        URL_HASH SHA256=4bb8651b3ac2180f23df1f39422c489810a13d445a94dc836c876c18c93ecefe
+        ${DLSS_NR_SOURCE_DIR_OPTION})
+    FetchContent_MakeAvailable(dlss_nr)
+    # The DLSS SDK's headers, which the DLSS-NR ones include (Donut's DLSS target isn't GLOBAL).
+    FetchContent_GetProperties(DLSS SOURCE_DIR DLSS_SDK_SOURCE_DIR)
+    set(DLSS_NR_INCLUDE_DIRS "${DLSS_SDK_SOURCE_DIR}/include" "${dlss_nr_SOURCE_DIR}/include")
+    set(DLSS_NR_SHARED_LIBRARY_PATH "${dlss_nr_SOURCE_DIR}/lib/Windows_x86_64/rel/nvngx_dlssnr.dll")
+endif()
+
 # end of Donut
 
 # Flat C API over Donut, shared by the TypeScript examples.
@@ -422,6 +451,11 @@ function(configure_donut_interop target)
         # The D3D12 headers, d3dx12.h (CD3DX12_STATE_OBJECT_DESC, ...) included, are NVRHI's
         # DirectX-Headers: not the Agility SDK package's, whose d3dx12.h needs its own d3d12.h,
         # newer than the one Donut's headers include first.
+    endif()
+
+    if (DLSS_NR_INCLUDE_DIRS)
+        target_include_directories(${target} PRIVATE ${DLSS_NR_INCLUDE_DIRS})
+        target_compile_definitions(${target} PRIVATE DONUT_WITH_DLSS_NR=1)
     endif()
 endfunction()
 
@@ -499,10 +533,15 @@ endif()
 
 # With DONUT_WITH_DLSS, NGX loads nvngx_dlss.dll from the directory of the executable (of
 # donut_interop_shared.dll under the JIT): bin/, where both are. Set by Donut's cmake/DLSS.cmake.
+# So is DLSS-NR's nvngx_dlssnr.dll (DONUT_WITH_DLSS_NR, above).
 function(copy_dlss_library target)
     if (DLSS_SHARED_LIBRARY_PATH)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLSS_SHARED_LIBRARY_PATH}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
+    endif()
+    if (DLSS_NR_SHARED_LIBRARY_PATH)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLSS_NR_SHARED_LIBRARY_PATH}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
     endif()
 endfunction()
 if (TARGET donut_interop_shared)
