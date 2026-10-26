@@ -74,6 +74,7 @@ CLASSES = {
     "toneMappingPass": "ToneMappingPass",
     "pixelReadbackPass": "PixelReadbackPass",
     "dlss": "Dlss",
+    "dlssNeuralRendering": "DlssNeuralRendering",
     "lightProbeSet": "LightProbeSet",
     "lightProbeCapture": "LightProbeCapture",
     "lightProbeProcessingPass": "LightProbeProcessingPass",

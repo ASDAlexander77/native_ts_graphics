@@ -66,7 +66,10 @@ build/bin/rt_particles.exe -vk
 ```
 
 `-dx12`, `-vk` (and `-dx11` where an example supports it) pick the graphics API, `-debug` enables
-the debug and validation layers. `dlss` / `release-dlss` add DLSS to `feature_demo`.
+the debug and validation layers. `dlss` / `release-dlss` add DLSS to `feature_demo`, and DLSS 5 (DLSS 3D-Guided Neural Rendering:
+Vulkan, RTX GPU, driver 616.92+; `-dlss5` turns it on, `-dlss` starts in the DLSS AA mode), whose SDK is
+fetched from RTX Remix's package remote at configure time (`DONUT_WITH_DLSS_NR`, ~370 MB, NVIDIA RTX SDKs
+license: not to be committed).
 
 ## Example gallery
 

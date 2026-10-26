@@ -1,0 +1,18 @@
+diff --git a/src/render/DLSS.cpp b/src/render/DLSS.cpp
+index 1d61d94..c40d61e 100644
+--- a/src/render/DLSS.cpp
++++ b/src/render/DLSS.cpp
+@@ -72,7 +72,12 @@ DLSS::DLSS(nvrhi::IDevice* device, donut::engine::ShaderFactory& shaderFactory)
+ 
+     m_exposureTexture = device->createTexture(textureDesc);
+ 
+-    m_featureCommandList = device->createCommandList();
++    // Init records the feature's creation while the frame's command list is open: not as a second
++    // immediate command list, which NVRHI forbids (D3D11 has only immediate ones).
++    nvrhi::CommandListParameters commandListParams;
++    if (device->getGraphicsAPI() != nvrhi::GraphicsAPI::D3D11)
++        commandListParams.setEnableImmediateExecution(false);
++    m_featureCommandList = device->createCommandList(commandListParams);
+ }
+ 
+ bool DLSS::IsDlssSupported() const

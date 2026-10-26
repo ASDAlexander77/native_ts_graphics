@@ -108,6 +108,15 @@ namespace FeatureDemoExample {
         public enableProceduralSky: boolean;
         public enableBloom: boolean;
         public dlssAvailable: boolean;
+        // DLSS 5 (DLSS 3D-Guided Neural Rendering) over the tone-mapped image: not in the C++ sample.
+        public enableDlssNeuralRendering: boolean;
+        public dlssNeuralRenderingAvailable: boolean;
+        public dlssNeuralRenderingModel: int;
+        public dlssNeuralRenderingIntensity: number;
+        public dlssNeuralRenderingStructureStrength: number;
+        public dlssNeuralRenderingToneStrength: number;
+        public dlssNeuralRenderingUseAutoMask: boolean;
+        public dlssNeuralRenderingSkinStrength: number;
         public bloomSigma: number;
         public bloomAlpha: number;
         public enableTranslucency: boolean;
@@ -150,6 +159,16 @@ namespace FeatureDemoExample {
             this.enableBloom = true;
             // Set once DLSS initializes (built with DONUT_WITH_DLSS=ON, on an RTX GPU).
             this.dlssAvailable = false;
+            // RTX Remix's defaults (rtx.dlssNeuralRendering.*). Available once DLSS-NR initializes (built
+            // with DONUT_WITH_DLSS=ON, on Vulkan and an RTX GPU).
+            this.enableDlssNeuralRendering = false;
+            this.dlssNeuralRenderingAvailable = false;
+            this.dlssNeuralRenderingModel = 0;
+            this.dlssNeuralRenderingIntensity = 1.0;
+            this.dlssNeuralRenderingStructureStrength = 0.7;
+            this.dlssNeuralRenderingToneStrength = 0.3;
+            this.dlssNeuralRenderingUseAutoMask = true;
+            this.dlssNeuralRenderingSkinStrength = 0.5;
             this.bloomSigma = 32.0;
             this.bloomAlpha = 0.05;
             this.enableTranslucency = true;
@@ -202,6 +221,9 @@ namespace FeatureDemoExample {
         private temporalAntiAliasingPass: TemporalAntiAliasingPass;
         // A null handle without DLSS support.
         private dlss: Dlss;
+        // A null handle without DLSS-NR support (and on D3D); whether it ran last frame (else it resets).
+        private dlssNeuralRendering: DlssNeuralRendering;
+        private dlssNeuralRenderingActive: boolean;
         private bloomPass: BloomPassHandle | null;
         private toneMappingPass: ToneMappingPass;
         private ssaoPass: SsaoPassHandle | null;
@@ -261,6 +283,8 @@ namespace FeatureDemoExample {
             this.skyPass = null;
             this.temporalAntiAliasingPass = new TemporalAntiAliasingPass(null);
             this.dlss = new Dlss(null);
+            this.dlssNeuralRendering = new DlssNeuralRendering(null);
+            this.dlssNeuralRenderingActive = false;
             this.bloomPass = null;
             this.toneMappingPass = new ToneMappingPass(null);
             this.ssaoPass = null;
@@ -338,6 +362,7 @@ namespace FeatureDemoExample {
             // DLSS doesn't need to be re-created when shaders reload, so it's created here and not in
             // createRenderPasses().
             this.dlss = app.createDlss();
+            this.dlssNeuralRendering = app.createDlssNeuralRendering(this.dlss);
 
             this.lightProbes = app.createLightProbeSet(4);
 
@@ -670,6 +695,11 @@ namespace FeatureDemoExample {
                 this.ui.dlssAvailable = dlss.isInitialized();
             }
 
+            const dlssNeuralRendering = this.dlssNeuralRendering;
+            if (!dlssNeuralRendering.isNull()) {
+                this.ui.dlssNeuralRenderingAvailable = dlssNeuralRendering.init(this.renderTargetsWidth, this.renderTargetsHeight) != 0;
+            }
+
             this.previousViewsValid = false;
             return exposureResetRequired;
         }
@@ -865,6 +895,8 @@ namespace FeatureDemoExample {
             }
 
             let finalHdrColor = targets.getTexture(SceneTexture.HdrColor);
+            // DLSS-NR's history: last frame's motion vectors (the temporal modes set this below).
+            const historyValid = this.previousViewsValid;
 
             if (ui.antiAliasingMode == AntiAliasingMode.TEMPORAL || ui.antiAliasingMode == AntiAliasingMode.DLSS) {
                 if (this.previousViewsValid) {
@@ -917,6 +949,20 @@ namespace FeatureDemoExample {
             }
 
             commandList.renderToneMapping(toneMappingPass, view, finalHdrColor, exposureResetRequired ? 1 : 0);
+
+            // DLSS 5 over the tone-mapped image, guided by the depth and motion vectors that only the
+            // temporal modes have (single-sample).
+            const dlssNeuralRendering = this.dlssNeuralRendering;
+            const runDlssNeuralRendering = ui.enableDlssNeuralRendering && !ui.stereo && !dlssNeuralRendering.isNull() &&
+                (ui.antiAliasingMode == AntiAliasingMode.TEMPORAL || ui.antiAliasingMode == AntiAliasingMode.DLSS) &&
+                dlssNeuralRendering.isInitialized();
+            if (runDlssNeuralRendering) {
+                const reset = !historyValid || !this.dlssNeuralRenderingActive;
+                commandList.evaluateDlssNeuralRendering(dlssNeuralRendering, view, targets, ui.dlssNeuralRenderingIntensity,
+                    ui.dlssNeuralRenderingToneStrength, ui.dlssNeuralRenderingStructureStrength, ui.dlssNeuralRenderingModel,
+                    ui.dlssNeuralRenderingUseAutoMask ? 1 : 0, ui.dlssNeuralRenderingSkinStrength, reset ? 1 : 0);
+            }
+            this.dlssNeuralRenderingActive = runDlssNeuralRendering;
 
             app.blitTexture(frame, targets.getTexture(SceneTexture.LdrColor));
 
@@ -1340,6 +1386,28 @@ namespace FeatureDemoExample {
 
             ui.temporalAntiAliasingJitter = ImGui.combo("TAA Camera Jitter", ui.temporalAntiAliasingJitter, "MSAA|Halton|R2|White Noise");
 
+            if (ui.dlssNeuralRenderingAvailable) {
+                // As RTX Remix's DLSS 3D-Guided Neural Rendering settings.
+                ui.enableDlssNeuralRendering = this.checkbox("DLSS 5 (Neural Rendering)", ui.enableDlssNeuralRendering);
+                if (ui.enableDlssNeuralRendering) {
+                    ImGui.indent();
+                    if (ui.antiAliasingMode != AntiAliasingMode.TEMPORAL && ui.antiAliasingMode != AntiAliasingMode.DLSS) {
+                        ImGui.text("Needs the TemporalAA or DLSS AA mode");
+                    }
+                    ui.dlssNeuralRenderingModel = ImGui.combo("Model", ui.dlssNeuralRenderingModel, "Model A|Model B|Model C");
+                    ui.dlssNeuralRenderingIntensity = ImGui.sliderFloat("Intensity", ui.dlssNeuralRenderingIntensity, 0.0, 1.0);
+                    ui.dlssNeuralRenderingStructureStrength = ImGui.sliderFloat("Structure Intensity",
+                        ui.dlssNeuralRenderingStructureStrength, 0.0, 1.0);
+                    ui.dlssNeuralRenderingToneStrength = ImGui.sliderFloat("Tone Intensity", ui.dlssNeuralRenderingToneStrength, 0.0, 1.0);
+                    ui.dlssNeuralRenderingUseAutoMask = this.checkbox("Auto Mask", ui.dlssNeuralRenderingUseAutoMask);
+                    if (ui.dlssNeuralRenderingUseAutoMask) {
+                        ui.dlssNeuralRenderingSkinStrength = ImGui.sliderFloat("Character Intensity",
+                            ui.dlssNeuralRenderingSkinStrength, 0.0, 1.0);
+                    }
+                    ImGui.unindent();
+                }
+            }
+
             ui.ambientIntensity = ImGui.sliderFloat("Ambient Intensity", ui.ambientIntensity, 0.0, 1.0);
 
             ui.enableLightProbe = this.checkbox("Enable Light Probe", ui.enableLightProbe);
@@ -1483,6 +1551,9 @@ namespace FeatureDemoExample {
         printFormats = false;
         // -screenshot <file>
         screenshotPath = "";
+        // -dlss: start in the DLSS AA mode; -dlss5: with DLSS 5 on (where available). Not the C++ sample's.
+        dlss = false;
+        dlss5 = false;
         // The scene: the argument which is not an option.
         sceneName = "";
 
@@ -1506,6 +1577,10 @@ namespace FeatureDemoExample {
                 } else if (arg == "-screenshot") {
                     i++;
                     this.screenshotPath = this[i];
+                } else if (arg == "-dlss") {
+                    this.dlss = true;
+                } else if (arg == "-dlss5") {
+                    this.dlss5 = true;
                 } else if (arg == "-testOutput") {
                     // Args' (-test's frame file), not the scene.
                     i++;
@@ -1552,6 +1627,11 @@ namespace FeatureDemoExample {
         const uiData = new UIData();
         // The UI applies its VSync setting every frame; in the C++ sample that overrides -no-vsync.
         uiData.enableVsync = !args.noVsync;
+        // Both fall back without support (to TAA; DLSS 5 off).
+        if (args.dlss) {
+            uiData.antiAliasingMode = AntiAliasingMode.DLSS;
+        }
+        uiData.enableDlssNeuralRendering = args.dlss5;
 
         const demo = new FeatureDemo(app, uiData);
         if (!demo.init(args.sceneName)) {

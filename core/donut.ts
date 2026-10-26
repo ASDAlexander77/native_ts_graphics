@@ -1684,6 +1684,12 @@ export class App {
         return new Dlss(Donut_CreateDlss(this.handle));
     }
 
+    // DLSS 5, DLSS 3D-Guided Neural Rendering (loads nvngx_dlssnr.dll), over dlss's NGX instance; null
+    // unless built with DONUT_WITH_DLSS_NR, on Vulkan, where DLSS-NR is available.
+    createDlssNeuralRendering(dlss: Dlss): DlssNeuralRendering {
+        return new DlssNeuralRendering(Donut_CreateDlssNeuralRendering(this.handle, dlss.handle));
+    }
+
     // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
     createPixelReadbackPass(texture: TextureHandle): PixelReadbackPass {
         return new PixelReadbackPass(Donut_CreatePixelReadbackPass(this.handle, texture));
@@ -2374,6 +2380,12 @@ export class CommandList {
     // HDR color into resolved color (instead of TAA), with the tone mapping pass's exposure. Planar views only.
     evaluateDlss(dlss: Dlss, view: View, sceneRenderTargets: SceneRenderTargets, toneMappingPass: ToneMappingPass): void {
         Donut_EvaluateDlss(this.handle, dlss.handle, view.handle, sceneRenderTargets.handle, toneMappingPass.handle);
+    }
+
+    // The targets' LdrColor in place (after tone mapping), from their depth and motion vectors (TAA and
+    // DLSS modes). model: 0..2 (A, B, C); strengths 0..1; reset: no history.
+    evaluateDlssNeuralRendering(dlssNeuralRendering: DlssNeuralRendering, view: View, sceneRenderTargets: SceneRenderTargets, intensity: number, toneStrength: number, structureStrength: number, model: int, useAutoMask: int, skinStructureStrength: number, reset: int): void {
+        Donut_EvaluateDlssNeuralRendering(this.handle, dlssNeuralRendering.handle, view.handle, sceneRenderTargets.handle, intensity, toneStrength, structureStrength, model, useAutoMask, skinStructureStrength, reset);
     }
 
     capturePixel(pixelReadbackPass: PixelReadbackPass, x: int, y: int): void {
@@ -4033,6 +4045,29 @@ export class Dlss {
 
     isInitialized(): boolean {
         return Donut_IsDlssInitialized(this.handle) != 0;
+    }
+}
+
+@value
+export class DlssNeuralRendering {
+    readonly handle: DlssNeuralRenderingHandle;
+
+    constructor(handle: DlssNeuralRenderingHandle | null) {
+        this.handle = handle as DlssNeuralRenderingHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // For width x height images; non-zero if ready.
+    init(width: int, height: int): int {
+        return Donut_InitDlssNeuralRendering(this.handle, width, height);
+    }
+
+    isInitialized(): boolean {
+        return Donut_IsDlssNeuralRenderingInitialized(this.handle) != 0;
     }
 }
 

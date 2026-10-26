@@ -2835,6 +2835,16 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_IsDlssInitialized(dlss: DlssHandle): int;
 // HDR color into resolved color (instead of TAA), with the tone mapping pass's exposure. Planar views only.
 @nodrops declare function Donut_EvaluateDlss(commandList: CommandListHandle, dlss: DlssHandle, view: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle, toneMappingPass: ToneMappingPassHandle): void;
+// DLSS 5, DLSS 3D-Guided Neural Rendering (loads nvngx_dlssnr.dll), over dlss's NGX instance; null
+// unless built with DONUT_WITH_DLSS_NR, on Vulkan, where DLSS-NR is available.
+@nodrops declare function Donut_CreateDlssNeuralRendering(app: AppHandle, dlss: DlssHandle): DlssNeuralRenderingHandle;
+// For width x height images; non-zero if ready.
+@nodrops declare function Donut_InitDlssNeuralRendering(dlssNeuralRendering: DlssNeuralRenderingHandle, width: int, height: int): int;
+@nodrops declare function Donut_IsDlssNeuralRenderingInitialized(dlssNeuralRendering: DlssNeuralRenderingHandle): int;
+// The targets' LdrColor in place (after tone mapping), from their depth and motion vectors (TAA and
+// DLSS modes). model: 0..2 (A, B, C); strengths 0..1; reset: no history.
+@nodrops declare function Donut_EvaluateDlssNeuralRendering(commandList: CommandListHandle, dlssNeuralRendering: DlssNeuralRenderingHandle, view: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle,
+    intensity: number, toneStrength: number, structureStrength: number, model: int, useAutoMask: int, skinStructureStrength: number, reset: int): void;
 // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
 @nodrops declare function Donut_CreatePixelReadbackPass(app: AppHandle, texture: TextureHandle): PixelReadbackPassHandle;
 @nodrops declare function Donut_CapturePixel(commandList: CommandListHandle, pixelReadbackPass: PixelReadbackPassHandle, x: int, y: int): void;

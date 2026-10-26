@@ -120,6 +120,7 @@ HANDLES = {
     "donut::render::BloomPass": "BloomPassHandle",
     "donut::render::LightProbeProcessingPass": "LightProbeProcessingPassHandle",
     "donut::render::DLSS": "DlssHandle",
+    "DlssNeuralRendering": "DlssNeuralRenderingHandle",
     "TsImGuiPass": "ImGuiPassHandle",
     "donut::app::RegisteredFont": "ImGuiFontHandle",
     "VideoPlayer": "VideoPlayerHandle",
