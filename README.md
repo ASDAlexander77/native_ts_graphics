@@ -66,10 +66,30 @@ build/bin/rt_particles.exe -vk
 ```
 
 `-dx12`, `-vk` (and `-dx11` where an example supports it) pick the graphics API, `-debug` enables
-the debug and validation layers. `dlss` / `release-dlss` add DLSS to `feature_demo`, and DLSS 5 (DLSS 3D-Guided Neural Rendering:
-Vulkan or D3D12, RTX GPU, driver 616.92+; `-dlss5` turns it on, `-dlss` starts in the DLSS AA mode), whose SDK is
-fetched from RTX Remix's package remote at configure time (`DONUT_WITH_DLSS_NR`, ~370 MB, NVIDIA RTX SDKs
-license: not to be committed).
+the debug and validation layers.
+
+### DLSS and DLSS 5 (`feature_demo`)
+
+`dlss` / `release-dlss` add DLSS anti-aliasing to `feature_demo`. `dlss-nr` / `release-dlss-nr` do the same and
+also add **DLSS 5**, NVIDIA's DLSS 3D-Guided Neural Rendering (DLSS-NR): a neural pass over the tone-mapped
+image, guided by the depth and motion vectors, with RTX Remix's settings (model A/B/C, intensity, structure and
+tone strength, auto mask, character intensity). It needs an RTX GPU, driver 616.92 or newer, and runs on Vulkan
+or D3D12 (the SDK only has Vulkan helpers; the D3D12 path drives the same NGX feature directly).
+
+```
+cmake --preset release-dlss-nr
+cmake --build --preset release-dlss-nr
+build-release-dlss-nr/bin/feature_demo.exe -vk -dlss -dlss5
+run_jit_dlss_nr.bat            # the same under the JIT
+```
+
+- `-dlss` starts in the DLSS AA mode, `-dlss5` starts with DLSS 5 on; otherwise tick "DLSS 5 (Neural Rendering)"
+  in the settings window, under the anti-aliasing mode. It needs the TemporalAA or DLSS mode (it uses motion
+  vectors), and the checkbox only shows once DLSS-NR initializes.
+- The effect is subtle (about 6-8/255 on average in Sponza): toggle the checkbox with the camera still.
+- The DLSS-NR SDK is fetched from RTX Remix's package remote at configure time (`DONUT_WITH_DLSS_NR`, ~370 MB;
+  both DLSS options need `DONUT_WITH_DLSS=ON`, which the presets set). Its NVIDIA RTX SDKs license doesn't allow
+  committing the headers or DLL.
 
 ## Example gallery
 
