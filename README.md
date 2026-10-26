@@ -14,6 +14,20 @@ order-independent transparency, tessellation, texture compression (BC, Basis Uni
 and more. No JavaScript engine, no WebGPU: the TypeScript is compiled ahead of time to an object
 file and linked like C++.
 
+## About tslang
+
+This project was built using [**tslang**](https://github.com/ASDAlexander77/TypeScriptCompiler)
+(github.com/ASDAlexander77/TypeScriptCompiler), a native compiler for TypeScript. Instead of
+running TypeScript on a JavaScript engine, tslang compiles it through MLIR and LLVM to machine code,
+so a program becomes an ordinary native executable (or object file) with no JavaScript runtime. It
+adds what native graphics code needs on top of the language: typed numerics (`int`, `f32`, ...),
+`Ref<T>` pointers, and declarations for calling C and C++ functions. It can also run a `.ts` file
+directly under its JIT, without a separate build step.
+
+Here every example, the shared wrappers in `core/` and the build's CMake language support rely on it:
+the examples are TypeScript compiled by tslang and linked against the C++ Donut and NVRHI libraries.
+The project also serves as a large real-world test of the compiler.
+
 ![Ray traced particles rendered by a TypeScript program with DirectX 12 ray queries](docs/screenshots/rt_particles.jpg)
 
 TypeScript is a trademark of Microsoft; this project is not affiliated with or endorsed by
@@ -21,6 +35,7 @@ Microsoft.
 
 ## Contents
 
+- [About tslang](#about-tslang)
 - [Quick start](#quick-start)
 - [Example gallery](#example-gallery)
   - [Donut-Samples ports](#donut-samples-ports)
