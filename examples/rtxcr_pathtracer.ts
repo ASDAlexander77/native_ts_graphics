@@ -1682,6 +1682,13 @@ namespace RtxcrPathtracer {
         // (DLSS-NR) over the tone-mapped image. Both where available.
         dlss = false;
         dlss5 = false;
+        // -nrModel <0-2>, -nrIntensity, -nrStructure, -nrTone, -nrSkin <0-1>, -noAutoMask: the DLSS 5 settings of the UI.
+        nrModel: int = 0;
+        nrIntensity = 1.0;
+        nrStructure = 0.7;
+        nrTone = 0.3;
+        nrSkin = 0.5;
+        noAutoMask = false;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
@@ -1692,6 +1699,23 @@ namespace RtxcrPathtracer {
                     this.dlss = true;
                 } else if (arg == "-dlss5") {
                     this.dlss5 = true;
+                } else if (arg == "-nrModel") {
+                    i++;
+                    this.nrModel = parseInt(this[i]);
+                } else if (arg == "-nrIntensity") {
+                    i++;
+                    this.nrIntensity = parseFloat(this[i]);
+                } else if (arg == "-nrStructure") {
+                    i++;
+                    this.nrStructure = parseFloat(this[i]);
+                } else if (arg == "-nrTone") {
+                    i++;
+                    this.nrTone = parseFloat(this[i]);
+                } else if (arg == "-nrSkin") {
+                    i++;
+                    this.nrSkin = parseFloat(this[i]);
+                } else if (arg == "-noAutoMask") {
+                    this.noAutoMask = true;
                 } else if (i + 1 < this.argc) {
                     if (arg == "-hairTessellationType") {
                         this.hairTessellationType = parseInt(this[i + 1]);
@@ -1764,6 +1788,12 @@ namespace RtxcrPathtracer {
         // Both do nothing without support.
         settings.enableDlss = args.dlss;
         settings.enableDlssNeuralRendering = args.dlss5;
+        settings.dlssNeuralRenderingModel = args.nrModel;
+        settings.dlssNeuralRenderingIntensity = args.nrIntensity;
+        settings.dlssNeuralRenderingStructureStrength = args.nrStructure;
+        settings.dlssNeuralRenderingToneStrength = args.nrTone;
+        settings.dlssNeuralRenderingSkinStrength = args.nrSkin;
+        settings.dlssNeuralRenderingUseAutoMask = !args.noAutoMask;
         settings.switchTessellation = args.switchTessellation;
         const renderer = new Renderer(app, settings, args.scenePath, hairTessellationType, args.hairRadiusScale);
         if (!renderer.init()) {

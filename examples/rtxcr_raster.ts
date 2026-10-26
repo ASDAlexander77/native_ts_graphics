@@ -609,6 +609,13 @@ namespace RtxcrRaster {
         taa = false;
         dlss = false;
         dlss5 = false;
+        // -nrModel <0-2>, -nrIntensity, -nrStructure, -nrTone, -nrSkin <0-1>, -noAutoMask: the DLSS 5 settings of the UI.
+        nrModel: int = 0;
+        nrIntensity = 1.0;
+        nrStructure = 0.7;
+        nrTone = 0.3;
+        nrSkin = 0.5;
+        noAutoMask = false;
         // -width / -height of the window.
         width: int = 1920;
         height: int = 1080;
@@ -637,6 +644,23 @@ namespace RtxcrRaster {
                     this.dlss = true;
                 } else if (arg == "-dlss5") {
                     this.dlss5 = true;
+                } else if (arg == "-nrModel") {
+                    i++;
+                    this.nrModel = parseInt(this[i]);
+                } else if (arg == "-nrIntensity") {
+                    i++;
+                    this.nrIntensity = parseFloat(this[i]);
+                } else if (arg == "-nrStructure") {
+                    i++;
+                    this.nrStructure = parseFloat(this[i]);
+                } else if (arg == "-nrTone") {
+                    i++;
+                    this.nrTone = parseFloat(this[i]);
+                } else if (arg == "-nrSkin") {
+                    i++;
+                    this.nrSkin = parseFloat(this[i]);
+                } else if (arg == "-noAutoMask") {
+                    this.noAutoMask = true;
                 }
             }
         }
@@ -674,6 +698,12 @@ namespace RtxcrRaster {
             settings.antiAliasingMode = AntiAliasingMode.DLSS;
         }
         settings.enableDlssNeuralRendering = args.dlss5;
+        settings.dlssNeuralRenderingModel = args.nrModel;
+        settings.dlssNeuralRenderingIntensity = args.nrIntensity;
+        settings.dlssNeuralRenderingStructureStrength = args.nrStructure;
+        settings.dlssNeuralRenderingToneStrength = args.nrTone;
+        settings.dlssNeuralRenderingSkinStrength = args.nrSkin;
+        settings.dlssNeuralRenderingUseAutoMask = !args.noAutoMask;
         const renderer = new Renderer(app, settings, args.scenePath, args.hairTessellationType, args.hairRadiusScale,
             args.msaa);
         if (!renderer.init()) {
