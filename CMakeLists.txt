@@ -422,6 +422,7 @@ if (DONUT_WITH_DLSS AND DONUT_WITH_DLSS_NR AND WIN32 AND DONUT_WITH_VULKAN)
     FetchContent_Declare(dlss_nr
         URL "https://d1oqksizpb0e3d.cloudfront.net/rtx-remix-ngx_sdk_dlnr@2.7z"
         URL_HASH SHA256=4bb8651b3ac2180f23df1f39422c489810a13d445a94dc836c876c18c93ecefe
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         ${DLSS_NR_SOURCE_DIR_OPTION})
     FetchContent_MakeAvailable(dlss_nr)
     # The DLSS SDK's headers, which the DLSS-NR ones include (Donut's DLSS target isn't GLOBAL).
