@@ -406,7 +406,7 @@ if (NVRHI_WITH_DX12)
         COMPILE_DEFINITIONS DONUT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
 endif()
 
-# DLSS 5, NVIDIA's DLSS 3D-Guided Neural Rendering (DLSS-NR), for feature_demo (Vulkan, RTX GPU,
+# DLSS 5, NVIDIA's DLSS 3D-Guided Neural Rendering (DLSS-NR), for feature_demo (Vulkan or D3D12, RTX GPU,
 # driver 616.92+). Its SDK isn't in the public DLSS one: RTX Remix's build fetches it as a packman
 # package (dxvk-remix/packman-external.xml), from the public remote downloaded here, at configure
 # time, into the build folder (DONUT_DLSS_NR_FETCH_DIR to share one). It's under the NVIDIA RTX SDKs

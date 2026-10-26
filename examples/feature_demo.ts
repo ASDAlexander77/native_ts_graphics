@@ -160,7 +160,7 @@ namespace FeatureDemoExample {
             // Set once DLSS initializes (built with DONUT_WITH_DLSS=ON, on an RTX GPU).
             this.dlssAvailable = false;
             // RTX Remix's defaults (rtx.dlssNeuralRendering.*). Available once DLSS-NR initializes (built
-            // with DONUT_WITH_DLSS=ON, on Vulkan and an RTX GPU).
+            // with DONUT_WITH_DLSS=ON, on Vulkan or D3D12, and an RTX GPU).
             this.enableDlssNeuralRendering = false;
             this.dlssNeuralRenderingAvailable = false;
             this.dlssNeuralRenderingModel = 0;
@@ -221,7 +221,7 @@ namespace FeatureDemoExample {
         private temporalAntiAliasingPass: TemporalAntiAliasingPass;
         // A null handle without DLSS support.
         private dlss: Dlss;
-        // A null handle without DLSS-NR support (and on D3D); whether it ran last frame (else it resets).
+        // A null handle without DLSS-NR support; whether it ran last frame (else it resets).
         private dlssNeuralRendering: DlssNeuralRendering;
         private dlssNeuralRenderingActive: boolean;
         private bloomPass: BloomPassHandle | null;

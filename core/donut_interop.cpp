@@ -75,6 +75,11 @@
 #include <nvsdk_ngx_defs_dlssnr.h>
 #include <nvsdk_ngx_helpers_dlssnr_vk.h>
 #include <nvrhi/vulkan.h>
+#if DONUT_WITH_DX12
+// The D3D12 entry points of NGX, which the package has no DLSS-NR helper for: the feature is driven through
+// the generic NGX parameters, as the Vulkan helper does (DlssNrParameters).
+#include <nvsdk_ngx.h>
+#endif
 #endif
 
 #if DONUT_WITH_VULKAN
@@ -938,7 +943,8 @@ namespace
         }
     };
 
-    // DLSS 5, DLSS 3D-Guided Neural Rendering (DLSS-NR, nvngx_dlssnr.dll): Vulkan only. It uses the NGX
+    // DLSS 5, DLSS 3D-Guided Neural Rendering (DLSS-NR, nvngx_dlssnr.dll): Vulkan, and D3D12 (the package only
+    // has Vulkan helpers; the D3D12 path sets the same NGX parameters by hand). It uses the NGX
     // instance a DLSS object initialized on the device (DLSS_VK's constructor; its destructor shuts NGX
     // down), so it holds that object. It runs over the tone-mapped image, as RTX Remix does: gamma-encoded
     // SDR, which LdrColor (SRGBA8) holds; the copies to and from its UNORM textures keep those bytes.
@@ -955,13 +961,19 @@ namespace
         uint32_t width = 0;
         uint32_t height = 0;
         bool evaluateFailed = false;
+        bool d3d12 = false;
 
         void ReleaseFeature()
         {
             if (feature)
             {
                 device->waitForIdle();
-                NVSDK_NGX_VULKAN_ReleaseFeature(feature);
+#if DONUT_WITH_DX12
+                if (d3d12)
+                    NVSDK_NGX_D3D12_ReleaseFeature(feature);
+                else
+#endif
+                    NVSDK_NGX_VULKAN_ReleaseFeature(feature);
                 feature = nullptr;
             }
         }
@@ -970,7 +982,14 @@ namespace
         {
             ReleaseFeature();
             if (parameters)
-                NVSDK_NGX_VULKAN_DestroyParameters(parameters);
+            {
+#if DONUT_WITH_DX12
+                if (d3d12)
+                    NVSDK_NGX_D3D12_DestroyParameters(parameters);
+                else
+#endif
+                    NVSDK_NGX_VULKAN_DestroyParameters(parameters);
+            }
         }
 #endif
     };
@@ -12087,17 +12106,44 @@ extern "C"
 #endif
     }
 
+#if DONUT_WITH_DLSS_NR
+    static void DlssNrDestroyParameters(NVSDK_NGX_Parameter* parameters, bool d3d12)
+    {
+#if DONUT_WITH_DX12
+        if (d3d12)
+        {
+            NVSDK_NGX_D3D12_DestroyParameters(parameters);
+            return;
+        }
+#endif
+        (void)d3d12;
+        NVSDK_NGX_VULKAN_DestroyParameters(parameters);
+    }
+#endif
+
     // DLSS 5 (DLSS-NR, see DlssNeuralRendering), over the NGX instance of dlss. Null unless built with
-    // DONUT_WITH_DLSS_NR, on Vulkan, with dlss supported and DLSS-NR available (RTX GPU, recent driver).
+    // DONUT_WITH_DLSS_NR, on Vulkan or D3D12, with dlss supported and DLSS-NR available (RTX GPU, recent driver).
     DONUT_API DlssNeuralRendering* Donut_CreateDlssNeuralRendering(App* app, donut::render::DLSS* dlss)
     {
 #if DONUT_WITH_DLSS_NR
         App* a = app;
-        if (!dlss || a->device()->getGraphicsAPI() != nvrhi::GraphicsAPI::VULKAN || !dlss->IsDlssSupported())
+        const nvrhi::GraphicsAPI api = a->device()->getGraphicsAPI();
+        const bool d3d12 = api == nvrhi::GraphicsAPI::D3D12;
+#if !DONUT_WITH_DX12
+        if (d3d12)
+            return nullptr;
+#endif
+        if (!dlss || (api != nvrhi::GraphicsAPI::VULKAN && !d3d12) || !dlss->IsDlssSupported())
             return nullptr;
 
         NVSDK_NGX_Parameter* parameters = nullptr;
-        NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_GetCapabilityParameters(&parameters);
+        NVSDK_NGX_Result result = NVSDK_NGX_Result_Fail;
+#if DONUT_WITH_DX12
+        if (d3d12)
+            result = NVSDK_NGX_D3D12_GetCapabilityParameters(&parameters);
+        else
+#endif
+            result = NVSDK_NGX_VULKAN_GetCapabilityParameters(&parameters);
         if (NVSDK_NGX_FAILED(result))
         {
             donut::log::warning("DLSS-NR: cannot get the NGX capability parameters, Result = 0x%08x (%ls)", result, GetNGXResultAsString(result));
@@ -12111,7 +12157,7 @@ extern "C"
             parameters->Get(NVSDK_NGX_Parameter_DLSSNR_MinDriverVersionMajor, &major);
             parameters->Get(NVSDK_NGX_Parameter_DLSSNR_MinDriverVersionMinor, &minor);
             donut::log::warning("DLSS-NR needs NVIDIA driver %u.%u or newer", major, minor);
-            NVSDK_NGX_VULKAN_DestroyParameters(parameters);
+            DlssNrDestroyParameters(parameters, d3d12);
             return nullptr;
         }
 
@@ -12122,7 +12168,7 @@ extern "C"
             parameters->Get(NVSDK_NGX_Parameter_DLSSNR_FeatureInitResult, &initResult);
             donut::log::warning("DLSS-NR is not available on this system, FeatureInitResult = 0x%08x (%ls)", initResult,
                 GetNGXResultAsString(NVSDK_NGX_Result(initResult)));
-            NVSDK_NGX_VULKAN_DestroyParameters(parameters);
+            DlssNrDestroyParameters(parameters, d3d12);
             return nullptr;
         }
 
@@ -12130,6 +12176,7 @@ extern "C"
         nr->dlss = a->SharedObject<donut::render::DLSS>(dlss);
         nr->device = a->device();
         nr->parameters = parameters;
+        nr->d3d12 = d3d12;
         // Not immediate: Init runs while the frame's command list is open (as Donut's DLSS, patched).
         nr->featureCommandList = nr->device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
         return a->OwnObject(nr);
@@ -12165,16 +12212,32 @@ extern "C"
         nr->output = nr->device->createTexture(desc);
 
         nr->featureCommandList->open();
-        VkCommandBuffer vkCommandBuffer = nr->featureCommandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
-        VkDevice vkDevice = nr->device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
 
         // Preset B, the lightweight network, as RTX Remix (independent of the Style, the model).
         NVSDK_NGX_Parameter_SetI(nr->parameters, NVSDK_NGX_Parameter_DLSSNR_Hint_Render_Preset, NVSDK_NGX_DLSSNR_Hint_Render_Preset_B);
         NVSDK_NGX_DLSSNR_Create_Params createParams = {};
         createParams.Width = nr->width;
         createParams.Height = nr->height;
-        const NVSDK_NGX_Result result = NGX_VULKAN_CREATE_DLSSNR_EXT1(vkDevice, vkCommandBuffer, 1, 1,
-            &nr->feature, nr->parameters, &createParams);
+        NVSDK_NGX_Result result = NVSDK_NGX_Result_Fail;
+#if DONUT_WITH_DX12
+        if (nr->d3d12)
+        {
+            // What NGX_VULKAN_CREATE_DLSSNR_EXT1 sets, with D3D12's node masks.
+            ID3D12GraphicsCommandList* d3dCommandList = nr->featureCommandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            NVSDK_NGX_Parameter_SetUI(nr->parameters, NVSDK_NGX_Parameter_CreationNodeMask, 1u);
+            NVSDK_NGX_Parameter_SetUI(nr->parameters, NVSDK_NGX_Parameter_VisibilityNodeMask, 1u);
+            NVSDK_NGX_Parameter_SetUI(nr->parameters, NVSDK_NGX_Parameter_DLSSNR_Width, createParams.Width);
+            NVSDK_NGX_Parameter_SetUI(nr->parameters, NVSDK_NGX_Parameter_DLSSNR_Height, createParams.Height);
+            result = NVSDK_NGX_D3D12_CreateFeature(d3dCommandList, NVSDK_NGX_Feature_DLSSNR, nr->parameters, &nr->feature);
+        }
+        else
+#endif
+        {
+            VkCommandBuffer vkCommandBuffer = nr->featureCommandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            VkDevice vkDevice = nr->device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            result = NGX_VULKAN_CREATE_DLSSNR_EXT1(vkDevice, vkCommandBuffer, 1, 1,
+                &nr->feature, nr->parameters, &createParams);
+        }
 
         nr->featureCommandList->close();
         nr->device->executeCommandList(nr->featureCommandList);
@@ -12247,43 +12310,91 @@ extern "C"
         commandList->setTextureState(targets->MotionVectors, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->commitBarriers();
 
-        NVSDK_NGX_Resource_VK colorResource = DlssNrTextureResource(nr->input);
-        NVSDK_NGX_Resource_VK outputResource = DlssNrTextureResource(nr->output);
-        NVSDK_NGX_Resource_VK depthResource = DlssNrTextureResource(targets->Depth);
-        NVSDK_NGX_Resource_VK motionVectorsResource = DlssNrTextureResource(targets->MotionVectors);
-
-        const NVSDK_NGX_Dimensions size = { nr->width, nr->height };
-        NVSDK_NGX_VK_DLSSNR_Eval_Params params = {};
-        params.pInColor = &colorResource;
-        params.pInOutput = &outputResource;
-        params.pInDepth = &depthResource;
-        params.pInMVec = &motionVectorsResource;
-        params.InEnabled = 1;
-        params.InReset = reset;
-        params.InDepthInverted = 1;
-        params.InIntensity = float(intensity);
-        params.InLocalToneStrength = float(toneStrength);
-        params.InLocalStructureStrength = float(structureStrength);
-        params.InStyle = unsigned(model);
-        params.InUseAutoMask = useAutoMask;
-        params.InMaskBlendMode = useAutoMask ? NVSDK_NGX_DLSSNR_Mask_Blend_Mode_Min : NVSDK_NGX_DLSSNR_Mask_Blend_Mode_None;
-        params.InSkinStructureStrength = useAutoMask ? float(skinStructureStrength) : 0.f;
-        // Donut's motion vectors are in pixels, as DLSS takes them.
-        params.InMVecScaleX = 1.f;
-        params.InMVecScaleY = 1.f;
-        params.InColorSubrectSize = size;
-        params.InOutputSubrectSize = size;
-        params.InDepthSubrectSize = size;
-        params.InMVecSubrectSize = size;
-
         const auto* planarView = static_cast<donut::engine::PlanarView*>(view);
-        NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, planarView->GetPixelOffset().x);
-        NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, planarView->GetPixelOffset().y);
+        NVSDK_NGX_Result result = NVSDK_NGX_Result_Fail;
+#if DONUT_WITH_DX12
+        if (nr->d3d12)
+        {
+            // What NGX_VULKAN_EVALUATE_DLSSNR_EXT sets for the Vulkan helper's parameters above, with D3D12 resources.
+            NVSDK_NGX_Parameter* p = nr->parameters;
+            auto resource = [](nvrhi::ITexture* texture) { return static_cast<ID3D12Resource*>(texture->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource).pointer); };
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Color, resource(nr->input));
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Output, resource(nr->output));
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Depth, resource(targets->Depth));
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_MVec, resource(targets->MotionVectors));
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Backbuffer, nullptr);
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_BidirectionalDistortionField, nullptr);
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_ControlMask, nullptr);
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_UI, nullptr);
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_UIAlpha, nullptr);
+            NVSDK_NGX_Parameter_SetF(p, NVSDK_NGX_Parameter_DLSSNR_LocalToneStrength, float(toneStrength));
+            NVSDK_NGX_Parameter_SetF(p, NVSDK_NGX_Parameter_DLSSNR_LocalStructureStrength, float(structureStrength));
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_Style, unsigned(model));
+            NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_UseAutoMask, useAutoMask);
+            NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_MaskBlendMode,
+                int(useAutoMask ? NVSDK_NGX_DLSSNR_Mask_Blend_Mode_Min : NVSDK_NGX_DLSSNR_Mask_Blend_Mode_None));
+            NVSDK_NGX_Parameter_SetF(p, NVSDK_NGX_Parameter_DLSSNR_SkinStructureStrength, useAutoMask ? float(skinStructureStrength) : 0.f);
+            NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_Reset, reset);
+            NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_DepthInverted, 1);
+            NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_Enabled, 1);
+            NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_UICorrection, 0);
+            NVSDK_NGX_Parameter_SetF(p, NVSDK_NGX_Parameter_DLSSNR_Intensity, float(intensity));
+            NVSDK_NGX_Parameter_SetF(p, NVSDK_NGX_Parameter_DLSSNR_MVecScaleX, 1.f);
+            NVSDK_NGX_Parameter_SetF(p, NVSDK_NGX_Parameter_DLSSNR_MVecScaleY, 1.f);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_ColorSubrectWidth, nr->width);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_ColorSubrectHeight, nr->height);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_OutputSubrectWidth, nr->width);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_OutputSubrectHeight, nr->height);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_DepthSubrectWidth, nr->width);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_DepthSubrectHeight, nr->height);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_MVecSubrectWidth, nr->width);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_MVecSubrectHeight, nr->height);
+            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, planarView->GetPixelOffset().x);
+            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, planarView->GetPixelOffset().y);
 
-        VkCommandBuffer vkCommandBuffer = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
-        const NVSDK_NGX_Result result = NGX_VULKAN_EVALUATE_DLSSNR_EXT(vkCommandBuffer, nr->feature, nr->parameters, &params);
+            ID3D12GraphicsCommandList* d3dCommandList = commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            result = NVSDK_NGX_D3D12_EvaluateFeature_C(d3dCommandList, nr->feature, nr->parameters, nullptr);
+        }
+        else
+#endif
+        {
+            NVSDK_NGX_Resource_VK colorResource = DlssNrTextureResource(nr->input);
+            NVSDK_NGX_Resource_VK outputResource = DlssNrTextureResource(nr->output);
+            NVSDK_NGX_Resource_VK depthResource = DlssNrTextureResource(targets->Depth);
+            NVSDK_NGX_Resource_VK motionVectorsResource = DlssNrTextureResource(targets->MotionVectors);
 
-        // NGX changed the Vulkan state behind NVRHI's back.
+            const NVSDK_NGX_Dimensions size = { nr->width, nr->height };
+            NVSDK_NGX_VK_DLSSNR_Eval_Params params = {};
+            params.pInColor = &colorResource;
+            params.pInOutput = &outputResource;
+            params.pInDepth = &depthResource;
+            params.pInMVec = &motionVectorsResource;
+            params.InEnabled = 1;
+            params.InReset = reset;
+            params.InDepthInverted = 1;
+            params.InIntensity = float(intensity);
+            params.InLocalToneStrength = float(toneStrength);
+            params.InLocalStructureStrength = float(structureStrength);
+            params.InStyle = unsigned(model);
+            params.InUseAutoMask = useAutoMask;
+            params.InMaskBlendMode = useAutoMask ? NVSDK_NGX_DLSSNR_Mask_Blend_Mode_Min : NVSDK_NGX_DLSSNR_Mask_Blend_Mode_None;
+            params.InSkinStructureStrength = useAutoMask ? float(skinStructureStrength) : 0.f;
+            // Donut's motion vectors are in pixels, as DLSS takes them.
+            params.InMVecScaleX = 1.f;
+            params.InMVecScaleY = 1.f;
+            params.InColorSubrectSize = size;
+            params.InOutputSubrectSize = size;
+            params.InDepthSubrectSize = size;
+            params.InMVecSubrectSize = size;
+
+            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, planarView->GetPixelOffset().x);
+            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, planarView->GetPixelOffset().y);
+
+            VkCommandBuffer vkCommandBuffer = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            result = NGX_VULKAN_EVALUATE_DLSSNR_EXT(vkCommandBuffer, nr->feature, nr->parameters, &params);
+        }
+
+        // NGX changed the API's state behind NVRHI's back.
         commandList->clearState();
 
         if (NVSDK_NGX_FAILED(result))
