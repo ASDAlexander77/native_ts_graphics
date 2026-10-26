@@ -181,6 +181,7 @@ namespace RtxcrRaster {
         private hairBounds: f32[];
         private shadowDepthPass: DepthPass;
         private shadowMapValid: boolean;
+        private lastEnableShadows: boolean;
         private forwardPass: ForwardShadingPass;
         private forwardContext: ForwardShadingContextHandle;
         // Created on the first frame, again when the window's size changes.
@@ -221,6 +222,7 @@ namespace RtxcrRaster {
             this.dlssNeuralRendering = new DlssNeuralRendering(null);
             this.dlssNeuralRenderingActive = false;
             this.shadowMapValid = false;
+            this.lastEnableShadows = settings.enableShadows;
             this.lights = [];
             this.lightIrradiances = [];
             this.shadowMaps = [];
@@ -513,7 +515,8 @@ namespace RtxcrRaster {
             for (let i = 0; i < this.lights.length; i++) {
                 const light = this.lights[i];
                 const shadowMap = this.shadowMaps[i];
-                light.setShadowMap(settings.enableShadows ? shadowMap : null);
+                // Always bound: its second slice is the light through the hair, which the hair's look needs.
+                light.setShadowMap(shadowMap);
                 if (shadowMap.setupViewForBounds(light, 0, Ref(this.characterBounds[0]), SHADOW_FADE_RANGE) != 0) {
                     shadowsChanged = true;
                 }
@@ -521,10 +524,18 @@ namespace RtxcrRaster {
                     shadowsChanged = true;
                 }
             }
-            if (settings.enableShadows && shadowsChanged) {
+            if (settings.enableShadows != this.lastEnableShadows) {
+                shadowsChanged = true;
+                this.lastEnableShadows = settings.enableShadows;
+            }
+            if (shadowsChanged) {
+                // Shadows off leaves the first slice (the character's cast shadows) empty: only the strands
+                // still shadow each other.
                 for (const shadowMap of this.shadowMaps) {
                     commandList.clearShadowMap(shadowMap);
-                    commandList.renderShadowDepth(this.shadowDepthPass, shadowMap, sceneGraph, 0);
+                    if (settings.enableShadows) {
+                        commandList.renderShadowDepth(this.shadowDepthPass, shadowMap, sceneGraph, 0);
+                    }
                     commandList.renderShadowDepthView(this.shadowDepthPass, shadowMap, 1, sceneGraph);
                 }
                 this.shadowMapValid = true;
