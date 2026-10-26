@@ -2835,6 +2835,11 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_IsDlssInitialized(dlss: DlssHandle): int;
 // HDR color into resolved color (instead of TAA), with the tone mapping pass's exposure. Planar views only.
 @nodrops declare function Donut_EvaluateDlss(commandList: CommandListHandle, dlss: DlssHandle, view: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle, toneMappingPass: ToneMappingPassHandle): void;
+// Donut_EvaluateDlss over textures of an example's own, 1:1 (width x height): inputColor (HDR) into outputColor (a UAV texture of
+// the same size), from depth (reverse-Z) and motionVectors (pixels, previous minus current), with this frame's jitter (the
+// sub-pixel offset of the projection). reset: no history.
+@nodrops declare function Donut_EvaluateDlssTextures(commandList: CommandListHandle, dlss: DlssHandle, depth: TextureHandle, motionVectors: TextureHandle, inputColor: TextureHandle, outputColor: TextureHandle,
+    width: int, height: int, jitterX: number, jitterY: number, reset: int): void;
 // DLSS 5, DLSS 3D-Guided Neural Rendering (loads nvngx_dlssnr.dll), over dlss's NGX instance; null
 // unless built with DONUT_WITH_DLSS_NR, on Vulkan, where DLSS-NR is available.
 @nodrops declare function Donut_CreateDlssNeuralRendering(app: AppHandle, dlss: DlssHandle): DlssNeuralRenderingHandle;
@@ -2845,6 +2850,11 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // DLSS modes). model: 0..2 (A, B, C); strengths 0..1; reset: no history.
 @nodrops declare function Donut_EvaluateDlssNeuralRendering(commandList: CommandListHandle, dlssNeuralRendering: DlssNeuralRenderingHandle, view: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle,
     intensity: number, toneStrength: number, structureStrength: number, model: int, useAutoMask: int, skinStructureStrength: number, reset: int): void;
+// Donut_EvaluateDlssNeuralRendering over textures of an example's own: ldrColor (gamma-encoded RGBA8 / SRGBA8, in place), depth (float,
+// reverse-Z if depthInverted), motionVectors (RG float, pixels, previous minus current), this frame's jitter.
+@nodrops declare function Donut_EvaluateDlssNeuralRenderingTextures(commandList: CommandListHandle, dlssNeuralRendering: DlssNeuralRenderingHandle, ldrColor: TextureHandle, depth: TextureHandle,
+    motionVectors: TextureHandle, jitterX: number, jitterY: number, depthInverted: int, intensity: number, toneStrength: number, structureStrength: number, model: int, useAutoMask: int,
+    skinStructureStrength: number, reset: int): void;
 // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
 @nodrops declare function Donut_CreatePixelReadbackPass(app: AppHandle, texture: TextureHandle): PixelReadbackPassHandle;
 @nodrops declare function Donut_CapturePixel(commandList: CommandListHandle, pixelReadbackPass: PixelReadbackPassHandle, x: int, y: int): void;

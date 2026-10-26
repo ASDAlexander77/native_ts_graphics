@@ -12106,6 +12106,30 @@ extern "C"
 #endif
     }
 
+    // Donut_EvaluateDlss over textures of an example's own, 1:1 (width x height): inputColor (HDR) into outputColor
+    // (a UAV texture of the same size), from depth (reverse-Z) and motionVectors (pixels, previous minus
+    // current), with this frame's (jitterX, jitterY) sub-pixel offset of the projection. reset: no history.
+    DONUT_API void Donut_EvaluateDlssTextures(nvrhi::ICommandList* commandList, donut::render::DLSS* dlss, nvrhi::ITexture* depth, nvrhi::ITexture* motionVectors, nvrhi::ITexture* inputColor,
+        nvrhi::ITexture* outputColor, int width, int height, double jitterX, double jitterY, int reset)
+    {
+#if DONUT_WITH_DLSS
+        donut::render::DLSS::EvaluateParameters params;
+        params.depthTexture = depth;
+        params.motionVectorsTexture = motionVectors;
+        params.inputColorTexture = inputColor;
+        params.outputColorTexture = outputColor;
+        params.resetHistory = reset != 0;
+
+        donut::engine::PlanarView view;
+        view.SetViewport(nvrhi::Viewport(float(width), float(height)));
+        view.SetPixelOffset(dm::float2(float(jitterX), float(jitterY)));
+        dlss->Evaluate(commandList, params, view);
+#else
+        (void)commandList; (void)dlss; (void)depth; (void)motionVectors; (void)inputColor; (void)outputColor; (void)width; (void)height;
+        (void)jitterX; (void)jitterY; (void)reset;
+#endif
+    }
+
 #if DONUT_WITH_DLSS_NR
     static void DlssNrDestroyParameters(NVSDK_NGX_Parameter* parameters, bool d3d12)
     {
@@ -12288,29 +12312,27 @@ extern "C"
     }
 #endif
 
-    // Runs DLSS-NR over the targets' LdrColor, in place (after tone mapping), guided by their depth
-    // (reverse-Z) and motion vectors: single-sample targets with motion vectors (the TAA and DLSS modes).
-    // model: 0..2 (models A, B, C); the strengths 0..1. reset: no history (camera cut, first frame).
-    DONUT_API void Donut_EvaluateDlssNeuralRendering(nvrhi::ICommandList* commandList, DlssNeuralRendering* dlssNeuralRendering, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets,
-        double intensity, double toneStrength, double structureStrength, int model, int useAutoMask, double skinStructureStrength, int reset)
-    {
 #if DONUT_WITH_DLSS_NR
-        auto* nr = dlssNeuralRendering;
-        auto* targets = sceneRenderTargets;
+    // Runs DLSS-NR over ldrColor, in place (after tone mapping), guided by depth (reverse-Z when
+    // depthInverted) and motionVectors (pixels, previous minus current): single-sample textures of the
+    // size DLSS-NR was initialized for. (jitterX, jitterY): this frame's sub-pixel offset of the projection.
+    // model: 0..2 (models A, B, C); the strengths 0..1. reset: no history (camera cut, first frame).
+    static void DlssNrEvaluate(nvrhi::ICommandList* commandList, DlssNeuralRendering* nr, nvrhi::ITexture* ldrColor, nvrhi::ITexture* depthTexture, nvrhi::ITexture* motionVectorsTexture,
+        float jitterX, float jitterY, int depthInverted, double intensity, double toneStrength, double structureStrength, int model, int useAutoMask, double skinStructureStrength, int reset)
+    {
         if (!nr->feature || nr->evaluateFailed)
             return;
 
         commandList->beginMarker("DLSS-NR");
 
-        commandList->copyTexture(nr->input, nvrhi::TextureSlice(), targets->LdrColor, nvrhi::TextureSlice());
+        commandList->copyTexture(nr->input, nvrhi::TextureSlice(), ldrColor, nvrhi::TextureSlice());
 
         commandList->setTextureState(nr->input, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->setTextureState(nr->output, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-        commandList->setTextureState(targets->Depth, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-        commandList->setTextureState(targets->MotionVectors, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(depthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(motionVectorsTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->commitBarriers();
 
-        const auto* planarView = static_cast<donut::engine::PlanarView*>(view);
         NVSDK_NGX_Result result = NVSDK_NGX_Result_Fail;
 #if DONUT_WITH_DX12
         if (nr->d3d12)
@@ -12320,8 +12342,8 @@ extern "C"
             auto resource = [](nvrhi::ITexture* texture) { return static_cast<ID3D12Resource*>(texture->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource).pointer); };
             NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Color, resource(nr->input));
             NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Output, resource(nr->output));
-            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Depth, resource(targets->Depth));
-            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_MVec, resource(targets->MotionVectors));
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Depth, resource(depthTexture));
+            NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_MVec, resource(motionVectorsTexture));
             NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_Backbuffer, nullptr);
             NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_BidirectionalDistortionField, nullptr);
             NVSDK_NGX_Parameter_SetD3d12Resource(p, NVSDK_NGX_Parameter_DLSSNR_ControlMask, nullptr);
@@ -12335,7 +12357,7 @@ extern "C"
                 int(useAutoMask ? NVSDK_NGX_DLSSNR_Mask_Blend_Mode_Min : NVSDK_NGX_DLSSNR_Mask_Blend_Mode_None));
             NVSDK_NGX_Parameter_SetF(p, NVSDK_NGX_Parameter_DLSSNR_SkinStructureStrength, useAutoMask ? float(skinStructureStrength) : 0.f);
             NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_Reset, reset);
-            NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_DepthInverted, 1);
+            NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_DepthInverted, depthInverted);
             NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_Enabled, 1);
             NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_DLSSNR_UICorrection, 0);
             NVSDK_NGX_Parameter_SetF(p, NVSDK_NGX_Parameter_DLSSNR_Intensity, float(intensity));
@@ -12349,8 +12371,8 @@ extern "C"
             NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_DepthSubrectHeight, nr->height);
             NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_MVecSubrectWidth, nr->width);
             NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_MVecSubrectHeight, nr->height);
-            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, planarView->GetPixelOffset().x);
-            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, planarView->GetPixelOffset().y);
+            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, jitterX);
+            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, jitterY);
 
             ID3D12GraphicsCommandList* d3dCommandList = commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
             result = NVSDK_NGX_D3D12_EvaluateFeature_C(d3dCommandList, nr->feature, nr->parameters, nullptr);
@@ -12360,8 +12382,8 @@ extern "C"
         {
             NVSDK_NGX_Resource_VK colorResource = DlssNrTextureResource(nr->input);
             NVSDK_NGX_Resource_VK outputResource = DlssNrTextureResource(nr->output);
-            NVSDK_NGX_Resource_VK depthResource = DlssNrTextureResource(targets->Depth);
-            NVSDK_NGX_Resource_VK motionVectorsResource = DlssNrTextureResource(targets->MotionVectors);
+            NVSDK_NGX_Resource_VK depthResource = DlssNrTextureResource(depthTexture);
+            NVSDK_NGX_Resource_VK motionVectorsResource = DlssNrTextureResource(motionVectorsTexture);
 
             const NVSDK_NGX_Dimensions size = { nr->width, nr->height };
             NVSDK_NGX_VK_DLSSNR_Eval_Params params = {};
@@ -12371,7 +12393,7 @@ extern "C"
             params.pInMVec = &motionVectorsResource;
             params.InEnabled = 1;
             params.InReset = reset;
-            params.InDepthInverted = 1;
+            params.InDepthInverted = depthInverted;
             params.InIntensity = float(intensity);
             params.InLocalToneStrength = float(toneStrength);
             params.InLocalStructureStrength = float(structureStrength);
@@ -12387,8 +12409,8 @@ extern "C"
             params.InDepthSubrectSize = size;
             params.InMVecSubrectSize = size;
 
-            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, planarView->GetPixelOffset().x);
-            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, planarView->GetPixelOffset().y);
+            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, jitterX);
+            NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, jitterY);
 
             VkCommandBuffer vkCommandBuffer = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
             result = NGX_VULKAN_EVALUATE_DLSSNR_EXT(vkCommandBuffer, nr->feature, nr->parameters, &params);
@@ -12405,13 +12427,43 @@ extern "C"
         }
         else
         {
-            commandList->copyTexture(targets->LdrColor, nvrhi::TextureSlice(), nr->output, nvrhi::TextureSlice());
+            commandList->copyTexture(ldrColor, nvrhi::TextureSlice(), nr->output, nvrhi::TextureSlice());
         }
 
         commandList->endMarker();
+    }
+#endif
+
+    // DlssNrEvaluate over the targets' LdrColor, Depth and MotionVectors (the TAA and DLSS modes), jittered as view.
+    DONUT_API void Donut_EvaluateDlssNeuralRendering(nvrhi::ICommandList* commandList, DlssNeuralRendering* dlssNeuralRendering, donut::engine::IView* view, SceneRenderTargets* sceneRenderTargets,
+        double intensity, double toneStrength, double structureStrength, int model, int useAutoMask, double skinStructureStrength, int reset)
+    {
+#if DONUT_WITH_DLSS_NR
+        auto* targets = sceneRenderTargets;
+        const auto* planarView = static_cast<donut::engine::PlanarView*>(view);
+        DlssNrEvaluate(commandList, dlssNeuralRendering, targets->LdrColor, targets->Depth, targets->MotionVectors,
+            planarView->GetPixelOffset().x, planarView->GetPixelOffset().y, 1, intensity, toneStrength, structureStrength, model, useAutoMask,
+            skinStructureStrength, reset);
 #else
         (void)commandList; (void)dlssNeuralRendering; (void)view; (void)sceneRenderTargets; (void)intensity; (void)toneStrength;
         (void)structureStrength; (void)model; (void)useAutoMask; (void)skinStructureStrength; (void)reset;
+#endif
+    }
+
+    // Donut_EvaluateDlssNeuralRendering over textures of an example's own (not Donut's scene targets): ldrColor
+    // (gamma-encoded, RGBA8 / SRGBA8), depth (R16/R32 float, reverse-Z if depthInverted), motionVectors (RG float,
+    // pixels, previous minus current), the frame's jitter.
+    DONUT_API void Donut_EvaluateDlssNeuralRenderingTextures(nvrhi::ICommandList* commandList, DlssNeuralRendering* dlssNeuralRendering, nvrhi::ITexture* ldrColor, nvrhi::ITexture* depth,
+        nvrhi::ITexture* motionVectors, double jitterX, double jitterY, int depthInverted, double intensity, double toneStrength, double structureStrength, int model, int useAutoMask,
+        double skinStructureStrength, int reset)
+    {
+#if DONUT_WITH_DLSS_NR
+        DlssNrEvaluate(commandList, dlssNeuralRendering, ldrColor, depth, motionVectors, float(jitterX), float(jitterY), depthInverted, intensity,
+            toneStrength, structureStrength, model, useAutoMask, skinStructureStrength, reset);
+#else
+        (void)commandList; (void)dlssNeuralRendering; (void)ldrColor; (void)depth; (void)motionVectors; (void)jitterX; (void)jitterY;
+        (void)depthInverted; (void)intensity; (void)toneStrength; (void)structureStrength; (void)model; (void)useAutoMask;
+        (void)skinStructureStrength; (void)reset;
 #endif
     }
 

@@ -17,9 +17,12 @@ import { perspProjD3DStyleReverse } from "../core/matrix";
 // hair BCSDF under the scene's lights, and everything else is Donut's physically based shading. Each light
 // casts shadows from two slices of a shadow map texture: one over the character, one over the hair in detail,
 // through which its light falls off with the depth of hair it passes (strands shadow those behind them). The
-// strands are thinner than a pixel, so the forward pass is multisampled. The environment map is the
-// background, and the ambient light is a flat sky above and below (not the pathtracer's full environment
-// lighting). No subsurface scattering: the skin is plain PBR here.
+// strands are thinner than a pixel, so the forward pass is multisampled, or anti-aliased over time instead:
+// Donut's temporal anti-aliasing, or NVIDIA DLSS (-dlss, with DONUT_WITH_DLSS) in place of it, both from
+// jittered views and motion vectors (single-sample targets). DLSS 5 (-dlss5, DLSS 3D-Guided Neural Rendering,
+// DONUT_WITH_DLSS_NR) then enhances the tone-mapped image, guided by the depth and motion vectors. The
+// environment map is the background, and the ambient light is a flat sky above and below (not the
+// pathtracer's full environment lighting). No subsurface scattering: the skin is plain PBR here.
 namespace RtxcrRaster {
     const WINDOW_TITLE = "RTX Character Rendering: Raster";
 
@@ -32,11 +35,21 @@ namespace RtxcrRaster {
         Dots = 1
     }
 
+    // The stencil bit Donut's passes mark the geometry that writes its own motion vectors with; none does here.
+    const MOTION_VECTOR_STENCIL_MASK = 0x01;
+
     const SHADOW_MAP_RESOLUTION = 4096;
     const SHADOW_FADE_RANGE = 0.5;
     // A light's shadow map slices: one over the character, one over her hair in detail (the shader's light
     // through the hair).
     const SHADOW_SLICES_PER_LIGHT = 2;
+
+    // MSAA is the multisampled forward pass; the others resolve single-sample targets over time.
+    enum AntiAliasingMode {
+        MSAA = 0,
+        TEMPORAL = 1,
+        DLSS = 2
+    }
 
     // The scale of the lights' irradiances (the scene's: claire.scene.json's key, fill and rim lights), and the
     // sky's light from above and below.
@@ -47,6 +60,18 @@ namespace RtxcrRaster {
         ambientBottom = 0.06;
         lightScale = 0.45;
         frameSeconds = 0.0;
+        antiAliasingMode: int = AntiAliasingMode.MSAA;
+        // Set once DLSS, and DLSS-NR initialize (built with DONUT_WITH_DLSS(_NR), on an RTX GPU).
+        dlssAvailable = false;
+        dlssNeuralRenderingAvailable = false;
+        // RTX Remix's defaults (rtx.dlssNeuralRendering.*), as examples/feature_demo.ts.
+        enableDlssNeuralRendering = false;
+        dlssNeuralRenderingModel: int = 0;
+        dlssNeuralRenderingIntensity = 1.0;
+        dlssNeuralRenderingStructureStrength = 0.7;
+        dlssNeuralRenderingToneStrength = 0.3;
+        dlssNeuralRenderingUseAutoMask = true;
+        dlssNeuralRenderingSkinStrength = 0.5;
     }
 
     // -test: checks the last frame: the lit head and the environment around it, and the dark hair.
@@ -99,6 +124,28 @@ namespace RtxcrRaster {
             s.lightScale = ImGui.sliderFloat("Light intensity", s.lightScale, 0.0, 2.0);
             s.ambientTop = ImGui.sliderFloat("Sky light above", s.ambientTop, 0.0, 2.0);
             s.ambientBottom = ImGui.sliderFloat("Sky light below", s.ambientBottom, 0.0, 2.0);
+            s.antiAliasingMode = ImGui.combo("Anti-aliasing", s.antiAliasingMode,
+                s.dlssAvailable ? "MSAA|TemporalAA|DLSS" : "MSAA|TemporalAA");
+            if (s.dlssNeuralRenderingAvailable) {
+                // As RTX Remix's DLSS 3D-Guided Neural Rendering settings.
+                s.enableDlssNeuralRendering = ImGui.checkbox("DLSS 5 (Neural Rendering)", s.enableDlssNeuralRendering);
+                if (s.enableDlssNeuralRendering) {
+                    if (s.antiAliasingMode == AntiAliasingMode.MSAA) {
+                        ImGui.text("Needs the TemporalAA or DLSS anti-aliasing");
+                    }
+                    s.dlssNeuralRenderingModel = ImGui.combo("Model", s.dlssNeuralRenderingModel, "Model A|Model B|Model C");
+                    s.dlssNeuralRenderingIntensity = ImGui.sliderFloat("Intensity", s.dlssNeuralRenderingIntensity, 0.0, 1.0);
+                    s.dlssNeuralRenderingStructureStrength = ImGui.sliderFloat("Structure Intensity",
+                        s.dlssNeuralRenderingStructureStrength, 0.0, 1.0);
+                    s.dlssNeuralRenderingToneStrength = ImGui.sliderFloat("Tone Intensity",
+                        s.dlssNeuralRenderingToneStrength, 0.0, 1.0);
+                    s.dlssNeuralRenderingUseAutoMask = ImGui.checkbox("Auto Mask", s.dlssNeuralRenderingUseAutoMask);
+                    if (s.dlssNeuralRenderingUseAutoMask) {
+                        s.dlssNeuralRenderingSkinStrength = ImGui.sliderFloat("Character Intensity",
+                            s.dlssNeuralRenderingSkinStrength, 0.0, 1.0);
+                    }
+                }
+            }
             ImGui.end();
         }
     }
@@ -111,7 +158,9 @@ namespace RtxcrRaster {
         private scenePath: string;
         private hairTessellationType: int;
         private hairRadiusScale: number;
-        // The forward pass's samples per pixel: strands thinner than a pixel cover some of its samples.
+        // The forward pass's samples per pixel: strands thinner than a pixel cover some of its samples. The
+        // MSAA mode's (-msaa); the temporal modes render one.
+        private msaaSamples: int;
         private sampleCount: int;
         private bindlessLayout: BindingLayoutHandle;
         private descriptorTableManager: DescriptorTableManager;
@@ -144,15 +193,33 @@ namespace RtxcrRaster {
         // Passed to View.setPlanarView, 16 floats each.
         private viewMatrix: f32[];
         private projMatrix: f32[];
+        // The temporal modes: last frame's view for the motion vectors, the jitter of this frame's, and the
+        // passes that resolve over time. The DLSS handles are null without DLSS support.
+        private viewPrevious: View;
+        private previousViewValid: boolean;
+        private temporalAntiAliasingPass: TemporalAntiAliasingPass;
+        private pixelOffset: f32[];
+        private dlss: Dlss;
+        private dlssNeuralRendering: DlssNeuralRendering;
+        // Whether DLSS-NR ran last frame (else it resets its history).
+        private dlssNeuralRenderingActive: boolean;
 
         constructor(app: App, settings: Settings, scenePath: string, hairTessellationType: int, hairRadiusScale: number,
-            sampleCount: int) {
+            msaaSamples: int) {
             this.app = app;
             this.settings = settings;
             this.scenePath = scenePath;
             this.hairTessellationType = hairTessellationType;
             this.hairRadiusScale = hairRadiusScale;
-            this.sampleCount = sampleCount;
+            this.msaaSamples = msaaSamples;
+            this.sampleCount = msaaSamples;
+            this.viewPrevious = new View(null);
+            this.previousViewValid = false;
+            this.temporalAntiAliasingPass = new TemporalAntiAliasingPass(null);
+            this.pixelOffset = [0.0, 0.0];
+            this.dlss = new Dlss(null);
+            this.dlssNeuralRendering = new DlssNeuralRendering(null);
+            this.dlssNeuralRenderingActive = false;
             this.shadowMapValid = false;
             this.lights = [];
             this.lightIrradiances = [];
@@ -240,6 +307,11 @@ namespace RtxcrRaster {
                 this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
             }
             this.view = this.app.createPlanarView();
+            this.viewPrevious = this.app.createPlanarView();
+
+            // Once: DLSS-NR shares the NGX instance of DLSS, and neither depends on the targets' passes.
+            this.dlss = this.app.createDlss();
+            this.dlssNeuralRendering = this.app.createDlssNeuralRendering(this.dlss);
 
             // The environment map beside the scene's assets.
             const envMap = this.app.loadBindlessTexture(this.descriptorTableManager,
@@ -343,7 +415,7 @@ namespace RtxcrRaster {
         }
 
         // The targets and the passes made for their framebuffers.
-        createRenderTargets(width: int, height: int) {
+        createRenderTargets(width: int, height: int, sampleCount: int) {
             if (!this.renderTargets.isNull()) {
                 this.app.releaseObject(this.renderTargets.handle);
             }
@@ -351,11 +423,31 @@ namespace RtxcrRaster {
             if (environmentMapPass) {
                 this.app.releaseObject(environmentMapPass);
             }
+            if (!this.temporalAntiAliasingPass.isNull()) {
+                this.app.releaseObject(this.temporalAntiAliasingPass.handle);
+            }
+            // The blit's and the passes' cached binding sets reference the old textures.
+            this.app.clearBindingCache();
 
-            const targets = this.app.createSceneRenderTargets(width, height, this.sampleCount);
+            const targets = this.app.createSceneRenderTargets(width, height, sampleCount);
             this.renderTargets = targets;
             this.renderTargetsWidth = width;
             this.renderTargetsHeight = height;
+            this.sampleCount = sampleCount;
+            this.temporalAntiAliasingPass = this.app.createSceneTemporalAntiAliasingPass(this.view, targets,
+                MOTION_VECTOR_STENCIL_MASK);
+            this.previousViewValid = false;
+
+            // DLSS as 1:1 anti-aliasing; DLSS-NR enhances the image of the same size.
+            const dlss = this.dlss;
+            if (!dlss.isNull()) {
+                dlss.init(width, height, width, height);
+                this.settings.dlssAvailable = dlss.isInitialized();
+            }
+            const dlssNeuralRendering = this.dlssNeuralRendering;
+            if (!dlssNeuralRendering.isNull()) {
+                this.settings.dlssNeuralRenderingAvailable = dlssNeuralRendering.init(width, height) != 0;
+            }
 
             this.environmentMapPass = this.app.createEnvironmentMapPass(targets.getFramebuffer(SceneFramebuffer.Forward),
                 this.view, this.environmentMap);
@@ -383,8 +475,26 @@ namespace RtxcrRaster {
             }
             this.view.setPlanarView(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height);
 
-            if (this.renderTargets.isNull() || this.renderTargetsWidth != width || this.renderTargetsHeight != height) {
-                this.createRenderTargets(width, height);
+            // The targets say whether DLSS is available (when made): without it, TAA does the job.
+            const sampleCount = settings.antiAliasingMode == AntiAliasingMode.MSAA ? this.msaaSamples : 1;
+            if (this.renderTargets.isNull() || this.renderTargetsWidth != width || this.renderTargetsHeight != height ||
+                this.sampleCount != sampleCount) {
+                this.createRenderTargets(width, height, sampleCount);
+            }
+            if (settings.antiAliasingMode == AntiAliasingMode.DLSS && !settings.dlssAvailable) {
+                settings.antiAliasingMode = AntiAliasingMode.TEMPORAL;
+            }
+            const temporal = settings.antiAliasingMode != AntiAliasingMode.MSAA;
+            const taaPass = this.temporalAntiAliasingPass;
+            if (temporal) {
+                // This frame's sub-pixel offset of the projection: what the temporal passes integrate over.
+                taaPass.setJitter(TemporalJitter.Halton);
+                taaPass.getPixelOffset(Ref(this.pixelOffset[0]));
+                this.view.setPlanarViewJittered(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), width, height,
+                    this.pixelOffset[0], this.pixelOffset[1]);
+            }
+            if (!this.previousViewValid) {
+                this.viewPrevious.copyPlanarView(this.view);
             }
 
             const commandList = frame.getCommandList();
@@ -426,13 +536,14 @@ namespace RtxcrRaster {
             const bottom = settings.ambientBottom;
             commandList.prepareForwardLights(this.forwardPass, this.forwardContext, sceneGraph,
                 top, top, top, bottom, bottom, bottom, null);
-            commandList.renderForward(this.forwardPass, this.forwardContext, this.view, null,
+            const previousView = temporal ? this.viewPrevious : null;
+            commandList.renderForward(this.forwardPass, this.forwardContext, this.view, previousView,
                 targets.getFramebuffer(SceneFramebuffer.Forward), sceneGraph, 0, "ForwardOpaque", 0);
 
             // Behind everything opaque, before what is transparent.
             commandList.renderEnvironmentMap(this.environmentMapPass as EnvironmentMapPassHandle, this.view);
 
-            commandList.renderForward(this.forwardPass, this.forwardContext, this.view, null,
+            commandList.renderForward(this.forwardPass, this.forwardContext, this.view, previousView,
                 targets.getFramebuffer(SceneFramebuffer.Forward), sceneGraph, 1, "ForwardTransparent", 0);
 
             if (settings.exposure != this.lastExposure) {
@@ -440,7 +551,19 @@ namespace RtxcrRaster {
                 this.lastExposure = settings.exposure;
             }
             let hdrColor = targets.getTexture(SceneTexture.HdrColor);
-            if (this.sampleCount > 1) {
+            // DLSS-NR's history: last frame's view (the temporal modes set it below).
+            const historyValid = this.previousViewValid;
+            if (temporal) {
+                if (this.previousViewValid) {
+                    commandList.renderViewMotionVectors(taaPass, this.view, this.viewPrevious);
+                }
+                if (settings.antiAliasingMode == AntiAliasingMode.DLSS) {
+                    commandList.evaluateDlss(this.dlss, this.view, targets, this.toneMappingPass);
+                } else {
+                    commandList.temporalResolveView(taaPass, this.view, this.previousViewValid ? 1 : 0, 1);
+                }
+                hdrColor = targets.getTexture(SceneTexture.ResolvedColor);
+            } else if (this.sampleCount > 1) {
                 const resolvedColor = targets.getTexture(SceneTexture.ResolvedColor);
                 commandList.resolveTexture(resolvedColor, hdrColor);
                 hdrColor = resolvedColor;
@@ -448,9 +571,28 @@ namespace RtxcrRaster {
             // Adapting over a frame time of 0: the exposure stays what the window says.
             commandList.renderToneMapping(this.toneMappingPass, this.view, hdrColor, 0);
 
+            // DLSS 5 over the tone-mapped image, guided by the depth and motion vectors that only the
+            // temporal modes have (single-sample).
+            const dlssNeuralRendering = this.dlssNeuralRendering;
+            const runDlssNeuralRendering = settings.enableDlssNeuralRendering && temporal && !dlssNeuralRendering.isNull() &&
+                dlssNeuralRendering.isInitialized();
+            if (runDlssNeuralRendering) {
+                const reset = !historyValid || !this.dlssNeuralRenderingActive;
+                commandList.evaluateDlssNeuralRendering(dlssNeuralRendering, this.view, targets, settings.dlssNeuralRenderingIntensity,
+                    settings.dlssNeuralRenderingToneStrength, settings.dlssNeuralRenderingStructureStrength,
+                    settings.dlssNeuralRenderingModel, settings.dlssNeuralRenderingUseAutoMask ? 1 : 0,
+                    settings.dlssNeuralRenderingSkinStrength, reset ? 1 : 0);
+            }
+            this.dlssNeuralRenderingActive = runDlssNeuralRendering;
+
             this.rtxcrScene.endMorphVertexBuffers(commandList.handle);
 
             this.app.blitTexture(frame, targets.getTexture(SceneTexture.LdrColor));
+
+            // The next frame's motion vectors are relative to this frame's view.
+            taaPass.advanceFrame();
+            this.viewPrevious.copyPlanarView(this.view);
+            this.previousViewValid = temporal;
         }
     }
 
@@ -462,23 +604,39 @@ namespace RtxcrRaster {
         hairRadiusScale: number = 0.618;
         // -msaa <samples per pixel>
         msaa: int = 8;
+        // -taa: temporal anti-aliasing instead of MSAA; -dlss: DLSS instead (TAA without it); -dlss5: with
+        // DLSS 5 (DLSS-NR) on where available, over DLSS unless -taa is given.
+        taa = false;
+        dlss = false;
+        dlss5 = false;
         // -width / -height of the window.
         width: int = 1920;
         height: int = 1080;
 
         protected parseOptions() {
-            for (let i = 1; i + 1 < this.argc; i++) {
+            for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-hairTessellationType") {
-                    this.hairTessellationType = parseInt(this[i + 1]);
+                    i++;
+                    this.hairTessellationType = parseInt(this[i]);
                 } else if (arg == "-hairRadiusScale") {
-                    this.hairRadiusScale = parseFloat(this[i + 1]);
+                    i++;
+                    this.hairRadiusScale = parseFloat(this[i]);
                 } else if (arg == "-msaa") {
-                    this.msaa = parseInt(this[i + 1]);
+                    i++;
+                    this.msaa = parseInt(this[i]);
                 } else if (arg == "-width") {
-                    this.width = parseInt(this[i + 1]);
+                    i++;
+                    this.width = parseInt(this[i]);
                 } else if (arg == "-height") {
-                    this.height = parseInt(this[i + 1]);
+                    i++;
+                    this.height = parseInt(this[i]);
+                } else if (arg == "-taa") {
+                    this.taa = true;
+                } else if (arg == "-dlss") {
+                    this.dlss = true;
+                } else if (arg == "-dlss5") {
+                    this.dlss5 = true;
                 }
             }
         }
@@ -499,7 +657,8 @@ namespace RtxcrRaster {
             return 1;
         }
 
-        const app = App.createWithOptions(args.api, WINDOW_TITLE, args.width, args.height, args.options);
+        // Dlss: the Vulkan extensions DLSS needs, if built with it.
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, args.width, args.height, AppOptions.Dlss | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -507,6 +666,14 @@ namespace RtxcrRaster {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const settings = new Settings();
+        // DLSS falls back to TAA, and DLSS 5 to off, without support.
+        if (args.taa) {
+            settings.antiAliasingMode = AntiAliasingMode.TEMPORAL;
+        }
+        if (args.dlss || (args.dlss5 && !args.taa)) {
+            settings.antiAliasingMode = AntiAliasingMode.DLSS;
+        }
+        settings.enableDlssNeuralRendering = args.dlss5;
         const renderer = new Renderer(app, settings, args.scenePath, args.hairTessellationType, args.hairRadiusScale,
             args.msaa);
         if (!renderer.init()) {

@@ -16,8 +16,10 @@ import { perspProjD3DStyleReverse } from "../core/matrix";
 // tessellated into polytubes, DOTS or linear swept spheres (core/rtxcr.cpp), accumulating samples
 // while the camera stands still, then tone mapped. Or denoised instead of accumulating: NVIDIA's NRD
 // (ReBLUR or ReLAX, core/rtxcr.cpp) over the noisy diffuse and specular radiance, packed and composited
-// again by the sample's denoiser.hlsl. The sample's DLSS ray reconstruction, upscalers and frame
-// generation are not ported.
+// again by the sample's denoiser.hlsl. NVIDIA DLSS (-dlss, with DONUT_WITH_DLSS) can integrate the frames
+// over time instead (1:1, from the G-buffer's depth and motion vectors and the Halton jitter), and DLSS 5
+// (-dlss5, DLSS 3D-Guided Neural Rendering, DONUT_WITH_DLSS_NR) enhances the tone-mapped image. The sample's
+// DLSS ray reconstruction, the other upscalers and frame generation are not ported.
 namespace RtxcrPathtracer {
     const WINDOW_TITLE = "RTX Character Rendering: Pathtracer";
 
@@ -218,6 +220,17 @@ namespace RtxcrPathtracer {
         nrdValidation = false;
         nrdSplitScreen = 0.0;
 
+        // NVIDIA DLSS in place of accumulating samples (over the denoised frame, with -denoiser), and DLSS 5
+        // (DLSS-NR) over the tone-mapped image, as examples/feature_demo.ts (RTX Remix's defaults for the latter).
+        enableDlss = false;
+        enableDlssNeuralRendering = false;
+        dlssNeuralRenderingModel = 0;
+        dlssNeuralRenderingIntensity = 1.0;
+        dlssNeuralRenderingStructureStrength = 0.7;
+        dlssNeuralRenderingToneStrength = 0.3;
+        dlssNeuralRenderingUseAutoMask = true;
+        dlssNeuralRenderingSkinStrength = 0.5;
+
         // The hair tessellation the window asks for (HairTessellation).
         hairTessellationType = 1;
         // A test's: the tessellation to ask for after the first frames, or -1.
@@ -228,6 +241,9 @@ namespace RtxcrPathtracer {
 
         // What the renderer tells the window.
         accumulatedFrames = 1;
+        // Set once DLSS, and DLSS-NR initialize (built with DONUT_WITH_DLSS(_NR), on an RTX GPU).
+        dlssAvailable = false;
+        dlssNeuralRenderingAvailable = false;
         lssSupported = false;
         morphTargetCount = 0;
         frameSeconds = 0.0;
@@ -367,7 +383,7 @@ namespace RtxcrPathtracer {
 
             const seconds = s.frameSeconds;
             ImGui.text(`${seconds > 0.0 ? Math.round(1.0 / seconds) : 0} FPS`);
-            if (s.enableAccumulation && !s.enableDenoiser) {
+            if (s.enableAccumulation && !s.enableDenoiser && !(s.enableDlss && s.dlssAvailable)) {
                 ImGui.text(`Accumulated frames: ${s.accumulatedFrames}`);
             }
 
@@ -402,6 +418,33 @@ namespace RtxcrPathtracer {
                     s.nrdSplitScreen = ImGui.sliderFloat("Split screen", s.nrdSplitScreen, 0.0, 1.0);
                 }
                 ImGui.unindent();
+            }
+
+            if (s.dlssAvailable || s.dlssNeuralRenderingAvailable) {
+                if (ImGui.collapsingHeaderDefaultOpen("DLSS")) {
+                    ImGui.indent();
+                    if (s.dlssAvailable) {
+                        s.enableDlss = this.check("DLSS (instead of accumulating)", s.enableDlss);
+                    }
+                    if (s.dlssNeuralRenderingAvailable) {
+                        // As RTX Remix's DLSS 3D-Guided Neural Rendering settings.
+                        s.enableDlssNeuralRendering = ImGui.checkbox("DLSS 5 (Neural Rendering)", s.enableDlssNeuralRendering);
+                        if (s.enableDlssNeuralRendering) {
+                            s.dlssNeuralRenderingModel = ImGui.combo("Model", s.dlssNeuralRenderingModel, "Model A|Model B|Model C");
+                            s.dlssNeuralRenderingIntensity = ImGui.sliderFloat("Intensity", s.dlssNeuralRenderingIntensity, 0.0, 1.0);
+                            s.dlssNeuralRenderingStructureStrength = ImGui.sliderFloat("Structure Intensity",
+                                s.dlssNeuralRenderingStructureStrength, 0.0, 1.0);
+                            s.dlssNeuralRenderingToneStrength = ImGui.sliderFloat("Tone Intensity",
+                                s.dlssNeuralRenderingToneStrength, 0.0, 1.0);
+                            s.dlssNeuralRenderingUseAutoMask = ImGui.checkbox("Auto Mask", s.dlssNeuralRenderingUseAutoMask);
+                            if (s.dlssNeuralRenderingUseAutoMask) {
+                                s.dlssNeuralRenderingSkinStrength = ImGui.sliderFloat("Character Intensity",
+                                    s.dlssNeuralRenderingSkinStrength, 0.0, 1.0);
+                            }
+                        }
+                    }
+                    ImGui.unindent();
+                }
             }
 
             if (ImGui.collapsingHeader("Sky and tone mapping")) {
@@ -552,6 +595,11 @@ namespace RtxcrPathtracer {
         private tonemapPS: ShaderHandle;
         private tonemapPipeline: GraphicsPipelineHandle;
         private tonemapPipelineReady: boolean;
+        // DLSS-NR enhances the tone-mapped image, so with it the tone mapping draws into ldr (the frame's format),
+        // through a pipeline of its own, and ldr is drawn to the frame after.
+        private ldrFramebuffer: FramebufferHandle;
+        private ldrPipeline: GraphicsPipelineHandle;
+        private ldrPipelineReady: boolean;
 
         // Render targets, created on the first frame and when the window changes size.
         private width: int;
@@ -574,11 +622,23 @@ namespace RtxcrPathtracer {
         private denoiserValidation: TextureHandle;
         private denoisedDiffuse: TextureHandle;
         private denoisedSpecular: TextureHandle;
+        // DLSS's output, which the tone mapping reads instead of postProcessing; ldr: see ldrFramebuffer.
+        private dlssOutput: TextureHandle;
+        private ldr: TextureHandle;
         private gbufferSet: BindingSet;
         private gbufferDenoiserSet: BindingSet;
         private ptSet: BindingSet;
         private ptDenoiserSet: BindingSet;
         private tonemapSet: BindingSet;
+        private tonemapDlssSet: BindingSet;
+
+        // DLSS and DLSS-NR (null handles without support), whether they ran last frame, and whether their
+        // history is of another picture (a resize, a setting): they start over.
+        private dlss: Dlss;
+        private dlssNeuralRendering: DlssNeuralRendering;
+        private dlssActive: boolean;
+        private dlssNeuralRenderingActive: boolean;
+        private upscalerHistoryReset: boolean;
 
         // The NRD denoiser: the passes that pack the noisy radiance for it and composite what it returns
         // (the sample's denoiser.hlsl; ReBLUR and ReLAX pack differently), and NRD itself.
@@ -618,6 +678,7 @@ namespace RtxcrPathtracer {
             this.pendingTessellation = false;
             this.lights = [];
             this.tonemapPipelineReady = false;
+            this.ldrPipelineReady = false;
             this.targetsReady = false;
             this.width = 0;
             this.height = 0;
@@ -626,6 +687,12 @@ namespace RtxcrPathtracer {
             this.ptSet = new BindingSet(null);
             this.ptDenoiserSet = new BindingSet(null);
             this.tonemapSet = new BindingSet(null);
+            this.tonemapDlssSet = new BindingSet(null);
+            this.dlss = new Dlss(null);
+            this.dlssNeuralRendering = new DlssNeuralRendering(null);
+            this.dlssActive = false;
+            this.dlssNeuralRenderingActive = false;
+            this.upscalerHistoryReset = true;
             this.nrdSet = new BindingSet(null);
             this.nrdPackSet = new BindingSet(null);
             this.nrdCompositeSet = new BindingSet(null);
@@ -728,6 +795,10 @@ namespace RtxcrPathtracer {
 
             this.view = this.app.createPlanarView();
             this.previousView = this.app.createPlanarView();
+
+            // Once: DLSS-NR shares the NGX instance of DLSS, and neither depends on the targets.
+            this.dlss = this.app.createDlss();
+            this.dlssNeuralRendering = this.app.createDlssNeuralRendering(this.dlss);
 
             // The environment map beside the scene's assets.
             const envMap = this.app.loadBindlessTexture(this.descriptorTableManager,
@@ -835,6 +906,7 @@ namespace RtxcrPathtracer {
             sets.push(this.ptSet);
             sets.push(this.ptDenoiserSet);
             sets.push(this.tonemapSet);
+            sets.push(this.tonemapDlssSet);
             sets.push(this.nrdSet);
             sets.push(this.nrdPackSet);
             sets.push(this.nrdCompositeSet);
@@ -848,9 +920,15 @@ namespace RtxcrPathtracer {
             this.ptSet = new BindingSet(null);
             this.ptDenoiserSet = new BindingSet(null);
             this.tonemapSet = new BindingSet(null);
+            this.tonemapDlssSet = new BindingSet(null);
             this.nrdSet = new BindingSet(null);
             this.nrdPackSet = new BindingSet(null);
             this.nrdCompositeSet = new BindingSet(null);
+            if (this.ldrPipelineReady) {
+                this.app.releaseResource(this.ldrPipeline);
+                this.app.releaseResource(this.ldrFramebuffer);
+                this.ldrPipelineReady = false;
+            }
             if (this.targetsReady) {
                 const textures: TextureHandle[] = [];
                 textures.push(this.pathTracerOutput);
@@ -870,6 +948,8 @@ namespace RtxcrPathtracer {
                 textures.push(this.denoiserValidation);
                 textures.push(this.denoisedDiffuse);
                 textures.push(this.denoisedSpecular);
+                textures.push(this.dlssOutput);
+                textures.push(this.ldr);
                 for (let i = 0; i < textures.length; i++) {
                     this.app.releaseResource(textures[i]);
                 }
@@ -883,6 +963,7 @@ namespace RtxcrPathtracer {
             this.app.clearBindingCache();
             this.resetAccumulation = true;
             this.resetDenoiser = true;
+            this.upscalerHistoryReset = true;
         }
 
         // The sample's ResourceManager::CreateScreenResolutionTextures and
@@ -901,7 +982,8 @@ namespace RtxcrPathtracer {
             this.albedo = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA8_UNORM, "Albedo");
             this.specularAlbedo = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA16_FLOAT, "Specular Albedo");
             this.screenSpaceMotionVector = this.app.createRenderTargetUAVTexture(width, height, Format.RG16_FLOAT, "Screen Space Motion Vector");
-            this.deviceZ = this.app.createRenderTargetUAVTexture(width, height, Format.R16_FLOAT, "DeviceZ");
+            // DLSS and DLSS-NR take it as their depth: 32 bits, nearZ / viewZ (reverse-Z) keeps its precision.
+            this.deviceZ = this.app.createRenderTargetUAVTexture(width, height, Format.R32_FLOAT, "DeviceZ");
             this.noisyDiffuse = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA16_FLOAT, "Noisy Diffuse Radiance HitT");
             this.noisySpecular = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA16_FLOAT, "Noisy Specular Radiance HitT");
             this.specularHitDistance = this.app.createRenderTargetUAVTexture(width, height, Format.R16_FLOAT, "Specular HitT");
@@ -910,6 +992,19 @@ namespace RtxcrPathtracer {
             this.denoisedSpecular = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA16_FLOAT, "Denoised Specular Radiance HitT");
             if (!this.nrd.isNull()) {
                 this.nrd.resize(width, height);
+            }
+
+            // DLSS integrates the frames 1:1; its output is what the tone mapping reads then.
+            this.dlssOutput = this.app.createRenderTargetUAVTexture(width, height, Format.RGBA16_FLOAT, "DLSS Output");
+            this.ldr = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "LDR Color");
+            const dlss = this.dlss;
+            if (!dlss.isNull()) {
+                dlss.init(width, height, width, height);
+                this.settings.dlssAvailable = dlss.isInitialized();
+            }
+            const dlssNeuralRendering = this.dlssNeuralRendering;
+            if (!dlssNeuralRendering.isNull()) {
+                this.settings.dlssNeuralRenderingAvailable = dlssNeuralRendering.init(width, height) != 0;
             }
         }
 
@@ -1203,6 +1298,19 @@ namespace RtxcrPathtracer {
             tonemapDesc.bindTextureUAV(1, this.accumulation);
             tonemapDesc.bindTextureSRV(0, this.denoiserValidation);
             this.tonemapSet = this.app.createBindingSetForLayout(tonemapDesc, this.tonemapLayout);
+
+            // The same, over DLSS's output.
+            const tonemapDlssDesc = BindingSetDesc.create();
+            tonemapDlssDesc.bindEntireConstantBuffer(0, this.globalBuffer);
+            tonemapDlssDesc.bindTextureUAV(0, this.dlssOutput);
+            tonemapDlssDesc.bindTextureUAV(1, this.accumulation);
+            tonemapDlssDesc.bindTextureSRV(0, this.denoiserValidation);
+            this.tonemapDlssSet = this.app.createBindingSetForLayout(tonemapDlssDesc, this.tonemapLayout);
+        }
+
+        // True while DLSS integrates the frames (in place of accumulating them): the window asks for it and DLSS is there.
+        upscaling() {
+            return this.settings.enableDlss && this.settings.dlssAvailable;
         }
 
         // True while the frame is denoised: the window asks for it and NRD is there (see prepareDenoiser).
@@ -1314,8 +1422,8 @@ namespace RtxcrPathtracer {
             g.setInt(G_BOUNCES_MAX, settings.bouncesMax);
             g.setInt(G_FRAME_INDEX, this.frameCounter);
             this.frameCounter++;
-            // The denoiser takes the place of accumulating samples.
-            const accumulate = settings.enableAccumulation && !this.denoising();
+            // The denoiser, or DLSS, takes the place of accumulating samples.
+            const accumulate = settings.enableAccumulation && !this.denoising() && !this.upscaling();
             g.setBool(G_ENABLE_ACCUMULATION, accumulate);
             g.setInt(G_ACCUMULATED_FRAMES_MAX, this.resetAccumulation ? 1 : 128);
             g.setFloat(G_RECIP_ACCUMULATED_FRAMES, accumulate ? 1.0 / this.accumulatedFrameCount : 1.0);
@@ -1417,6 +1525,7 @@ namespace RtxcrPathtracer {
             if (this.settings.dirty) {
                 this.resetAccumulation = true;
                 this.resetDenoiser = true;
+                this.upscalerHistoryReset = true;
                 this.settings.dirty = false;
             }
 
@@ -1487,9 +1596,52 @@ namespace RtxcrPathtracer {
 
             // Tone mapping reads the copy of the path tracer's output.
             commandList.copyTextureRegion(this.postProcessing, 0, 0, 0, output, 0, 0, 0, width, height);
-            frame.beginDraw(this.tonemapPipeline);
-            frame.drawAddBindingSet(this.tonemapSet);
-            frame.drawVertices(4);
+
+            // DLSS integrates the frames over time: the G-buffer's device depth (reverse-Z) and motion vectors (pixels,
+            // previous minus current position, as Donut's), with the jitter the rays were shot with. The tone mapping
+            // reads its output.
+            const dlssRuns = this.upscaling();
+            if (dlssRuns) {
+                const reset = this.upscalerHistoryReset || !this.dlssActive;
+                commandList.evaluateDlssTextures(this.dlss, this.deviceZ, this.screenSpaceMotionVector, this.postProcessing,
+                    this.dlssOutput, width, height, this.jitterX, this.jitterY, reset ? 1 : 0);
+            }
+            this.dlssActive = dlssRuns;
+            const tonemapSet = dlssRuns ? this.tonemapDlssSet : this.tonemapSet;
+
+            // DLSS 5 enhances the tone-mapped image, which is then drawn to the frame.
+            const settings = this.settings;
+            const neuralRenderingRuns = settings.enableDlssNeuralRendering && !this.dlssNeuralRendering.isNull() &&
+                this.dlssNeuralRendering.isInitialized();
+            if (neuralRenderingRuns) {
+                if (!this.ldrPipelineReady) {
+                    this.ldrFramebuffer = this.app.createFramebuffer(this.ldr, null);
+                    const desc = GraphicsPipelineDesc.create(this.tonemapVS, this.tonemapPS);
+                    desc.addBindingLayout(this.tonemapLayout);
+                    desc.setPrimitiveType(PrimitiveType.TriangleStrip);
+                    desc.setDepthState(0, 0, ComparisonFunc.Always);
+                    desc.setRasterState(CullMode.None, FillMode.Solid, 0);
+                    this.ldrPipeline = this.app.createGraphicsPipelineFromDesc(desc, this.ldrFramebuffer);
+                    this.ldrPipelineReady = true;
+                }
+                frame.beginDrawToFramebuffer(this.ldrPipeline, this.ldrFramebuffer);
+                frame.drawAddBindingSet(tonemapSet);
+                frame.drawVertices(4);
+
+                const nrReset = this.upscalerHistoryReset || !this.dlssNeuralRenderingActive;
+                commandList.evaluateDlssNeuralRenderingTextures(this.dlssNeuralRendering, this.ldr, this.deviceZ,
+                    this.screenSpaceMotionVector, this.jitterX, this.jitterY, 1, settings.dlssNeuralRenderingIntensity,
+                    settings.dlssNeuralRenderingToneStrength, settings.dlssNeuralRenderingStructureStrength,
+                    settings.dlssNeuralRenderingModel, settings.dlssNeuralRenderingUseAutoMask ? 1 : 0,
+                    settings.dlssNeuralRenderingSkinStrength, nrReset ? 1 : 0);
+                this.app.blitTexture(frame, this.ldr);
+            } else {
+                frame.beginDraw(this.tonemapPipeline);
+                frame.drawAddBindingSet(tonemapSet);
+                frame.drawVertices(4);
+            }
+            this.dlssNeuralRenderingActive = neuralRenderingRuns;
+            this.upscalerHistoryReset = false;
 
             this.previousView.copyPlanarView(this.view);
             this.previousViewValid = true;
@@ -1526,12 +1678,20 @@ namespace RtxcrPathtracer {
         // -nrdMode <0 ReBLUR, 1 ReLAX> its method.
         denoiser: boolean = false;
         nrdMode: int = 0;
+        // -dlss: NVIDIA DLSS integrates the frames instead (over the denoised ones with -denoiser); -dlss5: DLSS 5
+        // (DLSS-NR) over the tone-mapped image. Both where available.
+        dlss = false;
+        dlss5 = false;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-noAccumulate") {
                     this.accumulate = false;
+                } else if (arg == "-dlss") {
+                    this.dlss = true;
+                } else if (arg == "-dlss5") {
+                    this.dlss5 = true;
                 } else if (i + 1 < this.argc) {
                     if (arg == "-hairTessellationType") {
                         this.hairTessellationType = parseInt(this[i + 1]);
@@ -1573,7 +1733,9 @@ namespace RtxcrPathtracer {
             return 1;
         }
 
-        const app = App.createWithOptions(args.api, WINDOW_TITLE, args.width, args.height, AppOptions.RayTracing | args.options);
+        // Dlss: the Vulkan extensions DLSS needs, if built with it.
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, args.width, args.height,
+            AppOptions.RayTracing | AppOptions.Dlss | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -1599,6 +1761,9 @@ namespace RtxcrPathtracer {
         settings.enableAnimations = args.enableAnimation;
         settings.enableDenoiser = args.denoiser;
         settings.nrdMode = args.nrdMode;
+        // Both do nothing without support.
+        settings.enableDlss = args.dlss;
+        settings.enableDlssNeuralRendering = args.dlss5;
         settings.switchTessellation = args.switchTessellation;
         const renderer = new Renderer(app, settings, args.scenePath, hairTessellationType, args.hairRadiusScale);
         if (!renderer.init()) {

@@ -2382,10 +2382,23 @@ export class CommandList {
         Donut_EvaluateDlss(this.handle, dlss.handle, view.handle, sceneRenderTargets.handle, toneMappingPass.handle);
     }
 
+    // Donut_EvaluateDlss over textures of an example's own, 1:1 (width x height): inputColor (HDR) into outputColor (a UAV texture of
+    // the same size), from depth (reverse-Z) and motionVectors (pixels, previous minus current), with this frame's jitter (the
+    // sub-pixel offset of the projection). reset: no history.
+    evaluateDlssTextures(dlss: Dlss, depth: TextureHandle, motionVectors: TextureHandle, inputColor: TextureHandle, outputColor: TextureHandle, width: int, height: int, jitterX: number, jitterY: number, reset: int): void {
+        Donut_EvaluateDlssTextures(this.handle, dlss.handle, depth, motionVectors, inputColor, outputColor, width, height, jitterX, jitterY, reset);
+    }
+
     // The targets' LdrColor in place (after tone mapping), from their depth and motion vectors (TAA and
     // DLSS modes). model: 0..2 (A, B, C); strengths 0..1; reset: no history.
     evaluateDlssNeuralRendering(dlssNeuralRendering: DlssNeuralRendering, view: View, sceneRenderTargets: SceneRenderTargets, intensity: number, toneStrength: number, structureStrength: number, model: int, useAutoMask: int, skinStructureStrength: number, reset: int): void {
         Donut_EvaluateDlssNeuralRendering(this.handle, dlssNeuralRendering.handle, view.handle, sceneRenderTargets.handle, intensity, toneStrength, structureStrength, model, useAutoMask, skinStructureStrength, reset);
+    }
+
+    // Donut_EvaluateDlssNeuralRendering over textures of an example's own: ldrColor (gamma-encoded RGBA8 / SRGBA8, in place), depth (float,
+    // reverse-Z if depthInverted), motionVectors (RG float, pixels, previous minus current), this frame's jitter.
+    evaluateDlssNeuralRenderingTextures(dlssNeuralRendering: DlssNeuralRendering, ldrColor: TextureHandle, depth: TextureHandle, motionVectors: TextureHandle, jitterX: number, jitterY: number, depthInverted: int, intensity: number, toneStrength: number, structureStrength: number, model: int, useAutoMask: int, skinStructureStrength: number, reset: int): void {
+        Donut_EvaluateDlssNeuralRenderingTextures(this.handle, dlssNeuralRendering.handle, ldrColor, depth, motionVectors, jitterX, jitterY, depthInverted, intensity, toneStrength, structureStrength, model, useAutoMask, skinStructureStrength, reset);
     }
 
     capturePixel(pixelReadbackPass: PixelReadbackPass, x: int, y: int): void {

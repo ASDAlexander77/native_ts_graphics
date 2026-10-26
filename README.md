@@ -210,8 +210,11 @@ build/bin/rtxcr_pathtracer.exe --scene E:/RTXCR/assets/claire.scene.json
 where the hair is DOTS.) It accumulates samples while the camera stands still, or with `-denoiser 1`
 (`-nrdMode 0` ReBLUR, `1` ReLAX; the "Denoiser" section of the window) denoises each frame with the
 checkout's NRD (`external/RayTracingDenoiser`, built by this repository's CMake with its shaders in
-`bin/shaders/nrd`, `core/rtxcr.cpp` driving it) instead. The sample's DLSS ray reconstruction, upscalers
-(so no anti-aliasing of the denoised frames) and frame generation are not ported. With `RTXCR_DIR`, the
+`bin/shaders/nrd`, `core/rtxcr.cpp` driving it) instead. With `-dlss` (a build with `DONUT_WITH_DLSS`, see
+[DLSS and DLSS 5](#dlss-and-dlss-5-feature_demo)) NVIDIA DLSS integrates the frames over time, 1:1, instead of
+accumulating them (over the denoised frames with `-denoiser 1`), and `-dlss5` adds DLSS 5 (DLSS-NR, needs
+`DONUT_WITH_DLSS_NR`) over the tone-mapped image, both from the G-buffer's depth and motion vectors (the window's
+"DLSS" section). The sample's DLSS ray reconstruction, the other upscalers and frame generation are not ported. With `RTXCR_DIR`, the
 build uses that checkout's NVAPI (and NVAPI's opacity micromaps, not DXR 1.2's) for the D3D12 swept
 spheres. This software contains source code provided by NVIDIA Corporation.
 
@@ -220,7 +223,10 @@ forward shading pass over the scene, the hair curves tessellated into polytubes 
 by `core/rtxcr.cpp`, and a pixel shader of its own (`shaders/rtxcr_raster_ps.hlsl`, Donut's forward shader with
 RTXCR's far-field hair BCSDF for the hair materials). The sun casts a shadow map and the environment map is
 the background, with a flat sky as ambient light (not the path tracer's environment lighting); there is no
-subsurface scattering for the skin, no anti-aliasing (the strands are sub-pixel) and no hair animation yet.
+subsurface scattering for the skin and no hair animation yet. The strands are sub-pixel, so the forward pass is
+multisampled (`-msaa`, 8 by default), or anti-aliased over time with `-taa`, `-dlss` (DLSS instead of TAA) and `-dlss5`
+(DLSS 5 over the tone-mapped image, on top of `-dlss`, or `-taa`): those render one jittered sample per pixel with
+motion vectors.
 
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
