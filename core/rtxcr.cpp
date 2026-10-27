@@ -894,7 +894,7 @@ extern "C"
     }
 
     // The sample's MorphTargetAnimationPass for every morph target mesh, then their bottom level
-    // structures' update: blends the two keyframes around the animation's time into the vertex
+    // structures' update (the meshes that have one): blends the two keyframes around the animation's time into the vertex
     // buffers. animationTimestampPerFrame is the time between keyframes; the last keyframe blends back
     // to the first over animationSmoothingFactor of them. With enableDebugOverride the keyframe and
     // blend weight are the given ones. Returns the number of meshes animated.
@@ -1010,12 +1010,15 @@ extern "C"
             while (s->totalTime > adjustedTotalAnimationTime)
                 s->totalTime -= adjustedTotalAnimationTime;
 
-            // The bottom level structure follows the vertices.
-            commandList->setBufferState(mesh->buffers->vertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
-            commandList->commitBarriers();
-            nvrhi::rt::AccelStructDesc blasDesc;
-            getMeshBlasDesc(*mesh, blasDesc, true);
-            nvrhi::utils::BuildBottomLevelAccelStruct(commandList, mesh->accelStruct, blasDesc);
+            // The bottom level structure follows the vertices; a rasterizer (no Donut_RtxcrBuildAccelStructs) has none.
+            if (mesh->accelStruct)
+            {
+                commandList->setBufferState(mesh->buffers->vertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
+                commandList->commitBarriers();
+                nvrhi::rt::AccelStructDesc blasDesc;
+                getMeshBlasDesc(*mesh, blasDesc, true);
+                nvrhi::utils::BuildBottomLevelAccelStruct(commandList, mesh->accelStruct, blasDesc);
+            }
             commandList->setBufferState(mesh->buffers->vertexBuffer, vertexBufferRestState(s->device));
             commandList->commitBarriers();
             ++animated;

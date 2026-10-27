@@ -1,0 +1,46 @@
+diff --git a/src/render/DepthPass.cpp b/src/render/DepthPass.cpp
+index fbeefe3..d5522ec 100644
+--- a/src/render/DepthPass.cpp
++++ b/src/render/DepthPass.cpp
+@@ -231,8 +231,17 @@ nvrhi::BindingSetHandle DepthPass::CreateInputBindingSet(const BufferGroup* buff
+ 
+ nvrhi::BindingSetHandle DepthPass::GetOrCreateInputBindingSet(const BufferGroup* bufferGroup)
+ {
++    // A group's vertex buffer can be replaced (one of two written by a compute pass each frame): a set that
++    // binds another one is made again.
++    auto bindsVertexBuffer = [bufferGroup](nvrhi::IBindingSet* bindingSet) {
++        for (const auto& item : bindingSet->getDesc()->bindings)
++            if (item.resourceHandle == bufferGroup->vertexBuffer.Get())
++                return true;
++        return false;
++    };
++
+     auto it = m_InputBindingSets.find(bufferGroup);
+-    if (it == m_InputBindingSets.end())
++    if (it == m_InputBindingSets.end() || !bindsVertexBuffer(it->second))
+     {
+         auto bindingSet = CreateInputBindingSet(bufferGroup);
+         m_InputBindingSets[bufferGroup] = bindingSet;
+diff --git a/src/render/ForwardShadingPass.cpp b/src/render/ForwardShadingPass.cpp
+index 70779f5..8b4b193 100644
+--- a/src/render/ForwardShadingPass.cpp
++++ b/src/render/ForwardShadingPass.cpp
+@@ -570,8 +570,17 @@ nvrhi::BindingSetHandle ForwardShadingPass::CreateInputBindingSet(const BufferGr
+ 
+ nvrhi::BindingSetHandle ForwardShadingPass::GetOrCreateInputBindingSet(const BufferGroup* bufferGroup)
+ {
++    // A group's vertex buffer can be replaced (one of two written by a compute pass each frame): a set that
++    // binds another one is made again.
++    auto bindsVertexBuffer = [bufferGroup](nvrhi::IBindingSet* bindingSet) {
++        for (const auto& item : bindingSet->getDesc()->bindings)
++            if (item.resourceHandle == bufferGroup->vertexBuffer.Get())
++                return true;
++        return false;
++    };
++
+     auto it = m_InputBindingSets.find(bufferGroup);
+-    if (it == m_InputBindingSets.end())
++    if (it == m_InputBindingSets.end() || !bindsVertexBuffer(it->second))
+     {
+         auto bindingSet = CreateInputBindingSet(bufferGroup);
+         m_InputBindingSets[bufferGroup] = bindingSet;

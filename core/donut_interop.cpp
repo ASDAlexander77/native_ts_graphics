@@ -11664,6 +11664,9 @@ extern "C"
         donut::render::DepthPass::CreateParameters params;
         params.depthBias = depthBias;
         params.slopeScaledDepthBias = float(slopeScaledDepthBias);
+        // One constant buffer version per view rendered: shadow maps re-rendered each frame (rtxcr_raster's
+        // animated hair: three lights of two slices) need more than the default 16 with frames in flight.
+        params.numConstantBufferVersions = 64;
         auto pass = std::make_shared<donut::render::DepthPass>(a->device(), a->sharedCommonPasses());
         pass->Init(*a->shaderFactory, params);
         return a->OwnObject(pass);

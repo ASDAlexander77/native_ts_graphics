@@ -171,6 +171,10 @@ set(DONUT_PATCHES
     # DLSS::Init creates its feature on a command list of its own while the frame's is open: as a second
     # immediate one, which NVRHI's validation (-debug) refuses (feature_demo's tests with DONUT_WITH_DLSS).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-dlss-non-immediate-command-list.patch"
+    # The forward and depth passes kept a buffer group's input binding set (without the input assembler)
+    # for good: rtxcr_raster's animated hair, which the morph target pass writes into one of two vertex
+    # buffers a frame, drew from the first one in every frame (in a state nothing tracked: device lost).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-input-binding-set-vertex-buffer-change.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
@@ -3779,13 +3783,30 @@ if (RTXCR_DIR)
         DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_raster/dxil
         SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_raster/spirv
     )
+    # The sample's morph target pass for the animated hair (polytubes, DOTS), compiled in place beside it.
+    donut_compile_shaders(
+        TARGET rtxcr_raster_morph_shaders
+        PROJECT_NAME "RTXCR Raster Morph Targets"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_raster_morph.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxcr_raster_morph.cfg
+        INCLUDES
+            ${RTXCR_DIR}/samples/pathtracer
+            ${RTXCR_DIR}/libraries/rtxcr/material/shaders/include
+            ${RTXCR_DIR}/libraries/rtxcr/geometry/shaders/include
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_raster/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxcr_raster/spirv
+        SHADERMAKE_OPTIONS "--sourceDir ${RTXCR_DIR}/samples/pathtracer/shaders"
+    )
     add_tslang_example(rtxcr_raster core/matrix.ts core/rtxcr_scene.ts core/rtxcr.cpp MEDIA fonts)
-    add_dependencies(rtxcr_raster rtxcr_raster_shaders)
+    add_dependencies(rtxcr_raster rtxcr_raster_shaders rtxcr_raster_morph_shaders)
     target_link_libraries(rtxcr_raster PRIVATE NRD)
     add_tslang_example_test(rtxcr_raster ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.scene.json)
     add_tslang_example_test(rtxcr_raster SUFFIX dots
         ARGS -width 960 -height 540 -hairTessellationType 1 --scene ${RTXCR_DIR}/assets/claire.scene.json)
-    # The animation scene's hair has morph target vertex buffers, with no permanent state.
+    # The animation scene's hair: morph target vertex buffers (no permanent state) the morph target pass writes.
     add_tslang_example_test(rtxcr_raster SUFFIX animation
-        ARGS -width 960 -height 540 --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+        ARGS -width 960 -height 540 -enableAnimation 1 --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+    add_tslang_example_test(rtxcr_raster SUFFIX animation_dots
+        ARGS -width 960 -height 540 -hairTessellationType 1 -enableAnimation 1
+        --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
 endif()

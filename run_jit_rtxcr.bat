@@ -4,7 +4,7 @@
 @rem core/input_pass.ts for its declarations.
 @pushd %~dp0
 set D=build-release-rtxcr/bin
-rem "tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_pathtracer.ts -- -dx12 -dlss -dlss5 --scene E:/Gits/RTXCR/assets/claire.animation.scene.json %*
-"tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_raster.ts -- -dx12 -dlss -dlss5 --scene E:/Gits/RTXCR/assets/claire.animation.scene.json %*
+rem "tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_pathtracer.ts -- -dx12 -dlss -dlss5 --scene E:/Gits/RTXCR/assets/claire.animation.scene.json -enableAnimation 1 %*
+"tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_raster.ts -- -dx12 -dlss -dlss5 --scene E:/Gits/RTXCR/assets/claire.animation.scene.json -enableAnimation 1 %*
 rem "tslang.exe" --shared-libs=%D%/donut_interop_shared.dll examples/rtxcr_raster.ts -- -dx12 -dlss -dlss5 --scene E:/Gits/RTXCR/assets/try1.scene.json %*
 @popd

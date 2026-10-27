@@ -72,6 +72,12 @@ namespace RtxcrRaster {
         dlssNeuralRenderingToneStrength = 0.3;
         dlssNeuralRenderingUseAutoMask = true;
         dlssNeuralRenderingSkinStrength = 0.5;
+        // The path tracer's animation settings: the scene's node animations and the hair's morph targets.
+        enableAnimations = false;
+        animationFps = 30.0;
+        enableAnimationSmoothing = true;
+        animationSmoothingFactor = 16.0;
+        morphTargetCount: int = 0;
     }
 
     // -test: checks the last frame: the lit head and the environment around it, and the dark hair.
@@ -124,6 +130,14 @@ namespace RtxcrRaster {
             s.lightScale = ImGui.sliderFloat("Light intensity", s.lightScale, 0.0, 2.0);
             s.ambientTop = ImGui.sliderFloat("Sky light above", s.ambientTop, 0.0, 2.0);
             s.ambientBottom = ImGui.sliderFloat("Sky light below", s.ambientBottom, 0.0, 2.0);
+            if (s.morphTargetCount > 0) {
+                s.enableAnimations = ImGui.checkbox("Animate", s.enableAnimations);
+                if (s.enableAnimations) {
+                    s.animationFps = ImGui.sliderFloat("Keyframes per second", s.animationFps, 1.0, 120.0);
+                    s.enableAnimationSmoothing = ImGui.checkbox("Smooth the loop", s.enableAnimationSmoothing);
+                    s.animationSmoothingFactor = ImGui.sliderFloat("Smoothing", s.animationSmoothingFactor, 1.0, 64.0);
+                }
+            }
             s.antiAliasingMode = ImGui.combo("Anti-aliasing", s.antiAliasingMode,
                 s.dlssAvailable ? "MSAA|TemporalAA|DLSS" : "MSAA|TemporalAA");
             if (s.dlssNeuralRenderingAvailable) {
@@ -166,6 +180,12 @@ namespace RtxcrRaster {
         private descriptorTableManager: DescriptorTableManager;
         private scene: Scene;
         private rtxcrScene: RtxcrScene;
+        // The animated hair's meshes (claire.animation.scene.json), the frames rendered (which of the hair's two
+        // vertex buffers a frame writes), the last frame's time and the node animations' clock.
+        private morphTargetCount: int;
+        private frameCounter: int;
+        private elapsedSeconds: number;
+        private wallclockTime: number;
         private sceneGraph: SceneGraph;
         // The directional lights, each with a shadow map in slices of one texture, and their scene irradiances.
         private lights: Light[];
@@ -221,6 +241,10 @@ namespace RtxcrRaster {
             this.dlss = new Dlss(null);
             this.dlssNeuralRendering = new DlssNeuralRendering(null);
             this.dlssNeuralRenderingActive = false;
+            this.morphTargetCount = 0;
+            this.frameCounter = 0;
+            this.elapsedSeconds = 0.0;
+            this.wallclockTime = 0.0;
             this.shadowMapValid = false;
             this.lastEnableShadows = settings.enableShadows;
             this.lights = [];
@@ -260,6 +284,20 @@ namespace RtxcrRaster {
             this.rtxcrScene = RtxcrScene.create(this.app.getNvrhiDevice(), scene.handle, this.descriptorTableManager.handle,
                 this.hairRadiusScale, this.hairTessellationType);
             this.sceneGraph = scene.getSceneGraph();
+
+            // The animated hair: the sample's morph target pass writes its vertices (no acceleration structures
+            // to update here).
+            this.morphTargetCount = this.rtxcrScene.createMorphTargets();
+            this.settings.morphTargetCount = this.morphTargetCount;
+            if (this.morphTargetCount > 0) {
+                const morphShader = this.app.createShaderWithDefine("morphTargetAnimation.cs.hlsl", "main_cs", ShaderType.Compute,
+                    "RTXCR_CURVE_TESSELLATION_TYPE", `${this.hairTessellationType}`);
+                if (!morphShader) {
+                    console.log("Cannot load the morph target shader");
+                    return false;
+                }
+                this.rtxcrScene.setMorphTargetShader(morphShader);
+            }
 
             // The scene's directional lights, else the pathtracer's default sun.
             const lightCount = this.sceneGraph.getLightCount();
@@ -414,6 +452,21 @@ namespace RtxcrRaster {
         onAnimate(elapsedSeconds: number) {
             this.camera.animate(elapsedSeconds);
             this.settings.frameSeconds = this.app.getAverageFrameTime();
+            this.elapsedSeconds = elapsedSeconds;
+
+            // The path tracer's (the sample's SampleScene::Animate): the scene's node animations, each starting a
+            // second after the previous one.
+            if (this.settings.enableAnimations) {
+                this.wallclockTime += elapsedSeconds;
+                let offset = 0.0;
+                const animationCount = this.scene.getAnimationCount();
+                for (let i = 0; i < animationCount; i++) {
+                    const duration = this.scene.getAnimationDuration(i);
+                    const cycles = (this.wallclockTime + offset) / duration;
+                    this.scene.applyAnimation(i, (cycles - Math.floor(cycles)) * duration);
+                    offset += 1.0;
+                }
+            }
         }
 
         onBackBufferResizing() {
@@ -515,11 +568,20 @@ namespace RtxcrRaster {
             // Skins the scene's skinned meshes (a character that is not Claire's morphed hair).
             this.app.refreshScene(frame, this.scene);
 
+            // The animated hair's vertices follow the keyframes, into this frame's vertex buffer of the two.
+            if (settings.enableAnimations && this.morphTargetCount > 0) {
+                this.rtxcrScene.animateMorphTargets(commandList.handle, this.frameCounter, this.elapsedSeconds,
+                    Math.max(1.0 / settings.animationFps, 0.001), false, 0, 0.0,
+                    settings.enableAnimationSmoothing ? settings.animationSmoothingFactor : 1.0);
+            }
+            this.frameCounter++;
+
             // The animated hair's vertex buffers are drawn from the state they rest in.
             this.rtxcrScene.beginMorphVertexBuffers(commandList.handle);
 
-            // The scene and the lights don't move: one rendering of the shadow maps does.
-            let shadowsChanged = !this.shadowMapValid;
+            // Unless animated, the scene and the lights don't move: one rendering of the shadow maps does (the
+            // hair's slice covers all its keyframes: the loader's bounds include them).
+            let shadowsChanged = !this.shadowMapValid || settings.enableAnimations;
             for (let i = 0; i < this.lights.length; i++) {
                 const light = this.lights[i];
                 const shadowMap = this.shadowMaps[i];
@@ -623,6 +685,8 @@ namespace RtxcrRaster {
         hairRadiusScale: number = 0.618;
         // -msaa <samples per pixel>
         msaa: int = 8;
+        // -enableAnimation <0|1>: the path tracer's, for claire.animation.scene.json's hair.
+        enableAnimation = false;
         // -taa: temporal anti-aliasing instead of MSAA; -dlss: DLSS instead (TAA without it); -dlss5: with
         // DLSS 5 (DLSS-NR) on where available, over DLSS unless -taa is given.
         taa = false;
@@ -651,6 +715,9 @@ namespace RtxcrRaster {
                 } else if (arg == "-msaa") {
                     i++;
                     this.msaa = parseInt(this[i]);
+                } else if (arg == "-enableAnimation") {
+                    i++;
+                    this.enableAnimation = parseInt(this[i]) != 0;
                 } else if (arg == "-width") {
                     i++;
                     this.width = parseInt(this[i]);
@@ -688,7 +755,14 @@ namespace RtxcrRaster {
     export function main(argc: int, argv: Ref<string>) {
         Program.setAppName("rtxcr_raster");
 
-        const args = new RtxcrRasterArgs(argc, argv, TEST_FRAMES);
+        // -frames <n>: the frames -test renders (the animated hair moves 1/60 s a frame).
+        let testFrames = TEST_FRAMES;
+        for (let i = 1; i + 1 < argc; i++) {
+            if (CommandLine.getArg(argv, i) == "-frames") {
+                testFrames = parseInt(CommandLine.getArg(argv, i + 1));
+            }
+        }
+        const args = new RtxcrRasterArgs(argc, argv, testFrames);
         args.parseArgs();
 
         if (args.scenePath == "") {
@@ -723,6 +797,7 @@ namespace RtxcrRaster {
         settings.dlssNeuralRenderingToneStrength = args.nrTone;
         settings.dlssNeuralRenderingSkinStrength = args.nrSkin;
         settings.dlssNeuralRenderingUseAutoMask = !args.noAutoMask;
+        settings.enableAnimations = args.enableAnimation;
         const renderer = new Renderer(app, settings, args.scenePath, args.hairTessellationType, args.hairRadiusScale,
             args.msaa);
         if (!renderer.init()) {

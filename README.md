@@ -238,7 +238,10 @@ forward shading pass over the scene, the hair curves tessellated into polytubes 
 by `core/rtxcr.cpp`, and a pixel shader of its own (`shaders/rtxcr_raster_ps.hlsl`, Donut's forward shader with
 RTXCR's far-field hair BCSDF for the hair materials). The sun casts a shadow map and the environment map is
 the background, with a flat sky as ambient light (not the path tracer's environment lighting); there is no
-subsurface scattering for the skin and no hair animation yet. The strands are sub-pixel, so the forward pass is
+subsurface scattering for the skin. With `--scene .../claire.animation.scene.json -enableAnimation 1` (or the
+window's "Animate") the hair moves as in the path tracer (the sample's morph target pass, its shader compiled in
+place from `shaders/rtxcr_raster_morph.cfg`); the motion vectors are the camera's only, so with `-taa` and
+`-dlss` the moving strands may trail. The strands are sub-pixel, so the forward pass is
 multisampled (`-msaa`, 8 by default), or anti-aliased over time with `-taa`, `-dlss` (DLSS instead of TAA) and `-dlss5`
 (DLSS 5 over the tone-mapped image, on top of `-dlss`, or `-taa`): those render one jittered sample per pixel with
 motion vectors.
