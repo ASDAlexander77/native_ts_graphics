@@ -1,0 +1,36 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            // What the tslang JIT launches of the current file load from build: the interop DLL (and its import
+            // library), every example's shaders and the media (CMakeLists.txt's jit_runtime).
+            "label": "CMake: build default (JIT)",
+            "type": "cmake",
+            "command": "build",
+            "preset": "default",
+            "targets": ["jit_runtime"],
+            "group": "build",
+            "problemMatcher": ["$msCompile"],
+            // The GDB launch: libdonut_interop_shared.so, its compiler's messages GCC's (or Clang's).
+            "linux": {
+                "problemMatcher": ["$gcc"]
+            }
+        },
+        {
+            // What the tslang JIT launch of rtxcr_raster loads from build-rtxcr: the interop DLL (and its import
+            // library), the example's shaders and the ImGui fonts.
+            "label": "CMake: build rtxcr (DLSS-NR)",
+            "type": "cmake",
+            "command": "build",
+            "preset": "default-rtxcr",
+            "targets": [
+                "donut_interop_shared",
+                "rtxcr_raster_shaders",
+                "rtxcr_raster_morph_shaders",
+                "copy_media"
+            ],
+            "group": "build",
+            "problemMatcher": ["$msCompile"]
+        }
+    ]
+}

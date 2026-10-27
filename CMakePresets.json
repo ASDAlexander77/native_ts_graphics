@@ -93,8 +93,8 @@
     {
       "name": "default-rtxcr",
       "displayName": "Default with RTXCR (Ninja)",
-      "description": "Debug with the rtxcr_pathtracer example (RTXCR_DIR: a checkout of github.com/NVIDIA-RTX/RTXCR with submodules and assets). Override the path with -DRTXCR_DIR=<path>.",
-      "inherits": "default",
+      "description": "Debug with DLSS-NR and the rtxcr_pathtracer and rtxcr_raster examples (RTXCR_DIR: a checkout of github.com/NVIDIA-RTX/RTXCR with submodules and assets). Override the path with -DRTXCR_DIR=<path>.",
+      "inherits": "dlss-nr",
       "binaryDir": "${sourceDir}/build-rtxcr",
       "cacheVariables": {
         "RTXCR_DIR": "E:/Gits/RTXCR"

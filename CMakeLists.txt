@@ -847,6 +847,8 @@ function(add_tslang_example name)
     if (ANDROID)
         add_tslang_android_app(${name} "${EXAMPLE_MEDIA}" ${EXAMPLE_UNPARSED_ARGUMENTS})
     endif()
+    # For jit_runtime (the end of this file): what the example depends on, its shaders among them.
+    set_property(GLOBAL APPEND PROPERTY TSLANG_EXAMPLES ${name})
 endfunction()
 
 # Headless run tests, run by ctest: add_tslang_example_test(<name> [SUFFIX <suffix>] [APIS <api>...]
@@ -3809,4 +3811,20 @@ if (RTXCR_DIR)
     add_tslang_example_test(rtxcr_raster SUFFIX animation_dots
         ARGS -width 960 -height 540 -hairTessellationType 1 -enableAnimation 1
         --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+endif()
+
+# jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)
+# loads from a build directory, without compiling the examples themselves: donut_interop_shared, the
+# media and every example's dependencies (its shaders, and those some add, e.g. rtxcr_raster's morph
+# target pass). Collected here, after the last add_tslang_example.
+if (NOT ANDROID)
+    add_custom_target(jit_runtime)
+    add_dependencies(jit_runtime donut_interop_shared copy_media)
+    get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
+    foreach(example IN LISTS TSLANG_EXAMPLES)
+        get_target_property(example_dependencies ${example} MANUALLY_ADDED_DEPENDENCIES)
+        if (example_dependencies)
+            add_dependencies(jit_runtime ${example_dependencies})
+        endif()
+    endforeach()
 endif()

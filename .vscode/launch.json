@@ -8,6 +8,7 @@
             "name": "VS: tslang JIT (Current File) GC",
             "type": "cppvsdbg",
             "request": "launch",
+            "preLaunchTask": "CMake: build default (JIT)",
             "program": "${env:TSLANG_HOME}/tslang.exe",
             "args": ["--di", "--opt_level=0", "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"],
             "stopAtEntry": false,
@@ -34,6 +35,7 @@
             "name": "VS: tslang JIT (Current File) RC",
             "type": "cppvsdbg",
             "request": "launch",
+            "preLaunchTask": "CMake: build default (JIT)",
             "program": "${env:TSLANG_HOME}/tslang.exe",
             "args": ["--di", "--opt_level=0", "--mm=rc", "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"],
             "stopAtEntry": false,
@@ -57,9 +59,38 @@
             }
         },        
         {
+            "name": "VS:RTXCR Rastr: tslang JIT RC: DLSS-NG",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "CMake: build rtxcr (DLSS-NR)",
+            "program": "${env:TSLANG_HOME}/tslang.exe",
+            "args": ["--di", "--opt_level=0", "--mm=rc", "--shared-libs=build-rtxcr/bin/donut_interop_shared.dll", "${workspaceFolder}/examples/rtxcr_raster.ts", "--", "-vk", "-dlss", "-dlss5", "--scene", "E:/Gits/RTXCR/assets/claire.animation.scene.json", "-enableAnimation", "1"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "internalConsole",
+            "windows": {
+                // --jit-native links the JIT cache into a DLL + PDB with lld-link (LLVM\bin). It loads
+                // donut_interop_shared.dll and its dependencies from build-rtxcr\bin (build\ has no RTXCR_DIR:
+                // no Donut_Rtxcr* exports, no rtxcr_raster shaders; nor DLSS), and links its import library
+                // donut_interop_shared.lib. A JIT cache of its own: it links another DLL than build\'s.
+                "args": [
+                    "--jit-native", "--jit-cache=true", "--jit-cache-dir=${workspaceFolder}/__jit_dbg_rtxcr",
+                    "--tslang-lib-path=${env:TSLANG_HOME}",
+                    "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
+                    "--lib=build-rtxcr/donut_interop_shared.lib",
+                    "--shared-libs=build-rtxcr/bin/donut_interop_shared.dll", "${workspaceFolder}/examples/rtxcr_raster.ts", "--", "-vk", "-dlss", "-dlss5", "--scene", "E:/Gits/RTXCR/assets/claire.animation.scene.json", "-enableAnimation", "1"
+                ],
+                "environment": [
+                    { "name": "PATH", "value": "${workspaceFolder}\\build-rtxcr\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}" }
+                ]
+            }
+        },            
+        {
             "name": "GDB: tslang JIT (Current File)",
             "type": "cppdbg",
             "request": "launch",
+            "preLaunchTask": "CMake: build default (JIT)",
             "program": "${workspaceFolder}/tools/tslang/tslang",
             // libTypeScriptRuntime.so goes first: the default library .so imports GC_malloc & co. from it,
             // and tslang would otherwise only add it after the default library.
