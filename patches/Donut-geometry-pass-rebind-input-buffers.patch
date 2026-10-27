@@ -1,0 +1,15 @@
+diff --git a/src/render/GeometryPasses.cpp b/src/render/GeometryPasses.cpp
+index 17949a6..95ad659 100644
+--- a/src/render/GeometryPasses.cpp
++++ b/src/render/GeometryPasses.cpp
+@@ -107,7 +107,9 @@ void donut::render::RenderView(
+             stateValid = false;
+         }
+ 
+-        if (newMaterial)
++        // Also for new buffers: the passes without the input assembler put the buffers' binding set
++        // (SetupInputBuffers) into the state's bindings here.
++        if (newMaterial || newBuffers)
+         {
+             drawMaterial = pass.SetupMaterial(passContext, item->material, item->cullMode, graphicsState);
+ 
