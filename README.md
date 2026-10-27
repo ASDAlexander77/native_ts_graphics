@@ -106,6 +106,27 @@ run_jit_dlss_nr.bat            # the same under the JIT
   both DLSS options need `DONUT_WITH_DLSS=ON`, which the presets set). Its NVIDIA RTX SDKs license doesn't allow
   committing the headers or DLL.
 
+### DLSS 5 on the RTX Character Rendering examples
+
+`rtxcr_pathtracer` and `rtxcr_raster` (see [External assets](#external-assets)) take `-dlss` and `-dlss5` too, in a
+build with `DONUT_WITH_DLSS_NR` and `RTXCR_DIR`. DLSS 5 runs over the tone-mapped image of either renderer, from the
+depth and motion vectors of its G-buffer, so the claire scene shows it on skin, glasses and hair. The pictures
+are the same frame with DLSS on, DLSS 5 off (left) and on (right), Model A at its defaults, DirectX 12, cropped to the
+face:
+
+| | DLSS 5 off | DLSS 5 on |
+|---|---|---|
+| `rtxcr_pathtracer`, 1 sample per pixel, NRD denoiser, DLSS instead of accumulating | ![rtxcr_pathtracer with DLSS 5 off](docs/screenshots/rtxcr_pathtracer_dlss5_off.jpg) | ![rtxcr_pathtracer with DLSS 5 on](docs/screenshots/rtxcr_pathtracer_dlss5_on.jpg) |
+| `rtxcr_raster`, forward shading, DLSS as the anti-aliasing | ![rtxcr_raster with DLSS 5 off](docs/screenshots/rtxcr_raster_dlss5_off.jpg) | ![rtxcr_raster with DLSS 5 on](docs/screenshots/rtxcr_raster_dlss5_on.jpg) |
+
+```
+build-release-rtxcr/bin/rtxcr_pathtracer.exe -dx12 -denoiser 1 -dlss -dlss5 --scene E:/RTXCR/assets/claire.scene.json
+build-release-rtxcr/bin/rtxcr_raster.exe -dx12 -dlss -dlss5 --scene E:/RTXCR/assets/claire.scene.json
+```
+
+The path tracer's pictures use the NRD denoiser (`-denoiser 1`), which gives DLSS 5 a clean image to work from. Drop `-dlss5` (or untick "DLSS 5 (Neural Rendering)" in the window) for the left column. The images come from
+`-test -testOutput <file>`, which renders without a window.
+
 ## Example gallery
 
 Every example is a single TypeScript file in [`examples/`](examples) with its HLSL shaders in
