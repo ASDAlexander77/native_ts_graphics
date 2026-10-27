@@ -326,6 +326,11 @@ namespace RtxcrRaster {
 
             this.characterBounds = this.findMeshBounds(false);
             this.hairBounds = this.findMeshBounds(true);
+            // A scene without Claire's hair (another character): the slice fitted to no bounds would be a
+            // degenerate view, its light through the hair NaN; the character's own instead.
+            if (this.hairBounds[0] > this.hairBounds[3]) {
+                this.hairBounds = this.characterBounds;
+            }
             // All the lights' shadow maps in one texture: the forward pass binds one for all lights.
             const shadowSlices = this.lights.length * SHADOW_SLICES_PER_LIGHT;
             for (let i = 0; i < this.lights.length; i++) {
@@ -506,6 +511,9 @@ namespace RtxcrRaster {
             for (let i = 0; i < this.lights.length; i++) {
                 this.lights[i].setDirectionalIrradiance(this.lightIrradiances[i] * settings.lightScale);
             }
+
+            // Skins the scene's skinned meshes (a character that is not Claire's morphed hair).
+            this.app.refreshScene(frame, this.scene);
 
             // The animated hair's vertex buffers are drawn from the state they rest in.
             this.rtxcrScene.beginMorphVertexBuffers(commandList.handle);

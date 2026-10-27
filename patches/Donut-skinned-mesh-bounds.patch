@@ -1,0 +1,30 @@
+diff --git a/src/engine/GltfImporter.cpp b/src/engine/GltfImporter.cpp
+index eb441cb..17bafc7 100644
+--- a/src/engine/GltfImporter.cpp
++++ b/src/engine/GltfImporter.cpp
+@@ -1884,6 +1884,13 @@ bool GltfImporter::Load(
+             auto skinnedInstance = m_SceneTypeFactory->CreateSkinnedMeshInstance(m_SceneTypeFactory, prototypeMesh);
+             skinnedInstance->joints.resize(src->skin->joints_count);
+ 
++            // The prototype's vertices are in the model's space (bind pose), the skinned ones in the
++            // node's (Scene::UpdateSkinnedMeshes): the bounds go from one to the other.
++            float nodeToModel[16];
++            cgltf_node_transform_world(src, nodeToModel);
++            affine3 nodeToModelTransform = affine3(&nodeToModel[0], &nodeToModel[4], &nodeToModel[8], &nodeToModel[12]);
++            skinnedInstance->GetMesh()->objectSpaceBounds = prototypeMesh->objectSpaceBounds * inverse(nodeToModelTransform);
++
+             for (size_t joint_idx = 0; joint_idx < src->skin->joints_count; joint_idx++)
+             {
+                 SkinnedMeshJoint& joint = skinnedInstance->joints[joint_idx];
+diff --git a/src/engine/SceneGraph.cpp b/src/engine/SceneGraph.cpp
+index 722b398..eebda56 100644
+--- a/src/engine/SceneGraph.cpp
++++ b/src/engine/SceneGraph.cpp
+@@ -74,6 +74,7 @@ SkinnedMeshInstance::SkinnedMeshInstance(std::shared_ptr<SceneTypeFactory> scene
+ std::shared_ptr<SceneGraphLeaf> SkinnedMeshInstance::Clone()
+ {
+     auto copy = std::make_shared<SkinnedMeshInstance>(m_SceneTypeFactory, m_PrototypeMesh);
++    copy->m_Mesh->objectSpaceBounds = m_Mesh->objectSpaceBounds;
+ 
+     for (const auto& joint : joints)
+     {

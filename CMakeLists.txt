@@ -159,6 +159,15 @@ set(DONUT_PATCHES
     # Scene::CreateMeshBuffers passes a size_t as the uint64_t& AppendBufferRange takes: 32-bit targets
     # have the two apart.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-skinned-buffer-size-uint64.patch"
+    # RenderView set up the material only when it changed, and passes without the input assembler put
+    # the buffers' binding set into the state there: a draw with other buffers but the same material
+    # read the previous draw's vertices. Skinned meshes have buffers each, so a character whose skinned
+    # meshes share a material (a Mixamo one: body, shirt, pants) drew garbage (rtxcr_raster).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-geometry-pass-rebind-input-buffers.patch"
+    # A skinned mesh's bounds were its prototype's, in the model's space, though the skinning writes
+    # the vertices in the mesh node's: a node under a transform (a Mixamo armature's 0.01 scale and
+    # rotation) culled the character away and fitted the shadow maps to the wrong box.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-skinned-mesh-bounds.patch"
     # DLSS::Init creates its feature on a command list of its own while the frame's is open: as a second
     # immediate one, which NVRHI's validation (-debug) refuses (feature_demo's tests with DONUT_WITH_DLSS).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-dlss-non-immediate-command-list.patch"
