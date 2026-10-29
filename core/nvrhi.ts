@@ -177,23 +177,17 @@ export namespace nvrhi {
     // ICommandList::copyTexture between two textures
     export function copyTexture(commandList: ICommandList, dest: ITexture, destSlice: TextureSlice,
         src: ITexture, srcSlice: TextureSlice): void {
-        // (passed as the overload's `| null`: a class fits no overload, TSLANG_ISSUES.md #19)
-        const destArg: ITexture | null = dest;
-        const srcArg: ITexture | null = src;
         let destSliceValue = destSlice;
         let srcSliceValue = srcSlice;
-        commandList.copyTexture(destArg, Ref(destSliceValue), srcArg, Ref(srcSliceValue));
+        commandList.copyTexture(dest, Ref(destSliceValue), src, Ref(srcSliceValue));
     }
 
     // ICommandList::copyTexture of a texture into a staging texture, to read it back
     export function copyTextureToStaging(commandList: ICommandList, dest: IStagingTexture, destSlice: TextureSlice,
         src: ITexture, srcSlice: TextureSlice): void {
-        // (as in copyTexture: TSLANG_ISSUES.md #19)
-        const destArg: IStagingTexture | null = dest;
-        const srcArg: ITexture | null = src;
         let destSliceValue = destSlice;
         let srcSliceValue = srcSlice;
-        commandList.copyTexture(destArg, Ref(destSliceValue), srcArg, Ref(srcSliceValue));
+        commandList.copyTexture(dest, Ref(destSliceValue), src, Ref(srcSliceValue));
     }
 
     // ICommandList::resolveTexture: a multisampled texture's samples averaged into a texture, all
@@ -207,12 +201,9 @@ export namespace nvrhi {
     // ICommandList::copyTexture of a staging texture into a texture, to upload it
     export function copyTextureFromStaging(commandList: ICommandList, dest: ITexture, destSlice: TextureSlice,
         src: IStagingTexture, srcSlice: TextureSlice): void {
-        // (as in copyTexture: TSLANG_ISSUES.md #19)
-        const destArg: ITexture | null = dest;
-        const srcArg: IStagingTexture | null = src;
         let destSliceValue = destSlice;
         let srcSliceValue = srcSlice;
-        commandList.copyTexture(destArg, Ref(destSliceValue), srcArg, Ref(srcSliceValue));
+        commandList.copyTexture(dest, Ref(destSliceValue), src, Ref(srcSliceValue));
     }
 
     // A ShaderDesc as nvrhi::ShaderDesc's defaults make it, with the shader's stage (SHADER_TYPE_*),
@@ -372,10 +363,7 @@ export namespace nvrhi {
     // IDevice::createGraphicsPipeline for the framebuffer's formats; null on failure. Release() it.
     export function createGraphicsPipeline(device: IDevice, desc: GraphicsPipelineDesc, framebuffer: IFramebuffer): IGraphicsPipeline | null {
         let descValue = desc;
-        // (passed as the overload's `IFramebuffer | null`: an IFramebuffer fits no overload,
-        // TSLANG_ISSUES.md #19)
-        const framebufferArg: IFramebuffer | null = framebuffer;
-        const handle = device.createGraphicsPipeline(Ref(descValue), framebufferArg);
+        const handle = device.createGraphicsPipeline(Ref(descValue), framebuffer);
         return handle.ptr_ ? <IGraphicsPipeline><Opaque>handle.ptr_ : null;
     }
 
@@ -492,9 +480,7 @@ export namespace nvrhi {
     // IDevice::createMeshletPipeline for the framebuffer's formats; null on failure. Release() it.
     export function createMeshletPipeline(device: IDevice, desc: MeshletPipelineDesc, framebuffer: IFramebuffer): IMeshletPipeline | null {
         let descValue = desc;
-        // (passed as the overload's `IFramebuffer | null`: TSLANG_ISSUES.md #19)
-        const framebufferArg: IFramebuffer | null = framebuffer;
-        const handle = device.createMeshletPipeline(Ref(descValue), framebufferArg);
+        const handle = device.createMeshletPipeline(Ref(descValue), framebuffer);
         return handle.ptr_ ? <IMeshletPipeline><Opaque>handle.ptr_ : null;
     }
 
