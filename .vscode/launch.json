@@ -3,14 +3,42 @@
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
-    "configurations": [        
+    "configurations": [
+        {
+            "name": "Run selected CMake target",
+            "type": "cppvsdbg", // MSVC debugger; use "cppdbg" for gdb/lldb
+            "request": "launch",
+            "program": "${command:cmake.launchTargetPath}",
+            "args": [
+            ],
+            "cwd": "${command:cmake.launchTargetDirectory}",
+            "environment": []
+        },
+        {
+            "name": "Run selected CMake target (RTXCR)",
+            "type": "cppvsdbg", // MSVC debugger; use "cppdbg" for gdb/lldb
+            "request": "launch",
+            "program": "${command:cmake.launchTargetPath}",
+            "args": [
+                "-dx12", "-dlss", "-dlss5", "--scene", "E:/Gits/RTXCR/assets/claire.animation.scene.json", "-enableAnimation", "1"
+            ],
+            "cwd": "${command:cmake.launchTargetDirectory}",
+            "environment": []
+        },
         {
             "name": "VS: tslang JIT (Current File) GC",
             "type": "cppvsdbg",
             "request": "launch",
             "preLaunchTask": "CMake: build default (JIT)",
             "program": "${env:TSLANG_HOME}/tslang.exe",
-            "args": ["--di", "--opt_level=0", "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"],
+            "args": [
+                "--di",
+                "--opt_level=0",
+                "--shared-libs=build/bin/donut_interop_shared.dll",
+                "${file}",
+                "--",
+                "-dx12"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -20,14 +48,22 @@
                 // donut_interop_shared.dll and its dependencies from build\bin, and links its import library
                 // donut_interop_shared.lib.
                 "args": [
-                    "--jit-native", "--jit-cache=true", "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
+                    "--jit-native",
+                    "--jit-cache=true",
+                    "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
                     "--tslang-lib-path=${env:TSLANG_HOME}",
                     "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
                     "--lib=build/donut_interop_shared.lib",
-                    "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"
+                    "--shared-libs=build/bin/donut_interop_shared.dll",
+                    "${file}",
+                    "--",
+                    "-dx12"
                 ],
                 "environment": [
-                    { "name": "PATH", "value": "${workspaceFolder}\\build\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}" }
+                    {
+                        "name": "PATH",
+                        "value": "${workspaceFolder}\\build\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}"
+                    }
                 ]
             }
         },
@@ -37,7 +73,15 @@
             "request": "launch",
             "preLaunchTask": "CMake: build default (JIT)",
             "program": "${env:TSLANG_HOME}/tslang.exe",
-            "args": ["--di", "--opt_level=0", "--mm=rc", "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"],
+            "args": [
+                "--di",
+                "--opt_level=0",
+                "--mm=rc",
+                "--shared-libs=build/bin/donut_interop_shared.dll",
+                "${file}",
+                "--",
+                "-dx12"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -47,24 +91,46 @@
                 // donut_interop_shared.dll and its dependencies from build\bin, and links its import library
                 // donut_interop_shared.lib.
                 "args": [
-                    "--jit-native", "--jit-cache=true", "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
+                    "--jit-native",
+                    "--jit-cache=true",
+                    "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
                     "--tslang-lib-path=${env:TSLANG_HOME}",
                     "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
                     "--lib=build/donut_interop_shared.lib",
-                    "--shared-libs=build/bin/donut_interop_shared.dll", "${file}", "--", "-dx12"
+                    "--shared-libs=build/bin/donut_interop_shared.dll",
+                    "${file}",
+                    "--",
+                    "-dx12"
                 ],
                 "environment": [
-                    { "name": "PATH", "value": "${workspaceFolder}\\build\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}" }
+                    {
+                        "name": "PATH",
+                        "value": "${workspaceFolder}\\build\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}"
+                    }
                 ]
             }
-        },        
+        },
         {
             "name": "VS:RTXCR Rastr: tslang JIT RC: DLSS-NG",
             "type": "cppvsdbg",
             "request": "launch",
             "preLaunchTask": "CMake: build rtxcr (DLSS-NR)",
             "program": "${env:TSLANG_HOME}/tslang.exe",
-            "args": ["--di", "--opt_level=0", "--mm=rc", "--shared-libs=build-rtxcr/bin/donut_interop_shared.dll", "${workspaceFolder}/examples/rtxcr_raster.ts", "--", "-vk", "-dlss", "-dlss5", "--scene", "E:/Gits/RTXCR/assets/claire.animation.scene.json", "-enableAnimation", "1"],
+            "args": [
+                "--di",
+                "--opt_level=0",
+                "--mm=rc",
+                "--shared-libs=build-rtxcr/bin/donut_interop_shared.dll",
+                "${workspaceFolder}/examples/rtxcr_raster.ts",
+                "--",
+                "-vk",
+                "-dlss",
+                "-dlss5",
+                "--scene",
+                "E:/Gits/RTXCR/assets/claire.animation.scene.json",
+                "-enableAnimation",
+                "1"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -75,17 +141,31 @@
                 // no Donut_Rtxcr* exports, no rtxcr_raster shaders; nor DLSS), and links its import library
                 // donut_interop_shared.lib. A JIT cache of its own: it links another DLL than build\'s.
                 "args": [
-                    "--jit-native", "--jit-cache=true", "--jit-cache-dir=${workspaceFolder}/__jit_dbg_rtxcr",
+                    "--jit-native",
+                    "--jit-cache=true",
+                    "--jit-cache-dir=${workspaceFolder}/__jit_dbg_rtxcr",
                     "--tslang-lib-path=${env:TSLANG_HOME}",
                     "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
                     "--lib=build-rtxcr/donut_interop_shared.lib",
-                    "--shared-libs=build-rtxcr/bin/donut_interop_shared.dll", "${workspaceFolder}/examples/rtxcr_raster.ts", "--", "-vk", "-dlss", "-dlss5", "--scene", "E:/Gits/RTXCR/assets/claire.animation.scene.json", "-enableAnimation", "1"
+                    "--shared-libs=build-rtxcr/bin/donut_interop_shared.dll",
+                    "${workspaceFolder}/examples/rtxcr_raster.ts",
+                    "--",
+                    "-vk",
+                    "-dlss",
+                    "-dlss5",
+                    "--scene",
+                    "E:/Gits/RTXCR/assets/claire.animation.scene.json",
+                    "-enableAnimation",
+                    "1"
                 ],
                 "environment": [
-                    { "name": "PATH", "value": "${workspaceFolder}\\build-rtxcr\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}" }
+                    {
+                        "name": "PATH",
+                        "value": "${workspaceFolder}\\build-rtxcr\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}"
+                    }
                 ]
             }
-        },            
+        },
         {
             "name": "GDB: tslang JIT (Current File)",
             "type": "cppdbg",
@@ -95,16 +175,20 @@
             // libTypeScriptRuntime.so goes first: the default library .so imports GC_malloc & co. from it,
             // and tslang would otherwise only add it after the default library.
             "args": [
-                "--di", "--opt_level=0",
+                "--di",
+                "--opt_level=0",
                 "--tslang-lib-path=${workspaceFolder}/tools/tslang",
                 "--default-lib-path=${workspaceFolder}/tools/tslang",
-                "--shared-libs=build/bin/libdonut_interop_shared.so", "${file}", "--", "-vk"
+                "--shared-libs=build/bin/libdonut_interop_shared.so",
+                "${file}",
+                "--",
+                "-vk"
             ],
             "stopAtEntry": false,
             "miDebuggerPath": "/usr/bin/gdb",
             "MIMode": "gdb",
             "cwd": "${workspaceFolder}",
             "environment": [],
-        }        
+        }
     ]
 }

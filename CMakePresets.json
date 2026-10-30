@@ -115,7 +115,7 @@
       "name": "release-rtxcr",
       "displayName": "Release with RTXCR (Ninja)",
       "description": "Release with the rtxcr_pathtracer example (RTXCR_DIR: a checkout of github.com/NVIDIA-RTX/RTXCR with submodules and assets). Override the path with -DRTXCR_DIR=<path>.",
-      "inherits": "release",
+      "inherits": "release-dlss-nr",
       "binaryDir": "${sourceDir}/build-release-rtxcr",
       "cacheVariables": {
         "RTXCR_DIR": "E:/Gits/RTXCR"
