@@ -17,8 +17,10 @@ import { RtxptGame } from "../core/rtxpt_game";
 // to rebuild what. core/rtxpt.cpp holds the sample's renderer library (compiled from the checkout) and
 // does the steps: the scene, materials, NEE-AT lights and environment map, the acceleration structures, the
 // path tracing passes (compiled at run time per material), accumulation or the denoiser and TAA, bloom and
-// tone mapping. Of the real-time mode, DLSS(-RR), ReSTIR, SHaRC and sub-sampling are not ported: its AA is
-// TAA here (the sample's default is DLSS-RR).
+// tone mapping. Of the real-time mode, DLSS-RR, ReSTIR, SHaRC and sub-sampling are not ported: its AA is
+// TAA, or DLSS (with DONUT_WITH_DLSS: Donut's, at the window's size, where the sample upscales through
+// Streamline); the sample's default is DLSS-RR. DLSS 5 (DLSS 3D-Guided Neural Rendering, DONUT_WITH_DLSS_NR,
+// not in the sample) enhances the tone-mapped image in either mode, as in examples/rtxcr_pathtracer.ts.
 namespace Rtxpt {
     const WINDOW_TITLE = "RTX Path Tracing";
 
@@ -208,7 +210,8 @@ namespace Rtxpt {
         referenceFireflyFilterThreshold = 2.5;
         denoiserRadianceClampK = 8.0;
 
-        // Real-time mode: realtimeAA 0 none, 1 TAA (the sample's DLSS and DLSS-RR, 2 and 3, aren't ported).
+        // Real-time mode: realtimeAA 0 none, 1 TAA, 2 DLSS (where available, else none; the sample's DLSS-RR, 3,
+        // isn't ported).
         realtimeAA: int = 1;
         realtimeSamplesPerPixel: int = 1;
         realtimeFireflyFilterEnabled = true;
@@ -223,6 +226,17 @@ namespace Rtxpt {
         taaNewFrameWeight = 0.1;
         taaEnableHistoryClamping = true;
         taaUseHistoryClampRelax = true;
+        // DLSS 5 (DLSS-NR) over the tone-mapped image, with RTX Remix's defaults (as examples/rtxcr_pathtracer.ts).
+        enableDlssNeuralRendering = false;
+        dlssNeuralRenderingModel: int = 0;
+        dlssNeuralRenderingIntensity = 1.0;
+        dlssNeuralRenderingStructureStrength = 0.7;
+        dlssNeuralRenderingToneStrength = 0.3;
+        dlssNeuralRenderingUseAutoMask = true;
+        dlssNeuralRenderingSkinStrength = 0.5;
+        // Set once DLSS, and DLSS-NR initialize (built with DONUT_WITH_DLSS(_NR), on an RTX GPU).
+        dlssAvailable = false;
+        dlssNeuralRenderingAvailable = false;
         // Sample's ResetRealtimeCaches: the denoiser's history and NEE-AT's feedback start again.
         resetRealtimeCaches = false;
 
@@ -350,11 +364,21 @@ namespace Rtxpt {
         private cameraVerticalFov = 1.0471975511965976;
         private cameraZNear = 0.001;
 
+        // DLSS (the real-time mode's realtimeAA 2, run by core/rtxpt.cpp) and DLSS-NR (null handles without support),
+        // the size they're set up for, and whether DLSS-NR ran last frame (else it starts without history).
+        private dlss: Dlss;
+        private dlssNeuralRendering: DlssNeuralRendering;
+        private dlssWidth: int = 0;
+        private dlssHeight: int = 0;
+        private dlssNeuralRenderingActive = false;
+
         constructor(private app: App, private settings: Settings, private scenePath: string, private assetsPath: string,
             width: int, height: int) {
             this.rtxpt = new RtxptRenderer(null);
             this.camera = new Camera(null);
             this.game = new RtxptGame(this.rtxpt, this.camera);
+            this.dlss = new Dlss(null);
+            this.dlssNeuralRendering = new DlssNeuralRendering(null);
             this.frameSettings = new ConstantBlock(FRAME_SETTINGS_SIZE);
             for (let i = 0; i < 16; i++) {
                 this.cameraValues.push(0.0);
@@ -384,6 +408,11 @@ namespace Rtxpt {
                 return false;
             }
             this.sceneLoaded();
+
+            // DLSS-NR shares the NGX instance of DLSS; both are set up for the size in onAnimate.
+            this.dlss = this.app.createDlss();
+            this.dlssNeuralRendering = this.app.createDlssNeuralRendering(this.dlss);
+            this.rtxpt.setDlss(this.dlss.isNull() ? null : this.dlss.handle);
 
             const pass = this.app.addPass();
             pass.setKeyboardCallback(this.onKey);
@@ -664,6 +693,23 @@ namespace Rtxpt {
             const prepared = this.rtxpt.prepare(this.width, this.height, this.needNewPasses, this.rebuildAccelStructs, s.neeatQualityPreset);
             this.preparedWidth = this.width;
             this.preparedHeight = this.height;
+            if (this.width != this.dlssWidth || this.height != this.dlssHeight) {
+                this.dlssWidth = this.width;
+                this.dlssHeight = this.height;
+                if (!this.dlss.isNull()) {
+                    this.dlss.init(this.width, this.height, this.width, this.height);
+                    s.dlssAvailable = this.dlss.isInitialized();
+                }
+                if (!this.dlssNeuralRendering.isNull()) {
+                    s.dlssNeuralRenderingAvailable = this.dlssNeuralRendering.init(this.width, this.height) != 0;
+                }
+                this.dlssNeuralRenderingActive = false;
+                // SampleUI clamps the choice to TAA without DLSS.
+                if (s.realtimeAA == 2 && !s.dlssAvailable) {
+                    console.log("DLSS is not available: TAA instead");
+                    s.realtimeAA = 1;
+                }
+            }
             // New passes reset the accumulation (Render's needNewPasses); new acceleration structures too.
             if ((prepared & 3) != 0) {
                 this.needNewPasses = true;
@@ -826,6 +872,19 @@ namespace Rtxpt {
             // (Not Math.max: the warm-up's index is negative.)
             const weight = index < s.accumulationTarget ? 1.0 / ((index > 0 ? index : 0) + 1) : 0.0;
             this.rtxpt.resolve(commandList.handle, weight);
+
+            // DLSS 5 enhances the tone-mapped image, guided by the frame's depth (reverse-Z) and motion vectors.
+            const neuralRenderingRuns = s.enableDlssNeuralRendering && !this.dlssNeuralRendering.isNull() &&
+                this.dlssNeuralRendering.isInitialized();
+            if (neuralRenderingRuns) {
+                const reset = !this.dlssNeuralRenderingActive || s.resetAccumulation || s.resetRealtimeCaches;
+                commandList.evaluateDlssNeuralRenderingTextures(this.dlssNeuralRendering, this.rtxpt.getLdrColor(),
+                    this.rtxpt.getDepth(), this.rtxpt.getMotionVectors(), this.rtxpt.getJitterX(), this.rtxpt.getJitterY(), 1,
+                    s.dlssNeuralRenderingIntensity, s.dlssNeuralRenderingToneStrength, s.dlssNeuralRenderingStructureStrength,
+                    s.dlssNeuralRenderingModel, s.dlssNeuralRenderingUseAutoMask ? 1 : 0, s.dlssNeuralRenderingSkinStrength,
+                    reset ? 1 : 0);
+            }
+            this.dlssNeuralRenderingActive = neuralRenderingRuns;
             this.app.blitTexture(frame, this.rtxpt.getLdrColor());
             this.rtxpt.endFrame();
 
@@ -915,9 +974,11 @@ namespace Rtxpt {
             if (s.realtimeMode && ImGui.collapsingHeaderDefaultOpen("Real-time")) {
                 ImGui.indent();
                 s.realtimeSamplesPerPixel = ImGui.sliderInt("Samples per pixel", s.realtimeSamplesPerPixel, 1, 64);
-                s.realtimeAA = ImGui.combo("Anti-aliasing", s.realtimeAA, "None|TAA");
+                s.realtimeAA = ImGui.combo("Anti-aliasing", s.realtimeAA, s.dlssAvailable ? "None|TAA|DLSS" : "None|TAA");
+                if (s.realtimeAA == 1 || s.realtimeAA == 2) {
+                    s.taaJitter = ImGui.combo("Jitter", s.taaJitter, "MSAA|Halton|R2|White noise");
+                }
                 if (s.realtimeAA == 1) {
-                    s.taaJitter = ImGui.combo("TAA jitter", s.taaJitter, "MSAA|Halton|R2|White noise");
                     s.taaEnableHistoryClamping = ImGui.checkbox("TAA history clamping", s.taaEnableHistoryClamping);
                     s.taaUseHistoryClampRelax = ImGui.checkbox("TAA history clamp relax", s.taaUseHistoryClampRelax);
                     s.taaNewFrameWeight = ImGui.sliderFloat("TAA new frame weight", s.taaNewFrameWeight, 0.001, 1.0);
@@ -939,6 +1000,24 @@ namespace Rtxpt {
                     s.realtimeFireflyFilterThreshold = ImGui.sliderFloat("Firefly threshold", s.realtimeFireflyFilterThreshold, 0.01, 1000.0);
                 }
                 s.enableAnimations = ImGui.checkbox("Animations", s.enableAnimations);
+                ImGui.unindent();
+            }
+
+            if (s.dlssNeuralRenderingAvailable && ImGui.collapsingHeaderDefaultOpen("DLSS 5")) {
+                ImGui.indent();
+                // As RTX Remix's DLSS 3D-Guided Neural Rendering settings.
+                s.enableDlssNeuralRendering = ImGui.checkbox("DLSS 5 (Neural Rendering)", s.enableDlssNeuralRendering);
+                if (s.enableDlssNeuralRendering) {
+                    s.dlssNeuralRenderingModel = ImGui.combo("Model", s.dlssNeuralRenderingModel, "Model A|Model B|Model C");
+                    s.dlssNeuralRenderingIntensity = ImGui.sliderFloat("Intensity", s.dlssNeuralRenderingIntensity, 0.0, 1.0);
+                    s.dlssNeuralRenderingStructureStrength = ImGui.sliderFloat("Structure Intensity",
+                        s.dlssNeuralRenderingStructureStrength, 0.0, 1.0);
+                    s.dlssNeuralRenderingToneStrength = ImGui.sliderFloat("Tone Intensity", s.dlssNeuralRenderingToneStrength, 0.0, 1.0);
+                    s.dlssNeuralRenderingUseAutoMask = ImGui.checkbox("Auto Mask", s.dlssNeuralRenderingUseAutoMask);
+                    if (s.dlssNeuralRenderingUseAutoMask) {
+                        s.dlssNeuralRenderingSkinStrength = ImGui.sliderFloat("Character Intensity", s.dlssNeuralRenderingSkinStrength, 0.0, 1.0);
+                    }
+                }
                 ImGui.unindent();
             }
 
@@ -1082,7 +1161,7 @@ namespace Rtxpt {
         // -envMapIntensity <x>: the environment map's intensity instead of the scene's.
         envMapIntensity = -1.0;
         // The sample's: -overrideToRealtimeMode / -overrideToReferenceMode instead of the scene's mode,
-        // -overrideAutoexposureOff, -stopAnimations, -disableFireflyFilters, -disablePostProcessFilters (bloom), and the real-time mode's -realtimeAA <0 none, 1 TAA>,
+        // -overrideAutoexposureOff, -stopAnimations, -disableFireflyFilters, -disablePostProcessFilters (bloom), and the real-time mode's -realtimeAA <0 none, 1 TAA, 2 DLSS>,
         // -standaloneDenoiser <0|1>, -nrdMethod <0 ReBLUR, 1 ReLAX>.
         overrideToRealtimeMode = false;
         overrideToReferenceMode = false;
@@ -1096,6 +1175,16 @@ namespace Rtxpt {
         realtimeAA: int = 1;
         standaloneDenoiser = true;
         nrdMethod: int = 0;
+        // -dlss: the real-time mode's DLSS (-realtimeAA 2); -dlss5: DLSS 5 (DLSS-NR) over the tone-mapped image. Both
+        // where available. -nrModel <0-2>, -nrIntensity, -nrStructure, -nrTone, -nrSkin <0-1>, -noAutoMask: the DLSS 5
+        // settings of the UI.
+        dlss5 = false;
+        nrModel: int = 0;
+        nrIntensity = 1.0;
+        nrStructure = 0.7;
+        nrTone = 0.3;
+        nrSkin = 0.5;
+        noAutoMask = false;
         // -useNEE <0|1>: next event estimation; -NEEType <0 uniform, 1 power, 2 NEE-AT> (the sample's options).
         useNEE = true;
         neeType: int = 2;
@@ -1119,6 +1208,12 @@ namespace Rtxpt {
                     this.disableFireflyFilters = true;
                 } else if (arg == "-disablePostProcessFilters" || arg == "--disablePostProcessFilters") {
                     this.disablePostProcessFilters = true;
+                } else if (arg == "-dlss") {
+                    this.realtimeAA = 2;
+                } else if (arg == "-dlss5") {
+                    this.dlss5 = true;
+                } else if (arg == "-noAutoMask") {
+                    this.noAutoMask = true;
                 } else if (i + 1 < this.argc) {
                     if (arg == "-width") {
                         this.width = parseInt(this[i + 1]);
@@ -1135,7 +1230,8 @@ namespace Rtxpt {
                     } else if (arg == "-envMapIntensity") {
                         this.envMapIntensity = parseFloat(this[i + 1]);
                     } else if (arg == "-realtimeAA") {
-                        this.realtimeAA = parseInt(this[i + 1]) == 0 ? 0 : 1;
+                        const aa = parseInt(this[i + 1]);
+                        this.realtimeAA = aa >= 0 && aa <= 2 ? aa : 1;
                     } else if (arg == "-standaloneDenoiser") {
                         this.standaloneDenoiser = parseInt(this[i + 1]) != 0;
                     } else if (arg == "-propShowTags" || arg == "--propShowTags") {
@@ -1150,6 +1246,16 @@ namespace Rtxpt {
                         this.useNEE = parseInt(this[i + 1]) != 0;
                     } else if (arg == "-nrdMethod") {
                         this.nrdMethod = parseInt(this[i + 1]) == 1 ? 1 : 0;
+                    } else if (arg == "-nrModel") {
+                        this.nrModel = parseInt(this[i + 1]);
+                    } else if (arg == "-nrIntensity") {
+                        this.nrIntensity = parseFloat(this[i + 1]);
+                    } else if (arg == "-nrStructure") {
+                        this.nrStructure = parseFloat(this[i + 1]);
+                    } else if (arg == "-nrTone") {
+                        this.nrTone = parseFloat(this[i + 1]);
+                    } else if (arg == "-nrSkin") {
+                        this.nrSkin = parseFloat(this[i + 1]);
                     }
                 }
             }
@@ -1186,7 +1292,9 @@ namespace Rtxpt {
             return 1;
         }
 
-        const app = App.createWithOptions(args.api, WINDOW_TITLE, args.width, args.height, AppOptions.RayTracing | args.options);
+        // AppOptions.Dlss: the Vulkan extensions DLSS and DLSS-NR need.
+        const app = App.createWithOptions(args.api, WINDOW_TITLE, args.width, args.height,
+            AppOptions.RayTracing | AppOptions.Dlss | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -1214,6 +1322,13 @@ namespace Rtxpt {
         settings.realtimeAA = args.realtimeAA;
         settings.standaloneDenoiser = args.standaloneDenoiser;
         settings.nrdMethod = args.nrdMethod;
+        settings.enableDlssNeuralRendering = args.dlss5;
+        settings.dlssNeuralRenderingModel = args.nrModel;
+        settings.dlssNeuralRenderingIntensity = args.nrIntensity;
+        settings.dlssNeuralRenderingStructureStrength = args.nrStructure;
+        settings.dlssNeuralRenderingToneStrength = args.nrTone;
+        settings.dlssNeuralRenderingSkinStrength = args.nrSkin;
+        settings.dlssNeuralRenderingUseAutoMask = !args.noAutoMask;
         settings.useNEE = args.useNEE;
         settings.neeType = args.neeType;
         settings.neeMISTypeOverride = args.neeMISType;

@@ -4024,6 +4024,7 @@ if (RTXPT_DIR)
     endif()
     add_dependencies(rtxpt rtxpt_shaders rtxpt_nrd_shaders rtxpt_dynamic_shaders)
     target_link_libraries(rtxpt PRIVATE rtxpt_core)
+    copy_dlss_library(rtxpt)
     # 32 samples after the sample's capture warm-up (its --captureSimple): the frame Rtxpt.exe saves with
     # --referenceSamplesPerPixel 32 --overrideToReferenceMode --captureSimple (bit-identical on D3D12 for these scenes).
     add_tslang_example_test(rtxpt ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32 -captureWarmup 64
@@ -4046,6 +4047,14 @@ if (RTXPT_DIR)
     add_tslang_example_test(rtxpt SUFFIX samplegame ARGS -width 960 -height 540 -frames 106 -captureStart 46
         -captureStartTime 24 -captureWarmup 60 -overrideToRealtimeMode -overrideAutoexposureOff -realtimeAA 1
         -propCameraAttach SHIP_police_squad --scene ${RTXPT_DIR}/Assets/bistro-programmer-art.scene.json)
+    if (DONUT_WITH_DLSS)
+        # DLSS in place of TAA (-dlss, the real-time mode's realtimeAA 2), and DLSS 5 over the reference image (the
+        # TAA and plain images where they aren't available).
+        add_tslang_example_test(rtxpt SUFFIX realtime_dlss ARGS -width 960 -height 540 -frames 200 -overrideToRealtimeMode
+            -overrideAutoexposureOff -stopAnimations -dlss --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+        add_tslang_example_test(rtxpt SUFFIX dlss5 ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32
+            -captureWarmup 64 -overrideToReferenceMode -dlss5 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+    endif()
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)

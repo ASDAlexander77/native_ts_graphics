@@ -4,8 +4,8 @@
 // place) driven for examples/rtxpt.ts, which is the sample's host: what Sample.cpp decides (settings,
 // camera, accumulation, when to rebuild) is there, and RtxptRenderer here holds the sample's C++ objects
 // and does its steps on them (Sample.cpp's and AdvancedSample.cpp's: the reference mode, and the real-time
-// mode with its denoising layers, NRD and TAA; no RTXDI, SHaRC, sub-sampling, opacity micromaps, DLSS or
-// async compute). Built only with RTXPT_DIR, which also puts the sample's sources on the include path.
+// mode with its denoising layers, NRD and TAA or DLSS; no RTXDI, SHaRC, sub-sampling, opacity micromaps, DLSS-RR
+// or async compute). Built only with RTXPT_DIR, which also puts the sample's sources on the include path.
 //
 // This software contains source code provided by NVIDIA Corporation.
 //
@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -82,6 +83,16 @@ using namespace donut::engine;
 #include <donut/shaders/light_cb.h>
 #include <donut/shaders/view_cb.h>
 
+// core/donut_interop.cpp's DLSS (Donut's, over NGX; does nothing without DONUT_WITH_DLSS): the real-time mode's
+// "DLSS" anti-aliasing, at the render size (the sample's runs through Streamline, upscaling).
+namespace donut::render { class DLSS; }
+extern "C"
+{
+    DONUT_API int Donut_IsDlssInitialized(donut::render::DLSS* dlss);
+    DONUT_API void Donut_EvaluateDlssTextures(nvrhi::ICommandList* commandList, donut::render::DLSS* dlss, nvrhi::ITexture* depth, nvrhi::ITexture* motionVectors,
+        nvrhi::ITexture* inputColor, nvrhi::ITexture* outputColor, int width, int height, double jitterX, double jitterY, int reset);
+}
+
 // OmmBaker.cpp's (opacity micromaps, not built): ExtendedScene and LightsBaker read it.
 bool MeshInfoEx::s_anyDebugDataDirty = true;
 
@@ -108,7 +119,7 @@ struct RtxptFrameSettings
     float exposureValueMin;     float exposureValueMax;         uint32_t enableBloom;           float bloomRadius;
     float bloomIntensity;       uint32_t activeDenoisingLayerCount; uint32_t denoisingLayersMaxVertexDepth; uint32_t allowPrimarySurfaceReplacement;
     float denoisingLayersSplitStopThreshold; float denoisingLayersSuppressPrimaryIndirectSpecularK; float denoisingLayersAntiAliasingFallthrough; float denoiserRadianceClampK;
-    // The real-time mode: realtimeAA 0 none, 1 TAA; nrdMethod 0 ReBLUR, 1 ReLAX (NrdConfig::DenoiserMethod).
+    // The real-time mode: realtimeAA 0 none, 1 TAA, 2 DLSS; nrdMethod 0 ReBLUR, 1 ReLAX (NrdConfig::DenoiserMethod).
     uint32_t realtimeMode;      uint32_t realtimeAA;            uint32_t standaloneDenoiser;    uint32_t nrdMethod;
     uint32_t resetRealtimeCaches; uint32_t enableAnimations;    uint32_t taaJitter;             float taaNewFrameWeight;
     uint32_t taaEnableHistoryClamping; uint32_t taaUseHistoryClampRelax; float nrdDisocclusionThreshold; float nrdDisocclusionThresholdAlternate;
@@ -234,6 +245,9 @@ struct RtxptRenderer
     // standalone denoiser is on), with SampleUI's settings for them.
     std::unique_ptr<render::TemporalAntiAliasingPass> temporalAntiAliasingPass;
     bool temporalAntiAliasingFeedbackValid = false;
+    // DLSS (Donut_RtxptRendererSetDlss; the example owns it), and whether it ran last frame (else no history).
+    donut::render::DLSS* dlss = nullptr;
+    bool dlssActive = false;
     std::unique_ptr<NrdIntegration> nrdInstances[cDenoisingLayerCount];
     uint32_t nrdMethod = 0;
     nrd::ReblurSettings reblurSettings = NrdConfig::getDefaultREBLURSettings();
@@ -923,7 +937,56 @@ struct RtxptRenderer
         temporalAntiAliasingPass->SetJitter((render::TemporalAntiAliasingJitter)s.taaJitter);
     }
 
-    // Sample::UpdateViews; the camera's jitter (Sample::ComputeCameraJitter) is TAA's, none without it.
+    static float VanDerCorput(uint32_t base, uint32_t index)
+    {
+        float result = 0.0f;
+        for (float denominator = float(base); index > 0; index /= base, denominator *= base)
+            result += float(index % base) / denominator;
+        return result;
+    }
+
+    // Sample::ComputeCameraJitter: TAA's own sequence, or (DLSS) the same sequences by frame index; none in reference
+    // mode or without AA. The render size is the display size here: Halton's phase count is 32.
+    float2 ComputeCameraJitter() const
+    {
+        const RtxptFrameSettings& s = settings;
+        if (!s.realtimeMode || s.realtimeAA == 0)
+            return float2(0.0f, 0.0f);
+        if (s.realtimeAA == 1 && temporalAntiAliasingPass != nullptr)
+            return temporalAntiAliasingPass->GetCurrentPixelOffset();
+        const uint64_t frameIndex = s.frameIndex;
+        switch ((render::TemporalAntiAliasingJitter)s.taaJitter)
+        {
+        default:
+        case render::TemporalAntiAliasingJitter::MSAA:
+        {
+            // RTXPT_MSAA_JITTER_SAMPLE_COUNT 16: the standard D3D pattern, in 1/16 pixels.
+            static const int2 offsets[] = {
+                int2(1, 1), int2(-1, -3), int2(-3, 2), int2(4, -1), int2(-5, -2), int2(2, 5), int2(5, 3), int2(3, -5),
+                int2(-2, 6), int2(0, -7), int2(-4, -6), int2(-6, 4), int2(-8, 0), int2(7, -4), int2(6, 7), int2(-7, -8)
+            };
+            return float2(offsets[frameIndex % 16]) / 16.0f;
+        }
+        case render::TemporalAntiAliasingJitter::Halton:
+        {
+            const uint32_t index = uint32_t(frameIndex % 32) + 1;
+            return float2{ VanDerCorput(2, index), VanDerCorput(3, index) } - 0.5f;
+        }
+        case render::TemporalAntiAliasingJitter::R2:
+        {
+            const double g = 1.32471795724474602596;
+            return float2{ float(std::fmod(double(frameIndex) / g, 1.0)), float(std::fmod(double(frameIndex) / (g * g), 1.0)) } - 0.5f;
+        }
+        case render::TemporalAntiAliasingJitter::WhiteNoise:
+        {
+            std::mt19937 rng{ uint32_t(frameIndex) };
+            std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
+            return float2{ dist(rng), dist(rng) };
+        }
+        }
+    }
+
+    // Sample::UpdateViews, with the camera's jitter.
     void UpdateViews(bool firstFrame)
     {
         UpdateTemporalAntiAliasingPass();
@@ -937,7 +1000,7 @@ struct RtxptRenderer
         const affine3 worldToView = translation(-pos) * affine3::from_cols(right, trueUp, dir, 0.f);
         view->SetViewport(nvrhi::Viewport(float(renderSize.x), float(renderSize.y)));
         view->SetMatrices(worldToView, perspProjD3DStyleReverse(s.fovY, float(renderSize.x) / float(renderSize.y), s.zNear));
-        view->SetPixelOffset(temporalAntiAliasingPass != nullptr ? temporalAntiAliasingPass->GetCurrentPixelOffset() : float2(0.0f, 0.0f));
+        view->SetPixelOffset(ComputeCameraJitter());
         view->UpdateCache();
         if (firstFrame)
         {
@@ -1234,16 +1297,26 @@ struct RtxptRenderer
         }
     }
 
-    // Sample::PostProcessAA: the accumulation in reference mode; TAA (or a copy) in real-time mode, then without the
+    // Sample::PostProcessAA: the accumulation in reference mode; TAA, DLSS (or a copy) in real-time mode, then without the
     // denoiser the denoising layers' merge into OutputColor (after the copy, as the sample does).
     void PostProcessAA(nvrhi::ICommandList* cl, float accumulationWeight)
     {
+        const bool dlssRuns = settings.realtimeMode && settings.realtimeAA == 2 && dlss != nullptr && Donut_IsDlssInitialized(dlss);
+        const bool dlssReset = !dlssActive || settings.frameIndex == 0 || settings.resetRealtimeCaches;
+        dlssActive = dlssRuns;
         if (!settings.realtimeMode)
         {
             accumulationPass->Render(cl, *view, *view, accumulationWeight);
             return;
         }
-        if (settings.realtimeAA == 1 && temporalAntiAliasingPass != nullptr)
+        if (dlssRuns)
+        {
+            // Depth (reverse-Z) and ScreenMotionVectors (pixels, previous minus current) as Donut's TAA takes them.
+            const float2 jitter = view->GetPixelOffset();
+            Donut_EvaluateDlssTextures(cl, dlss, renderTargets->Depth, renderTargets->ScreenMotionVectors, renderTargets->OutputColor,
+                renderTargets->ProcessedOutputColor, int(renderSize.x), int(renderSize.y), jitter.x, jitter.y, dlssReset ? 1 : 0);
+        }
+        else if (settings.realtimeAA == 1 && temporalAntiAliasingPass != nullptr)
         {
             render::TemporalAntiAliasingParameters taaParams;
             taaParams.newFrameWeight = settings.taaNewFrameWeight;
@@ -1634,7 +1707,7 @@ extern "C"
     }
 
     // Accumulates the frame's samples with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), or in
-    // real-time mode TAA (or a copy), then bloom and tone mapping into the LDR color (Donut_RtxptRendererGetLdrColor).
+    // real-time mode TAA, DLSS (or a copy), then bloom and tone mapping into the LDR color (Donut_RtxptRendererGetLdrColor).
     DONUT_API void Donut_RtxptRendererResolve(RtxptRenderer* r, nvrhi::ICommandList* commandList, double accumulationWeight)
     {
         r->Resolve(commandList, (float)accumulationWeight);
@@ -1648,6 +1721,35 @@ extern "C"
     DONUT_API nvrhi::ITexture* Donut_RtxptRendererGetLdrColor(RtxptRenderer* r)
     {
         return r->renderTargets->LdrColor;
+    }
+
+    // DLSS (Donut_CreateDlss, initialized for the render size by the caller) for the real-time mode's realtimeAA 2;
+    // null: none (the copy instead).
+    DONUT_API void Donut_RtxptRendererSetDlss(RtxptRenderer* r, donut::render::DLSS* dlss)
+    {
+        r->dlss = dlss;
+    }
+
+    // The frame's depth (R32_FLOAT, reverse-Z) and screen motion vectors (RGBA16_FLOAT, pixels, previous minus
+    // current), and its camera jitter in pixels (between BeginFrame and EndFrame): DLSS-NR's guides.
+    DONUT_API nvrhi::ITexture* Donut_RtxptRendererGetDepth(RtxptRenderer* r)
+    {
+        return r->renderTargets->Depth;
+    }
+
+    DONUT_API nvrhi::ITexture* Donut_RtxptRendererGetMotionVectors(RtxptRenderer* r)
+    {
+        return r->renderTargets->ScreenMotionVectors;
+    }
+
+    DONUT_API double Donut_RtxptRendererGetJitterX(RtxptRenderer* r)
+    {
+        return r->view->GetPixelOffset().x;
+    }
+
+    DONUT_API double Donut_RtxptRendererGetJitterY(RtxptRenderer* r)
+    {
+        return r->view->GetPixelOffset().y;
     }
 
     // The accumulated radiance (RGBA32_FLOAT, linear), for checks.
