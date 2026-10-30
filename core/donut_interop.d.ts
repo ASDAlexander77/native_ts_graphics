@@ -2995,12 +2995,21 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // The path tracer (the frame settings' samples per pixel): the reference one, or in real-time mode the denoising
 // layers' build and fill passes, then the denoiser (NRD) if it's on.
 @nodrops declare function Donut_RtxptRendererPathTrace(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle): void;
-// Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), or in real-time mode TAA (or a
-// copy), then bloom and tone mapping into the LDR color.
+// Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), or in real-time mode TAA, DLSS (or
+// a copy), then bloom and tone mapping into the LDR color.
 @nodrops declare function Donut_RtxptRendererResolve(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle, accumulationWeight: number): void;
 @nodrops declare function Donut_RtxptRendererEndFrame(rtxptRenderer: RtxptRendererHandle): void;
 // The tone-mapped frame (RGBA8), to blit to the back buffer.
 @nodrops declare function Donut_RtxptRendererGetLdrColor(rtxptRenderer: RtxptRendererHandle): TextureHandle;
+// DLSS (Donut_CreateDlss, initialized for the render size by the caller) for the real-time mode's realtimeAA 2;
+// null: none (a copy instead).
+@nodrops declare function Donut_RtxptRendererSetDlss(rtxptRenderer: RtxptRendererHandle, dlss: DlssHandle | null): void;
+// The frame's depth (R32_FLOAT, reverse-Z), screen motion vectors (RGBA16_FLOAT, pixels, previous minus current) and
+// camera jitter in pixels (between BeginFrame and EndFrame): DLSS-NR's guides.
+@nodrops declare function Donut_RtxptRendererGetDepth(rtxptRenderer: RtxptRendererHandle): TextureHandle;
+@nodrops declare function Donut_RtxptRendererGetMotionVectors(rtxptRenderer: RtxptRendererHandle): TextureHandle;
+@nodrops declare function Donut_RtxptRendererGetJitterX(rtxptRenderer: RtxptRendererHandle): number;
+@nodrops declare function Donut_RtxptRendererGetJitterY(rtxptRenderer: RtxptRendererHandle): number;
 // The accumulated radiance (RGBA32_FLOAT, linear).
 @nodrops declare function Donut_RtxptRendererGetAccumulatedRadiance(rtxptRenderer: RtxptRendererHandle): TextureHandle;
 

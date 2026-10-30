@@ -109,21 +109,23 @@ run_jit_dlss_nr.bat            # the same under the JIT
 ### DLSS 5 off and on
 
 `feature_demo` and, with `RTXCR_DIR` (see [External assets](#external-assets)), `rtxcr_pathtracer` and `rtxcr_raster` take `-dlss`
-and `-dlss5`, in a build with `DONUT_WITH_DLSS_NR`. DLSS 5 runs over the tone-mapped image of either renderer, from the
+and `-dlss5` (so does `rtxpt`, with `RTXPT_DIR`), in a build with `DONUT_WITH_DLSS_NR`. DLSS 5 runs over the tone-mapped image of either renderer, from the
 depth and motion vectors of its G-buffer, so the claire scene shows it on skin, glasses and hair, and Sponza Plus on stone and cloth. The pictures
-are the same frame with DLSS on, DLSS 5 off (left) and on (right), Model A at its defaults, DirectX 12, cropped (the face, or the
-robot in Sponza):
+are the same frame with DLSS on, DLSS 5 off (left) and on (right), Model A at its defaults, DirectX 12, cropped (the face, the
+robot in Sponza, or the kitchen's stove):
 
 | | DLSS 5 off | DLSS 5 on |
 |---|---|---|
 | `rtxcr_pathtracer`, 1 sample per pixel, NRD denoiser, DLSS instead of accumulating | ![rtxcr_pathtracer with DLSS 5 off](docs/screenshots/rtxcr_pathtracer_dlss5_off.jpg) | ![rtxcr_pathtracer with DLSS 5 on](docs/screenshots/rtxcr_pathtracer_dlss5_on.jpg) |
 | `rtxcr_raster`, forward shading, DLSS as the anti-aliasing | ![rtxcr_raster with DLSS 5 off](docs/screenshots/rtxcr_raster_dlss5_off.jpg) | ![rtxcr_raster with DLSS 5 on](docs/screenshots/rtxcr_raster_dlss5_on.jpg) |
+| `rtxpt`, kitchen, real-time mode (1 path per pixel, NRD ReBLUR), DLSS as the anti-aliasing | ![rtxpt with DLSS 5 off](docs/screenshots/rtxpt_dlss5_off.jpg) | ![rtxpt with DLSS 5 on](docs/screenshots/rtxpt_dlss5_on.jpg) |
 | `feature_demo`, Sponza Plus, DLSS as the anti-aliasing | ![feature_demo with DLSS 5 off](docs/screenshots/feature_demo_dlss5_off.jpg) | ![feature_demo with DLSS 5 on](docs/screenshots/feature_demo_dlss5_on.jpg) |
 
 ```
 build-release-dlss-nr/bin/feature_demo.exe -dx12 -dlss -dlss5
 build-release-rtxcr/bin/rtxcr_pathtracer.exe -dx12 -denoiser 1 -dlss -dlss5 --scene E:/RTXCR/assets/claire.scene.json
 build-release-rtxcr/bin/rtxcr_raster.exe -dx12 -dlss -dlss5 --scene E:/RTXCR/assets/claire.scene.json
+build-release-rtxpt/bin/rtxpt.exe -dx12 -overrideToRealtimeMode -overrideAutoexposureOff -dlss -dlss5 --scene E:/RTXPT/Assets/kitchen.scene.json
 ```
 
 The path tracer's pictures use the NRD denoiser (`-denoiser 1`), which gives DLSS 5 a clean image to work from. Drop `-dlss5` (or untick "DLSS 5 (Neural Rendering)" in the window) for the left column. The images come from
@@ -293,8 +295,11 @@ build-rtxpt/bin/rtxpt.exe --scene E:/RTXPT/Assets/kitchen.scene.json
 It renders in the scene's mode, or `-overrideToReferenceMode` / `-overrideToRealtimeMode`. The reference mode
 accumulates samples while the camera stands still. The real-time mode traces one path per pixel and denoises it
 with the sample's NRD (`-nrdMethod 0` ReBLUR, `1` ReLAX; `-standaloneDenoiser 0` for the noisy image) and Donut's
-TAA (`-realtimeAA 0` for none). Lights are sampled by the sample's NEE-AT (`-NEEType 0` uniform, `1` power,
-`2` NEE-AT). SHaRC, ReSTIR DI/GI, sub-sampling, DLSS and opacity micromaps are not ported.
+TAA (`-realtimeAA 0` for none), or DLSS in a build with `DONUT_WITH_DLSS` (`-dlss` or `-realtimeAA 2`; at the
+window's size, where the sample upscales through Streamline). `-dlss5` adds DLSS 5 (DLSS-NR, with
+`DONUT_WITH_DLSS_NR`) over the tone-mapped image in either mode, as in `rtxcr_pathtracer`. Lights are sampled by
+the sample's NEE-AT (`-NEEType 0` uniform, `1` power, `2` NEE-AT). SHaRC, ReSTIR DI/GI, sub-sampling, DLSS-RR and
+opacity micromaps are not ported.
 
 The sample's game (SampleGame, `core/rtxpt_game.ts`) runs in scenes with game settings, such as
 `bistro-programmer-art.scene.json`: it reads the props in the checkout's `Assets/SampleGame/<scene file name>`

@@ -124,8 +124,8 @@
     {
       "name": "default-rtxpt",
       "displayName": "Default with RTXPT (Ninja)",
-      "description": "Debug with the rtxpt example (RTXPT_DIR: a checkout of github.com/NVIDIA-RTX/RTXPT with submodules and assets, configured once by its own CMake). Override the path with -DRTXPT_DIR=<path>.",
-      "inherits": "default",
+      "description": "Debug with DLSS-NR and the rtxpt example (RTXPT_DIR: a checkout of github.com/NVIDIA-RTX/RTXPT with submodules and assets, configured once by its own CMake). Override the path with -DRTXPT_DIR=<path>.",
+      "inherits": "dlss-nr",
       "binaryDir": "${sourceDir}/build-rtxpt",
       "cacheVariables": {
         "RTXPT_DIR": "E:/Gits/RTXPT"
@@ -134,8 +134,8 @@
     {
       "name": "release-rtxpt",
       "displayName": "Release with RTXPT (Ninja)",
-      "description": "Release with the rtxpt example (RTXPT_DIR: a checkout of github.com/NVIDIA-RTX/RTXPT with submodules and assets, configured once by its own CMake). Override the path with -DRTXPT_DIR=<path>.",
-      "inherits": "release",
+      "description": "Release with DLSS-NR and the rtxpt example (RTXPT_DIR: a checkout of github.com/NVIDIA-RTX/RTXPT with submodules and assets, configured once by its own CMake). Override the path with -DRTXPT_DIR=<path>.",
+      "inherits": "release-dlss-nr",
       "binaryDir": "${sourceDir}/build-release-rtxpt",
       "cacheVariables": {
         "RTXPT_DIR": "E:/Gits/RTXPT"

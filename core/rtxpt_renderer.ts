@@ -206,8 +206,8 @@ export class RtxptRenderer {
         Donut_RtxptRendererPathTrace(this.handle, commandList);
     }
 
-    // Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), or in real-time mode TAA (or a
-    // copy), then bloom and tone mapping into the LDR color.
+    // Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), or in real-time mode TAA, DLSS (or
+    // a copy), then bloom and tone mapping into the LDR color.
     resolve(commandList: CommandListHandle, accumulationWeight: number): void {
         Donut_RtxptRendererResolve(this.handle, commandList, accumulationWeight);
     }
@@ -219,6 +219,30 @@ export class RtxptRenderer {
     // The tone-mapped frame (RGBA8), to blit to the back buffer.
     getLdrColor(): TextureHandle {
         return Donut_RtxptRendererGetLdrColor(this.handle);
+    }
+
+    // DLSS (Donut_CreateDlss, initialized for the render size by the caller) for the real-time mode's realtimeAA 2;
+    // null: none (a copy instead).
+    setDlss(dlss: DlssHandle | null): void {
+        Donut_RtxptRendererSetDlss(this.handle, dlss);
+    }
+
+    // The frame's depth (R32_FLOAT, reverse-Z), screen motion vectors (RGBA16_FLOAT, pixels, previous minus current) and
+    // camera jitter in pixels (between BeginFrame and EndFrame): DLSS-NR's guides.
+    getDepth(): TextureHandle {
+        return Donut_RtxptRendererGetDepth(this.handle);
+    }
+
+    getMotionVectors(): TextureHandle {
+        return Donut_RtxptRendererGetMotionVectors(this.handle);
+    }
+
+    getJitterX(): number {
+        return Donut_RtxptRendererGetJitterX(this.handle);
+    }
+
+    getJitterY(): number {
+        return Donut_RtxptRendererGetJitterY(this.handle);
     }
 
     // The accumulated radiance (RGBA32_FLOAT, linear).
