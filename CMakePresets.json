@@ -7,9 +7,19 @@
   },
   "configurePresets": [
     {
+      "name": "base",
+      "hidden": true,
+      "cacheVariables": {
+        "VULKAN_SAMPLES_ASSETS_DIR": "E:\\Dev3\\Vulkan-Samples\\assets",
+        "XBOX_ATG_SAMPLES_DIR": "E:\\Dev3\\Xbox-ATG-Samples",
+        "DIRECTX_GRAPHICS_SAMPLES_DIR": "E:\\Dev3\\DirectX-Graphics-Samples"
+      }      
+    },
+    {
       "name": "default",
       "displayName": "Default (Ninja)",
       "description": "TSLANG custom language requires the Ninja generator (the Visual Studio generator ignores custom languages).",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
@@ -30,11 +40,12 @@
       "name": "default-rc",
       "displayName": "Default (Ninja)",
       "description": "TSLANG custom language requires the Ninja generator (the Visual Studio generator ignores custom languages).",
+      "inherits": "base",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-	"TSLANG_MEMORY_MODEL": "rc"
+        "TSLANG_MEMORY_MODEL": "rc"
       }
     },
     {
@@ -45,7 +56,7 @@
       "binaryDir": "${sourceDir}/build-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-	"TSLANG_MEMORY_MODEL": "rc"
+        "TSLANG_MEMORY_MODEL": "rc"
       }
     },
     {
@@ -89,7 +100,7 @@
         "DONUT_WITH_DLSS": "ON",
         "DONUT_WITH_DLSS_NR": "ON"
       }
-    },    
+    },
     {
       "name": "default-rtxcr",
       "displayName": "Default with RTXCR (Ninja)",
@@ -122,7 +133,7 @@
         "ANDROID_ABI": "x86_64",
         "ANDROID_PLATFORM": "android-29",
         "ANDROID_STL": "c++_static",
-	"TSLANG_MEMORY_MODEL": "rc"
+        "TSLANG_MEMORY_MODEL": "rc"
       }
     },
     {
@@ -133,7 +144,7 @@
       "binaryDir": "${sourceDir}/build-android-arm64",
       "cacheVariables": {
         "ANDROID_ABI": "arm64-v8a",
-	"TSLANG_MEMORY_MODEL": "rc"
+        "TSLANG_MEMORY_MODEL": "rc"
       }
     },
     {
@@ -144,7 +155,7 @@
       "binaryDir": "${sourceDir}/build-android-arm32",
       "cacheVariables": {
         "ANDROID_ABI": "armeabi-v7a",
-	"TSLANG_MEMORY_MODEL": "rc"
+        "TSLANG_MEMORY_MODEL": "rc"
       }
     }
   ],
