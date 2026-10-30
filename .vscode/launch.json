@@ -35,7 +35,35 @@
             ],
             "cwd": "${command:cmake.launchTargetDirectory}",
             "environment": []
-        },        
+        },
+        {
+            // rtxpt's SampleGame: the Bistro scene with game settings; its props come from RTXPT_DIR's
+            // Assets/SampleGame. "Interactive elements" in the window attaches the camera to a prop.
+            "name": "RTXPT: SampleGame (Bistro)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "CMake: build rtxpt",
+            "program": "${workspaceFolder}/build-rtxpt/bin/rtxpt.exe",
+            "args": [
+                "-dx12", "--scene", "E:/Gits/RTXPT/Assets/bistro-programmer-art.scene.json"
+            ],
+            "cwd": "${workspaceFolder}/build-rtxpt/bin",
+            "environment": []
+        },
+        {
+            // The same with the camera riding the police ship (its lights run from about 18 s).
+            "name": "RTXPT: SampleGame (police ship camera)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "CMake: build rtxpt",
+            "program": "${workspaceFolder}/build-rtxpt/bin/rtxpt.exe",
+            "args": [
+                "-dx12", "--scene", "E:/Gits/RTXPT/Assets/bistro-programmer-art.scene.json",
+                "-propCameraAttach", "SHIP_police_squad"
+            ],
+            "cwd": "${workspaceFolder}/build-rtxpt/bin",
+            "environment": []
+        },
         {
             "name": "VS: tslang JIT (Current File) GC",
             "type": "cppvsdbg",

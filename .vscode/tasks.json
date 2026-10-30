@@ -31,6 +31,16 @@
             ],
             "group": "build",
             "problemMatcher": ["$msCompile"]
+        },
+        {
+            // The rtxpt example in build-rtxpt (RTXPT_DIR: see CMakePresets.json's default-rtxpt).
+            "label": "CMake: build rtxpt",
+            "type": "cmake",
+            "command": "build",
+            "preset": "default-rtxpt",
+            "targets": ["rtxpt"],
+            "group": "build",
+            "problemMatcher": ["$msCompile"]
         }
     ]
 }

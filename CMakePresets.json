@@ -213,6 +213,14 @@
       "configurePreset": "release-rtxcr"
     },
     {
+      "name": "default-rtxpt",
+      "configurePreset": "default-rtxpt"
+    },
+    {
+      "name": "release-rtxpt",
+      "configurePreset": "release-rtxpt"
+    },
+    {
       "name": "android-x86_64",
       "configurePreset": "android-x86_64"
     },
