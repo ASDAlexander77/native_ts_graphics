@@ -494,12 +494,16 @@ namespace Rtxpt {
             this.camera.lookAtWithUp(v[0], v[1], v[2], v[0] + v[3], v[1] + v[4], v[2] + v[5], v[6], v[7], v[8]);
             this.cameraVerticalFov = v[9];
             this.cameraZNear = v[10];
+            // Only a camera with exposure settings (PerspectiveCameraEx, e.g. not a glTF model's) sets the exposure.
+            if (isNaN32(v[11])) {
+                return;
+            }
             const s = this.settings;
-            s.autoExposure = isNaN32(v[11]) ? false : v[11] != 0.0;
-            s.exposureCompensation = isNaN32(v[12]) ? 0.0 : v[12];
-            s.exposureValue = isNaN32(v[13]) ? 0.0 : v[13];
-            s.exposureValueMin = isNaN32(v[14]) ? EXPOSURE_LOG2_MIN : v[14];
-            s.exposureValueMax = isNaN32(v[15]) ? EXPOSURE_LOG2_MAX : v[15];
+            s.autoExposure = v[11] != 0.0;
+            s.exposureCompensation = v[12];
+            s.exposureValue = v[13];
+            s.exposureValueMin = v[14];
+            s.exposureValueMax = v[15];
         }
 
         onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
@@ -582,6 +586,10 @@ namespace Rtxpt {
             // accumulation restarts.
             const enableAnimations = s.enableAnimations && s.realtimeMode;
             const applyAnimations = enableAnimations || s.resetAccumulation;
+            // CaptureScriptManager::PreAnim: the capture's warm-up starts the scene's time over.
+            if (this.frameIndex == s.captureStart) {
+                this.sceneTime = 0.0;
+            }
             if (!applyAnimations) {
                 this.sceneTime = 0.0;
             } else if (enableAnimations) {
@@ -1006,8 +1014,9 @@ namespace Rtxpt {
         noSER = false;
         // -captureWarmup <frames>: the accumulation restarts every frame of the first ones, as the sample's
         // --captureSimple does for its 64 warm-up frames before it saves the accumulated frame (in real-time mode,
-        // the last warm-up frame). -captureStart <frame>: the frame the warm-up starts at; the sample's starts once
-        // the scene has loaded, after a few frames (real-time mode's noise and caches follow the frame index).
+        // the last warm-up frame). -captureStart <frame>: the frame the warm-up starts at, with the scene's time back at
+        // 0; the sample's starts once the scene has loaded, after a few frames (real-time mode's noise and caches
+        // follow the frame index).
         captureWarmup: int = 0;
         captureStart: int = 0;
         // -envMapIntensity <x>: the environment map's intensity instead of the scene's.

@@ -1194,7 +1194,8 @@ extern "C"
     }
 
     // The scene's camera `index` (Sample::UpdateCameraFromScene): position, direction, up, vertical field of
-    // view, near plane, then its exposure (auto exposure, compensation, value, min, max; NaN where unset).
+    // view, near plane, then its exposure (auto exposure, compensation, value, min, max; ToneMappingParameters'
+    // defaults where unset, NaN when the camera has no exposure settings, i.e. isn't a PerspectiveCameraEx).
     DONUT_API bool Donut_RtxptRendererGetSceneCamera(RtxptRenderer* r, int index, float* out)
     {
         const auto& cameras = r->scene->GetSceneGraph()->GetCameras();
@@ -1211,11 +1212,12 @@ extern "C"
         float values[16] = { pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, up.x, up.y, up.z, camera->verticalFov, camera->zNear, nan, nan, nan, nan, nan };
         if (auto ex = std::dynamic_pointer_cast<PerspectiveCameraEx>(camera))
         {
-            if (ex->enableAutoExposure.has_value()) values[11] = ex->enableAutoExposure.value() ? 1.0f : 0.0f;
-            if (ex->exposureCompensation.has_value()) values[12] = ex->exposureCompensation.value();
-            if (ex->exposureValue.has_value()) values[13] = ex->exposureValue.value();
-            if (ex->exposureValueMin.has_value()) values[14] = ex->exposureValueMin.value();
-            if (ex->exposureValueMax.has_value()) values[15] = ex->exposureValueMax.value();
+            const ToneMappingParameters defaults;
+            values[11] = ex->enableAutoExposure.value_or(defaults.autoExposure) ? 1.0f : 0.0f;
+            values[12] = ex->exposureCompensation.value_or(defaults.exposureCompensation);
+            values[13] = ex->exposureValue.value_or(defaults.exposureValue);
+            values[14] = ex->exposureValueMin.value_or(defaults.exposureValueMin);
+            values[15] = ex->exposureValueMax.value_or(defaults.exposureValueMax);
         }
         std::memcpy(out, values, sizeof(values));
         return true;
