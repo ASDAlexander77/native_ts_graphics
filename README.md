@@ -276,6 +276,27 @@ multisampled (`-msaa`, 8 by default), or anti-aliased over time with `-taa`, `-d
 (DLSS 5 over the tone-mapped image, on top of `-dlss`, or `-taa`): those render one jittered sample per pixel with
 motion vectors.
 
+`rtxpt` is a port of NVIDIA's [RTX Path Tracing](https://github.com/NVIDIA-RTX/RTXPT) sample (v1.9.0; D3D12
+and Vulkan), built the same way from a checkout: the sample is under the NVIDIA RTX SDKs License, so nothing of
+it is copied here. With `-DRTXPT_DIR=<checkout>` (submodules and assets pulled, and configured once by its own
+CMake, which downloads the DXC its run-time shader compiler uses) the sample's renderer library, its shaders and
+its NRD compile where they are, `core/rtxpt.cpp` drives them and `examples/rtxpt.ts` is the sample's host
+(settings, camera, UI). The `default-rtxpt` and `release-rtxpt` presets build into `build-rtxpt` and
+`build-release-rtxpt`:
+
+```
+cmake --preset default-rtxpt -DRTXPT_DIR=E:/RTXPT
+cmake --build build-rtxpt --target rtxpt
+build-rtxpt/bin/rtxpt.exe --scene E:/RTXPT/Assets/kitchen.scene.json
+```
+
+It renders in the scene's mode, or `-overrideToReferenceMode` / `-overrideToRealtimeMode`. The reference mode
+accumulates samples while the camera stands still. The real-time mode traces one path per pixel and denoises it
+with the sample's NRD (`-nrdMethod 0` ReBLUR, `1` ReLAX; `-standaloneDenoiser 0` for the noisy image) and Donut's
+TAA (`-realtimeAA 0` for none). Lights are sampled by the sample's NEE-AT (`-NEEType 0` uniform, `1` power,
+`2` NEE-AT). SHaRC, ReSTIR DI/GI, sub-sampling, DLSS, opacity micromaps and SampleGame (props, animated lights) are not
+ported. This software contains source code provided by NVIDIA Corporation.
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
@@ -772,6 +793,7 @@ renders only while its window has focus.
 - [Microsoft DirectX-Graphics-Samples](https://github.com/microsoft/DirectX-Graphics-Samples)
   and [Xbox-ATG-Samples](https://github.com/microsoft/Xbox-ATG-Samples)
 - [NVIDIA DXR Tutorials](https://github.com/NVIDIAGameWorks/DxrTutorials)
+- [NVIDIA RTX Path Tracing](https://github.com/NVIDIA-RTX/RTXPT) and its [NVIDIA Real-time Denoisers (NRD)](https://github.com/NVIDIA-RTX/NRD), both under the NVIDIA RTX SDKs License
 - [tslang, the TypeScript native compiler](https://github.com/ASDAlexander77/TypeScriptCompiler)
 
 Each port keeps the original sample's algorithm and look; see the comment above its

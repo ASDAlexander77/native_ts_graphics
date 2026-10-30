@@ -3873,11 +3873,12 @@ if (RTXCR_DIR)
         --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
 endif()
 
-# Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT): its reference path tracer.
+# Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT): its reference path tracer and its
+# real-time mode (NRD, TAA).
 # Under the NVIDIA RTX SDKs License like RTXCR, so nothing of it is copied here: with RTXPT_DIR set to
 # a checkout, the sample's renderer library (scene, materials, lights, environment map, the path tracer's
 # run-time pipeline baker, tone mapping, accumulation: rtxpt_core) and its shaders compile in place;
-# examples/rtxpt.ts is the sample's host (Sample.cpp's reference mode) and core/rtxpt.cpp the glue.
+# examples/rtxpt.ts is the sample's host (Sample.cpp) and core/rtxpt.cpp the glue.
 if (RTXPT_DIR)
     # Tracy's headers: RTXPT's code marks profiler zones, which are empty without TRACY_ENABLE.
     FetchContent_Declare(tracy
