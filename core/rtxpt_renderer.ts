@@ -98,13 +98,14 @@ export class RtxptRenderer {
         return Donut_RtxptRendererBeginFrame(this.handle, commandList, frameSettings);
     }
 
-    // The reference path tracer, samplesPerPixel dispatches.
-    pathTrace(commandList: CommandListHandle, samplesPerPixel: int): void {
-        Donut_RtxptRendererPathTrace(this.handle, commandList, samplesPerPixel);
+    // The path tracer (the frame settings' samples per pixel): the reference one, or in real-time mode the denoising
+    // layers' build and fill passes, then the denoiser (NRD) if it's on.
+    pathTrace(commandList: CommandListHandle): void {
+        Donut_RtxptRendererPathTrace(this.handle, commandList);
     }
 
-    // Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), then bloom and tone mapping
-    // into the LDR color.
+    // Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), or in real-time mode TAA (or a
+    // copy), then bloom and tone mapping into the LDR color.
     resolve(commandList: CommandListHandle, accumulationWeight: number): void {
         Donut_RtxptRendererResolve(this.handle, commandList, accumulationWeight);
     }

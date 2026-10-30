@@ -3887,6 +3887,21 @@ if (RTXPT_DIR)
         SOURCE_SUBDIR do-not-build)
     FetchContent_MakeAvailable(tracy)
 
+    # NRD (the real-time mode's denoiser, also under the NVIDIA RTX SDKs License): RTXPT's submodule, built
+    # in place as a static library with RTXPT's settings (External/CMakeLists.txt). Its shaders are compiled
+    # below by ShaderMake, not embedded; NRD's CMake fetches MathLib (its shaders' include).
+    set(NRD_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
+    set(NRD_NORMAL_ENCODING "2" CACHE STRING "" FORCE)
+    set(NRD_ROUGHNESS_ENCODING "1" CACHE STRING "" FORCE)
+    set(NRD_IS_SUBMODULE ON)
+    set(NRD_EMBEDS_SPIRV_SHADERS OFF CACHE BOOL "" FORCE)
+    set(NRD_EMBEDS_DXIL_SHADERS OFF CACHE BOOL "" FORCE)
+    set(NRD_EMBEDS_DXBC_SHADERS OFF CACHE BOOL "" FORCE)
+    set(NRD_DISABLE_SHADER_COMPILATION ON CACHE BOOL "" FORCE)
+    set(NRD_SHADERS_PATH "${CMAKE_BINARY_DIR}/NRDShaders" CACHE STRING "" FORCE)
+    add_subdirectory(${RTXPT_DIR}/External/Nrd ${CMAKE_BINARY_DIR}/rtxpt_nrd EXCLUDE_FROM_ALL)
+    get_target_property(RTXPT_MATHLIB_DIR MathLib SOURCE_DIR)
+
     set(RTXPT_SOURCE_DIR "${RTXPT_DIR}/Rtxpt")
     add_library(rtxpt_core STATIC
         ${RTXPT_SOURCE_DIR}/SampleCommon/SampleCommon.cpp
@@ -3910,10 +3925,12 @@ if (RTXPT_DIR)
         ${RTXPT_SOURCE_DIR}/ProcessingPasses/AccumulationPass.cpp
         ${RTXPT_SOURCE_DIR}/ProcessingPasses/PostProcess.cpp
         ${RTXPT_SOURCE_DIR}/ProcessingPasses/DenoisingGuidesBaker.cpp
+        ${RTXPT_SOURCE_DIR}/NRD/NrdIntegration.cpp
+        ${RTXPT_SOURCE_DIR}/NRD/NrdConfig.cpp
         ${RTXPT_SOURCE_DIR}/SceneRenderCache.cpp
         ${RTXPT_SOURCE_DIR}/Misc/ShaderDebug.cpp)
     set_target_properties(rtxpt_core PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
-    target_link_libraries(rtxpt_core PUBLIC donut_core donut_render donut_app donut_engine)
+    target_link_libraries(rtxpt_core PUBLIC donut_core donut_render donut_app donut_engine NRD)
     target_include_directories(rtxpt_core PUBLIC
         ${RTXPT_SOURCE_DIR}
         ${RTXPT_DIR}/External
@@ -3945,6 +3962,18 @@ if (RTXPT_DIR)
         DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxpt/dxil
         SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxpt/spirv
         SHADERMAKE_OPTIONS "${RTXPT_SHADERMAKE_OPTIONS}"
+    )
+    # NRD's shaders, at bin/shaders/nrd/<dxil|spirv> (NrdIntegration asks the ShaderFactory for "nrd/...").
+    # NRD_INTERNAL enables the permutation macros its Shaders.cfg uses, as in RTXPT's build.
+    donut_compile_shaders(
+        TARGET rtxpt_nrd_shaders
+        PROJECT_NAME "NRD"
+        CONFIG ${RTXPT_DIR}/External/Nrd/Shaders/Shaders.cfg
+        SOURCES ${RTXPT_DIR}/External/Nrd/Shaders/Shaders.cfg
+        INCLUDES ${RTXPT_MATHLIB_DIR} ${RTXPT_DIR}/External/Nrd/Shaders
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nrd/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nrd/spirv
+        SHADERMAKE_OPTIONS "-D NRD_INTERNAL"
     )
 
     # The sample's code finds its Assets folder (environment maps, the procedural sky's textures) next to the
@@ -3982,7 +4011,7 @@ if (RTXPT_DIR)
 
     if (TARGET donut_interop_shared)
         target_link_libraries(donut_interop_shared PRIVATE rtxpt_core)
-        add_dependencies(donut_interop_shared rtxpt_shaders rtxpt_dynamic_shaders)
+        add_dependencies(donut_interop_shared rtxpt_shaders rtxpt_nrd_shaders rtxpt_dynamic_shaders)
     endif()
 
     # The path tracer is shader model 6.9 on D3D12 (DXR 1.2's hit objects): the Agility SDK runtime.
@@ -3991,18 +4020,24 @@ if (RTXPT_DIR)
     else()
         add_tslang_example(rtxpt core/rtxpt_renderer.ts core/rtxpt.cpp MEDIA fonts)
     endif()
-    add_dependencies(rtxpt rtxpt_shaders rtxpt_dynamic_shaders)
+    add_dependencies(rtxpt rtxpt_shaders rtxpt_nrd_shaders rtxpt_dynamic_shaders)
     target_link_libraries(rtxpt PRIVATE rtxpt_core)
     # 32 samples after the sample's capture warm-up (its --captureSimple): the frame Rtxpt.exe saves with
     # --referenceSamplesPerPixel 32 --overrideToReferenceMode --captureSimple (bit-identical on D3D12 for these scenes).
     add_tslang_example_test(rtxpt ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32 -captureWarmup 64
-        --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+        -overrideToReferenceMode --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
     # D3D12 only: with an environment map that isn't a cubemap (this scene's .exr), the sample's EnvMapBaker binds
     # a black cube map array where its shader declares a cube map, which Vulkan's validation reports.
     add_tslang_example_test(rtxpt SUFFIX transparent_machines APIS dx12 ARGS -width 960 -height 540 -frames 127
-        -referenceSamplesPerPixel 32 -captureWarmup 64 --scene ${RTXPT_DIR}/Assets/transparent-machines.scene.json)
+        -referenceSamplesPerPixel 32 -captureWarmup 64 -overrideToReferenceMode --scene ${RTXPT_DIR}/Assets/transparent-machines.scene.json)
     add_tslang_example_test(rtxpt SUFFIX programmer_art ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32
-        -captureWarmup 64 --scene ${RTXPT_DIR}/Assets/programmer-art.scene.json)
+        -captureWarmup 64 -overrideToReferenceMode --scene ${RTXPT_DIR}/Assets/programmer-art.scene.json)
+    # The real-time mode with the denoiser (NRD) and TAA, as Rtxpt.exe --overrideToRealtimeMode --realtimeAA 1
+    # --useReSTIRGI 0 --overrideRadianceCacheMode 0 --overrideSubSamplingMode 0 renders it (within ~1/255 mean).
+    add_tslang_example_test(rtxpt SUFFIX realtime_reblur ARGS -width 960 -height 540 -frames 200 -overrideToRealtimeMode
+        -overrideAutoexposureOff -stopAnimations -realtimeAA 1 -nrdMethod 0 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+    add_tslang_example_test(rtxpt SUFFIX realtime_relax ARGS -width 960 -height 540 -frames 200 -overrideToRealtimeMode
+        -overrideAutoexposureOff -stopAnimations -realtimeAA 1 -nrdMethod 1 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)

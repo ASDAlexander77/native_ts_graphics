@@ -5,7 +5,8 @@ import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { RtxptRenderer } from "../core/rtxpt_renderer";
 
-// Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT), its reference path tracer. The
+// Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT): its reference path tracer and its
+// real-time mode with the standalone denoiser (NRD's ReBLUR or ReLAX) and TAA. The
 // sample is under the NVIDIA RTX SDKs License: build with RTXPT_DIR set to a checkout (CMakeLists.txt) and
 // run with --scene <RTXPT_DIR>/Assets/kitchen.scene.json. This software contains source code provided by
 // NVIDIA Corporation.
@@ -14,8 +15,9 @@ import { RtxptRenderer } from "../core/rtxpt_renderer";
 // "Balanced" performance preset), the camera, the path tracer's shader macros, the accumulation and when
 // to rebuild what. core/rtxpt.cpp holds the sample's renderer library (compiled from the checkout) and
 // does the steps: the scene, materials, NEE-AT lights and environment map, the acceleration structures, the
-// reference path tracing pass (compiled at run time per material), accumulation, bloom and tone mapping.
-// The real-time mode (DLSS-RR, NRD, ReSTIR, SHaRC) is not ported.
+// path tracing passes (compiled at run time per material), accumulation or the denoiser and TAA, bloom and
+// tone mapping. Of the real-time mode, DLSS(-RR), ReSTIR, SHaRC and sub-sampling are not ported: its AA is
+// TAA here (the sample's default is DLSS-RR).
 namespace Rtxpt {
     const WINDOW_TITLE = "RTX Path Tracing";
 
@@ -23,7 +25,7 @@ namespace Rtxpt {
     const TEST_FRAMES = 64;
 
     // RtxptFrameSettings (core/rtxpt.cpp), as byte offsets; all fields 4 bytes.
-    const FRAME_SETTINGS_SIZE = 224;
+    const FRAME_SETTINGS_SIZE = 280;
     const FS_CAMERA_POS = 0;
     const FS_FOV_Y = 12;
     const FS_CAMERA_DIR = 16;
@@ -70,6 +72,20 @@ namespace Rtxpt {
     const FS_DENOISING_LAYERS_SUPPRESS_PRIMARY_INDIRECT_SPECULAR_K = 212;
     const FS_DENOISING_LAYERS_ANTI_ALIASING_FALLTHROUGH = 216;
     const FS_DENOISER_RADIANCE_CLAMP_K = 220;
+    const FS_REALTIME_MODE = 224;
+    const FS_REALTIME_AA = 228;
+    const FS_STANDALONE_DENOISER = 232;
+    const FS_NRD_METHOD = 236;
+    const FS_RESET_REALTIME_CACHES = 240;
+    const FS_ENABLE_ANIMATIONS = 244;
+    const FS_TAA_JITTER = 248;
+    const FS_TAA_NEW_FRAME_WEIGHT = 252;
+    const FS_TAA_ENABLE_HISTORY_CLAMPING = 256;
+    const FS_TAA_USE_HISTORY_CLAMP_RELAX = 260;
+    const FS_NRD_DISOCCLUSION_THRESHOLD = 264;
+    const FS_NRD_DISOCCLUSION_THRESHOLD_ALTERNATE = 268;
+    const FS_NRD_USE_ALTERNATE_DISOCCLUSION_THRESHOLD_MIX = 272;
+    const FS_SAMPLES_PER_PIXEL = 276;
 
     // The sample's ToneMapperOperator (ToneMapper/ToneMapping_cb.h).
     enum ToneMapperOperator {
@@ -87,6 +103,14 @@ namespace Rtxpt {
 
     // cDenoisingLayerMaxVertexIndex (Shaders/PathTracer/Config.h) is 15: SampleUIData's default depth is min(9, it).
     const DENOISING_LAYERS_MAX_VERTEX_DEPTH = 9;
+
+    // Donut's TemporalAntiAliasingJitter.
+    enum TemporalAntiAliasingJitter {
+        Msaa = 0,
+        Halton = 1,
+        R2 = 2,
+        WhiteNoise = 3
+    }
 
     // The accumulation's warm-up (Sample::PreUpdatePathTracing with AccumulationPreWarmRealtimeCaches): the
     // first frames after a reset feed NEE-AT's feedback without accumulating.
@@ -139,12 +163,21 @@ namespace Rtxpt {
         }
     }
 
-    // SampleUIData: the fields the reference path tracer reads, with their defaults (SampleUI.h, CommandLine.h and
-    // SampleUI's constructor).
+    // SampleUIData: the fields the path tracer reads, with their defaults (SampleUI.h, CommandLine.h and SampleUI's
+    // constructor).
     class Settings {
+        // The scene's, unless -overrideToRealtimeMode or -overrideToReferenceMode.
+        realtimeMode = false;
+        overrideToRealtimeMode = false;
+        overrideToReferenceMode = false;
+        overrideAutoexposureOff = false;
+        stopAnimations = false;
+        disableFireflyFilters = false;
+
         // Reference mode.
         accumulationTarget: int = 4096;
-        // CaptureScriptManager's warm-up: the first frames that restart the accumulation.
+        // CaptureScriptManager's warm-up: the frames from captureStart that restart the accumulation.
+        captureStart: int = 0;
         captureWarmupFrames: int = 0;
         // >= 0: overrides the scene's environment map intensity.
         environmentMapIntensityOverride = -1.0;
@@ -164,6 +197,24 @@ namespace Rtxpt {
         referenceFireflyFilterEnabled = true;
         referenceFireflyFilterThreshold = 2.5;
         denoiserRadianceClampK = 8.0;
+
+        // Real-time mode: realtimeAA 0 none, 1 TAA (the sample's DLSS and DLSS-RR, 2 and 3, aren't ported).
+        realtimeAA: int = 1;
+        realtimeSamplesPerPixel: int = 1;
+        realtimeFireflyFilterEnabled = true;
+        realtimeFireflyFilterThreshold = 0.1;
+        standaloneDenoiser = true;
+        // NrdConfig::DenoiserMethod: 0 ReBLUR, 1 ReLAX.
+        nrdMethod: int = 0;
+        nrdDisocclusionThreshold = 0.03;
+        nrdUseAlternateDisocclusionThresholdMix = true;
+        nrdDisocclusionThresholdAlternate = 0.2;
+        taaJitter: int = TemporalAntiAliasingJitter.Halton;
+        taaNewFrameWeight = 0.1;
+        taaEnableHistoryClamping = true;
+        taaUseHistoryClampRelax = true;
+        // Sample's ResetRealtimeCaches: the denoiser's history and NEE-AT's feedback start again.
+        resetRealtimeCaches = false;
 
         useNEE = true;
         neeType: int = 2;
@@ -213,8 +264,10 @@ namespace Rtxpt {
         bloomIntensity = 0.004;
 
         // ApplyPerformancePreset(ui, 2) (SampleUI.cpp's "Balanced" row), which SceneLoaded applies after the scene's
-        // settings: the fields of it the reference path tracer reads.
+        // settings: the fields of it the path tracer reads (its sub-sampling isn't ported).
         applyBalancedPreset() {
+            this.realtimeSamplesPerPixel = 1;
+            this.realtimeFireflyFilterThreshold = 0.1;
             this.neeCandidateSamples = 5;
             this.neeFullSamples = 1;
             this.neeMISType = 1;
@@ -228,6 +281,30 @@ namespace Rtxpt {
             this.enableBloom = true;
             this.enableLDSamplerForBSDF = true;
             this.resetAccumulation = true;
+        }
+
+        // SampleUIData::ActualFireflyFilterEnabled, and its threshold.
+        actualFireflyFilterEnabled(): boolean {
+            return this.realtimeMode ? this.realtimeFireflyFilterEnabled : this.referenceFireflyFilterEnabled;
+        }
+
+        actualFireflyFilterThreshold(): number {
+            return this.realtimeMode ? this.realtimeFireflyFilterThreshold : this.referenceFireflyFilterThreshold;
+        }
+
+        // SampleUIData::ActualUseApproximateMIS.
+        actualUseApproximateMIS(): boolean {
+            return this.realtimeMode ? this.neeMISType != 0 : this.neeMISType == 2;
+        }
+
+        // SampleUIData::ActualSamplesPerPixel (without ReSTIR).
+        actualSamplesPerPixel(): int {
+            return this.realtimeMode ? this.realtimeSamplesPerPixel : 1;
+        }
+
+        // SampleUIData::ActualUseStandaloneDenoiser (TAA or no AA).
+        actualUseStandaloneDenoiser(): boolean {
+            return this.realtimeMode && this.standaloneDenoiser;
         }
 
         // SampleUIData::ActualNEEAT_LocalToGlobalSampleRatio: no local samples without NEE-AT.
@@ -343,8 +420,13 @@ namespace Rtxpt {
             this.rebuildAccelStructs = true;
             this.needNewPasses = true;
             s.enableAnimations = false;
+            s.realtimeMode = false;
             this.selectedCameraIndex = 0;
 
+            const realtimeMode = this.rtxpt.getSceneSetting(SceneSetting.RealtimeMode);
+            if (!isNaN32(realtimeMode)) {
+                s.realtimeMode = realtimeMode != 0.0;
+            }
             const animations = this.rtxpt.getSceneSetting(SceneSetting.EnableAnimations);
             if (!isNaN32(animations)) {
                 s.enableAnimations = animations != 0.0;
@@ -352,6 +434,11 @@ namespace Rtxpt {
             const startingCamera = this.rtxpt.getSceneSetting(SceneSetting.StartingCamera);
             if (!isNaN32(startingCamera)) {
                 this.selectedCameraIndex = <int>startingCamera + 1;
+            }
+            const realtimeFireflyFilter = this.rtxpt.getSceneSetting(SceneSetting.RealtimeFireflyFilter);
+            if (!isNaN32(realtimeFireflyFilter)) {
+                s.realtimeFireflyFilterThreshold = realtimeFireflyFilter;
+                s.realtimeFireflyFilterEnabled = true;
             }
             const maxBounces = this.rtxpt.getSceneSetting(SceneSetting.MaxBounces);
             if (!isNaN32(maxBounces)) {
@@ -364,6 +451,25 @@ namespace Rtxpt {
             const mipBias = this.rtxpt.getSceneSetting(SceneSetting.TextureMipBias);
             if (!isNaN32(mipBias)) {
                 s.texLODBias = mipBias;
+            }
+            if (s.stopAnimations) {
+                s.enableAnimations = false;
+            }
+
+            // The command line's overrides.
+            if (s.overrideToRealtimeMode) {
+                s.realtimeMode = true;
+            }
+            if (s.overrideToReferenceMode) {
+                s.realtimeMode = false;
+            }
+            if (s.overrideAutoexposureOff) {
+                s.autoExposure = false;
+                s.exposureValue = 0.0;
+            }
+            if (s.disableFireflyFilters) {
+                s.realtimeFireflyFilterEnabled = false;
+                s.referenceFireflyFilterEnabled = false;
             }
 
             s.applyBalancedPreset();
@@ -407,7 +513,7 @@ namespace Rtxpt {
             return 1;
         }
 
-        // Sample::GetPTPipelineGlobalMacros in reference mode (the lights baker adds its own in core/rtxpt.cpp).
+        // Sample::GetPTPipelineGlobalMacros (the lights baker adds its own in core/rtxpt.cpp).
         private updateShaderMacros() {
             const s = this.settings;
             const names: string[] = [];
@@ -427,8 +533,7 @@ namespace Rtxpt {
             add("PT_NEE_ENABLED", flag(s.useNEE));
             add("PT_USE_RESTIR_DI", "0");
             add("PT_USE_RESTIR_GI", "0");
-            // SampleUIData::ActualUseApproximateMIS in reference mode.
-            add("RTXPT_USE_APPROXIMATE_MIS", flag(s.neeMISType == 2));
+            add("RTXPT_USE_APPROXIMATE_MIS", flag(s.actualUseApproximateMIS()));
             add("RTXPT_NEE_FULL_SAMPLE_COUNT", `${s.neeFullSamples}`);
             // NEEAT::ComputeCandidateSampleLocalCount: at least 1 global candidate, then evened out.
             const local = <int>Math.floor((s.neeCandidateSamples - 1) * s.actualLocalToGlobalSampleRatio() + 0.75);
@@ -438,7 +543,7 @@ namespace Rtxpt {
             add("RTXPT_DISABLE_SER_TERMINATION_HINT", "0");
             add("RTXPT_DISCARD_NON_NEE_LIGHTING", "0");
             add("RTXPT_DISCARD_NEE_LIGHTING", "0");
-            add("RTXPT_FIREFLY_FILTER", flag(s.referenceFireflyFilterEnabled));
+            add("RTXPT_FIREFLY_FILTER", flag(s.actualFireflyFilterEnabled()));
             add("RTXPT_ACTIVE_DENOISING_LAYER_COUNT", `${s.denoisingLayersActiveCount}`);
             add("RTXPT_NESTED_DIELECTRICS_QUALITY", `${s.nestedDielectricsQuality}`);
             add("RTXPT_LP_TYPES_USE_16BIT_PRECISION", flag(s.useFp16Types));
@@ -464,16 +569,23 @@ namespace Rtxpt {
             const s = this.settings;
             this.camera.setMoveSpeed(s.cameraMoveSpeed);
 
-            // Reference mode: the scene's animations only apply when the accumulation restarts.
-            this.sceneTime = 0.0;
-            this.rtxpt.animate(this.sceneTime, s.resetAccumulation, elapsedSeconds);
+            // The scene's animations run in real-time mode; otherwise they only apply (at time 0) when the
+            // accumulation restarts.
+            const enableAnimations = s.enableAnimations && s.realtimeMode;
+            const applyAnimations = enableAnimations || s.resetAccumulation;
+            if (!applyAnimations) {
+                this.sceneTime = 0.0;
+            } else if (enableAnimations) {
+                this.sceneTime += elapsedSeconds;
+            }
+            this.rtxpt.animate(this.sceneTime, applyAnimations, elapsedSeconds);
 
             if (this.selectedCameraIndex > 0) {
                 this.updateCameraFromScene(this.selectedCameraIndex - 1);
             }
             this.camera.animate(elapsedSeconds);
 
-            // A moved camera restarts the accumulation.
+            // A moved camera restarts the accumulation (in reference mode).
             const v = this.cameraValues;
             this.camera.getPosition(Ref(v[0]));
             this.camera.getDirection(Ref(v[3]));
@@ -485,7 +597,7 @@ namespace Rtxpt {
                     this.lastCamera[i] = v[i];
                 }
             }
-            if (moved) {
+            if (moved && !s.realtimeMode) {
                 s.resetAccumulation = true;
             }
 
@@ -529,14 +641,17 @@ namespace Rtxpt {
             this.rtxpt.showTogglableNode(index, shown);
         }
 
-        // Sample::PreUpdatePathTracing: where the accumulation is.
+        // Sample::PreUpdatePathTracing: where the accumulation is (always restarting in real-time mode).
         private preUpdatePathTracing(resetAccumulation: boolean) {
             const s = this.settings;
-            if (resetAccumulation || s.resetAccumulation) {
+            if (resetAccumulation || s.resetAccumulation || s.realtimeMode) {
                 this.accumulationSampleIndex = s.accumulationPreWarm ? -ACCUMULATION_WARM_UP_FRAMES : 0;
             }
-            // The warm-up's samples are far from the accumulated ones; past the target the last one repeats.
-            if (this.accumulationSampleIndex < 0) {
+            // The warm-up's samples are far from the accumulated ones; past the target the last one repeats. In
+            // real-time mode, the frame's.
+            if (s.realtimeMode) {
+                this.sampleIndex = this.frameIndex % 8192;
+            } else if (this.accumulationSampleIndex < 0) {
                 this.sampleIndex = this.accumulationSampleIndex + 4096;
             } else {
                 this.sampleIndex = this.accumulationSampleIndex < s.accumulationTarget - 1 ? this.accumulationSampleIndex : s.accumulationTarget - 1;
@@ -564,9 +679,9 @@ namespace Rtxpt {
             f.setInt(FS_DIFFUSE_BOUNCE_COUNT, s.diffuseBounceCount);
             f.setFloat(FS_ENV_MAP_DIFFUSE_MIP_LEVEL, s.environmentMapDiffuseSampleMipLevel);
             f.setFloat(FS_TEX_LOD_BIAS, s.texLODBias);
-            f.setFloat(FS_PER_PIXEL_JITTER_AA_SCALE, s.accumulationAA ? 1.0 : 0.0);
-            f.setBool(FS_FIREFLY_FILTER_ENABLED, s.referenceFireflyFilterEnabled);
-            f.setFloat(FS_FIREFLY_FILTER_THRESHOLD, s.referenceFireflyFilterThreshold);
+            f.setFloat(FS_PER_PIXEL_JITTER_AA_SCALE, !s.realtimeMode && s.accumulationAA ? 1.0 : 0.0);
+            f.setBool(FS_FIREFLY_FILTER_ENABLED, s.actualFireflyFilterEnabled());
+            f.setFloat(FS_FIREFLY_FILTER_THRESHOLD, s.actualFireflyFilterThreshold());
             f.setBool(FS_ENABLE_TONE_MAPPING, s.enableToneMapping);
             f.setBool(FS_NEE_ENABLED, s.useNEE);
             f.setInt(FS_NEE_TYPE, s.neeType);
@@ -575,7 +690,7 @@ namespace Rtxpt {
             f.setFloat(FS_NEEAT_GLOBAL_TEMPORAL_FEEDBACK_WEIGHT, s.neeatGlobalTemporalFeedbackWeight);
             f.setFloat(FS_NEEAT_LOCAL_TO_GLOBAL_SAMPLE_RATIO, s.actualLocalToGlobalSampleRatio());
             f.setFloat(FS_NEEAT_DISTANT_VS_LOCAL_IMPORTANCE, s.neeatDistantVsLocalImportance);
-            f.setBool(FS_USE_APPROXIMATE_MIS, s.neeMISType == 2);
+            f.setBool(FS_USE_APPROXIMATE_MIS, s.actualUseApproximateMIS());
             f.setBool(FS_ENV_MAP_ENABLED, s.environmentMapEnabled);
             f.setFloat(FS_ENV_MAP_INTENSITY, s.environmentMapIntensity);
             f.setFloat3(FS_ENV_MAP_TINT, s.environmentMapTintR, s.environmentMapTintG, s.environmentMapTintB);
@@ -597,9 +712,23 @@ namespace Rtxpt {
                 s.denoisingLayersSuppressPrimaryIndirectSpecular ? s.denoisingLayersSuppressPrimaryIndirectSpecularK : 0.0);
             f.setFloat(FS_DENOISING_LAYERS_ANTI_ALIASING_FALLTHROUGH, s.denoisingLayersAntiAliasingFallthrough);
             f.setFloat(FS_DENOISER_RADIANCE_CLAMP_K, s.denoiserRadianceClampK);
+            f.setBool(FS_REALTIME_MODE, s.realtimeMode);
+            f.setInt(FS_REALTIME_AA, s.realtimeAA);
+            f.setBool(FS_STANDALONE_DENOISER, s.standaloneDenoiser);
+            f.setInt(FS_NRD_METHOD, s.nrdMethod);
+            f.setBool(FS_RESET_REALTIME_CACHES, s.resetRealtimeCaches);
+            f.setBool(FS_ENABLE_ANIMATIONS, s.enableAnimations);
+            f.setInt(FS_TAA_JITTER, s.taaJitter);
+            f.setFloat(FS_TAA_NEW_FRAME_WEIGHT, s.taaNewFrameWeight);
+            f.setBool(FS_TAA_ENABLE_HISTORY_CLAMPING, s.taaEnableHistoryClamping);
+            f.setBool(FS_TAA_USE_HISTORY_CLAMP_RELAX, s.taaUseHistoryClampRelax);
+            f.setFloat(FS_NRD_DISOCCLUSION_THRESHOLD, s.nrdDisocclusionThreshold);
+            f.setFloat(FS_NRD_DISOCCLUSION_THRESHOLD_ALTERNATE, s.nrdDisocclusionThresholdAlternate);
+            f.setBool(FS_NRD_USE_ALTERNATE_DISOCCLUSION_THRESHOLD_MIX, s.nrdUseAlternateDisocclusionThresholdMix);
+            f.setInt(FS_SAMPLES_PER_PIXEL, s.actualSamplesPerPixel());
         }
 
-        // Sample::Render and AdvancedPathTracer::SampleRenderCode in reference mode.
+        // Sample::Render and AdvancedPathTracer::SampleRenderCode.
         onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
@@ -613,16 +742,19 @@ namespace Rtxpt {
             const s = this.settings;
             const commandList = frame.getCommandList();
 
-            // CaptureScriptManager::PreRender.
-            if (this.frameIndex < s.captureWarmupFrames) {
+            // CaptureScriptManager::PreRender: its warm-up starts with the real-time caches reset.
+            if (this.frameIndex >= s.captureStart && this.frameIndex < s.captureStart + s.captureWarmupFrames) {
                 s.resetAccumulation = true;
+                if (this.frameIndex == s.captureStart) {
+                    s.resetRealtimeCaches = true;
+                }
             }
             this.preUpdatePathTracing(this.needNewPasses);
             this.writeFrameSettings();
             const environmentChanged = this.rtxpt.beginFrame(commandList.handle, Ref(this.frameSettings.data[0]));
-            this.rtxpt.pathTrace(commandList.handle, 1);
+            this.rtxpt.pathTrace(commandList.handle);
 
-            // Sample::PostProcessAA's: 1 / (n + 1) until the target, then the accumulated image stays.
+            // Sample::PostProcessAA's in reference mode: 1 / (n + 1) until the target, then the accumulated image stays.
             const index = this.accumulationSampleIndex;
             // (Not Math.max: the warm-up's index is negative.)
             const weight = index < s.accumulationTarget ? 1.0 / ((index > 0 ? index : 0) + 1) : 0.0;
@@ -635,6 +767,7 @@ namespace Rtxpt {
                 this.accumulationSampleIndex++;
             }
             s.resetAccumulation = environmentChanged;
+            s.resetRealtimeCaches = false;
             this.needNewPasses = false;
             this.frameIndex++;
         }
@@ -642,10 +775,10 @@ namespace Rtxpt {
 
     // --- Settings window -----------------------------------------------------------------------
 
-    // SampleUI's reference mode settings (SampleUI.cpp): the accumulation, the path tracer and NEE, the
-    // environment map, tone mapping and bloom, and the scene's togglable nodes. A change to the picture
-    // restarts the accumulation (the sample's RESET_ON_CHANGE); the ones the path tracer's shaders bake in
-    // recompile it (Renderer.updateShaderMacros).
+    // SampleUI's settings (SampleUI.cpp, AdvancedSampleUI.cpp): the mode, the accumulation or the real-time
+    // mode's denoiser and TAA, the path tracer and NEE, the environment map, tone mapping and bloom, and the
+    // scene's togglable nodes. A change to the picture restarts the accumulation (the sample's
+    // RESET_ON_CHANGE); the ones the path tracer's shaders bake in recompile it (Renderer.updateShaderMacros).
     class UserInterface {
         private colorValues: f32[] = [1.0, 1.0, 1.0, 1.0];
         private rotationValues: f32[] = [0.0, 0.0, 0.0];
@@ -698,26 +831,68 @@ namespace Rtxpt {
 
             const seconds = r.getFrameSeconds();
             ImGui.text(`${seconds > 0.0 ? Math.round(1.0 / seconds) : 0} FPS (${Math.round(seconds * 100000.0) / 100.0} ms)`);
-            const accumulated = r.getAccumulatedSamples();
-            ImGui.text(accumulated < 0 ? `Warming up: ${-accumulated}` : `Accumulated: ${accumulated} / ${s.accumulationTarget}`);
-            if (ImGui.button("Reset accumulation")) {
-                s.resetAccumulation = true;
+            const mode = this.combo("Mode", s.realtimeMode ? 1 : 0, "Reference|Real-time");
+            s.realtimeMode = mode == 1;
+            if (s.realtimeMode) {
+                if (ImGui.button("Reset real-time caches")) {
+                    s.resetRealtimeCaches = true;
+                }
+            } else {
+                const accumulated = r.getAccumulatedSamples();
+                ImGui.text(accumulated < 0 ? `Warming up: ${-accumulated}` : `Accumulated: ${accumulated} / ${s.accumulationTarget}`);
+                if (ImGui.button("Reset accumulation")) {
+                    s.resetAccumulation = true;
+                }
             }
 
-            if (ImGui.collapsingHeaderDefaultOpen("Reference path tracer")) {
+            if (s.realtimeMode && ImGui.collapsingHeaderDefaultOpen("Real-time")) {
+                ImGui.indent();
+                s.realtimeSamplesPerPixel = ImGui.sliderInt("Samples per pixel", s.realtimeSamplesPerPixel, 1, 64);
+                s.realtimeAA = ImGui.combo("Anti-aliasing", s.realtimeAA, "None|TAA");
+                if (s.realtimeAA == 1) {
+                    s.taaJitter = ImGui.combo("TAA jitter", s.taaJitter, "MSAA|Halton|R2|White noise");
+                    s.taaEnableHistoryClamping = ImGui.checkbox("TAA history clamping", s.taaEnableHistoryClamping);
+                    s.taaUseHistoryClampRelax = ImGui.checkbox("TAA history clamp relax", s.taaUseHistoryClampRelax);
+                    s.taaNewFrameWeight = ImGui.sliderFloat("TAA new frame weight", s.taaNewFrameWeight, 0.001, 1.0);
+                }
+                s.standaloneDenoiser = ImGui.checkbox("Denoiser (NRD)", s.standaloneDenoiser);
+                if (s.standaloneDenoiser) {
+                    s.nrdMethod = ImGui.combo("Denoiser method", s.nrdMethod, "ReBLUR|ReLAX");
+                    s.nrdDisocclusionThreshold = ImGui.sliderFloat("Disocclusion threshold", s.nrdDisocclusionThreshold, 0.0, 1.0);
+                    s.nrdUseAlternateDisocclusionThresholdMix = ImGui.checkbox("Alternate disocclusion threshold mix",
+                        s.nrdUseAlternateDisocclusionThresholdMix);
+                    if (s.nrdUseAlternateDisocclusionThresholdMix) {
+                        s.nrdDisocclusionThresholdAlternate = ImGui.sliderFloat("Alternate disocclusion threshold",
+                            s.nrdDisocclusionThresholdAlternate, 0.0, 1.0);
+                    }
+                }
+                s.denoisingLayersActiveCount = ImGui.sliderInt("Denoising layers", s.denoisingLayersActiveCount, 1, 4);
+                s.realtimeFireflyFilterEnabled = ImGui.checkbox("Firefly filter", s.realtimeFireflyFilterEnabled);
+                if (s.realtimeFireflyFilterEnabled) {
+                    s.realtimeFireflyFilterThreshold = ImGui.sliderFloat("Firefly threshold", s.realtimeFireflyFilterThreshold, 0.01, 1000.0);
+                }
+                s.enableAnimations = ImGui.checkbox("Animations", s.enableAnimations);
+                ImGui.unindent();
+            }
+
+            if (ImGui.collapsingHeaderDefaultOpen("Path tracer")) {
                 ImGui.indent();
                 s.cameraMoveSpeed = ImGui.sliderFloat("Camera speed", s.cameraMoveSpeed, 0.1, 50.0);
-                s.accumulationTarget = this.sliderInt("Samples per pixel", s.accumulationTarget, 1, 65536);
-                s.accumulationAA = this.check("Anti-aliasing (per-pixel jitter)", s.accumulationAA);
+                if (!s.realtimeMode) {
+                    s.accumulationTarget = this.sliderInt("Samples per pixel", s.accumulationTarget, 1, 65536);
+                    s.accumulationAA = this.check("Anti-aliasing (per-pixel jitter)", s.accumulationAA);
+                }
                 s.bounceCount = this.sliderInt("Max bounces", s.bounceCount, 0, 128);
                 s.diffuseBounceCount = this.sliderInt("Max diffuse bounces", s.diffuseBounceCount, 0, 128);
                 s.enableRussianRoulette = this.check("Russian roulette", s.enableRussianRoulette);
                 s.texLODBias = this.slider("Texture MIP bias", s.texLODBias, -8.0, 4.0);
                 s.nestedDielectricsQuality = this.combo("Nested dielectrics", s.nestedDielectricsQuality, "Off|Fast|Quality");
                 s.enableLDSamplerForBSDF = this.check("Low-discrepancy BSDF sampler", s.enableLDSamplerForBSDF);
-                s.referenceFireflyFilterEnabled = this.check("Firefly filter", s.referenceFireflyFilterEnabled);
-                if (s.referenceFireflyFilterEnabled) {
-                    s.referenceFireflyFilterThreshold = this.slider("Firefly threshold", s.referenceFireflyFilterThreshold, 0.01, 1000.0);
+                if (!s.realtimeMode) {
+                    s.referenceFireflyFilterEnabled = this.check("Firefly filter", s.referenceFireflyFilterEnabled);
+                    if (s.referenceFireflyFilterEnabled) {
+                        s.referenceFireflyFilterThreshold = this.slider("Firefly threshold", s.referenceFireflyFilterThreshold, 0.01, 1000.0);
+                    }
                 }
                 ImGui.unindent();
             }
@@ -821,16 +996,43 @@ namespace Rtxpt {
         // -noSER: no shader execution reordering (the sample's --noSER).
         noSER = false;
         // -captureWarmup <frames>: the accumulation restarts every frame of the first ones, as the sample's
-        // --captureSimple does for its 64 warm-up frames before it saves the accumulated frame.
+        // --captureSimple does for its 64 warm-up frames before it saves the accumulated frame (in real-time mode,
+        // the last warm-up frame). -captureStart <frame>: the frame the warm-up starts at; the sample's starts once
+        // the scene has loaded, after a few frames (real-time mode's noise and caches follow the frame index).
         captureWarmup: int = 0;
+        captureStart: int = 0;
         // -envMapIntensity <x>: the environment map's intensity instead of the scene's.
         envMapIntensity = -1.0;
+        // The sample's: -overrideToRealtimeMode / -overrideToReferenceMode instead of the scene's mode,
+        // -overrideAutoexposureOff, -stopAnimations, -disableFireflyFilters, and the real-time mode's -realtimeAA <0 none, 1 TAA>,
+        // -standaloneDenoiser <0|1>, -nrdMethod <0 ReBLUR, 1 ReLAX>.
+        overrideToRealtimeMode = false;
+        overrideToReferenceMode = false;
+        overrideAutoexposureOff = false;
+        stopAnimations = false;
+        disableFireflyFilters = false;
+        realtimeAA: int = 1;
+        standaloneDenoiser = true;
+        nrdMethod: int = 0;
+        // -useNEE <0|1>: next event estimation; -NEEType <0 uniform, 1 power, 2 NEE-AT> (the sample's options).
+        useNEE = true;
+        neeType: int = 2;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
                 if (arg == "-noSER" || arg == "--noSER") {
                     this.noSER = true;
+                } else if (arg == "-overrideToRealtimeMode" || arg == "--overrideToRealtimeMode") {
+                    this.overrideToRealtimeMode = true;
+                } else if (arg == "-overrideToReferenceMode" || arg == "--overrideToReferenceMode") {
+                    this.overrideToReferenceMode = true;
+                } else if (arg == "-overrideAutoexposureOff" || arg == "--overrideAutoexposureOff") {
+                    this.overrideAutoexposureOff = true;
+                } else if (arg == "-stopAnimations" || arg == "--stopAnimations") {
+                    this.stopAnimations = true;
+                } else if (arg == "-disableFireflyFilters" || arg == "--disableFireflyFilters") {
+                    this.disableFireflyFilters = true;
                 } else if (i + 1 < this.argc) {
                     if (arg == "-width") {
                         this.width = parseInt(this[i + 1]);
@@ -840,8 +1042,20 @@ namespace Rtxpt {
                         this.referenceSamplesPerPixel = parseInt(this[i + 1]);
                     } else if (arg == "-captureWarmup") {
                         this.captureWarmup = parseInt(this[i + 1]);
+                    } else if (arg == "-captureStart") {
+                        this.captureStart = parseInt(this[i + 1]);
                     } else if (arg == "-envMapIntensity") {
                         this.envMapIntensity = parseFloat(this[i + 1]);
+                    } else if (arg == "-realtimeAA") {
+                        this.realtimeAA = parseInt(this[i + 1]) == 0 ? 0 : 1;
+                    } else if (arg == "-standaloneDenoiser") {
+                        this.standaloneDenoiser = parseInt(this[i + 1]) != 0;
+                    } else if (arg == "-NEEType") {
+                        this.neeType = parseInt(this[i + 1]);
+                    } else if (arg == "-useNEE") {
+                        this.useNEE = parseInt(this[i + 1]) != 0;
+                    } else if (arg == "-nrdMethod") {
+                        this.nrdMethod = parseInt(this[i + 1]) == 1 ? 1 : 0;
                     }
                 }
             }
@@ -892,7 +1106,18 @@ namespace Rtxpt {
         const settings = new Settings();
         settings.accumulationTarget = args.referenceSamplesPerPixel;
         settings.captureWarmupFrames = args.captureWarmup;
+        settings.captureStart = args.captureStart;
         settings.environmentMapIntensityOverride = args.envMapIntensity;
+        settings.overrideToRealtimeMode = args.overrideToRealtimeMode;
+        settings.overrideToReferenceMode = args.overrideToReferenceMode;
+        settings.overrideAutoexposureOff = args.overrideAutoexposureOff;
+        settings.stopAnimations = args.stopAnimations;
+        settings.disableFireflyFilters = args.disableFireflyFilters;
+        settings.realtimeAA = args.realtimeAA;
+        settings.standaloneDenoiser = args.standaloneDenoiser;
+        settings.nrdMethod = args.nrdMethod;
+        settings.useNEE = args.useNEE;
+        settings.neeType = args.neeType;
         // SampleUI's constructor: DXR 1.2's hit objects on D3D12 (SM 6.9 guarantees them), unless -noSER.
         settings.dxHitObjectExtension = args.api == GraphicsAPI.D3D12 && !args.noSER;
 

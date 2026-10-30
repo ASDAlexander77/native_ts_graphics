@@ -2958,10 +2958,11 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // Takes the frame's settings (examples/rtxpt.ts's FRAME_SETTINGS_SIZE bytes) and records everything up to the path
 // tracing pass. True if the environment map changed: reset the accumulation at the next frame.
 @nodrops declare function Donut_RtxptRendererBeginFrame(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle, frameSettings: Ref<f32>): boolean;
-// The reference path tracer, samplesPerPixel dispatches.
-@nodrops declare function Donut_RtxptRendererPathTrace(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle, samplesPerPixel: int): void;
-// Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), then bloom and tone mapping
-// into the LDR color.
+// The path tracer (the frame settings' samples per pixel): the reference one, or in real-time mode the denoising
+// layers' build and fill passes, then the denoiser (NRD) if it's on.
+@nodrops declare function Donut_RtxptRendererPathTrace(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle): void;
+// Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), or in real-time mode TAA (or a
+// copy), then bloom and tone mapping into the LDR color.
 @nodrops declare function Donut_RtxptRendererResolve(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle, accumulationWeight: number): void;
 @nodrops declare function Donut_RtxptRendererEndFrame(rtxptRenderer: RtxptRendererHandle): void;
 // The tone-mapped frame (RGBA8), to blit to the back buffer.

@@ -3,9 +3,9 @@
 // the path tracer's run-time pipeline baker, tone mapping and accumulation, compiled from RTXPT_DIR in
 // place) driven for examples/rtxpt.ts, which is the sample's host: what Sample.cpp decides (settings,
 // camera, accumulation, when to rebuild) is there, and RtxptRenderer here holds the sample's C++ objects
-// and does its steps on them (Sample.cpp's, in reference mode: no RTXDI, NRD, SHaRC, opacity micromaps,
-// DLSS or async compute). Built only with RTXPT_DIR, which also puts the sample's sources on the include
-// path.
+// and does its steps on them (Sample.cpp's and AdvancedSample.cpp's: the reference mode, and the real-time
+// mode with its denoising layers, NRD and TAA; no RTXDI, SHaRC, sub-sampling, opacity micromaps, DLSS or
+// async compute). Built only with RTXPT_DIR, which also puts the sample's sources on the include path.
 //
 // This software contains source code provided by NVIDIA Corporation.
 //
@@ -44,6 +44,7 @@
 #include <donut/engine/ThreadPool.h>
 #include <donut/engine/View.h>
 #include <donut/render/BloomPass.h>
+#include <donut/render/TemporalAntiAliasingPass.h>
 #include <nvrhi/utils.h>
 
 #include <SampleCommon/SampleCommon.h>
@@ -60,6 +61,8 @@
 #include <ProcessingPasses/AccumulationPass.h>
 #include <ProcessingPasses/PostProcess.h>
 #include <ProcessingPasses/DenoisingGuidesBaker.h>
+#include <NRD/NrdIntegration.h>
+#include <NRD/NrdConfig.h>
 #include <Misc/ShaderDebug.h>
 #include <OpacityMicroMap/OmmBaker.h>
 #include <SampleCommon/LocalConfig.h>
@@ -104,11 +107,18 @@ struct RtxptFrameSettings
     float exposureValueMin;     float exposureValueMax;         uint32_t enableBloom;           float bloomRadius;
     float bloomIntensity;       uint32_t activeDenoisingLayerCount; uint32_t denoisingLayersMaxVertexDepth; uint32_t allowPrimarySurfaceReplacement;
     float denoisingLayersSplitStopThreshold; float denoisingLayersSuppressPrimaryIndirectSpecularK; float denoisingLayersAntiAliasingFallthrough; float denoiserRadianceClampK;
+    // The real-time mode: realtimeAA 0 none, 1 TAA; nrdMethod 0 ReBLUR, 1 ReLAX (NrdConfig::DenoiserMethod).
+    uint32_t realtimeMode;      uint32_t realtimeAA;            uint32_t standaloneDenoiser;    uint32_t nrdMethod;
+    uint32_t resetRealtimeCaches; uint32_t enableAnimations;    uint32_t taaJitter;             float taaNewFrameWeight;
+    uint32_t taaEnableHistoryClamping; uint32_t taaUseHistoryClampRelax; float nrdDisocclusionThreshold; float nrdDisocclusionThresholdAlternate;
+    uint32_t nrdUseAlternateDisocclusionThresholdMix; uint32_t samplesPerPixel;
 };
-static_assert(sizeof(RtxptFrameSettings) == 224, "RtxptFrameSettings: examples/rtxpt.ts's FRAME_SETTINGS_SIZE");
+static_assert(sizeof(RtxptFrameSettings) == 280, "RtxptFrameSettings: examples/rtxpt.ts's FRAME_SETTINGS_SIZE");
 static_assert(offsetof(RtxptFrameSettings, apertureRadius) == 48 && offsetof(RtxptFrameSettings, bounceCount) == 64
     && offsetof(RtxptFrameSettings, neeEnabled) == 96 && offsetof(RtxptFrameSettings, envMapEnabled) == 128
-    && offsetof(RtxptFrameSettings, toneMapOperator) == 160 && offsetof(RtxptFrameSettings, bloomIntensity) == 192,
+    && offsetof(RtxptFrameSettings, toneMapOperator) == 160 && offsetof(RtxptFrameSettings, bloomIntensity) == 192
+    && offsetof(RtxptFrameSettings, realtimeMode) == 224 && offsetof(RtxptFrameSettings, resetRealtimeCaches) == 240
+    && offsetof(RtxptFrameSettings, taaEnableHistoryClamping) == 256 && offsetof(RtxptFrameSettings, nrdUseAlternateDisocclusionThresholdMix) == 272,
     "RtxptFrameSettings: examples/rtxpt.ts's FS_* offsets");
 
 // Sample.cpp's: input 32-bit radiance scaled to fit the baker's 16-bit range.
@@ -199,6 +209,9 @@ struct RtxptRenderer
     std::shared_ptr<PTPipelineBaker> ptPipelineBaker;
     std::shared_ptr<ComputePipelineBaker> computePipelineBaker;
     std::shared_ptr<PTPipelineVariant> ptPipelineReference;
+    // The real-time mode's: the denoising layers' build pass, then their fill (the path tracing).
+    std::shared_ptr<PTPipelineVariant> ptPipelineBuildDenoisingLayers;
+    std::shared_ptr<PTPipelineVariant> ptPipelineFillDenoisingLayers;
     std::shared_ptr<EnvMapBaker> envMapBaker;
     std::shared_ptr<LightsBaker> lightsBaker;
     std::unique_ptr<RenderTargets> renderTargets;
@@ -209,6 +222,15 @@ struct RtxptRenderer
     std::shared_ptr<PostProcess> postProcess;
     std::shared_ptr<DenoisingGuidesBaker> denoisingGuidesBaker;
     int neeatQualityPreset = -1;
+
+    // The real-time mode's TAA (only while it's on) and NRD, an instance per denoising layer (only while the
+    // standalone denoiser is on), with SampleUI's settings for them.
+    std::unique_ptr<render::TemporalAntiAliasingPass> temporalAntiAliasingPass;
+    bool temporalAntiAliasingFeedbackValid = false;
+    std::unique_ptr<NrdIntegration> nrdInstances[cDenoisingLayerCount];
+    uint32_t nrdMethod = 0;
+    nrd::ReblurSettings reblurSettings = NrdConfig::getDefaultREBLURSettings();
+    nrd::RelaxSettings relaxSettings = NrdConfig::getDefaultRELAXSettings();
 
     nvrhi::rt::AccelStructHandle topLevelAS;
     nvrhi::BufferHandle tlasInstanceBuffer;
@@ -238,12 +260,13 @@ struct RtxptRenderer
         assetsPath = assets;
 
         // The precompiled shaders the passes ask for: "donut/..." Donut's (bin/shaders/framework), "app/..." the
-        // sample's (shaders/rtxpt.cfg: bin/shaders/rtxpt).
+        // sample's (shaders/rtxpt.cfg: bin/shaders/rtxpt), "nrd/..." NRD's (bin/shaders/nrd).
         const char* shaderType = app::GetShaderTypeName(device->getGraphicsAPI());
         const std::filesystem::path binDirectory = ModuleDirectory();
         auto rootFS = std::make_shared<vfs::RootFileSystem>();
         rootFS->mount("/shaders/donut", binDirectory / "shaders" / "framework" / shaderType);
         rootFS->mount("/shaders/app", binDirectory / "shaders" / "rtxpt" / shaderType);
+        rootFS->mount("/shaders/nrd", binDirectory / "shaders" / "nrd" / shaderType);
         shaderFactory = std::make_shared<ShaderFactory>(device, rootFS, "/shaders");
 
         commonPasses = std::make_shared<CommonRenderPasses>(device, shaderFactory);
@@ -348,7 +371,11 @@ struct RtxptRenderer
         lightsBaker = nullptr;
         materialsBaker = nullptr;
         if (ptPipelineBaker != nullptr)
+        {
             ptPipelineBaker->ReleaseVariant(ptPipelineReference);
+            ptPipelineBaker->ReleaseVariant(ptPipelineBuildDenoisingLayers);
+            ptPipelineBaker->ReleaseVariant(ptPipelineFillDenoisingLayers);
+        }
         ptPipelineBaker = nullptr;
         computePipelineBaker = nullptr;
         if (scene != nullptr)
@@ -610,6 +637,8 @@ struct RtxptRenderer
         {
             device->waitForIdle();
             device->runGarbageCollection();
+            ReleaseDenoisers();
+            temporalAntiAliasingPass = nullptr;
             renderTargets = nullptr;
             bindingCache->Clear();
             renderSize = uint2(width, height);
@@ -633,6 +662,18 @@ struct RtxptRenderer
                     [this](std::vector<ShaderMacro>& macros) { GetGlobalMacros(macros); }, bindlessHeapLayout);
                 computePipelineBaker = std::make_shared<ComputePipelineBaker>(device);
                 ptPipelineReference = ptPipelineBaker->CreateVariant("PathTracerSample.hlsl", { ShaderMacro("PATH_TRACER_MODE", "PT_REFERENCE") }, "REF");
+                // AdvancedPathTracer::CreateRTPipelines': the fill pass's sub-sampling macros are
+                // AdaptiveSampling::GetFillPassMacros' without sub-sampling (not ported).
+                ptPipelineBuildDenoisingLayers = ptPipelineBaker->CreateVariant("PathTracerSample.hlsl", { ShaderMacro("PATH_TRACER_MODE", "PT_DENOISING_LAYERS_BUILD") }, "BUILD");
+                ptPipelineFillDenoisingLayers = ptPipelineBaker->CreateVariant("PathTracerSample.hlsl", { ShaderMacro("PATH_TRACER_MODE", "PT_DENOISING_LAYERS_FILL") }, "FILL", false,
+                    [](std::vector<ShaderMacro>& macros)
+                    {
+                        macros.push_back(ShaderMacro("RTXPT_SUB_SAMPLING_SCALE_X", "1"));
+                        macros.push_back(ShaderMacro("RTXPT_SUB_SAMPLING_SCALE_Y", "1"));
+                        macros.push_back(ShaderMacro("RTXPT_SUB_SAMPLING_RATE_NUM", "1"));
+                        macros.push_back(ShaderMacro("RTXPT_SUB_SAMPLING_PATTERN", "0"));
+                        macros.push_back(ShaderMacro("RTXPT_SUB_SAMPLING_BLOCK_SIZE", "8"));
+                    });
             }
             materialsBaker->CreateRenderPassesAndLoadMaterials(bindlessLayout, commonPasses, scene, scenePath, assetsPath);
         }
@@ -686,6 +727,7 @@ struct RtxptRenderer
             toneMappingPass->InheritAutoExposure(*previousToneMappingPass);
         bloomPass = std::make_unique<render::BloomPass>(device, shaderFactory, commonPasses, renderTargets->ProcessedOutputFramebuffer, *view);
         postProcess = std::make_shared<PostProcess>(device, shaderFactory, commonPasses, shaderDebug);
+        temporalAntiAliasingPass = nullptr;     // made again by UpdateTemporalAntiAliasingPass
 
         if (envMapBaker == nullptr)
             envMapBaker = std::make_shared<EnvMapBaker>(device, textureCache, false);
@@ -707,9 +749,39 @@ struct RtxptRenderer
             lightsBaker->SetGlobalShaderMacros(macros);
     }
 
-    // Sample::UpdateViews (no jitter: reference mode).
+    // Sample::UpdateTemporalAntiAliasingPass: TAA and its history exist only while it's on.
+    void UpdateTemporalAntiAliasingPass()
+    {
+        const RtxptFrameSettings& s = settings;
+        if (!s.realtimeMode || s.realtimeAA != 1)
+        {
+            temporalAntiAliasingPass = nullptr;
+            renderTargets->ReleaseTemporalFeedback();
+            return;
+        }
+        renderTargets->EnsureTemporalFeedback();
+        if (temporalAntiAliasingPass == nullptr)
+        {
+            temporalAntiAliasingFeedbackValid = false;
+            render::TemporalAntiAliasingPass::CreateParameters taaParams;
+            taaParams.sourceDepth = renderTargets->Depth;
+            taaParams.motionVectors = renderTargets->ScreenMotionVectors;
+            taaParams.unresolvedColor = renderTargets->OutputColor;
+            taaParams.resolvedColor = renderTargets->ProcessedOutputColor;
+            taaParams.feedback1 = renderTargets->TemporalFeedback1;
+            taaParams.feedback2 = renderTargets->TemporalFeedback2;
+            taaParams.historyClampRelax = renderTargets->CombinedHistoryClampRelax;
+            taaParams.motionVectorStencilMask = 0;
+            taaParams.useCatmullRomFilter = true;
+            temporalAntiAliasingPass = std::make_unique<render::TemporalAntiAliasingPass>(device, shaderFactory, commonPasses, *view, taaParams);
+        }
+        temporalAntiAliasingPass->SetJitter((render::TemporalAntiAliasingJitter)s.taaJitter);
+    }
+
+    // Sample::UpdateViews; the camera's jitter (Sample::ComputeCameraJitter) is TAA's, none without it.
     void UpdateViews(bool firstFrame)
     {
+        UpdateTemporalAntiAliasingPass();
         const RtxptFrameSettings& s = settings;
         const float3 pos(s.cameraPos[0], s.cameraPos[1], s.cameraPos[2]);
         const float3 dir(s.cameraDir[0], s.cameraDir[1], s.cameraDir[2]);
@@ -720,7 +792,7 @@ struct RtxptRenderer
         const affine3 worldToView = translation(-pos) * affine3::from_cols(right, trueUp, dir, 0.f);
         view->SetViewport(nvrhi::Viewport(float(renderSize.x), float(renderSize.y)));
         view->SetMatrices(worldToView, perspProjD3DStyleReverse(s.fovY, float(renderSize.x) / float(renderSize.y), s.zNear));
-        view->SetPixelOffset(float2(0.0f, 0.0f));
+        view->SetPixelOffset(temporalAntiAliasingPass != nullptr ? temporalAntiAliasingPass->GetCurrentPixelOffset() : float2(0.0f, 0.0f));
         view->UpdateCache();
         if (firstFrame)
         {
@@ -793,7 +865,7 @@ struct RtxptRenderer
         const float3 camPos(s.cameraPos[0], s.cameraPos[1], s.cameraPos[2]);
         const PathTracerCameraData cameraData = BridgeCamera(renderSize.x, renderSize.y, float(renderSize.x) / float(renderSize.y),
             camPos, float3(s.cameraDir[0], s.cameraDir[1], s.cameraDir[2]), float3(s.cameraUp[0], s.cameraUp[1], s.cameraUp[2]),
-            s.fovY, s.zNear, 1e7f, s.focalDistance, s.apertureRadius, float2(0.0f, 0.0f));
+            s.fovY, s.zNear, 1e7f, s.focalDistance, s.apertureRadius, view->GetPixelOffset());
         PathTracerConstants& pt = c.ptConsts;
         pt.camera = cameraData;
         pt.prevCamera = firstFrame ? cameraData : lastCameraData;
@@ -802,8 +874,9 @@ struct RtxptRenderer
         pt.diffuseBounceCount = s.diffuseBounceCount;
         pt.perPixelJitterAAScale = s.perPixelJitterAAScale;
         pt.texLODBias = s.texLODBias;
-        pt.sampleBaseIndex = s.sampleIndex;
-        pt.invSubSampleCount = 1.0f;
+        const uint32_t samplesPerPixel = ActualSamplesPerPixel();
+        pt.sampleBaseIndex = s.sampleIndex * samplesPerPixel;
+        pt.invSubSampleCount = 1.0f / (float)samplesPerPixel;
         pt.imageWidth = renderSize.x;
         pt.imageHeight = renderSize.y;
         pt.preExposedGrayLuminance = s.enableToneMapping ? luminance(toneMappingPass->GetPreExposedGray(0)) : 1.0f;
@@ -811,8 +884,8 @@ struct RtxptRenderer
         pt.useReSTIRDI = 0;
         pt.useReSTIRGI = 0;
         pt.denoiserRadianceClampK = s.denoiserRadianceClampK;
-        pt.DLSSRRBrightnessClampK = std::numeric_limits<float>::max();
-        pt.denoisingEnabled = 0;
+        pt.DLSSRRBrightnessClampK = 4096.0f * pt.preExposedGrayLuminance;   // SampleUIData's DLSSRRBrightnessClampK
+        pt.denoisingEnabled = UseStandaloneDenoiser() ? 1 : 0;
         pt._activeDenoisingLayerCount = s.activeDenoisingLayerCount;
         pt.maxDenoisingLayerVertexDepth = std::min(std::min(s.denoisingLayersMaxVertexDepth, cDenoisingLayerMaxVertexIndex), s.bounceCount);
         pt.allowPrimarySurfaceReplacement = s.allowPrimarySurfaceReplacement;
@@ -840,9 +913,12 @@ struct RtxptRenderer
         c.debug.pickX = -1;
         c.debug.pickY = -1;
         c.debug.debugViewType = 0;
+        c.debug.debugViewDenoisingLayerIndex = (s.activeDenoisingLayerCount == 1) ? 0 : -1;
         c.debug.imageWidth = renderSize.x;
         c.debug.imageHeight = renderSize.y;
         c.debug.cameraPosW = camPos;
+        c.denoisingHitParamConsts = float3(reblurSettings.hitDistanceParameters.A, reblurSettings.hitDistanceParameters.B,
+            reblurSettings.hitDistanceParameters.C);
 
         const bool environmentChanged = UpdateLighting(cl);
 #if RTXPT_SUBINSTANCE_LIGHT_PATCH_PASS
@@ -878,7 +954,7 @@ struct RtxptRenderer
             dirLightCount++;
         }
         const bool environmentChanged = envMapBaker->Update(cl, *bindingCache, commonPasses, EnvMapBaker::BakeSettings{ .EnvMapRadianceScale = c_envMapRadianceScale },
-            sceneTime, dirLights, dirLightCount, true);
+            sceneTime, dirLights, dirLightCount, !s.realtimeMode || !s.enableAnimations);
 
         LightsBaker::BakeSettings bake;
         bake.ImportanceSamplingType = s.neeType;
@@ -889,7 +965,7 @@ struct RtxptRenderer
         bake.LocalToGlobalSampleRatio = s.neeatLocalToGlobalSampleRatio;
         bake.UseApproximateMIS = s.useApproximateMIS != 0;
         bake.DistantVsLocalImportanceScale = s.neeatDistantVsLocalImportance;
-        bake.ResetFeedback = s.resetAccumulation != 0;
+        bake.ResetFeedback = (s.resetAccumulation != 0 && !s.realtimeMode) || s.resetRealtimeCaches != 0;
         bake.PrevViewportSize = float2((float)viewPrevious->GetViewExtent().width(), (float)viewPrevious->GetViewExtent().height());
         bake.ViewportSize = float2((float)view->GetViewExtent().width(), (float)view->GetViewExtent().height());
         bake.EnvMapParams = NEEAT::LightsBakerEnvMapParams{ .Transform = envMapSceneParams.Transform, .InvTransform = envMapSceneParams.InvTransform,
@@ -900,18 +976,57 @@ struct RtxptRenderer
         return environmentChanged;
     }
 
-    // AdvancedPathTracer::PathTrace in reference mode: the lights baker's end, then the reference raygen
-    // samplesPerPixel times, then the specular hit distance guide.
-    void PathTrace(nvrhi::ICommandList* cl, uint32_t samplesPerPixel)
+    // SampleUIData::ActualUseStandaloneDenoiser (TAA or no AA: DLSS-RR, the other denoiser, isn't ported).
+    bool UseStandaloneDenoiser() const
     {
-        lightsBaker->UpdateEnd(cl, *bindingCache, scene, materialsBaker, nullptr, subInstanceBuffer, renderTargets->Depth, renderTargets->ScreenMotionVectors);
+        return settings.realtimeMode && settings.standaloneDenoiser;
+    }
 
+    // The path tracer's samples per pixel in a frame: the real-time mode's, 1 in reference mode.
+    uint32_t ActualSamplesPerPixel() const
+    {
+        return (settings.realtimeMode && settings.samplesPerPixel > 1) ? settings.samplesPerPixel : 1u;
+    }
+
+    void ReleaseDenoisers()
+    {
+        for (auto& instance : nrdInstances)
+            instance = nullptr;
+    }
+
+    // AdvancedPathTracer::PathTrace: in real-time mode the denoising layers' build pass first; then the lights
+    // baker's end, the path tracer (the reference raygen, or the denoising layers' fill) samplesPerPixel times and
+    // the specular hit distance guide; then (SampleRenderCode) the denoiser.
+    void PathTrace(nvrhi::ICommandList* cl)
+    {
+        const bool useDenoisingLayers = settings.realtimeMode != 0;
         nvrhi::rt::State state;
-        state.shaderTable = ptPipelineReference->GetShaderTable();
         state.bindings = { bindingSet, descriptorTable->GetDescriptorTable(), heapDescriptorTable->GetDescriptorTable() };
         nvrhi::rt::DispatchRaysArguments args;
         args.width = renderSize.x;
         args.height = renderSize.y;
+
+        if (useDenoisingLayers)
+        {
+            cl->setTextureState(renderTargets->Depth, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            cl->setTextureState(renderTargets->ScreenMotionVectors, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            cl->setTextureState(renderTargets->Throughput, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            cl->setTextureState(renderTargets->SpecularHitT, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            state.shaderTable = ptPipelineBuildDenoisingLayers->GetShaderTable();
+            cl->setRayTracingState(state);
+            SampleMiniConstants miniConstants = {};
+            cl->setPushConstants(&miniConstants, sizeof(miniConstants));
+            cl->dispatchRays(args);
+            cl->setBufferState(renderTargets->DenoisingLayersBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            cl->setTextureState(renderTargets->Depth, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            cl->setTextureState(renderTargets->ScreenMotionVectors, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            cl->setTextureState(renderTargets->Throughput, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        }
+
+        lightsBaker->UpdateEnd(cl, *bindingCache, scene, materialsBaker, nullptr, subInstanceBuffer, renderTargets->Depth, renderTargets->ScreenMotionVectors);
+
+        state.shaderTable = (useDenoisingLayers ? ptPipelineFillDenoisingLayers : ptPipelineReference)->GetShaderTable();
+        const uint32_t samplesPerPixel = ActualSamplesPerPixel();
         for (uint32_t subSampleIndex = 0; subSampleIndex < samplesPerPixel; subSampleIndex++)
         {
             cl->setBufferState(renderTargets->DenoisingLayersBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -926,12 +1041,89 @@ struct RtxptRenderer
         cl->setBufferState(renderTargets->DenoisingLayersBuffer, nvrhi::ResourceStates::UnorderedAccess);
 
         denoisingGuidesBaker->DenoiseSpecHitT(cl, bindingSet);
+
+        Denoise(cl);
     }
 
-    // Sample::PostProcessAA in reference mode, PostProcessPreToneMapping's bloom and the tone mapping into LdrColor.
+    // Sample::Denoise: NRD per denoising layer, the last first, each between its input preparation and its
+    // merge into OutputColor (the first prepare starts from the stable radiance).
+    void Denoise(nvrhi::ICommandList* cl)
+    {
+        if (!UseStandaloneDenoiser())
+        {
+            ReleaseDenoisers();
+            return;
+        }
+        const bool useRelax = settings.nrdMethod == (uint32_t)NrdConfig::DenoiserMethod::RELAX;
+        if (nrdMethod != settings.nrdMethod)
+        {
+            ReleaseDenoisers();
+            nrdMethod = settings.nrdMethod;
+        }
+        for (auto& instance : nrdInstances)
+            if (instance == nullptr)
+            {
+                instance = std::make_unique<NrdIntegration>(device, useRelax ? nrd::Denoiser::RELAX_DIFFUSE_SPECULAR : nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR);
+                instance->Initialize(renderSize.x, renderSize.y, *shaderFactory);
+            }
+
+        const PostProcess::ComputePassType preparePassType = useRelax ? PostProcess::ComputePassType::RELAXDenoiserPrepareInputs : PostProcess::ComputePassType::REBLURDenoiserPrepareInputs;
+        const PostProcess::ComputePassType mergePassType = useRelax ? PostProcess::ComputePassType::RELAXDenoiserFinalMerge : PostProcess::ComputePassType::REBLURDenoiserFinalMerge;
+        const bool resetHistory = settings.resetRealtimeCaches != 0;
+        const int passCount = std::min((int)settings.activeDenoisingLayerCount, (int)std::size(nrdInstances));
+        bool initWithStableRadiance = true;
+        for (int pass = passCount - 1; pass >= 0; pass--)
+        {
+            SampleMiniConstants miniConstants = { uint4((uint)pass, initWithStableRadiance ? 1 : 0, 0, 0) };
+            initWithStableRadiance = false;
+            const nvrhi::TextureDesc& outputDesc = renderTargets->OutputColor->getDesc();
+            postProcess->Apply(cl, preparePassType, constantBuffer, miniConstants, bindingSet, bindingLayout, outputDesc.width, outputDesc.height);
+
+            // A negative time between frames: NRD measures it itself.
+            const void* methodSettings = useRelax ? (const void*)&relaxSettings : (const void*)&reblurSettings;
+            nrdInstances[pass]->RunDenoiserPasses(cl, *renderTargets, pass, *view, *viewPrevious, settings.frameIndex,
+                settings.nrdDisocclusionThreshold, settings.nrdDisocclusionThresholdAlternate, settings.nrdUseAlternateDisocclusionThresholdMix != 0,
+                -1.0f, false, resetHistory, methodSettings);
+
+            postProcess->Apply(cl, mergePassType, pass, constantBuffer, miniConstants, renderTargets->OutputColor, *renderTargets, nullptr);
+        }
+    }
+
+    // Sample::PostProcessAA: the accumulation in reference mode; TAA (or a copy) in real-time mode, then without the
+    // denoiser the denoising layers' merge into OutputColor (after the copy, as the sample does).
+    void PostProcessAA(nvrhi::ICommandList* cl, float accumulationWeight)
+    {
+        if (!settings.realtimeMode)
+        {
+            accumulationPass->Render(cl, *view, *view, accumulationWeight);
+            return;
+        }
+        if (settings.realtimeAA == 1 && temporalAntiAliasingPass != nullptr)
+        {
+            render::TemporalAntiAliasingParameters taaParams;
+            taaParams.newFrameWeight = settings.taaNewFrameWeight;
+            taaParams.enableHistoryClamping = settings.taaEnableHistoryClamping != 0;
+            taaParams.useHistoryClampRelax = settings.taaUseHistoryClampRelax != 0;
+            const bool previousViewValid = settings.frameIndex != 0 && temporalAntiAliasingFeedbackValid;
+            temporalAntiAliasingPass->TemporalResolve(cl, taaParams, previousViewValid, *view, *view);
+            temporalAntiAliasingFeedbackValid = true;
+        }
+        else
+            cl->copyTexture(renderTargets->ProcessedOutputColor, nvrhi::TextureSlice(), renderTargets->OutputColor, nvrhi::TextureSlice());
+
+        if (!UseStandaloneDenoiser())
+        {
+            SampleMiniConstants miniConstants = { uint4(0, 0, 0, 0) };
+            const nvrhi::TextureDesc& outputDesc = renderTargets->OutputColor->getDesc();
+            postProcess->Apply(cl, PostProcess::ComputePassType::NoDenoiserFinalMerge, constantBuffer, miniConstants, bindingSet, bindingLayout,
+                outputDesc.width, outputDesc.height);
+        }
+    }
+
+    // PostProcessAA, PostProcessPreToneMapping's bloom and the tone mapping into LdrColor.
     void Resolve(nvrhi::ICommandList* cl, float accumulationWeight)
     {
-        accumulationPass->Render(cl, *view, *view, accumulationWeight);
+        PostProcessAA(cl, accumulationWeight);
 
         PlanarView fullscreenView = *view;
         fullscreenView.SetViewport(nvrhi::Viewport(float(renderSize.x), float(renderSize.y)));
@@ -944,10 +1136,12 @@ struct RtxptRenderer
             cl->writeBuffer(constantBuffer, &constants, sizeof(constants));
     }
 
-    // Sample::PostRender, and Render's end: the views swap.
+    // Sample::PostRender, and Render's end: TAA's next jitter, the views swap.
     void EndFrame()
     {
         sceneRenderCache.Close();
+        if (temporalAntiAliasingPass != nullptr)
+            temporalAntiAliasingPass->AdvanceFrame();
         std::swap(view, viewPrevious);
     }
 };
@@ -1113,13 +1307,14 @@ extern "C"
         return r->BeginFrame(commandList);
     }
 
-    DONUT_API void Donut_RtxptRendererPathTrace(RtxptRenderer* r, nvrhi::ICommandList* commandList, int samplesPerPixel)
+    // The path tracer, then in real-time mode the denoiser: see RtxptRenderer::PathTrace.
+    DONUT_API void Donut_RtxptRendererPathTrace(RtxptRenderer* r, nvrhi::ICommandList* commandList)
     {
-        r->PathTrace(commandList, (uint32_t)samplesPerPixel);
+        r->PathTrace(commandList);
     }
 
-    // Accumulates the frame's samples with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), then
-    // bloom and tone mapping into the LDR color (Donut_RtxptRendererGetLdrColor).
+    // Accumulates the frame's samples with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), or in
+    // real-time mode TAA (or a copy), then bloom and tone mapping into the LDR color (Donut_RtxptRendererGetLdrColor).
     DONUT_API void Donut_RtxptRendererResolve(RtxptRenderer* r, nvrhi::ICommandList* commandList, double accumulationWeight)
     {
         r->Resolve(commandList, (float)accumulationWeight);
