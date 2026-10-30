@@ -175,6 +175,10 @@ set(DONUT_PATCHES
     # for good: rtxcr_raster's animated hair, which the morph target pass writes into one of two vertex
     # buffers a frame, drew from the first one in every frame (in a state nothing tracked: device lost).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-input-binding-set-vertex-buffer-change.patch"
+    # SetDirectoryWithExecutable: GetDirectoryWithExecutable is where code looks for files next to the
+    # executable, which under tslang's JIT is tslang.exe's folder, not bin/; rtxpt's run-time shader
+    # compiler (RTXPT_DIR's) finds ShaderDynamic/ there, so core/rtxpt.cpp points it at bin/.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-executable-directory-override.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
@@ -383,6 +387,10 @@ endif()
 # rtxcr_pathtracer (see the end of this file) builds only with RTXCR_DIR: a checkout of NVIDIA's
 # RTXCR (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets.
 set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets")
+# rtxpt (see the end of this file) builds only with RTXPT_DIR: a checkout of NVIDIA's RTX Path
+# Tracing (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets, configured once by its own
+# CMake (which downloads the DXC its run-time shader compiler uses, External/dxc).
+set(RTXPT_DIR "" CACHE PATH "RTXPT checkout (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets")
 
 # Opacity micromaps on D3D12 through the Agility SDK's DXR 1.2 (raytracing tier 1.2) rather than
 # NVAPI (opacity_micromaps; Vulkan has them through VK_EXT_opacity_micromap).
@@ -554,6 +562,9 @@ if (WIN32)
 endif()
 if (OMM_SDK_LIBRARIES)
     set_source_files_properties(core/omm_bake.cpp PROPERTIES COMPILE_DEFINITIONS DONUT_WITH_OMM_SDK=1)
+endif()
+if (RTXPT_DIR)
+    list(APPEND JIT_MODULE_SOURCES core/rtxpt.cpp)
 endif()
 if (RTXCR_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
@@ -3860,6 +3871,174 @@ if (RTXCR_DIR)
     add_tslang_example_test(rtxcr_raster SUFFIX animation_dots
         ARGS -width 960 -height 540 -hairTessellationType 1 -enableAnimation 1
         --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
+endif()
+
+# Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT): its reference path tracer and its
+# real-time mode (NRD, TAA).
+# Under the NVIDIA RTX SDKs License like RTXCR, so nothing of it is copied here: with RTXPT_DIR set to
+# a checkout, the sample's renderer library (scene, materials, lights, environment map, the path tracer's
+# run-time pipeline baker, tone mapping, accumulation: rtxpt_core) and its shaders compile in place;
+# examples/rtxpt.ts is the sample's host (Sample.cpp) and core/rtxpt.cpp the glue.
+if (RTXPT_DIR)
+    # Tracy's headers: RTXPT's code marks profiler zones, which are empty without TRACY_ENABLE.
+    FetchContent_Declare(tracy
+        GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+        GIT_TAG v0.14.1
+        GIT_SHALLOW TRUE
+        SOURCE_SUBDIR do-not-build)
+    FetchContent_MakeAvailable(tracy)
+
+    # NRD (the real-time mode's denoiser, also under the NVIDIA RTX SDKs License): RTXPT's submodule, built
+    # in place as a static library with RTXPT's settings (External/CMakeLists.txt). Its shaders are compiled
+    # below by ShaderMake, not embedded; NRD's CMake fetches MathLib (its shaders' include).
+    set(NRD_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
+    set(NRD_NORMAL_ENCODING "2" CACHE STRING "" FORCE)
+    set(NRD_ROUGHNESS_ENCODING "1" CACHE STRING "" FORCE)
+    set(NRD_IS_SUBMODULE ON)
+    set(NRD_EMBEDS_SPIRV_SHADERS OFF CACHE BOOL "" FORCE)
+    set(NRD_EMBEDS_DXIL_SHADERS OFF CACHE BOOL "" FORCE)
+    set(NRD_EMBEDS_DXBC_SHADERS OFF CACHE BOOL "" FORCE)
+    set(NRD_DISABLE_SHADER_COMPILATION ON CACHE BOOL "" FORCE)
+    set(NRD_SHADERS_PATH "${CMAKE_BINARY_DIR}/NRDShaders" CACHE STRING "" FORCE)
+    add_subdirectory(${RTXPT_DIR}/External/Nrd ${CMAKE_BINARY_DIR}/rtxpt_nrd EXCLUDE_FROM_ALL)
+    get_target_property(RTXPT_MATHLIB_DIR MathLib SOURCE_DIR)
+
+    set(RTXPT_SOURCE_DIR "${RTXPT_DIR}/Rtxpt")
+    add_library(rtxpt_core STATIC
+        ${RTXPT_SOURCE_DIR}/SampleCommon/SampleCommon.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/ExtendedScene.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/PTPipelineBaker.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/ComputePipelineBaker.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/ShaderCompilerUtils.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/RenderTargets.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/PackingUtils.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/ComputePass.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/BlasPool.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/BlasCompactor.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/GpuProfiler.cpp
+        ${RTXPT_SOURCE_DIR}/SampleCommon/DirectoryModifiedMonitor.cpp
+        ${RTXPT_SOURCE_DIR}/Lighting/LightsBaker.cpp
+        ${RTXPT_SOURCE_DIR}/Lighting/Distant/EnvMapBaker.cpp
+        ${RTXPT_SOURCE_DIR}/Lighting/Distant/EnvMapImportanceSamplingBaker.cpp
+        ${RTXPT_SOURCE_DIR}/Lighting/Distant/SampleProceduralSky.cpp
+        ${RTXPT_SOURCE_DIR}/Materials/MaterialsBaker.cpp
+        ${RTXPT_SOURCE_DIR}/ToneMapper/ToneMappingPasses.cpp
+        ${RTXPT_SOURCE_DIR}/ProcessingPasses/AccumulationPass.cpp
+        ${RTXPT_SOURCE_DIR}/ProcessingPasses/PostProcess.cpp
+        ${RTXPT_SOURCE_DIR}/ProcessingPasses/DenoisingGuidesBaker.cpp
+        ${RTXPT_SOURCE_DIR}/NRD/NrdIntegration.cpp
+        ${RTXPT_SOURCE_DIR}/NRD/NrdConfig.cpp
+        ${RTXPT_SOURCE_DIR}/SceneRenderCache.cpp
+        ${RTXPT_SOURCE_DIR}/Misc/ShaderDebug.cpp)
+    set_target_properties(rtxpt_core PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+    target_link_libraries(rtxpt_core PUBLIC donut_core donut_render donut_app donut_engine NRD)
+    target_include_directories(rtxpt_core PUBLIC
+        ${RTXPT_SOURCE_DIR}
+        ${RTXPT_DIR}/External
+        ${RTXPT_DIR}/External/Rtxdi/Include
+        ${RTXPT_DIR}/External/Nrd/Include
+        ${RTXPT_DIR}/External/cxxopts/include
+        ${tracy_SOURCE_DIR}/public)
+    # No NVAPI (NVRHI_WITH_NVAPI is off without RTXCR_DIR): shader execution reordering and opacity
+    # micromaps through DXR 1.2, the Agility SDK's.
+    target_compile_definitions(rtxpt_core PUBLIC RTXPT_D3D12_WITH_NVAPI=0
+        RTXPT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
+    set(RTXPT_GLUE_INCLUDES "${RTXPT_SOURCE_DIR};${RTXPT_DIR}/External;${RTXPT_DIR}/External/Rtxdi/Include;${RTXPT_DIR}/External/Nrd/Include;${RTXPT_DIR}/External/cxxopts/include;${tracy_SOURCE_DIR}/public")
+    set_source_files_properties(core/rtxpt.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${RTXPT_GLUE_INCLUDES}"
+        COMPILE_DEFINITIONS "RTXPT_D3D12_WITH_NVAPI=0;RTXPT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION}"
+        COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/std:c++20,-std=c++20>")
+
+    # The shaders RTXPT's passes create through the ShaderFactory, at bin/shaders/rtxpt/<dxil|spirv>.
+    set(RTXPT_SHADERMAKE_OPTIONS "--sourceDir ${RTXPT_SOURCE_DIR}")
+    if (DONUT_D3D_AGILITY_SDK_VERSION GREATER_EQUAL 619)
+        string(APPEND RTXPT_SHADERMAKE_OPTIONS " -m 6_9")
+    endif()
+    donut_compile_shaders(
+        TARGET rtxpt_shaders
+        PROJECT_NAME "RTXPT"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxpt.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxpt.cfg
+        INCLUDES ${RTXPT_DIR}/External ${RTXPT_DIR}/External/Rtxdi/Include ${RTXPT_DIR}/External/Nrd/Shaders
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxpt/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxpt/spirv
+        SHADERMAKE_OPTIONS "${RTXPT_SHADERMAKE_OPTIONS}"
+    )
+    # NRD's shaders, at bin/shaders/nrd/<dxil|spirv> (NrdIntegration asks the ShaderFactory for "nrd/...").
+    # NRD_INTERNAL enables the permutation macros its Shaders.cfg uses, as in RTXPT's build.
+    donut_compile_shaders(
+        TARGET rtxpt_nrd_shaders
+        PROJECT_NAME "NRD"
+        CONFIG ${RTXPT_DIR}/External/Nrd/Shaders/Shaders.cfg
+        SOURCES ${RTXPT_DIR}/External/Nrd/Shaders/Shaders.cfg
+        INCLUDES ${RTXPT_MATHLIB_DIR} ${RTXPT_DIR}/External/Nrd/Shaders
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nrd/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nrd/spirv
+        SHADERMAKE_OPTIONS "-D NRD_INTERNAL"
+    )
+
+    # The sample's code finds its Assets folder (environment maps, the procedural sky's textures) next to the
+    # executable or one folder up (SampleCommon.cpp's GetLocalPath): a link to RTXPT_DIR/Assets there.
+    if (NOT EXISTS "${CMAKE_BINARY_DIR}/Assets")
+        if (WIN32)
+            file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/Assets" RTXPT_ASSETS_LINK)
+            file(TO_NATIVE_PATH "${RTXPT_DIR}/Assets" RTXPT_ASSETS_TARGET)
+            execute_process(COMMAND cmd /c mklink /J "${RTXPT_ASSETS_LINK}" "${RTXPT_ASSETS_TARGET}" OUTPUT_QUIET)
+        else()
+            file(CREATE_LINK "${RTXPT_DIR}/Assets" "${CMAKE_BINARY_DIR}/Assets" SYMBOLIC)
+        endif()
+    endif()
+
+    # The path tracer's shaders compile at run time (a permutation per material and setting), by the DXC
+    # of RTXPT's checkout, from bin/ShaderDynamic/: the layout RTXPT's ShaderCompilerUtils looks for
+    # next to the executable (core/rtxpt.cpp makes that bin/ under the JIT too). Donut's shader headers
+    # are this repository's, which the C++ side's structures (materials, lights) come from.
+    set(RTXPT_DYNAMIC_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/ShaderDynamic")
+    set(RTXPT_DXC_DIR "${RTXPT_DIR}/External/dxc/build/native/bin/x64")
+    if (NOT EXISTS "${RTXPT_DXC_DIR}/dxc.exe")
+        message(WARNING "RTXPT_DIR has no ${RTXPT_DXC_DIR}/dxc.exe: configure the checkout with its own CMake once, which downloads it")
+    endif()
+    file(GLOB RTXPT_NVAPI_SHADER_HEADERS "${RTXPT_DIR}/External/NVAPI/nvHLSL*.h" "${RTXPT_DIR}/External/NVAPI/nvShader*.h")
+    add_custom_target(rtxpt_dynamic_shaders
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${RTXPT_DXC_DIR}" "${RTXPT_DYNAMIC_DIR}/Tools/d3d12/x64"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${RTXPT_DXC_DIR}" "${RTXPT_DYNAMIC_DIR}/Tools/vk/x64"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${RTXPT_SOURCE_DIR}/Shaders" "${RTXPT_DYNAMIC_DIR}/Source/Rtxpt"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/include/donut/shaders" "${RTXPT_DYNAMIC_DIR}/Source/External/donut/shaders"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${RTXPT_DYNAMIC_DIR}/Source/External/NVAPI"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RTXPT_NVAPI_SHADER_HEADERS} "${RTXPT_DYNAMIC_DIR}/Source/External/NVAPI"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${RTXPT_DIR}/External/Rtxdi/Include" "${RTXPT_DYNAMIC_DIR}/Source/External/Rtxdi/Include"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${RTXPT_DIR}/External/SHARC/include" "${RTXPT_DYNAMIC_DIR}/Source/External/SHARC/include"
+        COMMENT "Copying RTXPT's run-time shader compiler and shader sources to bin/ShaderDynamic")
+
+    if (TARGET donut_interop_shared)
+        target_link_libraries(donut_interop_shared PRIVATE rtxpt_core)
+        add_dependencies(donut_interop_shared rtxpt_shaders rtxpt_nrd_shaders rtxpt_dynamic_shaders)
+    endif()
+
+    # The path tracer is shader model 6.9 on D3D12 (DXR 1.2's hit objects): the Agility SDK runtime.
+    if (NVRHI_WITH_DX12)
+        add_tslang_example(rtxpt core/rtxpt_renderer.ts core/rtxpt.cpp core/d3d12_agility_sdk.cpp MEDIA fonts)
+    else()
+        add_tslang_example(rtxpt core/rtxpt_renderer.ts core/rtxpt.cpp MEDIA fonts)
+    endif()
+    add_dependencies(rtxpt rtxpt_shaders rtxpt_nrd_shaders rtxpt_dynamic_shaders)
+    target_link_libraries(rtxpt PRIVATE rtxpt_core)
+    # 32 samples after the sample's capture warm-up (its --captureSimple): the frame Rtxpt.exe saves with
+    # --referenceSamplesPerPixel 32 --overrideToReferenceMode --captureSimple (bit-identical on D3D12 for these scenes).
+    add_tslang_example_test(rtxpt ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32 -captureWarmup 64
+        -overrideToReferenceMode --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+    # D3D12 only: with an environment map that isn't a cubemap (this scene's .exr), the sample's EnvMapBaker binds
+    # a black cube map array where its shader declares a cube map, which Vulkan's validation reports.
+    add_tslang_example_test(rtxpt SUFFIX transparent_machines APIS dx12 ARGS -width 960 -height 540 -frames 127
+        -referenceSamplesPerPixel 32 -captureWarmup 64 -overrideToReferenceMode --scene ${RTXPT_DIR}/Assets/transparent-machines.scene.json)
+    add_tslang_example_test(rtxpt SUFFIX programmer_art ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32
+        -captureWarmup 64 -overrideToReferenceMode --scene ${RTXPT_DIR}/Assets/programmer-art.scene.json)
+    # The real-time mode with the denoiser (NRD) and TAA, as Rtxpt.exe --overrideToRealtimeMode --realtimeAA 1
+    # --useReSTIRGI 0 --overrideRadianceCacheMode 0 --overrideSubSamplingMode 0 renders it (within ~1/255 mean).
+    add_tslang_example_test(rtxpt SUFFIX realtime_reblur ARGS -width 960 -height 540 -frames 200 -overrideToRealtimeMode
+        -overrideAutoexposureOff -stopAnimations -realtimeAA 1 -nrdMethod 0 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+    add_tslang_example_test(rtxpt SUFFIX realtime_relax ARGS -width 960 -height 540 -frames 200 -overrideToRealtimeMode
+        -overrideAutoexposureOff -stopAnimations -realtimeAA 1 -nrdMethod 1 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)

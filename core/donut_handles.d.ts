@@ -100,6 +100,7 @@
 @cpp declare class PbrtSceneHandle { private readonly __pbrtScene: index; }
 @cpp declare class RtxcrSceneHandle { private readonly __rtxcrScene: index; }
 @cpp declare class RtxcrNrdHandle { private readonly __rtxcrNrd: index; }
+@cpp declare class RtxptRendererHandle { private readonly __rtxptRenderer: index; }
 @cpp declare class GltfModelHandle extends ObjectHandle { private readonly __gltfModel: index; }
 @cpp declare class GltfMeshHandle extends ObjectHandle { private readonly __gltfMesh: index; }
 @cpp declare class BinaryFileHandle extends ObjectHandle { private readonly __binaryFile: index; }
