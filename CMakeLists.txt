@@ -638,14 +638,14 @@ endif()
 # lib<name>.so and bin/<name>.apk (see above), with the media files and folders listed in
 # <media> (paths in the media folder) and the further sources after it
 function(add_tslang_android_app name media)
-    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts core/input_pass.ts core/args.ts core/test_check.ts core/donut.ts ${ARGN}
+    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts ${ARGN}
         core/android_main.cpp "${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c")
     set_target_properties(${name}_app PROPERTIES
         OUTPUT_NAME ${name}
         LINKER_LANGUAGE CXX
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/android/${name}")
     target_include_directories(${name}_app PRIVATE "${ANDROID_NATIVE_APP_GLUE_DIR}")
-    target_link_libraries(${name}_app PRIVATE ${TSLANG_LINK_LIBS} donut_interop_static glfw android log)
+    target_link_libraries(${name}_app PRIVATE tslang_core ${TSLANG_LINK_LIBS} donut_interop_static glfw android log)
     if (TARGET ${name}_shaders)
         add_dependencies(${name}_app ${name}_shaders)
     endif()
@@ -715,8 +715,8 @@ set_source_files_properties(core/donut.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_DO
 # -mm=own: a call into another module may destroy anything unless the compiler knows that
 # module's ownership facts, which tslang reads from the module's object (--own-facts). So under
 # own each .ts object is compiled after objects of the modules it imports, directly or not, and
-# given them. Not the objects a target links: a source compiled in every target that lists it has
-# one per target, which a source's OBJECT_DEPENDS can't name (it takes no generator expression).
+# given them. Not the objects a target links: a source compiled in every target that lists it (a
+# module given to add_tslang_example) has one per target, which a source's OBJECT_DEPENDS can't name (it takes no generator expression).
 # Each imported module is compiled once more instead, into own-facts/<path>.obj, from the same
 # source with the same flags, so its facts are those of every copy linked. tslang picks
 # <name>.<os>.ts for `import "./<name>"`.
@@ -821,6 +821,12 @@ foreach(TSLANG_CORE_SOURCE IN LISTS TSLANG_CORE_SOURCES)
     "${CMAKE_CURRENT_SOURCE_DIR}/core/donut.ts;${TSLANG_DONUT_DECLARATIONS}")
 endforeach()
 
+# The core .ts files, compiled once and linked into every example (and Android app): the tslang
+# flags are global, so each target's own copy was the same object. An OBJECT library, not a
+# STATIC one, so that every object is linked as before, whether the example references it or not.
+add_library(tslang_core OBJECT ${TSLANG_CORE_SOURCES})
+tslang_own_facts(${TSLANG_CORE_SOURCES})
+
 # add_tslang_example(<name> [MEDIA <path>...] [<source>...]): examples/<name>.ts and the further
 # sources. MEDIA lists the files and folders of the media folder it reads (paths in it), which
 # go into its APK on Android; on the desktop the whole folder is next to the executables.
@@ -829,7 +835,7 @@ function(add_tslang_example name)
     # .ts files compile with the TSLANG command. Most targets have no .cpp, so link with the C++
     # rule explicitly: the C++ link flags (debug info, CRT) apply and the tslang compile flags
     # stay off the link line.
-    add_executable(${name} examples/${name}.ts ${TSLANG_CORE_SOURCES} ${EXAMPLE_UNPARSED_ARGUMENTS})
+    add_executable(${name} examples/${name}.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     set(module_ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     list(FILTER module_ts INCLUDE REGEX "\\.ts$")
     # The example imports the modules listed with it, and compiles their declarations in; so may
@@ -838,9 +844,9 @@ function(add_tslang_example name)
     list(TRANSFORM module_ts_paths PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     set_source_files_properties(${module_ts} PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES_WITH_DECLARATIONS};${module_ts_paths}")
     set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${TSLANG_CORE_SOURCES_WITH_DECLARATIONS};${module_ts_paths}")
-    tslang_own_facts(examples/${name}.ts ${TSLANG_CORE_SOURCES} ${module_ts})
+    tslang_own_facts(examples/${name}.ts ${module_ts})
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
-    target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} donut_interop_static)
+    target_link_libraries(${name} PRIVATE tslang_core ${TSLANG_LINK_LIBS} donut_interop_static)
     if (TARGET ${name}_shaders)
         add_dependencies(${name} ${name}_shaders)
     endif()
