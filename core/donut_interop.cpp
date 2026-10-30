@@ -10870,6 +10870,15 @@ extern "C"
             dm::float3(float(upX), float(upY), float(upZ)));
     }
 
+    // First person cameras only: FirstPersonCamera::LookTo (a direction rather than a target point).
+    DONUT_API void Donut_CameraLookTo(donut::app::BaseCamera* camera, double posX, double posY, double posZ,
+        double dirX, double dirY, double dirZ, double upX, double upY, double upZ)
+    {
+        static_cast<donut::app::FirstPersonCamera*>(camera)->LookTo(
+            dm::float3(float(posX), float(posY), float(posZ)), dm::float3(float(dirX), float(dirY), float(dirZ)),
+            dm::float3(float(upX), float(upY), float(upZ)));
+    }
+
     // The camera's position, as 3 floats into dst.
     DONUT_API void Donut_GetCameraPosition(donut::app::BaseCamera* camera, float* dst)
     {

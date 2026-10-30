@@ -32,6 +32,7 @@
 #endif
 
 #include <donut/app/ApplicationBase.h>
+#include <donut/core/json.h>
 #include <donut/core/log.h>
 #include <donut/core/vfs/VFS.h>
 #include <donut/engine/BindingCache.h>
@@ -201,6 +202,12 @@ struct RtxptRenderer
         std::string name;
     };
     std::vector<TogglableNode> togglableNodes;
+    // SampleGame (core/rtxpt_game.ts): the scene graph nodes it holds, by handle, the light nodes the last
+    // CollectGameLights found, and the JSON files and file names it reads.
+    std::vector<std::shared_ptr<SceneGraphNode>> gameNodes;
+    std::vector<int> collectedGameLights;
+    std::vector<Json::Value> gameJson;
+    std::vector<std::string> listedFiles;
     std::vector<std::shared_ptr<Light>> lights;
     std::string envMapLocalPath;
     float envLightIntensity = std::numeric_limits<float>::quiet_NaN();
@@ -382,6 +389,9 @@ struct RtxptRenderer
             for (const auto& mesh : scene->GetSceneGraph()->GetMeshes())
                 mesh->accelStruct = nullptr;
         togglableNodes.clear();
+        gameNodes.clear();
+        collectedGameLights.clear();
+        gameJson.clear();
         scene = nullptr;
     }
 
@@ -413,7 +423,8 @@ struct RtxptRenderer
         t.node->SetTranslation(selected ? t.originalTranslation : double3(-10000.0, -10000.0, -10000.0));
     }
 
-    // Sample::LoadScene and SceneLoaded's scene-side steps, in their order.
+    // Sample::LoadScene. Sample::SceneLoaded starts with the game's step (GameScene::SceneLoaded, the host's), then
+    // FinishLoadingScene does the rest.
     bool LoadScene(const std::filesystem::path& path)
     {
         UnloadScene();
@@ -425,6 +436,14 @@ struct RtxptRenderer
             scene = nullptr;
             return false;
         }
+        return true;
+    }
+
+    // Sample::SceneLoaded's scene-side steps after the game's, in their order.
+    bool FinishLoadingScene()
+    {
+        if (scene == nullptr)
+            return false;
 
         // Material leaf properties at time 0, before the materials are read.
         for (const auto& animation : scene->GetSceneGraph()->GetAnimations())
@@ -471,6 +490,132 @@ struct RtxptRenderer
         for (const auto& anim : scene->GetSceneGraph()->GetAnimations())
             (void)anim->Apply(0.0f);
         return true;
+    }
+
+    // SampleGame's scene graph steps (GameModel.cpp, GameProps.cpp, GameScene.cpp). Nodes are handles into
+    // gameNodes; -1 is the scene's root.
+    std::shared_ptr<SceneGraphNode> GameNode(int handle)
+    {
+        if (handle < 0 || handle >= (int)gameNodes.size())
+            return scene->GetSceneGraph()->GetRootNode();
+        return gameNodes[handle];
+    }
+
+    int AddGameNode(const std::shared_ptr<SceneGraphNode>& node)
+    {
+        gameNodes.push_back(node);
+        return (int)gameNodes.size() - 1;
+    }
+
+    // PropBase's and ModelInstance's constructors: a new named node under `parent`.
+    int CreateGameNode(int parent, const char* name)
+    {
+        std::shared_ptr<SceneGraphNode> node = std::make_shared<SceneGraphNode>();
+        node = scene->GetSceneGraph()->Attach(GameNode(parent), node);
+        node->SetName(name);
+        return AddGameNode(node);
+    }
+
+    // ModelInstance's constructor: the scene's model `modelIndex` (its import root) under `parent`. The first
+    // instance gets the import root itself, later ones copies (SceneGraph::Attach).
+    void AttachGameModel(int parent, int modelIndex)
+    {
+        const auto& models = scene->GetModels();
+        if (modelIndex < 0 || modelIndex >= (int)models.size() || !models[modelIndex].rootNode)
+            return;
+        scene->GetSceneGraph()->Attach(GameNode(parent), models[modelIndex].rootNode);
+    }
+
+    // ModelInstance::MapLightControllers' walk: the light nodes under `node`, depth first, as handles.
+    void CollectGameLights(SceneGraphNode* node)
+    {
+        if (node->GetLeaf() != nullptr && (node->GetLeaf()->GetContentFlags() & SceneContentFlags::Lights) != 0)
+            collectedGameLights.push_back(AddGameNode(node->shared_from_this()));
+        for (int i = 0; i < (int)node->GetNumChildren(); i++)
+            CollectGameLights(node->GetChild(i));
+    }
+
+    // ModelInstance::UpdateLightFromControllers, one controller's light.
+    void UpdateGameLight(int handle, float3 color, float intensity, float innerAngle, float outerAngle)
+    {
+        std::shared_ptr<SceneGraphNode> node = GameNode(handle);
+        // a frame old world transform (the sample's note)
+        float3 scale;
+        dm::decomposeAffine<float>(node->GetLocalToWorldTransformFloat(), nullptr, nullptr, &scale);
+        float reallyAverageScale = (scale.x + scale.y + scale.z) / 3.0f;
+
+        Light* light = dynamic_cast<Light*>(node->GetLeaf().get());
+        if (light == nullptr)
+            return;
+        SpotLight* spotLight = dynamic_cast<SpotLight*>(light);
+        PointLight* pointLight = dynamic_cast<PointLight*>(light);
+        light->color = color;
+        if (spotLight != nullptr)
+        {
+            spotLight->radius = reallyAverageScale;
+            spotLight->intensity = intensity;
+            spotLight->outerAngle = std::abs(outerAngle);
+            spotLight->innerAngle = innerAngle;
+            // the sample's kUseMinSpotlightFalloff: past outerAngle the falloff clamps to kMinSpotlightFalloff
+            spotLight->outerAngle = -spotLight->outerAngle;
+        }
+        if (pointLight != nullptr)
+        {
+            pointLight->radius = reallyAverageScale;
+            pointLight->intensity = intensity;
+        }
+    }
+
+    // GameScene::TickCamera: the game camera's pose (9 floats: position, direction, up) in the attached prop's
+    // space into world space, in place.
+    void TransformGameCamera(int propHandle, float* posDirUp)
+    {
+        std::shared_ptr<SceneGraphNode> node = GameNode(propHandle);
+        dm::daffine3 transformD = dm::scaling(node->GetScaling());
+        transformD *= node->GetRotation().toAffine();
+        transformD *= dm::translation(node->GetTranslation());
+        const affine3 transform = dm::affine3(transformD);
+        const float3 pos = transform.transformPoint(float3(posDirUp[0], posDirUp[1], posDirUp[2]));
+        const float3 dir = transform.transformVector(float3(posDirUp[3], posDirUp[4], posDirUp[5]));
+        const float3 up = transform.transformVector(float3(posDirUp[6], posDirUp[7], posDirUp[8]));
+        const float values[9] = { pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, up.x, up.y, up.z };
+        std::memcpy(posDirUp, values, sizeof(values));
+    }
+
+    // The game's JSON files: a value by path, "a/b/0/c" (array elements by index); null where missing.
+    const Json::Value& GameJsonValue(int handle, const char* path)
+    {
+        static const Json::Value nullValue;
+        if (handle < 0 || handle >= (int)gameJson.size())
+            return nullValue;
+        const Json::Value* node = &gameJson[handle];
+        const std::string p = path;
+        size_t start = 0;
+        while (start < p.size())
+        {
+            size_t end = p.find('/', start);
+            if (end == std::string::npos)
+                end = p.size();
+            const std::string key = p.substr(start, end - start);
+            if (node->isArray())
+            {
+                char* last = nullptr;
+                const long index = std::strtol(key.c_str(), &last, 10);
+                if (key.empty() || *last != 0 || index < 0 || index >= (long)node->size())
+                    return nullValue;
+                node = &(*node)[(Json::ArrayIndex)index];
+            }
+            else if (node->isObject())
+            {
+                if (!node->isMember(key))
+                    return nullValue;
+                node = &(*node)[key];
+            }
+            else
+                return nullValue;
+            start = end + 1;
+        }
+        return *node;
     }
 
     // Sample::CreateBlases without the pool (every BLAS its own), CreateTlas, and the sub-instance data.
@@ -1188,13 +1333,187 @@ extern "C"
         return r->LoadScene(scenePath);
     }
 
+    DONUT_API bool Donut_RtxptRendererFinishLoadingScene(RtxptRenderer* r)
+    {
+        return r->FinishLoadingScene();
+    }
+
+    // SampleGame (core/rtxpt_game.ts). Whether the scene has a GameSettings node (GameScene::SceneLoaded).
+    DONUT_API bool Donut_RtxptRendererHasGameSettings(RtxptRenderer* r)
+    {
+        return r->scene != nullptr && r->scene->GetGameSettingsNode() != nullptr;
+    }
+
+    // The scene's models (ExtendedScene::GetModels, the scene file's "models"): their count and import root names.
+    DONUT_API int Donut_RtxptRendererGetSceneModelCount(RtxptRenderer* r)
+    {
+        return r->scene != nullptr ? (int)r->scene->GetModels().size() : 0;
+    }
+
+    DONUT_API const char* Donut_RtxptRendererGetSceneModelRootName(RtxptRenderer* r, int modelIndex)
+    {
+        const auto& models = r->scene->GetModels();
+        if (modelIndex < 0 || modelIndex >= (int)models.size() || !models[modelIndex].rootNode)
+            return "";
+        return models[modelIndex].rootNode->GetName().c_str();
+    }
+
+    // ModelType's constructor: the model's pose on its import root (copied with it to every instance).
+    DONUT_API void Donut_RtxptRendererSetSceneModelTransform(RtxptRenderer* r, int modelIndex, double tx, double ty, double tz,
+        double rx, double ry, double rz, double rw, double sx, double sy, double sz)
+    {
+        const auto& models = r->scene->GetModels();
+        if (modelIndex < 0 || modelIndex >= (int)models.size() || !models[modelIndex].rootNode)
+            return;
+        const double3 translation(tx, ty, tz);
+        const dquat rotation = dquat::fromXYZW(double4(rx, ry, rz, rw));
+        const double3 scaling(sx, sy, sz);
+        models[modelIndex].rootNode->SetTransform(&translation, &rotation, &scaling);
+    }
+
+    // A new named node under `parent` (-1: the scene's root); returns its handle.
+    DONUT_API int Donut_RtxptRendererCreateGameNode(RtxptRenderer* r, int parent, const char* name)
+    {
+        return r->CreateGameNode(parent, name);
+    }
+
+    DONUT_API void Donut_RtxptRendererAttachGameModel(RtxptRenderer* r, int parent, int modelIndex)
+    {
+        r->AttachGameModel(parent, modelIndex);
+    }
+
+    DONUT_API const char* Donut_RtxptRendererGetGameNodeName(RtxptRenderer* r, int node)
+    {
+        return r->GameNode(node)->GetName().c_str();
+    }
+
+    DONUT_API void Donut_RtxptRendererSetGameNodeTransform(RtxptRenderer* r, int node, double tx, double ty, double tz,
+        double rx, double ry, double rz, double rw, double sx, double sy, double sz)
+    {
+        const double3 translation(tx, ty, tz);
+        const dquat rotation = dquat::fromXYZW(double4(rx, ry, rz, rw));
+        const double3 scaling(sx, sy, sz);
+        r->GameNode(node)->SetTransform(&translation, &rotation, &scaling);
+    }
+
+    DONUT_API void Donut_RtxptRendererSetGameNodeRotation(RtxptRenderer* r, int node, double x, double y, double z, double w)
+    {
+        r->GameNode(node)->SetRotation(dquat::fromXYZW(double4(x, y, z, w)));
+    }
+
+    // The node's local transform, one value: 0-2 translation, 3-6 rotation (x, y, z, w), 7-9 scaling.
+    DONUT_API double Donut_RtxptRendererGetGameNodeTransform(RtxptRenderer* r, int node, int component)
+    {
+        const std::shared_ptr<SceneGraphNode> n = r->GameNode(node);
+        const double3 t = n->GetTranslation();
+        const dquat q = n->GetRotation();
+        const double3 sc = n->GetScaling();
+        const double values[10] = { t.x, t.y, t.z, q.x, q.y, q.z, q.w, sc.x, sc.y, sc.z };
+        return (component >= 0 && component < 10) ? values[component] : 0.0;
+    }
+
+    // The light nodes under `node`, depth first: their count; Donut_RtxptRendererGetCollectedGameLight has their handles.
+    DONUT_API int Donut_RtxptRendererCollectGameLights(RtxptRenderer* r, int node)
+    {
+        r->collectedGameLights.clear();
+        r->CollectGameLights(r->GameNode(node).get());
+        return (int)r->collectedGameLights.size();
+    }
+
+    DONUT_API int Donut_RtxptRendererGetCollectedGameLight(RtxptRenderer* r, int index)
+    {
+        return (index >= 0 && index < (int)r->collectedGameLights.size()) ? r->collectedGameLights[index] : -1;
+    }
+
+    // The values are floats (the game rounds them so).
+    DONUT_API void Donut_RtxptRendererUpdateGameLight(RtxptRenderer* r, int node, double red, double green, double blue, double intensity,
+        double innerAngle, double outerAngle)
+    {
+        r->UpdateGameLight(node, float3(float(red), float(green), float(blue)), float(intensity), float(innerAngle), float(outerAngle));
+    }
+
+    DONUT_API void Donut_RtxptRendererTransformGameCamera(RtxptRenderer* r, int propNode, float* posDirUp)
+    {
+        r->TransformGameCamera(propNode, posDirUp);
+    }
+
+    // The files in `folder` matching `wildcard` (SampleCommon's EnumerateFilesWithWildcard): their count;
+    // Donut_RtxptRendererGetListedFile has their paths.
+    DONUT_API int Donut_RtxptRendererListFiles(RtxptRenderer* r, const char* folder, const char* wildcard)
+    {
+        r->listedFiles.clear();
+        for (const std::filesystem::path& path : EnumerateFilesWithWildcard(folder, wildcard))
+            r->listedFiles.push_back(path.string());
+        return (int)r->listedFiles.size();
+    }
+
+    DONUT_API const char* Donut_RtxptRendererGetListedFile(RtxptRenderer* r, int index)
+    {
+        return (index >= 0 && index < (int)r->listedFiles.size()) ? r->listedFiles[index].c_str() : "";
+    }
+
+    // A JSON file whose root is an object (SampleCommon's LoadJsonFromFile): its handle, or -1.
+    DONUT_API int Donut_RtxptRendererLoadGameJson(RtxptRenderer* r, const char* path)
+    {
+        Json::Value root;
+        if (!LoadJsonFromFile(path, root) || root.empty() || !root.isObject())
+            return -1;
+        r->gameJson.push_back(root);
+        return (int)r->gameJson.size() - 1;
+    }
+
+    // Values by path (see GameJsonValue): whether there is one, an array's or object's size (-1 if neither),
+    // a number, bool or string (`defaultValue` where missing or of another type), and component `component`
+    // of an n-vector as Donut's json::Read reads it (a single number for all components; NaN where missing).
+    DONUT_API bool Donut_RtxptRendererHasGameJson(RtxptRenderer* r, int json, const char* path)
+    {
+        return !r->GameJsonValue(json, path).isNull();
+    }
+
+    DONUT_API int Donut_RtxptRendererGetGameJsonSize(RtxptRenderer* r, int json, const char* path)
+    {
+        const Json::Value& v = r->GameJsonValue(json, path);
+        return (v.isArray() || v.isObject()) ? (int)v.size() : -1;
+    }
+
+    DONUT_API double Donut_RtxptRendererGetGameJsonNumber(RtxptRenderer* r, int json, const char* path, double defaultValue)
+    {
+        return json::Read<double>(r->GameJsonValue(json, path), defaultValue);
+    }
+
+    DONUT_API bool Donut_RtxptRendererGetGameJsonBool(RtxptRenderer* r, int json, const char* path, bool defaultValue)
+    {
+        return json::Read<bool>(r->GameJsonValue(json, path), defaultValue);
+    }
+
+    DONUT_API const char* Donut_RtxptRendererGetGameJsonString(RtxptRenderer* r, int json, const char* path, const char* defaultValue)
+    {
+        static std::string value;
+        value = json::Read<std::string>(r->GameJsonValue(json, path), defaultValue);
+        return value.c_str();
+    }
+
+    DONUT_API double Donut_RtxptRendererGetGameJsonVector(RtxptRenderer* r, int json, const char* path, int count, int component)
+    {
+        const Json::Value& v = r->GameJsonValue(json, path);
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        if (count == 3)
+        {
+            const double3 value = json::Read<double3>(v, double3(nan));
+            return component == 0 ? value.x : component == 1 ? value.y : value.z;
+        }
+        const double4 value = json::Read<double4>(v, double4(nan));
+        return component == 0 ? value.x : component == 1 ? value.y : component == 2 ? value.z : value.w;
+    }
+
     DONUT_API int Donut_RtxptRendererGetSceneCameraCount(RtxptRenderer* r)
     {
         return (int)r->scene->GetSceneGraph()->GetCameras().size();
     }
 
     // The scene's camera `index` (Sample::UpdateCameraFromScene): position, direction, up, vertical field of
-    // view, near plane, then its exposure (auto exposure, compensation, value, min, max; NaN where unset).
+    // view, near plane, then its exposure (auto exposure, compensation, value, min, max; ToneMappingParameters'
+    // defaults where unset, NaN when the camera has no exposure settings, i.e. isn't a PerspectiveCameraEx).
     DONUT_API bool Donut_RtxptRendererGetSceneCamera(RtxptRenderer* r, int index, float* out)
     {
         const auto& cameras = r->scene->GetSceneGraph()->GetCameras();
@@ -1211,11 +1530,12 @@ extern "C"
         float values[16] = { pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, up.x, up.y, up.z, camera->verticalFov, camera->zNear, nan, nan, nan, nan, nan };
         if (auto ex = std::dynamic_pointer_cast<PerspectiveCameraEx>(camera))
         {
-            if (ex->enableAutoExposure.has_value()) values[11] = ex->enableAutoExposure.value() ? 1.0f : 0.0f;
-            if (ex->exposureCompensation.has_value()) values[12] = ex->exposureCompensation.value();
-            if (ex->exposureValue.has_value()) values[13] = ex->exposureValue.value();
-            if (ex->exposureValueMin.has_value()) values[14] = ex->exposureValueMin.value();
-            if (ex->exposureValueMax.has_value()) values[15] = ex->exposureValueMax.value();
+            const ToneMappingParameters defaults;
+            values[11] = ex->enableAutoExposure.value_or(defaults.autoExposure) ? 1.0f : 0.0f;
+            values[12] = ex->exposureCompensation.value_or(defaults.exposureCompensation);
+            values[13] = ex->exposureValue.value_or(defaults.exposureValue);
+            values[14] = ex->exposureValueMin.value_or(defaults.exposureValueMin);
+            values[15] = ex->exposureValueMax.value_or(defaults.exposureValueMax);
         }
         std::memcpy(out, values, sizeof(values));
         return true;

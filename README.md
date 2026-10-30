@@ -294,8 +294,15 @@ It renders in the scene's mode, or `-overrideToReferenceMode` / `-overrideToReal
 accumulates samples while the camera stands still. The real-time mode traces one path per pixel and denoises it
 with the sample's NRD (`-nrdMethod 0` ReBLUR, `1` ReLAX; `-standaloneDenoiser 0` for the noisy image) and Donut's
 TAA (`-realtimeAA 0` for none). Lights are sampled by the sample's NEE-AT (`-NEEType 0` uniform, `1` power,
-`2` NEE-AT). SHaRC, ReSTIR DI/GI, sub-sampling, DLSS, opacity micromaps and SampleGame (props, animated lights) are not
-ported. This software contains source code provided by NVIDIA Corporation.
+`2` NEE-AT). SHaRC, ReSTIR DI/GI, sub-sampling, DLSS and opacity micromaps are not ported.
+
+The sample's game (SampleGame, `core/rtxpt_game.ts`) runs in scenes with game settings, such as
+`bistro-programmer-art.scene.json`: it reads the props in the checkout's `Assets/SampleGame/<scene file name>`
+folder at run time, places their models and moves them along their keyframe animations, and drives their lights
+(blinking lights, the police ship's lights). `-propCameraAttach <prop>` rides the camera on a prop (or "Attach" in
+the window's "Interactive elements"), and `-propShowTags <tags>` shows the props tagged so. The sample's
+developer-only game settings (camera recording, saving props, moving them with the numpad) and its mouse picking
+of props are not ported. This software contains source code provided by NVIDIA Corporation.
 
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
