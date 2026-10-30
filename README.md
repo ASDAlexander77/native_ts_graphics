@@ -232,6 +232,13 @@ build time:
 cmake --preset default -DVULKAN_SAMPLES_ASSETS_DIR=E:/Vulkan-Samples/assets
 ```
 
+`opacity_micromaps -bake` bakes the tree's opacity micromaps at run time instead of loading the sample's
+files, with the GPU baker of NVIDIA's [Opacity Micro-Map SDK](https://github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK)
+(`core/omm_bake.cpp`, D3D12 and Vulkan). The SDK is under the NVIDIA RTX SDKs License, so it is fetched at configure
+time into the build folder rather than committed (`WITH_OMM_SDK`, on by default; Windows). `-subd <1-12>` and `-2state`
+pick the set to start with, `-bakeScale <s>` sets the SDK's dynamic subdivision scale (2 by default, which reproduces
+the files' subdivision levels), and `-noAhs` / `-showAhs` turn the any-hit shader off or show where it ran.
+
 One example builds from a checkout of its own, and nothing of it is copied into this repository:
 `rtxcr_pathtracer`, a port of NVIDIA's [RTX Character Rendering](https://github.com/NVIDIA-RTX/RTXCR)
 pathtracer sample (hair and skin; D3D12 and Vulkan, hair as linear swept spheres on D3D12). The sample is

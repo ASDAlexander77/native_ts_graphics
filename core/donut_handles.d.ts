@@ -118,6 +118,7 @@
 @cpp declare class DescriptorBufferHandle extends ObjectHandle { private readonly __descriptorBuffer: index; }
 @cpp declare class DescriptorBufferPipelineHandle extends ObjectHandle { private readonly __descriptorBufferPipeline: index; }
 @cpp declare class PagedImageSetHandle extends ObjectHandle { private readonly __pagedImageSet: index; }
+@cpp declare class OmmBakerHandle extends ObjectHandle { private readonly __ommBaker: index; }
 @cpp declare class OcclusionPredicationHandle extends ObjectHandle { private readonly __occlusionPredication: index; }
 @cpp declare class PredicationBufferHandle extends ObjectHandle { private readonly __predicationBuffer: index; }
 @cpp declare class MeshPipelineStatisticsHandle extends ObjectHandle { private readonly __meshPipelineStatistics: index; }

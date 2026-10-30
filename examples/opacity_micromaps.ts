@@ -3,6 +3,7 @@
 import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
+import { OmmBaker } from "../core/omm_bake";
 import {
     cross3, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH, matrixRotationY,
     normalize3, normalize4, radians, transform3, vsub,
@@ -62,11 +63,19 @@ namespace OpacityMicromaps {
     const PARAMS_SIZE = 256;
     const FOV_ZOOM_SPEED = 10.0;
     const MAX_USAGE_COUNTS = 64;
+    // -bake: the leaves' alpha (texture 0, BC4: channel 0) against the any-hit shader's cutoff, and
+    // the SDK's dynamic subdivision scale the sample's files were baked with (their histograms: an
+    // OMM's level up to the set's, by its triangle's size in the texture).
+    const BAKE_ALPHA_CHANNEL = 0;
+    const BAKE_ALPHA_CUTOFF = 0.5;
+    const BAKE_DEFAULT_SUBDIVISION_SCALE = 2.0;
 
-    // A micromap set of one subdivision level and state count: its file's descs, raw data and
-    // per-triangle indices on the GPU, the counts the builds need, and its array once built.
+    // A micromap set of one subdivision level and state count: its file's (or bake's) descs, raw
+    // data and per-triangle indices on the GPU, the counts the builds need, and its array once built.
     class OmmSet {
         loaded: boolean;
+        // -bake: tried, and failed.
+        bakeFailed: boolean;
         descBuffer: BufferHandle;
         arrayBuffer: BufferHandle;
         indexBuffer: BufferHandle;
@@ -82,6 +91,7 @@ namespace OpacityMicromaps {
 
         constructor() {
             this.loaded = false;
+            this.bakeFailed = false;
             this.indexFormat = Format.R32_UINT;
             this.histogram = [];
             this.histogramCount = 0;
@@ -98,7 +108,9 @@ namespace OpacityMicromaps {
     // triangles carry opacity micromaps (baked offline, 2- or 4-state, subdivision levels 1-12)
     // that resolve most of their hits as opaque or transparent without the any-hit shader. Keys as
     // the sample's: O micromaps, Q/W level, F state count, R camera rotation, Z/X zoom, A any-hit
-    // shader, H shows where it ran, B rebuilds the acceleration structures every frame.
+    // shader, H shows where it ran, B rebuilds the acceleration structures every frame. With -bake
+    // the sets are baked at run time instead, by the Opacity Micro-Map SDK's GPU baker
+    // (core/omm_bake.cpp), each when first selected.
     class OpacityMicromapsPass {
         private app: App;
         private bindingLayout: BindingLayoutHandle;
@@ -158,6 +170,10 @@ namespace OpacityMicromaps {
 
         // -benchmark: 1/60 s per frame (for comparisons).
         benchmark: boolean;
+        // -bake [-bakeScale <s>]: the sets baked at run time (the SDK's dynamicSubdivisionScale).
+        bake: boolean;
+        bakeSubdivisionScale: number;
+        private baker: OmmBaker;
 
         constructor(app: App) {
             this.app = app;
@@ -198,6 +214,9 @@ namespace OpacityMicromaps {
             this.width = 1280;
             this.height = 720;
             this.benchmark = false;
+            this.bake = false;
+            this.bakeSubdivisionScale = BAKE_DEFAULT_SUBDIVISION_SCALE;
+            this.baker = new OmmBaker(null);
         }
 
         init() {
@@ -260,11 +279,12 @@ namespace OpacityMicromaps {
                     this.textures.push(texture);
                 }
             }
-            // LoadAndBuildAccelerationStructures: every level's 2- and 4-state sets.
+            // LoadAndBuildAccelerationStructures: every level's 2- and 4-state sets (-bake: baked
+            // once the textures are uploaded).
             for (let level = 0; level < MAX_SUBDIVISION_LEVELS; level++) {
                 for (let state = 0; state <= 1; state++) {
                     const ommSet = new OmmSet();
-                    if (loaded) {
+                    if (loaded && !this.bake) {
                         const states = state == 0 ? 2 : 4;
                         this.loadOmmSet(commandList, `${MEDIA_DIR}treeOMM_SubD${level + 1}_${states}State.bin`, ommSet);
                     }
@@ -274,6 +294,17 @@ namespace OpacityMicromaps {
             commandList.close();
             this.app.executeCommandList(commandList);
             this.app.releaseResource(commandList.handle);
+            if (loaded && this.bake) {
+                const baker = OmmBaker.create(this.app.getNvrhiDevice());
+                if (baker.isNull()) {
+                    console.log("Cannot create the opacity micromap baker");
+                    return false;
+                }
+                this.baker = baker;
+                this.bakeOmmSet(this.currentSubDLevel, this.use4State);
+            } else if (loaded) {
+                this.logOmmSet(this.currentSubDLevel, this.use4State, "Loaded");
+            }
             if (!loaded || !this.ommSet(this.currentSubDLevel, this.use4State).loaded) {
                 console.log("Cannot load the model, textures or micromaps: set DIRECTX_GRAPHICS_SAMPLES_DIR when configuring");
                 return false;
@@ -312,6 +343,15 @@ namespace OpacityMicromaps {
             }
         }
 
+        // The baker holds its bakes' buffers: before the app.
+        destroyBaker() {
+            const baker = this.baker;
+            if (!baker.isNull()) {
+                baker.destroy();
+                this.baker = new OmmBaker(null);
+            }
+        }
+
         ommSet(subDLevel: int, use4State: boolean) {
             const state = use4State ? 1 : 0;
             return this.ommSets[subDLevel * 2 + state];
@@ -341,10 +381,11 @@ namespace OpacityMicromaps {
                 this.rebuildASNextFrame = true;
             } else if (key == Key.Q || key == Key.W) {
                 const sign = key == Key.Q ? -1 : 1;
-                // The next level with a set loaded.
+                // The next level with a set loaded (-bake: one that may be baked).
                 for (let i = 0; i < MAX_SUBDIVISION_LEVELS; i++) {
                     this.currentSubDLevel = (this.currentSubDLevel + sign + MAX_SUBDIVISION_LEVELS) % MAX_SUBDIVISION_LEVELS;
-                    if (this.ommSet(this.currentSubDLevel, this.use4State).loaded) {
+                    const ommSet = this.ommSet(this.currentSubDLevel, this.use4State);
+                    if (ommSet.loaded || (this.bake && !ommSet.bakeFailed)) {
                         break;
                     }
                 }
@@ -365,6 +406,14 @@ namespace OpacityMicromaps {
         onAnimate(elapsedSeconds: number) {
             const elapsedTime = this.benchmark ? Math.fround(1.0 / 60.0) : Math.fround(elapsedSeconds);
             this.updateFrameStats(elapsedSeconds);
+            // -bake: the selected set, the first time (the baker executes command lists of its own,
+            // so not while the frame's is open).
+            if (this.bake) {
+                const ommSet = this.ommSet(this.currentSubDLevel, this.use4State);
+                if (!ommSet.loaded && !ommSet.bakeFailed) {
+                    this.bakeOmmSet(this.currentSubDLevel, this.use4State);
+                }
+            }
 
             if (this.zoomIn) {
                 this.fov = Math.fround(this.fov - Math.fround(FOV_ZOOM_SPEED * elapsedTime));
@@ -702,6 +751,63 @@ namespace OpacityMicromaps {
             ommSet.loaded = ommSet.usageCount <= MAX_USAGE_COUNTS;
         }
 
+        // -bake: a set baked from the leaves' alpha texture at their texture coordinates, as
+        // loadOmmSet loads one: its array data, descs and an OMM index per leaf triangle, and its
+        // histograms.
+        bakeOmmSet(subDLevel: int, use4State: boolean) {
+            const ommSet = this.ommSet(subDLevel, use4State);
+            const baker = this.baker;
+            let indexOffset = 0;
+            for (let i = 0; i < ALPHA_TESTED_GEOMETRY; i++) {
+                indexOffset += this.indicesPerGeometry[i];
+            }
+            const bake = baker.bake(this.textures[0], BAKE_ALPHA_CHANNEL, BAKE_ALPHA_CUTOFF, this.texCoordBuffer,
+                this.texCoordIndexBuffer, indexOffset, this.indicesPerGeometry[ALPHA_TESTED_GEOMETRY], subDLevel + 1, use4State,
+                this.bakeSubdivisionScale);
+            if (bake < 0) {
+                console.log(`Cannot bake the micromaps of subdivision level ${subDLevel + 1}`);
+                ommSet.bakeFailed = true;
+                return;
+            }
+            ommSet.arrayBuffer = baker.getArrayBuffer(bake);
+            ommSet.descBuffer = baker.getDescBuffer(bake);
+            ommSet.indexBuffer = baker.getIndexBuffer(bake);
+            ommSet.indexFormat = baker.getIndexFormat(bake);
+            for (let i = 0; i < MAX_USAGE_COUNTS * 3; i++) {
+                ommSet.histogram.push(0);
+                ommSet.usage.push(0);
+            }
+            ommSet.histogramCount = baker.getArrayHistogram(bake, Ref(ommSet.histogram[0]), MAX_USAGE_COUNTS);
+            ommSet.usageCount = baker.getIndexHistogram(bake, Ref(ommSet.usage[0]), MAX_USAGE_COUNTS);
+            ommSet.loaded = ommSet.histogramCount > 0 && ommSet.histogramCount <= MAX_USAGE_COUNTS
+                && ommSet.usageCount <= MAX_USAGE_COUNTS;
+            if (!ommSet.loaded) {
+                ommSet.bakeFailed = true;
+            }
+            this.logOmmSet(subDLevel, use4State, "Baked");
+            console.log(`    micro-triangles opaque ${baker.getStat(bake, 2)}, transparent ${baker.getStat(bake, 3)}, unknown ${baker.getStat(bake, 4)}; ` +
+                `OMMs fully opaque ${baker.getStat(bake, 5)}, transparent ${baker.getStat(bake, 6)}, unknown ${baker.getStat(bake, 7)}`);
+        }
+
+        // A set's OMMs (the array's histogram) and triangles using them (the indices'), for
+        // comparing bakes with the files.
+        logOmmSet(subDLevel: int, use4State: boolean, verb: string) {
+            const ommSet = this.ommSet(subDLevel, use4State);
+            let omms = 0;
+            // count x subdivision level
+            let levels = "";
+            for (let i = 0; i < ommSet.histogramCount; i++) {
+                omms += ommSet.histogram[i * 3];
+                levels += ` ${ommSet.histogram[i * 3]}x${ommSet.histogram[i * 3 + 1]}`;
+            }
+            let triangles = 0;
+            for (let i = 0; i < ommSet.usageCount; i++) {
+                triangles += ommSet.usage[i * 3];
+            }
+            const states = use4State ? 4 : 2;
+            console.log(`${verb} OMM set SubD ${subDLevel + 1} ${states}-state: ${omms} OMMs, ${triangles} triangles using them (OMMs x level:${levels})`);
+        }
+
         // CreateRaytracingPipelineStateObject and BuildShaderTables: one hit group (closest hit and
         // any hit), micromaps allowed.
         createRayTracingPipeline() {
@@ -730,11 +836,45 @@ namespace OpacityMicromaps {
         }
     }
 
+    class OpacityMicromapsArgs extends Args {
+        // -bake: the micromaps baked at run time rather than loaded from the sample's files;
+        // -bakeScale <s>: the SDK's dynamicSubdivisionScale for them.
+        bake = false;
+        bakeScale = BAKE_DEFAULT_SUBDIVISION_SCALE;
+        // -subd <1-12>: the subdivision level to start with; -2state: 2-state micromaps; -showAhs:
+        // where the any-hit shader ran (H); -noAhs: without it (A), the micromaps alone deciding.
+        subDLevel = 4;
+        twoState = false;
+        showAhs = false;
+        noAhs = false;
+
+        protected parseOptions() {
+            for (let i = 1; i < this.argc; i++) {
+                const arg = this[i];
+                if (arg == "-bake") {
+                    this.bake = true;
+                } else if (arg == "-bakeScale" && i + 1 < this.argc) {
+                    i++;
+                    this.bakeScale = parseFloat(this[i]);
+                } else if (arg == "-subd" && i + 1 < this.argc) {
+                    i++;
+                    this.subDLevel = Math.min(Math.max(parseInt(this[i]), 1), MAX_SUBDIVISION_LEVELS);
+                } else if (arg == "-2state") {
+                    this.twoState = true;
+                } else if (arg == "-showAhs") {
+                    this.showAhs = true;
+                } else if (arg == "-noAhs") {
+                    this.noAhs = true;
+                }
+            }
+        }
+    }
+
     export function main(argc: int, argv: Ref<string>) {
         // Under the JIT the shaders can't be found from the executable's name (see Donut_SetAppName).
         Program.setAppName("opacity_micromaps");
 
-        const args = new Args(argc, argv, TEST_FRAMES);
+        const args = new OpacityMicromapsArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
 
         // R10G10B10A2_UNORM back buffers (in sRGB), as the sample's.
@@ -760,7 +900,19 @@ namespace OpacityMicromaps {
 
         const pass = new OpacityMicromapsPass(app);
         pass.benchmark = args.benchmark;
+        pass.bake = args.bake;
+        pass.bakeSubdivisionScale = args.bakeScale;
+        pass.currentSubDLevel = args.subDLevel - 1;
+        pass.use4State = !args.twoState;
+        if (args.showAhs) {
+            pass.configFlags = SHOW_AHS;
+        }
+        if (args.noAhs) {
+            pass.extraPrimaryRayFlags = RAY_FLAG_FORCE_OPAQUE;
+            pass.extraShadowRayFlags = RAY_FLAG_FORCE_OPAQUE;
+        }
         if (!pass.init()) {
+            pass.destroyBaker();
             app.destroy();
             return 1;
         }
@@ -772,6 +924,7 @@ namespace OpacityMicromaps {
         if (args.test) {
             result = app.finishTest(checkFrame(app));
         }
+        pass.destroyBaker();
         app.destroy();
         return result;
     }
