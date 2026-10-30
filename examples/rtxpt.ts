@@ -173,6 +173,9 @@ namespace Rtxpt {
         overrideAutoexposureOff = false;
         stopAnimations = false;
         disableFireflyFilters = false;
+        disablePostProcessFilters = false;
+        // >= 0: NEEMISType instead of the preset's.
+        neeMISTypeOverride: int = -1;
 
         // Reference mode.
         accumulationTarget: int = 4096;
@@ -473,6 +476,12 @@ namespace Rtxpt {
             }
 
             s.applyBalancedPreset();
+            if (s.neeMISTypeOverride >= 0) {
+                s.neeMISType = s.neeMISTypeOverride;
+            }
+            if (s.disablePostProcessFilters) {
+                s.enableBloom = false;
+            }
             s.resetAccumulation = true;
         }
 
@@ -1004,19 +1013,22 @@ namespace Rtxpt {
         // -envMapIntensity <x>: the environment map's intensity instead of the scene's.
         envMapIntensity = -1.0;
         // The sample's: -overrideToRealtimeMode / -overrideToReferenceMode instead of the scene's mode,
-        // -overrideAutoexposureOff, -stopAnimations, -disableFireflyFilters, and the real-time mode's -realtimeAA <0 none, 1 TAA>,
+        // -overrideAutoexposureOff, -stopAnimations, -disableFireflyFilters, -disablePostProcessFilters (bloom), and the real-time mode's -realtimeAA <0 none, 1 TAA>,
         // -standaloneDenoiser <0|1>, -nrdMethod <0 ReBLUR, 1 ReLAX>.
         overrideToRealtimeMode = false;
         overrideToReferenceMode = false;
         overrideAutoexposureOff = false;
         stopAnimations = false;
         disableFireflyFilters = false;
+        disablePostProcessFilters = false;
         realtimeAA: int = 1;
         standaloneDenoiser = true;
         nrdMethod: int = 0;
         // -useNEE <0|1>: next event estimation; -NEEType <0 uniform, 1 power, 2 NEE-AT> (the sample's options).
         useNEE = true;
         neeType: int = 2;
+        // -NEEMISType <0 full, 1 full in reference / approximate in real-time, 2 approximate>: instead of the preset's.
+        neeMISType: int = -1;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
@@ -1033,6 +1045,8 @@ namespace Rtxpt {
                     this.stopAnimations = true;
                 } else if (arg == "-disableFireflyFilters" || arg == "--disableFireflyFilters") {
                     this.disableFireflyFilters = true;
+                } else if (arg == "-disablePostProcessFilters" || arg == "--disablePostProcessFilters") {
+                    this.disablePostProcessFilters = true;
                 } else if (i + 1 < this.argc) {
                     if (arg == "-width") {
                         this.width = parseInt(this[i + 1]);
@@ -1050,6 +1064,8 @@ namespace Rtxpt {
                         this.realtimeAA = parseInt(this[i + 1]) == 0 ? 0 : 1;
                     } else if (arg == "-standaloneDenoiser") {
                         this.standaloneDenoiser = parseInt(this[i + 1]) != 0;
+                    } else if (arg == "-NEEMISType") {
+                        this.neeMISType = parseInt(this[i + 1]);
                     } else if (arg == "-NEEType") {
                         this.neeType = parseInt(this[i + 1]);
                     } else if (arg == "-useNEE") {
@@ -1113,11 +1129,13 @@ namespace Rtxpt {
         settings.overrideAutoexposureOff = args.overrideAutoexposureOff;
         settings.stopAnimations = args.stopAnimations;
         settings.disableFireflyFilters = args.disableFireflyFilters;
+        settings.disablePostProcessFilters = args.disablePostProcessFilters;
         settings.realtimeAA = args.realtimeAA;
         settings.standaloneDenoiser = args.standaloneDenoiser;
         settings.nrdMethod = args.nrdMethod;
         settings.useNEE = args.useNEE;
         settings.neeType = args.neeType;
+        settings.neeMISTypeOverride = args.neeMISType;
         // SampleUI's constructor: DXR 1.2's hit objects on D3D12 (SM 6.9 guarantees them), unless -noSER.
         settings.dxHitObjectExtension = args.api == GraphicsAPI.D3D12 && !args.noSER;
 
