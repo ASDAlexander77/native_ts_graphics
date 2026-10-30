@@ -2711,6 +2711,7 @@ enum TemporalJitter {
 @nodrops declare function Donut_GetStereoLeftView(view: ViewHandle): ViewHandle;
 // First person cameras only.
 @nodrops declare function Donut_CameraLookAtWithUp(camera: CameraHandle, posX: number, posY: number, posZ: number, targetX: number, targetY: number, targetZ: number, upX: number, upY: number, upZ: number): void;
+@nodrops declare function Donut_CameraLookTo(camera: CameraHandle, posX: number, posY: number, posZ: number, dirX: number, dirY: number, dirZ: number, upX: number, upY: number, upZ: number): void;
 // 3 floats into dst.
 @nodrops declare function Donut_GetCameraPosition(camera: CameraHandle, dst: Ref<f32>): void;
 
@@ -2931,6 +2932,39 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_RtxptRendererDestroy(rtxptRenderer: RtxptRendererHandle): void;
 // Loads a *.scene.json (absolute path), with its materials, lights and environment map; false on failure.
 @nodrops declare function Donut_RtxptRendererLoadScene(rtxptRenderer: RtxptRendererHandle, scenePath: string): boolean;
+// The rest of the scene's loading, after the game's step (SampleGame's GameScene::SceneLoaded).
+@nodrops declare function Donut_RtxptRendererFinishLoadingScene(rtxptRenderer: RtxptRendererHandle): boolean;
+// SampleGame (core/rtxpt_game.ts): whether the scene has a GameSettings node, its models (the scene file's "models"),
+// scene graph nodes by handle (-1: the root), their lights, and the game's JSON files by handle and path ("a/0/b").
+@nodrops declare function Donut_RtxptRendererHasGameSettings(rtxptRenderer: RtxptRendererHandle): boolean;
+@nodrops declare function Donut_RtxptRendererGetSceneModelCount(rtxptRenderer: RtxptRendererHandle): int;
+@nodrops declare function Donut_RtxptRendererGetSceneModelRootName(rtxptRenderer: RtxptRendererHandle, modelIndex: int): string;
+@nodrops declare function Donut_RtxptRendererSetSceneModelTransform(rtxptRenderer: RtxptRendererHandle, modelIndex: int, tx: number, ty: number, tz: number,
+    rx: number, ry: number, rz: number, rw: number, sx: number, sy: number, sz: number): void;
+@nodrops declare function Donut_RtxptRendererCreateGameNode(rtxptRenderer: RtxptRendererHandle, parent: int, name: string): int;
+@nodrops declare function Donut_RtxptRendererAttachGameModel(rtxptRenderer: RtxptRendererHandle, parent: int, modelIndex: int): void;
+@nodrops declare function Donut_RtxptRendererGetGameNodeName(rtxptRenderer: RtxptRendererHandle, node: int): string;
+@nodrops declare function Donut_RtxptRendererSetGameNodeTransform(rtxptRenderer: RtxptRendererHandle, node: int, tx: number, ty: number, tz: number,
+    rx: number, ry: number, rz: number, rw: number, sx: number, sy: number, sz: number): void;
+@nodrops declare function Donut_RtxptRendererSetGameNodeRotation(rtxptRenderer: RtxptRendererHandle, node: int, x: number, y: number, z: number, w: number): void;
+// 0-2 translation, 3-6 rotation (x, y, z, w), 7-9 scaling.
+@nodrops declare function Donut_RtxptRendererGetGameNodeTransform(rtxptRenderer: RtxptRendererHandle, node: int, component: int): number;
+@nodrops declare function Donut_RtxptRendererCollectGameLights(rtxptRenderer: RtxptRendererHandle, node: int): int;
+@nodrops declare function Donut_RtxptRendererGetCollectedGameLight(rtxptRenderer: RtxptRendererHandle, index: int): int;
+@nodrops declare function Donut_RtxptRendererUpdateGameLight(rtxptRenderer: RtxptRendererHandle, node: int, red: number, green: number, blue: number,
+    intensity: number, innerAngle: number, outerAngle: number): void;
+// 9 floats (position, direction, up) from the prop's space to world space, in place.
+@nodrops declare function Donut_RtxptRendererTransformGameCamera(rtxptRenderer: RtxptRendererHandle, propNode: int, posDirUp: Ref<f32>): void;
+@nodrops declare function Donut_RtxptRendererListFiles(rtxptRenderer: RtxptRendererHandle, folder: string, wildcard: string): int;
+@nodrops declare function Donut_RtxptRendererGetListedFile(rtxptRenderer: RtxptRendererHandle, index: int): string;
+@nodrops declare function Donut_RtxptRendererLoadGameJson(rtxptRenderer: RtxptRendererHandle, path: string): int;
+@nodrops declare function Donut_RtxptRendererHasGameJson(rtxptRenderer: RtxptRendererHandle, json: int, path: string): boolean;
+@nodrops declare function Donut_RtxptRendererGetGameJsonSize(rtxptRenderer: RtxptRendererHandle, json: int, path: string): int;
+@nodrops declare function Donut_RtxptRendererGetGameJsonNumber(rtxptRenderer: RtxptRendererHandle, json: int, path: string, defaultValue: number): number;
+@nodrops declare function Donut_RtxptRendererGetGameJsonBool(rtxptRenderer: RtxptRendererHandle, json: int, path: string, defaultValue: boolean): boolean;
+@nodrops declare function Donut_RtxptRendererGetGameJsonString(rtxptRenderer: RtxptRendererHandle, json: int, path: string, defaultValue: string): string;
+// Component `component` of a `count`-vector (3 or 4) as Donut's json::Read reads it; NaN where missing.
+@nodrops declare function Donut_RtxptRendererGetGameJsonVector(rtxptRenderer: RtxptRendererHandle, json: int, path: string, count: int, component: int): number;
 @nodrops declare function Donut_RtxptRendererGetSceneCameraCount(rtxptRenderer: RtxptRendererHandle): int;
 // The scene's camera `index` into 16 floats: position, direction, up, vertical field of view, near plane, then its
 // exposure (auto exposure 0/1, compensation, value, min, max; NaN where the scene doesn't set it). False if none.

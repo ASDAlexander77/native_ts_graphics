@@ -3656,6 +3656,10 @@ export class Camera {
         Donut_CameraLookAtWithUp(this.handle, posX, posY, posZ, targetX, targetY, targetZ, upX, upY, upZ);
     }
 
+    lookTo(posX: number, posY: number, posZ: number, dirX: number, dirY: number, dirZ: number, upX: number, upY: number, upZ: number): void {
+        Donut_CameraLookTo(this.handle, posX, posY, posZ, dirX, dirY, dirZ, upX, upY, upZ);
+    }
+
     // 3 floats into dst.
     getPosition(dst: Ref<f32>): void {
         Donut_GetCameraPosition(this.handle, dst);

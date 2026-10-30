@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { RtxptRenderer } from "../core/rtxpt_renderer";
+import { RtxptGame } from "../core/rtxpt_game";
 
 // Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT): its reference path tracer and its
 // real-time mode with the standalone denoiser (NRD's ReBLUR or ReLAX) and TAA. The
@@ -174,6 +175,10 @@ namespace Rtxpt {
         stopAnimations = false;
         disableFireflyFilters = false;
         disablePostProcessFilters = false;
+        // SampleGame: --propShowTags (props tagged with one of these show) and --propCameraAttach (the prop the
+        // camera attaches to after loading).
+        propShowTags = "";
+        propCameraAttach = "";
         // >= 0: NEEMISType instead of the preset's.
         neeMISTypeOverride: int = -1;
 
@@ -182,6 +187,8 @@ namespace Rtxpt {
         // CaptureScriptManager's warm-up: the frames from captureStart that restart the accumulation.
         captureStart: int = 0;
         captureWarmupFrames: int = 0;
+        // The scene's (and game's) time the warm-up starts at.
+        captureStartTime = 0.0;
         // >= 0: overrides the scene's environment map intensity.
         environmentMapIntensityOverride = -1.0;
         accumulationPreWarm = true;
@@ -319,6 +326,8 @@ namespace Rtxpt {
     class Renderer {
         private rtxpt: RtxptRenderer;
         private camera: Camera;
+        // SampleGame (core/rtxpt_game.ts), with a camera of its own.
+        game: RtxptGame;
         private frameSettings: ConstantBlock;
         private cameraValues: f32[] = [];
         private lastCamera: number[] = [];
@@ -345,6 +354,7 @@ namespace Rtxpt {
             width: int, height: int) {
             this.rtxpt = new RtxptRenderer(null);
             this.camera = new Camera(null);
+            this.game = new RtxptGame(this.rtxpt, this.camera);
             this.frameSettings = new ConstantBlock(FRAME_SETTINGS_SIZE);
             for (let i = 0; i < 16; i++) {
                 this.cameraValues.push(0.0);
@@ -361,12 +371,18 @@ namespace Rtxpt {
             if (this.rtxpt.isNull()) {
                 return false;
             }
+            this.camera = this.app.createFirstPersonCamera();
+            this.camera.setRotateSpeed(0.003);
+            this.game = new RtxptGame(this.rtxpt, this.app.createFirstPersonCamera());
+            // Sample::SceneLoaded starts with the game's step.
             if (!this.rtxpt.loadScene(this.scenePath)) {
                 console.log(`Cannot load the scene ${this.scenePath}`);
                 return false;
             }
-            this.camera = this.app.createFirstPersonCamera();
-            this.camera.setRotateSpeed(0.003);
+            this.game.sceneLoaded(this.scenePath, this.assetsPath, this.settings.propShowTags, this.settings.propCameraAttach);
+            if (!this.rtxpt.finishLoadingScene()) {
+                return false;
+            }
             this.sceneLoaded();
 
             const pass = this.app.addPass();
@@ -506,23 +522,38 @@ namespace Rtxpt {
             s.exposureValueMax = v[15];
         }
 
+        // The camera's input, the game camera's while it is attached to a prop.
         onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods) {
-            this.camera.keyboardUpdate(key, scancode, action, mods);
+            if (this.game.cameraActive()) {
+                this.game.gameCamera.keyboardUpdate(key, scancode, action, mods);
+            } else {
+                this.camera.keyboardUpdate(key, scancode, action, mods);
+            }
             return 1;
         }
 
         onMousePos(x: number, y: number) {
-            this.camera.mousePosUpdate(x, y);
+            if (this.game.cameraActive()) {
+                this.game.gameCamera.mousePosUpdate(x, y);
+            } else {
+                this.camera.mousePosUpdate(x, y);
+            }
             return 1;
         }
 
         onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
-            this.camera.mouseButtonUpdate(button, action, mods);
+            if (this.game.cameraActive()) {
+                this.game.gameCamera.mouseButtonUpdate(button, action, mods);
+            } else {
+                this.camera.mouseButtonUpdate(button, action, mods);
+            }
             return 1;
         }
 
         onMouseScroll(xOffset: number, yOffset: number) {
-            this.camera.mouseScrollUpdate(xOffset, yOffset);
+            if (!this.game.cameraActive()) {
+                this.camera.mouseScrollUpdate(xOffset, yOffset);
+            }
             return 1;
         }
 
@@ -586,14 +617,24 @@ namespace Rtxpt {
             // accumulation restarts.
             const enableAnimations = s.enableAnimations && s.realtimeMode;
             const applyAnimations = enableAnimations || s.resetAccumulation;
-            // CaptureScriptManager::PreAnim: the capture's warm-up starts the scene's time over.
+            // CaptureScriptManager::PreAnim: the capture's warm-up starts the scene's (and game's) time over.
             if (this.frameIndex == s.captureStart) {
-                this.sceneTime = 0.0;
+                this.sceneTime = s.captureStartTime;
+                if (this.game.initialized) {
+                    this.game.gameTime = s.captureStartTime;
+                }
             }
+            this.game.tick(elapsedSeconds, enableAnimations);
             if (!applyAnimations) {
                 this.sceneTime = 0.0;
-            } else if (enableAnimations) {
-                this.sceneTime += elapsedSeconds;
+            } else {
+                if (enableAnimations) {
+                    this.sceneTime += elapsedSeconds;
+                }
+                // The game's time is the scene's.
+                if (this.game.initialized) {
+                    this.sceneTime = this.game.gameTime;
+                }
             }
             this.rtxpt.animate(this.sceneTime, applyAnimations, elapsedSeconds);
 
@@ -601,6 +642,7 @@ namespace Rtxpt {
                 this.updateCameraFromScene(this.selectedCameraIndex - 1);
             }
             this.camera.animate(elapsedSeconds);
+            this.game.tickCamera(elapsedSeconds, this.camera);
 
             // A moved camera restarts the accumulation (in reference mode).
             const v = this.cameraValues;
@@ -634,6 +676,14 @@ namespace Rtxpt {
 
         // For the UI: the average frame time, the samples accumulated (negative while warming up) and the
         // scene's togglable nodes.
+        getWidth(): int {
+            return this.width;
+        }
+
+        getHeight(): int {
+            return this.height;
+        }
+
         getFrameSeconds(): number {
             return this.app.getAverageFrameTime();
         }
@@ -892,6 +942,13 @@ namespace Rtxpt {
                 ImGui.unindent();
             }
 
+            const game = this.renderer.game;
+            if (game.initialized && ImGui.collapsingHeader("Interactive elements")) {
+                ImGui.indent();
+                game.debugGUI();
+                ImGui.unindent();
+            }
+
             if (ImGui.collapsingHeaderDefaultOpen("Path tracer")) {
                 ImGui.indent();
                 s.cameraMoveSpeed = ImGui.sliderFloat("Camera speed", s.cameraMoveSpeed, 0.1, 50.0);
@@ -991,6 +1048,8 @@ namespace Rtxpt {
             }
 
             ImGui.end();
+            // GameScene::StandaloneGUI: the prop camera's "Exit prop camera" button.
+            r.game.standaloneGUI(r.getWidth(), r.getHeight());
         }
     }
 
@@ -1014,11 +1073,12 @@ namespace Rtxpt {
         noSER = false;
         // -captureWarmup <frames>: the accumulation restarts every frame of the first ones, as the sample's
         // --captureSimple does for its 64 warm-up frames before it saves the accumulated frame (in real-time mode,
-        // the last warm-up frame). -captureStart <frame>: the frame the warm-up starts at, with the scene's time back at
-        // 0; the sample's starts once the scene has loaded, after a few frames (real-time mode's noise and caches
-        // follow the frame index).
+        // the last warm-up frame). -captureStart <frame>: the frame the warm-up starts at, with the scene's time at
+        // -captureStartTime <seconds> (0; the sample's --sequenceWarmupStart); the sample's starts once the scene has
+        // loaded, after a few frames (real-time mode's noise and caches follow the frame index).
         captureWarmup: int = 0;
         captureStart: int = 0;
+        captureStartTime = 0.0;
         // -envMapIntensity <x>: the environment map's intensity instead of the scene's.
         envMapIntensity = -1.0;
         // The sample's: -overrideToRealtimeMode / -overrideToReferenceMode instead of the scene's mode,
@@ -1030,6 +1090,9 @@ namespace Rtxpt {
         stopAnimations = false;
         disableFireflyFilters = false;
         disablePostProcessFilters = false;
+        // -propShowTags <tags>, -propCameraAttach <prop>: SampleGame's (the sample's --propShowTags, --propCameraAttach).
+        propShowTags = "";
+        propCameraAttach = "";
         realtimeAA: int = 1;
         standaloneDenoiser = true;
         nrdMethod: int = 0;
@@ -1067,12 +1130,18 @@ namespace Rtxpt {
                         this.captureWarmup = parseInt(this[i + 1]);
                     } else if (arg == "-captureStart") {
                         this.captureStart = parseInt(this[i + 1]);
+                    } else if (arg == "-captureStartTime") {
+                        this.captureStartTime = parseFloat(this[i + 1]);
                     } else if (arg == "-envMapIntensity") {
                         this.envMapIntensity = parseFloat(this[i + 1]);
                     } else if (arg == "-realtimeAA") {
                         this.realtimeAA = parseInt(this[i + 1]) == 0 ? 0 : 1;
                     } else if (arg == "-standaloneDenoiser") {
                         this.standaloneDenoiser = parseInt(this[i + 1]) != 0;
+                    } else if (arg == "-propShowTags" || arg == "--propShowTags") {
+                        this.propShowTags = this[i + 1];
+                    } else if (arg == "-propCameraAttach" || arg == "--propCameraAttach") {
+                        this.propCameraAttach = this[i + 1];
                     } else if (arg == "-NEEMISType") {
                         this.neeMISType = parseInt(this[i + 1]);
                     } else if (arg == "-NEEType") {
@@ -1132,6 +1201,7 @@ namespace Rtxpt {
         settings.accumulationTarget = args.referenceSamplesPerPixel;
         settings.captureWarmupFrames = args.captureWarmup;
         settings.captureStart = args.captureStart;
+        settings.captureStartTime = args.captureStartTime;
         settings.environmentMapIntensityOverride = args.envMapIntensity;
         settings.overrideToRealtimeMode = args.overrideToRealtimeMode;
         settings.overrideToReferenceMode = args.overrideToReferenceMode;
@@ -1139,6 +1209,8 @@ namespace Rtxpt {
         settings.stopAnimations = args.stopAnimations;
         settings.disableFireflyFilters = args.disableFireflyFilters;
         settings.disablePostProcessFilters = args.disablePostProcessFilters;
+        settings.propShowTags = args.propShowTags;
+        settings.propCameraAttach = args.propCameraAttach;
         settings.realtimeAA = args.realtimeAA;
         settings.standaloneDenoiser = args.standaloneDenoiser;
         settings.nrdMethod = args.nrdMethod;

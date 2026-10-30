@@ -36,6 +36,108 @@ export class RtxptRenderer {
         return Donut_RtxptRendererLoadScene(this.handle, scenePath);
     }
 
+    // The rest of the scene's loading, after the game's step (SampleGame's GameScene::SceneLoaded).
+    finishLoadingScene(): boolean {
+        return Donut_RtxptRendererFinishLoadingScene(this.handle);
+    }
+
+    // SampleGame (core/rtxpt_game.ts): whether the scene has a GameSettings node, its models (the scene file's "models"),
+    // scene graph nodes by handle (-1: the root), their lights, and the game's JSON files by handle and path ("a/0/b").
+    hasGameSettings(): boolean {
+        return Donut_RtxptRendererHasGameSettings(this.handle);
+    }
+
+    getSceneModelCount(): int {
+        return Donut_RtxptRendererGetSceneModelCount(this.handle);
+    }
+
+    getSceneModelRootName(modelIndex: int): string {
+        return Donut_RtxptRendererGetSceneModelRootName(this.handle, modelIndex);
+    }
+
+    setSceneModelTransform(modelIndex: int, tx: number, ty: number, tz: number, rx: number, ry: number, rz: number, rw: number, sx: number, sy: number, sz: number): void {
+        Donut_RtxptRendererSetSceneModelTransform(this.handle, modelIndex, tx, ty, tz, rx, ry, rz, rw, sx, sy, sz);
+    }
+
+    createGameNode(parent: int, name: string): int {
+        return Donut_RtxptRendererCreateGameNode(this.handle, parent, name);
+    }
+
+    attachGameModel(parent: int, modelIndex: int): void {
+        Donut_RtxptRendererAttachGameModel(this.handle, parent, modelIndex);
+    }
+
+    getGameNodeName(node: int): string {
+        return Donut_RtxptRendererGetGameNodeName(this.handle, node);
+    }
+
+    setGameNodeTransform(node: int, tx: number, ty: number, tz: number, rx: number, ry: number, rz: number, rw: number, sx: number, sy: number, sz: number): void {
+        Donut_RtxptRendererSetGameNodeTransform(this.handle, node, tx, ty, tz, rx, ry, rz, rw, sx, sy, sz);
+    }
+
+    setGameNodeRotation(node: int, x: number, y: number, z: number, w: number): void {
+        Donut_RtxptRendererSetGameNodeRotation(this.handle, node, x, y, z, w);
+    }
+
+    // 0-2 translation, 3-6 rotation (x, y, z, w), 7-9 scaling.
+    getGameNodeTransform(node: int, component: int): number {
+        return Donut_RtxptRendererGetGameNodeTransform(this.handle, node, component);
+    }
+
+    collectGameLights(node: int): int {
+        return Donut_RtxptRendererCollectGameLights(this.handle, node);
+    }
+
+    getCollectedGameLight(index: int): int {
+        return Donut_RtxptRendererGetCollectedGameLight(this.handle, index);
+    }
+
+    updateGameLight(node: int, red: number, green: number, blue: number, intensity: number, innerAngle: number, outerAngle: number): void {
+        Donut_RtxptRendererUpdateGameLight(this.handle, node, red, green, blue, intensity, innerAngle, outerAngle);
+    }
+
+    // 9 floats (position, direction, up) from the prop's space to world space, in place.
+    transformGameCamera(propNode: int, posDirUp: Ref<f32>): void {
+        Donut_RtxptRendererTransformGameCamera(this.handle, propNode, posDirUp);
+    }
+
+    listFiles(folder: string, wildcard: string): int {
+        return Donut_RtxptRendererListFiles(this.handle, folder, wildcard);
+    }
+
+    getListedFile(index: int): string {
+        return Donut_RtxptRendererGetListedFile(this.handle, index);
+    }
+
+    loadGameJson(path: string): int {
+        return Donut_RtxptRendererLoadGameJson(this.handle, path);
+    }
+
+    hasGameJson(json: int, path: string): boolean {
+        return Donut_RtxptRendererHasGameJson(this.handle, json, path);
+    }
+
+    getGameJsonSize(json: int, path: string): int {
+        return Donut_RtxptRendererGetGameJsonSize(this.handle, json, path);
+    }
+
+    getGameJsonNumber(json: int, path: string, defaultValue: number): number {
+        return Donut_RtxptRendererGetGameJsonNumber(this.handle, json, path, defaultValue);
+    }
+
+    getGameJsonBool(json: int, path: string, defaultValue: boolean): boolean {
+        return Donut_RtxptRendererGetGameJsonBool(this.handle, json, path, defaultValue);
+    }
+
+    getGameJsonString(json: int, path: string, defaultValue: string): string {
+        return Donut_RtxptRendererGetGameJsonString(this.handle, json, path, defaultValue);
+    }
+
+    // Component `component` of a `count`-vector (3 or 4) as Donut's json::Read reads it; NaN where missing.
+    getGameJsonVector(json: int, path: string, count: int, component: int): number {
+        return Donut_RtxptRendererGetGameJsonVector(this.handle, json, path, count, component);
+    }
+
     getSceneCameraCount(): int {
         return Donut_RtxptRendererGetSceneCameraCount(this.handle);
     }

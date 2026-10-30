@@ -3873,8 +3873,9 @@ if (RTXCR_DIR)
         --scene ${RTXCR_DIR}/assets/claire.animation.scene.json)
 endif()
 
-# Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT): its reference path tracer and its
-# real-time mode (NRD, TAA).
+# Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT): its reference path tracer, its
+# real-time mode (NRD, TAA) and its game (SampleGame, core/rtxpt_game.ts; its props are read from the checkout's
+# Assets/SampleGame at run time).
 # Under the NVIDIA RTX SDKs License like RTXCR, so nothing of it is copied here: with RTXPT_DIR set to
 # a checkout, the sample's renderer library (scene, materials, lights, environment map, the path tracer's
 # run-time pipeline baker, tone mapping, accumulation: rtxpt_core) and its shaders compile in place;
@@ -4017,9 +4018,9 @@ if (RTXPT_DIR)
 
     # The path tracer is shader model 6.9 on D3D12 (DXR 1.2's hit objects): the Agility SDK runtime.
     if (NVRHI_WITH_DX12)
-        add_tslang_example(rtxpt core/rtxpt_renderer.ts core/rtxpt.cpp core/d3d12_agility_sdk.cpp MEDIA fonts)
+        add_tslang_example(rtxpt core/rtxpt_renderer.ts core/rtxpt_game.ts core/rtxpt.cpp core/d3d12_agility_sdk.cpp MEDIA fonts)
     else()
-        add_tslang_example(rtxpt core/rtxpt_renderer.ts core/rtxpt.cpp MEDIA fonts)
+        add_tslang_example(rtxpt core/rtxpt_renderer.ts core/rtxpt_game.ts core/rtxpt.cpp MEDIA fonts)
     endif()
     add_dependencies(rtxpt rtxpt_shaders rtxpt_nrd_shaders rtxpt_dynamic_shaders)
     target_link_libraries(rtxpt PRIVATE rtxpt_core)
@@ -4039,6 +4040,12 @@ if (RTXPT_DIR)
         -overrideAutoexposureOff -stopAnimations -realtimeAA 1 -nrdMethod 0 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
     add_tslang_example_test(rtxpt SUFFIX realtime_relax ARGS -width 960 -height 540 -frames 200 -overrideToRealtimeMode
         -overrideAutoexposureOff -stopAnimations -realtimeAA 1 -nrdMethod 1 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+    # SampleGame (core/rtxpt_game.ts): the camera attached to the police ship, its lights on, the frame at 25 s as
+    # Rtxpt.exe --propCameraAttach SHIP_police_squad --captureSequence --sequenceWarmupStart 24 --sequenceRecordStart 25
+    # --sequenceFPS 60 saves it (which starts its warm-up once the scene has loaded, about 46 frames in).
+    add_tslang_example_test(rtxpt SUFFIX samplegame ARGS -width 960 -height 540 -frames 106 -captureStart 46
+        -captureStartTime 24 -captureWarmup 60 -overrideToRealtimeMode -overrideAutoexposureOff -realtimeAA 1
+        -propCameraAttach SHIP_police_squad --scene ${RTXPT_DIR}/Assets/bistro-programmer-art.scene.json)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)
