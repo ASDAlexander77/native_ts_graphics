@@ -1,0 +1,38 @@
+diff --git a/include/donut/app/ApplicationBase.h b/include/donut/app/ApplicationBase.h
+index e9bfeb6..8a344bf 100644
+--- a/include/donut/app/ApplicationBase.h
++++ b/include/donut/app/ApplicationBase.h
+@@ -74,6 +74,9 @@ namespace donut::app
+ 
+ 	// returns the path to the currently running application's binary
+ 	std::filesystem::path GetDirectoryWithExecutable();
++	// Makes GetDirectoryWithExecutable return `path` instead (an empty path restores the executable's):
++	// for a module loaded by another program, whose files are next to the module, not the program.
++	void SetDirectoryWithExecutable(const std::filesystem::path& path);
+ 
+ 	// searches paths upward from 'startPath' for a directory 'dirname'
+ 	std::filesystem::path FindDirectory(vfs::IFileSystem& fs, const std::filesystem::path& startPath, const std::filesystem::path& dirname, int maxDepth = 5);
+diff --git a/src/app/ApplicationBase.cpp b/src/app/ApplicationBase.cpp
+index 79d6d48..dfa5781 100644
+--- a/src/app/ApplicationBase.cpp
++++ b/src/app/ApplicationBase.cpp
+@@ -226,9 +226,19 @@ std::filesystem::path donut::app::FindMediaFolder(const std::filesystem::path& n
+ 	return FindDirectory(fs, GetDirectoryWithExecutable(), name);
+ }
+ 
++static std::filesystem::path g_DirectoryWithExecutableOverride;
++
++void donut::app::SetDirectoryWithExecutable(const std::filesystem::path& path)
++{
++    g_DirectoryWithExecutableOverride = path;
++}
++
+ // XXXX mk: as of C++20, there is no portable solution (yet ?)
+ std::filesystem::path donut::app::GetDirectoryWithExecutable()
+ {
++    if (!g_DirectoryWithExecutableOverride.empty())
++        return g_DirectoryWithExecutableOverride;
++
+ 	
+     char path[PATH_MAX] = {0};
+ #ifdef _WIN32

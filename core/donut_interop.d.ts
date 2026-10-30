@@ -2920,6 +2920,55 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // Once the GPU is done: enables the probe within 10 units of where it was rendered from.
 @nodrops declare function Donut_FinishLightProbe(lightProbeSet: LightProbeSetHandle, index: int, lightProbeProcessingPass: LightProbeProcessingPassHandle, x: number, y: number, z: number): void;
 
+// --- RTX Path Tracing (core/rtxpt.cpp; the rtxpt example links it) ---
+// Makes the sample's code find bin/ShaderDynamic (its run-time shader compiler and sources) next to the
+// module holding it, under the JIT too: false if it isn't there.
+@nodrops declare function Donut_RtxptSetup(): boolean;
+// The sample's renderer (its scene, materials, lights, environment map, path tracer pipelines, render
+// targets and passes) on the app's device (Donut_GetNvrhiDevice); assetsDirectory is RTXPT_DIR/Assets, which
+// the scenes' materials and environment maps are found from. Null without bin/ShaderDynamic.
+@nodrops declare function Donut_RtxptRendererCreate(device: Opaque, assetsDirectory: string): RtxptRendererHandle | null;
+@nodrops declare function Donut_RtxptRendererDestroy(rtxptRenderer: RtxptRendererHandle): void;
+// Loads a *.scene.json (absolute path), with its materials, lights and environment map; false on failure.
+@nodrops declare function Donut_RtxptRendererLoadScene(rtxptRenderer: RtxptRendererHandle, scenePath: string): boolean;
+@nodrops declare function Donut_RtxptRendererGetSceneCameraCount(rtxptRenderer: RtxptRendererHandle): int;
+// The scene's camera `index` into 16 floats: position, direction, up, vertical field of view, near plane, then its
+// exposure (auto exposure 0/1, compensation, value, min, max; NaN where the scene doesn't set it). False if none.
+@nodrops declare function Donut_RtxptRendererGetSceneCamera(rtxptRenderer: RtxptRendererHandle, index: int, out: Ref<f32>): boolean;
+// The scene's sample settings, NaN where unset: 0 realtime mode, 1 animations, 2 starting camera, 3 real-time
+// firefly filter, 4 max bounces, 5 max diffuse bounces, 6 texture MIP bias, 7 the environment light's intensity.
+@nodrops declare function Donut_RtxptRendererGetSceneSetting(rtxptRenderer: RtxptRendererHandle, key: int): number;
+// The scene's togglable nodes (named *_togglable, or *_togglable_off: hidden at load), for the UI: their names
+// without the suffix, and whether they're shown. Showing or hiding one moves it back or far away.
+@nodrops declare function Donut_RtxptRendererGetTogglableNodeCount(rtxptRenderer: RtxptRendererHandle): int;
+@nodrops declare function Donut_RtxptRendererGetTogglableNodeName(rtxptRenderer: RtxptRendererHandle, index: int): string;
+@nodrops declare function Donut_RtxptRendererIsTogglableNodeShown(rtxptRenderer: RtxptRendererHandle, index: int): boolean;
+@nodrops declare function Donut_RtxptRendererShowTogglableNode(rtxptRenderer: RtxptRendererHandle, index: int, shown: boolean): void;
+// The path tracer's global shader macros: cleared, then added one by one; a change recompiles it at the next Prepare.
+@nodrops declare function Donut_RtxptRendererClearShaderMacros(rtxptRenderer: RtxptRendererHandle): void;
+@nodrops declare function Donut_RtxptRendererAddShaderMacro(rtxptRenderer: RtxptRendererHandle, name: string, value: string): void;
+// Advances the tone mapper's auto exposure by elapsedSeconds; applies the scene's animations at sceneTime
+// (looped) if applyAnimations.
+@nodrops declare function Donut_RtxptRendererAnimate(rtxptRenderer: RtxptRendererHandle, sceneTime: number, applyAnimations: boolean, elapsedSeconds: number): void;
+// The renderer's setup for width x height, between frames (the animate callback: it executes command lists of its
+// own): render targets, passes (needNewPasses), acceleration structures (rebuildAccelStructs), and the path tracer's
+// pipelines (compiled here). Bits of the result: 1 render targets made, 2 passes, 4 acceleration structures.
+@nodrops declare function Donut_RtxptRendererPrepare(rtxptRenderer: RtxptRendererHandle, width: int, height: int, needNewPasses: boolean,
+    rebuildAccelStructs: boolean, neeatQualityPreset: int): int;
+// Takes the frame's settings (examples/rtxpt.ts's FRAME_SETTINGS_SIZE bytes) and records everything up to the path
+// tracing pass. True if the environment map changed: reset the accumulation at the next frame.
+@nodrops declare function Donut_RtxptRendererBeginFrame(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle, frameSettings: Ref<f32>): boolean;
+// The reference path tracer, samplesPerPixel dispatches.
+@nodrops declare function Donut_RtxptRendererPathTrace(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle, samplesPerPixel: int): void;
+// Accumulates with accumulationWeight (1 / (n + 1); 0 keeps the accumulated image), then bloom and tone mapping
+// into the LDR color.
+@nodrops declare function Donut_RtxptRendererResolve(rtxptRenderer: RtxptRendererHandle, commandList: CommandListHandle, accumulationWeight: number): void;
+@nodrops declare function Donut_RtxptRendererEndFrame(rtxptRenderer: RtxptRendererHandle): void;
+// The tone-mapped frame (RGBA8), to blit to the back buffer.
+@nodrops declare function Donut_RtxptRendererGetLdrColor(rtxptRenderer: RtxptRendererHandle): TextureHandle;
+// The accumulated radiance (RGBA32_FLOAT, linear).
+@nodrops declare function Donut_RtxptRendererGetAccumulatedRadiance(rtxptRenderer: RtxptRendererHandle): TextureHandle;
+
 // --- RTX Character Rendering (core/rtxcr.cpp; the rtxcr_pathtracer example links it) ---
 // Takes a scene loaded by Donut_LoadSceneWithDescriptorTableDeferred: tessellates its hair curves into
 // polytubes, DOTS and LSS (hairRadiusScale scales their radii), makes tessellationType (0 polytubes,

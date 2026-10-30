@@ -518,6 +518,21 @@ namespace
             return m_CommonPasses;
         }
 
+        // Same, for use in a frame: CommonRenderPasses uploads its textures on a command list of its own, which
+        // can't be open (immediate) beside the frame's, so the first use in a frame submits what the frame has
+        // recorded and goes on recording after (as Donut_FlushFrameCommandList).
+        donut::engine::CommonRenderPasses* frameCommonPasses(nvrhi::ICommandList* frameCommandList)
+        {
+            if (!m_CommonPasses)
+            {
+                frameCommandList->close();
+                device()->executeCommandList(frameCommandList);
+                sharedCommonPasses();
+                frameCommandList->open();
+            }
+            return m_CommonPasses.get();
+        }
+
         // Loads files relative to the executable's directory.
         const std::shared_ptr<donut::engine::TextureCache>& textureCache()
         {
@@ -12866,7 +12881,7 @@ extern "C"
     {
         App* a = app;
         FrameContext* ctx = frame;
-        a->commonPasses()->BlitTexture(ctx->commandList, ctx->framebuffer,
+        a->frameCommonPasses(ctx->commandList)->BlitTexture(ctx->commandList, ctx->framebuffer,
             texture, a->bindingCache());
     }
 
@@ -12882,7 +12897,7 @@ extern "C"
         params.targetViewport = nvrhi::Viewport(float(left), float(left + width), float(top), float(top + height), 0.f, 1.f);
         params.sourceTexture = texture;
         params.sourceArraySlice = static_cast<uint32_t>(arraySlice);
-        a->commonPasses()->BlitTexture(ctx->commandList, params, a->bindingCache());
+        a->frameCommonPasses(ctx->commandList)->BlitTexture(ctx->commandList, params, a->bindingCache());
     }
 
     // Drops the binding sets Donut_BlitTexture cached, and with them their references to the

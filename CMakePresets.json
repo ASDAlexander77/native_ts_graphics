@@ -122,6 +122,26 @@
       }
     },
     {
+      "name": "default-rtxpt",
+      "displayName": "Default with RTXPT (Ninja)",
+      "description": "Debug with the rtxpt example (RTXPT_DIR: a checkout of github.com/NVIDIA-RTX/RTXPT with submodules and assets, configured once by its own CMake). Override the path with -DRTXPT_DIR=<path>.",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-rtxpt",
+      "cacheVariables": {
+        "RTXPT_DIR": "E:/Gits/RTXPT"
+      }
+    },
+    {
+      "name": "release-rtxpt",
+      "displayName": "Release with RTXPT (Ninja)",
+      "description": "Release with the rtxpt example (RTXPT_DIR: a checkout of github.com/NVIDIA-RTX/RTXPT with submodules and assets, configured once by its own CMake). Override the path with -DRTXPT_DIR=<path>.",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-release-rtxpt",
+      "cacheVariables": {
+        "RTXPT_DIR": "E:/Gits/RTXPT"
+      }
+    },
+    {
       "name": "android-x86_64",
       "displayName": "Android x86_64 Release (Ninja, NDK)",
       "description": "Release for Android x86_64 (the emulator), API 29, Vulkan only. Needs ANDROID_NDK_HOME, and a desktop build first for its ShaderMake.",

@@ -26,6 +26,17 @@
             "environment": []
         },
         {
+            "name": "Run selected CMake target (RTXPT)",
+            "type": "cppvsdbg", // MSVC debugger; use "cppdbg" for gdb/lldb
+            "request": "launch",
+            "program": "${command:cmake.launchTargetPath}",
+            "args": [
+                "-dx12", "-dlss", "-dlss5", "--scene", "E:/Gits/RTXPT/assets/kitchen.scene.json", "-enableAnimation", "1"
+            ],
+            "cwd": "${command:cmake.launchTargetDirectory}",
+            "environment": []
+        },        
+        {
             "name": "VS: tslang JIT (Current File) GC",
             "type": "cppvsdbg",
             "request": "launch",
