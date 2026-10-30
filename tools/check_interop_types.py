@@ -148,6 +148,7 @@ HANDLES = {
     "DescriptorBuffer": "DescriptorBufferHandle",
     "DescriptorBufferPipeline": "DescriptorBufferPipelineHandle",
     "PagedImageSet": "PagedImageSetHandle",
+    "OmmBaker": "OmmBakerHandle",
     "OcclusionPredication": "OcclusionPredicationHandle",
     "PredicationBuffer": "PredicationBufferHandle",
     "MeshPipelineStatistics": "MeshPipelineStatisticsHandle",
@@ -175,6 +176,7 @@ RAW_MEMORY = {
     # An nvrhi::IMessageCallback implemented in tslang (core/nvrhi.ts), handed to NVRHI.
     ("Donut_SetNvrhiMessageCallback", "callback"),
     ("Donut_InitPagedImageSet", "device"),
+    ("Donut_CreateOmmBaker", "device"),
     ("Donut_RtxcrCreateScene", "device"),
     ("Donut_RtxcrNrdCreate", "device"),
     ("Donut_RtxcrFillSkyParameters", "dst"),

@@ -444,6 +444,36 @@ if (DONUT_WITH_DLSS AND DONUT_WITH_DLSS_NR AND WIN32 AND DONUT_WITH_VULKAN)
     set(DLSS_NR_SHARED_LIBRARY_PATH "${dlss_nr_SOURCE_DIR}/lib/Windows_x86_64/rel/nvngx_dlssnr.dll")
 endif()
 
+# NVIDIA's Opacity Micro-Map SDK (github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK): its GPU baker and
+# the baker's NVRHI layer (omm-lib, omm-gpu-nvrhi), for opacity_micromaps -bake, which bakes the
+# micromaps at run time (core/omm_bake.cpp). Fetched at configure time into the build folder, with
+# only the submodules omm-lib builds from (ShaderMake is Donut's). It's under the NVIDIA RTX SDKs
+# license (LICENSE.txt in it): nothing of it may be committed here. Its layer links nvrhi_d3d12, so
+# Windows only.
+option(WITH_OMM_SDK "Fetch the Opacity Micro-Map SDK for opacity_micromaps -bake" ON)
+if (WITH_OMM_SDK AND WIN32 AND NVRHI_WITH_DX12)
+    set(OMM_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+    set(OMM_BUILD_VIEWER OFF CACHE BOOL "" FORCE)
+    set(OMM_ENABLE_BENCHMARK OFF CACHE BOOL "" FORCE)
+    set(OMM_INTEGRATION_LAYER_NVRHI ON CACHE BOOL "" FORCE)
+    set(OMM_BUILD_OMM_GPU_NVRHI ON CACHE BOOL "" FORCE)
+    # Static, as NRD: under tslang's JIT a DLL beside donut_interop_shared.dll would not be found.
+    set(OMM_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
+    # Only the CPU baker uses OpenMP.
+    set(OMM_ENABLE_OPENMP OFF CACHE BOOL "" FORCE)
+    set(OMM_LIB_INSTALL OFF CACHE BOOL "" FORCE)
+    set(OMM_PROJECT_FOLDER "Opacity Micro-Map SDK")
+    message(STATUS "Fetching the Opacity Micro-Map SDK (v1.9.2)")
+    include(FetchContent)
+    FetchContent_Declare(omm_sdk
+        GIT_REPOSITORY "https://github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK.git"
+        GIT_TAG v1.9.2
+        GIT_SHALLOW TRUE
+        GIT_SUBMODULES "external/glm;external/lz4;external/stb;external/xxHash")
+    FetchContent_MakeAvailable(omm_sdk)
+    set(OMM_SDK_LIBRARIES omm-lib omm-gpu-nvrhi)
+endif()
+
 # end of Donut
 
 # Flat C API over Donut, shared by the TypeScript examples.
@@ -515,11 +545,15 @@ set(JIT_MODULE_SOURCES
     core/basis_transcoder.cpp
     core/fast_block_compress.cpp
     core/fbc_cpu.cpp
-    core/paged_images.cpp)
+    core/paged_images.cpp
+    core/omm_bake.cpp)
 if (WIN32)
     # denoised_rtao is Windows only (its PBRT parser includes windows.h, it decodes with WIC).
     list(APPEND JIT_MODULE_SOURCES core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
         core/video_player.cpp)
+endif()
+if (OMM_SDK_LIBRARIES)
+    set_source_files_properties(core/omm_bake.cpp PROPERTIES COMPILE_DEFINITIONS DONUT_WITH_OMM_SDK=1)
 endif()
 if (RTXCR_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
@@ -529,7 +563,7 @@ if (NOT ANDROID)
     add_library(donut_interop_shared SHARED core/donut_interop.cpp ${JIT_MODULE_SOURCES})
     configure_donut_interop(donut_interop_shared)
     target_compile_definitions(donut_interop_shared PRIVATE DONUT_INTEROP_SHARED)
-    target_link_libraries(donut_interop_shared PRIVATE basisu_transcoder)
+    target_link_libraries(donut_interop_shared PRIVATE basisu_transcoder ${OMM_SDK_LIBRARIES})
     # On Linux a shared library goes to LIBRARY_OUTPUT_DIRECTORY, not bin/ as a DLL does: put it next
     # to bin/shaders and bin/media too.
     set_target_properties(donut_interop_shared PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
@@ -3140,7 +3174,9 @@ endfunction()
 # level, the any-hit shader, a view of where it ran, and rebuilding the acceleration structures
 # every frame. D3D12 needs raytracing tier 1.2 (the Agility SDK runtime, with NVRHI's DXR 1.2
 # path), Vulkan VK_EXT_opacity_micromap. Its model, micromaps and textures (~190 MB) are the
-# sample's: point DIRECTX_GRAPHICS_SAMPLES_DIR at a DirectX-Graphics-Samples checkout.
+# sample's: point DIRECTX_GRAPHICS_SAMPLES_DIR at a DirectX-Graphics-Samples checkout. With -bake
+# (WITH_OMM_SDK) the micromaps are baked at run time instead, by the Opacity Micro-Map SDK's GPU
+# baker (core/omm_bake.cpp).
 donut_compile_shaders(
     TARGET opacity_micromaps_shaders
     PROJECT_NAME "Opacity Micromaps"
@@ -3150,11 +3186,18 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/opacity_micromaps/spirv
 )
 if (NVRHI_WITH_DX12)
-    add_tslang_example(opacity_micromaps core/directx_math.ts core/d3d12_agility_sdk.cpp MEDIA fonts opacity_micromaps)
+    add_tslang_example(opacity_micromaps core/directx_math.ts core/omm_bake.ts core/omm_bake.cpp core/d3d12_agility_sdk.cpp
+        MEDIA fonts opacity_micromaps)
 else()
-    add_tslang_example(opacity_micromaps core/directx_math.ts MEDIA fonts opacity_micromaps)
+    add_tslang_example(opacity_micromaps core/directx_math.ts core/omm_bake.ts core/omm_bake.cpp MEDIA fonts opacity_micromaps)
 endif()
+target_link_libraries(opacity_micromaps PRIVATE ${OMM_SDK_LIBRARIES})
 add_tslang_example_test(opacity_micromaps)
+if (OMM_SDK_LIBRARIES)
+    # -bake: the micromaps baked at run time by the Opacity Micro-Map SDK's GPU baker rather than
+    # loaded from the sample's files.
+    add_tslang_example_test(opacity_micromaps SUFFIX bake ARGS -bake)
+endif()
 set(omm_media)
 set(omm_dir "Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingOpacityMicromaps")
 foreach(file treeModel.bin jacaranda_tree_leaves_alpha_4k.dds jacaranda_tree_trunk_diff_4k.dds
