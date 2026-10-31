@@ -74,6 +74,7 @@
                 "--di",
                 "--opt_level=0",
                 "--shared-libs=build/bin/donut_interop_shared.dll",
+                "--shared-libs=build/bin/nri_interop.dll",
                 "${file}",
                 "--",
                 "-dx12"
@@ -93,7 +94,9 @@
                     "--tslang-lib-path=${env:TSLANG_HOME}",
                     "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
                     "--lib=build/donut_interop_shared.lib",
+                    "--lib=build/nri/nri_interop.lib",
                     "--shared-libs=build/bin/donut_interop_shared.dll",
+                    "--shared-libs=build/bin/nri_interop.dll",
                     "${file}",
                     "--",
                     "-dx12"
@@ -117,6 +120,7 @@
                 "--opt_level=0",
                 "--mm=rc",
                 "--shared-libs=build/bin/donut_interop_shared.dll",
+                "--shared-libs=build/bin/nri_interop.dll",
                 "${file}",
                 "--",
                 "-dx12"
@@ -135,7 +139,9 @@
                     "--jit-cache-dir=${workspaceFolder}/__jit_dbg_rc",
                     "--tslang-lib-path=${env:TSLANG_HOME}",
                     "--lib=build/donut_interop_shared.lib",
+                    "--lib=build/nri/nri_interop.lib",
                     "--shared-libs=build/bin/donut_interop_shared.dll",
+                    "--shared-libs=build/bin/nri_interop.dll",
                     "${file}",
                     "--",
                     "-dx12"
@@ -159,6 +165,7 @@
                 "--opt_level=0",
                 "--mm=own",
                 "--shared-libs=build/bin/donut_interop_shared.dll",
+                "--shared-libs=build/bin/nri_interop.dll",
                 "${file}",
                 "--",
                 "-dx12"
@@ -177,7 +184,9 @@
                     "--jit-cache-dir=${workspaceFolder}/__jit_dbg_own",
                     "--tslang-lib-path=${env:TSLANG_HOME}",
                     "--lib=build/donut_interop_shared.lib",
+                    "--lib=build/nri/nri_interop.lib",
                     "--shared-libs=build/bin/donut_interop_shared.dll",
+                    "--shared-libs=build/bin/nri_interop.dll",
                     "${file}",
                     "--",
                     "-dx12"
