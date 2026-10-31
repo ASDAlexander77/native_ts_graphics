@@ -23,8 +23,6 @@ function f32(x: number): number {
 // the app that owns the game's JSON files, and what the host knows of it: whether the scene has game settings (an
 // RTXPT GameSettings node), and whether its renderer reads a spot light's negative outer angle as the minimum
 // falloff past it (RTXPT's kUseMinSpotlightFalloff, as SampleGame sets it). Nodes and JSON files are handles.
-// The strings C++ returns are copied (`${...}`): a module that imports donut.ts gets them from tslang (up to
-// pre-alpha111) as its own strings, uncopied, which -mm=rc then counts and frees (C++'s memory: Android's crash).
 export class GameWorld {
     constructor(private app: AppHandle | null, private scene: SceneHandle | null, public hasGameSettings: boolean,
         private minSpotFalloff: boolean) {
@@ -39,7 +37,7 @@ export class GameWorld {
     }
 
     getListedFile(index: int): string {
-        return `${Donut_GetListedFile(index)}`;
+        return Donut_GetListedFile(index);
     }
 
     // Null (see !) if it can't be read.
@@ -64,7 +62,7 @@ export class GameWorld {
     }
 
     getGameJsonString(json: JsonDocumentHandle, path: string, defaultValue: string): string {
-        return `${Donut_JsonGetString(json, path, defaultValue)}`;
+        return Donut_JsonGetString(json, path, defaultValue);
     }
 
     getGameJsonVector(json: JsonDocumentHandle, path: string, count: int, component: int): number {
@@ -77,7 +75,7 @@ export class GameWorld {
 
     getSceneModelRootName(index: int): string {
         const root = Donut_GetSceneModelRoot(this.scene as SceneHandle, index);
-        return !root ? "" : `${Donut_GetNodeName(root as NodeHandle)}`;
+        return !root ? "" : Donut_GetNodeName(root as NodeHandle);
     }
 
     // ModelType's constructor: the model's pose on its import root (copied with it to every instance).
@@ -117,7 +115,7 @@ export class GameWorld {
     }
 
     getGameNodeName(node: NodeHandle): string {
-        return `${Donut_GetNodeName(node)}`;
+        return Donut_GetNodeName(node);
     }
 
     // 0-2 translation, 3-6 rotation (x, y, z, w), 7-9 scaling.
