@@ -46,6 +46,10 @@ FetchContent_Declare(d3d12ma
     GIT_TAG 2ac8a9bdada39ad75210be7b6da8b2b0f61e84f5
     SOURCE_SUBDIR "ignore CMakeLists.txt")
 
+# NRI linked in, not NRI.dll next to it: tslang's JIT loads nri_interop.dll from bin/, but Windows
+# looks for the libraries a library imports in the executable's directory (tslang.exe's), not bin/.
+set(NRI_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
+
 # Without the Agility SDK: NRI's D3D12 backend would then need D3D12SDKVersion and D3D12SDKPath
 # exported from the executable (a tslang one exports nothing), and the triangle needs no new D3D12.
 set(NRI_ENABLE_AGILITY_SDK_SUPPORT OFF CACHE BOOL "" FORCE)

@@ -211,7 +211,9 @@ extern "C"
                 args.push_back("--frameNum=" + std::to_string(testFrames));
                 args.push_back("--alwaysActive");
             }
-            else
+            // a separator the JIT launchers leave in (run_jitd.bat x.ts -- -test passes -test -- -dx12),
+            // which NRIFramework's parser rejects
+            else if (arg != "--")
                 args.push_back(arg);
         }
 
@@ -219,9 +221,14 @@ extern "C"
         for (std::string& arg : args)
             pointers.push_back(arg.data());
 
-        if (!sample->Create((int32_t)pointers.size(), pointers.data(), title))
+        // NRIFramework prints the command line's errors and usage with printf: flushed here, as this
+        // library's output isn't flushed with the executable's.
+        bool created = sample->Create((int32_t)pointers.size(), pointers.data(), title);
+        fflush(stdout);
+        if (!created)
             return 1;
         sample->RenderLoop();
+        fflush(stdout);
         return 0;
     }
 
