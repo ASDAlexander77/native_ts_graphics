@@ -323,6 +323,16 @@ DLSS-RR denoising and upscaling it (balanced, from 1114x626 to 1920x1080), Direc
 build-release-rtxpt/bin/rtxpt.exe -dx12 -width 1920 -height 1080 -overrideToRealtimeMode -propCameraAttach SHIP_police_squad --scene E:/RTXPT/Assets/bistro-programmer-art.scene.json
 ```
 
+The game runs on a plain Donut scene (`GameWorld`: the scene graph, the scene file's models, and
+`core/donut_interop.cpp`'s JSON and file functions), so `feature_demo` runs it too, with Donut's rasterizer, in
+any scene file with a GameSettings node (the same `-propCameraAttach` and `-propShowTags`). The props and the prop
+camera work as in rtxpt; of the game's 70 lights in the Bistro, Donut's deferred lighting (16 lights at most, with
+the sun) lights only 15:
+
+```
+build/bin/feature_demo.exe -dx12 -propCameraAttach SHIP_police_squad E:/RTXPT/Assets/bistro-programmer-art.scene.json
+```
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 

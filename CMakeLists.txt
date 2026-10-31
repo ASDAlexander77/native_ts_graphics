@@ -3761,7 +3761,8 @@ endif()
 # shadows, SSAO, procedural sky, TAA or MSAA, bloom, tone mapping, light probes, material picking)
 # over a loaded scene, with an ImGui settings window and material editor; DLSS with
 # DONUT_WITH_DLSS=ON. No shaders of its own; needs the scenes and fonts of DONUT_SAMPLES_MEDIA_DIR above.
-add_tslang_example(feature_demo core/matrix.ts core/text_format.ts MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
+# RTXPT's SampleGame (core/rtxpt_game.ts) runs in scenes with its GameSettings node (RTXPT's Bistro).
+add_tslang_example(feature_demo core/matrix.ts core/text_format.ts core/rtxpt_game.ts MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets rt_particles)
 add_tslang_example_test(feature_demo)
 copy_dlss_library(feature_demo)
 

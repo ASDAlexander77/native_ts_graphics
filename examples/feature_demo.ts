@@ -6,6 +6,7 @@ import { Args } from "../core/args";
 import { TestCheck } from "../core/test_check";
 import { formatFixed } from "../core/text_format";
 import { radiansF32 } from "../core/matrix";
+import { RtxptGame, GameWorld } from "../core/rtxpt_game";
 
 namespace FeatureDemoExample {
     // Test mode: the frames rendered once the scene has loaded. The scene loads on a thread, slower
@@ -58,6 +59,34 @@ namespace FeatureDemoExample {
     // checking the port without a person at the window.
     let g_ScreenshotPath = "";
     const SCREENSHOT_FRAME = 120;
+    // Not in the C++ sample: -propShowTags <tags>, -propCameraAttach <prop>: RTXPT's SampleGame's (see sceneLoaded).
+    let g_PropShowTags = "";
+    let g_PropCameraAttach = "";
+
+    // RTXPT's Scene::GetGameSettingsNode: whether the scene file's graph has a node of type `type`.
+    function hasNodeOfType(json: JsonDocument, type: string): boolean {
+        // The node arrays to search: "graph", then the nodes' "children".
+        const arrays = ["graph"];
+        for (let a = 0; a < arrays.length; a++) {
+            const count = json.jsonGetSize(arrays[a]);
+            for (let i = 0; i < count; i++) {
+                const node = `${arrays[a]}/${i}`;
+                if (json.jsonGetString(`${node}/type`, "") == type) {
+                    return true;
+                }
+                arrays.push(`${node}/children`);
+            }
+        }
+        return false;
+    }
+
+    // The folder of a file's path (without the separator).
+    function folderOf(path: string): string {
+        const slash = path.lastIndexOf("/");
+        const backslash = path.lastIndexOf("\\");
+        const end = slash > backslash ? slash : backslash;
+        return end < 0 ? "." : path.substring(0, end);
+    }
 
     enum AntiAliasingMode {
         NONE = 0,
@@ -250,6 +279,9 @@ namespace FeatureDemoExample {
 
         public lightProbes: LightProbeSet;
 
+        // RTXPT's SampleGame (core/rtxpt_game.ts), with a camera of its own; inactive without a GameSettings node.
+        public game: RtxptGame;
+
         private wallclockTime: number;
         // Frames rendered with a loaded scene, for -screenshot and -test.
         private readyFrames: int;
@@ -356,6 +388,7 @@ namespace FeatureDemoExample {
             this.thirdPersonCamera = app.createThirdPersonCamera();
             this.firstPersonCamera.setMoveSpeed(3.0);
             this.thirdPersonCamera.setMoveSpeed(3.0);
+            this.game = new RtxptGame(app.createFirstPersonCamera());
 
             this.sceneLoader = app.createSceneLoader();
 
@@ -450,6 +483,7 @@ namespace FeatureDemoExample {
             if (this.sceneLoader.isSceneLoaded()) {
                 this.sceneUnloading();
             }
+            this.game.deinitialize();
             this.scene = new Scene(null);
             this.sceneGraph = new SceneGraph(null);
             this.sceneLoader.beginLoadingScene(sceneName);
@@ -528,9 +562,33 @@ namespace FeatureDemoExample {
 
             this.copyActiveCameraToFirstPerson();
 
+            // RTXPT's SampleGame, in a scene with its GameSettings node: the props of
+            // <scene folder>/SampleGame/<scene file name>, placed in the loaded scene. Donut's spot lights have
+            // no minimum falloff past the outer angle (RTXPT's negative one).
+            const world = new GameWorld(this.app.handle, scene.handle, this.hasGameSettingsNode(), false);
+            this.game.sceneLoaded(world, this.currentSceneName, folderOf(this.currentSceneName), g_PropShowTags,
+                g_PropCameraAttach);
+            if (this.game.initialized) {
+                // The game's world only moves with the animations (on in RTXPT).
+                this.ui.enableAnimations = true;
+            }
+
             if (g_PrintSceneGraph) {
                 sceneGraph.print();
             }
+        }
+
+        hasGameSettingsNode(): boolean {
+            if (!this.currentSceneName.endsWith(".json")) {
+                return false;
+            }
+            const json = this.app.loadJsonDocument(this.currentSceneName);
+            if (json.isNull()) {
+                return false;
+            }
+            const found = hasNodeOfType(json, "GameSettings");
+            this.app.releaseObject(json.handle);
+            return found;
         }
 
         releaseViews() {
@@ -1124,14 +1182,19 @@ namespace FeatureDemoExample {
                 return 1;
             }
 
-            if (this.ui.activeSceneCamera.isNull()) {
+            // The camera's input, the game camera's while it is attached to a prop.
+            if (this.game.cameraActive()) {
+                this.game.gameCamera.keyboardUpdate(key, scancode, action, mods);
+            } else if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().keyboardUpdate(key, scancode, action, mods);
             }
             return 1;
         }
 
         onMousePos(x: number, y: number) {
-            if (this.ui.activeSceneCamera.isNull()) {
+            if (this.game.cameraActive()) {
+                this.game.gameCamera.mousePosUpdate(x, y);
+            } else if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().mousePosUpdate(x, y);
             }
 
@@ -1142,7 +1205,9 @@ namespace FeatureDemoExample {
         }
 
         onMouseButton(button: MouseButton, action: Action, mods: KeyMods) {
-            if (this.ui.activeSceneCamera.isNull()) {
+            if (this.game.cameraActive()) {
+                this.game.gameCamera.mouseButtonUpdate(button, action, mods);
+            } else if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().mouseButtonUpdate(button, action, mods);
             }
 
@@ -1154,7 +1219,7 @@ namespace FeatureDemoExample {
         }
 
         onMouseScroll(xOffset: number, yOffset: number) {
-            if (this.ui.activeSceneCamera.isNull()) {
+            if (!this.game.cameraActive() && this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().mouseScrollUpdate(xOffset, yOffset);
             }
 
@@ -1162,6 +1227,14 @@ namespace FeatureDemoExample {
         }
 
         onAnimate(elapsedSeconds: number) {
+            // The game camera, attached to a prop, moves the first-person camera.
+            const game = this.game;
+            if (game.cameraActive() && (!this.ui.activeSceneCamera.isNull() || this.ui.useThirdPersonCamera)) {
+                this.copyActiveCameraToFirstPerson();
+                this.ui.activeSceneCamera = new SceneCamera(null);
+                this.ui.useThirdPersonCamera = false;
+            }
+
             if (this.ui.activeSceneCamera.isNull()) {
                 this.getActiveCamera().animate(elapsedSeconds);
             }
@@ -1171,10 +1244,15 @@ namespace FeatureDemoExample {
                 toneMappingPass.advanceFrame(elapsedSeconds);
             }
 
+            game.tick(elapsedSeconds, this.ui.enableAnimations);
             const scene = this.scene;
             if (!scene.isNull()) {
                 if (this.ui.enableAnimations) {
                     this.wallclockTime += elapsedSeconds;
+                    // The game's time is the scene's, as in RTXPT.
+                    if (game.initialized) {
+                        this.wallclockTime = game.gameTime;
+                    }
 
                     const animationCount = scene.getAnimationCount();
                     for (let i = 0; i < animationCount; i++) {
@@ -1185,6 +1263,7 @@ namespace FeatureDemoExample {
                     }
                 }
             }
+            game.tickCamera(elapsedSeconds, this.firstPersonCamera);
         }
 
         // ApplicationBase::Render: a splash screen until the scene and its textures have loaded.
@@ -1461,6 +1540,14 @@ namespace FeatureDemoExample {
                 }
             }
 
+            // RTXPT's SampleGame (its SampleUI's header).
+            const game = demo.game;
+            if (game.initialized && ImGui.collapsingHeader("Interactive elements")) {
+                ImGui.indent();
+                game.debugGUI();
+                ImGui.unindent();
+            }
+
             ImGui.text("Render Light Probe: ");
             const probeCount = demo.lightProbes.getCount();
             for (let i = 0; i < probeCount; i++) {
@@ -1483,6 +1570,8 @@ namespace FeatureDemoExample {
             ui.displayShadowMap = this.checkbox("Display Shadow Map", ui.displayShadowMap);
 
             ImGui.end();
+            // The prop camera's "Exit prop camera" button.
+            game.standaloneGUI(width, app.getWindowHeight());
 
             const material = ui.selectedMaterial;
             if (!material.isNull()) {
@@ -1554,6 +1643,9 @@ namespace FeatureDemoExample {
         // -dlss: start in the DLSS AA mode; -dlss5: with DLSS 5 on (where available). Not the C++ sample's.
         dlss = false;
         dlss5 = false;
+        // -propShowTags <tags>, -propCameraAttach <prop>: RTXPT's SampleGame's, in its scenes. Not the C++ sample's.
+        propShowTags = "";
+        propCameraAttach = "";
         // The scene: the argument which is not an option.
         sceneName = "";
 
@@ -1581,6 +1673,12 @@ namespace FeatureDemoExample {
                     this.dlss = true;
                 } else if (arg == "-dlss5") {
                     this.dlss5 = true;
+                } else if (arg == "-propShowTags") {
+                    i++;
+                    this.propShowTags = this[i];
+                } else if (arg == "-propCameraAttach") {
+                    i++;
+                    this.propCameraAttach = this[i];
                 } else if (arg == "-testOutput") {
                     // Args' (-test's frame file), not the scene.
                     i++;
@@ -1601,6 +1699,8 @@ namespace FeatureDemoExample {
         g_PrintSceneGraph = args.printSceneGraph;
         g_PrintFormats = args.printFormats;
         g_ScreenshotPath = args.screenshotPath;
+        g_PropShowTags = args.propShowTags;
+        g_PropCameraAttach = args.propCameraAttach;
 
         // Dlss: the Vulkan extensions DLSS needs, if built with it.
         let options = AppOptions.PerMonitorDpi | AppOptions.Dlss | args.options;
