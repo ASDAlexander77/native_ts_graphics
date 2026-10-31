@@ -1260,6 +1260,23 @@ add_tslang_example_test(gravity_light_bending SUFFIX schwarzschild ARGS -scene s
 # of it fall in, the others escape.
 add_tslang_example_test(gravity_light_bending SUFFIX capture ARGS -scene single -c 5 -bending 2)
 
+# Hydrogen orbitals as a Bohmian flow: particles sampled from |psi|^2 move with the wave function's
+# guidance velocity, one compute pass a frame, and stay distributed as |psi(t)|^2.
+donut_compile_shaders_all_platforms(
+    TARGET atom_orbitals_shaders
+    PROJECT_NAME "Atom Orbitals"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/atom_orbitals.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/atom_orbitals.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/atom_orbitals
+)
+add_tslang_example(atom_orbitals core/matrix.ts)
+# 3d (m = 1): every particle circles the z axis at the angular speed 1 / rho^2 (L_z = 1), and <r>
+# stays (3 n^2 - l (l + 1)) / 2.
+add_tslang_example_test(atom_orbitals)
+# 1s + 2p0, equal parts: the cloud sloshes along z, <z>(t) = <1s|z|2p0> cos(3/8 t). The time scale
+# ends the 5 seconds at 3/8 t = 11 pi, the cloud at its lowest (it starts at its highest).
+add_tslang_example_test(atom_orbitals SUFFIX superposition ARGS -orbital 1 0 0 -mix 2 1 0 -weight 0.5 -timescale 18.430697)
+
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
 # to DDS next to the executables; point this at a Vulkan-Samples assets folder.
