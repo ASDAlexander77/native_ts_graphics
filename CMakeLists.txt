@@ -1249,6 +1249,8 @@ add_tslang_example(gravity_light_bending core/matrix.ts)
 add_tslang_example_test(gravity_light_bending)
 # No gravity: every ray goes straight, each point of its path on the line it started along.
 add_tslang_example_test(gravity_light_bending SUFFIX straight ARGS -gravity 0)
+# Without the lensed sky: the bodies drawn as sprites over the rays (a black hole a black disk).
+add_tslang_example_test(gravity_light_bending SUFFIX nosky ARGS -scene blackhole -nosky)
 # One mass, light passing it: each ray turns by general relativity's 4 G m / (c^2 b), and by half
 # that as a Newtonian particle at speed c; the exact Schwarzschild path agrees far from the mass.
 add_tslang_example_test(gravity_light_bending SUFFIX deflection ARGS -scene single -c 50)

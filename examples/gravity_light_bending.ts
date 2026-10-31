@@ -59,6 +59,8 @@ namespace GravityLightBending {
     const BODY_SOFTENING = 0.01;
     // The sphere around the origin the sky's tracing works in: the bodies' extent, and this margin.
     const SKY_MARGIN = 4.0;
+    // The seconds after which the pulses' clock starts again.
+    const PULSE_CLOCK_WRAP = 3600.0;
 
     // The emitter's defaults: a sheet of 41 parallel rays across 16 units, from 20 units away,
     // along +x; each 50 units long.
@@ -138,7 +140,7 @@ namespace GravityLightBending {
     // speed of light (lower: more bending; a body inside its own Schwarzschild radius is a black
     // hole), how the light bends (as a Newtonian particle at c, general relativity's twice that, or
     // the exact Schwarzschild path around each body), and the emitter. Space pauses, L switches the
-    // bending off and on (the rays straight, through the same bodies), S the lensed sky, G the
+    // bending off and on (the rays straight, through the same bodies), K the lensed sky, G the
     // grid, B the straight lines to compare, R restarts.
     class LightBendingPass {
         private app: App;
@@ -291,9 +293,10 @@ namespace GravityLightBending {
         }
 
         // The command line's settings, before init.
-        configure(scene: int, gravity: number, lightSpeed: number, bending: int, emitter: int) {
+        configure(scene: int, gravity: number, lightSpeed: number, bending: int, emitter: int, showSky: boolean) {
             this.scene = scene;
             this.emitter = emitter;
+            this.showSky = showSky;
             this.gravity = gravity;
             this.lightSpeed = lightSpeed;
             if (bending == Bending.None) {
@@ -405,7 +408,7 @@ namespace GravityLightBending {
                     this.paused = !this.paused;
                 } else if (key == Key.L) {
                     this.bendLight = !this.bendLight;
-                } else if (key == Key.S) {
+                } else if (key == Key.K) {
                     this.showSky = !this.showSky;
                 } else if (key == Key.G) {
                     this.showGrid = !this.showGrid;
@@ -464,7 +467,12 @@ namespace GravityLightBending {
             if (!this.paused) {
                 const deltaT = elapsedSeconds < MAX_DELTA_T ? elapsedSeconds : MAX_DELTA_T;
                 this.stepBodies(deltaT * this.timeScale);
+                // Wrapped now and then, before the float the shader gets loses the frame's step
+                // (the pulses jump once an hour).
                 this.pulseTime += deltaT;
+                if (this.pulseTime > PULSE_CLOCK_WRAP) {
+                    this.pulseTime -= PULSE_CLOCK_WRAP;
+                }
             }
 
             const light = this.bendLight ? `c = ${this.lightSpeed}` : "light not bent";
@@ -1053,7 +1061,7 @@ namespace GravityLightBending {
             }
 
             if (ImGui.collapsingHeaderDefaultOpen("Display")) {
-                this.showSky = ImGui.checkbox("Lensed sky (S)", this.showSky);
+                this.showSky = ImGui.checkbox("Lensed sky (K)", this.showSky);
                 this.showGrid = ImGui.checkbox("Grid (G)", this.showGrid);
                 this.showStraight = ImGui.checkbox("Straight lines to compare (B)", this.showStraight);
                 this.showPulses = ImGui.checkbox("Light pulses", this.showPulses);
@@ -1090,6 +1098,9 @@ namespace GravityLightBending {
         bending = Bending.WeakField;
         // -emitter <0..3>: a sheet of parallel rays (the default), a beam, a cone, a point.
         emitter = Emitter.Sheet;
+        // -nosky: a black background and the bodies drawn over the rays, not the lensed sky (which
+        // traces every pixel: the costly part on a slow GPU).
+        noSky = false;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
@@ -1119,6 +1130,8 @@ namespace GravityLightBending {
                 } else if (arg == "-bending" && i + 1 < this.argc) {
                     this.bending = parseInt(this[i + 1]);
                     i++;
+                } else if (arg == "-nosky") {
+                    this.noSky = true;
                 } else if (arg == "-emitter" && i + 1 < this.argc) {
                     this.emitter = parseInt(this[i + 1]);
                     i++;
@@ -1154,7 +1167,7 @@ namespace GravityLightBending {
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const lightBending = new LightBendingPass(app, !args.test, !args.noUI);
-        lightBending.configure(args.scene, args.gravity, args.lightSpeed, args.bending, args.emitter);
+        lightBending.configure(args.scene, args.gravity, args.lightSpeed, args.bending, args.emitter, !args.noSky);
         if (!lightBending.init()) {
             app.destroy();
             return 1;
