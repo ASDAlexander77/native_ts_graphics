@@ -142,6 +142,24 @@ static Handle vkHandleFromBits(uint64_t bits)
 #include <wrl/client.h>
 #endif
 
+#if DONUT_WITH_DLSS_RR
+// DLSS Ray Reconstruction (DlssRayReconstruction): the DLSS SDK's NGX headers and its DLSSD helpers (after the
+// D3D headers, which the D3D helper's parameter structures use).
+#include <nvsdk_ngx.h>
+#include <nvsdk_ngx_helpers.h>
+#include <nvsdk_ngx_defs_dlssd.h>
+#if DONUT_WITH_DX12
+#include <nvsdk_ngx_helpers_dlssd_d3d.h>
+#endif
+#if DONUT_WITH_VULKAN
+#include <vulkan/vulkan.h>
+#include <nvsdk_ngx_vk.h>
+#include <nvsdk_ngx_helpers_vk.h>
+#include <nvsdk_ngx_helpers_dlssd_vk.h>
+#include <nvrhi/vulkan.h>
+#endif
+#endif
+
 // Shared with HLSL, so they use the math types unqualified (as Donut's own sources include them).
 using namespace donut::math;
 #include <donut/shaders/bindless.h>
@@ -1006,6 +1024,50 @@ namespace
                     NVSDK_NGX_VULKAN_DestroyParameters(parameters);
             }
         }
+#endif
+    };
+
+    // DLSS Ray Reconstruction (DLSS-RR, nvngx_dlssd.dll): DLSS that denoises as it anti-aliases and upscales, from
+    // the noisy radiance and the guides of a path tracer (diffuse and specular albedo, normals with roughness in
+    // .w, specular motion vectors, the view's matrices). Donut's DLSS has a DLSS-RR mode without the specular
+    // motion vectors and matrices, so this drives the NGX feature itself, with the DLSS SDK's DLSSD helpers, as
+    // Streamline's sl.dlss_d plugin does for NVIDIA's RTX Path Tracing sample. Like DlssNeuralRendering, it uses
+    // the NGX instance of a DLSS object (which it holds) and parameters of its own.
+    struct DlssRayReconstruction
+    {
+#if DONUT_WITH_DLSS_RR
+        std::shared_ptr<donut::render::DLSS> dlss;
+        nvrhi::DeviceHandle device;
+        NVSDK_NGX_Parameter* parameters = nullptr;
+        NVSDK_NGX_Handle* feature = nullptr;
+        nvrhi::CommandListHandle featureCommandList;
+        uint32_t renderWidth = 0;
+        uint32_t renderHeight = 0;
+        uint32_t outputWidth = 0;
+        uint32_t outputHeight = 0;
+        int quality = -1;
+        int preset = -1;
+        bool evaluateFailed = false;
+        bool d3d12 = false;
+
+        void ReleaseFeature()
+        {
+            if (feature)
+            {
+                device->waitForIdle();
+#if DONUT_WITH_DX12
+                if (d3d12)
+                    NVSDK_NGX_D3D12_ReleaseFeature(feature);
+#endif
+#if DONUT_WITH_VULKAN
+                if (!d3d12)
+                    NVSDK_NGX_VULKAN_ReleaseFeature(feature);
+#endif
+                feature = nullptr;
+            }
+        }
+
+        ~DlssRayReconstruction();
 #endif
     };
 
@@ -12086,8 +12148,10 @@ extern "C"
     }
 
     // Sets DLSS up for inputWidth x inputHeight images upscaled to outputWidth x outputHeight
-    // (again whenever the sizes change). Returns non-zero if DLSS is ready to use.
-    DONUT_API int Donut_InitDlss(donut::render::DLSS* dlss, int inputWidth, int inputHeight, int outputWidth, int outputHeight)
+    // (again whenever the sizes or autoExposure change). autoExposure: DLSS measures the exposure itself (as
+    // Streamline creates it without an exposure texture), for Donut_EvaluateDlssTextures, which passes none;
+    // patches/Donut-dlss-auto-exposure.patch. Returns non-zero if DLSS is ready to use.
+    DONUT_API int Donut_InitDlss(donut::render::DLSS* dlss, int inputWidth, int inputHeight, int outputWidth, int outputHeight, int autoExposure)
     {
 #if DONUT_WITH_DLSS
         donut::render::DLSS::InitParameters params;
@@ -12095,11 +12159,12 @@ extern "C"
         params.inputHeight = uint32_t(inputHeight);
         params.outputWidth = uint32_t(outputWidth);
         params.outputHeight = uint32_t(outputHeight);
+        params.useAutoExposure = autoExposure != 0;
         auto* d = dlss;
         d->Init(params);
         return d->IsDlssInitialized() ? 1 : 0;
 #else
-        (void)dlss; (void)inputWidth; (void)inputHeight; (void)outputWidth; (void)outputHeight;
+        (void)dlss; (void)inputWidth; (void)inputHeight; (void)outputWidth; (void)outputHeight; (void)autoExposure;
         return 0;
 #endif
     }
@@ -12316,8 +12381,8 @@ extern "C"
 #endif
     }
 
-#if DONUT_WITH_DLSS_NR
-    // As DLSS_VK::FillTextureResource.
+#if DONUT_WITH_DLSS_NR || (DONUT_WITH_DLSS_RR && DONUT_WITH_VULKAN)
+    // As DLSS_VK::FillTextureResource (DLSS-NR's and DLSS-RR's Vulkan resources).
     static NVSDK_NGX_Resource_VK DlssNrTextureResource(nvrhi::ITexture* texture)
     {
         const nvrhi::TextureDesc& desc = texture->getDesc();
@@ -12341,8 +12406,8 @@ extern "C"
 
 #if DONUT_WITH_DLSS_NR
     // Runs DLSS-NR over ldrColor, in place (after tone mapping), guided by depth (reverse-Z when
-    // depthInverted) and motionVectors (pixels, previous minus current): single-sample textures of the
-    // size DLSS-NR was initialized for. (jitterX, jitterY): this frame's sub-pixel offset of the projection.
+    // depthInverted) and motionVectors (pixels, previous minus current): single-sample textures, ldrColor of the
+    // size DLSS-NR was initialized for, the guides of it or of the render size (DLSS upscaling). (jitterX, jitterY): this frame's sub-pixel offset of the projection.
     // model: 0..2 (models A, B, C); the strengths 0..1. reset: no history (camera cut, first frame).
     static void DlssNrEvaluate(nvrhi::ICommandList* commandList, DlssNeuralRendering* nr, nvrhi::ITexture* ldrColor, nvrhi::ITexture* depthTexture, nvrhi::ITexture* motionVectorsTexture,
         float jitterX, float jitterY, int depthInverted, double intensity, double toneStrength, double structureStrength, int model, int useAutoMask, double skinStructureStrength, int reset)
@@ -12351,6 +12416,10 @@ extern "C"
             return;
 
         commandList->beginMarker("DLSS-NR");
+
+        // The guides may be of the render size, below the image's (DLSS upscaling): as RTX Remix, their own sizes.
+        const NVSDK_NGX_Dimensions depthSize = { depthTexture->getDesc().width, depthTexture->getDesc().height };
+        const NVSDK_NGX_Dimensions motionVectorsSize = { motionVectorsTexture->getDesc().width, motionVectorsTexture->getDesc().height };
 
         commandList->copyTexture(nr->input, nvrhi::TextureSlice(), ldrColor, nvrhi::TextureSlice());
 
@@ -12394,10 +12463,10 @@ extern "C"
             NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_ColorSubrectHeight, nr->height);
             NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_OutputSubrectWidth, nr->width);
             NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_OutputSubrectHeight, nr->height);
-            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_DepthSubrectWidth, nr->width);
-            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_DepthSubrectHeight, nr->height);
-            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_MVecSubrectWidth, nr->width);
-            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_MVecSubrectHeight, nr->height);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_DepthSubrectWidth, depthSize.Width);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_DepthSubrectHeight, depthSize.Height);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_MVecSubrectWidth, motionVectorsSize.Width);
+            NVSDK_NGX_Parameter_SetUI(p, NVSDK_NGX_Parameter_DLSSNR_MVecSubrectHeight, motionVectorsSize.Height);
             NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, jitterX);
             NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, jitterY);
 
@@ -12433,8 +12502,8 @@ extern "C"
             params.InMVecScaleY = 1.f;
             params.InColorSubrectSize = size;
             params.InOutputSubrectSize = size;
-            params.InDepthSubrectSize = size;
-            params.InMVecSubrectSize = size;
+            params.InDepthSubrectSize = depthSize;
+            params.InMVecSubrectSize = motionVectorsSize;
 
             NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_X, jitterX);
             NVSDK_NGX_Parameter_SetF(nr->parameters, NVSDK_NGX_Parameter_Jitter_Offset_Y, jitterY);
@@ -12491,6 +12560,351 @@ extern "C"
         (void)commandList; (void)dlssNeuralRendering; (void)ldrColor; (void)depth; (void)motionVectors; (void)jitterX; (void)jitterY;
         (void)depthInverted; (void)intensity; (void)toneStrength; (void)structureStrength; (void)model; (void)useAutoMask;
         (void)skinStructureStrength; (void)reset;
+#endif
+    }
+
+#if DONUT_WITH_DLSS_RR
+    // NGX capability parameters of the device's API (destroyed with DlssRrDestroyParameters); null on failure.
+    static NVSDK_NGX_Parameter* DlssRrGetParameters(bool d3d12)
+    {
+        NVSDK_NGX_Parameter* parameters = nullptr;
+        NVSDK_NGX_Result result = NVSDK_NGX_Result_Fail;
+#if DONUT_WITH_DX12
+        if (d3d12)
+            result = NVSDK_NGX_D3D12_GetCapabilityParameters(&parameters);
+#endif
+#if DONUT_WITH_VULKAN
+        if (!d3d12)
+            result = NVSDK_NGX_VULKAN_GetCapabilityParameters(&parameters);
+#endif
+        if (NVSDK_NGX_FAILED(result))
+        {
+            donut::log::warning("DLSS: cannot get the NGX capability parameters, Result = 0x%08x (%ls)", result, GetNGXResultAsString(result));
+            return nullptr;
+        }
+        return parameters;
+    }
+
+    static void DlssRrDestroyParameters(NVSDK_NGX_Parameter* parameters, bool d3d12)
+    {
+#if DONUT_WITH_DX12
+        if (d3d12)
+            NVSDK_NGX_D3D12_DestroyParameters(parameters);
+#endif
+#if DONUT_WITH_VULKAN
+        if (!d3d12)
+            NVSDK_NGX_VULKAN_DestroyParameters(parameters);
+#endif
+    }
+
+    DlssRayReconstruction::~DlssRayReconstruction()
+    {
+        ReleaseFeature();
+        if (parameters)
+            DlssRrDestroyParameters(parameters, d3d12);
+    }
+
+    // Whether app's API is one NGX is driven on here (D3D12 or Vulkan), and which.
+    static bool DlssRrApi(App* app, bool& d3d12)
+    {
+        const nvrhi::GraphicsAPI api = app->device()->getGraphicsAPI();
+        d3d12 = api == nvrhi::GraphicsAPI::D3D12;
+#if !DONUT_WITH_DX12
+        if (d3d12)
+            return false;
+#endif
+#if !DONUT_WITH_VULKAN
+        if (api == nvrhi::GraphicsAPI::VULKAN)
+            return false;
+#endif
+        return d3d12 || api == nvrhi::GraphicsAPI::VULKAN;
+    }
+#endif
+
+    // DLSS's render size for an outputWidth x outputHeight image at a quality (NVSDK_NGX_PerfQuality_Value: 0
+    // performance, 1 balanced, 2 quality, 3 ultra performance, 4 ultra quality, 5 DLAA), as NGX recommends it (the
+    // DLSS SDK's NGX_DLSS_GET_OPTIMAL_SETTINGS, which Streamline's QueryDLSSOptimalSettings is; NVIDIA's RTX Path
+    // Tracing sample sizes DLSS-RR by it too): width | height << 16, or 0 without DLSS (dlss: its NGX instance).
+    DONUT_API int Donut_GetDlssOptimalRenderSize(App* app, donut::render::DLSS* dlss, int outputWidth, int outputHeight, int quality)
+    {
+#if DONUT_WITH_DLSS_RR
+        bool d3d12 = false;
+        if (!dlss || !dlss->IsDlssSupported() || !DlssRrApi(app, d3d12))
+            return 0;
+        NVSDK_NGX_Parameter* parameters = DlssRrGetParameters(d3d12);
+        if (!parameters)
+            return 0;
+        unsigned int width = 0, height = 0, maxWidth = 0, maxHeight = 0, minWidth = 0, minHeight = 0;
+        float sharpness = 0.f;
+        const NVSDK_NGX_Result result = NGX_DLSS_GET_OPTIMAL_SETTINGS(parameters, unsigned(outputWidth), unsigned(outputHeight),
+            NVSDK_NGX_PerfQuality_Value(quality), &width, &height, &maxWidth, &maxHeight, &minWidth, &minHeight, &sharpness);
+        DlssRrDestroyParameters(parameters, d3d12);
+        if (NVSDK_NGX_FAILED(result) || width == 0 || height == 0)
+            return 0;
+        return int(width | (height << 16));
+#else
+        (void)app; (void)dlss; (void)outputWidth; (void)outputHeight; (void)quality;
+        return 0;
+#endif
+    }
+
+    // DLSS-RR (see DlssRayReconstruction) over the NGX instance of dlss. Null unless built with DONUT_WITH_DLSS, on
+    // Vulkan or D3D12, with dlss supported and DLSS-RR available (RTX GPU, nvngx_dlssd.dll beside the executable).
+    DONUT_API DlssRayReconstruction* Donut_CreateDlssRayReconstruction(App* app, donut::render::DLSS* dlss)
+    {
+#if DONUT_WITH_DLSS_RR
+        App* a = app;
+        bool d3d12 = false;
+        if (!dlss || !dlss->IsDlssSupported() || !DlssRrApi(a, d3d12))
+            return nullptr;
+        NVSDK_NGX_Parameter* parameters = DlssRrGetParameters(d3d12);
+        if (!parameters)
+            return nullptr;
+
+        int needsUpdatedDriver = 0;
+        if (!NVSDK_NGX_FAILED(parameters->Get(NVSDK_NGX_Parameter_SuperSamplingDenoising_NeedsUpdatedDriver, &needsUpdatedDriver)) && needsUpdatedDriver)
+        {
+            unsigned int major = 0, minor = 0;
+            parameters->Get(NVSDK_NGX_Parameter_SuperSamplingDenoising_MinDriverVersionMajor, &major);
+            parameters->Get(NVSDK_NGX_Parameter_SuperSamplingDenoising_MinDriverVersionMinor, &minor);
+            donut::log::warning("DLSS-RR needs NVIDIA driver %u.%u or newer", major, minor);
+            DlssRrDestroyParameters(parameters, d3d12);
+            return nullptr;
+        }
+        int available = 0;
+        if (NVSDK_NGX_FAILED(parameters->Get(NVSDK_NGX_Parameter_SuperSamplingDenoising_Available, &available)) || !available)
+        {
+            int initResult = NVSDK_NGX_Result_Fail;
+            parameters->Get(NVSDK_NGX_Parameter_SuperSamplingDenoising_FeatureInitResult, &initResult);
+            donut::log::warning("DLSS-RR is not available on this system, FeatureInitResult = 0x%08x (%ls)", initResult,
+                GetNGXResultAsString(NVSDK_NGX_Result(initResult)));
+            DlssRrDestroyParameters(parameters, d3d12);
+            return nullptr;
+        }
+
+        auto rr = std::make_shared<DlssRayReconstruction>();
+        rr->dlss = a->SharedObject<donut::render::DLSS>(dlss);
+        rr->device = a->device();
+        rr->parameters = parameters;
+        rr->d3d12 = d3d12;
+        // Not immediate: Init may run while the frame's command list is open (as Donut's DLSS, patched).
+        rr->featureCommandList = rr->device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
+        return a->OwnObject(rr);
+#else
+        (void)app; (void)dlss;
+        return nullptr;
+#endif
+    }
+
+    // Sets DLSS-RR up for renderWidth x renderHeight frames into outputWidth x outputHeight ones at a quality (as
+    // Donut_GetDlssOptimalRenderSize's), with a render preset (NVSDK_NGX_RayReconstruction_Hint_Render_Preset: 0 the
+    // default, 4 D, 5 E, 6 F) for every quality; again whenever one of them changes. Non-zero if ready. The feature
+    // is sl.dlss_d's: HDR color, render-size motion vectors, reverse-Z depth, roughness packed in normals.w.
+    DONUT_API int Donut_InitDlssRayReconstruction(DlssRayReconstruction* dlssRayReconstruction, int renderWidth, int renderHeight, int outputWidth,
+        int outputHeight, int quality, int preset)
+    {
+#if DONUT_WITH_DLSS_RR
+        auto* rr = dlssRayReconstruction;
+        if (rr->feature && rr->renderWidth == uint32_t(renderWidth) && rr->renderHeight == uint32_t(renderHeight) &&
+            rr->outputWidth == uint32_t(outputWidth) && rr->outputHeight == uint32_t(outputHeight) && rr->quality == quality &&
+            rr->preset == preset)
+            return 1;
+        rr->ReleaseFeature();
+        rr->renderWidth = uint32_t(renderWidth);
+        rr->renderHeight = uint32_t(renderHeight);
+        rr->outputWidth = uint32_t(outputWidth);
+        rr->outputHeight = uint32_t(outputHeight);
+        rr->quality = quality;
+        rr->preset = preset;
+        rr->evaluateFailed = false;
+
+        NVSDK_NGX_Parameter* p = rr->parameters;
+        const char* presets[] = {
+            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_DLAA, NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Quality,
+            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Balanced, NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Performance,
+            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_UltraPerformance, NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_UltraQuality };
+        for (const char* name : presets)
+            NVSDK_NGX_Parameter_SetUI(p, name, unsigned(preset));
+        NVSDK_NGX_Parameter_SetI(p, NVSDK_NGX_Parameter_FreeMemOnReleaseFeature, 1);
+
+        // Created for DLSS-RR's own optimal render size of the quality (as sl.dlss_d), which the frames' size
+        // (renderWidth x renderHeight, the subrect at evaluation) may differ from: the quality mode's 3/4 override.
+        // (The SDK has that query in its D3D helper header only.)
+        unsigned int createWidth = 0, createHeight = 0;
+#if DONUT_WITH_DX12
+        unsigned int maxWidth = 0, maxHeight = 0, minWidth = 0, minHeight = 0;
+        float sharpness = 0.f;
+        if (NVSDK_NGX_FAILED(NGX_DLSSD_GET_OPTIMAL_SETTINGS(p, rr->outputWidth, rr->outputHeight, NVSDK_NGX_PerfQuality_Value(quality),
+            &createWidth, &createHeight, &maxWidth, &maxHeight, &minWidth, &minHeight, &sharpness)))
+            createWidth = createHeight = 0;
+#endif
+        if (createWidth == 0 || createHeight == 0)
+        {
+            createWidth = rr->renderWidth;
+            createHeight = rr->renderHeight;
+        }
+
+        NVSDK_NGX_DLSSD_Create_Params createParams = {};
+        createParams.InDenoiseMode = NVSDK_NGX_DLSS_Denoise_Mode_DLUnified;
+        createParams.InRoughnessMode = NVSDK_NGX_DLSS_Roughness_Mode_Packed;
+        createParams.InUseHWDepth = NVSDK_NGX_DLSS_Depth_Type_HW;
+        createParams.InWidth = createWidth;
+        createParams.InHeight = createHeight;
+        createParams.InTargetWidth = rr->outputWidth;
+        createParams.InTargetHeight = rr->outputHeight;
+        createParams.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value(quality);
+        createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes | NVSDK_NGX_DLSS_Feature_Flags_IsHDR |
+            NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
+
+        rr->featureCommandList->open();
+        NVSDK_NGX_Result result = NVSDK_NGX_Result_Fail;
+#if DONUT_WITH_DX12
+        if (rr->d3d12)
+        {
+            ID3D12GraphicsCommandList* d3dCommandList = rr->featureCommandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            result = NGX_D3D12_CREATE_DLSSD_EXT(d3dCommandList, 1, 1, &rr->feature, p, &createParams);
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (!rr->d3d12)
+        {
+            VkCommandBuffer vkCommandBuffer = rr->featureCommandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            VkDevice vkDevice = rr->device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            result = NGX_VULKAN_CREATE_DLSSD_EXT1(vkDevice, vkCommandBuffer, 1, 1, &rr->feature, p, &createParams);
+        }
+#endif
+        rr->featureCommandList->close();
+        rr->device->executeCommandList(rr->featureCommandList);
+
+        if (NVSDK_NGX_FAILED(result))
+        {
+            donut::log::warning("Failed to create the DLSS-RR feature, Result = 0x%08x (%ls)", result, GetNGXResultAsString(result));
+            rr->feature = nullptr;
+            return 0;
+        }
+        return 1;
+#else
+        (void)dlssRayReconstruction; (void)renderWidth; (void)renderHeight; (void)outputWidth; (void)outputHeight; (void)quality; (void)preset;
+        return 0;
+#endif
+    }
+
+    DONUT_API int Donut_IsDlssRayReconstructionInitialized(DlssRayReconstruction* dlssRayReconstruction)
+    {
+#if DONUT_WITH_DLSS_RR
+        return dlssRayReconstruction->feature && !dlssRayReconstruction->evaluateFailed ? 1 : 0;
+#else
+        (void)dlssRayReconstruction;
+        return 0;
+#endif
+    }
+
+    // Denoises, anti-aliases and upscales color (HDR radiance, the render size) into output (a UAV texture of the
+    // output size), guided by depth (reverse-Z), motionVectors (pixels, previous minus current), diffuseAlbedo,
+    // specularAlbedo, normalRoughness (normals, roughness in .w) and specularMotionVectors (all of the render size),
+    // the view's worldToView and unjittered viewToClip matrices (Donut's float4x4: row-major, row vectors, as
+    // Streamline takes them), and this frame's (jitterX, jitterY) in render pixels. reset: no history.
+    DONUT_API void Donut_EvaluateDlssRayReconstruction(nvrhi::ICommandList* commandList, DlssRayReconstruction* dlssRayReconstruction, nvrhi::ITexture* color,
+        nvrhi::ITexture* output, nvrhi::ITexture* depth, nvrhi::ITexture* motionVectors, nvrhi::ITexture* diffuseAlbedo, nvrhi::ITexture* specularAlbedo,
+        nvrhi::ITexture* normalRoughness, nvrhi::ITexture* specularMotionVectors, const float* worldToView, const float* viewToClip, double jitterX,
+        double jitterY, int reset)
+    {
+#if DONUT_WITH_DLSS_RR
+        auto* rr = dlssRayReconstruction;
+        if (!rr->feature || rr->evaluateFailed)
+            return;
+
+        commandList->beginMarker("DLSS-RR");
+        nvrhi::ITexture* inputs[] = { color, depth, motionVectors, diffuseAlbedo, specularAlbedo, normalRoughness, specularMotionVectors };
+        for (nvrhi::ITexture* input : inputs)
+            commandList->setTextureState(input, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(output, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->commitBarriers();
+
+        // The helpers take non-const matrices.
+        float worldToViewMatrix[16];
+        float viewToClipMatrix[16];
+        std::memcpy(worldToViewMatrix, worldToView, sizeof(worldToViewMatrix));
+        std::memcpy(viewToClipMatrix, viewToClip, sizeof(viewToClipMatrix));
+        const NVSDK_NGX_Dimensions renderSize = { rr->renderWidth, rr->renderHeight };
+
+        NVSDK_NGX_Result result = NVSDK_NGX_Result_Fail;
+#if DONUT_WITH_DX12
+        if (rr->d3d12)
+        {
+            auto resource = [](nvrhi::ITexture* texture) { return static_cast<ID3D12Resource*>(texture->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource).pointer); };
+            NVSDK_NGX_D3D12_DLSSD_Eval_Params params = {};
+            params.pInColor = resource(color);
+            params.pInOutput = resource(output);
+            params.pInDepth = resource(depth);
+            params.pInMotionVectors = resource(motionVectors);
+            params.pInDiffuseAlbedo = resource(diffuseAlbedo);
+            params.pInSpecularAlbedo = resource(specularAlbedo);
+            params.pInNormals = resource(normalRoughness);
+            params.pInRoughness = resource(normalRoughness);
+            params.pInMotionVectorsReflections = resource(specularMotionVectors);
+            params.InJitterOffsetX = float(jitterX);
+            params.InJitterOffsetY = float(jitterY);
+            params.InRenderSubrectDimensions = renderSize;
+            params.InReset = reset;
+            params.InMVScaleX = 1.f;
+            params.InMVScaleY = 1.f;
+            params.InPreExposure = 1.f;
+            params.InExposureScale = 1.f;
+            params.pInWorldToViewMatrix = worldToViewMatrix;
+            params.pInViewToClipMatrix = viewToClipMatrix;
+            ID3D12GraphicsCommandList* d3dCommandList = commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            result = NGX_D3D12_EVALUATE_DLSSD_EXT(d3dCommandList, rr->feature, rr->parameters, &params);
+        }
+#endif
+#if DONUT_WITH_VULKAN
+        if (!rr->d3d12)
+        {
+            NVSDK_NGX_Resource_VK colorResource = DlssNrTextureResource(color);
+            NVSDK_NGX_Resource_VK outputResource = DlssNrTextureResource(output);
+            NVSDK_NGX_Resource_VK depthResource = DlssNrTextureResource(depth);
+            NVSDK_NGX_Resource_VK motionVectorsResource = DlssNrTextureResource(motionVectors);
+            NVSDK_NGX_Resource_VK diffuseAlbedoResource = DlssNrTextureResource(diffuseAlbedo);
+            NVSDK_NGX_Resource_VK specularAlbedoResource = DlssNrTextureResource(specularAlbedo);
+            NVSDK_NGX_Resource_VK normalRoughnessResource = DlssNrTextureResource(normalRoughness);
+            NVSDK_NGX_Resource_VK specularMotionVectorsResource = DlssNrTextureResource(specularMotionVectors);
+            NVSDK_NGX_VK_DLSSD_Eval_Params params = {};
+            params.pInColor = &colorResource;
+            params.pInOutput = &outputResource;
+            params.pInDepth = &depthResource;
+            params.pInMotionVectors = &motionVectorsResource;
+            params.pInDiffuseAlbedo = &diffuseAlbedoResource;
+            params.pInSpecularAlbedo = &specularAlbedoResource;
+            params.pInNormals = &normalRoughnessResource;
+            params.pInRoughness = &normalRoughnessResource;
+            params.pInMotionVectorsReflections = &specularMotionVectorsResource;
+            params.InJitterOffsetX = float(jitterX);
+            params.InJitterOffsetY = float(jitterY);
+            params.InRenderSubrectDimensions = renderSize;
+            params.InReset = reset;
+            params.InMVScaleX = 1.f;
+            params.InMVScaleY = 1.f;
+            params.InPreExposure = 1.f;
+            params.InExposureScale = 1.f;
+            params.pInWorldToViewMatrix = worldToViewMatrix;
+            params.pInViewToClipMatrix = viewToClipMatrix;
+            VkCommandBuffer vkCommandBuffer = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            result = NGX_VULKAN_EVALUATE_DLSSD_EXT(vkCommandBuffer, rr->feature, rr->parameters, &params);
+        }
+#endif
+        // NGX changed the API's state behind NVRHI's back.
+        commandList->clearState();
+        if (NVSDK_NGX_FAILED(result))
+        {
+            // Not again (Donut_IsDlssRayReconstructionInitialized then returns 0).
+            donut::log::warning("Failed to evaluate DLSS-RR, Result = 0x%08x (%ls)", result, GetNGXResultAsString(result));
+            rr->evaluateFailed = true;
+        }
+        commandList->endMarker();
+#else
+        (void)commandList; (void)dlssRayReconstruction; (void)color; (void)output; (void)depth; (void)motionVectors; (void)diffuseAlbedo;
+        (void)specularAlbedo; (void)normalRoughness; (void)specularMotionVectors; (void)worldToView; (void)viewToClip; (void)jitterX; (void)jitterY;
+        (void)reset;
 #endif
     }
 

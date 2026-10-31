@@ -1690,6 +1690,18 @@ export class App {
         return new DlssNeuralRendering(Donut_CreateDlssNeuralRendering(this.handle, dlss.handle));
     }
 
+    // DLSS's render size for an outputWidth x outputHeight image at a quality (0 performance, 1 balanced, 2 quality, 3 ultra
+    // performance, 4 ultra quality, 5 DLAA), as NGX recommends it: width | height << 16, or 0 without DLSS.
+    getDlssOptimalRenderSize(dlss: Dlss, outputWidth: int, outputHeight: int, quality: int): int {
+        return Donut_GetDlssOptimalRenderSize(this.handle, dlss.handle, outputWidth, outputHeight, quality);
+    }
+
+    // DLSS Ray Reconstruction (loads nvngx_dlssd.dll), over dlss's NGX instance; null unless built with DONUT_WITH_DLSS, on
+    // Vulkan or D3D12, where DLSS-RR is available.
+    createDlssRayReconstruction(dlss: Dlss): DlssRayReconstruction {
+        return new DlssRayReconstruction(Donut_CreateDlssRayReconstruction(this.handle, dlss.handle));
+    }
+
     // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
     createPixelReadbackPass(texture: TextureHandle): PixelReadbackPass {
         return new PixelReadbackPass(Donut_CreatePixelReadbackPass(this.handle, texture));
@@ -2399,6 +2411,13 @@ export class CommandList {
     // reverse-Z if depthInverted), motionVectors (RG float, pixels, previous minus current), this frame's jitter.
     evaluateDlssNeuralRenderingTextures(dlssNeuralRendering: DlssNeuralRendering, ldrColor: TextureHandle, depth: TextureHandle, motionVectors: TextureHandle, jitterX: number, jitterY: number, depthInverted: int, intensity: number, toneStrength: number, structureStrength: number, model: int, useAutoMask: int, skinStructureStrength: number, reset: int): void {
         Donut_EvaluateDlssNeuralRenderingTextures(this.handle, dlssNeuralRendering.handle, ldrColor, depth, motionVectors, jitterX, jitterY, depthInverted, intensity, toneStrength, structureStrength, model, useAutoMask, skinStructureStrength, reset);
+    }
+
+    // Denoises, anti-aliases and upscales color (HDR, render size) into output (UAV, output size), guided by depth (reverse-Z),
+    // motionVectors (pixels, previous minus current), diffuse and specular albedo, normalRoughness (roughness in .w) and specular
+    // motion vectors, the view's worldToView and unjittered viewToClip matrices (16 floats, row-major) and the jitter. reset: no history.
+    evaluateDlssRayReconstruction(dlssRayReconstruction: DlssRayReconstruction, color: TextureHandle, output: TextureHandle, depth: TextureHandle, motionVectors: TextureHandle, diffuseAlbedo: TextureHandle, specularAlbedo: TextureHandle, normalRoughness: TextureHandle, specularMotionVectors: TextureHandle, worldToView: Ref<f32>, viewToClip: Ref<f32>, jitterX: number, jitterY: number, reset: int): void {
+        Donut_EvaluateDlssRayReconstruction(this.handle, dlssRayReconstruction.handle, color, output, depth, motionVectors, diffuseAlbedo, specularAlbedo, normalRoughness, specularMotionVectors, worldToView, viewToClip, jitterX, jitterY, reset);
     }
 
     capturePixel(pixelReadbackPass: PixelReadbackPass, x: int, y: int): void {
@@ -4055,9 +4074,10 @@ export class Dlss {
         return !this.handle;
     }
 
-    // For inputWidth x inputHeight images upscaled to outputWidth x outputHeight; non-zero if ready.
-    init(inputWidth: int, inputHeight: int, outputWidth: int, outputHeight: int): int {
-        return Donut_InitDlss(this.handle, inputWidth, inputHeight, outputWidth, outputHeight);
+    // For inputWidth x inputHeight images upscaled to outputWidth x outputHeight; autoExposure: DLSS measures the exposure
+    // (without an exposure buffer, as Donut_EvaluateDlssTextures; Streamline does so). Non-zero if ready.
+    init(inputWidth: int, inputHeight: int, outputWidth: int, outputHeight: int, autoExposure: int): int {
+        return Donut_InitDlss(this.handle, inputWidth, inputHeight, outputWidth, outputHeight, autoExposure);
     }
 
     isInitialized(): boolean {
@@ -4085,6 +4105,30 @@ export class DlssNeuralRendering {
 
     isInitialized(): boolean {
         return Donut_IsDlssNeuralRenderingInitialized(this.handle) != 0;
+    }
+}
+
+@value
+export class DlssRayReconstruction {
+    readonly handle: DlssRayReconstructionHandle;
+
+    constructor(handle: DlssRayReconstructionHandle | null) {
+        this.handle = handle as DlssRayReconstructionHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    // For renderWidth x renderHeight frames into outputWidth x outputHeight ones at a quality (as above), with a render preset
+    // (0 default, 4 D, 5 E, 6 F); non-zero if ready.
+    init(renderWidth: int, renderHeight: int, outputWidth: int, outputHeight: int, quality: int, preset: int): int {
+        return Donut_InitDlssRayReconstruction(this.handle, renderWidth, renderHeight, outputWidth, outputHeight, quality, preset);
+    }
+
+    isInitialized(): boolean {
+        return Donut_IsDlssRayReconstructionInitialized(this.handle) != 0;
     }
 }
 

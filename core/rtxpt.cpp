@@ -4,8 +4,8 @@
 // place) driven for examples/rtxpt.ts, which is the sample's host: what Sample.cpp decides (settings,
 // camera, accumulation, when to rebuild) is there, and RtxptRenderer here holds the sample's C++ objects
 // and does its steps on them (Sample.cpp's and AdvancedSample.cpp's: the reference mode, and the real-time
-// mode with its denoising layers, NRD and TAA or DLSS; no RTXDI, SHaRC, sub-sampling, opacity micromaps, DLSS-RR
-// or async compute). Built only with RTXPT_DIR, which also puts the sample's sources on the include path.
+// mode with its denoising layers, NRD and TAA, or DLSS / DLSS-RR with upscaling; no RTXDI, SHaRC, sub-sampling,
+// opacity micromaps or async compute). Built only with RTXPT_DIR, which also puts the sample's sources on the include path.
 //
 // This software contains source code provided by NVIDIA Corporation.
 //
@@ -83,14 +83,21 @@ using namespace donut::engine;
 #include <donut/shaders/light_cb.h>
 #include <donut/shaders/view_cb.h>
 
-// core/donut_interop.cpp's DLSS (Donut's, over NGX; does nothing without DONUT_WITH_DLSS): the real-time mode's
-// "DLSS" anti-aliasing, at the render size (the sample's runs through Streamline, upscaling).
+// core/donut_interop.cpp's DLSS (Donut's, over NGX) and DLSS-RR (its own NGX feature), which do nothing without
+// DONUT_WITH_DLSS: the real-time mode's "DLSS" and "DLSS-RR" modes, from the render size to the display size (the
+// sample's run through Streamline).
 namespace donut::render { class DLSS; }
+struct DlssRayReconstruction;
 extern "C"
 {
     DONUT_API int Donut_IsDlssInitialized(donut::render::DLSS* dlss);
     DONUT_API void Donut_EvaluateDlssTextures(nvrhi::ICommandList* commandList, donut::render::DLSS* dlss, nvrhi::ITexture* depth, nvrhi::ITexture* motionVectors,
         nvrhi::ITexture* inputColor, nvrhi::ITexture* outputColor, int width, int height, double jitterX, double jitterY, int reset);
+    DONUT_API int Donut_IsDlssRayReconstructionInitialized(DlssRayReconstruction* dlssRayReconstruction);
+    DONUT_API void Donut_EvaluateDlssRayReconstruction(nvrhi::ICommandList* commandList, DlssRayReconstruction* dlssRayReconstruction, nvrhi::ITexture* color,
+        nvrhi::ITexture* output, nvrhi::ITexture* depth, nvrhi::ITexture* motionVectors, nvrhi::ITexture* diffuseAlbedo, nvrhi::ITexture* specularAlbedo,
+        nvrhi::ITexture* normalRoughness, nvrhi::ITexture* specularMotionVectors, const float* worldToView, const float* viewToClip, double jitterX,
+        double jitterY, int reset);
 }
 
 // OmmBaker.cpp's (opacity micromaps, not built): ExtendedScene and LightsBaker read it.
@@ -119,7 +126,7 @@ struct RtxptFrameSettings
     float exposureValueMin;     float exposureValueMax;         uint32_t enableBloom;           float bloomRadius;
     float bloomIntensity;       uint32_t activeDenoisingLayerCount; uint32_t denoisingLayersMaxVertexDepth; uint32_t allowPrimarySurfaceReplacement;
     float denoisingLayersSplitStopThreshold; float denoisingLayersSuppressPrimaryIndirectSpecularK; float denoisingLayersAntiAliasingFallthrough; float denoiserRadianceClampK;
-    // The real-time mode: realtimeAA 0 none, 1 TAA, 2 DLSS; nrdMethod 0 ReBLUR, 1 ReLAX (NrdConfig::DenoiserMethod).
+    // The real-time mode: realtimeAA 0 none, 1 TAA, 2 DLSS, 3 DLSS-RR; nrdMethod 0 ReBLUR, 1 ReLAX (NrdConfig::DenoiserMethod).
     uint32_t realtimeMode;      uint32_t realtimeAA;            uint32_t standaloneDenoiser;    uint32_t nrdMethod;
     uint32_t resetRealtimeCaches; uint32_t enableAnimations;    uint32_t taaJitter;             float taaNewFrameWeight;
     uint32_t taaEnableHistoryClamping; uint32_t taaUseHistoryClampRelax; float nrdDisocclusionThreshold; float nrdDisocclusionThresholdAlternate;
@@ -245,9 +252,14 @@ struct RtxptRenderer
     // standalone denoiser is on), with SampleUI's settings for them.
     std::unique_ptr<render::TemporalAntiAliasingPass> temporalAntiAliasingPass;
     bool temporalAntiAliasingFeedbackValid = false;
-    // DLSS (Donut_RtxptRendererSetDlss; the example owns it), and whether it ran last frame (else no history).
+    // DLSS and DLSS-RR (Donut_RtxptRendererSetDlss; the example owns them), whether each ran last frame (else no
+    // history), and whether the passes were made again since the last frame (Sample::Render's needNewPasses, which
+    // resets DLSS's history too).
     donut::render::DLSS* dlss = nullptr;
+    DlssRayReconstruction* dlssRayReconstruction = nullptr;
     bool dlssActive = false;
+    bool dlssRayReconstructionActive = false;
+    bool passesChanged = false;
     std::unique_ptr<NrdIntegration> nrdInstances[cDenoisingLayerCount];
     uint32_t nrdMethod = 0;
     nrd::ReblurSettings reblurSettings = NrdConfig::getDefaultREBLURSettings();
@@ -264,7 +276,9 @@ struct RtxptRenderer
     SceneRenderCache sceneRenderCache;
     std::shared_ptr<PlanarView> view;
     std::shared_ptr<PlanarView> viewPrevious;
+    // The path tracer's size, and the display's (bigger with DLSS(-RR) upscaling; tone mapping and LdrColor's).
     uint2 renderSize = { 0, 0 };
+    uint2 displaySize = { 0, 0 };
     std::vector<ShaderMacro> globalMacros;      // examples/rtxpt.ts's (Sample::GetPTPipelineGlobalMacros)
     nvrhi::BindingSetHandle bindingSet;
 
@@ -787,12 +801,15 @@ struct RtxptRenderer
     }
 
     // Sample::Render's renderer setup (its needNewPasses branches, RecreateAccelStructs, the pipeline bakers'
-    // Update), done between frames on a command list of its own. Bits of the result: 1 the render targets
-    // were made again, 2 the passes, 4 the acceleration structures.
-    int Prepare(uint32_t width, uint32_t height, bool needNewPasses, bool rebuildAccelStructs, int qualityPreset)
+    // Update), done between frames on a command list of its own, for renderWidth x renderHeight frames shown at
+    // displayWidth x displayHeight (Sample::CreateRenderPasses' m_renderSize, m_displaySize). Bits of the result:
+    // 1 the render targets were made again, 2 the passes, 4 the acceleration structures.
+    int Prepare(uint32_t width, uint32_t height, uint32_t displayWidth, uint32_t displayHeight, bool needNewPasses, bool rebuildAccelStructs,
+        int qualityPreset)
     {
         int result = 0;
-        if (renderTargets == nullptr || renderSize.x != width || renderSize.y != height)
+        if (renderTargets == nullptr || renderSize.x != width || renderSize.y != height || displaySize.x != displayWidth ||
+            displaySize.y != displayHeight)
         {
             device->waitForIdle();
             device->runGarbageCollection();
@@ -801,8 +818,9 @@ struct RtxptRenderer
             renderTargets = nullptr;
             bindingCache->Clear();
             renderSize = uint2(width, height);
+            displaySize = uint2(displayWidth, displayHeight);
             renderTargets = std::make_unique<RenderTargets>();
-            renderTargets->Init(device, renderSize, renderSize, c_SwapchainCount, RenderTargets::OptionalBuffers{});
+            renderTargets->Init(device, renderSize, displaySize, c_SwapchainCount, RenderTargets::OptionalBuffers{});
             view->SetViewport(nvrhi::Viewport(float(width), float(height)));
             viewPrevious->SetViewport(nvrhi::Viewport(float(width), float(height)));
             needNewPasses = true;
@@ -855,6 +873,7 @@ struct RtxptRenderer
 
         if (needNewPasses)
         {
+            passesChanged = true;
             device->waitForIdle();
             commandList->open();
             CreateRenderPasses(commandList);
@@ -945,8 +964,8 @@ struct RtxptRenderer
         return result;
     }
 
-    // Sample::ComputeCameraJitter: TAA's own sequence, or (DLSS) the same sequences by frame index; none in reference
-    // mode or without AA. The render size is the display size here: Halton's phase count is 32.
+    // Sample::ComputeCameraJitter: TAA's own sequence, or (DLSS, DLSS-RR) the same sequences by frame index; none in
+    // reference mode or without AA.
     float2 ComputeCameraJitter() const
     {
         const RtxptFrameSettings& s = settings;
@@ -969,7 +988,10 @@ struct RtxptRenderer
         }
         case render::TemporalAntiAliasingJitter::Halton:
         {
-            const uint32_t index = uint32_t(frameIndex % 32) + 1;
+            // 8 * (display / render pixel area) phases (DLSS guide 3.7.1.1), at least 32 (DLSS-RR guide 3.6).
+            const float areaRatio = float(displaySize.x * displaySize.y) / float(renderSize.x * renderSize.y);
+            const uint32_t phaseCount = std::max(32u, uint32_t(std::ceil(8.0f * areaRatio)));
+            const uint32_t index = uint32_t(frameIndex % phaseCount) + 1;
             return float2{ VanDerCorput(2, index), VanDerCorput(3, index) } - 0.5f;
         }
         case render::TemporalAntiAliasingJitter::R2:
@@ -999,7 +1021,8 @@ struct RtxptRenderer
         const float3 trueUp = normalize(cross(right, dir));
         const affine3 worldToView = translation(-pos) * affine3::from_cols(right, trueUp, dir, 0.f);
         view->SetViewport(nvrhi::Viewport(float(renderSize.x), float(renderSize.y)));
-        view->SetMatrices(worldToView, perspProjD3DStyleReverse(s.fovY, float(renderSize.x) / float(renderSize.y), s.zNear));
+        // The display's aspect ratio: the render size's rounds (DLSS upscaling).
+        view->SetMatrices(worldToView, perspProjD3DStyleReverse(s.fovY, DisplayAspectRatio(), s.zNear));
         view->SetPixelOffset(ComputeCameraJitter());
         view->UpdateCache();
         if (firstFrame)
@@ -1071,7 +1094,7 @@ struct RtxptRenderer
         SampleConstants& c = constants;
         std::memset(&c, 0, sizeof(c));
         const float3 camPos(s.cameraPos[0], s.cameraPos[1], s.cameraPos[2]);
-        const PathTracerCameraData cameraData = BridgeCamera(renderSize.x, renderSize.y, float(renderSize.x) / float(renderSize.y),
+        const PathTracerCameraData cameraData = BridgeCamera(renderSize.x, renderSize.y, DisplayAspectRatio(),
             camPos, float3(s.cameraDir[0], s.cameraDir[1], s.cameraDir[2]), float3(s.cameraUp[0], s.cameraUp[1], s.cameraUp[2]),
             s.fovY, s.zNear, 1e7f, s.focalDistance, s.apertureRadius, view->GetPixelOffset());
         PathTracerConstants& pt = c.ptConsts;
@@ -1081,7 +1104,9 @@ struct RtxptRenderer
         pt.bounceCount = s.bounceCount;
         pt.diffuseBounceCount = s.diffuseBounceCount;
         pt.perPixelJitterAAScale = s.perPixelJitterAAScale;
-        pt.texLODBias = s.texLODBias;
+        // Sharper textures where DLSS upscales: -log2 of the linear upscale.
+        const float dlssBias = -std::log2(std::sqrt(float(displaySize.x * displaySize.y) / float(renderSize.x * renderSize.y)));
+        pt.texLODBias = s.texLODBias + dlssBias;
         const uint32_t samplesPerPixel = ActualSamplesPerPixel();
         pt.sampleBaseIndex = s.sampleIndex * samplesPerPixel;
         pt.invSubSampleCount = 1.0f / (float)samplesPerPixel;
@@ -1093,7 +1118,8 @@ struct RtxptRenderer
         pt.useReSTIRGI = 0;
         pt.denoiserRadianceClampK = s.denoiserRadianceClampK;
         pt.DLSSRRBrightnessClampK = 4096.0f * pt.preExposedGrayLuminance;   // SampleUIData's DLSSRRBrightnessClampK
-        pt.denoisingEnabled = UseStandaloneDenoiser() ? 1 : 0;
+        // The denoising layers' guides: for NRD, or DLSS-RR's.
+        pt.denoisingEnabled = (UseStandaloneDenoiser() || UseRayReconstruction()) ? 1 : 0;
         pt._activeDenoisingLayerCount = s.activeDenoisingLayerCount;
         pt.maxDenoisingLayerVertexDepth = std::min(std::min(s.denoisingLayersMaxVertexDepth, cDenoisingLayerMaxVertexIndex), s.bounceCount);
         pt.allowPrimarySurfaceReplacement = s.allowPrimarySurfaceReplacement;
@@ -1184,10 +1210,21 @@ struct RtxptRenderer
         return environmentChanged;
     }
 
-    // SampleUIData::ActualUseStandaloneDenoiser (TAA or no AA: DLSS-RR, the other denoiser, isn't ported).
+    // SampleUIData::ActualUseStandaloneDenoiser: NRD, but not under DLSS-RR, which denoises itself.
     bool UseStandaloneDenoiser() const
     {
-        return settings.realtimeMode && settings.standaloneDenoiser;
+        return settings.realtimeMode && settings.realtimeAA < 3 && settings.standaloneDenoiser;
+    }
+
+    // The real-time mode's DLSS-RR (the sample's default AA mode).
+    bool UseRayReconstruction() const
+    {
+        return settings.realtimeMode && settings.realtimeAA == 3;
+    }
+
+    float DisplayAspectRatio() const
+    {
+        return float(displaySize.x) / float(displaySize.y);
     }
 
     // The path tracer's samples per pixel in a frame: the real-time mode's, 1 in reference mode.
@@ -1297,24 +1334,48 @@ struct RtxptRenderer
         }
     }
 
-    // Sample::PostProcessAA: the accumulation in reference mode; TAA, DLSS (or a copy) in real-time mode, then without the
-    // denoiser the denoising layers' merge into OutputColor (after the copy, as the sample does).
+    // Sample::PostProcessAA: the accumulation in reference mode; TAA, DLSS, DLSS-RR (or a copy) in real-time mode, then
+    // without a denoiser the denoising layers' merge into OutputColor (after the copy, as the sample does). DLSS's and
+    // DLSS-RR's history restarts with new passes and real-time caches (the sample's reset), or when it didn't run.
     void PostProcessAA(nvrhi::ICommandList* cl, float accumulationWeight)
     {
+        const bool reset = passesChanged || settings.frameIndex == 0 || settings.resetRealtimeCaches;
+        passesChanged = false;
         const bool dlssRuns = settings.realtimeMode && settings.realtimeAA == 2 && dlss != nullptr && Donut_IsDlssInitialized(dlss);
-        const bool dlssReset = !dlssActive || settings.frameIndex == 0 || settings.resetRealtimeCaches;
+        const bool dlssReset = reset || !dlssActive;
         dlssActive = dlssRuns;
+        const bool rayReconstructionRuns = UseRayReconstruction() && dlssRayReconstruction != nullptr &&
+            Donut_IsDlssRayReconstructionInitialized(dlssRayReconstruction);
+        const bool rayReconstructionReset = reset || !dlssRayReconstructionActive;
+        dlssRayReconstructionActive = rayReconstructionRuns;
         if (!settings.realtimeMode)
         {
             accumulationPass->Render(cl, *view, *view, accumulationWeight);
             return;
         }
+        // Depth (reverse-Z) and ScreenMotionVectors (pixels, previous minus current) as Donut's TAA takes them, with
+        // the jitter the rays were shot with (render pixels).
+        const float2 jitter = view->GetPixelOffset();
         if (dlssRuns)
         {
-            // Depth (reverse-Z) and ScreenMotionVectors (pixels, previous minus current) as Donut's TAA takes them.
-            const float2 jitter = view->GetPixelOffset();
             Donut_EvaluateDlssTextures(cl, dlss, renderTargets->Depth, renderTargets->ScreenMotionVectors, renderTargets->OutputColor,
                 renderTargets->ProcessedOutputColor, int(renderSize.x), int(renderSize.y), jitter.x, jitter.y, dlssReset ? 1 : 0);
+        }
+        else if (UseRayReconstruction())
+        {
+            // Sample::Render: the guides (and OutputColor, the denoising layers' combined radiance) before DLSS-RR,
+            // which reads the path tracer's specular motion vectors too; the view's matrices as Streamline's constants.
+            denoisingGuidesBaker->PrepareDLSSRRGuides(cl, bindingSet);
+            if (rayReconstructionRuns)
+            {
+                const float4x4 worldToView = affineToHomogeneous(view->GetViewMatrix());
+                const float4x4 viewToClip = view->GetProjectionMatrix(false);
+                Donut_EvaluateDlssRayReconstruction(cl, dlssRayReconstruction, renderTargets->OutputColor, renderTargets->ProcessedOutputColor,
+                    renderTargets->Depth, renderTargets->ScreenMotionVectors, renderTargets->RRDiffuseAlbedo, renderTargets->RRSpecAlbedo,
+                    renderTargets->RRNormalsAndRoughness, renderTargets->RRSpecMotionVectors, worldToView.m_data, viewToClip.m_data,
+                    jitter.x, jitter.y, rayReconstructionReset ? 1 : 0);
+            }
+            return;
         }
         else if (settings.realtimeAA == 1 && temporalAntiAliasingPass != nullptr)
         {
@@ -1344,7 +1405,7 @@ struct RtxptRenderer
         PostProcessAA(cl, accumulationWeight);
 
         PlanarView fullscreenView = *view;
-        fullscreenView.SetViewport(nvrhi::Viewport(float(renderSize.x), float(renderSize.y)));
+        fullscreenView.SetViewport(nvrhi::Viewport(float(displaySize.x), float(displaySize.y)));
         fullscreenView.UpdateCache();
         if (settings.enableBloom && settings.bloomIntensity > 0.f && settings.bloomRadius > 0.f)
             bloomPass->Render(cl, renderTargets->ProcessedOutputFramebuffer, fullscreenView, renderTargets->ProcessedOutputColor,
@@ -1684,11 +1745,14 @@ extern "C"
             (void)anim->Apply((float)std::fmod(sceneTime, (double)anim->GetDuration()));
     }
 
-    // The renderer's setup for width x height, between frames (in the animate callback: it executes command
-    // lists of its own): see RtxptRenderer::Prepare. Bits: 1 render targets made, 2 passes, 4 acceleration structures.
-    DONUT_API int Donut_RtxptRendererPrepare(RtxptRenderer* r, int width, int height, bool needNewPasses, bool rebuildAccelStructs, int neeatQualityPreset)
+    // The renderer's setup for width x height frames shown at displayWidth x displayHeight (bigger with DLSS
+    // upscaling), between frames (in the animate callback: it executes command lists of its own): see
+    // RtxptRenderer::Prepare. Bits: 1 render targets made, 2 passes, 4 acceleration structures.
+    DONUT_API int Donut_RtxptRendererPrepare(RtxptRenderer* r, int width, int height, int displayWidth, int displayHeight, bool needNewPasses,
+        bool rebuildAccelStructs, int neeatQualityPreset)
     {
-        return r->Prepare((uint32_t)width, (uint32_t)height, needNewPasses, rebuildAccelStructs, neeatQualityPreset);
+        return r->Prepare((uint32_t)width, (uint32_t)height, (uint32_t)displayWidth, (uint32_t)displayHeight, needNewPasses, rebuildAccelStructs,
+            neeatQualityPreset);
     }
 
     // The frame's settings (examples/rtxpt.ts's FRAME_SETTINGS_SIZE bytes) and scene time, then everything up
@@ -1723,11 +1787,18 @@ extern "C"
         return r->renderTargets->LdrColor;
     }
 
-    // DLSS (Donut_CreateDlss, initialized for the render size by the caller) for the real-time mode's realtimeAA 2;
-    // null: none (the copy instead).
+    // DLSS (Donut_CreateDlss, initialized by the caller for the render and display sizes) for the real-time mode's
+    // realtimeAA 2; null: none (the copy instead).
     DONUT_API void Donut_RtxptRendererSetDlss(RtxptRenderer* r, donut::render::DLSS* dlss)
     {
         r->dlss = dlss;
+    }
+
+    // DLSS-RR (Donut_CreateDlssRayReconstruction, initialized by the caller for the render and display sizes) for the
+    // real-time mode's realtimeAA 3; null: none (the image stays black).
+    DONUT_API void Donut_RtxptRendererSetDlssRayReconstruction(RtxptRenderer* r, DlssRayReconstruction* dlssRayReconstruction)
+    {
+        r->dlssRayReconstruction = dlssRayReconstruction;
     }
 
     // The frame's depth (R32_FLOAT, reverse-Z) and screen motion vectors (RGBA16_FLOAT, pixels, previous minus

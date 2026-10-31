@@ -2862,8 +2862,9 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // NVIDIA DLSS (loads nvngx_dlss.dll from the executable's directory); null when built without
 // DONUT_WITH_DLSS or the device can't create it.
 @nodrops declare function Donut_CreateDlss(app: AppHandle): DlssHandle;
-// For inputWidth x inputHeight images upscaled to outputWidth x outputHeight; non-zero if ready.
-@nodrops declare function Donut_InitDlss(dlss: DlssHandle, inputWidth: int, inputHeight: int, outputWidth: int, outputHeight: int): int;
+// For inputWidth x inputHeight images upscaled to outputWidth x outputHeight; autoExposure: DLSS measures the exposure
+// (without an exposure buffer, as Donut_EvaluateDlssTextures; Streamline does so). Non-zero if ready.
+@nodrops declare function Donut_InitDlss(dlss: DlssHandle, inputWidth: int, inputHeight: int, outputWidth: int, outputHeight: int, autoExposure: int): int;
 @nodrops declare function Donut_IsDlssInitialized(dlss: DlssHandle): int;
 // HDR color into resolved color (instead of TAA), with the tone mapping pass's exposure. Planar views only.
 @nodrops declare function Donut_EvaluateDlss(commandList: CommandListHandle, dlss: DlssHandle, view: ViewHandle, sceneRenderTargets: SceneRenderTargetsHandle, toneMappingPass: ToneMappingPassHandle): void;
@@ -2887,6 +2888,24 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_EvaluateDlssNeuralRenderingTextures(commandList: CommandListHandle, dlssNeuralRendering: DlssNeuralRenderingHandle, ldrColor: TextureHandle, depth: TextureHandle,
     motionVectors: TextureHandle, jitterX: number, jitterY: number, depthInverted: int, intensity: number, toneStrength: number, structureStrength: number, model: int, useAutoMask: int,
     skinStructureStrength: number, reset: int): void;
+// DLSS's render size for an outputWidth x outputHeight image at a quality (0 performance, 1 balanced, 2 quality, 3 ultra
+// performance, 4 ultra quality, 5 DLAA), as NGX recommends it: width | height << 16, or 0 without DLSS.
+@nodrops declare function Donut_GetDlssOptimalRenderSize(app: AppHandle, dlss: DlssHandle, outputWidth: int, outputHeight: int, quality: int): int;
+// DLSS Ray Reconstruction (loads nvngx_dlssd.dll), over dlss's NGX instance; null unless built with DONUT_WITH_DLSS, on
+// Vulkan or D3D12, where DLSS-RR is available.
+@nodrops declare function Donut_CreateDlssRayReconstruction(app: AppHandle, dlss: DlssHandle): DlssRayReconstructionHandle;
+// For renderWidth x renderHeight frames into outputWidth x outputHeight ones at a quality (as above), with a render preset
+// (0 default, 4 D, 5 E, 6 F); non-zero if ready.
+@nodrops declare function Donut_InitDlssRayReconstruction(dlssRayReconstruction: DlssRayReconstructionHandle, renderWidth: int, renderHeight: int,
+    outputWidth: int, outputHeight: int, quality: int, preset: int): int;
+@nodrops declare function Donut_IsDlssRayReconstructionInitialized(dlssRayReconstruction: DlssRayReconstructionHandle): int;
+// Denoises, anti-aliases and upscales color (HDR, render size) into output (UAV, output size), guided by depth (reverse-Z),
+// motionVectors (pixels, previous minus current), diffuse and specular albedo, normalRoughness (roughness in .w) and specular
+// motion vectors, the view's worldToView and unjittered viewToClip matrices (16 floats, row-major) and the jitter. reset: no history.
+@nodrops declare function Donut_EvaluateDlssRayReconstruction(commandList: CommandListHandle, dlssRayReconstruction: DlssRayReconstructionHandle,
+    color: TextureHandle, output: TextureHandle, depth: TextureHandle, motionVectors: TextureHandle, diffuseAlbedo: TextureHandle,
+    specularAlbedo: TextureHandle, normalRoughness: TextureHandle, specularMotionVectors: TextureHandle, worldToView: Ref<f32>, viewToClip: Ref<f32>,
+    jitterX: number, jitterY: number, reset: int): void;
 // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
 @nodrops declare function Donut_CreatePixelReadbackPass(app: AppHandle, texture: TextureHandle): PixelReadbackPassHandle;
 @nodrops declare function Donut_CapturePixel(commandList: CommandListHandle, pixelReadbackPass: PixelReadbackPassHandle, x: int, y: int): void;
@@ -2984,10 +3003,11 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // Advances the tone mapper's auto exposure by elapsedSeconds; applies the scene's animations at sceneTime
 // (looped) if applyAnimations.
 @nodrops declare function Donut_RtxptRendererAnimate(rtxptRenderer: RtxptRendererHandle, sceneTime: number, applyAnimations: boolean, elapsedSeconds: number): void;
-// The renderer's setup for width x height, between frames (the animate callback: it executes command lists of its
-// own): render targets, passes (needNewPasses), acceleration structures (rebuildAccelStructs), and the path tracer's
-// pipelines (compiled here). Bits of the result: 1 render targets made, 2 passes, 4 acceleration structures.
-@nodrops declare function Donut_RtxptRendererPrepare(rtxptRenderer: RtxptRendererHandle, width: int, height: int, needNewPasses: boolean,
+// The renderer's setup for width x height frames shown at displayWidth x displayHeight (bigger with DLSS upscaling),
+// between frames (the animate callback: it executes command lists of its own): render targets, passes (needNewPasses),
+// acceleration structures (rebuildAccelStructs), and the path tracer's pipelines (compiled here). Bits of the result:
+// 1 render targets made, 2 passes, 4 acceleration structures.
+@nodrops declare function Donut_RtxptRendererPrepare(rtxptRenderer: RtxptRendererHandle, width: int, height: int, displayWidth: int, displayHeight: int, needNewPasses: boolean,
     rebuildAccelStructs: boolean, neeatQualityPreset: int): int;
 // Takes the frame's settings (examples/rtxpt.ts's FRAME_SETTINGS_SIZE bytes) and records everything up to the path
 // tracing pass. True if the environment map changed: reset the accumulation at the next frame.
@@ -3001,9 +3021,12 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_RtxptRendererEndFrame(rtxptRenderer: RtxptRendererHandle): void;
 // The tone-mapped frame (RGBA8), to blit to the back buffer.
 @nodrops declare function Donut_RtxptRendererGetLdrColor(rtxptRenderer: RtxptRendererHandle): TextureHandle;
-// DLSS (Donut_CreateDlss, initialized for the render size by the caller) for the real-time mode's realtimeAA 2;
-// null: none (a copy instead).
+// DLSS (Donut_CreateDlss, initialized by the caller for the render and display sizes) for the real-time mode's
+// realtimeAA 2; null: none (a copy instead).
 @nodrops declare function Donut_RtxptRendererSetDlss(rtxptRenderer: RtxptRendererHandle, dlss: DlssHandle | null): void;
+// DLSS-RR (Donut_CreateDlssRayReconstruction, initialized by the caller for the render and display sizes) for the
+// real-time mode's realtimeAA 3; null: none.
+@nodrops declare function Donut_RtxptRendererSetDlssRayReconstruction(rtxptRenderer: RtxptRendererHandle, dlssRayReconstruction: DlssRayReconstructionHandle | null): void;
 // The frame's depth (R32_FLOAT, reverse-Z), screen motion vectors (RGBA16_FLOAT, pixels, previous minus current) and
 // camera jitter in pixels (between BeginFrame and EndFrame): DLSS-NR's guides.
 @nodrops declare function Donut_RtxptRendererGetDepth(rtxptRenderer: RtxptRendererHandle): TextureHandle;

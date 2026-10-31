@@ -187,11 +187,12 @@ export class RtxptRenderer {
         Donut_RtxptRendererAnimate(this.handle, sceneTime, applyAnimations, elapsedSeconds);
     }
 
-    // The renderer's setup for width x height, between frames (the animate callback: it executes command lists of its
-    // own): render targets, passes (needNewPasses), acceleration structures (rebuildAccelStructs), and the path tracer's
-    // pipelines (compiled here). Bits of the result: 1 render targets made, 2 passes, 4 acceleration structures.
-    prepare(width: int, height: int, needNewPasses: boolean, rebuildAccelStructs: boolean, neeatQualityPreset: int): int {
-        return Donut_RtxptRendererPrepare(this.handle, width, height, needNewPasses, rebuildAccelStructs, neeatQualityPreset);
+    // The renderer's setup for width x height frames shown at displayWidth x displayHeight (bigger with DLSS upscaling),
+    // between frames (the animate callback: it executes command lists of its own): render targets, passes (needNewPasses),
+    // acceleration structures (rebuildAccelStructs), and the path tracer's pipelines (compiled here). Bits of the result:
+    // 1 render targets made, 2 passes, 4 acceleration structures.
+    prepare(width: int, height: int, displayWidth: int, displayHeight: int, needNewPasses: boolean, rebuildAccelStructs: boolean, neeatQualityPreset: int): int {
+        return Donut_RtxptRendererPrepare(this.handle, width, height, displayWidth, displayHeight, needNewPasses, rebuildAccelStructs, neeatQualityPreset);
     }
 
     // Takes the frame's settings (examples/rtxpt.ts's FRAME_SETTINGS_SIZE bytes) and records everything up to the path
@@ -221,10 +222,16 @@ export class RtxptRenderer {
         return Donut_RtxptRendererGetLdrColor(this.handle);
     }
 
-    // DLSS (Donut_CreateDlss, initialized for the render size by the caller) for the real-time mode's realtimeAA 2;
-    // null: none (a copy instead).
+    // DLSS (Donut_CreateDlss, initialized by the caller for the render and display sizes) for the real-time mode's
+    // realtimeAA 2; null: none (a copy instead).
     setDlss(dlss: DlssHandle | null): void {
         Donut_RtxptRendererSetDlss(this.handle, dlss);
+    }
+
+    // DLSS-RR (Donut_CreateDlssRayReconstruction, initialized by the caller for the render and display sizes) for the
+    // real-time mode's realtimeAA 3; null: none.
+    setDlssRayReconstruction(dlssRayReconstruction: DlssRayReconstructionHandle | null): void {
+        Donut_RtxptRendererSetDlssRayReconstruction(this.handle, dlssRayReconstruction);
     }
 
     // The frame's depth (R32_FLOAT, reverse-Z), screen motion vectors (RGBA16_FLOAT, pixels, previous minus current) and
