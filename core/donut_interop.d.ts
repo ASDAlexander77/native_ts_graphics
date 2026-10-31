@@ -2893,6 +2893,10 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // Default parameters. instantAdaptation != 0: the exposure set to this frame's at once (as after
 // Donut_ResetExposure); else adapted over Donut_AdvanceToneMappingFrame's time (kept while that's 0).
 @nodrops declare function Donut_RenderToneMapping(commandList: CommandListHandle, toneMappingPass: ToneMappingPassHandle, view: ViewHandle, sourceTexture: TextureHandle, instantAdaptation: int): void;
+// With the exposure: the scale exp2(exposureBias) over the adapted luminance, adapted within
+// [minAdaptedLuminance, maxAdaptedLuminance] (Donut's defaults: -0.5, 0.02, 0.5).
+@nodrops declare function Donut_RenderToneMappingWithExposure(commandList: CommandListHandle, toneMappingPass: ToneMappingPassHandle, view: ViewHandle, sourceTexture: TextureHandle, instantAdaptation: int,
+    exposureBias: number, minAdaptedLuminance: number, maxAdaptedLuminance: number): void;
 @nodrops declare function Donut_CreateBloomPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: ViewHandle): BloomPassHandle;
 @nodrops declare function Donut_RenderBloom(commandList: CommandListHandle, bloomPass: BloomPassHandle, framebuffer: FramebufferFactoryHandle, view: ViewHandle, sourceTexture: TextureHandle, sigma: number, alpha: number): void;
 // NVIDIA DLSS (loads nvngx_dlss.dll from the executable's directory); null when built without

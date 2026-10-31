@@ -2393,6 +2393,12 @@ export class CommandList {
         Donut_RenderToneMapping(this.handle, toneMappingPass.handle, view.handle, sourceTexture, instantAdaptation);
     }
 
+    // With the exposure: the scale exp2(exposureBias) over the adapted luminance, adapted within
+    // [minAdaptedLuminance, maxAdaptedLuminance] (Donut's defaults: -0.5, 0.02, 0.5).
+    renderToneMappingWithExposure(toneMappingPass: ToneMappingPass, view: View, sourceTexture: TextureHandle, instantAdaptation: int, exposureBias: number, minAdaptedLuminance: number, maxAdaptedLuminance: number): void {
+        Donut_RenderToneMappingWithExposure(this.handle, toneMappingPass.handle, view.handle, sourceTexture, instantAdaptation, exposureBias, minAdaptedLuminance, maxAdaptedLuminance);
+    }
+
     renderBloom(bloomPass: BloomPassHandle, framebuffer: FramebufferFactoryHandle, view: View, sourceTexture: TextureHandle, sigma: number, alpha: number): void {
         Donut_RenderBloom(this.handle, bloomPass, framebuffer, view.handle, sourceTexture, sigma, alpha);
     }
