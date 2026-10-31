@@ -23,6 +23,9 @@ namespace GravityLightBending {
     const DEFLECTION_MIN_IMPACT = 4.0;
     // Test mode, no gravity: a path's points within this distance of the line its ray started on.
     const STRAIGHT_TOLERANCE = 1.0e-3;
+    // Test mode, one black hole: rays within this share of the critical impact parameter (either
+    // way) aren't checked for falling in or escaping (see checkCapture).
+    const CAPTURE_MARGIN = 0.05;
 
     // Must match gravity_light_bending.hlsl's MAX_BODIES and MAX_POINTS (the points of a ray's path).
     const MAX_BODIES = 16;
@@ -236,7 +239,7 @@ namespace GravityLightBending {
             this.gravity = DEFAULT_GRAVITY;
             this.lightSpeed = DEFAULT_LIGHT_SPEED;
             this.timeScale = DEFAULT_TIME_SCALE;
-            this.bending = Bending.WeakField;
+            this.bending = Bending.Schwarzschild;
             this.bendLight = true;
             this.emitter = Emitter.Sheet;
             this.raysAcross = DEFAULT_RAYS_ACROSS;
@@ -351,14 +354,15 @@ namespace GravityLightBending {
             computeSetDesc.bindStructuredBufferUAV(1, this.rayBuffer);
             this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, computeBindingLayout);
 
-            // Drawing: the vertex shaders read the scene, the view and the rays; the sky's pixel
-            // shader the scene and the view.
+            // Drawing: the vertex shaders read the scene, the view and the rays, the paths' pixel
+            // shader the scene and the view; the sky's pixel shader the scene and the view.
             const drawLayoutDesc = BindingLayoutDesc.create();
             drawLayoutDesc.layoutConstantBuffer(0);
             drawLayoutDesc.layoutConstantBuffer(1);
             drawLayoutDesc.layoutStructuredBufferSRV(0);
             drawLayoutDesc.layoutStructuredBufferSRV(1);
-            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.Vertex);
+            // Every stage: path_ps reads the bodies and the camera too.
+            this.drawBindingLayout = this.app.createBindingLayout(drawLayoutDesc, ShaderType.All);
             const drawSetDesc = BindingSetDesc.create();
             drawSetDesc.bindEntireConstantBuffer(0, this.sceneBuffer);
             drawSetDesc.bindEntireConstantBuffer(1, this.viewConstantBuffer);
@@ -595,11 +599,10 @@ namespace GravityLightBending {
             frame.drawAddBindingSet(this.drawBindingSet);
             frame.drawVertices(rays * (MAX_POINTS - 1) * VERTICES_PER_QUAD);
 
-            if (!this.showSky) {
-                frame.beginDraw(bodyPipeline);
-                frame.drawAddBindingSet(this.drawBindingSet);
-                frame.drawVertices(this.bodyCount * VERTICES_PER_QUAD);
-            }
+            // Over the lensed sky, only the black holes' horizons and photon spheres (body_vs).
+            frame.beginDraw(bodyPipeline);
+            frame.drawAddBindingSet(this.drawBindingSet);
+            frame.drawVertices(this.bodyCount * VERTICES_PER_QUAD);
         }
 
         // The SceneConstants (c_Scene in the shader): the light, the tracing, the emitter and the bodies.
@@ -665,6 +668,7 @@ namespace GravityLightBending {
                 s[p + 3] = present ? this.bodyMass[i] : 0.0;
                 s[q + 0] = present ? this.bodyRadius[i] : 0.0;
                 s[q + 1] = present ? this.bodyHue[i] : 0.0;
+                s[q + 2] = this.showSky ? 1.0 : 0.0;
             }
         }
 
@@ -879,8 +883,10 @@ namespace GravityLightBending {
 
         // -test: checks the rays traced in the last frame. Every path is finite and has at least
         // two points. Without gravity, every point of a path lies on the line its ray started on.
-        // With one mass (-scene single), each ray passing it turns by what the theory gives
-        // (expectedDeflection). Otherwise, some ray turned. Then the frame: drawn.
+        // No path goes into a body and out again. With one mass (-scene single), each ray passing it
+        // turns by what the theory gives (expectedDeflection); a black hole, with the exact bending,
+        // takes the rays coming closer than the critical impact parameter, and no others
+        // (checkCapture). Otherwise, some ray turned. Then the frame: drawn.
         checkTest() {
             const check = new TestCheck(this.app);
             const rays = this.rayCount();
@@ -923,6 +929,22 @@ namespace GravityLightBending {
             }
             console.log(`Rays: ${rays}, stopped by a body ${stopped}; largest turn ${maxTurn} rad, farthest off the starting line ${maxOffLine}`);
 
+            // No path goes through a body (inside its surface or horizon) and on.
+            let through = 0;
+            for (let i = 0; i < rays; i++) {
+                const depth = this.deepestInside(rayData, points, i);
+                if (depth > 0.0) {
+                    if (through == 0) {
+                        console.log(`ray ${i}: ${depth} of a body's radius inside it, and went on (fate ${rayData[i * RAY_FLOATS + 12]})`);
+                    }
+                    through++;
+                }
+            }
+            console.log(`Paths through a body: ${through}`);
+            if (through > 0) {
+                return `${through} rays went into a body and out again`;
+            }
+
             if (this.gravity == 0.0 || !this.bendLight) {
                 if (maxOffLine > STRAIGHT_TOLERANCE) {
                     return `without gravity, a ray's path is ${maxOffLine} off its straight line`;
@@ -933,6 +955,11 @@ namespace GravityLightBending {
                     if (rayData[r + 12] < 0.0 && Math.abs(rayData[r + 11] - this.rayLength) > this.rayLength * 1.0e-4) {
                         return `ray ${i} went ${rayData[r + 11]}, not ${this.rayLength}`;
                     }
+                }
+            } else if (this.scene == Scene.Single && this.bending == Bending.Schwarzschild && this.isBlackHole(0)) {
+                const failure = this.checkCapture(rayData, rays);
+                if (failure != "") {
+                    return failure;
                 }
             } else if (this.scene == Scene.Single) {
                 const failure = this.checkDeflection(rayData, rays);
@@ -951,6 +978,41 @@ namespace GravityLightBending {
             return check.drawn(0x000000, 10000, "Frame");
         }
 
+        // How far inside a body (its absorbing radius: the surface, or the horizon if larger) ray i's
+        // path goes, as a share of that radius, the segments' closest points to the bodies' centers
+        // taken; 0 if it stays out. The last segment of a ray a body stopped ends in it: not counted.
+        deepestInside(rayData: f32[], points: f32[], i: int) {
+            const r = i * RAY_FLOATS;
+            const count = Math.floor(rayData[r + 7]);
+            const segments = rayData[r + 12] >= 0.0 ? count - 2 : count - 1;
+            let deepest = 0.0;
+            for (let body = 0; body < this.bodyCount; body++) {
+                const rs = 2.0 * this.gravity * this.bodyMass[body] / (this.lightSpeed * this.lightSpeed);
+                const radius = Math.max(this.bodyRadius[body], rs);
+                for (let p = 0; p < segments; p++) {
+                    const a = (i * MAX_POINTS + p) * 4;
+                    const b = a + 4;
+                    const dx = points[b + 0] - points[a + 0];
+                    const dy = points[b + 1] - points[a + 1];
+                    const dz = points[b + 2] - points[a + 2];
+                    const wx = this.bodyPos[body * 3 + 0] - points[a + 0];
+                    const wy = this.bodyPos[body * 3 + 1] - points[a + 1];
+                    const wz = this.bodyPos[body * 3 + 2] - points[a + 2];
+                    const length2 = dx * dx + dy * dy + dz * dz;
+                    let t = length2 > 0.0 ? (wx * dx + wy * dy + wz * dz) / length2 : 0.0;
+                    t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
+                    const ox = wx - t * dx;
+                    const oy = wy - t * dy;
+                    const oz = wz - t * dz;
+                    const inside = 1.0 - Math.sqrt(ox * ox + oy * oy + oz * oz) / radius;
+                    if (inside > deepest) {
+                        deepest = inside;
+                    }
+                }
+            }
+            return deepest;
+        }
+
         // The angle between the direction a ray started in and the one it ended in (rayData[r..]):
         // from the cross product, precise for small angles, as the dot product's cosine isn't.
         turnAngle(rayData: f32[], r: int) {
@@ -964,6 +1026,50 @@ namespace GravityLightBending {
             const cy = sz * ex - sx * ez;
             const cz = sx * ey - sy * ex;
             return Math.atan2(Math.sqrt(cx * cx + cy * cy + cz * cz), sx * ex + sy * ey + sz * ez);
+        }
+
+        // Whether body i is inside its own Schwarzschild radius.
+        isBlackHole(i: int) {
+            return 2.0 * this.gravity * this.bodyMass[i] / (this.lightSpeed * this.lightSpeed) >= this.bodyRadius[i];
+        }
+
+        // One black hole at the origin, the exact (Schwarzschild) bending: a ray falls in when it
+        // comes at it closer than the critical impact parameter 3 sqrt(3) / 2 r_s (it crosses the
+        // photon sphere and spirals in), and escapes, however bent, when it comes farther; checked
+        // outside CAPTURE_MARGIN of it either way (closer to it, a ray circles many times).
+        checkCapture(rayData: f32[], rays: int) {
+            const rs = 2.0 * this.gravity * this.bodyMass[0] / (this.lightSpeed * this.lightSpeed);
+            const critical = 1.5 * Math.sqrt(3.0) * rs;
+            let captured = 0;
+            let escaped = 0;
+            for (let i = 0; i < rays; i++) {
+                const r = i * RAY_FLOATS;
+                const wx = this.bodyPos[0] - rayData[r + 0];
+                const wy = this.bodyPos[1] - rayData[r + 1];
+                const wz = this.bodyPos[2] - rayData[r + 2];
+                const before = wx * rayData[r + 4] + wy * rayData[r + 5] + wz * rayData[r + 6];
+                const ax = wx - before * rayData[r + 4];
+                const ay = wy - before * rayData[r + 5];
+                const az = wz - before * rayData[r + 6];
+                const b = Math.sqrt(ax * ax + ay * ay + az * az);
+                const stopped = rayData[r + 12] >= 0.0;
+                if (b < critical * (1.0 - CAPTURE_MARGIN)) {
+                    if (!stopped) {
+                        return `ray ${i} (b ${b}, under the critical ${critical}) escaped the black hole`;
+                    }
+                    captured++;
+                } else if (b > critical * (1.0 + CAPTURE_MARGIN)) {
+                    if (stopped) {
+                        return `ray ${i} (b ${b}, over the critical ${critical}) fell into the black hole`;
+                    }
+                    escaped++;
+                }
+            }
+            console.log(`Capture: critical b ${critical} (r_s ${rs}); ${captured} rays inside it fell in, ${escaped} outside escaped`);
+            if (captured < 2 || escaped < 2) {
+                return `too few rays on either side of the critical impact parameter (${captured} in, ${escaped} out)`;
+            }
+            return "";
         }
 
         // One mass at the origin: each ray it didn't stop, passing at least DEFLECTION_MIN_IMPACT
@@ -1077,7 +1183,10 @@ namespace GravityLightBending {
                 ImGui.text("  4 G m / (c^2 b) in general relativity");
                 ImGui.text("Schwarzschild radius r_s = 2 G m / c^2: a body");
                 ImGui.text("  inside its own is a black hole; light circles it");
-                ImGui.text("  at 1.5 r_s (the exact mode)");
+                ImGui.text("  at 1.5 r_s (the exact mode), and takes every ray");
+                ImGui.text("  aimed within 2.6 r_s of it");
+                ImGui.text("Black hole: orange ring = horizon, dashed = photon");
+                ImGui.text("  sphere; the dark disk in the sky is its shadow");
                 ImGui.text("The pulses run at c times the time scale");
             }
 
@@ -1094,8 +1203,8 @@ namespace GravityLightBending {
         gravity = DEFAULT_GRAVITY;
         // -c <speed>: the speed of light (15 by default).
         lightSpeed = DEFAULT_LIGHT_SPEED;
-        // -bending <0..3>: Newtonian, weak field (the default), Schwarzschild, none.
-        bending = Bending.WeakField;
+        // -bending <0..3>: Newtonian, weak field, Schwarzschild (the default), none.
+        bending = Bending.Schwarzschild;
         // -emitter <0..3>: a sheet of parallel rays (the default), a beam, a cone, a point.
         emitter = Emitter.Sheet;
         // -nosky: a black background and the bodies drawn over the rays, not the lensed sky (which
@@ -1141,7 +1250,7 @@ namespace GravityLightBending {
                 this.lightSpeed = LIGHT_SPEED_MIN;
             }
             if (this.bending < 0 || this.bending > Bending.None) {
-                this.bending = Bending.WeakField;
+                this.bending = Bending.Schwarzschild;
             }
             if (this.emitter < 0 || this.emitter > Emitter.Sphere) {
                 this.emitter = Emitter.Sheet;
