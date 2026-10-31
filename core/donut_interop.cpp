@@ -12387,6 +12387,24 @@ extern "C"
             *view, sourceTexture);
     }
 
+    // Donut_RenderToneMapping with the exposure set: the scale exp2(exposureBias) over the adapted
+    // luminance, which adapts within [minAdaptedLuminance, maxAdaptedLuminance].
+    DONUT_API void Donut_RenderToneMappingWithExposure(nvrhi::ICommandList* commandList, donut::render::ToneMappingPass* toneMappingPass, donut::engine::IView* view, nvrhi::ITexture* sourceTexture, int instantAdaptation,
+        double exposureBias, double minAdaptedLuminance, double maxAdaptedLuminance)
+    {
+        donut::render::ToneMappingParameters params;
+        if (instantAdaptation)
+        {
+            params.eyeAdaptationSpeedUp = 0.f;
+            params.eyeAdaptationSpeedDown = 0.f;
+        }
+        params.exposureBias = float(exposureBias);
+        params.minAdaptedLuminance = float(minAdaptedLuminance);
+        params.maxAdaptedLuminance = float(maxAdaptedLuminance);
+        toneMappingPass->SimpleRender(commandList, params,
+            *view, sourceTexture);
+    }
+
     // Donut's bloom, blended into a framebuffer's color.
     DONUT_API donut::render::BloomPass* Donut_CreateBloomPass(App* app, FramebufferFactoryRef* framebuffer, donut::engine::IView* view)
     {

@@ -63,8 +63,10 @@ namespace FeatureDemoExample {
     let g_PropShowTags = "";
     let g_PropCameraAttach = "";
 
-    // RTXPT's Scene::GetGameSettingsNode: whether the scene file's graph has a node of type `type`.
-    function hasNodeOfType(json: JsonDocument, type: string): boolean {
+    // The nodes of the scene file's graph of type `type` (RTXPT's ExtendedSceneTypeFactory's leaves, which
+    // Donut's loader skips or loads as its own): their JSON paths, "graph/0/children/1".
+    function nodesOfType(json: JsonDocument, type: string): string[] {
+        const nodes: string[] = [];
         // The node arrays to search: "graph", then the nodes' "children".
         const arrays = ["graph"];
         for (let a = 0; a < arrays.length; a++) {
@@ -72,12 +74,71 @@ namespace FeatureDemoExample {
             for (let i = 0; i < count; i++) {
                 const node = `${arrays[a]}/${i}`;
                 if (json.jsonGetString(`${node}/type`, "") == type) {
-                    return true;
+                    nodes.push(node);
                 }
                 arrays.push(`${node}/children`);
             }
         }
-        return false;
+        return nodes;
+    }
+
+    // Donut's ToneMappingParameters defaults: the exposure of scenes without RTXPT's camera settings.
+    const DONUT_EXPOSURE_BIAS = -0.5;
+    const DONUT_MIN_ADAPTED_LUMINANCE = 0.02;
+    const DONUT_MAX_ADAPTED_LUMINANCE = 0.5;
+    // RTXPT's tone mapper (ToneMapper/ToneMapping_cb.h): auto exposure takes the log-average luminance to
+    // this key; the exposure stays within these stops.
+    const RTXPT_EXPOSURE_KEY = 0.042;
+    const RTXPT_EXPOSURE_LOG2_MIN = -6.0;
+    const RTXPT_EXPOSURE_LOG2_MAX = 6.0;
+    // Donut meters the mean of the 80-95th luminance percentiles, not the log-average, which reads higher:
+    // stops added to the auto exposure's bias for the same brightness. Measured: the mean sRGB of the frame
+    // matches the rtxpt example's in bistro-programmer-art (its camera, and the camera pitched up to the sky).
+    const DONUT_METERING_OFFSET = 2.5;
+
+    // A scene camera's exposure in RTXPT's PerspectiveCameraEx fields, as Donut's tone mapping parameters:
+    // the scale before the tone curve (exp2(bias) / adapted luminance) equals RTXPT's (ACES there).
+    class CameraExposure {
+        public cameraName: string;
+        public bias: number;
+        public minAdaptedLuminance: number;
+        public maxAdaptedLuminance: number;
+
+        constructor(json: JsonDocument, node: string) {
+            this.cameraName = json.jsonGetString(`${node}/name`, "");
+            // ToneMappingParameters' defaults where unset (Sample::UpdateCameraFromScene).
+            const autoExposure = json.jsonGetBool(`${node}/enableAutoExposure`, false);
+            const compensation = json.jsonGetNumber(`${node}/exposureCompensation`, 0.0);
+            const exposureValue = json.jsonGetNumber(`${node}/exposureValue`, 0.0);
+            const exposureValueMin = json.jsonGetNumber(`${node}/exposureValueMin`, RTXPT_EXPOSURE_LOG2_MIN);
+            const exposureValueMax = json.jsonGetNumber(`${node}/exposureValueMax`, RTXPT_EXPOSURE_LOG2_MAX);
+            if (autoExposure) {
+                // exp2(compensation) * key / average, the auto part within [exposureValueMin, exposureValueMax]
+                // stops: the average luminance within key * exp2(-max), key * exp2(-min).
+                this.bias = compensation + Math.log2(RTXPT_EXPOSURE_KEY) + DONUT_METERING_OFFSET;
+                this.minAdaptedLuminance = RTXPT_EXPOSURE_KEY * Math.pow(2.0, -exposureValueMax);
+                this.maxAdaptedLuminance = RTXPT_EXPOSURE_KEY * Math.pow(2.0, -exposureValueMin);
+            } else {
+                // The manual camera (ISO 100, f/1, the shutter 2^EV): exp2(compensation - EV), within RTXPT's
+                // stops; the adapted luminance pinned to 1.
+                let stops = compensation - exposureValue;
+                if (stops < RTXPT_EXPOSURE_LOG2_MIN) {
+                    stops = RTXPT_EXPOSURE_LOG2_MIN;
+                } else if (stops > RTXPT_EXPOSURE_LOG2_MAX) {
+                    stops = RTXPT_EXPOSURE_LOG2_MAX;
+                }
+                this.bias = stops;
+                this.minAdaptedLuminance = 1.0;
+                this.maxAdaptedLuminance = 1.0;
+            }
+        }
+    }
+
+    // Whether a camera node has any of PerspectiveCameraEx's exposure fields.
+    function hasExposureSettings(json: JsonDocument, node: string): boolean {
+        return json.jsonHas(`${node}/enableAutoExposure`) || json.jsonHas(`${node}/exposureCompensation`) ||
+            json.jsonHas(`${node}/exposureValue`) || json.jsonHas(`${node}/exposureValueMin`) ||
+            json.jsonHas(`${node}/exposureValueMax`);
     }
 
     // The folder of a file's path (without the separator).
@@ -135,6 +196,8 @@ namespace FeatureDemoExample {
         public enableVsync: boolean;
         public shaderReloadRequested: boolean;
         public enableProceduralSky: boolean;
+        // The scene's RTXPT EnvironmentLight map instead of the procedural sky: not in the C++ sample.
+        public enableEnvironmentMap: boolean;
         public enableBloom: boolean;
         public dlssAvailable: boolean;
         // DLSS 5 (DLSS 3D-Guided Neural Rendering) over the tone-mapped image: not in the C++ sample.
@@ -185,6 +248,7 @@ namespace FeatureDemoExample {
             this.enableVsync = true;
             this.shaderReloadRequested = false;
             this.enableProceduralSky = true;
+            this.enableEnvironmentMap = true;
             this.enableBloom = true;
             // Set once DLSS initializes (built with DONUT_WITH_DLSS=ON, on an RTX GPU).
             this.dlssAvailable = false;
@@ -247,6 +311,10 @@ namespace FeatureDemoExample {
         private gbufferPass: GBufferFillPass;
         private deferredLightingPass: DeferredLightingPass;
         private skyPass: SkyPassHandle | null;
+        // The scene's RTXPT EnvironmentLight: its map's path (until loaded, "" without one), the map and its pass.
+        private environmentMapPath: string;
+        private environmentMap: TextureHandle | null;
+        private environmentMapPass: EnvironmentMapPassHandle | null;
         private temporalAntiAliasingPass: TemporalAntiAliasingPass;
         // A null handle without DLSS support.
         private dlss: Dlss;
@@ -265,6 +333,8 @@ namespace FeatureDemoExample {
         private view: View;
         private viewPrevious: View;
         private viewIsStereo: boolean;
+        // The planar view the environment map is drawn with (setupView).
+        private environmentMapView: View;
 
         private previousViewsValid: boolean;
         private firstPersonCamera: Camera;
@@ -279,8 +349,17 @@ namespace FeatureDemoExample {
 
         public lightProbes: LightProbeSet;
 
+        // The exposure of the scene's cameras with RTXPT's settings, and the one applied (Donut's defaults until a
+        // camera with settings is selected), with that camera's name ("" while none is selected).
+        private cameraExposures: CameraExposure[];
+        private exposureBias: number;
+        private minAdaptedLuminance: number;
+        private maxAdaptedLuminance: number;
+        private exposureCameraName: string;
+
         // RTXPT's SampleGame (core/rtxpt_game.ts), with a camera of its own; inactive without a GameSettings node.
         public game: RtxptGame;
+        private sceneHasGameSettings: boolean;
 
         private wallclockTime: number;
         // Frames rendered with a loaded scene, for -screenshot and -test.
@@ -313,6 +392,9 @@ namespace FeatureDemoExample {
             this.gbufferPass = new GBufferFillPass(null);
             this.deferredLightingPass = new DeferredLightingPass(null);
             this.skyPass = null;
+            this.environmentMapPath = "";
+            this.environmentMap = null;
+            this.environmentMapPass = null;
             this.temporalAntiAliasingPass = new TemporalAntiAliasingPass(null);
             this.dlss = new Dlss(null);
             this.dlssNeuralRendering = new DlssNeuralRendering(null);
@@ -327,6 +409,7 @@ namespace FeatureDemoExample {
             this.view = new View(null);
             this.viewPrevious = new View(null);
             this.viewIsStereo = false;
+            this.environmentMapView = new View(null);
             this.previousViewsValid = false;
             this.cameraVerticalFov = 60.0;
             this.ambientTop = [0.0, 0.0, 0.0];
@@ -334,6 +417,12 @@ namespace FeatureDemoExample {
             this.pickX = 0;
             this.pickY = 0;
             this.pick = false;
+            this.cameraExposures = [];
+            this.exposureBias = DONUT_EXPOSURE_BIAS;
+            this.minAdaptedLuminance = DONUT_MIN_ADAPTED_LUMINANCE;
+            this.maxAdaptedLuminance = DONUT_MAX_ADAPTED_LUMINANCE;
+            this.exposureCameraName = "";
+            this.sceneHasGameSettings = false;
             this.wallclockTime = 0.0;
             this.readyFrames = 0;
             this.testMode = app.isTestMode();
@@ -466,6 +555,20 @@ namespace FeatureDemoExample {
             this.ui.selectedLight = new Light(null);
             this.ui.activeSceneCamera = new SceneCamera(null);
 
+            this.releaseObject(this.environmentMapPass);
+            this.environmentMapPass = null;
+            const environmentMap = this.environmentMap;
+            if (environmentMap) {
+                this.app.releaseResource(environmentMap);
+            }
+            this.environmentMap = null;
+            this.environmentMapPath = "";
+            this.cameraExposures = [];
+            this.exposureBias = DONUT_EXPOSURE_BIAS;
+            this.minAdaptedLuminance = DONUT_MIN_ADAPTED_LUMINANCE;
+            this.maxAdaptedLuminance = DONUT_MAX_ADAPTED_LUMINANCE;
+            this.exposureCameraName = "";
+
             const probeCount = this.lightProbes.getCount();
             for (let i = 0; i < probeCount; i++) {
                 this.lightProbes.setEnabled(i, false);
@@ -562,10 +665,12 @@ namespace FeatureDemoExample {
 
             this.copyActiveCameraToFirstPerson();
 
+            this.readRtxptNodes();
+
             // RTXPT's SampleGame, in a scene with its GameSettings node: the props of
             // <scene folder>/SampleGame/<scene file name>, placed in the loaded scene. Donut's spot lights have
             // no minimum falloff past the outer angle (RTXPT's negative one).
-            const world = new GameWorld(this.app.handle, scene.handle, this.hasGameSettingsNode(), false);
+            const world = new GameWorld(this.app.handle, scene.handle, this.sceneHasGameSettings, false);
             this.game.sceneLoaded(world, this.currentSceneName, folderOf(this.currentSceneName), g_PropShowTags,
                 g_PropCameraAttach);
             if (this.game.initialized) {
@@ -578,17 +683,93 @@ namespace FeatureDemoExample {
             }
         }
 
-        hasGameSettingsNode(): boolean {
+        // From the scene file, the nodes of RTXPT's types that Donut's loader skips or loads as its own: whether
+        // it has a GameSettings node (RTXPT's Scene::GetGameSettingsNode), the cameras' exposure settings
+        // (PerspectiveCameraEx) and the EnvironmentLight's map (relative to the scene's folder).
+        readRtxptNodes() {
+            this.sceneHasGameSettings = false;
             if (!this.currentSceneName.endsWith(".json")) {
-                return false;
+                return;
             }
             const json = this.app.loadJsonDocument(this.currentSceneName);
             if (json.isNull()) {
+                return;
+            }
+            this.sceneHasGameSettings = nodesOfType(json, "GameSettings").length > 0;
+
+            // Cameras without the settings leave the exposure alone (Donut's defaults), as RTXPT's glTF cameras;
+            // RTXPT resets its scene file's cameras without them to its tone mapper's defaults instead.
+            const types = ["PerspectiveCamera", "PerspectiveCameraEx"];
+            for (let t = 0; t < types.length; t++) {
+                const cameras = nodesOfType(json, types[t]);
+                for (let i = 0; i < cameras.length; i++) {
+                    if (hasExposureSettings(json, cameras[i])) {
+                        this.cameraExposures.push(new CameraExposure(json, cameras[i]));
+                    }
+                }
+            }
+
+            // RTXPT's procedural skies ("==PROCEDURAL_SKY==" and its variants) keep Donut's.
+            const environmentLights = nodesOfType(json, "EnvironmentLight");
+            if (environmentLights.length > 0) {
+                const path = json.jsonGetString(`${environmentLights[0]}/path`, "");
+                if (path != "" && !path.startsWith("==")) {
+                    this.environmentMapPath = `${folderOf(this.currentSceneName)}/${path}`;
+                }
+            }
+            this.app.releaseObject(json.handle);
+        }
+
+        // RTXPT's Sample::UpdateCameraFromScene: selecting a scene camera with exposure settings applies them.
+        // Returns whether they changed (then the exposure adapts at once).
+        updateCameraExposure(): boolean {
+            const sceneCamera = this.ui.activeSceneCamera;
+            if (sceneCamera.isNull()) {
+                this.exposureCameraName = "";
                 return false;
             }
-            const found = hasNodeOfType(json, "GameSettings");
-            this.app.releaseObject(json.handle);
-            return found;
+            const name = sceneCamera.getName();
+            if (name == this.exposureCameraName) {
+                return false;
+            }
+            this.exposureCameraName = name;
+            for (let i = 0; i < this.cameraExposures.length; i++) {
+                const exposure = this.cameraExposures[i];
+                if (exposure.cameraName == name) {
+                    this.exposureBias = exposure.bias;
+                    this.minAdaptedLuminance = exposure.minAdaptedLuminance;
+                    this.maxAdaptedLuminance = exposure.maxAdaptedLuminance;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // The scene's environment map, loaded by the frame's command list once the scene has loaded, and its
+        // pass (for the view and targets).
+        updateEnvironmentMap(commandList: CommandList) {
+            if (this.environmentMapPath != "") {
+                const environmentMap = this.app.loadTexture(commandList, this.environmentMapPath, 0);
+                if (!environmentMap) {
+                    console.log(`Cannot load the environment map ${this.environmentMapPath}`);
+                } else {
+                    this.environmentMap = environmentMap;
+                }
+                this.environmentMapPath = "";
+            }
+            const environmentMap = this.environmentMap;
+            const environmentMapPass = this.environmentMapPass;
+            if (environmentMap) {
+                if (!environmentMapPass) {
+                    this.environmentMapPass = this.app.createEnvironmentMapPass(
+                        this.renderTargets.getFramebuffer(SceneFramebuffer.Forward), this.view, environmentMap);
+                }
+            }
+        }
+
+        hasEnvironmentMap(): boolean {
+            const environmentMap = this.environmentMap;
+            return environmentMap ? true : false;
         }
 
         releaseViews() {
@@ -601,6 +782,11 @@ namespace FeatureDemoExample {
             if (!viewPrevious.isNull()) {
                 this.app.releaseObject(viewPrevious.handle);
                 this.viewPrevious = new View(null);
+            }
+            const environmentMapView = this.environmentMapView;
+            if (!environmentMapView.isNull()) {
+                this.app.releaseObject(environmentMapView.handle);
+                this.environmentMapView = new View(null);
             }
         }
 
@@ -691,6 +877,18 @@ namespace FeatureDemoExample {
                 if (topologyChanged) {
                     this.viewPrevious.copyPlanarView(view);
                 }
+
+                // Donut's EnvironmentMapPass looks the cube map up at (x, y, -z), RTXPT at the world direction:
+                // its view of a world mirrored in z (the view matrix's z row negated) undoes that. Checked
+                // against RTXPT with a cube map; its lat-long maps' mapping may differ by more.
+                if (this.environmentMapView.isNull()) {
+                    this.environmentMapView = this.app.createPlanarView();
+                }
+                for (let i = 0; i < 16; i++) {
+                    this.rightViewMatrix[i] = i >= 8 && i < 12 ? -this.viewMatrix[i] : this.viewMatrix[i];
+                }
+                this.environmentMapView.setPlanarViewJittered(Ref(this.rightViewMatrix[0]), Ref(this.projMatrix[0]),
+                    width, height, pixelOffsetX, pixelOffsetY);
             }
 
             return topologyChanged;
@@ -710,6 +908,9 @@ namespace FeatureDemoExample {
             this.releaseObject(this.mipMapGenPass);
             this.releaseObject(this.deferredLightingPass.handle);
             this.releaseObject(this.skyPass);
+            // Made again for the new view and targets (updateEnvironmentMap).
+            this.releaseObject(this.environmentMapPass);
+            this.environmentMapPass = null;
             this.releaseObject(this.temporalAntiAliasingPass.handle);
             this.releaseObject(this.ssaoPass);
             this.releaseObject(this.lightProbePass.handle);
@@ -864,6 +1065,9 @@ namespace FeatureDemoExample {
             const temporalAntiAliasingPass = this.temporalAntiAliasingPass;
             const materialEvents = ui.enableMaterialEvents ? 1 : 0;
 
+            this.updateEnvironmentMap(commandList);
+            const exposureChanged = this.updateCameraExposure();
+
             frame.clearColor(0.0, 0.0, 0.0, 0.0);
 
             const ambientScale = ui.ambientIntensity * ui.skyBrightness;
@@ -942,7 +1146,12 @@ namespace FeatureDemoExample {
                 commandList.capturePixel(this.pixelReadbackPass, this.pickX, this.pickY);
             }
 
-            if (ui.enableProceduralSky) {
+            const environmentMapPass = this.environmentMapPass;
+            // Not in stereo: no mirrored view for it.
+            const drawEnvironmentMap = ui.enableEnvironmentMap && this.hasEnvironmentMap() && !ui.stereo;
+            if (drawEnvironmentMap) {
+                commandList.renderEnvironmentMap(environmentMapPass as EnvironmentMapPassHandle, this.environmentMapView);
+            } else if (ui.enableProceduralSky) {
                 commandList.renderSky(this.skyPass as SkyPassHandle, view, sunLight, ui.skyBrightness, ui.skyGlowSize,
                     ui.skyGlowSharpness, ui.skyGlowIntensity, ui.skyHorizonSize);
             }
@@ -1006,7 +1215,9 @@ namespace FeatureDemoExample {
                 this.previousViewsValid = false;
             }
 
-            commandList.renderToneMapping(toneMappingPass, view, finalHdrColor, exposureResetRequired ? 1 : 0);
+            commandList.renderToneMappingWithExposure(toneMappingPass, view, finalHdrColor,
+                exposureResetRequired || exposureChanged ? 1 : 0, this.exposureBias, this.minAdaptedLuminance,
+                this.maxAdaptedLuminance);
 
             // DLSS 5 over the tone-mapped image, guided by the depth and motion vectors that only the
             // temporal modes have (single-sample).
@@ -1495,6 +1706,9 @@ namespace FeatureDemoExample {
                 ui.lightProbeSpecularScale = ImGui.dragFloat("Specular Scale", ui.lightProbeSpecularScale, 0.01, 0.0, 10.0);
             }
 
+            if (this.demo.hasEnvironmentMap()) {
+                ui.enableEnvironmentMap = this.checkbox("Environment Map", ui.enableEnvironmentMap);
+            }
             ui.enableProceduralSky = this.checkbox("Enable Procedural Sky", ui.enableProceduralSky);
             if (ui.enableProceduralSky && ImGui.collapsingHeader("Sky Parameters")) {
                 ui.skyBrightness = ImGui.sliderFloat("Brightness", ui.skyBrightness, 0.0, 1.0);
