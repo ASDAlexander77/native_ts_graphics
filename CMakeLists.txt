@@ -1253,9 +1253,12 @@ add_tslang_example_test(gravity_light_bending SUFFIX straight ARGS -gravity 0)
 add_tslang_example_test(gravity_light_bending SUFFIX nosky ARGS -scene blackhole -nosky)
 # One mass, light passing it: each ray turns by general relativity's 4 G m / (c^2 b), and by half
 # that as a Newtonian particle at speed c; the exact Schwarzschild path agrees far from the mass.
-add_tslang_example_test(gravity_light_bending SUFFIX deflection ARGS -scene single -c 50)
+add_tslang_example_test(gravity_light_bending SUFFIX deflection ARGS -scene single -c 50 -bending 1)
 add_tslang_example_test(gravity_light_bending SUFFIX newtonian ARGS -scene single -c 50 -bending 0)
 add_tslang_example_test(gravity_light_bending SUFFIX schwarzschild ARGS -scene single -c 50 -bending 2)
+# The mass a black hole (c = 5: r_s = 1.6, over its radius): the rays aimed within 3 sqrt(3) / 2 r_s
+# of it fall in, the others escape.
+add_tslang_example_test(gravity_light_bending SUFFIX capture ARGS -scene single -c 5 -bending 2)
 
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted

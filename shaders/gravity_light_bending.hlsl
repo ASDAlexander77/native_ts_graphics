@@ -38,7 +38,7 @@ cbuffer c_Scene : register(b0)
     float4 g_EmitterDirection;
     float4 g_EmitterRight; // w = rays across
     float4 g_EmitterUp;    // w = rows of rays
-    // Per body: position and mass; radius and hue.
+    // Per body: position and mass; radius, hue, and 1 when the lensed sky draws the bodies.
     float4 g_Bodies[MAX_BODIES];
     float4 g_BodyInfo[MAX_BODIES];
 };
@@ -357,7 +357,8 @@ void path_vs(
     uint i_vertex : SV_VertexID,
     out float4 o_position : SV_Position,
     out float4 o_color : TEXCOORD0,
-    out float2 o_pulse : TEXCOORD1)
+    out float2 o_pulse : TEXCOORD1,
+    out float3 o_world : TEXCOORD2)
 {
     const uint segment = i_vertex / 6;
     const uint rayIndex = segment / (MAX_POINTS - 1);
@@ -366,6 +367,7 @@ void path_vs(
     o_position = float4(2, 2, 0, 1);
     o_color = 0;
     o_pulse = 0;
+    o_world = 0;
     if (point_ + 1 >= uint(ray.start.w))
         return;
 
@@ -376,6 +378,7 @@ void path_vs(
     // Where along the pulses' pattern this is (the pattern moves on at the pulses' speed), and
     // whether there are pulses.
     o_pulse = float2(lerp(a.w, b.w, along) - g_Trace.y * g_Trace.z, g_Trace.z > 0.0 ? 1.0 : 0.0);
+    o_world = lerp(a.xyz, b.xyz, along);
     // Dimmer the more rays there are, so that a dense beam doesn't add up to white: as bright as
     // the default sheet's 41 at most.
     const int mode = int(g_EmitterOrigin.w);
@@ -386,8 +389,33 @@ void path_vs(
 float4 path_ps(
     float4 i_position : SV_Position,
     float4 i_color : TEXCOORD0,
-    float2 i_pulse : TEXCOORD1) : SV_Target0
+    float2 i_pulse : TEXCOORD1,
+    float3 i_world : TEXCOORD2) : SV_Target0
 {
+    // Behind a body, as the camera sees it along a straight line, the path is hidden: a ray passing
+    // behind a black hole doesn't show across its horizon. (Its light reaching the camera would be
+    // bent too, but the paths are drawn where they are, not as the light shows them.)
+    const float3 camera = g_View.matViewToWorld[3].xyz;
+    const float3 toPoint = i_world - camera;
+    const uint count = uint(g_Light.w);
+    [loop]
+    for (uint i = 0; i < count; i++)
+    {
+        const float3 offset = camera - g_Bodies[i].xyz;
+        const float radius = AbsorbRadius(i);
+        // |offset + t toPoint| = radius, for t in [0, 1): the body is between the camera and the point.
+        const float a = dot(toPoint, toPoint);
+        const float b = dot(offset, toPoint);
+        const float c = dot(offset, offset) - radius * radius;
+        const float discriminant = b * b - a * c;
+        if (discriminant > 0.0)
+        {
+            const float t = (-b - sqrt(discriminant)) / a;
+            if (t > 0.0 && t < 0.999)
+                discard;
+        }
+    }
+
     // Pulses of light running along the paths at the speed of light (in the time scale), so the
     // direction the light goes in shows: a bright head, and a tail fading behind it.
     float brightness = i_color.a;
@@ -452,7 +480,15 @@ void grid_vs(
 }
 
 // The bodies, as screen-aligned quads twice their size: lit spheres in their color, a black hole
-// (its horizon larger than the body) as a black disk with a thin bright rim.
+// (its horizon larger than the body) as a black disk. A black hole's horizon (r_s) is ringed in
+// orange, and its photon sphere (1.5 r_s), where light can circle it, dashed. Over the lensed sky,
+// which shows the bodies itself (g_BodyInfo[].z = 1), only those rings: the sky's dark disk is the
+// hole's shadow, the horizon seen through the bent light, larger than the horizon itself (2.6 r_s
+// from afar), and rays passing outside the horizon cross it on screen.
+#define BODY_STAR 0.0
+#define BODY_BLACK_HOLE 1.0
+#define BODY_RINGS_ONLY 2.0
+
 void body_vs(
     uint i_vertex : SV_VertexID,
     out float4 o_position : SV_Position,
@@ -468,11 +504,15 @@ void body_vs(
     const float2 ndcHalfSize = max(halfSize * float2(g_View.matViewToClip[0][0], g_View.matViewToClip[1][1]) / o_position.w,
         3.0 * g_View.viewportSizeInv);
     o_position.xy += corner * ndcHalfSize * o_position.w;
-    if (eyePos.z < NEAR_DEPTH)
-        o_position = float4(2, 2, 0, 1);
     o_coord = corner * 2.0;
     const bool blackHole = SchwarzschildRadius(g_Bodies[body].w) >= g_BodyInfo[body].x;
-    o_color = float4(lerp(Hue(g_BodyInfo[body].y), float3(1, 1, 1), 0.45), blackHole ? 1.0 : 0.0);
+    const bool skyShowsIt = g_BodyInfo[body].z > 0.5;
+    float kind = blackHole ? BODY_BLACK_HOLE : BODY_STAR;
+    if (skyShowsIt)
+        kind = BODY_RINGS_ONLY;
+    o_color = float4(lerp(Hue(g_BodyInfo[body].y), float3(1, 1, 1), 0.45), kind);
+    if (eyePos.z < NEAR_DEPTH || (skyShowsIt && !blackHole))
+        o_position = float4(2, 2, 0, 1);
 }
 
 float4 body_ps(
@@ -483,12 +523,17 @@ float4 body_ps(
     const float r = length(i_coord);
     if (i_color.a > 0.5)
     {
-        // A black hole: black within the horizon, a rim just outside it, fading.
-        const float rim = saturate(1.0 - abs(r - 1.08) / 0.08);
-        const float glow = r > 1.0 ? 0.25 * saturate(1.0 - (r - 1.0)) : 0.0;
-        if (r < 1.0)
-            return float4(0, 0, 0, 1);
-        return float4(float3(1.0, 0.6, 0.25) * (rim + glow), saturate(rim + glow));
+        // Rings a pixel and a half wide, whatever the size on screen.
+        const float pixel = max(fwidth(r), 1.0e-4);
+        const float horizon = saturate(1.0 - abs(r - 1.0) / (1.5 * pixel));
+        const float angle = atan2(i_coord.y, i_coord.x);
+        const float dash = frac(angle * 32.0 / 6.2831853) < 0.5 ? 1.0 : 0.0;
+        const float photonSphere = dash * saturate(1.0 - abs(r - 1.5) / (1.0 * pixel));
+        const float3 ring = float3(1.0, 0.55, 0.2) * horizon + float3(0.7, 0.75, 0.9) * 0.6 * photonSphere;
+        const float ringAlpha = saturate(horizon + 0.6 * photonSphere);
+        if (r < 1.0 && i_color.a < 1.5)
+            return float4(ring, 1.0);
+        return float4(ring, ringAlpha);
     }
     if (r >= 1.0)
     {
