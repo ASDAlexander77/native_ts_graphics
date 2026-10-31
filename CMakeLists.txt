@@ -1236,6 +1236,27 @@ add_tslang_example_test(compute_nbody_collisions SUFFIX energy ARGS -fullgravity
 # give, so the runs differ, and now and then one drifts past the limit.)
 add_tslang_example_test(compute_nbody_collisions SUFFIX energy_merge ARGS -fullgravity -nocool -merge 2)
 
+# Light bent by gravity: massive bodies orbit each other, and a compute pass traces light rays
+# through their field every frame; the same tracing from the camera lenses the sky behind them.
+donut_compile_shaders_all_platforms(
+    TARGET gravity_light_bending_shaders
+    PROJECT_NAME "Gravity Light Bending"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gravity_light_bending.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gravity_light_bending.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/gravity_light_bending
+)
+add_tslang_example(gravity_light_bending core/matrix.ts)
+add_tslang_example_test(gravity_light_bending)
+# No gravity: every ray goes straight, each point of its path on the line it started along.
+add_tslang_example_test(gravity_light_bending SUFFIX straight ARGS -gravity 0)
+# Without the lensed sky: the bodies drawn as sprites over the rays (a black hole a black disk).
+add_tslang_example_test(gravity_light_bending SUFFIX nosky ARGS -scene blackhole -nosky)
+# One mass, light passing it: each ray turns by general relativity's 4 G m / (c^2 b), and by half
+# that as a Newtonian particle at speed c; the exact Schwarzschild path agrees far from the mass.
+add_tslang_example_test(gravity_light_bending SUFFIX deflection ARGS -scene single -c 50)
+add_tslang_example_test(gravity_light_bending SUFFIX newtonian ARGS -scene single -c 50 -bending 0)
+add_tslang_example_test(gravity_light_bending SUFFIX schwarzschild ARGS -scene single -c 50 -bending 2)
+
 # Port of Vulkan-Samples' terrain_tessellation: a heightmap terrain of quad patches, tessellated by
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
 # to DDS next to the executables; point this at a Vulkan-Samples assets folder.
