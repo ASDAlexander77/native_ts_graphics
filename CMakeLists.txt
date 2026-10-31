@@ -171,6 +171,9 @@ set(DONUT_PATCHES
     # DLSS::Init creates its feature on a command list of its own while the frame's is open: as a second
     # immediate one, which NVRHI's validation (-debug) refuses (feature_demo's tests with DONUT_WITH_DLSS).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-dlss-non-immediate-command-list.patch"
+    # DLSS::InitParameters::useAutoExposure was never turned into NGX's AutoExposure flag: rtxpt's DLSS, which
+    # has no exposure texture, measures the exposure itself as the sample's (Streamline's) does.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-dlss-auto-exposure.patch"
     # The forward and depth passes kept a buffer group's input binding set (without the input assembler)
     # for good: rtxcr_raster's animated hair, which the morph target pass writes into one of two vertex
     # buffers a frame, drew from the first one in every frame (in a state nothing tracked: device lost).
@@ -452,6 +455,17 @@ if (DONUT_WITH_DLSS AND DONUT_WITH_DLSS_NR AND WIN32 AND DONUT_WITH_VULKAN)
     set(DLSS_NR_SHARED_LIBRARY_PATH "${dlss_nr_SOURCE_DIR}/lib/Windows_x86_64/rel/nvngx_dlssnr.dll")
 endif()
 
+# DLSS Ray Reconstruction (DLSS-RR, nvngx_dlssd.dll), for rtxpt's real-time mode: core/donut_interop.cpp drives
+# the NGX feature itself (Donut's DLSS has no specular motion vectors or view matrices), over the DLSS SDK's
+# headers (Donut's DLSS target isn't GLOBAL, so not through it).
+if (DONUT_WITH_DLSS AND WIN32)
+    include(FetchContent)
+    FetchContent_GetProperties(DLSS SOURCE_DIR DLSS_SDK_SOURCE_DIR)
+    if (DLSS_SDK_SOURCE_DIR)
+        set(DLSS_RR_INCLUDE_DIRS "${DLSS_SDK_SOURCE_DIR}/include")
+    endif()
+endif()
+
 # NVIDIA's Opacity Micro-Map SDK (github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK): its GPU baker and
 # the baker's NVRHI layer (omm-lib, omm-gpu-nvrhi), for opacity_micromaps -bake, which bakes the
 # micromaps at run time (core/omm_bake.cpp). Fetched at configure time into the build folder, with
@@ -508,6 +522,10 @@ function(configure_donut_interop target)
     if (DLSS_NR_INCLUDE_DIRS)
         target_include_directories(${target} PRIVATE ${DLSS_NR_INCLUDE_DIRS})
         target_compile_definitions(${target} PRIVATE DONUT_WITH_DLSS_NR=1)
+    endif()
+    if (DLSS_RR_INCLUDE_DIRS)
+        target_include_directories(${target} PRIVATE ${DLSS_RR_INCLUDE_DIRS})
+        target_compile_definitions(${target} PRIVATE DONUT_WITH_DLSS_RR=1)
     endif()
 endfunction()
 
@@ -592,11 +610,15 @@ endif()
 
 # With DONUT_WITH_DLSS, NGX loads nvngx_dlss.dll from the directory of the executable (of
 # donut_interop_shared.dll under the JIT): bin/, where both are. Set by Donut's cmake/DLSS.cmake.
-# So is DLSS-NR's nvngx_dlssnr.dll (DONUT_WITH_DLSS_NR, above).
+# So are DLSS-RR's nvngx_dlssd.dll and DLSS-NR's nvngx_dlssnr.dll (DONUT_WITH_DLSS_NR, above).
 function(copy_dlss_library target)
     if (DLSS_SHARED_LIBRARY_PATH)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLSS_SHARED_LIBRARY_PATH}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
+    endif()
+    if (DLSS_RR_SHARED_LIBRARY_PATH)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLSS_RR_SHARED_LIBRARY_PATH}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
     endif()
     if (DLSS_NR_SHARED_LIBRARY_PATH)
         add_custom_command(TARGET ${target} POST_BUILD
@@ -4048,10 +4070,13 @@ if (RTXPT_DIR)
         -captureStartTime 24 -captureWarmup 60 -overrideToRealtimeMode -overrideAutoexposureOff -realtimeAA 1
         -propCameraAttach SHIP_police_squad --scene ${RTXPT_DIR}/Assets/bistro-programmer-art.scene.json)
     if (DONUT_WITH_DLSS)
-        # DLSS in place of TAA (-dlss, the real-time mode's realtimeAA 2), and DLSS 5 over the reference image (the
-        # TAA and plain images where they aren't available).
+        # DLSS in place of TAA (-dlss, the real-time mode's realtimeAA 2) and DLSS-RR (3, the sample's default), both
+        # upscaling at the default balanced mode, and DLSS 5 over the reference image (TAA, DLSS and the plain image
+        # where they aren't available).
         add_tslang_example_test(rtxpt SUFFIX realtime_dlss ARGS -width 960 -height 540 -frames 200 -overrideToRealtimeMode
             -overrideAutoexposureOff -stopAnimations -dlss --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+        add_tslang_example_test(rtxpt SUFFIX realtime_dlss_rr ARGS -width 960 -height 540 -frames 200 -overrideToRealtimeMode
+            -overrideAutoexposureOff -stopAnimations -realtimeAA 3 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
         add_tslang_example_test(rtxpt SUFFIX dlss5 ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32
             -captureWarmup 64 -overrideToReferenceMode -dlss5 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
     endif()

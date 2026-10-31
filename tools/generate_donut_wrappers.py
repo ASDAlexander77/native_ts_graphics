@@ -75,6 +75,7 @@ CLASSES = {
     "pixelReadbackPass": "PixelReadbackPass",
     "dlss": "Dlss",
     "dlssNeuralRendering": "DlssNeuralRendering",
+    "dlssRayReconstruction": "DlssRayReconstruction",
     "lightProbeSet": "LightProbeSet",
     "lightProbeCapture": "LightProbeCapture",
     "lightProbeProcessingPass": "LightProbeProcessingPass",

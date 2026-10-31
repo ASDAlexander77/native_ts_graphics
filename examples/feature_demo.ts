@@ -690,7 +690,7 @@ namespace FeatureDemoExample {
             if (!dlss.isNull()) {
                 const width = this.renderTargetsWidth;
                 const height = this.renderTargetsHeight;
-                dlss.init(width, height, width, height);
+                dlss.init(width, height, width, height, 0);
 
                 this.ui.dlssAvailable = dlss.isInitialized();
             }

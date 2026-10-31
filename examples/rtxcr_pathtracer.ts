@@ -999,7 +999,7 @@ namespace RtxcrPathtracer {
             this.ldr = this.app.createRenderTargetTexture(width, height, Format.SRGBA8_UNORM, "LDR Color");
             const dlss = this.dlss;
             if (!dlss.isNull()) {
-                dlss.init(width, height, width, height);
+                dlss.init(width, height, width, height, 0);
                 this.settings.dlssAvailable = dlss.isInitialized();
             }
             const dlssNeuralRendering = this.dlssNeuralRendering;

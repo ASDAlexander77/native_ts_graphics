@@ -125,7 +125,7 @@ robot in Sponza, or the kitchen's stove):
 build-release-dlss-nr/bin/feature_demo.exe -dx12 -dlss -dlss5
 build-release-rtxcr/bin/rtxcr_pathtracer.exe -dx12 -denoiser 1 -dlss -dlss5 --scene E:/RTXCR/assets/claire.scene.json
 build-release-rtxcr/bin/rtxcr_raster.exe -dx12 -dlss -dlss5 --scene E:/RTXCR/assets/claire.scene.json
-build-release-rtxpt/bin/rtxpt.exe -dx12 -overrideToRealtimeMode -overrideAutoexposureOff -dlss -dlss5 --scene E:/RTXPT/Assets/kitchen.scene.json
+build-release-rtxpt/bin/rtxpt.exe -dx12 -overrideToRealtimeMode -overrideAutoexposureOff -dlss -overrideDLSSMode 6 -dlss5 --scene E:/RTXPT/Assets/kitchen.scene.json
 ```
 
 The path tracer's pictures use the NRD denoiser (`-denoiser 1`), which gives DLSS 5 a clean image to work from. Drop `-dlss5` (or untick "DLSS 5 (Neural Rendering)" in the window) for the left column. The images come from
@@ -293,13 +293,18 @@ build-rtxpt/bin/rtxpt.exe --scene E:/RTXPT/Assets/kitchen.scene.json
 ```
 
 It renders in the scene's mode, or `-overrideToReferenceMode` / `-overrideToRealtimeMode`. The reference mode
-accumulates samples while the camera stands still. The real-time mode traces one path per pixel and denoises it
-with the sample's NRD (`-nrdMethod 0` ReBLUR, `1` ReLAX; `-standaloneDenoiser 0` for the noisy image) and Donut's
-TAA (`-realtimeAA 0` for none), or DLSS in a build with `DONUT_WITH_DLSS` (`-dlss` or `-realtimeAA 2`; at the
-window's size, where the sample upscales through Streamline). `-dlss5` adds DLSS 5 (DLSS-NR, with
+accumulates samples while the camera stands still. The real-time mode traces one path per pixel and, as the sample
+by default, hands it to DLSS Ray Reconstruction (DLSS-RR, `-realtimeAA 3`), which denoises, anti-aliases and
+upscales it, in a build with `DONUT_WITH_DLSS` (the `rtxpt` presets have it). `-realtimeAA 2` (or `-dlss`) is DLSS
+over the sample's NRD (`-nrdMethod 0` ReBLUR, `1` ReLAX; `-standaloneDenoiser 0` for the noisy image), `1` Donut's
+TAA over NRD, `0` neither. Both DLSS modes render below the window's size and upscale (`-overrideDLSSMode 1`
+performance, `2` balanced, the default, `3` quality, `4` ultra performance, `6` DLAA, the full size); where they
+aren't available it falls back from DLSS-RR to DLSS to TAA. The sample runs them through Streamline;
+`core/donut_interop.cpp` drives DLSS-RR's NGX feature with the same inputs (the path tracer's albedos, normals and
+roughness, specular motion vectors and the view's matrices). `-dlss5` adds DLSS 5 (DLSS-NR, with
 `DONUT_WITH_DLSS_NR`) over the tone-mapped image in either mode, as in `rtxcr_pathtracer`. Lights are sampled by
-the sample's NEE-AT (`-NEEType 0` uniform, `1` power, `2` NEE-AT). SHaRC, ReSTIR DI/GI, sub-sampling, DLSS-RR and
-opacity micromaps are not ported.
+the sample's NEE-AT (`-NEEType 0` uniform, `1` power, `2` NEE-AT). SHaRC, ReSTIR DI/GI, sub-sampling and opacity
+micromaps are not ported.
 
 The sample's game (SampleGame, `core/rtxpt_game.ts`) runs in scenes with game settings, such as
 `bistro-programmer-art.scene.json`: it reads the props in the checkout's `Assets/SampleGame/<scene file name>`

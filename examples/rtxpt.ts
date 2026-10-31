@@ -17,12 +17,18 @@ import { RtxptGame } from "../core/rtxpt_game";
 // to rebuild what. core/rtxpt.cpp holds the sample's renderer library (compiled from the checkout) and
 // does the steps: the scene, materials, NEE-AT lights and environment map, the acceleration structures, the
 // path tracing passes (compiled at run time per material), accumulation or the denoiser and TAA, bloom and
-// tone mapping. Of the real-time mode, DLSS-RR, ReSTIR, SHaRC and sub-sampling are not ported: its AA is
-// TAA, or DLSS (with DONUT_WITH_DLSS: Donut's, at the window's size, where the sample upscales through
-// Streamline); the sample's default is DLSS-RR. DLSS 5 (DLSS 3D-Guided Neural Rendering, DONUT_WITH_DLSS_NR,
-// not in the sample) enhances the tone-mapped image in either mode, as in examples/rtxcr_pathtracer.ts.
+// tone mapping. Of the real-time mode, ReSTIR, SHaRC and sub-sampling are not ported. Its AA is the sample's
+// default DLSS-RR (ray reconstruction: DLSS denoising as it upscales), DLSS, TAA or none; DLSS and DLSS-RR (with
+// DONUT_WITH_DLSS; the sample's run through Streamline, these over NGX) render at the DLSS mode's size and upscale
+// to the window's. DLSS 5 (DLSS 3D-Guided Neural Rendering, DONUT_WITH_DLSS_NR, not in the sample) enhances the
+// tone-mapped image in either mode, as in examples/rtxcr_pathtracer.ts.
 namespace Rtxpt {
     const WINDOW_TITLE = "RTX Path Tracing";
+
+    // SampleUIData's DLSSRRMicroJitter: DLSS-RR's per-pixel jitter of the rays, and DLRRPreset (preset F, the
+    // transformer model; NVSDK_NGX_RayReconstruction_Hint_Render_Preset_F).
+    const DLSS_RR_MICRO_JITTER = 0.01;
+    const DLSS_RR_PRESET = 6;
 
     // Test mode: the frames rendered (and accumulated, after the warm-up).
     const TEST_FRAMES = 64;
@@ -210,9 +216,12 @@ namespace Rtxpt {
         referenceFireflyFilterThreshold = 2.5;
         denoiserRadianceClampK = 8.0;
 
-        // Real-time mode: realtimeAA 0 none, 1 TAA, 2 DLSS (where available, else none; the sample's DLSS-RR, 3,
-        // isn't ported).
-        realtimeAA: int = 1;
+        // Real-time mode: realtimeAA 0 none, 1 TAA, 2 DLSS, 3 DLSS-RR (the sample's; DLSS-RR falls back to DLSS, DLSS
+        // to TAA where not available). dlssMode: the sample's (Streamline's DLSSMode) for both, the render size:
+        // 1 performance, 2 balanced (the sample's default), 3 quality (3/4 of the size here), 4 ultra performance,
+        // 5 ultra quality, 6 DLAA (the full size).
+        realtimeAA: int = 3;
+        dlssMode: int = 2;
         realtimeSamplesPerPixel: int = 1;
         realtimeFireflyFilterEnabled = true;
         realtimeFireflyFilterThreshold = 0.1;
@@ -234,8 +243,9 @@ namespace Rtxpt {
         dlssNeuralRenderingToneStrength = 0.3;
         dlssNeuralRenderingUseAutoMask = true;
         dlssNeuralRenderingSkinStrength = 0.5;
-        // Set once DLSS, and DLSS-NR initialize (built with DONUT_WITH_DLSS(_NR), on an RTX GPU).
+        // Set once DLSS, DLSS-RR and DLSS-NR initialize (built with DONUT_WITH_DLSS(_NR), on an RTX GPU).
         dlssAvailable = false;
+        dlssRayReconstructionAvailable = false;
         dlssNeuralRenderingAvailable = false;
         // Sample's ResetRealtimeCaches: the denoiser's history and NEE-AT's feedback start again.
         resetRealtimeCaches = false;
@@ -326,9 +336,14 @@ namespace Rtxpt {
             return this.realtimeMode ? this.realtimeSamplesPerPixel : 1;
         }
 
-        // SampleUIData::ActualUseStandaloneDenoiser (TAA or no AA).
+        // SampleUIData::ActualUseStandaloneDenoiser: not under DLSS-RR, which denoises itself.
         actualUseStandaloneDenoiser(): boolean {
-            return this.realtimeMode && this.standaloneDenoiser;
+            return this.realtimeMode && this.realtimeAA < 3 && this.standaloneDenoiser;
+        }
+
+        // DLSS or DLSS-RR, which render at the DLSS mode's size.
+        actualUseDlss(): boolean {
+            return this.realtimeMode && (this.realtimeAA == 2 || this.realtimeAA == 3);
         }
 
         // SampleUIData::ActualNEEAT_LocalToGlobalSampleRatio: no local samples without NEE-AT.
@@ -364,13 +379,21 @@ namespace Rtxpt {
         private cameraVerticalFov = 1.0471975511965976;
         private cameraZNear = 0.001;
 
-        // DLSS (the real-time mode's realtimeAA 2, run by core/rtxpt.cpp) and DLSS-NR (null handles without support),
-        // the size they're set up for, and whether DLSS-NR ran last frame (else it starts without history).
+        // DLSS and DLSS-RR (the real-time mode's realtimeAA 2 and 3, run by core/rtxpt.cpp) and DLSS-NR (null handles
+        // without support), the window size they're set up for, and whether DLSS-NR ran last frame (else it starts
+        // without history). The frames' size (the DLSS mode's with DLSS or DLSS-RR, else the window's), and the DLSS
+        // mode's size for the window (optimalKey: the window size and mode it is for).
         private dlss: Dlss;
+        private dlssRayReconstruction: DlssRayReconstruction;
         private dlssNeuralRendering: DlssNeuralRendering;
         private dlssWidth: int = 0;
         private dlssHeight: int = 0;
         private dlssNeuralRenderingActive = false;
+        private renderWidth: int = 0;
+        private renderHeight: int = 0;
+        private optimalKey = "";
+        private optimalWidth: int = 0;
+        private optimalHeight: int = 0;
 
         constructor(private app: App, private settings: Settings, private scenePath: string, private assetsPath: string,
             width: int, height: int) {
@@ -378,6 +401,7 @@ namespace Rtxpt {
             this.camera = new Camera(null);
             this.game = new RtxptGame(this.rtxpt, this.camera);
             this.dlss = new Dlss(null);
+            this.dlssRayReconstruction = new DlssRayReconstruction(null);
             this.dlssNeuralRendering = new DlssNeuralRendering(null);
             this.frameSettings = new ConstantBlock(FRAME_SETTINGS_SIZE);
             for (let i = 0; i < 16; i++) {
@@ -409,10 +433,12 @@ namespace Rtxpt {
             }
             this.sceneLoaded();
 
-            // DLSS-NR shares the NGX instance of DLSS; both are set up for the size in onAnimate.
+            // DLSS-RR and DLSS-NR share the NGX instance of DLSS; all are set up for the sizes in onAnimate.
             this.dlss = this.app.createDlss();
+            this.dlssRayReconstruction = this.app.createDlssRayReconstruction(this.dlss);
             this.dlssNeuralRendering = this.app.createDlssNeuralRendering(this.dlss);
             this.rtxpt.setDlss(this.dlss.isNull() ? null : this.dlss.handle);
+            this.rtxpt.setDlssRayReconstruction(this.dlssRayReconstruction.isNull() ? null : this.dlssRayReconstruction.handle);
 
             const pass = this.app.addPass();
             pass.setKeyboardCallback(this.onKey);
@@ -689,25 +715,36 @@ namespace Rtxpt {
                 s.resetAccumulation = true;
             }
 
-            this.updateShaderMacros();
-            const prepared = this.rtxpt.prepare(this.width, this.height, this.needNewPasses, this.rebuildAccelStructs, s.neeatQualityPreset);
-            this.preparedWidth = this.width;
-            this.preparedHeight = this.height;
             if (this.width != this.dlssWidth || this.height != this.dlssHeight) {
                 this.dlssWidth = this.width;
                 this.dlssHeight = this.height;
                 if (!this.dlss.isNull()) {
-                    this.dlss.init(this.width, this.height, this.width, this.height);
+                    this.dlss.init(this.width, this.height, this.width, this.height, 1);
                     s.dlssAvailable = this.dlss.isInitialized();
                 }
+                s.dlssRayReconstructionAvailable = !this.dlssRayReconstruction.isNull();
                 if (!this.dlssNeuralRendering.isNull()) {
                     s.dlssNeuralRenderingAvailable = this.dlssNeuralRendering.init(this.width, this.height) != 0;
                 }
                 this.dlssNeuralRenderingActive = false;
-                // SampleUI clamps the choice to TAA without DLSS.
-                if (s.realtimeAA == 2 && !s.dlssAvailable) {
-                    console.log("DLSS is not available: TAA instead");
-                    s.realtimeAA = 1;
+            }
+            this.updateRenderSize();
+
+            this.updateShaderMacros();
+            const prepared = this.rtxpt.prepare(this.renderWidth, this.renderHeight, this.width, this.height, this.needNewPasses,
+                this.rebuildAccelStructs, s.neeatQualityPreset);
+            this.preparedWidth = this.width;
+            this.preparedHeight = this.height;
+            if (s.actualUseDlss()) {
+                // Again only when a size or the mode changes (both check). DLSS measures the exposure, as
+                // Streamline's (no exposure texture).
+                if (s.realtimeAA == 2) {
+                    this.dlss.init(this.renderWidth, this.renderHeight, this.width, this.height, 1);
+                } else if (this.dlssRayReconstruction.init(this.renderWidth, this.renderHeight, this.width, this.height, s.dlssMode - 1,
+                    DLSS_RR_PRESET) == 0) {
+                    console.log("DLSS-RR failed to initialize: DLSS instead");
+                    s.dlssRayReconstructionAvailable = false;
+                    s.realtimeAA = 2;
                 }
             }
             // New passes reset the accumulation (Render's needNewPasses); new acceleration structures too.
@@ -720,8 +757,57 @@ namespace Rtxpt {
             this.rebuildAccelStructs = false;
         }
 
+        // Sample::PreRender's DLSS setup: DLSS-RR falls back to DLSS and DLSS to TAA where not available; with
+        // either, the frames render at the size NGX recommends for the DLSS mode (Streamline's
+        // QueryDLSSOptimalSettings; quality at 3/4 of the window instead of 2/3, as the sample overrides it), and
+        // upscale to the window's. Without a size for the mode, no AA at the window's size (as the sample).
+        private updateRenderSize() {
+            const s = this.settings;
+            if (s.realtimeAA == 3 && !s.dlssRayReconstructionAvailable) {
+                console.log("DLSS-RR is not available: DLSS instead");
+                s.realtimeAA = 2;
+            }
+            if (s.realtimeAA == 2 && !s.dlssAvailable) {
+                console.log("DLSS is not available: TAA instead");
+                s.realtimeAA = 1;
+            }
+            this.renderWidth = this.width;
+            this.renderHeight = this.height;
+            if (!s.actualUseDlss()) {
+                return;
+            }
+            const key = `${this.width}x${this.height}:${s.dlssMode}`;
+            if (key != this.optimalKey) {
+                this.optimalKey = key;
+                // Streamline's DLSSMode m is NGX's quality value m - 1.
+                const size = this.app.getDlssOptimalRenderSize(this.dlss, this.width, this.height, s.dlssMode - 1);
+                this.optimalWidth = size % 65536;
+                this.optimalHeight = (size - this.optimalWidth) / 65536;
+                if (size != 0 && s.dlssMode == 3) {
+                    // (int)(outputWidth * 3 / 4 + 0.5f) with the sample's integer division first.
+                    this.optimalWidth = Math.floor(this.width * 3 / 4);
+                    this.optimalHeight = Math.floor(this.height * 3 / 4);
+                }
+            }
+            if (this.optimalWidth <= 0 || this.optimalHeight <= 0) {
+                console.log("DLSS has no render size for the mode: no AA");
+                s.realtimeAA = 0;
+                return;
+            }
+            this.renderWidth = this.optimalWidth;
+            this.renderHeight = this.optimalHeight;
+        }
+
         // For the UI: the average frame time, the samples accumulated (negative while warming up) and the
         // scene's togglable nodes.
+        getRenderWidth(): int {
+            return this.renderWidth;
+        }
+
+        getRenderHeight(): int {
+            return this.renderHeight;
+        }
+
         getWidth(): int {
             return this.width;
         }
@@ -792,7 +878,8 @@ namespace Rtxpt {
             f.setInt(FS_DIFFUSE_BOUNCE_COUNT, s.diffuseBounceCount);
             f.setFloat(FS_ENV_MAP_DIFFUSE_MIP_LEVEL, s.environmentMapDiffuseSampleMipLevel);
             f.setFloat(FS_TEX_LOD_BIAS, s.texLODBias);
-            f.setFloat(FS_PER_PIXEL_JITTER_AA_SCALE, !s.realtimeMode && s.accumulationAA ? 1.0 : 0.0);
+            f.setFloat(FS_PER_PIXEL_JITTER_AA_SCALE, !s.realtimeMode && s.accumulationAA ? 1.0 :
+                (s.realtimeMode && s.realtimeAA == 3 ? DLSS_RR_MICRO_JITTER : 0.0));
             f.setBool(FS_FIREFLY_FILTER_ENABLED, s.actualFireflyFilterEnabled());
             f.setFloat(FS_FIREFLY_FILTER_THRESHOLD, s.actualFireflyFilterThreshold());
             f.setBool(FS_ENABLE_TONE_MAPPING, s.enableToneMapping);
@@ -974,8 +1061,22 @@ namespace Rtxpt {
             if (s.realtimeMode && ImGui.collapsingHeaderDefaultOpen("Real-time")) {
                 ImGui.indent();
                 s.realtimeSamplesPerPixel = ImGui.sliderInt("Samples per pixel", s.realtimeSamplesPerPixel, 1, 64);
-                s.realtimeAA = ImGui.combo("Anti-aliasing", s.realtimeAA, s.dlssAvailable ? "None|TAA|DLSS" : "None|TAA");
-                if (s.realtimeAA == 1 || s.realtimeAA == 2) {
+                s.realtimeAA = ImGui.combo("Anti-aliasing", s.realtimeAA, s.dlssRayReconstructionAvailable ? "None|TAA|DLSS|DLSS-RR" :
+                    (s.dlssAvailable ? "None|TAA|DLSS" : "None|TAA"));
+                if (s.realtimeAA == 2 || s.realtimeAA == 3) {
+                    // SampleUI::DLSSModeUI's order.
+                    const modes = [4, 1, 2, 3, 6];
+                    let current = 2;
+                    for (let i = 0; i < 5; i++) {
+                        if (modes[i] == s.dlssMode) {
+                            current = i;
+                        }
+                    }
+                    current = ImGui.combo("DLSS resolution scale", current, "Ultra performance|Performance|Balanced|Quality|DLAA");
+                    s.dlssMode = modes[current];
+                    ImGui.text(`${r.getRenderWidth()}x${r.getRenderHeight()} -> ${r.getWidth()}x${r.getHeight()}`);
+                }
+                if (s.realtimeAA == 1 || s.realtimeAA == 2 || s.realtimeAA == 3) {
                     s.taaJitter = ImGui.combo("Jitter", s.taaJitter, "MSAA|Halton|R2|White noise");
                 }
                 if (s.realtimeAA == 1) {
@@ -983,8 +1084,11 @@ namespace Rtxpt {
                     s.taaUseHistoryClampRelax = ImGui.checkbox("TAA history clamp relax", s.taaUseHistoryClampRelax);
                     s.taaNewFrameWeight = ImGui.sliderFloat("TAA new frame weight", s.taaNewFrameWeight, 0.001, 1.0);
                 }
-                s.standaloneDenoiser = ImGui.checkbox("Denoiser (NRD)", s.standaloneDenoiser);
-                if (s.standaloneDenoiser) {
+                // DLSS-RR denoises itself.
+                if (s.realtimeAA != 3) {
+                    s.standaloneDenoiser = ImGui.checkbox("Denoiser (NRD)", s.standaloneDenoiser);
+                }
+                if (s.actualUseStandaloneDenoiser()) {
                     s.nrdMethod = ImGui.combo("Denoiser method", s.nrdMethod, "ReBLUR|ReLAX");
                     s.nrdDisocclusionThreshold = ImGui.sliderFloat("Disocclusion threshold", s.nrdDisocclusionThreshold, 0.0, 1.0);
                     s.nrdUseAlternateDisocclusionThresholdMix = ImGui.checkbox("Alternate disocclusion threshold mix",
@@ -1161,7 +1265,8 @@ namespace Rtxpt {
         // -envMapIntensity <x>: the environment map's intensity instead of the scene's.
         envMapIntensity = -1.0;
         // The sample's: -overrideToRealtimeMode / -overrideToReferenceMode instead of the scene's mode,
-        // -overrideAutoexposureOff, -stopAnimations, -disableFireflyFilters, -disablePostProcessFilters (bloom), and the real-time mode's -realtimeAA <0 none, 1 TAA, 2 DLSS>,
+        // -overrideAutoexposureOff, -stopAnimations, -disableFireflyFilters, -disablePostProcessFilters (bloom), and the real-time mode's -realtimeAA <0 none, 1 TAA, 2 DLSS, 3 DLSS-RR (default)>,
+        // -overrideDLSSMode <1 performance, 2 balanced (default), 3 quality, 4 ultra performance, 5 ultra quality, 6 DLAA>,
         // -standaloneDenoiser <0|1>, -nrdMethod <0 ReBLUR, 1 ReLAX>.
         overrideToRealtimeMode = false;
         overrideToReferenceMode = false;
@@ -1172,7 +1277,8 @@ namespace Rtxpt {
         // -propShowTags <tags>, -propCameraAttach <prop>: SampleGame's (the sample's --propShowTags, --propCameraAttach).
         propShowTags = "";
         propCameraAttach = "";
-        realtimeAA: int = 1;
+        realtimeAA: int = 3;
+        dlssMode: int = 2;
         standaloneDenoiser = true;
         nrdMethod: int = 0;
         // -dlss: the real-time mode's DLSS (-realtimeAA 2); -dlss5: DLSS 5 (DLSS-NR) over the tone-mapped image. Both
@@ -1231,7 +1337,12 @@ namespace Rtxpt {
                         this.envMapIntensity = parseFloat(this[i + 1]);
                     } else if (arg == "-realtimeAA") {
                         const aa = parseInt(this[i + 1]);
-                        this.realtimeAA = aa >= 0 && aa <= 2 ? aa : 1;
+                        this.realtimeAA = aa >= 0 && aa <= 3 ? aa : 3;
+                    } else if (arg == "-overrideDLSSMode" || arg == "--overrideDLSSMode") {
+                        const mode = parseInt(this[i + 1]);
+                        if (mode >= 1 && mode <= 6) {
+                            this.dlssMode = mode;
+                        }
                     } else if (arg == "-standaloneDenoiser") {
                         this.standaloneDenoiser = parseInt(this[i + 1]) != 0;
                     } else if (arg == "-propShowTags" || arg == "--propShowTags") {
@@ -1320,6 +1431,7 @@ namespace Rtxpt {
         settings.propShowTags = args.propShowTags;
         settings.propCameraAttach = args.propCameraAttach;
         settings.realtimeAA = args.realtimeAA;
+        settings.dlssMode = args.dlssMode;
         settings.standaloneDenoiser = args.standaloneDenoiser;
         settings.nrdMethod = args.nrdMethod;
         settings.enableDlssNeuralRendering = args.dlss5;
