@@ -897,8 +897,8 @@ export class RtxptGame {
         }
     }
 
-    // GameScene::Deinitialize
-    private deinitialize() {
+    // GameScene::Deinitialize (also before the scene unloads: the props hold its nodes).
+    deinitialize() {
         this.initialized = false;
         this.props = [];
         this.modelTypes = [];
