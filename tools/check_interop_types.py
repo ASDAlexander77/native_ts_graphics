@@ -122,6 +122,7 @@ HANDLES = {
     "donut::render::DLSS": "DlssHandle",
     "DlssNeuralRendering": "DlssNeuralRenderingHandle",
     "DlssRayReconstruction": "DlssRayReconstructionHandle",
+    "JsonDocument": "JsonDocumentHandle",
     "TsImGuiPass": "ImGuiPassHandle",
     "donut::app::RegisteredFont": "ImGuiFontHandle",
     "VideoPlayer": "VideoPlayerHandle",

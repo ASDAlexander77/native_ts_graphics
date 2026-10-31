@@ -92,6 +92,7 @@
 @cpp declare class DlssHandle extends ObjectHandle { private readonly __dlss: index; }
 @cpp declare class DlssNeuralRenderingHandle extends ObjectHandle { private readonly __dlssNeuralRendering: index; }
 @cpp declare class DlssRayReconstructionHandle extends ObjectHandle { private readonly __dlssRayReconstruction: index; }
+@cpp declare class JsonDocumentHandle extends ObjectHandle { private readonly __jsonDocument: index; }
 @cpp declare class ImGuiPassHandle { private readonly __imguiPass: index; }
 @cpp declare class ImGuiFontHandle { private readonly __imguiFont: index; }
 @cpp declare class VideoPlayerHandle { private readonly __videoPlayer: index; }

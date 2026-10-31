@@ -4,7 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { RtxptRenderer } from "../core/rtxpt_renderer";
-import { RtxptGame } from "../core/rtxpt_game";
+import { RtxptGame, GameWorld } from "../core/rtxpt_game";
 
 // Port of NVIDIA's RTX Path Tracing sample (github.com/NVIDIA-RTX/RTXPT): its reference path tracer and its
 // real-time mode with the standalone denoiser (NRD's ReBLUR or ReLAX) and TAA. The
@@ -399,7 +399,7 @@ namespace Rtxpt {
             width: int, height: int) {
             this.rtxpt = new RtxptRenderer(null);
             this.camera = new Camera(null);
-            this.game = new RtxptGame(this.rtxpt, this.camera);
+            this.game = new RtxptGame(this.camera);
             this.dlss = new Dlss(null);
             this.dlssRayReconstruction = new DlssRayReconstruction(null);
             this.dlssNeuralRendering = new DlssNeuralRendering(null);
@@ -421,13 +421,16 @@ namespace Rtxpt {
             }
             this.camera = this.app.createFirstPersonCamera();
             this.camera.setRotateSpeed(0.003);
-            this.game = new RtxptGame(this.rtxpt, this.app.createFirstPersonCamera());
+            this.game = new RtxptGame(this.app.createFirstPersonCamera());
             // Sample::SceneLoaded starts with the game's step.
             if (!this.rtxpt.loadScene(this.scenePath)) {
                 console.log(`Cannot load the scene ${this.scenePath}`);
                 return false;
             }
-            this.game.sceneLoaded(this.scenePath, this.assetsPath, this.settings.propShowTags, this.settings.propCameraAttach);
+            // The game edits the scene's Donut graph; RTXPT's renderer reads a negative spot outer angle as its
+            // minimum falloff, as SampleGame sets it.
+            const world = new GameWorld(this.app.handle, this.rtxpt.getScene(), this.rtxpt.hasGameSettings(), true);
+            this.game.sceneLoaded(world, this.scenePath, this.assetsPath, this.settings.propShowTags, this.settings.propCameraAttach);
             if (!this.rtxpt.finishLoadingScene()) {
                 return false;
             }

@@ -98,6 +98,8 @@ declare global {
     var DlssNeuralRendering: typeof Donut.DlssNeuralRendering;
     type DlssRayReconstruction = Donut.DlssRayReconstruction;
     var DlssRayReconstruction: typeof Donut.DlssRayReconstruction;
+    type JsonDocument = Donut.JsonDocument;
+    var JsonDocument: typeof Donut.JsonDocument;
     type LightProbeSet = Donut.LightProbeSet;
     var LightProbeSet: typeof Donut.LightProbeSet;
     type LightProbeCapture = Donut.LightProbeCapture;

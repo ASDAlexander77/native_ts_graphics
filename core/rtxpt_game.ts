@@ -2,19 +2,158 @@
 // GamePropComponent): props read from the scene's SampleGame/<scene file name> folder next to it (models/*.model.json,
 // props/*.prop.json), each a model of the scene's "models" list placed in the scene graph and moved along its
 // keyframe animation; the models' spot and point lights driven by light controllers (colour, intensity, blinking,
-// the RX6 ship's police lights); the game's time and play speed; and a camera that attaches to a prop. Its scene
-// graph and JSON steps are core/rtxpt.cpp's (Donut_RtxptRenderer*Game*). The sample's developer settings (camera
-// recording, saving props, moving them with the numpad) are not ported, nor its "press F" prop picking.
+// the RX6 ship's police lights); the game's time and play speed; and a camera that attaches to a prop. It runs on
+// a Donut scene (GameWorld: the scene graph and the scene file's "models", edited through core/donut_interop.cpp's
+// scene graph, JSON and file functions), so on any example's scene as on rtxpt's. The sample's developer settings
+// (camera recording, saving props, moving them with the numpad) are not ported, nor its "press F" prop picking.
 //
 // The sample is under the NVIDIA RTX SDKs License. This software contains source code provided by NVIDIA
 // Corporation.
 
+/// <reference path="donut_interop.d.ts" />
+
 import { Camera, ImGui } from "./donut";
-import { RtxptRenderer } from "./rtxpt_renderer";
 
 // The sample mixes float and double math; f32 rounds to float where it uses floats.
 function f32(x: number): number {
     return Math.fround(x);
+}
+
+// The scene the game runs in: a loaded Donut scene (its graph, and the scene file's "models" the props are made of),
+// the app that owns the game's JSON files, and what the host knows of it: whether the scene has game settings (an
+// RTXPT GameSettings node), and whether its renderer reads a spot light's negative outer angle as the minimum
+// falloff past it (RTXPT's kUseMinSpotlightFalloff, as SampleGame sets it). Nodes and JSON files are handles.
+export class GameWorld {
+    constructor(private app: AppHandle | null, private scene: SceneHandle | null, public hasGameSettings: boolean,
+        private minSpotFalloff: boolean) {
+    }
+
+    private graph(): SceneGraphHandle {
+        return Donut_GetSceneGraph(this.scene as SceneHandle);
+    }
+
+    listFiles(folder: string, wildcard: string): int {
+        return Donut_ListFiles(folder, wildcard);
+    }
+
+    getListedFile(index: int): string {
+        return Donut_GetListedFile(index);
+    }
+
+    // Null (see !) if it can't be read.
+    loadGameJson(path: string): JsonDocumentHandle {
+        return Donut_LoadJsonDocument(this.app as AppHandle, path) as JsonDocumentHandle;
+    }
+
+    hasGameJson(json: JsonDocumentHandle, path: string): boolean {
+        return Donut_JsonHas(json, path);
+    }
+
+    getGameJsonSize(json: JsonDocumentHandle, path: string): int {
+        return Donut_JsonGetSize(json, path);
+    }
+
+    getGameJsonNumber(json: JsonDocumentHandle, path: string, defaultValue: number): number {
+        return Donut_JsonGetNumber(json, path, defaultValue);
+    }
+
+    getGameJsonBool(json: JsonDocumentHandle, path: string, defaultValue: boolean): boolean {
+        return Donut_JsonGetBool(json, path, defaultValue);
+    }
+
+    getGameJsonString(json: JsonDocumentHandle, path: string, defaultValue: string): string {
+        return Donut_JsonGetString(json, path, defaultValue);
+    }
+
+    getGameJsonVector(json: JsonDocumentHandle, path: string, count: int, component: int): number {
+        return Donut_JsonGetVector(json, path, count, component);
+    }
+
+    getSceneModelCount(): int {
+        return Donut_GetSceneModelCount(this.scene as SceneHandle);
+    }
+
+    getSceneModelRootName(index: int): string {
+        const root = Donut_GetSceneModelRoot(this.scene as SceneHandle, index);
+        return !root ? "" : Donut_GetNodeName(root as NodeHandle);
+    }
+
+    // ModelType's constructor: the model's pose on its import root (copied with it to every instance).
+    setSceneModelTransform(index: int, tx: number, ty: number, tz: number, rx: number, ry: number, rz: number, rw: number,
+        sx: number, sy: number, sz: number) {
+        const root = Donut_GetSceneModelRoot(this.scene as SceneHandle, index);
+        if (!root) {
+            return;
+        }
+        Donut_SetNodeTransform(root as NodeHandle, tx, ty, tz, rx, ry, rz, rw, sx, sy, sz);
+    }
+
+    // PropBase's and ModelInstance's constructors: a new named node under `parent` (null: the scene's root).
+    createGameNode(parent: NodeHandle | null, name: string): NodeHandle {
+        return Donut_CreateSceneNode(this.graph(), parent, name);
+    }
+
+    // ModelInstance's constructor: the scene's model `modelIndex` (its import root) under `parent`; the first
+    // instance gets the import root itself, later ones copies (SceneGraph::Attach).
+    attachGameModel(parent: NodeHandle, modelIndex: int) {
+        const root = Donut_GetSceneModelRoot(this.scene as SceneHandle, modelIndex);
+        if (!root) {
+            return;
+        }
+        Donut_AttachSceneNode(this.graph(), parent, root as NodeHandle);
+    }
+
+    // ModelInstance::MapLightControllers' walk: the light nodes under `node`, depth first.
+    collectGameLights(node: NodeHandle, lights: NodeHandle[]) {
+        if (Donut_IsLightNode(node)) {
+            lights.push(node);
+        }
+        const count = Donut_GetNodeChildCount(node);
+        for (let i = 0; i < count; i++) {
+            this.collectGameLights(Donut_GetNodeChild(node, i) as NodeHandle, lights);
+        }
+    }
+
+    getGameNodeName(node: NodeHandle): string {
+        return Donut_GetNodeName(node);
+    }
+
+    // 0-2 translation, 3-6 rotation (x, y, z, w), 7-9 scaling.
+    getGameNodeTransform(node: NodeHandle | null, component: int): number {
+        return !node ? (component == 6 ? 1.0 : 0.0) : Donut_GetNodeTransform(node as NodeHandle, component);
+    }
+
+    setGameNodeRotation(node: NodeHandle | null, x: number, y: number, z: number, w: number) {
+        if (!node) {
+            return;
+        }
+        Donut_SetNodeRotation(node as NodeHandle, x, y, z, w);
+    }
+
+    setGameNodeTransform(node: NodeHandle, tx: number, ty: number, tz: number, rx: number, ry: number, rz: number, rw: number,
+        sx: number, sy: number, sz: number) {
+        Donut_SetNodeTransform(node, tx, ty, tz, rx, ry, rz, rw, sx, sy, sz);
+    }
+
+    // ModelInstance::UpdateLightFromControllers, one controller's light: the radius is the average of its (a frame
+    // old) world scale, as the sample's; floats as the sample's.
+    updateGameLight(node: NodeHandle | null, r: number, g: number, b: number, intensity: number, innerAngle: number,
+        outerAngle: number) {
+        if (!node) {
+            return;
+        }
+        const light = node as NodeHandle;
+        const radius = f32(f32(f32(Donut_GetNodeWorldScale(light, 0) + Donut_GetNodeWorldScale(light, 1)) +
+            Donut_GetNodeWorldScale(light, 2)) / 3.0);
+        const outer = Math.abs(f32(outerAngle));
+        Donut_SetNodeLight(light, f32(r), f32(g), f32(b), f32(intensity), radius, f32(innerAngle),
+            this.minSpotFalloff ? -outer : outer);
+    }
+
+    // GameScene::TickCamera: the game camera's pose (position, direction, up) in the prop's space into the scene's.
+    transformGameCamera(propNode: NodeHandle, posDirUp: Ref<f32>) {
+        Donut_TransformPoseByNode(propNode, posDirUp);
+    }
 }
 
 function minD(a: number, b: number): number {
@@ -193,50 +332,50 @@ export class Pose {
     keyTime = 0.0;
 
     // Pose::Read: the values the JSON object at `path` has.
-    read(rtxpt: RtxptRenderer, json: int, path: string): boolean {
-        if (!rtxpt.hasGameJson(json, path)) {
+    read(world: GameWorld, json: JsonDocumentHandle, path: string): boolean {
+        if (!world.hasGameJson(json, path)) {
             return false;
         }
         const translation = joinPath(path, "translation");
-        if (rtxpt.hasGameJson(json, translation) && !isNaN(rtxpt.getGameJsonVector(json, translation, 3, 0))) {
-            this.tx = rtxpt.getGameJsonVector(json, translation, 3, 0);
-            this.ty = rtxpt.getGameJsonVector(json, translation, 3, 1);
-            this.tz = rtxpt.getGameJsonVector(json, translation, 3, 2);
+        if (world.hasGameJson(json, translation) && !isNaN(world.getGameJsonVector(json, translation, 3, 0))) {
+            this.tx = world.getGameJsonVector(json, translation, 3, 0);
+            this.ty = world.getGameJsonVector(json, translation, 3, 1);
+            this.tz = world.getGameJsonVector(json, translation, 3, 2);
         }
         const rotation = joinPath(path, "rotation");
-        if (rtxpt.hasGameJson(json, rotation)) {
+        if (world.hasGameJson(json, rotation)) {
             let x = 0.0;
             let y = 0.0;
             let z = 0.0;
             let w = 1.0;
-            if (!isNaN(rtxpt.getGameJsonVector(json, rotation, 4, 0))) {
-                x = rtxpt.getGameJsonVector(json, rotation, 4, 0);
-                y = rtxpt.getGameJsonVector(json, rotation, 4, 1);
-                z = rtxpt.getGameJsonVector(json, rotation, 4, 2);
-                w = rtxpt.getGameJsonVector(json, rotation, 4, 3);
+            if (!isNaN(world.getGameJsonVector(json, rotation, 4, 0))) {
+                x = world.getGameJsonVector(json, rotation, 4, 0);
+                y = world.getGameJsonVector(json, rotation, 4, 1);
+                z = world.getGameJsonVector(json, rotation, 4, 2);
+                w = world.getGameJsonVector(json, rotation, 4, 3);
             }
             this.rotation = Quat.fromXYZW(x, y, z, w);
         } else {
             const euler = joinPath(path, "euler");
-            if (rtxpt.hasGameJson(json, euler)) {
+            if (world.hasGameJson(json, euler)) {
                 let ex = 0.0;
                 let ey = 0.0;
                 let ez = 0.0;
-                if (!isNaN(rtxpt.getGameJsonVector(json, euler, 3, 0))) {
-                    ex = rtxpt.getGameJsonVector(json, euler, 3, 0);
-                    ey = rtxpt.getGameJsonVector(json, euler, 3, 1);
-                    ez = rtxpt.getGameJsonVector(json, euler, 3, 2);
+                if (!isNaN(world.getGameJsonVector(json, euler, 3, 0))) {
+                    ex = world.getGameJsonVector(json, euler, 3, 0);
+                    ey = world.getGameJsonVector(json, euler, 3, 1);
+                    ez = world.getGameJsonVector(json, euler, 3, 2);
                 }
                 this.rotation = Quat.fromEuler(ex, ey, ez);
             }
         }
         const scaling = joinPath(path, "scaling");
-        if (rtxpt.hasGameJson(json, scaling) && !isNaN(rtxpt.getGameJsonVector(json, scaling, 3, 0))) {
-            this.sx = rtxpt.getGameJsonVector(json, scaling, 3, 0);
-            this.sy = rtxpt.getGameJsonVector(json, scaling, 3, 1);
-            this.sz = rtxpt.getGameJsonVector(json, scaling, 3, 2);
+        if (world.hasGameJson(json, scaling) && !isNaN(world.getGameJsonVector(json, scaling, 3, 0))) {
+            this.sx = world.getGameJsonVector(json, scaling, 3, 0);
+            this.sy = world.getGameJsonVector(json, scaling, 3, 1);
+            this.sz = world.getGameJsonVector(json, scaling, 3, 2);
         }
-        this.keyTime = rtxpt.getGameJsonNumber(json, joinPath(path, "keytime"), this.keyTime);
+        this.keyTime = world.getGameJsonNumber(json, joinPath(path, "keytime"), this.keyTime);
         return true;
     }
 
@@ -282,13 +421,13 @@ class KeyframeAnimation {
     animTime = 0.0;
     private lastFound: int = -1;
 
-    read(rtxpt: RtxptRenderer, json: int, path: string) {
+    read(world: GameWorld, json: JsonDocumentHandle, path: string) {
         this.keyTimeMin = FLT_MAX;
         this.keyTimeMax = -FLT_MAX;
-        const count = rtxpt.getGameJsonSize(json, path);
+        const count = world.getGameJsonSize(json, path);
         for (let i = 0; i < count; i++) {
             const key = new Pose();
-            key.read(rtxpt, json, joinPath(path, `${i}`));
+            key.read(world, json, joinPath(path, `${i}`));
             this.keys.push(key);
             this.keyTimeMin = minD(this.keyTimeMin, key.keyTime);
             this.keyTimeMax = maxD(this.keyTimeMax, key.keyTime);
@@ -356,7 +495,7 @@ class KeyframeAnimation {
 
 // game::LightController (floats as the sample's).
 class LightController {
-    node: int = -1;
+    node: NodeHandle | null = null;
     nodeName = "";
     r = 1.0;
     g = 1.0;
@@ -371,24 +510,24 @@ class LightController {
     autoOnOffTimeOffset = 0.0;
 
     // LightController::Read: the values the JSON object at `path` has.
-    read(rtxpt: RtxptRenderer, json: int, path: string): boolean {
-        if (!rtxpt.hasGameJson(json, path)) {
+    read(world: GameWorld, json: JsonDocumentHandle, path: string): boolean {
+        if (!world.hasGameJson(json, path)) {
             return false;
         }
         const color = joinPath(path, "color");
-        if (!isNaN(rtxpt.getGameJsonVector(json, color, 3, 0))) {
-            this.r = f32(rtxpt.getGameJsonVector(json, color, 3, 0));
-            this.g = f32(rtxpt.getGameJsonVector(json, color, 3, 1));
-            this.b = f32(rtxpt.getGameJsonVector(json, color, 3, 2));
+        if (!isNaN(world.getGameJsonVector(json, color, 3, 0))) {
+            this.r = f32(world.getGameJsonVector(json, color, 3, 0));
+            this.g = f32(world.getGameJsonVector(json, color, 3, 1));
+            this.b = f32(world.getGameJsonVector(json, color, 3, 2));
         }
-        this.intensity = f32(rtxpt.getGameJsonNumber(json, joinPath(path, "intensity"), this.intensity));
-        this.enabled = rtxpt.getGameJsonBool(json, joinPath(path, "enabled"), this.enabled);
-        this.toggleOnUIClick = rtxpt.getGameJsonBool(json, joinPath(path, "toggleOnUIClick"), this.toggleOnUIClick);
-        this.innerAngle = f32(rtxpt.getGameJsonNumber(json, joinPath(path, "innerAngle"), this.innerAngle));
-        this.outerAngle = f32(rtxpt.getGameJsonNumber(json, joinPath(path, "outerAngle"), this.outerAngle));
-        this.autoOffTime = f32(rtxpt.getGameJsonNumber(json, joinPath(path, "autoOffTime"), this.autoOffTime));
-        this.autoOnTime = f32(rtxpt.getGameJsonNumber(json, joinPath(path, "autoOnTime"), this.autoOnTime));
-        this.autoOnOffTimeOffset = f32(rtxpt.getGameJsonNumber(json, joinPath(path, "autoOnOffTimeOffset"), this.autoOnOffTimeOffset));
+        this.intensity = f32(world.getGameJsonNumber(json, joinPath(path, "intensity"), this.intensity));
+        this.enabled = world.getGameJsonBool(json, joinPath(path, "enabled"), this.enabled);
+        this.toggleOnUIClick = world.getGameJsonBool(json, joinPath(path, "toggleOnUIClick"), this.toggleOnUIClick);
+        this.innerAngle = f32(world.getGameJsonNumber(json, joinPath(path, "innerAngle"), this.innerAngle));
+        this.outerAngle = f32(world.getGameJsonNumber(json, joinPath(path, "outerAngle"), this.outerAngle));
+        this.autoOffTime = f32(world.getGameJsonNumber(json, joinPath(path, "autoOffTime"), this.autoOffTime));
+        this.autoOnTime = f32(world.getGameJsonNumber(json, joinPath(path, "autoOnTime"), this.autoOnTime));
+        this.autoOnOffTimeOffset = f32(world.getGameJsonNumber(json, joinPath(path, "autoOnOffTimeOffset"), this.autoOnOffTimeOffset));
         return true;
     }
 }
@@ -402,15 +541,15 @@ class ModelType {
     lightNames: string[] = [];
     lightPaths: string[] = [];
 
-    constructor(rtxpt: RtxptRenderer, public name: string, public json: int) {
-        let modelIndex = <int>rtxpt.getGameJsonNumber(json, "sceneModelIndex", -1.0);
-        const modelName = rtxpt.getGameJsonString(json, "sceneModelName", "");
-        this.modelPose.read(rtxpt, json, "modelPose");
+    constructor(world: GameWorld, public name: string, public json: JsonDocumentHandle) {
+        let modelIndex = <int>world.getGameJsonNumber(json, "sceneModelIndex", -1.0);
+        const modelName = world.getGameJsonString(json, "sceneModelName", "");
+        this.modelPose.read(world, json, "modelPose");
 
-        const lightCount = rtxpt.getGameJsonSize(json, "lights");
+        const lightCount = world.getGameJsonSize(json, "lights");
         for (let i = 0; i < lightCount; i++) {
             const lightPath = `lights/${i}`;
-            const lightName = rtxpt.getGameJsonString(json, joinPath(lightPath, "name"), "");
+            const lightName = world.getGameJsonString(json, joinPath(lightPath, "name"), "");
             if (lightName == "" || this.findLight(lightName) >= 0) {
                 console.log(`malformed or repeated light name in ${name}.model.json`);
                 continue;
@@ -419,10 +558,10 @@ class ModelType {
             this.lightPaths.push(lightPath);
         }
 
-        const modelCount = rtxpt.getSceneModelCount();
+        const modelCount = world.getSceneModelCount();
         if (modelIndex == -1 && modelName != "") {
             for (let i = 0; i < modelCount; i++) {
-                if (containsIgnoreCase(rtxpt.getSceneModelRootName(i), modelName)) {
+                if (containsIgnoreCase(world.getSceneModelRootName(i), modelName)) {
                     modelIndex = i;
                     break;
                 }
@@ -434,7 +573,7 @@ class ModelType {
         }
         const p = this.modelPose;
         const q = p.rotation;
-        rtxpt.setSceneModelTransform(modelIndex, p.tx, p.ty, p.tz, q.x, q.y, q.z, q.w, p.sx, p.sy, p.sz);
+        world.setSceneModelTransform(modelIndex, p.tx, p.ty, p.tz, q.x, q.y, q.z, q.w, p.sx, p.sy, p.sz);
         this.modelIndex = modelIndex;
         this.valid = name != "";
     }
@@ -451,28 +590,25 @@ class ModelType {
 
 // game::ModelInstance: a node of its own with the model type's model under it, and its lights' controllers.
 class ModelInstance {
-    node: int;
+    node: NodeHandle;
     lights: LightController[] = [];
 
-    constructor(rtxpt: RtxptRenderer, public instanceName: string, modelType: ModelType, parentNode: int) {
-        this.node = rtxpt.createGameNode(parentNode, instanceName);
-        rtxpt.attachGameModel(this.node, modelType.modelIndex);
+    constructor(world: GameWorld, public instanceName: string, modelType: ModelType, parentNode: NodeHandle) {
+        this.node = world.createGameNode(parentNode, instanceName);
+        world.attachGameModel(this.node, modelType.modelIndex);
 
         // MapLightControllers
-        const count = rtxpt.collectGameLights(this.node);
-        const handles: int[] = [];
-        for (let i = 0; i < count; i++) {
-            handles.push(rtxpt.getCollectedGameLight(i));
-        }
+        const handles: NodeHandle[] = [];
+        world.collectGameLights(this.node, handles);
         for (let i = 0; i < handles.length; i++) {
-            const lightName = rtxpt.getGameNodeName(handles[i]);
+            const lightName = world.getGameNodeName(handles[i]);
             const index = modelType.findLight(lightName);
             if (index < 0) {
                 console.log(`Model instance '${instanceName}', light '${lightName}' has no controller`);
                 continue;
             }
             const controller = new LightController();
-            if (controller.read(rtxpt, modelType.json, modelType.lightPaths[index])) {
+            if (controller.read(world, modelType.json, modelType.lightPaths[index])) {
                 controller.node = handles[i];
                 controller.nodeName = lightName;
                 this.lights.push(controller);
@@ -481,7 +617,7 @@ class ModelInstance {
     }
 
     // ModelInstance::UpdateLightFromControllers
-    updateLightFromControllers(rtxpt: RtxptRenderer, gameTime: number) {
+    updateLightFromControllers(world: GameWorld, gameTime: number) {
         for (let i = 0; i < this.lights.length; i++) {
             const c = this.lights[i];
             let enabled = c.enabled;
@@ -492,7 +628,7 @@ class ModelInstance {
                 enabled = enabled && remainder < c.autoOffTime / periodLength;
             }
             const intensity = enabled ? c.intensity : 0.0;
-            rtxpt.updateGameLight(c.node, c.r, c.g, c.b, intensity, c.innerAngle, c.outerAngle);
+            world.updateGameLight(c.node, c.r, c.g, c.b, intensity, c.innerAngle, c.outerAngle);
         }
     }
 }
@@ -513,9 +649,9 @@ class PoliceLights {
     blobLeftRot = new Quat(1.0, 0.0, 0.0, 0.0);
     blobRightRot = new Quat(1.0, 0.0, 0.0, 0.0);
 
-    load(rtxpt: RtxptRenderer, json: int, path: string, models: ModelInstance[]) {
-        this.start = f32(rtxpt.getGameJsonNumber(json, joinPath(path, "animTimeStart"), this.start));
-        this.stop = f32(rtxpt.getGameJsonNumber(json, joinPath(path, "animTimeStop"), this.stop));
+    load(world: GameWorld, json: JsonDocumentHandle, path: string, models: ModelInstance[]) {
+        this.start = f32(world.getGameJsonNumber(json, joinPath(path, "animTimeStart"), this.start));
+        this.stop = f32(world.getGameJsonNumber(json, joinPath(path, "animTimeStop"), this.stop));
         for (let m = 0; m < models.length; m++) {
             const lights = models[m].lights;
             for (let i = 0; i < lights.length; i++) {
@@ -530,19 +666,19 @@ class PoliceLights {
                 }
                 if (light.nodeName == "BlobLeft") {
                     this.blobLeft = light;
-                    this.blobLeftRot = nodeRotation(rtxpt, light.node);
+                    this.blobLeftRot = nodeRotation(world, light.node);
                     this.blobLeftIntensity = light.intensity;
                 }
                 if (light.nodeName == "BlobRight") {
                     this.blobRight = light;
-                    this.blobRightRot = nodeRotation(rtxpt, light.node);
+                    this.blobRightRot = nodeRotation(world, light.node);
                     this.blobRightIntensity = light.intensity;
                 }
             }
         }
     }
 
-    tick(rtxpt: RtxptRenderer, animationTime: number) {
+    tick(world: GameWorld, animationTime: number) {
         let blobRightI = 0.0;
         let blobRotAngle = 0.0;
         if (animationTime > this.start && animationTime < this.stop) {
@@ -579,8 +715,8 @@ class PoliceLights {
             this.blobRight.intensity = 0.0;
         }
         const rot = Quat.fromEuler(blobRotAngle, 0.0, 0.0);
-        setNodeRotation(rtxpt, this.blobLeft.node, this.blobLeftRot.mul(rot));
-        setNodeRotation(rtxpt, this.blobRight.node, this.blobRightRot.mul(rot));
+        setNodeRotation(world, this.blobLeft.node, this.blobLeftRot.mul(rot));
+        setNodeRotation(world, this.blobRight.node, this.blobRightRot.mul(rot));
     }
 }
 
@@ -597,24 +733,24 @@ function findModelType(modelTypes: ModelType[], name: string): ModelType | null 
     return null;
 }
 
-function nodeRotation(rtxpt: RtxptRenderer, node: int): Quat {
-    return Quat.fromXYZW(rtxpt.getGameNodeTransform(node, 3), rtxpt.getGameNodeTransform(node, 4),
-        rtxpt.getGameNodeTransform(node, 5), rtxpt.getGameNodeTransform(node, 6));
+function nodeRotation(world: GameWorld, node: NodeHandle | null): Quat {
+    return Quat.fromXYZW(world.getGameNodeTransform(node, 3), world.getGameNodeTransform(node, 4),
+        world.getGameNodeTransform(node, 5), world.getGameNodeTransform(node, 6));
 }
 
-function setNodeRotation(rtxpt: RtxptRenderer, node: int, q: Quat) {
-    rtxpt.setGameNodeRotation(node, q.x, q.y, q.z, q.w);
+function setNodeRotation(world: GameWorld, node: NodeHandle | null, q: Quat) {
+    world.setGameNodeRotation(node, q.x, q.y, q.z, q.w);
 }
 
-function setNodeTransform(rtxpt: RtxptRenderer, node: int, p: Pose) {
+function setNodeTransform(world: GameWorld, node: NodeHandle, p: Pose) {
     const q = p.rotation;
-    rtxpt.setGameNodeTransform(node, p.tx, p.ty, p.tz, q.x, q.y, q.z, q.w, p.sx, p.sy, p.sz);
+    world.setGameNodeTransform(node, p.tx, p.ty, p.tz, q.x, q.y, q.z, q.w, p.sx, p.sy, p.sz);
 }
 
 // game::SimpleProp (the only prop type): a node under the scene's root with one model instance, its start pose,
 // its keyframe animation, the light overrides and components.
 class Prop {
-    node: int;
+    node: NodeHandle;
     startPose = new Pose();
     defaultCameraPose = new Pose();
     animation = new KeyframeAnimation();
@@ -624,45 +760,45 @@ class Prop {
     models: ModelInstance[] = [];
     policeLights: PoliceLights[] = [];
 
-    constructor(private rtxpt: RtxptRenderer, public name: string) {
-        this.node = rtxpt.createGameNode(-1, name);
+    constructor(private world: GameWorld, public name: string) {
+        this.node = world.createGameNode(null, name);
     }
 
     // PropBase::Load and SimpleProp::Load, with the game's --propShowTags and model types.
-    load(json: int, propShowTags: string, modelTypes: ModelType[]) {
-        const rtxpt = this.rtxpt;
-        this.startPose.read(rtxpt, json, "startPose");
+    load(json: JsonDocumentHandle, propShowTags: string, modelTypes: ModelType[]) {
+        const world = this.world;
+        this.startPose.read(world, json, "startPose");
         // An empty "defaultCameraPose" is the pose of a camera at the origin looking along +x with +y up: no rotation.
-        if (rtxpt.getGameJsonSize(json, "defaultCameraPose") > 0) {
-            this.defaultCameraPose.read(rtxpt, json, "defaultCameraPose");
+        if (world.getGameJsonSize(json, "defaultCameraPose") > 0) {
+            this.defaultCameraPose.read(world, json, "defaultCameraPose");
         }
-        this.animPlaybackSpeed = f32(rtxpt.getGameJsonNumber(json, "animPlaybackSpeed", this.animPlaybackSpeed));
-        this.showOnlyIfTagged = rtxpt.getGameJsonString(json, "showOnlyIfTagged", this.showOnlyIfTagged);
-        if (rtxpt.getGameJsonSize(json, "animation") > 0) {
-            this.animation.read(rtxpt, json, "animation");
+        this.animPlaybackSpeed = f32(world.getGameJsonNumber(json, "animPlaybackSpeed", this.animPlaybackSpeed));
+        this.showOnlyIfTagged = world.getGameJsonString(json, "showOnlyIfTagged", this.showOnlyIfTagged);
+        if (world.getGameJsonSize(json, "animation") > 0) {
+            this.animation.read(world, json, "animation");
         }
 
         if (this.showOnlyIfTagged != "" && !containsIgnoreCase(propShowTags, this.showOnlyIfTagged)) {
             return;
         }
-        const modelType = findModelType(modelTypes, rtxpt.getGameJsonString(json, "modelName", ""));
+        const modelType = findModelType(modelTypes, world.getGameJsonString(json, "modelName", ""));
         if (modelType == null || !modelType.valid) {
-            console.log(`Prop ${this.name}: no model ${rtxpt.getGameJsonString(json, "modelName", "")}`);
+            console.log(`Prop ${this.name}: no model ${world.getGameJsonString(json, "modelName", "")}`);
             return;
         }
         // CreateAndAttachModel at the origin
-        const model = new ModelInstance(rtxpt, "SimplePropOnlyModel", modelType, this.node);
-        setNodeTransform(rtxpt, model.node, new Pose());
+        const model = new ModelInstance(world, "SimplePropOnlyModel", modelType, this.node);
+        setNodeTransform(world, model.node, new Pose());
         this.models.push(model);
     }
 
     // PropBase::PostLoadSetup: the light overrides, then the components.
-    postLoadSetup(json: int) {
-        const rtxpt = this.rtxpt;
-        const overrideCount = rtxpt.getGameJsonSize(json, "modelsLightsOverrides");
+    postLoadSetup(json: JsonDocumentHandle) {
+        const world = this.world;
+        const overrideCount = world.getGameJsonSize(json, "modelsLightsOverrides");
         for (let m = 0; m < overrideCount; m++) {
             const path = `modelsLightsOverrides/${m}`;
-            const modelName = rtxpt.getGameJsonString(json, joinPath(path, "modelInstanceName"), "");
+            const modelName = world.getGameJsonString(json, joinPath(path, "modelInstanceName"), "");
             let model: ModelInstance | null = null;
             for (let i = 0; i < this.models.length; i++) {
                 if (this.models[i].instanceName == modelName) {
@@ -675,14 +811,14 @@ class Prop {
                 continue;
             }
             const lightOverrides = joinPath(path, "lightOverrides");
-            const lightCount = rtxpt.getGameJsonSize(json, lightOverrides);
+            const lightCount = world.getGameJsonSize(json, lightOverrides);
             for (let l = 0; l < lightCount; l++) {
                 const lightPath = joinPath(lightOverrides, `${l}`);
-                const lightName = rtxpt.getGameJsonString(json, joinPath(lightPath, "name"), "");
+                const lightName = world.getGameJsonString(json, joinPath(lightPath, "name"), "");
                 let found = false;
                 for (let i = 0; i < model.lights.length; i++) {
                     if (model.lights[i].nodeName == lightName) {
-                        model.lights[i].read(rtxpt, json, lightPath);
+                        model.lights[i].read(world, json, lightPath);
                         found = true;
                         break;
                     }
@@ -693,13 +829,13 @@ class Prop {
             }
         }
 
-        const componentCount = rtxpt.getGameJsonSize(json, "components");
+        const componentCount = world.getGameJsonSize(json, "components");
         for (let c = 0; c < componentCount; c++) {
             const path = `components/${c}`;
             // "BasicInteractableUI" only picks the prop with the mouse, not ported
-            if (rtxpt.getGameJsonString(json, joinPath(path, "type"), "") == "PoliceLightingOnRX6") {
+            if (world.getGameJsonString(json, joinPath(path, "type"), "") == "PoliceLightingOnRX6") {
                 const component = new PoliceLights();
-                component.load(rtxpt, json, path, this.models);
+                component.load(world, json, path, this.models);
                 this.policeLights.push(component);
             }
         }
@@ -707,24 +843,24 @@ class Prop {
 
     // PropBase::Reset
     reset() {
-        setNodeTransform(this.rtxpt, this.node, this.startPose);
+        setNodeTransform(this.world, this.node, this.startPose);
         this.animOffset = 0.0;
     }
 
     // PropBase::Tick (without the numpad moves of the selected prop)
     tick(gameTime: number) {
-        const rtxpt = this.rtxpt;
+        const world = this.world;
         let animTime = 0.0;
         const pose: Pose[] = [new Pose()];
         if (this.animation.getAt(this.animPlaybackSpeed * gameTime + this.animOffset, true, pose)) {
-            setNodeTransform(rtxpt, this.node, pose[0]);
+            setNodeTransform(world, this.node, pose[0]);
             animTime = this.animation.animTime;
         }
         for (let i = 0; i < this.policeLights.length; i++) {
-            this.policeLights[i].tick(rtxpt, animTime);
+            this.policeLights[i].tick(world, animTime);
         }
         for (let i = 0; i < this.models.length; i++) {
-            this.models[i].updateLightFromControllers(rtxpt, gameTime);
+            this.models[i].updateLightFromControllers(world, gameTime);
         }
     }
 }
@@ -751,7 +887,10 @@ export class RtxptGame {
     private sceneCameraLast: f32[] = [];
     private cameraPose: f32[] = [];
 
-    constructor(private rtxpt: RtxptRenderer, public gameCamera: Camera) {
+    // The scene the game runs in (sceneLoaded's).
+    private world = new GameWorld(null, null, false, false);
+
+    constructor(public gameCamera: Camera) {
         for (let i = 0; i < 9; i++) {
             this.sceneCameraLast.push(0.0);
             this.cameraPose.push(0.0);
@@ -774,46 +913,46 @@ export class RtxptGame {
         this.playSpeed = 3;
     }
 
-    // GameScene::SceneLoaded: after the scene file loaded (core/rtxpt.cpp's LoadScene), before the rest of the
-    // loading (FinishLoadingScene). The game's files are in <assets>/SampleGame/<scene file name without .json>.
-    sceneLoaded(scenePath: string, assetsPath: string, propShowTags: string, propCameraAttach: string) {
+    // GameScene::SceneLoaded: after the scene file loaded (rtxpt: core/rtxpt.cpp's LoadScene, before the rest of the
+    // loading, FinishLoadingScene), in `world`. The game's files are in <assets>/SampleGame/<scene file name without .json>.
+    sceneLoaded(world: GameWorld, scenePath: string, assetsPath: string, propShowTags: string, propCameraAttach: string) {
         this.deinitialize();
+        this.world = world;
         this.propShowTags = propShowTags;
-        const rtxpt = this.rtxpt;
-        if (!rtxpt.hasGameSettings()) {
+        if (!world.hasGameSettings) {
             return;
         }
         const storagePath = `${assetsPath}/SampleGame/${fileStem(scenePath, 1)}`;
         this.initialized = true;
 
-        const modelCount = rtxpt.listFiles(`${storagePath}/models`, "*.model.json");
+        const modelCount = world.listFiles(`${storagePath}/models`, "*.model.json");
         const modelFiles: string[] = [];
         for (let i = 0; i < modelCount; i++) {
-            modelFiles.push(rtxpt.getListedFile(i));
+            modelFiles.push(world.getListedFile(i));
         }
         for (let i = 0; i < modelFiles.length; i++) {
-            const json = rtxpt.loadGameJson(modelFiles[i]);
-            if (json < 0) {
+            const json = world.loadGameJson(modelFiles[i]);
+            if (!json) {
                 continue;
             }
-            this.modelTypes.push(new ModelType(rtxpt, fileStem(modelFiles[i], 2), json));
+            this.modelTypes.push(new ModelType(world, fileStem(modelFiles[i], 2), json));
         }
 
-        const propCount = rtxpt.listFiles(`${storagePath}/props`, "*.prop.json");
+        const propCount = world.listFiles(`${storagePath}/props`, "*.prop.json");
         const propFiles: string[] = [];
         for (let i = 0; i < propCount; i++) {
-            propFiles.push(rtxpt.getListedFile(i));
+            propFiles.push(world.getListedFile(i));
         }
         for (let i = 0; i < propFiles.length; i++) {
-            const json = rtxpt.loadGameJson(propFiles[i]);
-            if (json < 0) {
+            const json = world.loadGameJson(propFiles[i]);
+            if (!json) {
                 continue;
             }
             // CreatePropFromFile
-            if (rtxpt.getGameJsonString(json, "propType", "") != "SimpleProp") {
+            if (world.getGameJsonString(json, "propType", "") != "SimpleProp") {
                 continue;
             }
-            const prop = new Prop(rtxpt, fileStem(propFiles[i], 2));
+            const prop = new Prop(world, fileStem(propFiles[i], 2));
             prop.load(json, this.propShowTags, this.modelTypes);
             prop.postLoadSetup(json);
             prop.reset();
@@ -913,7 +1052,7 @@ export class RtxptGame {
             this.gameCamera.getPosition(Ref(p[0]));
             this.gameCamera.getDirection(Ref(p[3]));
             this.gameCamera.getUp(Ref(p[6]));
-            this.rtxpt.transformGameCamera(this.props[this.cameraAttached].node, Ref(p[0]));
+            this.world.transformGameCamera(this.props[this.cameraAttached].node, Ref(p[0]));
             renderCamera.lookTo(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8]);
         }
     }

@@ -1491,6 +1491,14 @@ export class App {
         return new StringList(Donut_FindScenes(this.handle, directory));
     }
 
+    // A JSON file whose root is an object (owned by the app; a null handle if unreadable), read by
+    // path ("a/0/b"): whether there is a value, an array's or object's size (-1 if neither), a
+    // number, bool or string (defaultValue where missing), and component `component` of a 3- or
+    // 4-vector (count) as Donut's json::Read reads it (NaN where missing).
+    loadJsonDocument(path: string): JsonDocument {
+        return new JsonDocument(Donut_LoadJsonDocument(this.handle, path));
+    }
+
     // Views.
     createStereoView(): View {
         return new View(Donut_CreateStereoView(this.handle));
@@ -3285,6 +3293,15 @@ export class Scene {
     getNodePosition(path: string, dst: Ref<f32>): int {
         return Donut_GetSceneNodePosition(this.handle, path, dst);
     }
+
+    // The scene file's "models": their count, and each one's import root (null without one).
+    getModelCount(): int {
+        return Donut_GetSceneModelCount(this.handle);
+    }
+
+    getModelRoot(index: int): Node {
+        return new Node(Donut_GetSceneModelRoot(this.handle, index));
+    }
 }
 
 @value
@@ -3329,6 +3346,16 @@ export class SceneGraph {
 
     getCamera(index: int): SceneCamera {
         return new SceneCamera(Donut_GetSceneGraphCamera(this.handle, index));
+    }
+
+    // Scene graph editing, JSON and files, for a game over a loaded scene (core/rtxpt_game.ts). A new empty node under
+    // parent (null: the root); attaching a subtree under parent (itself, or a copy if it has a parent already).
+    createSceneNode(parent: Node | null, name: string): Node {
+        return new Node(Donut_CreateSceneNode(this.handle, parent ? (parent as Node).handle : null, name));
+    }
+
+    attachSceneNode(parent: Node, node: Node): Node {
+        return new Node(Donut_AttachSceneNode(this.handle, parent.handle, node.handle));
     }
 
     getMaterialCount(): int {
@@ -3388,6 +3415,50 @@ export class Node {
     // Makes the scene re-sort the node's content (e.g. after a material changes domain).
     invalidateContent(): void {
         Donut_InvalidateNodeContent(this.handle);
+    }
+
+    getName(): string {
+        return Donut_GetNodeName(this.handle);
+    }
+
+    getChildCount(): int {
+        return Donut_GetNodeChildCount(this.handle);
+    }
+
+    getChild(index: int): Node {
+        return new Node(Donut_GetNodeChild(this.handle, index));
+    }
+
+    // The local transform: translation, rotation (x, y, z, w), scaling; one value: 0-2 translation, 3-6 rotation, 7-9 scaling.
+    setTransform(tx: number, ty: number, tz: number, rx: number, ry: number, rz: number, rw: number, sx: number, sy: number, sz: number): void {
+        Donut_SetNodeTransform(this.handle, tx, ty, tz, rx, ry, rz, rw, sx, sy, sz);
+    }
+
+    setRotation(x: number, y: number, z: number, w: number): void {
+        Donut_SetNodeRotation(this.handle, x, y, z, w);
+    }
+
+    getTransform(component: int): number {
+        return Donut_GetNodeTransform(this.handle, component);
+    }
+
+    // The scale (axis 0-2) of the world transform from the last scene refresh.
+    getWorldScale(axis: int): number {
+        return Donut_GetNodeWorldScale(this.handle, axis);
+    }
+
+    // 9 floats (position, direction, up) from the node's local space into its parent's, in place.
+    transformPoseBy(posDirUp: Ref<f32>): void {
+        Donut_TransformPoseByNode(this.handle, posDirUp);
+    }
+
+    isLight(): boolean {
+        return Donut_IsLightNode(this.handle);
+    }
+
+    // A light's color; a spot or point light's intensity and radius; a spot light's inner and outer angles (degrees, as given).
+    setLight(red: number, green: number, blue: number, intensity: number, radius: number, innerAngle: number, outerAngle: number): void {
+        Donut_SetNodeLight(this.handle, red, green, blue, intensity, radius, innerAngle, outerAngle);
     }
 }
 
@@ -4129,6 +4200,44 @@ export class DlssRayReconstruction {
 
     isInitialized(): boolean {
         return Donut_IsDlssRayReconstructionInitialized(this.handle) != 0;
+    }
+}
+
+@value
+export class JsonDocument {
+    readonly handle: JsonDocumentHandle;
+
+    constructor(handle: JsonDocumentHandle | null) {
+        this.handle = handle as JsonDocumentHandle;
+    }
+
+    // True if the function that returned it failed.
+    isNull(): boolean {
+        return !this.handle;
+    }
+
+    jsonHas(path: string): boolean {
+        return Donut_JsonHas(this.handle, path);
+    }
+
+    jsonGetSize(path: string): int {
+        return Donut_JsonGetSize(this.handle, path);
+    }
+
+    jsonGetNumber(path: string, defaultValue: number): number {
+        return Donut_JsonGetNumber(this.handle, path, defaultValue);
+    }
+
+    jsonGetBool(path: string, defaultValue: boolean): boolean {
+        return Donut_JsonGetBool(this.handle, path, defaultValue);
+    }
+
+    jsonGetString(path: string, defaultValue: string): string {
+        return Donut_JsonGetString(this.handle, path, defaultValue);
+    }
+
+    jsonGetVector(path: string, count: int, component: int): number {
+        return Donut_JsonGetVector(this.handle, path, count, component);
     }
 }
 

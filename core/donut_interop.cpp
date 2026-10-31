@@ -31,8 +31,12 @@
 #include <donut/app/UserInterfaceUtils.h>
 #include <donut/app/imgui_renderer.h>
 #include <imgui.h>
+#include <donut/core/json.h>
 #include <donut/core/log.h>
 #include <donut/core/vfs/VFS.h>
+#include <json/json.h>
+#include <fstream>
+#include <regex>
 #include <donut/engine/BindingCache.h>
 #include <donut/engine/CommonRenderPasses.h>
 #include <donut/engine/DescriptorTableManager.h>
@@ -1025,6 +1029,46 @@ namespace
             }
         }
 #endif
+    };
+
+    // A JSON file read for its values by path (Donut_LoadJsonDocument): tslang has no JSON.parse.
+    struct JsonDocument
+    {
+        Json::Value root;
+
+        // The value at `path`, "a/b/0/c" (array elements by index; "" the root); null where missing.
+        const Json::Value& At(const char* path) const
+        {
+            static const Json::Value nullValue;
+            const Json::Value* node = &root;
+            const std::string p = path;
+            size_t start = 0;
+            while (start < p.size())
+            {
+                size_t end = p.find('/', start);
+                if (end == std::string::npos)
+                    end = p.size();
+                const std::string key = p.substr(start, end - start);
+                if (node->isArray())
+                {
+                    char* last = nullptr;
+                    const long index = std::strtol(key.c_str(), &last, 10);
+                    if (key.empty() || *last != 0 || index < 0 || index >= (long)node->size())
+                        return nullValue;
+                    node = &(*node)[(Json::ArrayIndex)index];
+                }
+                else if (node->isObject())
+                {
+                    if (!node->isMember(key))
+                        return nullValue;
+                    node = &(*node)[key];
+                }
+                else
+                    return nullValue;
+                start = end + 1;
+            }
+            return *node;
+        }
     };
 
     // DLSS Ray Reconstruction (DLSS-RR, nvngx_dlssd.dll): DLSS that denoises as it anti-aliases and upscales, from
@@ -10794,6 +10838,233 @@ extern "C"
     DONUT_API void Donut_InvalidateNodeContent(donut::engine::SceneGraphNode* node)
     {
         node->InvalidateContent();
+    }
+
+    // --- Scene graph editing, JSON and files: what a game over a loaded scene needs (core/rtxpt_game.ts, RTXPT's
+    // SampleGame, which runs on any example's Donut scene through these).
+
+    // A new empty node named `name` under `parent` (null: the graph's root).
+    DONUT_API donut::engine::SceneGraphNode* Donut_CreateSceneNode(donut::engine::SceneGraph* sceneGraph, donut::engine::SceneGraphNode* parent, const char* name)
+    {
+        auto node = std::make_shared<donut::engine::SceneGraphNode>();
+        node->SetName(name);
+        const auto parentNode = parent ? parent->shared_from_this() : sceneGraph->GetRootNode();
+        return sceneGraph->Attach(parentNode, node).get();
+    }
+
+    // Attaches `node` (a subtree) under `parent`: the node itself if it has no parent yet, else a copy of it
+    // (SceneGraph::Attach). Returns the attached node.
+    DONUT_API donut::engine::SceneGraphNode* Donut_AttachSceneNode(donut::engine::SceneGraph* sceneGraph, donut::engine::SceneGraphNode* parent, donut::engine::SceneGraphNode* node)
+    {
+        return sceneGraph->Attach(parent->shared_from_this(), node->shared_from_this()).get();
+    }
+
+    // The node's own string (callers may keep it: valid while the node is).
+    DONUT_API const char* Donut_GetNodeName(donut::engine::SceneGraphNode* node)
+    {
+        return node->GetName().c_str();
+    }
+
+    DONUT_API int Donut_GetNodeChildCount(donut::engine::SceneGraphNode* node)
+    {
+        return (int)node->GetNumChildren();
+    }
+
+    DONUT_API donut::engine::SceneGraphNode* Donut_GetNodeChild(donut::engine::SceneGraphNode* node, int index)
+    {
+        return (index >= 0 && index < (int)node->GetNumChildren()) ? node->GetChild(index) : nullptr;
+    }
+
+    // The node's local transform (double, as SceneGraphNode keeps it): translation, rotation (x, y, z, w), scaling.
+    DONUT_API void Donut_SetNodeTransform(donut::engine::SceneGraphNode* node, double tx, double ty, double tz,
+        double rx, double ry, double rz, double rw, double sx, double sy, double sz)
+    {
+        const dm::double3 translation(tx, ty, tz);
+        const dm::dquat rotation = dm::dquat::fromXYZW(dm::double4(rx, ry, rz, rw));
+        const dm::double3 scaling(sx, sy, sz);
+        node->SetTransform(&translation, &rotation, &scaling);
+    }
+
+    DONUT_API void Donut_SetNodeRotation(donut::engine::SceneGraphNode* node, double x, double y, double z, double w)
+    {
+        node->SetRotation(dm::dquat::fromXYZW(dm::double4(x, y, z, w)));
+    }
+
+    // One value of the node's local transform: 0-2 translation, 3-6 rotation (x, y, z, w), 7-9 scaling.
+    DONUT_API double Donut_GetNodeTransform(donut::engine::SceneGraphNode* node, int component)
+    {
+        const dm::double3 t = node->GetTranslation();
+        const dm::dquat q = node->GetRotation();
+        const dm::double3 s = node->GetScaling();
+        const double values[10] = { t.x, t.y, t.z, q.x, q.y, q.z, q.w, s.x, s.y, s.z };
+        return (component >= 0 && component < 10) ? values[component] : 0.0;
+    }
+
+    // The scale (axis 0-2) of the node's world transform, as updated by the last scene refresh (float).
+    DONUT_API double Donut_GetNodeWorldScale(donut::engine::SceneGraphNode* node, int axis)
+    {
+        dm::float3 scale;
+        dm::decomposeAffine<float>(node->GetLocalToWorldTransformFloat(), nullptr, nullptr, &scale);
+        return axis == 0 ? scale.x : axis == 1 ? scale.y : scale.z;
+    }
+
+    // A camera pose (9 floats: position, direction, up) in the node's local space, into its parent's space, in place.
+    DONUT_API void Donut_TransformPoseByNode(donut::engine::SceneGraphNode* node, float* posDirUp)
+    {
+        dm::daffine3 transformD = dm::scaling(node->GetScaling());
+        transformD *= node->GetRotation().toAffine();
+        transformD *= dm::translation(node->GetTranslation());
+        const dm::affine3 transform = dm::affine3(transformD);
+        const dm::float3 pos = transform.transformPoint(dm::float3(posDirUp[0], posDirUp[1], posDirUp[2]));
+        const dm::float3 dir = transform.transformVector(dm::float3(posDirUp[3], posDirUp[4], posDirUp[5]));
+        const dm::float3 up = transform.transformVector(dm::float3(posDirUp[6], posDirUp[7], posDirUp[8]));
+        const float values[9] = { pos.x, pos.y, pos.z, dir.x, dir.y, dir.z, up.x, up.y, up.z };
+        std::memcpy(posDirUp, values, sizeof(values));
+    }
+
+    // Whether the node's leaf is a light (spot, point, directional, or an application's).
+    DONUT_API bool Donut_IsLightNode(donut::engine::SceneGraphNode* node)
+    {
+        return node->GetLeaf() != nullptr && (node->GetLeaf()->GetContentFlags() & donut::engine::SceneContentFlags::Lights) != 0;
+    }
+
+    // A light node's color and, for spot and point lights, intensity and radius, and a spot light's inner and
+    // outer angles (degrees; as given: some renderers read a sign, e.g. RTXPT's minimum spot falloff).
+    DONUT_API void Donut_SetNodeLight(donut::engine::SceneGraphNode* node, double red, double green, double blue, double intensity,
+        double radius, double innerAngle, double outerAngle)
+    {
+        auto* light = dynamic_cast<donut::engine::Light*>(node->GetLeaf().get());
+        if (light == nullptr)
+            return;
+        light->color = dm::float3(float(red), float(green), float(blue));
+        if (auto* spotLight = dynamic_cast<donut::engine::SpotLight*>(light))
+        {
+            spotLight->radius = float(radius);
+            spotLight->intensity = float(intensity);
+            spotLight->innerAngle = float(innerAngle);
+            spotLight->outerAngle = float(outerAngle);
+        }
+        if (auto* pointLight = dynamic_cast<donut::engine::PointLight*>(light))
+        {
+            pointLight->radius = float(radius);
+            pointLight->intensity = float(intensity);
+        }
+    }
+
+    // The scene file's "models" (Scene::GetModels, patches/Donut-scene-models-accessor.patch): their count and each
+    // one's import root (null if it has none).
+    DONUT_API int Donut_GetSceneModelCount(donut::engine::Scene* scene)
+    {
+        return (int)scene->GetModels().size();
+    }
+
+    DONUT_API donut::engine::SceneGraphNode* Donut_GetSceneModelRoot(donut::engine::Scene* scene, int index)
+    {
+        const auto& models = scene->GetModels();
+        return (index >= 0 && index < (int)models.size()) ? models[index].rootNode.get() : nullptr;
+    }
+
+    // A JSON file whose root is an object, owned by the app; null if it can't be read.
+    DONUT_API JsonDocument* Donut_LoadJsonDocument(App* app, const char* path)
+    {
+        std::ifstream file(path);
+        if (!file.is_open())
+        {
+            donut::log::warning("Cannot open the JSON file '%s'", path);
+            return nullptr;
+        }
+        auto document = std::make_shared<JsonDocument>();
+        try
+        {
+            file >> document->root;
+        }
+        catch (const std::exception& e)
+        {
+            donut::log::warning("Cannot parse the JSON file '%s': %s", path, e.what());
+            return nullptr;
+        }
+        if (!document->root.isObject())
+            return nullptr;
+        return app->OwnObject(document);
+    }
+
+    // Values by path (JsonDocument::At): whether there is one, an array's or object's size (-1 if neither), a
+    // number, bool or string (`defaultValue` where missing or of another type, as Donut's json::Read), and component
+    // `component` of a 3- or 4-vector (count) as json::Read reads it (one number for all components; NaN if missing).
+    DONUT_API bool Donut_JsonHas(JsonDocument* json, const char* path)
+    {
+        return !json->At(path).isNull();
+    }
+
+    DONUT_API int Donut_JsonGetSize(JsonDocument* json, const char* path)
+    {
+        const Json::Value& v = json->At(path);
+        return (v.isArray() || v.isObject()) ? (int)v.size() : -1;
+    }
+
+    DONUT_API double Donut_JsonGetNumber(JsonDocument* json, const char* path, double defaultValue)
+    {
+        return donut::json::Read<double>(json->At(path), defaultValue);
+    }
+
+    DONUT_API bool Donut_JsonGetBool(JsonDocument* json, const char* path, bool defaultValue)
+    {
+        return donut::json::Read<bool>(json->At(path), defaultValue);
+    }
+
+    // The document's own string (callers may keep it: valid while the app is), or defaultValue.
+    DONUT_API const char* Donut_JsonGetString(JsonDocument* json, const char* path, const char* defaultValue)
+    {
+        const Json::Value& value = json->At(path);
+        return value.isString() ? value.asCString() : defaultValue;
+    }
+
+    DONUT_API double Donut_JsonGetVector(JsonDocument* json, const char* path, int count, int component)
+    {
+        const Json::Value& v = json->At(path);
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        if (count == 3)
+        {
+            const dm::double3 value = donut::json::Read<dm::double3>(v, dm::double3(nan));
+            return component == 0 ? value.x : component == 1 ? value.y : value.z;
+        }
+        const dm::double4 value = donut::json::Read<dm::double4>(v, dm::double4(nan));
+        return component == 0 ? value.x : component == 1 ? value.y : component == 2 ? value.z : value.w;
+    }
+
+    // The files in `folder` whose names match `wildcard` (* and ?, case-insensitive), in directory order: their
+    // count; Donut_GetListedFile has their paths (each its own string, until the next Donut_ListFiles).
+    static std::vector<std::string> s_listedFiles;
+
+    DONUT_API int Donut_ListFiles(const char* folder, const char* wildcard)
+    {
+        s_listedFiles.clear();
+        std::string pattern = "^";
+        for (const char* c = wildcard; *c; c++)
+        {
+            if (*c == '*')
+                pattern += ".*";
+            else if (*c == '?')
+                pattern += '.';
+            else if (std::strchr("\\^$.|+()[]{}", *c))
+                pattern += std::string("\\") + *c;
+            else
+                pattern += *c;
+        }
+        pattern += "$";
+        const std::regex regex(pattern, std::regex::icase);
+        std::error_code error;
+        for (const auto& entry : std::filesystem::directory_iterator(folder, error))
+        {
+            if (entry.is_regular_file() && std::regex_match(entry.path().filename().string(), regex))
+                s_listedFiles.push_back(entry.path().string());
+        }
+        return (int)s_listedFiles.size();
+    }
+
+    DONUT_API const char* Donut_GetListedFile(int index)
+    {
+        return (index >= 0 && index < (int)s_listedFiles.size()) ? s_listedFiles[index].c_str() : "";
     }
 
     DONUT_API int Donut_GetSceneGraphMaterialCount(donut::engine::SceneGraph* sceneGraph)

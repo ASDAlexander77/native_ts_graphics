@@ -174,6 +174,9 @@ set(DONUT_PATCHES
     # DLSS::InitParameters::useAutoExposure was never turned into NGX's AutoExposure flag: rtxpt's DLSS, which
     # has no exposure texture, measures the exposure itself as the sample's (Streamline's) does.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-dlss-auto-exposure.patch"
+    # Scene keeps the scene file's "models" (their import roots) protected: core/rtxpt_game.ts places them as props
+    # (Donut_GetSceneModelCount, Donut_GetSceneModelRoot) in any example's scene, as RTXPT's ExtendedScene exposes them.
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-scene-models-accessor.patch"
     # The forward and depth passes kept a buffer group's input binding set (without the input assembler)
     # for good: rtxcr_raster's animated hair, which the morph target pass writes into one of two vertex
     # buffers a frame, drew from the first one in every frame (in a state nothing tracked: device lost).

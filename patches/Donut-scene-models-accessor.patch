@@ -1,0 +1,13 @@
+diff --git a/include/donut/engine/Scene.h b/include/donut/engine/Scene.h
+index 7290897..1d8565f 100644
+--- a/include/donut/engine/Scene.h
++++ b/include/donut/engine/Scene.h
+@@ -142,6 +142,8 @@ namespace donut::engine
+         std::shared_ptr<SceneGraph> CreateSceneGraph();
+ 
+         [[nodiscard]] std::shared_ptr<SceneGraph> GetSceneGraph() const { return m_SceneGraph; }
++        // The scene file's "models", as imported (each one's root node; SceneGraph::Attach copies one already attached).
++        [[nodiscard]] const std::vector<SceneImportResult>& GetModels() const { return m_Models; }
+         [[nodiscard]] nvrhi::IDescriptorTable* GetDescriptorTable() const { return m_DescriptorTable ? m_DescriptorTable->GetDescriptorTable() : nullptr; }
+         [[nodiscard]] nvrhi::IBuffer* GetMaterialBuffer() const { return m_MaterialBuffer; }
+         [[nodiscard]] nvrhi::IBuffer* GetGeometryBuffer() const { return m_GeometryBuffer; }

@@ -76,6 +76,7 @@ CLASSES = {
     "dlss": "Dlss",
     "dlssNeuralRendering": "DlssNeuralRendering",
     "dlssRayReconstruction": "DlssRayReconstruction",
+    "json": "JsonDocument",
     "lightProbeSet": "LightProbeSet",
     "lightProbeCapture": "LightProbeCapture",
     "lightProbeProcessingPass": "LightProbeProcessingPass",
@@ -386,11 +387,13 @@ class Function:
                 if name.startswith(prefixes):
                     self.target = cls
         # A module is compiled apart from donut.ts, which it can't import (tslang would load it
-        # twice): its functions take other classes' objects as the raw handles.
+        # twice): its functions take and return other classes' objects as the raw handles.
         if self.target in MODULES:
             for param in self.params[1 if self.is_method else 0:]:
                 if param.cls and param.cls != self.target:
                     param.cls = None
+            if self.is_method and self.returns_class and self.returns_class != self.target:
+                self.returns_class = None
         # The function declared before it.
         self.previous = None
 
