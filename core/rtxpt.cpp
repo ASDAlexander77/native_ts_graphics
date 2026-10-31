@@ -18,6 +18,8 @@
 // license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -25,6 +27,7 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -211,6 +214,10 @@ struct RtxptRenderer
 
     std::filesystem::path scenePath;
     std::shared_ptr<ExtendedScene> scene;
+    // The scene file loading on a thread (BeginLoadingScene) and how it went: 0 still loading, 1 loaded, -1 failed.
+    std::thread loadingThread;
+    std::shared_ptr<ExtendedScene> loadingScene;
+    std::atomic<int> loadingResult{0};
     // SampleUI.cpp's TogglableNode: scene nodes named *_togglable (shown) or *_togglable_off (hidden at load),
     // hidden by moving them far away.
     struct TogglableNode
@@ -390,6 +397,9 @@ struct RtxptRenderer
     // Sample::SceneUnloading's.
     void UnloadScene()
     {
+        if (loadingThread.joinable())
+            loadingThread.join();
+        loadingScene = nullptr;
         device->waitForIdle();
         bindingSet = nullptr;
         topLevelAS = nullptr;
@@ -442,20 +452,44 @@ struct RtxptRenderer
         t.node->SetTranslation(selected ? t.originalTranslation : double3(-10000.0, -10000.0, -10000.0));
     }
 
-    // Sample::LoadScene. Sample::SceneLoaded starts with the game's step (GameScene::SceneLoaded, the host's), then
-    // FinishLoadingScene does the rest.
-    bool LoadScene(const std::filesystem::path& path)
+    // Sample::LoadScene, on a thread as Donut's asynchronous loading (ApplicationBase::BeginLoadingScene; the sample
+    // turns it off): the scene file and its models. The materials' textures load later, in Prepare (MaterialsBaker).
+    void BeginLoadingScene(const std::filesystem::path& path)
     {
         UnloadScene();
+        scene = nullptr;
         scenePath = path;
-        scene = std::shared_ptr<ExtendedScene>(new ExtendedScene(device, *shaderFactory, std::make_shared<vfs::NativeFileSystem>(),
+        loadingScene = std::shared_ptr<ExtendedScene>(new ExtendedScene(device, *shaderFactory, std::make_shared<vfs::NativeFileSystem>(),
             textureCache, descriptorTable, std::make_shared<ExtendedSceneTypeFactory>()));
-        if (!scene->Load(path))
+        loadingResult = 0;
+        loadingThread = std::thread([this, loading = loadingScene, path]() {
+            const auto startTime = std::chrono::high_resolution_clock::now();
+            const bool loaded = loading->Load(path);
+            if (loaded)
+                log::info("Scene loading time: %llu ms", (unsigned long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::high_resolution_clock::now() - startTime).count());
+            loadingResult = loaded ? 1 : -1;
+        });
+    }
+
+    // Polled every frame after BeginLoadingScene, as Donut's SceneLoader: 0 still loading, 1 the scene has just
+    // loaded (Sample::SceneLoaded follows: the game's step, then FinishLoadingScene), 2 loaded before, -1 failed.
+    int UpdateLoading()
+    {
+        if (loadingThread.joinable())
         {
-            scene = nullptr;
-            return false;
+            if (loadingResult == 0)
+                return 0;
+            loadingThread.join();
+            if (loadingResult < 0)
+            {
+                loadingScene = nullptr;
+                return -1;
+            }
+            scene = std::move(loadingScene);
+            return 1;
         }
-        return true;
+        return scene != nullptr ? 2 : -1;
     }
 
     // Sample::SceneLoaded's scene-side steps after the game's, in their order.
@@ -1327,9 +1361,24 @@ extern "C"
         GpuProfiler::Shutdown();
     }
 
-    DONUT_API bool Donut_RtxptRendererLoadScene(RtxptRenderer* r, const char* scenePath)
+    DONUT_API void Donut_RtxptRendererBeginLoadingScene(RtxptRenderer* r, const char* scenePath)
     {
-        return r->LoadScene(scenePath);
+        r->BeginLoadingScene(scenePath);
+    }
+
+    DONUT_API int Donut_RtxptRendererUpdateLoading(RtxptRenderer* r)
+    {
+        return r->UpdateLoading();
+    }
+
+    // As Donut_GetSceneLoadingStats: objects loaded, objects total, textures loaded, textures requested.
+    DONUT_API void Donut_RtxptRendererGetSceneLoadingStats(RtxptRenderer* r, int* dst)
+    {
+        const auto& stats = Scene::GetLoadingStats();
+        dst[0] = int(stats.ObjectsLoaded.load());
+        dst[1] = int(stats.ObjectsTotal.load());
+        dst[2] = int(r->textureCache->GetNumberOfLoadedTextures());
+        dst[3] = int(r->textureCache->GetNumberOfRequestedTextures());
     }
 
     DONUT_API bool Donut_RtxptRendererFinishLoadingScene(RtxptRenderer* r)

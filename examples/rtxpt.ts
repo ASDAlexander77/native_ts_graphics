@@ -30,8 +30,23 @@ namespace Rtxpt {
     const DLSS_RR_MICRO_JITTER = 0.01;
     const DLSS_RR_PRESET = 6;
 
-    // Test mode: the frames rendered (and accumulated, after the warm-up).
+    // Test mode: the frames rendered (and accumulated, after the warm-up). The scene loads on a thread, slower under
+    // a parallel ctest: the test renders splash screens until then, up to TEST_LOADING_FRAMES_MAX more frames, each
+    // waiting TEST_LOADING_WAIT_MS for the thread (as feature_demo's).
     const TEST_FRAMES = 64;
+    const TEST_LOADING_FRAMES_MAX = 20000;
+    const TEST_LOADING_WAIT_MS = 1;
+
+    // The start in frames, each step after a splash screen naming it (the sample's progress bars): "Initializing..."
+    // while the renderer is made; Donut's asynchronous scene loading (feature_demo's), the scene file loading on a
+    // thread with its progress shown; then "Initializing renderer..." while the next frame's animate sets the renderer
+    // up for the scene (the materials' textures, acceleration structures, passes and shaders).
+    enum LoadingState {
+        Starting = 0,
+        Loading = 1,
+        Initializing = 2,
+        Ready = 3
+    }
 
     // RtxptFrameSettings (core/rtxpt.cpp), as byte offsets; all fields 4 bytes.
     const FRAME_SETTINGS_SIZE = 280;
@@ -395,6 +410,14 @@ namespace Rtxpt {
         private optimalWidth: int = 0;
         private optimalHeight: int = 0;
 
+        private loadingState = LoadingState.Starting;
+        // The splash screens shown so far (the renderer is made after the first).
+        private splashFrames: int = 0;
+        loadingFailed = false;
+        private loadingStats: int[] = [0, 0, 0, 0];
+        // -test's frames (0 without -test): the window closes once they have rendered, the loading's frames aside.
+        testFrames: int = 0;
+
         constructor(private app: App, private settings: Settings, private scenePath: string, private assetsPath: string,
             width: int, height: int) {
             this.rtxpt = new RtxptRenderer(null);
@@ -415,33 +438,14 @@ namespace Rtxpt {
         }
 
         init(): boolean {
-            this.rtxpt = RtxptRenderer.create(this.app.getNvrhiDevice(), this.assetsPath);
-            if (this.rtxpt.isNull()) {
-                return false;
-            }
             this.camera = this.app.createFirstPersonCamera();
             this.camera.setRotateSpeed(0.003);
             this.game = new RtxptGame(this.app.createFirstPersonCamera());
-            // Sample::SceneLoaded starts with the game's step.
-            if (!this.rtxpt.loadScene(this.scenePath)) {
-                console.log(`Cannot load the scene ${this.scenePath}`);
-                return false;
-            }
-            // The game edits the scene's Donut graph; RTXPT's renderer reads a negative spot outer angle as its
-            // minimum falloff, as SampleGame sets it.
-            const world = new GameWorld(this.app.handle, this.rtxpt.getScene(), this.rtxpt.hasGameSettings(), true);
-            this.game.sceneLoaded(world, this.scenePath, this.assetsPath, this.settings.propShowTags, this.settings.propCameraAttach);
-            if (!this.rtxpt.finishLoadingScene()) {
-                return false;
-            }
-            this.sceneLoaded();
 
             // DLSS-RR and DLSS-NR share the NGX instance of DLSS; all are set up for the sizes in onAnimate.
             this.dlss = this.app.createDlss();
             this.dlssRayReconstruction = this.app.createDlssRayReconstruction(this.dlss);
             this.dlssNeuralRendering = this.app.createDlssNeuralRendering(this.dlss);
-            this.rtxpt.setDlss(this.dlss.isNull() ? null : this.dlss.handle);
-            this.rtxpt.setDlssRayReconstruction(this.dlssRayReconstruction.isNull() ? null : this.dlssRayReconstruction.handle);
 
             const pass = this.app.addPass();
             pass.setKeyboardCallback(this.onKey);
@@ -451,6 +455,49 @@ namespace Rtxpt {
             pass.setAnimateCallback(this.onAnimate);
             pass.setRenderCallback(this.onRender);
             return true;
+        }
+
+        // Once a frame has shown "Initializing...": the renderer (it loads its shaders), then the scene file's loading.
+        private start(): boolean {
+            this.rtxpt = RtxptRenderer.create(this.app.getNvrhiDevice(), this.assetsPath);
+            if (this.rtxpt.isNull()) {
+                console.log("Cannot create the renderer");
+                return false;
+            }
+            this.rtxpt.setDlss(this.dlss.isNull() ? null : this.dlss.handle);
+            this.rtxpt.setDlssRayReconstruction(this.dlssRayReconstruction.isNull() ? null : this.dlssRayReconstruction.handle);
+            this.rtxpt.beginLoadingScene(this.scenePath);
+            return true;
+        }
+
+        // Once the scene file has loaded: Sample::SceneLoaded, which starts with the game's step.
+        private finishLoading(): boolean {
+            // The game edits the scene's Donut graph; RTXPT's renderer reads a negative spot outer angle as its
+            // minimum falloff, as SampleGame sets it.
+            const world = new GameWorld(this.app.handle, this.rtxpt.getScene(), this.rtxpt.hasGameSettings(), true);
+            this.game.sceneLoaded(world, this.scenePath, this.assetsPath, this.settings.propShowTags, this.settings.propCameraAttach);
+            if (!this.rtxpt.finishLoadingScene()) {
+                return false;
+            }
+            this.sceneLoaded();
+            return true;
+        }
+
+        isReady(): boolean {
+            return this.loadingState == LoadingState.Ready;
+        }
+
+        // The splash screen's text until the renderer is ready (feature_demo's, then the sample's second progress bar).
+        getLoadingText(): string {
+            if (this.loadingState == LoadingState.Starting) {
+                return "Initializing...";
+            }
+            if (this.loadingState == LoadingState.Initializing) {
+                return "Initializing renderer...";
+            }
+            this.rtxpt.getSceneLoadingStats(Ref(this.loadingStats[0]));
+            const stats = this.loadingStats;
+            return `Loading scene ${this.scenePath}, please wait...\nObjects: ${stats[0]}/${stats[1]}, Textures: ${stats[2]}/${stats[3]}`;
         }
 
         shutdown() {
@@ -668,6 +715,32 @@ namespace Rtxpt {
         // Sample::Animate, then the setup Sample::Render does before recording (core/rtxpt.cpp executes command
         // lists of its own for it, which it can't while the frame's is open).
         onAnimate(elapsedSeconds: number) {
+            // The loading's steps between frames (they execute command lists of their own), then the renderer's setup
+            // below, the frame after "Initializing renderer..." has shown.
+            if (this.loadingState == LoadingState.Starting) {
+                if (this.splashFrames == 0) {
+                    return;
+                }
+                if (this.start()) {
+                    this.loadingState = LoadingState.Loading;
+                } else {
+                    this.loadingFailed = true;
+                    this.app.closeWindow();
+                }
+                return;
+            }
+            if (this.loadingState == LoadingState.Loading) {
+                const loading = this.rtxpt.updateLoading();
+                if (loading < 0 || (loading == 1 && !this.finishLoading())) {
+                    console.log(`Cannot load the scene ${this.scenePath}`);
+                    this.loadingFailed = true;
+                    this.app.closeWindow();
+                } else if (loading == 1) {
+                    this.loadingState = LoadingState.Initializing;
+                }
+                return;
+            }
+            this.loadingState = LoadingState.Ready;
             const s = this.settings;
             this.camera.setMoveSpeed(s.cameraMoveSpeed);
 
@@ -936,6 +1009,17 @@ namespace Rtxpt {
             const frame = new Frame(frameHandle);
             const width = frame.getWidth();
             const height = frame.getHeight();
+            if (this.loadingState != LoadingState.Ready) {
+                // The splash screen (the UI shows the loading's progress over it), at the window's size.
+                this.width = width;
+                this.height = height;
+                frame.clearColor(0.0, 0.0, 0.0, 0.0);
+                this.splashFrames++;
+                if (this.testFrames > 0) {
+                    Program.sleepMilliseconds(TEST_LOADING_WAIT_MS);
+                }
+                return;
+            }
             if (width != this.preparedWidth || height != this.preparedHeight) {
                 // Resized: the next animate makes the targets for this size.
                 this.width = width;
@@ -986,6 +1070,9 @@ namespace Rtxpt {
             s.resetRealtimeCaches = false;
             this.needNewPasses = false;
             this.frameIndex++;
+            if (this.frameIndex == this.testFrames) {
+                this.app.closeWindow();
+            }
         }
     }
 
@@ -999,11 +1086,15 @@ namespace Rtxpt {
         private colorValues: f32[] = [1.0, 1.0, 1.0, 1.0];
         private rotationValues: f32[] = [0.0, 0.0, 0.0];
 
+        private imguiPass: ImGuiPass;
+
         constructor(private settings: Settings, private renderer: Renderer) {
+            this.imguiPass = new ImGuiPass(null);
         }
 
         init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
+            this.imguiPass = app.addImGuiPass(this.buildUI);
+            return !this.imguiPass.isNull();
         }
 
         private check(label: string, value: boolean) {
@@ -1041,6 +1132,14 @@ namespace Rtxpt {
         buildUI() {
             const s = this.settings;
             const r = this.renderer;
+
+            // The scene's loading progress until the renderer is ready (feature_demo's).
+            if (!r.isReady()) {
+                this.imguiPass.beginFullScreenWindow();
+                this.imguiPass.drawScreenCenteredText(r.getLoadingText());
+                this.imguiPass.endFullScreenWindow();
+                return;
+            }
 
             ImGui.setNextWindowPos(10.0, 10.0);
             ImGui.begin(WINDOW_TITLE, true);
@@ -1398,7 +1497,7 @@ namespace Rtxpt {
                 testFrames = parseInt(CommandLine.getArg(argv, i + 1));
             }
         }
-        const args = new RtxptArgs(argc, argv, testFrames);
+        const args = new RtxptArgs(argc, argv, testFrames + TEST_LOADING_FRAMES_MAX);
         args.parseArgs();
 
         if (args.scenePath == "") {
@@ -1451,6 +1550,7 @@ namespace Rtxpt {
         settings.dxHitObjectExtension = args.api == GraphicsAPI.D3D12 && !args.noSER;
 
         const renderer = new Renderer(app, settings, args.scenePath, directoryOf(args.scenePath), args.width, args.height);
+        renderer.testFrames = args.test ? testFrames : 0;
         if (!renderer.init()) {
             renderer.shutdown();
             app.destroy();
@@ -1468,7 +1568,9 @@ namespace Rtxpt {
 
         app.run();
         let result = 0;
-        if (args.test) {
+        if (renderer.loadingFailed) {
+            result = 1;
+        } else if (args.test) {
             result = app.finishTest(checkFrame(app));
         }
         renderer.shutdown();

@@ -31,9 +31,20 @@ export class RtxptRenderer {
         Donut_RtxptRendererDestroy(this.handle);
     }
 
-    // Loads a *.scene.json (absolute path), with its materials, lights and environment map; false on failure.
-    loadScene(scenePath: string): boolean {
-        return Donut_RtxptRendererLoadScene(this.handle, scenePath);
+    // Starts loading a *.scene.json (absolute path) on a thread, as Donut's SceneLoader, dropping the current scene; poll
+    // Donut_RtxptRendererUpdateLoading every frame (between frames): 0 still loading, 1 just loaded (then the game's step and
+    // Donut_RtxptRendererFinishLoadingScene), 2 loaded before, -1 failed. The loading stats as Donut_GetSceneLoadingStats'
+    // 4 ints (objects loaded, objects total, textures loaded, textures requested).
+    beginLoadingScene(scenePath: string): void {
+        Donut_RtxptRendererBeginLoadingScene(this.handle, scenePath);
+    }
+
+    updateLoading(): int {
+        return Donut_RtxptRendererUpdateLoading(this.handle);
+    }
+
+    getSceneLoadingStats(dst: Ref<int>): void {
+        Donut_RtxptRendererGetSceneLoadingStats(this.handle, dst);
     }
 
     // The rest of the scene's loading, after the game's step (SampleGame's GameScene::SceneLoaded).

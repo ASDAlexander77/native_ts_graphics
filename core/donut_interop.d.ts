@@ -2985,8 +2985,13 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // the scenes' materials and environment maps are found from. Null without bin/ShaderDynamic.
 @nodrops declare function Donut_RtxptRendererCreate(device: Opaque, assetsDirectory: string): RtxptRendererHandle | null;
 @nodrops declare function Donut_RtxptRendererDestroy(rtxptRenderer: RtxptRendererHandle): void;
-// Loads a *.scene.json (absolute path), with its materials, lights and environment map; false on failure.
-@nodrops declare function Donut_RtxptRendererLoadScene(rtxptRenderer: RtxptRendererHandle, scenePath: string): boolean;
+// Starts loading a *.scene.json (absolute path) on a thread, as Donut's SceneLoader, dropping the current scene; poll
+// Donut_RtxptRendererUpdateLoading every frame (between frames): 0 still loading, 1 just loaded (then the game's step and
+// Donut_RtxptRendererFinishLoadingScene), 2 loaded before, -1 failed. The loading stats as Donut_GetSceneLoadingStats'
+// 4 ints (objects loaded, objects total, textures loaded, textures requested).
+@nodrops declare function Donut_RtxptRendererBeginLoadingScene(rtxptRenderer: RtxptRendererHandle, scenePath: string): void;
+@nodrops declare function Donut_RtxptRendererUpdateLoading(rtxptRenderer: RtxptRendererHandle): int;
+@nodrops declare function Donut_RtxptRendererGetSceneLoadingStats(rtxptRenderer: RtxptRendererHandle, dst: Ref<int>): void;
 // The rest of the scene's loading, after the game's step (SampleGame's GameScene::SceneLoaded).
 @nodrops declare function Donut_RtxptRendererFinishLoadingScene(rtxptRenderer: RtxptRendererHandle): boolean;
 // SampleGame (core/rtxpt_game.ts): whether the scene has a GameSettings node (an RTXPT node type).
