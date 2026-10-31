@@ -89,7 +89,7 @@
                 "args": [
                     "--jit-native",
                     "--jit-cache=true",
-                    "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
+                    "--jit-cache-dir=${workspaceFolder}/__jit_dbg_gc",
                     "--tslang-lib-path=${env:TSLANG_HOME}",
                     "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
                     "--lib=build/donut_interop_shared.lib",
@@ -132,9 +132,8 @@
                 "args": [
                     "--jit-native",
                     "--jit-cache=true",
-                    "--jit-cache-dir=${workspaceFolder}/__jit_dbg",
+                    "--jit-cache-dir=${workspaceFolder}/__jit_dbg_rc",
                     "--tslang-lib-path=${env:TSLANG_HOME}",
-                    "--gc-shared-lib-path=${env:TSLANG_HOME}/gcdll",
                     "--lib=build/donut_interop_shared.lib",
                     "--shared-libs=build/bin/donut_interop_shared.dll",
                     "${file}",
@@ -149,6 +148,48 @@
                 ]
             }
         },
+        {
+            "name": "VS: tslang JIT (Current File) OWN",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "CMake: build default (JIT)",
+            "program": "${env:TSLANG_HOME}/tslang.exe",
+            "args": [
+                "--di",
+                "--opt_level=0",
+                "--mm=own",
+                "--shared-libs=build/bin/donut_interop_shared.dll",
+                "${file}",
+                "--",
+                "-dx12"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "internalConsole",
+            "windows": {
+                // --jit-native links the JIT cache into a DLL + PDB with lld-link (LLVM\bin). It loads
+                // donut_interop_shared.dll and its dependencies from build\bin, and links its import library
+                // donut_interop_shared.lib.
+                "args": [
+                    "--jit-native",
+                    "--jit-cache=true",
+                    "--jit-cache-dir=${workspaceFolder}/__jit_dbg_own",
+                    "--tslang-lib-path=${env:TSLANG_HOME}",
+                    "--lib=build/donut_interop_shared.lib",
+                    "--shared-libs=build/bin/donut_interop_shared.dll",
+                    "${file}",
+                    "--",
+                    "-dx12"
+                ],
+                "environment": [
+                    {
+                        "name": "PATH",
+                        "value": "${workspaceFolder}\\build\\bin;C:\\Program Files\\LLVM\\bin;${env:PATH}"
+                    }
+                ]
+            }
+        },        
         {
             "name": "VS:RTXCR Rastr: tslang JIT RC: DLSS-NG",
             "type": "cppvsdbg",
