@@ -973,6 +973,59 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(basic_triangle)
 add_tslang_example_test(basic_triangle)
 
+# NRI (NVIDIA Rendering Interface) and NRIFramework, NRISamples' framework, for the examples that
+# render with them instead of Donut: core/nri/nri_interop.cpp in a shared library with both, built
+# by core/nri/CMakeLists.txt as a project of its own (NRIFramework's imgui, glfw and ShaderMake
+# targets would clash with Donut's), its libraries (nri_interop, NRI) put in bin/. Not on Android,
+# which NRIFramework doesn't support.
+if (NOT ANDROID)
+    include(ExternalProject)
+    set(NRI_INTEROP_BINARY_DIR "${CMAKE_BINARY_DIR}/nri")
+    if (WIN32)
+        set(NRI_INTEROP_LOCATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/nri_interop.dll")
+        set(NRI_INTEROP_LINKED "${NRI_INTEROP_BINARY_DIR}/nri_interop.lib")
+    else()
+        set(NRI_INTEROP_LOCATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/libnri_interop.so")
+        set(NRI_INTEROP_LINKED "${NRI_INTEROP_LOCATION}")
+    endif()
+    ExternalProject_Add(nri_interop_build
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/core/nri"
+        BINARY_DIR "${NRI_INTEROP_BINARY_DIR}"
+        CMAKE_GENERATOR "${CMAKE_GENERATOR}"
+        CMAKE_ARGS
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+            -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+            -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DNRI_OUTPUT_DIR=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+        # its build decides what's out of date (nri_interop.cpp edited, ...)
+        BUILD_ALWAYS ON
+        INSTALL_COMMAND ""
+        BUILD_BYPRODUCTS "${NRI_INTEROP_LINKED}")
+    add_library(nri_interop SHARED IMPORTED)
+    set_target_properties(nri_interop PROPERTIES IMPORTED_LOCATION "${NRI_INTEROP_LOCATION}")
+    if (WIN32)
+        set_target_properties(nri_interop PROPERTIES IMPORTED_IMPLIB "${NRI_INTEROP_LINKED}")
+    endif()
+    add_dependencies(nri_interop nri_interop_build)
+endif()
+
+# add_tslang_nri_example(<name>): examples/<name>.ts, rendering with NRI through core/nri/nri_interop.d.ts.
+# It links nri_interop, and nothing of Donut (tslang_core, donut_interop_static).
+function(add_tslang_nri_example name)
+    add_executable(${name} examples/${name}.ts)
+    set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts")
+    tslang_own_facts(examples/${name}.ts)
+    set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
+    target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} nri_interop)
+endfunction()
+
+# basic_triangle with NRI and NRIFramework instead of Donut: basic_triangle's shaders.
+if (TARGET nri_interop)
+    add_tslang_nri_example(basic_triangle_nri)
+    add_dependencies(basic_triangle_nri basic_triangle_shaders)
+    add_tslang_example_test(basic_triangle_nri)
+endif()
+
 # Port of Donut-Samples' meshlets. D3D11 has no mesh shaders, so no DXBC.
 donut_compile_shaders(
     TARGET meshlets_shaders
