@@ -314,6 +314,15 @@ the window's "Interactive elements"), and `-propShowTags <tags>` shows the props
 developer-only game settings (camera recording, saving props, moving them with the numpad) and its mouse picking
 of props are not ported. This software contains source code provided by NVIDIA Corporation.
 
+![rtxpt's SampleGame in the Bistro: the camera rides the police ship, real-time path tracing with DLSS-RR](docs/screenshots/rtxpt_samplegame_dlss_rr.jpg)
+
+SampleGame in the Bistro with the camera on the police ship, 25 s in: the real-time mode, one path per pixel,
+DLSS-RR denoising and upscaling it (balanced, from 1114x626 to 1920x1080), DirectX 12, a Release build:
+
+```
+build-release-rtxpt/bin/rtxpt.exe -dx12 -width 1920 -height 1080 -overrideToRealtimeMode -propCameraAttach SHIP_police_squad --scene E:/RTXPT/Assets/bistro-programmer-art.scene.json
+```
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
