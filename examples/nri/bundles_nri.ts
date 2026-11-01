@@ -317,7 +317,7 @@ namespace BundlesNri {
             this.diffuseView = Nri_CreateTextureView(diffuse, NriFormat.BC1_RGBA_UNORM);
 
             // The sample's sampler: linear, wrapping.
-            const sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat);
+            const sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
             const queuedFrameNum = this.queuedFrames.length;
             const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);

@@ -1233,6 +1233,14 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(vertex_buffer core/matrix.ts MEDIA nvidia-logo.png)
 add_tslang_example_test(vertex_buffer)
+# vertex_buffer with NRI and NRIFramework instead of Donut: vertex_buffer's shaders, and the media
+# folder's nvidia-logo.png.
+add_tslang_nri_example(vertex_buffer_nri SHADERS vertex_buffer_shaders core/matrix.ts)
+# (On Android there is no vertex_buffer_nri, only its app; copy_media is defined below.)
+if (TARGET vertex_buffer_nri)
+    add_dependencies(vertex_buffer_nri copy_media)
+endif()
+add_tslang_example_test(vertex_buffer_nri)
 
 # The whole media folder goes next to the executables, at build time so files added to it later are
 # picked up without reconfiguring. copy_directory_if_different needs CMake 3.26.
@@ -3526,7 +3534,7 @@ add_tslang_example_test(dynamic_indexing)
 # dynamic_indexing with NRI and NRIFramework instead of Donut: dynamic_indexing's shaders and data
 # file.
 add_tslang_nri_example(dynamic_indexing_nri SHADERS dynamic_indexing_shaders core/directx_math.ts core/simple_camera.ts)
-if (TARGET dynamic_indexing_media)
+if (TARGET dynamic_indexing_media AND TARGET dynamic_indexing_nri)
     add_dependencies(dynamic_indexing_nri dynamic_indexing_media)
 endif()
 add_tslang_example_test(dynamic_indexing_nri)
@@ -3648,7 +3656,7 @@ add_tslang_example_test(bundles)
 # bundles' scene with NRI and NRIFramework instead of Donut (NRI has no bundles: the draws are
 # recorded every frame): bundles' shaders and data file.
 add_tslang_nri_example(bundles_nri SHADERS bundles_shaders core/directx_math.ts core/simple_camera.ts)
-if (TARGET bundles_media)
+if (TARGET bundles_media AND TARGET bundles_nri)
     add_dependencies(bundles_nri bundles_media)
 endif()
 add_tslang_example_test(bundles_nri)
@@ -4284,7 +4292,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders vertex_buffer_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)

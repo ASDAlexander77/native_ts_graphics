@@ -244,7 +244,7 @@ namespace SmallResourcesNri {
             }
             this.descriptorPool = Nri_CreateDescriptorPool(device, TEXTURE_COUNT, TEXTURE_COUNT, 0, TEXTURE_COUNT, 0);
             // The sample's static sampler: linear, wrapping.
-            this.sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat);
+            this.sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
 
             // LoadAssets: a quad per texture, on a grid centered on the screen (the window's aspect
             // ratio applied to y), in float as the sample's.
