@@ -4188,6 +4188,14 @@ donut_compile_shaders(
 )
 add_tslang_example(bindless_rendering core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(bindless_rendering)
+# bindless_rendering with NRI and NRIFramework: the same shaders, Sponza loaded as Donut's engine
+# loads it (core/nri/nri_donut_scene.cpp), its textures' mip chains blitted with Donut's blit shaders
+# (shaders/framework).
+add_tslang_nri_example(bindless_rendering_nri SHADERS bindless_rendering_shaders core/matrix.ts core/donut_first_person_camera.ts)
+add_tslang_example_test(bindless_rendering_nri)
+if (TARGET donut_shaders AND TARGET bindless_rendering_nri)
+    add_dependencies(bindless_rendering_nri donut_shaders)
+endif()
 
 # Donut's forward shading of Sponza (see DONUT_SAMPLES_MEDIA_DIR above) under an environment map
 # (Donut's EnvironmentMapPass), its sun's shadows from a PlanarShadowMap fitted to the whole scene.

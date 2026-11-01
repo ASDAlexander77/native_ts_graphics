@@ -39,6 +39,8 @@
 @cpp declare class NriGltfMeshHandle { private readonly __nriGltfMesh: index; }
 // Every primitive of a glTF file with its materials and nodes, on the CPU (Nri_LoadGltfModel).
 @cpp declare class NriGltfModelHandle { private readonly __nriGltfModel: index; }
+// A glTF scene as Donut's engine loads it, on the CPU (Nri_LoadDonutScene).
+@cpp declare class NriDonutSceneHandle { private readonly __nriDonutScene: index; }
 // A pool of timestamp queries (Nri_CreateTimestampQueryPool).
 @cpp declare class NriQueryPoolHandle { private readonly __nriQueryPool: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
@@ -940,6 +942,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // failure. Its levels: Nri_GetTextureMipNum.
 @nodrops declare function Nri_LoadDdsTextureWithMipChain(device: NriDeviceHandle, queue: NriQueueHandle, path: string,
     sRGB: int): NriTextureHandle | null;
+// An image file (RGB or RGBA, as Nri_LoadImageTexture reads it) in a texture with the mip chain
+// Donut's TextureCache gives the images it loads (1 + floor(log2(min(width, height))) levels), the
+// levels below the first zeroed, to be rendered into from the level above (Donut blits each);
+// RGBA8 (sRGB: 1, RGBA8_SRGB), left in NriTextureState.ShaderResource; null on failure.
+@nodrops declare function Nri_LoadImageTextureWithMipChain(device: NriDeviceHandle, queue: NriQueueHandle, path: string,
+    sRGB: int): NriTextureHandle | null;
 // The first primitive of a glTF file's first mesh, as Donut's loadGltfMesh reads it (the
 // Vulkan-Samples framework's load_model: float3 position, float3 normal, float2 texture coordinates,
 // 32 bytes a vertex; 32-bit indices; the nodes' transforms ignored), uploaded into a vertex and an
@@ -1024,6 +1032,27 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_FillDonutDeferredLightingConstants(viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int,
     lights: Ref<f32>, lightCount: int, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number,
     dst: Ref<f32>): void;
+
+// A glTF scene as Donut's engine loads it (core/nri/nri_donut_scene.cpp): the buffers Donut's scene
+// shaders read, the instances' transforms composed with Donut's math. Null (after printing why) on
+// failure. Path relative to the executable's folder.
+@nodrops declare function Nri_LoadDonutScene(path: string): NriDonutSceneHandle | null;
+@nodrops declare function Nri_DestroyDonutScene(scene: NriDonutSceneHandle): void;
+// One of the scene's buffers, which: 0 the vertices (all the positions, then all the texture
+// coordinates), 1 the indices (both ByteAddressBuffer: 4-byte structures; bindless buffers 0 and 1),
+// 2 the InstanceData, 3 the GeometryData, 4 the MaterialConstants (StructuredBuffer), uploaded on
+// the queue; null on failure.
+@nodrops declare function Nri_CreateDonutSceneBuffer(device: NriDeviceHandle, queue: NriQueueHandle, scene: NriDonutSceneHandle,
+    which: int): NriBufferHandle | null;
+// The base color textures the materials number (their files relative to the executable's folder,
+// sRGB).
+@nodrops declare function Nri_GetDonutSceneTextureCount(scene: NriDonutSceneHandle): int;
+@nodrops declare function Nri_GetDonutSceneTexturePath(scene: NriDonutSceneHandle, texture: int): string;
+// The mesh instances (each's InstanceData index its number), their geometries, each geometry's
+// index count: a draw each.
+@nodrops declare function Nri_GetDonutSceneInstanceCount(scene: NriDonutSceneHandle): int;
+@nodrops declare function Nri_GetDonutSceneInstanceGeometryCount(scene: NriDonutSceneHandle, instance: int): int;
+@nodrops declare function Nri_GetDonutSceneGeometryIndexCount(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
 
 // ImGui (NRIFramework's, drawn by NRI's Imgui extension). A frame: Nri_ImguiNewFrame, the widgets,
 // Nri_ImguiRender (before recording); Nri_CmdCopyImguiData outside a render pass, Nri_CmdDrawImgui
