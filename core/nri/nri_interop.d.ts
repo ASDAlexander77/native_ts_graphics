@@ -72,7 +72,16 @@ enum NriFeature {
     DrawIndirectCount = 2,
     // wave.derivativeOpsStages has compute shaders: ddx / ddy in compute shaders (D3D12 shader
     // model 6.6, Vulkan's VK_KHR_compute_shader_derivatives; quads or linear groups, not told apart)
-    ComputeShaderDerivatives = 3
+    ComputeShaderDerivatives = 3,
+    // shaderFeatures.nativeF16 and nativeI16: float16_t and int16_t (D3D12 shader model 6.2; on
+    // Vulkan, in storage buffers too)
+    Native16Bit = 4,
+    // Native16Bit in root constants (push constants) too (D3D12; Vulkan's storagePushConstant16 and
+    // uniformAndStorageBuffer16BitAccess)
+    Native16BitConstants = 5,
+    // Pixel shaders in full quads (D3D12 always; Vulkan's VK_KHR_shader_quad_control, which NRI is
+    // patched to enable, with VK_KHR_shader_maximal_reconvergence)
+    ShaderQuadControl = 6
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -85,6 +94,7 @@ enum NriFormat {
     RGBA8_SRGB = 12,
     R32_UINT = 31,
     R32_SFLOAT = 33,
+    RGBA16_SFLOAT = 30,
     RG32_SFLOAT = 36,
     RGB32_SFLOAT = 39,
     RGBA32_SFLOAT = 42,
@@ -110,7 +120,8 @@ enum NriShaderStage {
     Vertex = 0,
     Pixel = 1,
     Mesh = 2,
-    Task = 3
+    Task = 3,
+    Geometry = 4
 }
 
 // nri::ColorWriteBits: the channels a pipeline writes to its color attachment.
@@ -125,8 +136,22 @@ enum NriColorWrite {
 
 // nri::Topology: the primitives a pipeline draws (Nri_PipelineDescSetTopology).
 enum NriTopology {
+    PointList = 0,
     TriangleList = 3,
     TriangleStrip = 4
+}
+
+// nri::BlendFactor: Nri_PipelineDescSetBlend's.
+enum NriBlendFactor {
+    Zero = 0,
+    One = 1,
+    SrcAlpha = 6,
+    OneMinusSrcAlpha = 7
+}
+
+// nri::BlendOp: Nri_PipelineDescSetBlend's.
+enum NriBlendOp {
+    Add = 0
 }
 
 // nri::CullMode.
@@ -152,6 +177,9 @@ enum NriDescriptorType {
 // nri::StageBits: the shader stages that see a descriptor range.
 enum NriStage {
     Vertex = 2,
+    // vertex and geometry
+    VertexGeometry = 18,
+    Task = 32,
     Pixel = 128,
     // vertex and pixel
     VertexPixel = 130,
@@ -200,7 +228,11 @@ enum NriBufferState {
     // an indirect draw's arguments (Nri_CmdDrawIndexedIndirect's buffer and countBuffer)
     IndirectArgument = 4,
     // an indirect draw's arguments, and read by compute shaders
-    IndirectArgumentAndComputeResource = 5
+    IndirectArgumentAndComputeResource = 5,
+    // read by vertex and compute shaders (StructuredBuffer): D3D12's legacy barriers take
+    // VertexShaderResource for compute shaders too, so a buffer both read goes between this and
+    // Storage
+    VertexAndComputeShaderResource = 6
 }
 
 // nri::IndexType (Nri_CmdSetIndexBuffer).
@@ -245,6 +277,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // An option of the example's (a flag it reads with Nri_GetArg), which Nri_RunSample leaves out of
 // NRIFramework's command line (which would reject it); before Nri_RunSample.
 @nodrops declare function Nri_AddExampleOption(sample: NriSampleHandle, option: string): void;
+// As Nri_AddExampleOption, an option followed by valueNum values, left out too.
+@nodrops declare function Nri_AddExampleOptionWithValues(sample: NriSampleHandle, option: string, valueNum: int): void;
 // The command line's argument index (main's argc and argv), "" past its end.
 @nodrops declare function Nri_GetArg(argc: int, argv: Ref<string>, index: int): string;
 // -test was given: Nri_RunSample rendered the test's frames.
@@ -393,7 +427,14 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdBeginRendering(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle): void;
 // Renders into one color attachment and a depth attachment (Nri_CreateDepthAttachmentView's).
 @nodrops declare function Nri_CmdBeginRenderingWithDepth(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle, depthAttachment: NriDescriptorHandle): void;
+// Renders into three color attachments (SV_Target0 to 2), Nri_CreateColorAttachmentView's views.
+@nodrops declare function Nri_CmdBeginRenderingWithThreeColors(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
+    color1: NriDescriptorHandle, color2: NriDescriptorHandle): void;
 @nodrops declare function Nri_CmdEndRendering(commandBuffer: NriCommandBufferHandle): void;
+// Clears the whole color attachment index (of those Nri_CmdBeginRenderingWithThreeColors renders
+// into).
+@nodrops declare function Nri_CmdClearColorAttachment(commandBuffer: NriCommandBufferHandle, index: int, r: float, g: float, b: float,
+    a: float): void;
 // Clears the whole depth attachment (after Nri_CmdBeginRenderingWithDepth).
 @nodrops declare function Nri_CmdClearDepth(commandBuffer: NriCommandBufferHandle, depth: float): void;
 // Binds a vertex buffer from offset bytes in, its vertices stride bytes apart, to stream slot.
@@ -477,6 +518,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_DestroyPipelineDesc(desc: NriPipelineDescHandle): void;
 // Adds a shader read from path (as Nri_CreateGraphicsPipeline's); 0 if it can't be read.
 @nodrops declare function Nri_PipelineDescAddShader(desc: NriPipelineDescHandle, stage: NriShaderStage, path: string, entry: string): int;
+// As Nri_PipelineDescAddShader, of a ShaderMake permutation blob (a .cfg line with -D), the
+// permutation whose defines are permutation ("NAME=VALUE").
+@nodrops declare function Nri_PipelineDescAddShaderPermutation(desc: NriPipelineDescHandle, stage: NriShaderStage, path: string,
+    entry: string, permutation: string): int;
 // An attribute of stream 0's vertices: semantic (index 0) on D3D, the next location on Vulkan (as
 // DXC numbers the vertex shader's inputs), format at offset bytes in the vertex.
 @nodrops declare function Nri_PipelineDescAddVertexAttribute(desc: NriPipelineDescHandle, semantic: string, format: NriFormat, offset: int): void;
@@ -494,6 +539,13 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Additive blending into the color attachment, as Donut's BlendMode.Additive: color one + one, alpha
 // srcAlpha + dstAlpha.
 @nodrops declare function Nri_PipelineDescSetAdditiveBlend(desc: NriPipelineDescHandle): void;
+// Another color attachment after the first (Nri_PipelineDescSetColor's): its format and the channels
+// written (NriColorWrite bits).
+@nodrops declare function Nri_PipelineDescAddColor(desc: NriPipelineDescHandle, format: NriFormat, writeMask: int): void;
+// Blending into the first color attachment: color srcColor * source colorOp dstColor * destination,
+// alpha likewise.
+@nodrops declare function Nri_PipelineDescSetBlend(desc: NriPipelineDescHandle, srcColor: NriBlendFactor, dstColor: NriBlendFactor,
+    colorOp: NriBlendOp, srcAlpha: NriBlendFactor, dstAlpha: NriBlendFactor, alphaOp: NriBlendOp): void;
 // The depth attachment's format, its test (NriCompareOp.None: off), whether it's written (1) and
 // whether the depth bounds test is on (1; NriFeature.DepthBoundsTest).
 @nodrops declare function Nri_PipelineDescSetDepth(desc: NriPipelineDescHandle, format: NriFormat, compareOp: NriCompareOp, write: int, boundsTest: int): void;
@@ -532,6 +584,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // on failure.
 @nodrops declare function Nri_CreateDescriptorPool(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
     constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, updateAfterSet: int): NriDescriptorPoolHandle | null;
+// As Nri_CreateDescriptorPool, with room for structuredBufferMaxNum structured buffers and
+// storageStructuredBufferMaxNum storage ones too.
+@nodrops declare function Nri_CreateDescriptorPoolWithBuffers(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
+    constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
+    storageStructuredBufferMaxNum: int, updateAfterSet: int): NriDescriptorPoolHandle | null;
 // Destroys the pool and the sets allocated from it.
 @nodrops declare function Nri_DestroyDescriptorPool(descriptorPool: NriDescriptorPoolHandle): void;
 // Forgets the sets allocated from the pool, which may allocate as many again.
@@ -557,6 +614,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Textures shaders read (destroyed with Nri_DestroyTexture): committed, or placed in memory.
 // A width x height texture (one mip) of NRI's choosing (D3D12: a committed resource); null on failure.
 @nodrops declare function Nri_CreateCommittedTexture(device: NriDeviceHandle, width: int, height: int, format: NriFormat): NriTextureHandle | null;
+// A width x height texture (one mip) rendered into (Nri_CreateColorAttachmentView) and read by pixel
+// shaders, moved on the queue (which this waits for) to NriTextureState.ShaderResource; null on
+// failure.
+@nodrops declare function Nri_CreateRenderTargetTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat): NriTextureHandle | null;
 // The bytes a width x height texture (one mip) takes placed in memory, rounded up to its alignment
 // (D3D12: 4 KB for a small one); 0 on failure.
 @nodrops declare function Nri_GetPlacedTextureSize(device: NriDeviceHandle, width: int, height: int, format: NriFormat): number;
@@ -637,11 +699,18 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_ImguiCombo(label: string, current: int, items: string): int;
 @nodrops declare function Nri_ImguiSliderFloat(label: string, value: number, min: number, max: number): number;
 @nodrops declare function Nri_ImguiSliderInt(label: string, value: int, min: int, max: int): int;
+// A color picker of the 3 floats at values (RGB, unbounded), width wide, without previews, as
+// Vulkan-Samples' Drawer::color_op<Pick>; 1 when changed.
+@nodrops declare function Nri_ImguiColorPicker3(label: string, values: Ref<f32>, width: number): int;
 
 // Compute
 // A compute pipeline of the shader read from path (as Nri_CreateGraphicsPipeline's); null on failure.
 @nodrops declare function Nri_CreateComputePipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, path: string,
     entry: string): NriPipelineHandle | null;
+// As Nri_CreateComputePipeline, of a ShaderMake permutation blob (a .cfg line with -D), the
+// permutation whose defines are permutation ("NAME=VALUE").
+@nodrops declare function Nri_CreateComputePipelinePermutation(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle,
+    path: string, entry: string, permutation: string): NriPipelineHandle | null;
 // A width x height texture (one mip) compute shaders write (RWTexture2D) and pixel shaders read,
 // shared by the queues, moved on the queue (which this waits for) to NriTextureState.Storage; null on
 // failure. Destroyed with Nri_DestroyTexture.

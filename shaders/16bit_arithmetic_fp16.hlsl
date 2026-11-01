@@ -35,7 +35,7 @@ static const uint HEIGHT = 1024;
 // Avoiding extra unpacking and packing can also be useful.
 StructuredBuffer<float16_t4> blob_data : register(t0);
 
-RWTexture2D<float4> o_results : register(u0);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> o_results : register(u0);
 
 #if PUSH_CONSTANT_16
 struct Registers

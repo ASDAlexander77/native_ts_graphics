@@ -1822,6 +1822,9 @@ donut_compile_shaders(
 )
 add_tslang_example(mesh_shader_culling)
 add_tslang_example_test(mesh_shader_culling)
+# mesh_shader_culling with NRI and NRIFramework instead of Donut: mesh_shader_culling's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(mesh_shader_culling_nri SHADERS mesh_shader_culling_shaders)
+add_tslang_example_test(mesh_shader_culling_nri)
 
 # Port of Vulkan-Samples' conservative_rasterization: a triangle drawn at low resolution with and
 # without conservative rasterization, stretched over the screen, its real outline over it.
@@ -1960,6 +1963,9 @@ donut_compile_shaders(
 )
 add_tslang_example(16bit_arithmetic)
 add_tslang_example_test(16bit_arithmetic)
+# 16bit_arithmetic with NRI and NRIFramework instead of Donut: 16bit_arithmetic's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(16bit_arithmetic_nri SHADERS 16bit_arithmetic_shaders)
+add_tslang_example_test(16bit_arithmetic_nri)
 add_dependencies(16bit_arithmetic 16bit_arithmetic_fp16_shaders)
 
 # Port of Vulkan-Samples' compute_shader_derivatives: a compute shader taking derivatives of a
@@ -2363,6 +2369,9 @@ donut_compile_shaders(
 )
 add_tslang_example(shader_quad_control)
 add_tslang_example_test(shader_quad_control)
+# shader_quad_control with NRI and NRIFramework instead of Donut: shader_quad_control's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(shader_quad_control_nri SHADERS shader_quad_control_shaders)
+add_tslang_example_test(shader_quad_control_nri)
 
 # Port of Vulkan-Samples' dynamic_line_rasterization: a cube's edges drawn as lines whose
 # rasterization mode (rectangular, Bresenham, smooth), width and stipple are set in the UI (the
@@ -2695,6 +2704,9 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(color_write_enable)
 add_tslang_example_test(color_write_enable)
+# color_write_enable with NRI and NRIFramework instead of Donut: color_write_enable's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(color_write_enable_nri SHADERS color_write_enable_shaders)
+add_tslang_example_test(color_write_enable_nri)
 
 # Port of Vulkan-Samples' dynamic_multisample_rasterization: the Space Module scene with its normal
 # and metallic-roughness maps, drawn with the sample count picked in the UI (the sample's dynamic
@@ -3602,6 +3614,9 @@ donut_compile_shaders(
 )
 add_tslang_example(n_body_gravity core/random.ts core/simple_camera.ts core/directx_math.ts)
 add_tslang_example_test(n_body_gravity)
+# n_body_gravity with NRI and NRIFramework instead of Donut: n_body_gravity's shaders.
+add_tslang_nri_example(n_body_gravity_nri SHADERS n_body_gravity_shaders core/random.ts core/simple_camera.ts core/directx_math.ts)
+add_tslang_example_test(n_body_gravity_nri)
 
 # Copies a folder of the DirectX-Graphics-Samples checkout into an example's media folder, whole.
 function(add_dxgs_media_directory target dir source_dir)
