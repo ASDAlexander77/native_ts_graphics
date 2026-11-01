@@ -40,6 +40,12 @@ enum NriTextureState {
     Present = 3
 }
 
+// The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
+enum NriFeature {
+    // features.meshShader: Nri_CreateMeshPipeline, Nri_CmdDrawMeshTasks (D3D12, Vulkan)
+    MeshShader = 0
+}
+
 // nri::Format, which the functions taking or returning a format pass through.
 type NriFormat = int;
 
@@ -81,6 +87,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The alignment of the rows of a texture read back into a buffer.
 @nodrops declare function Nri_GetUploadBufferTextureRowAlignment(device: NriDeviceHandle): int;
 @nodrops declare function Nri_GetGraphicsQueue(device: NriDeviceHandle): NriQueueHandle;
+// 1 if the device has the feature, else 0.
+@nodrops declare function Nri_IsFeatureSupported(device: NriDeviceHandle, feature: NriFeature): int;
 
 // Synchronization
 @nodrops declare function Nri_CreateFence(device: NriDeviceHandle, initialValue: int): NriFenceHandle;
@@ -138,6 +146,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdSetPipelineLayout(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle): void;
 @nodrops declare function Nri_CmdSetPipeline(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle): void;
 @nodrops declare function Nri_CmdDraw(commandBuffer: NriCommandBufferHandle, vertexNum: int, instanceNum: int, baseVertex: int, baseInstance: int): void;
+// Dispatches x * y * z mesh shader workgroups (NriFeature.MeshShader).
+@nodrops declare function Nri_CmdDrawMeshTasks(commandBuffer: NriCommandBufferHandle, x: int, y: int, z: int): void;
 // Copies the texture's top left width x height pixels (in NriTextureState.CopySource) into the
 // buffer, rows rowPitch bytes apart (a multiple of Nri_GetUploadBufferTextureRowAlignment).
 @nodrops declare function Nri_CmdReadbackTextureToBuffer(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, rowPitch: int, texture: NriTextureHandle, width: int, height: int): void;
@@ -150,7 +160,7 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_QueueSignal(queue: NriQueueHandle, fence: NriFenceHandle, value: int): void;
 
 // Pipelines
-// A layout binding nothing, for the vertex and fragment stages.
+// A layout binding nothing, for the graphics stages (vertex or mesh, fragment).
 @nodrops declare function Nri_CreatePipelineLayout(device: NriDeviceHandle): NriPipelineLayoutHandle;
 @nodrops declare function Nri_DestroyPipelineLayout(pipelineLayout: NriPipelineLayoutHandle): void;
 // A pipeline drawing triangles from no vertex buffer, not culled, into one color attachment of
@@ -158,4 +168,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // directory of the executable (of nri_interop's library under the JIT: bin/). Null on failure.
 @nodrops declare function Nri_CreateGraphicsPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle,
     vsPath: string, vsEntry: string, psPath: string, psEntry: string, colorFormat: NriFormat): NriPipelineHandle | null;
+// As Nri_CreateGraphicsPipeline, with a mesh shader (msPath, msEntry) making the triangles instead
+// of a vertex shader. Needs NriFeature.MeshShader.
+@nodrops declare function Nri_CreateMeshPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle,
+    msPath: string, msEntry: string, psPath: string, psEntry: string, colorFormat: NriFormat): NriPipelineHandle | null;
 @nodrops declare function Nri_DestroyPipeline(pipeline: NriPipelineHandle): void;
