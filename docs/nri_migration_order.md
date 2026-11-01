@@ -58,11 +58,16 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | logic_op_dynamic_state_nri (#196) | logic operations (`Nri_PipelineDescSetLogicOp`, `NriFeature.LogicOp`; a pipeline per operation, NRI having no dynamic one), RGBA8_UINT views of a UNORM texture on D3D; NRI patched for logic operations on D3D11 and D3D12 |
 | oit_linked_lists_nri (#196) | storage buffers and textures in pixel shaders (`NriBufferState.PixelStorage`, `NriTextureState.PixelStorage`), storage textures with data (`Nri_CreateStorageTextureWithData`), buffers without data (`Nri_CreateUninitializedStorageBuffer`: NRI patched for uploads without data); no D3D11 (see the notes) |
 | oit_depth_peeling_nri (#196) | depth textures shaders read (`Nri_CreateSampledDepthTexture`), moved between depth attachment and shader resource each pass |
-| hdr_nri | two color attachments with depth (`Nri_CmdBeginRenderingWithTwoColorsAndDepth`), RGBA32F render targets, `Nri_ImguiInputFloat` |
-| timestamp_queries_nri | timestamp queries (`Nri_CreateTimestampQueryPool`, `Nri_CmdResetQueries`, `Nri_CmdWriteTimestamp`, `Nri_CmdCopyQueries`, `Nri_ReadTimestampIntervalMs`) |
-| fragment_shading_rate_nri | variable rate shading (`NriFeature.VariableRateShading`, `Nri_PipelineDescSetShadingRate`, `Nri_CmdSetShadingRate`, `Nri_CmdBeginRenderingWithShadingRate`), shading rate attachments (`Nri_CreateShadingRateTexture`, `NriTextureState.ShadingRateAttachment`), the device's rates (`Nri_GetFragmentShadingRates`, `Nri_GetShadingRateTileSize`); no D3D11 (shader model 6.4) |
-| fragment_shading_rate_dynamic_nri | shading rates a compute shader writes (storage and shading rate attachment in one texture), render targets compute shaders read (`Nri_CreateRenderTargetStorageTexture`), rect clears (`Nri_CmdClearColorAttachmentRect`, `Nri_CmdClearDepthRect`); no D3D11 |
-| mobile_nerf_nri | a file's bytes for parsers in TypeScript (`Nri_CopyFileBytes`): core/mobile_nerf_common.ts no longer depends on Donut and is shared with the Donut ports |
+| hdr_nri (#197) | two color attachments with depth (`Nri_CmdBeginRenderingWithTwoColorsAndDepth`), RGBA32F render targets, `Nri_ImguiInputFloat` |
+| timestamp_queries_nri (#197) | timestamp queries (`Nri_CreateTimestampQueryPool`, `Nri_CmdResetQueries`, `Nri_CmdWriteTimestamp`, `Nri_CmdCopyQueries`, `Nri_ReadTimestampIntervalMs`) |
+| fragment_shading_rate_nri (#197) | variable rate shading (`NriFeature.VariableRateShading`, `Nri_PipelineDescSetShadingRate`, `Nri_CmdSetShadingRate`, `Nri_CmdBeginRenderingWithShadingRate`), shading rate attachments (`Nri_CreateShadingRateTexture`, `NriTextureState.ShadingRateAttachment`), the device's rates (`Nri_GetFragmentShadingRates`, `Nri_GetShadingRateTileSize`); no D3D11 (shader model 6.4) |
+| fragment_shading_rate_dynamic_nri (#197) | shading rates a compute shader writes (storage and shading rate attachment in one texture), render targets compute shaders read (`Nri_CreateRenderTargetStorageTexture`), rect clears (`Nri_CmdClearColorAttachmentRect`, `Nri_CmdClearDepthRect`); no D3D11 |
+| mobile_nerf_nri (#197) | a file's bytes for parsers in TypeScript (`Nri_CopyFileBytes`): core/mobile_nerf_common.ts no longer depends on Donut and is shared with the Donut ports |
+| gshader_to_mshader_nri | glTF models as Donut loads them (`Nri_LoadGltfModel` and its accessors: core/vulkan_samples_gltf.h's GltfModel, shared with Donut's interop) |
+| multi_draw_indirect_nri | `Nri_ReadBufferInts`, `Nri_GetDrawIndirectMaxNum`, a 225-texture array (`NriRangeFlags.Array`), Donut's FirstPersonCamera as a shared module (core/donut_first_person_camera.ts, terrain_tessellation_nri's too); no D3D11 |
+| dynamic_rendering_local_read_nri | three color attachments with depth (`Nri_CmdBeginRenderingWithThreeColorsAndDepth`) |
+| extended_dynamic_state2_nri | depth bias (`Nri_PipelineDescSetDepthBias`); rasterizer discard by skipping the draw, as Donut does |
+| dynamic_multisample_rasterization_nri | multisampled targets (`Nri_PipelineDescSetSampleCount`, `Nri_CreateMultisampledRenderTarget`, `Nri_CreateMultisampledDepthTexture`, `Nri_GetSupportedSampleCounts`), resolved by a shader (shaders/nri_msaa_resolve.hlsl) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -114,6 +119,11 @@ has no calibrated timestamps), rasterization_order_attachment_access, texture_mi
 (NRI has no blits), and the examples that load whole glTF models with materials
 (`loadGltfModel`: extended_dynamic_state2, msaa, multi_draw_indirect and others).
 
+Fourth batch, the first with whole glTF models (`Nri_LoadGltfModel`): gshader_to_mshader_nri,
+multi_draw_indirect_nri, dynamic_rendering_local_read_nri, extended_dynamic_state2_nri and
+dynamic_multisample_rasterization_nri. Still to come with models: msaa, async_compute_bloom,
+render_octomap, texture_compression_comparison.
+
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
@@ -161,6 +171,15 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   asks for rectangular lines (D3D's quadrilateral lines; on Vulkan 1.4 pixels wide: collision) or
   Bresenham ones (Vulkan: simple_bezier's wireframe), the NRI port differs along every line, and
   only there.
+- NRI expands a descriptor range without `NriRangeFlags.Array` into one Vulkan binding per
+  descriptor: a shader's texture array (`Texture2D textures[225] : register(t0)`, one binding) needs
+  the flag, or its bindings run into the samplers' shifted ones (s128) and the layout is rejected.
+- NRI creates sRGB images as their UNORM format on Vulkan (to make views of either), so its
+  CmdResolveTexture averages encoded values there; Donut's resolves (render pass resolve on Vulkan,
+  ResolveSubresource on D3D) average linear ones. shaders/nri_msaa_resolve.hlsl resolves through
+  sRGB views instead: within 1 of Donut's frames on Vulkan. On D3D11 and D3D12 (identical to each
+  other) dynamic_multisample_rasterization_nri also differs by up to 12 along the background's edges
+  seen through the translucent column, above 1x only; Donut's frames are the same on all three APIs.
 - Donut's test mode passes each frame's 1/60 second as a float: the ports step their animations by
   `Math.fround(1.0 / 60.0)`, or a state that integrates time (atom_orbitals' superposition) drifts.
 - `Nri_RunSample` leaves the example's options out of NRIFramework's command line; an option with

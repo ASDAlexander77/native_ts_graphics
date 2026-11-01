@@ -137,11 +137,15 @@ namespace
         // Nri_PipelineDescSetDepthClip: -1 NRI's default (rasterization.depthClamp false), else
         // whether primitives are clipped at the near and far planes.
         int depthClip = -1;
+        // Nri_PipelineDescSetSampleCount: the attachments' samples (1: not multisampled).
+        uint8_t sampleNum = 1;
         // Nri_PipelineDescSetLogicOp: the color attachment's logic operation (NONE: blending).
         nri::LogicOp logicOp = nri::LogicOp::NONE;
         // Nri_PipelineDescSetShadingRate: the draws' shading rate from Nri_CmdSetShadingRate (and the
         // shading rate attachment).
         bool shadingRate = false;
+        // Nri_PipelineDescSetDepthBias: the depth bias (none while constant and slope are 0).
+        nri::DepthBiasDesc depthBias = {};
         nri::Topology topology = nri::Topology::TRIANGLE_LIST;
         nri::PrimitiveRestart primitiveRestart = nri::PrimitiveRestart::DISABLED;
         // The streams stepped per instance (Nri_PipelineDescSetInstanceStream), not per vertex.
@@ -1107,7 +1111,8 @@ extern "C"
 
     // A width x height depth texture in device memory (read by shaders too if sampled), bound to it
     // and moved on the queue (which this waits for) to state; null on failure.
-    nri::Texture* CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format, bool sampled, int state)
+    nri::Texture* CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format, bool sampled, int state,
+        int sampleNum = 1)
     {
         nri::TextureDesc textureDesc = {};
         textureDesc.type = nri::TextureType::TEXTURE_2D;
@@ -1117,6 +1122,7 @@ extern "C"
         textureDesc.format = (nri::Format)format;
         textureDesc.width = (nri::Dim_t)width;
         textureDesc.height = (nri::Dim_t)height;
+        textureDesc.sampleNum = (nri::Sample_t)sampleNum;
         nri::Texture* texture = nullptr;
         if (NRI.CreateTexture(*device, textureDesc, texture) != nri::Result::SUCCESS)
             return nullptr;
@@ -1160,6 +1166,55 @@ extern "C"
     NRI_INTEROP_API nri::Texture* Nri_CreateSampledDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
     {
         return CreateDepthTexture(device, queue, width, height, format, true, 5);
+    }
+
+    // As Nri_CreateDepthTexture, with sampleNum samples per pixel (Nri_GetSupportedSampleCounts').
+    NRI_INTEROP_API nri::Texture* Nri_CreateMultisampledDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format,
+        int sampleNum)
+    {
+        return CreateDepthTexture(device, queue, width, height, format, false, 4, sampleNum);
+    }
+
+    // A width x height color attachment with sampleNum samples per pixel (a view of it:
+    // Nri_CreateColorAttachmentView), in device memory, moved on the queue (which this waits for) to
+    // NriTextureState.ColorAttachment; shaders read it too (Nri_CreateTextureView: Texture2DMS), as
+    // shaders/nri_msaa_resolve.hlsl resolves it. Null on failure; destroyed with Nri_DestroyTexture.
+    NRI_INTEROP_API nri::Texture* Nri_CreateMultisampledRenderTarget(nri::Device* device, nri::Queue* queue, int width, int height, int format,
+        int sampleNum)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, format);
+        desc.usage = nri::TextureUsageBits::COLOR_ATTACHMENT | nri::TextureUsageBits::SHADER_RESOURCE;
+        desc.sampleNum = (nri::Sample_t)sampleNum;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureUploadDesc upload = {};
+        upload.texture = texture;
+        upload.after = TextureState(1);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // The sample counts both formats can be rendered with (as color and depth attachments), as bits
+    // (1 | 2 | 4 | 8: NRI's format support goes up to 8): Donut_GetSupportedSampleCounts'.
+    NRI_INTEROP_API int Nri_GetSupportedSampleCounts(nri::Device* device, int colorFormat, int depthFormat)
+    {
+        const uint32_t color = (uint32_t)NRI.GetFormatSupport(*device, (nri::Format)colorFormat);
+        const uint32_t depth = (uint32_t)NRI.GetFormatSupport(*device, (nri::Format)depthFormat);
+        int counts = 1;
+        for (int i = 0; i < 3; i++)
+        {
+            const uint32_t bit = (uint32_t)nri::FormatSupportBits::MULTISAMPLE_2X << i;
+            if ((color & bit) != 0 && (depth & bit) != 0)
+                counts |= 2 << i;
+        }
+        return counts;
     }
 
     // Destroys a texture Nri_CreateDepthTexture made and frees its memory.
@@ -1476,6 +1531,18 @@ extern "C"
         if (!data)
             return 0;
         memcpy(dst, data, (size_t)count * sizeof(float));
+        NRI.UnmapBuffer(*buffer);
+        return 1;
+    }
+
+    // Copies count 32-bit ints from the start of the buffer (a readback buffer, after the GPU wrote
+    // it) to dst; 1, or 0 if it can't be read.
+    NRI_INTEROP_API int Nri_ReadBufferInts(nri::Buffer* buffer, int* dst, int count)
+    {
+        const int* data = (const int*)NRI.MapBuffer(*buffer, 0, nri::WHOLE_SIZE);
+        if (!data)
+            return 0;
+        memcpy(dst, data, (size_t)count * sizeof(int));
         NRI.UnmapBuffer(*buffer);
         return 1;
     }
@@ -1800,6 +1867,19 @@ extern "C"
         nri::AttachmentsDesc desc = {};
         desc.colors = colors;
         desc.colorNum = 2;
+        desc.depthStencil = depthAttachment;
+        NRI.CmdBeginRendering(*commandBuffer, desc);
+    }
+
+    // Renders into three color attachments (SV_Target0 to 2, Nri_CreateColorAttachmentView's views)
+    // and a depth attachment (Nri_CreateDepthAttachmentView's): a G-buffer.
+    NRI_INTEROP_API void Nri_CmdBeginRenderingWithThreeColorsAndDepth(nri::CommandBuffer* commandBuffer, nri::Descriptor* color0,
+        nri::Descriptor* color1, nri::Descriptor* color2, nri::Descriptor* depthAttachment)
+    {
+        nri::Descriptor* colors[] = { color0, color1, color2 };
+        nri::AttachmentsDesc desc = {};
+        desc.colors = colors;
+        desc.colorNum = 3;
         desc.depthStencil = depthAttachment;
         NRI.CmdBeginRendering(*commandBuffer, desc);
     }
@@ -2262,6 +2342,13 @@ extern "C"
         desc->depthClip = clip != 0 ? 1 : 0;
     }
 
+    // The color and depth attachments' samples (Nri_GetSupportedSampleCounts'; 1 by default). NRI has
+    // no dynamic sample count: a pipeline per count.
+    NRI_INTEROP_API void Nri_PipelineDescSetSampleCount(PipelineDesc* desc, int sampleNum)
+    {
+        desc->sampleNum = (uint8_t)sampleNum;
+    }
+
     // The color attachment's logic operation instead of blending (NriFeature.LogicOp; a UNORM or UINT
     // attachment, UINT on D3D12), in Vulkan's VkLogicOp order (0 CLEAR, 3 COPY, 5 NO_OP, 6 XOR ... 15
     // SET), as Vulkan-Samples' logic_op_dynamic_state picks it. NRI has no NO_OP: the attachment's
@@ -2283,6 +2370,14 @@ extern "C"
     NRI_INTEROP_API void Nri_PipelineDescSetShadingRate(PipelineDesc* desc, int enabled)
     {
         desc->shadingRate = enabled != 0;
+    }
+
+    // The depth bias added to the depth of the triangles drawn: constant (D3D's integer DepthBias,
+    // in units of the depth format's resolution), clamped to clamp (0: not clamped), plus slope times
+    // the triangle's depth slope, as NVRHI's RasterState::setDepthBias (none by default).
+    NRI_INTEROP_API void Nri_PipelineDescSetDepthBias(PipelineDesc* desc, double constant, double clamp, double slope)
+    {
+        desc->depthBias = { (float)constant, (float)clamp, (float)slope };
     }
 
     // The pipeline the desc describes, with the layout; null on failure.
@@ -2338,6 +2433,13 @@ extern "C"
         pipelineDesc.outputMerger.depthStencilFormat = desc->depthFormat;
         pipelineDesc.outputMerger.logicOp = desc->logicOp;
         pipelineDesc.rasterization.shadingRate = desc->shadingRate;
+        pipelineDesc.rasterization.depthBias = desc->depthBias;
+        // Multisampled attachments: every sample written, no alpha to coverage.
+        nri::MultisampleDesc multisample = {};
+        multisample.sampleMask = nri::ALL;
+        multisample.sampleNum = desc->sampleNum;
+        if (desc->sampleNum > 1)
+            pipelineDesc.multisample = &multisample;
         pipelineDesc.shaders = shaders.data();
         pipelineDesc.shaderNum = (uint32_t)shaders.size();
 
@@ -2578,6 +2680,14 @@ extern "C"
     NRI_INTEROP_API int Nri_GetMaxSamplerAnisotropy(nri::Device* device)
     {
         return (int)NRI.GetDeviceDesc(*device).other.samplerAnisotropyMax;
+    }
+
+    // The most draws one indirect draw call takes (DeviceDesc::other.drawIndirectMaxNum): above 1,
+    // multi-draw indirect (D3D12's ExecuteIndirect always; Vulkan's multiDrawIndirect feature).
+    NRI_INTEROP_API int Nri_GetDrawIndirectMaxNum(nri::Device* device)
+    {
+        const uint32_t num = NRI.GetDeviceDesc(*device).other.drawIndirectMaxNum;
+        return num > 0x7FFFFFFF ? 0x7FFFFFFF : (int)num;
     }
 
     // Pixels per shading rate attachment texel in each dimension (DeviceDesc::other's
@@ -3053,6 +3163,39 @@ extern "C"
         return texture;
     }
 
+    // A glTF file (path relative to this library's folder) parsed with its buffers, which can be
+    // files next to it or data URIs; data null (after printing why) on failure.
+    struct GltfFile
+    {
+        std::string fileName;
+        cgltf_data* data = nullptr;
+
+        explicit GltfFile(const char* path)
+            : fileName(LibraryDirectory() + path)
+        {
+            std::vector<uint8_t> file;
+            if (!ReadFile(fileName, file))
+                return;
+            cgltf_options options{};
+            cgltf_result result = cgltf_parse(&options, file.data(), file.size(), &data);
+            if (result == cgltf_result_success)
+                result = cgltf_load_buffers(&options, data, fileName.c_str());
+            if (result != cgltf_result_success)
+            {
+                printf("ERROR: cannot parse %s\n", fileName.c_str());
+                if (data)
+                    cgltf_free(data);
+                data = nullptr;
+            }
+        }
+
+        ~GltfFile()
+        {
+            if (data)
+                cgltf_free(data);
+        }
+    };
+
     // A glTF mesh primitive as the Vulkan-Samples framework loads one (Nri_LoadGltfMesh).
     struct GltfMesh
     {
@@ -3078,25 +3221,16 @@ extern "C"
     // (which this waits for) into a vertex and an index buffer; null (after printing why) on failure.
     NRI_INTEROP_API GltfMesh* Nri_LoadGltfMesh(nri::Device* device, nri::Queue* queue, const char* path)
     {
-        const std::string fileName = LibraryDirectory() + path;
-        std::vector<uint8_t> file;
-        if (!ReadFile(fileName, file))
+        GltfFile file(path);
+        if (!file.data)
             return nullptr;
-        // The buffers can be files next to the glTF or data URIs.
-        cgltf_options options{};
-        cgltf_data* data = nullptr;
-        cgltf_result result = cgltf_parse(&options, file.data(), file.size(), &data);
-        if (result == cgltf_result_success)
-            result = cgltf_load_buffers(&options, data, fileName.c_str());
+        const cgltf_data* data = file.data;
         std::vector<float> vertices;
         std::vector<uint32_t> indices;
-        const bool read = result == cgltf_result_success && data->meshes_count > 0 && data->meshes[0].primitives_count > 0
-            && ReadGltfPrimitive(data->meshes[0].primitives[0], vertices, indices);
-        if (data)
-            cgltf_free(data);
-        if (!read)
+        if (data->meshes_count == 0 || data->meshes[0].primitives_count == 0
+            || !ReadGltfPrimitive(data->meshes[0].primitives[0], vertices, indices))
         {
-            printf("ERROR: cannot load an indexed mesh from %s\n", fileName.c_str());
+            printf("ERROR: cannot load an indexed mesh from %s\n", file.fileName.c_str());
             return nullptr;
         }
 
@@ -3106,7 +3240,7 @@ extern "C"
         mesh->indexCount = (int)indices.size();
         if (!mesh->vertexBuffer || !mesh->indexBuffer)
         {
-            printf("ERROR: cannot create the buffers of %s\n", fileName.c_str());
+            printf("ERROR: cannot create the buffers of %s\n", file.fileName.c_str());
             Nri_DestroyGltfMesh(mesh);
             return nullptr;
         }
@@ -3127,6 +3261,150 @@ extern "C"
     NRI_INTEROP_API int Nri_GetGltfMeshIndexCount(GltfMesh* mesh)
     {
         return mesh->indexCount;
+    }
+
+    // Every primitive of a glTF file's meshes (path relative to this library's folder) with its
+    // material, the file's textures and the nodes that instantiate meshes, as Donut_LoadGltfModel
+    // reads them (core/vulkan_samples_gltf.h's ReadGltfModel), kept on the CPU to copy out with the
+    // functions below; null (after printing why) on failure. Destroyed with Nri_DestroyGltfModel.
+    NRI_INTEROP_API GltfModel* Nri_LoadGltfModel(const char* path)
+    {
+        GltfFile file(path);
+        if (!file.data)
+            return nullptr;
+        GltfModel* model = new GltfModel();
+        std::string error;
+        if (!ReadGltfModel(file.data, *model, error))
+        {
+            printf("ERROR: %s in %s\n", error.c_str(), file.fileName.c_str());
+            delete model;
+            return nullptr;
+        }
+        return model;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyGltfModel(GltfModel* model)
+    {
+        delete model;
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelPrimitiveCount(GltfModel* model)
+    {
+        return (int)model->primitives.size();
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelVertexCount(GltfModel* model, int primitive)
+    {
+        return (int)(model->primitives[primitive].vertices.size() / 8);
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelIndexCount(GltfModel* model, int primitive)
+    {
+        return (int)model->primitives[primitive].indices.size();
+    }
+
+    // A primitive's vertices (8 floats each: float3 position, float3 normal, float2 texture
+    // coordinates) into dst.
+    NRI_INTEROP_API void Nri_CopyGltfModelVertices(GltfModel* model, int primitive, float* dst)
+    {
+        const std::vector<float>& vertices = model->primitives[primitive].vertices;
+        memcpy(dst, vertices.data(), vertices.size() * sizeof(float));
+    }
+
+    // A primitive's indices into dst.
+    NRI_INTEROP_API void Nri_CopyGltfModelIndices(GltfModel* model, int primitive, int* dst)
+    {
+        const std::vector<uint32_t>& indices = model->primitives[primitive].indices;
+        memcpy(dst, indices.data(), indices.size() * sizeof(uint32_t));
+    }
+
+    // The elements of a primitive's vertex attribute by its name in the file ("COLOR_0"...; 0 if it
+    // has none), its floats per element, and the floats (normalized integers converted) into dst.
+    NRI_INTEROP_API int Nri_GetGltfModelAttributeCount(GltfModel* model, int primitive, const char* name)
+    {
+        const auto& attributes = model->primitives[primitive].attributes;
+        auto it = attributes.find(name);
+        return it == attributes.end() || it->second.components == 0 ? 0 : (int)(it->second.data.size() / size_t(it->second.components));
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelAttributeComponents(GltfModel* model, int primitive, const char* name)
+    {
+        const auto& attributes = model->primitives[primitive].attributes;
+        auto it = attributes.find(name);
+        return it == attributes.end() ? 0 : it->second.components;
+    }
+
+    NRI_INTEROP_API void Nri_CopyGltfModelAttribute(GltfModel* model, int primitive, const char* name, float* dst)
+    {
+        const auto& attributes = model->primitives[primitive].attributes;
+        auto it = attributes.find(name);
+        if (it != attributes.end())
+            memcpy(dst, it->second.data.data(), it->second.data.size() * sizeof(float));
+    }
+
+    // Valid as long as the model.
+    NRI_INTEROP_API const char* Nri_GetGltfModelBaseColorImage(GltfModel* model, int primitive)
+    {
+        return model->primitives[primitive].baseColorImage.c_str();
+    }
+
+    NRI_INTEROP_API void Nri_CopyGltfModelBaseColorFactor(GltfModel* model, int primitive, float* dst)
+    {
+        memcpy(dst, model->primitives[primitive].baseColorFactor, 4 * sizeof(float));
+    }
+
+    // Valid as long as the model.
+    NRI_INTEROP_API const char* Nri_GetGltfModelMeshName(GltfModel* model, int primitive)
+    {
+        return model->primitives[primitive].meshName.c_str();
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelPrimitiveMesh(GltfModel* model, int primitive)
+    {
+        return model->primitives[primitive].mesh;
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelPrimitiveAlphaMode(GltfModel* model, int primitive)
+    {
+        return model->primitives[primitive].alphaMode;
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelMaterialTexture(GltfModel* model, int primitive, int which)
+    {
+        return model->primitives[primitive].materialTextures[which];
+    }
+
+    NRI_INTEROP_API double Nri_GetGltfModelMaterialFactor(GltfModel* model, int primitive, int which)
+    {
+        const GltfModel::Primitive& p = model->primitives[primitive];
+        return which == 0 ? p.metallicFactor : p.roughnessFactor;
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelTextureCount(GltfModel* model)
+    {
+        return (int)model->textureImages.size();
+    }
+
+    // Valid as long as the model.
+    NRI_INTEROP_API const char* Nri_GetGltfModelTextureImage(GltfModel* model, int texture)
+    {
+        return model->textureImages[texture].c_str();
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelNodeCount(GltfModel* model)
+    {
+        return (int)model->nodes.size();
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfModelNodeMesh(GltfModel* model, int node)
+    {
+        return model->nodes[node].mesh;
+    }
+
+    // A node's world transform (16 floats, column-major as glm) into dst.
+    NRI_INTEROP_API void Nri_CopyGltfModelNodeTransform(GltfModel* model, int node, float* dst)
+    {
+        memcpy(dst, model->nodes[node].transform, sizeof(float) * 16);
     }
 
     // A view of a cubemap's six faces and all its mips for shaders to read (TextureCube).

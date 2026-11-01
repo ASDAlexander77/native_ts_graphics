@@ -1445,7 +1445,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(terrain_tessellation core/matrix.ts MEDIA terrain_tessellation)
 add_tslang_example_test(terrain_tessellation)
 # terrain_tessellation with NRI and NRIFramework instead of Donut: terrain_tessellation's shaders and textures, NRIFramework's ImGui.
-add_tslang_nri_example(terrain_tessellation_nri SHADERS terrain_tessellation_shaders core/matrix.ts)
+add_tslang_nri_example(terrain_tessellation_nri SHADERS terrain_tessellation_shaders core/donut_first_person_camera.ts core/matrix.ts)
 add_tslang_example_test(terrain_tessellation_nri)
 # The terrain's blit into the swap chain is Donut's (shaders/framework's rect_vs and blit_ps).
 if (TARGET donut_shaders AND TARGET terrain_tessellation_nri)
@@ -1689,6 +1689,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(multi_draw_indirect multi_draw_indirect_media)
 endif()
 
+# multi_draw_indirect with NRI and NRIFramework instead of Donut: its shaders and Vokselia scene.
+add_tslang_nri_example(multi_draw_indirect_nri SHADERS multi_draw_indirect_shaders core/donut_first_person_camera.ts core/matrix.ts)
+add_tslang_example_test(multi_draw_indirect_nri)
+if (TARGET multi_draw_indirect_media AND TARGET multi_draw_indirect_nri)
+    add_dependencies(multi_draw_indirect_nri multi_draw_indirect_media)
+endif()
+
 # Port of Vulkan-Samples' async_compute (named apart from Donut-Samples' async_compute above): a
 # shadow map and a 4K HDR forward pass of the Bonza scene, a bloom in compute shaders (on the
 # compute queue with async queues on), and a tone mapping composite. Its scene is Vulkan-Samples'
@@ -1817,6 +1824,16 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
         VERBATIM)
     add_custom_target(gshader_to_mshader_media DEPENDS "${output}")
     add_dependencies(gshader_to_mshader gshader_to_mshader_media)
+endif()
+
+# gshader_to_mshader with NRI and NRIFramework instead of Donut: its geometry and mesh shaders and teapot.
+add_tslang_nri_example(gshader_to_mshader_nri SHADERS gshader_to_mshader_shaders core/matrix.ts)
+if (TARGET gshader_to_mshader_nri)
+    add_dependencies(gshader_to_mshader_nri gshader_to_mshader_mesh_shaders)
+endif()
+add_tslang_example_test(gshader_to_mshader_nri)
+if (TARGET gshader_to_mshader_media AND TARGET gshader_to_mshader_nri)
+    add_dependencies(gshader_to_mshader_nri gshader_to_mshader_media)
 endif()
 
 # Port of Vulkan-Samples' sparse_image: a large texture on a plane, its pages mapped to memory and
@@ -2499,6 +2516,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(extended_dynamic_state2 extended_dynamic_state2_media)
 endif()
 
+# extended_dynamic_state2 with NRI and NRIFramework instead of Donut: its shaders, scenes and environment map.
+add_tslang_nri_example(extended_dynamic_state2_nri SHADERS extended_dynamic_state2_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
+add_tslang_example_test(extended_dynamic_state2_nri)
+if (TARGET extended_dynamic_state2_media AND TARGET extended_dynamic_state2_nri)
+    add_dependencies(extended_dynamic_state2_nri extended_dynamic_state2_media)
+endif()
+
 # Port of Vulkan-Samples' fragment_shading_rate: a scene drawn with a shading rate image made once
 # on the CPU, rings of coarser rates around the center. Variable rate shading with shading rate
 # images needs D3D12 or Vulkan, so no DXBC. Its models and textures are Vulkan-Samples' assets too
@@ -2849,6 +2873,24 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(dynamic_multisample_rasterization dynamic_multisample_rasterization_media msaa_media)
 endif()
 
+# dynamic_multisample_rasterization with NRI and NRIFramework instead of Donut: its shaders and msaa's space module.
+add_tslang_nri_example(dynamic_multisample_rasterization_nri SHADERS dynamic_multisample_rasterization_shaders core/matrix.ts)
+# The NRI examples' multisample resolve by a shader (see the .hlsl).
+donut_compile_shaders_all_platforms(
+    TARGET nri_msaa_resolve_shaders
+    PROJECT_NAME "NRI MSAA Resolve"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nri_msaa_resolve.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nri_msaa_resolve.hlsl
+    OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/nri_msaa_resolve
+)
+if (TARGET dynamic_multisample_rasterization_nri)
+    add_dependencies(dynamic_multisample_rasterization_nri nri_msaa_resolve_shaders)
+endif()
+add_tslang_example_test(dynamic_multisample_rasterization_nri)
+if (TARGET dynamic_multisample_rasterization_media AND TARGET msaa_media AND TARGET dynamic_multisample_rasterization_nri)
+    add_dependencies(dynamic_multisample_rasterization_nri dynamic_multisample_rasterization_media msaa_media)
+endif()
+
 # Port of Vulkan-Samples' vertex_dynamic_state: hdr's skybox and a reflective cube, then a cube made
 # in code with another vertex layout (the sample's dynamic vertex input; a pipeline per layout
 # here). It reads hdr's copies of the models and cube map.
@@ -3142,6 +3184,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     list(APPEND dynamic_rendering_local_read_media "${output}")
     add_custom_target(dynamic_rendering_local_read_media DEPENDS ${dynamic_rendering_local_read_media})
     add_dependencies(dynamic_rendering_local_read dynamic_rendering_local_read_media)
+endif()
+
+# dynamic_rendering_local_read with NRI and NRIFramework instead of Donut: its shaders, scenes and glass texture.
+add_tslang_nri_example(dynamic_rendering_local_read_nri SHADERS dynamic_rendering_local_read_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(dynamic_rendering_local_read_nri)
+if (TARGET dynamic_rendering_local_read_media AND TARGET dynamic_rendering_local_read_nri)
+    add_dependencies(dynamic_rendering_local_read_nri dynamic_rendering_local_read_media)
 endif()
 
 # Port of Vulkan-Samples' shader_object: a scene drawn with shader objects combined at draw time
