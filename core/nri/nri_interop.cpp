@@ -137,6 +137,8 @@ namespace
         // Nri_PipelineDescSetDepthClip: -1 NRI's default (rasterization.depthClamp false), else
         // whether primitives are clipped at the near and far planes.
         int depthClip = -1;
+        // Nri_PipelineDescSetLogicOp: the color attachment's logic operation (NONE: blending).
+        nri::LogicOp logicOp = nri::LogicOp::NONE;
         nri::Topology topology = nri::Topology::TRIANGLE_LIST;
         nri::PrimitiveRestart primitiveRestart = nri::PrimitiveRestart::DISABLED;
         // The streams stepped per instance (Nri_PipelineDescSetInstanceStream), not per vertex.
@@ -271,6 +273,9 @@ namespace
             return { nri::AccessBits::ARGUMENT_BUFFER | nri::AccessBits::SHADER_RESOURCE, nri::StageBits::INDIRECT | nri::StageBits::COMPUTE_SHADER };
         case 6:
             return { nri::AccessBits::SHADER_RESOURCE, nri::StageBits::VERTEX_SHADER | nri::StageBits::COMPUTE_SHADER };
+        case 7:
+            // read and written by pixel shaders (RWStructuredBuffer in a draw's pixel shader)
+            return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::StageBits::FRAGMENT_SHADER };
         default:
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER };
         }
@@ -300,6 +305,9 @@ namespace
         case 7:
             return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE,
                 nri::StageBits::FRAGMENT_SHADER | nri::StageBits::COMPUTE_SHADER };
+        case 8:
+            // read and written by pixel shaders (RWTexture2D in a draw's pixel shader)
+            return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::FRAGMENT_SHADER };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -900,6 +908,9 @@ extern "C"
         case 7:
             // SV_Barycentrics: D3D12 shader model 6.1's, Vulkan's VK_KHR_fragment_shader_barycentric
             return desc.shaderFeatures.barycentric ? 1 : 0;
+        case 8:
+            // Logic operations in the output merger (D3D's OutputMergerLogicOp, Vulkan's logicOp)
+            return desc.features.logicOp ? 1 : 0;
         default:
             return 0;
         }
@@ -1082,13 +1093,15 @@ extern "C"
 
     NRI_INTEROP_API void Nri_DestroyTexture(nri::Texture* texture);
 
-    // A width x height depth texture in device memory, bound to it and moved on the queue (which
-    // this waits for) to NriTextureState.DepthAttachment, where it stays; null on failure.
-    NRI_INTEROP_API nri::Texture* Nri_CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
+    // A width x height depth texture in device memory (read by shaders too if sampled), bound to it
+    // and moved on the queue (which this waits for) to state; null on failure.
+    nri::Texture* CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format, bool sampled, int state)
     {
         nri::TextureDesc textureDesc = {};
         textureDesc.type = nri::TextureType::TEXTURE_2D;
         textureDesc.usage = nri::TextureUsageBits::DEPTH_STENCIL_ATTACHMENT;
+        if (sampled)
+            textureDesc.usage |= nri::TextureUsageBits::SHADER_RESOURCE;
         textureDesc.format = (nri::Format)format;
         textureDesc.width = (nri::Dim_t)width;
         textureDesc.height = (nri::Dim_t)height;
@@ -1112,7 +1125,7 @@ extern "C"
         // the texture's initial state.
         nri::TextureUploadDesc upload = {};
         upload.texture = texture;
-        upload.after = TextureState(4);
+        upload.after = TextureState(state);
         upload.planes = nri::PlaneBits::DEPTH;
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {
@@ -1120,6 +1133,21 @@ extern "C"
             return nullptr;
         }
         return texture;
+    }
+
+    // A width x height depth texture in device memory, bound to it and moved on the queue (which
+    // this waits for) to NriTextureState.DepthAttachment, where it stays; null on failure.
+    NRI_INTEROP_API nri::Texture* Nri_CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
+    {
+        return CreateDepthTexture(device, queue, width, height, format, false, 4);
+    }
+
+    // As Nri_CreateDepthTexture, but shaders read it too (a view of it: Nri_CreateTextureView with
+    // the depth format), and it's left in NriTextureState.ShaderResource: barriers move it to
+    // DepthAttachment for the passes that render into it, and back.
+    NRI_INTEROP_API nri::Texture* Nri_CreateSampledDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
+    {
+        return CreateDepthTexture(device, queue, width, height, format, true, 5);
     }
 
     // Destroys a texture Nri_CreateDepthTexture made and frees its memory.
@@ -1373,6 +1401,12 @@ extern "C"
         int stride, int state)
     {
         return Nri_CreateStorageBufferInState(device, queue, data, byteSize, stride, state);
+    }
+
+    // Nri_CreateStorageBufferInState's buffer without data (its contents undefined): moved to state.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUninitializedStorageBuffer(nri::Device* device, nri::Queue* queue, int byteSize, int stride, int state)
+    {
+        return Nri_CreateStorageBufferInState(device, queue, nullptr, byteSize, stride, state);
     }
 
     // A view of the whole buffer (Nri_CreateStorageBuffer's) as structures: written by compute
@@ -2088,6 +2122,22 @@ extern "C"
         desc->depthClip = clip != 0 ? 1 : 0;
     }
 
+    // The color attachment's logic operation instead of blending (NriFeature.LogicOp; a UNORM or UINT
+    // attachment, UINT on D3D12), in Vulkan's VkLogicOp order (0 CLEAR, 3 COPY, 5 NO_OP, 6 XOR ... 15
+    // SET), as Vulkan-Samples' logic_op_dynamic_state picks it. NRI has no NO_OP: the attachment's
+    // color writes are turned off instead, which leaves it as unchanged.
+    NRI_INTEROP_API void Nri_PipelineDescSetLogicOp(PipelineDesc* desc, int vkLogicOp)
+    {
+        if (vkLogicOp == 5)
+        {
+            desc->logicOp = nri::LogicOp::NONE;
+            desc->color.colorWriteMask = nri::ColorWriteBits::NONE;
+            return;
+        }
+        // nri::LogicOp: NONE, then Vulkan's order without NO_OP.
+        desc->logicOp = (nri::LogicOp)(vkLogicOp < 5 ? vkLogicOp + 1 : vkLogicOp);
+    }
+
     // The pipeline the desc describes, with the layout; null on failure.
     NRI_INTEROP_API nri::Pipeline* Nri_CreatePipelineFromDesc(nri::Device* device, nri::PipelineLayout* pipelineLayout, PipelineDesc* desc)
     {
@@ -2139,6 +2189,7 @@ extern "C"
         }
         pipelineDesc.outputMerger.depth = desc->depth;
         pipelineDesc.outputMerger.depthStencilFormat = desc->depthFormat;
+        pipelineDesc.outputMerger.logicOp = desc->logicOp;
         pipelineDesc.shaders = shaders.data();
         pipelineDesc.shaderNum = (uint32_t)shaders.size();
 
@@ -3151,6 +3202,33 @@ extern "C"
         nri::TextureUploadDesc upload = {};
         upload.texture = texture;
         upload.after = TextureState(6);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // As Nri_CreateStorageTexture, filled with data (rows rowPitch bytes apart) and left in state (an
+    // NriTextureState: Storage, or PixelStorage for pixel shaders' RWTexture2D); null on failure.
+    NRI_INTEROP_API nri::Texture* Nri_CreateStorageTextureWithData(nri::Device* device, nri::Queue* queue, int width, int height, int format,
+        const void* data, int rowPitch, int state)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, format);
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::SHADER_RESOURCE_STORAGE;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        const uint32_t blockHeight = nri::nriGetFormatProps((nri::Format)format)->blockHeight;
+        const uint32_t rows = ((uint32_t)height + blockHeight - 1) / blockHeight;
+        nri::TextureSubresourceUploadDesc subresource = { data, 1, (uint32_t)rowPitch, (uint32_t)rowPitch * rows };
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = &subresource;
+        upload.texture = texture;
+        upload.after = TextureState(state);
         upload.planes = nri::PlaneBits::ALL;
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {

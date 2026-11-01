@@ -1,0 +1,17 @@
+diff --git a/Source/Shared/HelperInterface.hpp b/Source/Shared/HelperInterface.hpp
+index 43ad672e..77f47ac9 100644
+--- a/Source/Shared/HelperInterface.hpp
++++ b/Source/Shared/HelperInterface.hpp
+@@ -269,6 +269,12 @@ Result HelperDataUpload::UploadBuffers(const BufferUploadDesc* bufferUploadDescs
+             isInitial = false;
+         }
+ 
++        // Without data there's no upload buffer (its size is 0): only the transitions.
++        if (!m_UploadBuffer) {
++            i = bufferUploadDescNum;
++            break;
++        }
++
+         m_UploadBufferOffset = 0;
+         m_MappedMemory = (uint8_t*)m_iCore.MapBuffer(*m_UploadBuffer, 0, m_UploadBufferSize);
+ 

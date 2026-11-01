@@ -48,11 +48,16 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | terrain_tessellation_nri (#194) | DDS texture arrays with their mips (`Nri_LoadDdsTexture`, `Nri_CreateTextureArrayView`), Donut's own blit shaders into the sRGB swap chain, Donut's FirstPersonCamera in float32 |
 | dynamic_blending_nri (#194) | all blend factors and ops, blend constants (`Nri_CmdSetBlendConstants`), more ImGui widgets (`Nri_ImguiColorEdit4`, `Nri_ImguiButton`, `Nri_ImguiRadioButton`, `Nri_ImguiPushID`, `Nri_ImguiSameLine`); no advanced blend operations (NRI has none) |
 | atom_orbitals_nri (#194) | front-face winding (`Nri_PipelineDescSetFrontCounterClockwise`), three root descriptors in one layout, `Nri_ImguiSetNextWindowPosPivot`, `Nri_ImguiDragFloat` |
-| dynamic_rendering_nri | glTF meshes as Donut loads them (`Nri_LoadGltfMesh`: core/vulkan_samples_gltf.h, shared with Donut's interop), DDS cubemaps and cube views (`Nri_CreateTextureCubeView`) |
-| vertex_dynamic_state_nri | nothing new: a pipeline per vertex layout (NRI has no dynamic vertex input) |
-| dynamic_primitive_clipping_nri | depth clipping on or off (`Nri_PipelineDescSetDepthClip`, which sets NRI's depthClamp for the API) |
-| fragment_shader_barycentric_nri | `NriFeature.Barycentrics`; no D3D11 (shader model 6.1) |
-| push_descriptors_nri | root descriptors as Vulkan push descriptors (`Nri_GetRootDescriptorMaxNum`); its own shaders (shaders/push_descriptors_nri.hlsl): NRI has no combined image samplers, so the texture and sampler are in a descriptor set; Vulkan only |
+| dynamic_rendering_nri (#195) | glTF meshes as Donut loads them (`Nri_LoadGltfMesh`: core/vulkan_samples_gltf.h, shared with Donut's interop), DDS cubemaps and cube views (`Nri_CreateTextureCubeView`) |
+| vertex_dynamic_state_nri (#195) | nothing new: a pipeline per vertex layout (NRI has no dynamic vertex input) |
+| dynamic_primitive_clipping_nri (#195) | depth clipping on or off (`Nri_PipelineDescSetDepthClip`, which sets NRI's depthClamp for the API) |
+| fragment_shader_barycentric_nri (#195) | `NriFeature.Barycentrics`; no D3D11 (shader model 6.1) |
+| push_descriptors_nri (#195) | root descriptors as Vulkan push descriptors (`Nri_GetRootDescriptorMaxNum`); its own shaders (shaders/push_descriptors_nri.hlsl): NRI has no combined image samplers, so the texture and sampler are in a descriptor set; Vulkan only |
+| patch_control_points_nri | nothing new: tessellation with root constants |
+| instancing_nri | 32-bit signed integer vertex attributes (`NriFormat.R32_SINT`), Donut's ThirdPersonCamera in float32 |
+| logic_op_dynamic_state_nri | logic operations (`Nri_PipelineDescSetLogicOp`, `NriFeature.LogicOp`; a pipeline per operation, NRI having no dynamic one), RGBA8_UINT views of a UNORM texture on D3D; NRI patched for logic operations on D3D11 and D3D12 |
+| oit_linked_lists_nri | storage buffers and textures in pixel shaders (`NriBufferState.PixelStorage`, `NriTextureState.PixelStorage`), storage textures with data (`Nri_CreateStorageTextureWithData`), buffers without data (`Nri_CreateUninitializedStorageBuffer`: NRI patched for uploads without data); no D3D11 (see the notes) |
+| oit_depth_peeling_nri | depth textures shaders read (`Nri_CreateSampledDepthTexture`), moved between depth attachment and shader resource each pass |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -94,6 +99,9 @@ First batch: dynamic_rendering_nri, vertex_dynamic_state_nri, dynamic_primitive_
 fragment_shader_barycentric_nri and push_descriptors_nri. deferred_shading, threaded_rendering and
 environment_map draw with Donut's C++ render passes, and bindless_rendering reads Donut's scene
 buffers: they come last.
+
+Second batch: patch_control_points_nri, instancing_nri, logic_op_dynamic_state_nri,
+oit_linked_lists_nri and oit_depth_peeling_nri.
 
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
@@ -154,6 +162,23 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   on Vulkan neither clips nor clamps (VK_EXT_depth_clip_enable without depth clamp), so depths out
   of range are the driver's: dynamic_primitive_clipping's torus knot (`-object 1`) differs from
   Donut's Vulkan frame there, while the NRI port clamps on both APIs and matches Donut's D3D12 frame.
+- NRI's D3D11 and D3D12 backends set IndependentBlendEnable with logic operations, which both
+  reject, and its D3D12 backend sets the logic operation only with blending, which D3D12 doesn't
+  allow with it (so it was never used): `patches/NRI-logic-op.patch`.
+- NRI's upload helper maps an upload buffer it never created when no buffer upload has data (only
+  the state transitions): `patches/NRI-upload-buffers-without-data.patch`.
+- NRI's D3D11 backend makes every buffer of 4-byte structures a raw buffer (to allow raw views of
+  it), so a shader's `RWStructuredBuffer<uint>` can't be bound there: oit_linked_lists_nri skips
+  D3D11.
+- D3D12 rejects reading a render target or depth texture (NRI creates them not zeroed) before a
+  clear, discard or copy initializes it: a port that binds them before rendering into them clears
+  them once first (oit_depth_peeling_nri).
+- NRI's D3D11 barriers don't unbind shader resources: rendering into a texture the previous pass
+  read gets the runtime's "still bound on input" warnings (it unbinds it itself), as in
+  terrain_tessellation_nri and color_write_enable_nri.
+- instancing_nri on D3D11 differs from Donut's D3D11 frame in about 170 faint stars: the star field
+  hashes interpolated coordinates scaled by about 440 (frac), so the last bit of D3D11's attribute
+  interpolation decides some stars. Both are deterministic; D3D12 and Vulkan match exactly.
 
 ## Excluded
 
