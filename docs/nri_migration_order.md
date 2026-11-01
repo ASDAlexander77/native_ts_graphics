@@ -164,6 +164,20 @@ shaders only follow them. The shader's bindless arrays are set 1, bindings 0 and
 threaded_rendering and environment_map (Donut's forward shading pass, with shadows and tone mapping
 for environment_map).
 
+Third: threaded_rendering_nri, pixel-exact on D3D12 and Vulkan with threads and without (Space
+toggles, -noThreads starts without; D3D11 refused, as by the Donut example). Donut's forward shading
+pass's shaders draw Sponza into the six faces of a cube map (CubemapView's face views and reverse
+infinite projection, `Nri_FillDonutCubemapFaceViewConstants`), each face into its own command buffer,
+recorded by nri_interop's draw passes: a draw list made once in TypeScript, replayed in C++ on a
+worker thread per face (TypeScript can't run there). The scene import grew to Donut's full
+materials: every texture slot with its sRGB mode, snorm8 normals, tangents generated as
+GltfImporter generates the missing ones. Donut's cameras have a mirrored basis (right is dir x up):
+PlanarView::IsMirrored is true and ForwardShadingPass draws with counterclockwise front faces, which
+the forward shader's back-face normal flip makes visible everywhere. Donut sorts the draws by the
+materials' addresses (so its order varies run to run); the port draws by material number. NRI's D3D12
+UploadData crashes (in D3D12Core) moving a depth texture array's layout with the depth plane alone:
+all planes work. Still to come: environment_map.
+
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and

@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { perspProjD3DStyleReverse } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
+import { DonutSceneTextures } from "../../core/nri_donut_textures";
 
 namespace BindlessRenderingNri {
     // bindless_rendering, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -24,11 +25,6 @@ namespace BindlessRenderingNri {
     // struct InstanceConstants in bindless_rendering.hlsl: the instance and its geometry, as push
     // constants.
     const INSTANCE_CONSTANTS_SIZE = 2 * 4;
-
-    // Donut's blit (CommonRenderPasses::BlitTexture) of a texture level into the next, as its
-    // texture cache makes mip chains: struct BlitConstants { float2 sourceOrigin, sourceSize,
-    // targetOrigin, targetSize; float sharpenFactor; }.
-    const BLIT_CONSTANTS: f32[] = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0];
 
     // Constant buffer views' alignment.
     const CONSTANTS_ALIGNMENT = 256;
@@ -89,14 +85,6 @@ namespace BindlessRenderingNri {
         }
     }
 
-    // A blit of a texture's level into the next: the level below's attachment view, the set of the
-    // level above's view.
-    class MipBlit {
-        constructor(public texture: NriTextureHandle, public mip: int, public width: int, public height: int,
-            public attachment: NriDescriptorHandle, public sourceView: NriDescriptorHandle, public set: NriDescriptorSetHandle) {
-        }
-    }
-
     // Port of Donut-Samples' bindless_rendering.cpp (as examples/bindless_rendering.ts ports it) to
     // NRI: Sponza drawn without binding any vertex or index buffer. Each draw passes its instance and
     // geometry as push constants; the vertex shader reads the index and vertex data from the scene's
@@ -121,11 +109,8 @@ namespace BindlessRenderingNri {
         private scene: NriDonutSceneHandle | null = null;
         private sceneBuffers: NriBufferHandle[] = [];
         private sceneBufferViews: NriDescriptorHandle[] = [];
-        private textures: NriTextureHandle[] = [];
-        private textureViews: NriDescriptorHandle[] = [];
-        // The textures' mip chains, made in the first frame.
-        private mipBlits: MipBlit[] = [];
-        private mipsBlitted: boolean = false;
+        // (Their mip chains made in the first frame.)
+        private textures: DonutSceneTextures = new DonutSceneTextures();
 
         // The depth buffer (D24S8, the Donut example's).
         private depthTexture: NriTextureHandle | null = null;
@@ -133,11 +118,8 @@ namespace BindlessRenderingNri {
 
         private layout: NriPipelineLayoutHandle | null = null;
         private pipeline: NriPipelineHandle | null = null;
-        private blitLayout: NriPipelineLayoutHandle | null = null;
-        private blitPipeline: NriPipelineHandle | null = null;
-        // CommonRenderPasses' anisotropic wrap sampler (the materials'), linear clamp (the blits').
+        // CommonRenderPasses' anisotropic wrap sampler (the materials').
         private anisotropicWrap: NriDescriptorHandle | null = null;
-        private linearClamp: NriDescriptorHandle | null = null;
         private constantBuffer: NriBufferHandle | null = null;
         private descriptorPool: NriDescriptorPoolHandle | null = null;
         // The bindless arrays' sets: one on Vulkan (the shader's set 1, bindings 0 and 1), the
@@ -151,7 +133,6 @@ namespace BindlessRenderingNri {
         private projMatrix: f32[] = [];
         private viewConstants: f32[] = [];
         private instanceConstants: f32[] = [0.0, 0.0];
-        private blitConstants: f32[] = [];
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private readbackBuffer: NriBufferHandle | null = null;
@@ -162,9 +143,6 @@ namespace BindlessRenderingNri {
             for (let i = 0; i < 16; i++) {
                 this.viewMatrix.push(0.0);
                 this.projMatrix.push(0.0);
-            }
-            for (const value of BLIT_CONSTANTS) {
-                this.blitConstants.push(value);
             }
         }
 
@@ -233,7 +211,7 @@ namespace BindlessRenderingNri {
             this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D24_UNORM_S8_UINT);
 
             const vulkan = graphicsAPI == NriGraphicsAPI.VK;
-            if (!this.loadScene(device) || !this.createPipelines(device, vulkan)
+            if (!this.loadScene(device, vulkan) || !this.createPipelines(device, vulkan)
                 || !this.createDescriptorSets(device, queuedFrameNum, vulkan)) {
                 return 0;
             }
@@ -250,9 +228,9 @@ namespace BindlessRenderingNri {
             return 1;
         }
 
-        // The scene, as Donut's engine loads it: its buffers, its base color textures (sRGB, their
-        // mip chains below the first level blitted in the first frame).
-        loadScene(device: NriDeviceHandle) {
+        // The scene, as Donut's engine loads it: its buffers, its textures (their mip chains below the
+        // first level blitted in the first frame).
+        loadScene(device: NriDeviceHandle, vulkan: boolean) {
             const scene = Nri_LoadDonutScene(this.scenePath);
             this.scene = scene;
             if (!scene) {
@@ -273,24 +251,13 @@ namespace BindlessRenderingNri {
                 }
                 this.sceneBufferViews.push(view);
             }
-            const textureCount = Nri_GetDonutSceneTextureCount(scene);
-            for (let i = 0; i < textureCount; i++) {
-                const path = Nri_GetDonutSceneTexturePath(scene, i);
-                const texture = Nri_LoadImageTextureWithMipChain(device, this.queue, path, 1);
-                if (!texture) {
-                    console.log(`Cannot load the texture ${path}`);
-                    return false;
-                }
-                this.textures.push(texture);
-                this.textureViews.push(Nri_CreateTextureView(texture, NriFormat.RGBA8_SRGB));
-            }
-            return true;
+            return this.textures.load(device, this.queue, scene, vulkan ? "spirv" : "dxil");
         }
 
-        // The example's layout and pipeline (no culling of front faces: counterclockwise, back faces
-        // culled; depth tested greater or equal and written), and Donut's blit's (rect_vs, blit_ps).
+        // The example's layout and pipeline (front faces counterclockwise, back faces culled; depth
+        // tested greater or equal and written).
         createPipelines(device: NriDeviceHandle, vulkan: boolean) {
-            const textureCount = this.textures.length;
+            const textureCount = this.textures.textures.length;
             // Set 0: the view (b0), the instances, geometries and materials (t0 to t2), the
             // sampler (s0); the instance constants (b1) as root constants.
             const layoutDesc = Nri_CreatePipelineLayoutDesc();
@@ -311,15 +278,8 @@ namespace BindlessRenderingNri {
             Nri_DestroyPipelineLayoutDesc(layoutDesc);
             this.layout = layout;
 
-            const blitDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(blitDesc, 0, BLIT_CONSTANTS.length * 4, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRange(blitDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(blitDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            const blitLayout = Nri_CreatePipelineLayoutFromDesc(device, blitDesc);
-            Nri_DestroyPipelineLayoutDesc(blitDesc);
-            this.blitLayout = blitLayout;
-            if (!layout || !blitLayout) {
-                console.log("Cannot create the pipeline layouts");
+            if (!layout) {
+                console.log("Cannot create the pipeline layout");
                 return false;
             }
 
@@ -339,45 +299,24 @@ namespace BindlessRenderingNri {
             }
             Nri_DestroyPipelineDesc(desc);
 
-            const framework = `shaders/framework/${folder}`;
-            const blitPipelineDesc = Nri_CreatePipelineDesc();
-            loaded = Nri_PipelineDescAddShader(blitPipelineDesc, NriShaderStage.Vertex, `${framework}/rect_vs.bin`, "main") != 0;
-            if (loaded) {
-                loaded = Nri_PipelineDescAddShaderPermutation(blitPipelineDesc, NriShaderStage.Pixel, `${framework}/blit_ps.bin`, "main",
-                    "TEXTURE_ARRAY=0") != 0;
-            }
-            Nri_PipelineDescSetTopology(blitPipelineDesc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetColor(blitPipelineDesc, NriFormat.RGBA8_SRGB, NriColorWrite.RGBA);
-            if (loaded) {
-                this.blitPipeline = Nri_CreatePipelineFromDesc(device, blitLayout, blitPipelineDesc);
-            }
-            Nri_DestroyPipelineDesc(blitPipelineDesc);
-
-            if (!this.pipeline || !this.blitPipeline) {
+            if (!this.pipeline) {
                 console.log("Cannot load the bindless rendering shaders");
                 return false;
             }
             return true;
         }
 
-        // The samplers, the view's constants (a queued frame's copy each), the sets: a queued frame's,
+        // The sampler, the view's constants (a queued frame's copy each), the sets: a queued frame's,
         // the bindless arrays', a mip blit's each.
         createDescriptorSets(device: NriDeviceHandle, queuedFrameNum: int, vulkan: boolean) {
             const layout = this.layout;
-            const blitLayout = this.blitLayout;
-            if (!layout || !blitLayout) {
+            if (!layout) {
                 return false;
             }
             this.anisotropicWrap = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 16);
-            this.linearClamp = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
             const anisotropicWrap = this.anisotropicWrap;
-            const linearClamp = this.linearClamp;
-
-            let blitCount = 0;
-            for (const texture of this.textures) {
-                blitCount += Nri_GetTextureMipNum(texture) - 1;
-            }
-            const textureCount = this.textures.length;
+            const blitCount = this.textures.blitSetCount();
+            const textureCount = this.textures.textures.length;
 
             this.viewStride = Math.floor((Nri_GetDonutConstantsSize(0) + CONSTANTS_ALIGNMENT - 1) / CONSTANTS_ALIGNMENT) * CONSTANTS_ALIGNMENT;
             const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * this.viewStride, NriBufferUsage.ConstantBuffer);
@@ -386,7 +325,7 @@ namespace BindlessRenderingNri {
             const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, setNum, queuedFrameNum + blitCount, queuedFrameNum,
                 textureCount + blitCount, 0, 3 * queuedFrameNum + 2, 0, 0);
             this.descriptorPool = descriptorPool;
-            if (!constantBuffer || !descriptorPool || !anisotropicWrap || !linearClamp) {
+            if (!constantBuffer || !descriptorPool || !anisotropicWrap) {
                 console.log("Cannot create the descriptors");
                 return false;
             }
@@ -429,26 +368,11 @@ namespace BindlessRenderingNri {
                 textureRange = 0;
             }
             for (let i = 0; i < textureCount; i++) {
-                Nri_UpdateDescriptor(textureSet, textureRange, i, this.textureViews[i]);
+                Nri_UpdateDescriptor(textureSet, textureRange, i, this.textures.views[i]);
             }
-
-            // Donut's texture cache's mip chains: each level blitted from the one above.
-            for (const texture of this.textures) {
-                const mipNum = Nri_GetTextureMipNum(texture);
-                const width = Nri_GetTextureWidth(texture);
-                const height = Nri_GetTextureHeight(texture);
-                for (let mip = 1; mip < mipNum; mip++) {
-                    const set = Nri_AllocateDescriptorSet(descriptorPool, blitLayout, 0, 0);
-                    if (!set) {
-                        console.log("Cannot create the descriptor sets");
-                        return false;
-                    }
-                    const sourceView = Nri_CreateTextureMipView(texture, NriFormat.RGBA8_SRGB, mip - 1);
-                    Nri_UpdateDescriptor(set, 0, 0, sourceView);
-                    Nri_UpdateDescriptor(set, 1, 0, linearClamp);
-                    this.mipBlits.push(new MipBlit(texture, mip, Math.max(width >> mip, 1), Math.max(height >> mip, 1),
-                        Nri_CreateColorAttachmentMipView(texture, NriFormat.RGBA8_SRGB, mip), sourceView, set));
-                }
+            if (!this.textures.createBlits(descriptorPool)) {
+                console.log("Cannot create the descriptor sets");
+                return false;
             }
             return true;
         }
@@ -459,31 +383,6 @@ namespace BindlessRenderingNri {
             const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
             Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
             Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
-        }
-
-        // The textures' mip chains, once: Donut's blit of each level into the next.
-        recordMipBlits(commandBuffer: NriCommandBufferHandle) {
-            const blitLayout = this.blitLayout;
-            const blitPipeline = this.blitPipeline;
-            const descriptorPool = this.descriptorPool;
-            if (this.mipsBlitted || !blitLayout || !blitPipeline || !descriptorPool) {
-                return;
-            }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            for (const blit of this.mipBlits) {
-                Nri_CmdTextureMipBarrier(commandBuffer, blit.texture, blit.mip, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, blit.attachment);
-                Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, blit.width, blit.height);
-                Nri_CmdSetScissor(commandBuffer, 0, 0, blit.width, blit.height);
-                Nri_CmdSetPipelineLayout(commandBuffer, blitLayout);
-                Nri_CmdSetPipeline(commandBuffer, blitPipeline);
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.blitConstants[0]), BLIT_CONSTANTS.length * 4);
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, blit.set);
-                Nri_CmdDraw(commandBuffer, 4, 1, 0, 0);
-                Nri_CmdEndRendering(commandBuffer);
-                Nri_CmdTextureMipBarrier(commandBuffer, blit.texture, blit.mip, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
-            }
-            this.mipsBlitted = true;
         }
 
         // The camera (Donut's FirstPersonCamera, unless in test mode, where nothing moves it) and the
@@ -559,7 +458,11 @@ namespace BindlessRenderingNri {
 
                 // Record: the mip chains (the first frame), then the scene.
                 Nri_BeginCommandBuffer(commandBuffer);
-                this.recordMipBlits(commandBuffer);
+                const descriptorPool = this.descriptorPool;
+                if (descriptorPool) {
+                    Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                    this.textures.recordBlits(commandBuffer);
+                }
                 Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
                     Nri_CmdBeginRenderingWithDepth(commandBuffer, swapChainTexture.colorAttachment, depthAttachment);
@@ -628,16 +531,7 @@ namespace BindlessRenderingNri {
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                for (const blit of this.mipBlits) {
-                    Nri_DestroyDescriptor(blit.attachment);
-                    Nri_DestroyDescriptor(blit.sourceView);
-                }
-                for (const view of this.textureViews) {
-                    Nri_DestroyDescriptor(view);
-                }
-                for (const texture of this.textures) {
-                    Nri_DestroyTexture(texture);
-                }
+                this.textures.destroy();
                 for (const view of this.sceneBufferViews) {
                     Nri_DestroyDescriptor(view);
                 }
@@ -645,7 +539,6 @@ namespace BindlessRenderingNri {
                     Nri_DestroyBuffer(buffer);
                 }
                 this.destroyDescriptor(this.anisotropicWrap);
-                this.destroyDescriptor(this.linearClamp);
                 this.destroyDescriptor(this.depthAttachment);
                 const depthTexture = this.depthTexture;
                 if (depthTexture) {
@@ -654,9 +547,7 @@ namespace BindlessRenderingNri {
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.readbackBuffer);
                 this.destroyPipeline(this.pipeline);
-                this.destroyPipeline(this.blitPipeline);
                 this.destroyLayout(this.layout);
-                this.destroyLayout(this.blitLayout);
                 Nri_DestroyFence(this.frameFence);
                 Nri_DestroySwapChain(this.swapChain);
                 Nri_DestroyDevice(device);

@@ -16,6 +16,7 @@ using namespace donut::math;
 #include <donut/shaders/light_cb.h>
 #include <donut/shaders/material_cb.h>
 #include <donut/shaders/deferred_lighting_cb.h>
+#include <donut/shaders/forward_cb.h>
 
 #ifdef _WIN32
 #define NRI_INTEROP_API __declspec(dllexport)
@@ -85,7 +86,8 @@ namespace
 extern "C"
 {
     // The sizes (bytes, multiples of 16) of Donut's shader constant structs: 0 PlanarViewConstants,
-    // 1 MaterialConstants, 2 LightConstants, 3 DeferredLightingConstants; 0 for others.
+    // 1 MaterialConstants, 2 LightConstants, 3 DeferredLightingConstants,
+    // 4 ForwardShadingLightConstants; 0 for others.
     NRI_INTEROP_API int Nri_GetDonutConstantsSize(int which)
     {
         switch (which)
@@ -94,6 +96,7 @@ extern "C"
         case 1: return int(sizeof(MaterialConstants));
         case 2: return int(sizeof(LightConstants));
         case 3: return int(sizeof(DeferredLightingConstants));
+        case 4: return int(sizeof(ForwardShadingLightConstants));
         default: return 0;
         }
     }
@@ -204,6 +207,54 @@ extern "C"
             memcpy(constants.lights, lights, sizeof(LightConstants) * size_t(count));
         constants.numLights = uint(count);
         FillPlanarViewConstants(viewMatrix, projMatrix, width, height, constants.view);
+        memcpy(dst, &constants, sizeof(constants));
+    }
+
+    // The PlanarViewConstants of one face (0 to 5) of a Donut CubemapView: CubemapView::SetTransform
+    // with the camera's world-to-view matrix (16 floats, row-major, row-vector convention: an affine
+    // transform) and zNear, its reverse infinite projection (the default), each face's view the
+    // camera's turned by the face's matrix; SetArrayViewports' resolution x resolution viewport.
+    // ForwardShadingViewConstants is these alone.
+    NRI_INTEROP_API void Nri_FillDonutCubemapFaceViewConstants(const float* worldToView, double zNear, int resolution, int face, void* dst)
+    {
+        // View.cpp's g_CubemapViewMatrices.
+        static const float3x3 faceMatrices[6] = {
+            float3x3(0, 0, 1, 0, 1, 0, -1, 0, 0),
+            float3x3(0, 0, -1, 0, 1, 0, 1, 0, 0),
+            float3x3(1, 0, 0, 0, 0, 1, 0, -1, 0),
+            float3x3(1, 0, 0, 0, 0, -1, 0, 1, 0),
+            float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1),
+            float3x3(-1, 0, 0, 0, 1, 0, 0, 0, -1)
+        };
+        float4x4 viewHomogeneous;
+        memcpy(&viewHomogeneous, worldToView, sizeof(viewHomogeneous));
+        const affine3 viewMatrix = homogeneousToAffine(viewHomogeneous);
+        const float nearPlane = float(zNear);
+        const float4x4 faceProjMatrix = float4x4(
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 0, 1,
+            0, 0, nearPlane, 0);
+        const affine3 faceViewMatrix = viewMatrix * affine3(faceMatrices[face % 6], float3(0.f));
+        const float4x4 faceView = affineToHomogeneous(faceViewMatrix);
+
+        PlanarViewConstants constants = {};
+        FillPlanarViewConstants(reinterpret_cast<const float*>(&faceView), reinterpret_cast<const float*>(&faceProjMatrix), resolution,
+            resolution, constants);
+        memcpy(dst, &constants, sizeof(constants));
+    }
+
+    // The ForwardShadingLightConstants ForwardShadingPass::PrepareLights writes with no lights, light
+    // probes or shadow map, a top and bottom ambient color, into dst.
+    NRI_INTEROP_API void Nri_FillDonutForwardLightConstants(double topR, double topG, double topB, double bottomR, double bottomG,
+        double bottomB, void* dst)
+    {
+        ForwardShadingLightConstants constants = {};
+        const int2 shadowMapTextureSize = 0;
+        constants.shadowMapTextureSize = float2(shadowMapTextureSize);
+        constants.shadowMapTextureSizeInv = 1.f / constants.shadowMapTextureSize;
+        constants.ambientColorTop = float4(float3(float(topR), float(topG), float(topB)), 0.f);
+        constants.ambientColorBottom = float4(float3(float(bottomR), float(bottomG), float(bottomB)), 0.f);
         memcpy(dst, &constants, sizeof(constants));
     }
 }

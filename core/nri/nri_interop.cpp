@@ -536,6 +536,99 @@ namespace
     };
 }
 
+namespace
+{
+    // A draw pass's commands (Nri_CreateDrawList): what a pass records between its setup and its end.
+    struct DrawListCommand
+    {
+        enum Type { SetPipeline, SetDescriptorSet, SetRootConstants, DrawIndexed } type;
+        // SetPipeline: the pass's pipeline slot; SetDescriptorSet: the set index; SetRootConstants:
+        // the root constant index.
+        uint32_t index = 0;
+        nri::DescriptorSet* descriptorSet = nullptr;
+        std::vector<uint8_t> rootConstants;
+        nri::DrawIndexedDesc draw = {};
+    };
+
+    struct DrawList
+    {
+        std::vector<DrawListCommand> commands;
+    };
+
+    // A pass recording a draw list into a command buffer of its own (Nri_CreateDrawPass), on the
+    // calling thread or on a worker thread: rendering into a color and a depth attachment (both
+    // cleared), its viewport and scissor, its layout's sets, root descriptors and index buffer bound
+    // first; its pipelines by slot.
+    struct DrawPass
+    {
+        const DrawList* list = nullptr;
+        nri::Descriptor* colorAttachment = nullptr;
+        nri::Descriptor* depthAttachment = nullptr;
+        nri::Color32f clearColor = {};
+        float clearDepth = 0.0f;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        nri::PipelineLayout* layout = nullptr;
+        nri::DescriptorPool* descriptorPool = nullptr;
+        std::vector<std::pair<uint32_t, nri::DescriptorSet*>> descriptorSets;
+        std::vector<std::pair<uint32_t, nri::Descriptor*>> rootDescriptors;
+        nri::Buffer* indexBuffer = nullptr;
+        std::vector<nri::Pipeline*> pipelines;
+        // Nri_RecordDrawPassAsync's worker.
+        std::thread worker;
+    };
+
+    // Records the pass into the command buffer (beginning and ending it).
+    void RecordDrawPass(DrawPass* pass, nri::CommandBuffer* commandBuffer)
+    {
+        NRI.BeginCommandBuffer(*commandBuffer, nullptr);
+        nri::AttachmentsDesc attachments = {};
+        attachments.colors = &pass->colorAttachment;
+        attachments.colorNum = 1;
+        attachments.depthStencil = pass->depthAttachment;
+        NRI.CmdBeginRendering(*commandBuffer, attachments);
+        nri::ClearDesc clears[2] = {};
+        clears[0].planes = nri::PlaneBits::COLOR;
+        clears[0].value.color.f = pass->clearColor;
+        clears[1].planes = nri::PlaneBits::DEPTH;
+        clears[1].value.depthStencil.depth = pass->clearDepth;
+        NRI.CmdClearAttachments(*commandBuffer, clears, 2, nullptr, 0);
+        const nri::Viewport viewport = { 0.0f, 0.0f, (float)pass->width, (float)pass->height, 0.0f, 1.0f };
+        NRI.CmdSetViewports(*commandBuffer, &viewport, 1);
+        const nri::Rect scissor = { 0, 0, (nri::Dim_t)pass->width, (nri::Dim_t)pass->height };
+        NRI.CmdSetScissors(*commandBuffer, &scissor, 1);
+        NRI.CmdSetDescriptorPool(*commandBuffer, *pass->descriptorPool);
+        NRI.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::GRAPHICS, *pass->layout);
+        for (const auto& [setIndex, descriptorSet] : pass->descriptorSets)
+            NRI.CmdSetDescriptorSet(*commandBuffer, { setIndex, descriptorSet, nri::BindPoint::GRAPHICS });
+        for (const auto& [rootIndex, descriptor] : pass->rootDescriptors)
+            NRI.CmdSetRootDescriptor(*commandBuffer, { rootIndex, descriptor, 0, nri::BindPoint::GRAPHICS });
+        if (pass->indexBuffer)
+            NRI.CmdSetIndexBuffer(*commandBuffer, *pass->indexBuffer, 0, nri::IndexType::UINT32);
+        for (const DrawListCommand& command : pass->list->commands)
+        {
+            switch (command.type)
+            {
+            case DrawListCommand::SetPipeline:
+                NRI.CmdSetPipeline(*commandBuffer, *pass->pipelines[command.index]);
+                break;
+            case DrawListCommand::SetDescriptorSet:
+                NRI.CmdSetDescriptorSet(*commandBuffer, { command.index, command.descriptorSet, nri::BindPoint::GRAPHICS });
+                break;
+            case DrawListCommand::SetRootConstants:
+                NRI.CmdSetRootConstants(*commandBuffer, { command.index, command.rootConstants.data(),
+                    (uint32_t)command.rootConstants.size(), 0, nri::BindPoint::GRAPHICS });
+                break;
+            case DrawListCommand::DrawIndexed:
+                NRI.CmdDrawIndexed(*commandBuffer, command.draw);
+                break;
+            }
+        }
+        NRI.CmdEndRendering(*commandBuffer);
+        NRI.EndCommandBuffer(*commandBuffer);
+    }
+}
+
 // A path relative to this library's folder (where the shaders and media are) as a full path: for
 // nri_donut_scene.cpp's files.
 std::string NriLibraryPath(const char* path)
@@ -556,6 +649,9 @@ public:
     Callback<FrameFn> m_LatencySleep;
     Callback<FrameFn> m_RenderFrame;
     bool m_Test = false;
+    // The window's size unless the command line says otherwise (Nri_SetWindowSize).
+    int m_WindowWidth = 1280;
+    int m_WindowHeight = 720;
     // The example's own options (Nri_AddExampleOption), which NRIFramework's parser isn't given,
     // and the values each takes after it.
     std::vector<std::string> m_ExampleOptions;
@@ -643,6 +739,14 @@ extern "C"
         sample->m_RenderFrame = { method, thisVal };
     }
 
+    // The window's size (1280 x 720 unless this is called, before Nri_RunSample): an example's whose
+    // Donut version opens another size.
+    NRI_INTEROP_API void Nri_SetWindowSize(TsSample* sample, int width, int height)
+    {
+        sample->m_WindowWidth = width;
+        sample->m_WindowHeight = height;
+    }
+
     // Parses the command line, makes the window (calling the Initialize callback) and renders until
     // it's closed. Returns 0, or 1 if the command line or the initialization failed.
     // The command line is NRIFramework's (--api=D3D12, --debugAPI, --frameNum=<n>, --help, ...), with
@@ -651,7 +755,8 @@ extern "C"
     // in the Donut examples.
     NRI_INTEROP_API int Nri_RunSample(TsSample* sample, int argc, const char* const* argv, const char* title, int testFrames)
     {
-        std::vector<std::string> args = { argc > 0 ? argv[0] : "nri" , "--vsync", "--width=1280", "--height=720" };
+        std::vector<std::string> args = { argc > 0 ? argv[0] : "nri" , "--vsync", "--width=" + std::to_string(sample->m_WindowWidth),
+            "--height=" + std::to_string(sample->m_WindowHeight) };
         for (int i = 1; i < argc; i++)
         {
             std::string arg = argv[i];
@@ -1140,6 +1245,36 @@ extern "C"
         return view;
     }
 
+    // A color attachment view of one layer of a texture array (a cubemap's face).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateColorAttachmentLayerView(nri::Texture* texture, int format, int layer)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::COLOR_ATTACHMENT, (nri::Format)format, 0, 1, (nri::Dim_t)layer, 1 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // A depth attachment view of one layer of a depth texture array.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateDepthAttachmentLayerView(nri::Texture* texture, int format, int layer)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::DEPTH_STENCIL_ATTACHMENT, (nri::Format)format, 0, 1,
+            (nri::Dim_t)layer, 1 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // A view of one layer of a texture array, as an array of that layer alone (Texture2DArray), for
+    // shaders to read: what Donut binds to blit a slice.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureArrayLayerView(nri::Texture* texture, int format, int layer)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_2D_ARRAY, (nri::Format)format, 0,
+            nri::REMAINING, (nri::Dim_t)layer, 1 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
     NRI_INTEROP_API nri::Descriptor* Nri_CreateDepthAttachmentView(nri::Texture* texture, int format)
     {
         nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::DEPTH_STENCIL_ATTACHMENT, (nri::Format)format };
@@ -1158,7 +1293,7 @@ extern "C"
     // A width x height depth texture in device memory (read by shaders too if sampled), bound to it
     // and moved on the queue (which this waits for) to state; null on failure.
     nri::Texture* CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format, bool sampled, int state,
-        int sampleNum = 1)
+        int sampleNum = 1, int layerNum = 1)
     {
         nri::TextureDesc textureDesc = {};
         textureDesc.type = nri::TextureType::TEXTURE_2D;
@@ -1169,6 +1304,7 @@ extern "C"
         textureDesc.width = (nri::Dim_t)width;
         textureDesc.height = (nri::Dim_t)height;
         textureDesc.sampleNum = (nri::Sample_t)sampleNum;
+        textureDesc.layerNum = (nri::Dim_t)layerNum;
         nri::Texture* texture = nullptr;
         if (NRI.CreateTexture(*device, textureDesc, texture) != nri::Result::SUCCESS)
             return nullptr;
@@ -1190,9 +1326,10 @@ extern "C"
         nri::TextureUploadDesc upload = {};
         upload.texture = texture;
         upload.after = TextureState(state);
-        // (Both planes of a depth-stencil format: Vulkan moves their layouts together.)
+        // (Both planes of a depth-stencil format: Vulkan moves their layouts together. All of a texture
+        // array's: with the depth plane alone, NRI's D3D12 UploadData crashes in D3D12Core.)
         const bool stencil = (nri::Format)format == nri::Format::D24_UNORM_S8_UINT || (nri::Format)format == nri::Format::D32_SFLOAT_S8_UINT_X24;
-        upload.planes = stencil ? nri::PlaneBits::ALL : nri::PlaneBits::DEPTH;
+        upload.planes = stencil || layerNum > 1 ? nri::PlaneBits::ALL : nri::PlaneBits::DEPTH;
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {
             Nri_DestroyTexture(texture);
@@ -1206,6 +1343,14 @@ extern "C"
     NRI_INTEROP_API nri::Texture* Nri_CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
     {
         return CreateDepthTexture(device, queue, width, height, format, false, 4);
+    }
+
+    // As Nri_CreateDepthTexture, an array of layerNum layers (a cubemap's faces: views of each,
+    // Nri_CreateDepthAttachmentLayerView).
+    NRI_INTEROP_API nri::Texture* Nri_CreateLayeredDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int layerNum,
+        int format)
+    {
+        return CreateDepthTexture(device, queue, width, height, format, false, 4, 1, layerNum);
     }
 
     // As Nri_CreateDepthTexture, but shaders read it too (a view of it: Nri_CreateTextureView with
@@ -2236,6 +2381,148 @@ extern "C"
         desc.signalFenceNum = 1;
         std::lock_guard lock(g_QueueMutex);
         NRI.QueueSubmit(*queue, desc);
+    }
+
+    // Runs the command buffer after the work submitted before it, waiting for and signaling nothing.
+    NRI_INTEROP_API void Nri_QueueSubmitCommandBuffer(nri::Queue* queue, nri::CommandBuffer* commandBuffer)
+    {
+        nri::QueueSubmitDesc desc = {};
+        desc.commandBuffers = &commandBuffer;
+        desc.commandBufferNum = 1;
+        std::lock_guard lock(g_QueueMutex);
+        NRI.QueueSubmit(*queue, desc);
+    }
+
+    // --- Draw passes recorded on worker threads ------------------------------------------------
+    // A draw list is a pass's draws (pipelines by slot, sets, root constants, indexed draws), made
+    // once; a draw pass records it into a command buffer of its own, set up first (attachments
+    // cleared, viewport, layout, sets, root descriptors, index buffer), on the calling thread
+    // (Nri_RecordDrawPass) or on a worker thread (Nri_RecordDrawPassAsync, Nri_WaitDrawPass): C++
+    // doing what a TypeScript render callback can't do on threads its garbage collector doesn't
+    // know about.
+
+    NRI_INTEROP_API DrawList* Nri_CreateDrawList()
+    {
+        return new DrawList();
+    }
+
+    NRI_INTEROP_API void Nri_DestroyDrawList(DrawList* list)
+    {
+        delete list;
+    }
+
+    // The draws from here on use the pass's pipeline in slot (Nri_DrawPassSetPipeline).
+    NRI_INTEROP_API void Nri_DrawListSetPipeline(DrawList* list, int slot)
+    {
+        DrawListCommand command = { DrawListCommand::SetPipeline, (uint32_t)slot };
+        list->commands.push_back(std::move(command));
+    }
+
+    NRI_INTEROP_API void Nri_DrawListSetDescriptorSet(DrawList* list, int setIndex, nri::DescriptorSet* descriptorSet)
+    {
+        DrawListCommand command = { DrawListCommand::SetDescriptorSet, (uint32_t)setIndex, descriptorSet };
+        list->commands.push_back(std::move(command));
+    }
+
+    // size bytes of root constants (copied from data) at root constant index.
+    NRI_INTEROP_API void Nri_DrawListSetRootConstants(DrawList* list, int rootConstantIndex, const void* data, int size)
+    {
+        DrawListCommand command = { DrawListCommand::SetRootConstants, (uint32_t)rootConstantIndex };
+        command.rootConstants.assign((const uint8_t*)data, (const uint8_t*)data + size);
+        list->commands.push_back(std::move(command));
+    }
+
+    NRI_INTEROP_API void Nri_DrawListDrawIndexed(DrawList* list, int indexNum, int instanceNum, int baseIndex, int baseVertex,
+        int baseInstance)
+    {
+        DrawListCommand command = { DrawListCommand::DrawIndexed };
+        command.draw = { (uint32_t)indexNum, (uint32_t)instanceNum, (uint32_t)baseIndex, baseVertex, (uint32_t)baseInstance };
+        list->commands.push_back(std::move(command));
+    }
+
+    // A pass recording the list (which must outlive it) into width x height color and depth
+    // attachments, cleared to the color and depth given, with the layout (graphics) and the pool's
+    // sets.
+    NRI_INTEROP_API DrawPass* Nri_CreateDrawPass(DrawList* list, nri::Descriptor* colorAttachment, nri::Descriptor* depthAttachment,
+        int width, int height, nri::PipelineLayout* layout, nri::DescriptorPool* descriptorPool)
+    {
+        DrawPass* pass = new DrawPass();
+        pass->list = list;
+        pass->colorAttachment = colorAttachment;
+        pass->depthAttachment = depthAttachment;
+        pass->width = (uint32_t)width;
+        pass->height = (uint32_t)height;
+        pass->layout = layout;
+        pass->descriptorPool = descriptorPool;
+        return pass;
+    }
+
+    // Waits for its worker, if recording.
+    NRI_INTEROP_API void Nri_DestroyDrawPass(DrawPass* pass)
+    {
+        if (pass->worker.joinable())
+            pass->worker.join();
+        delete pass;
+    }
+
+    NRI_INTEROP_API void Nri_DrawPassSetClear(DrawPass* pass, float r, float g, float b, float a, float depth)
+    {
+        pass->clearColor = { r, g, b, a };
+        pass->clearDepth = depth;
+    }
+
+    // A set bound before the draws (until the list binds another at setIndex).
+    NRI_INTEROP_API void Nri_DrawPassSetDescriptorSet(DrawPass* pass, int setIndex, nri::DescriptorSet* descriptorSet)
+    {
+        for (auto& [index, set] : pass->descriptorSets)
+            if (index == (uint32_t)setIndex)
+            {
+                set = descriptorSet;
+                return;
+            }
+        pass->descriptorSets.push_back({ (uint32_t)setIndex, descriptorSet });
+    }
+
+    // A root descriptor (a view: Nri_CreateStructuredBufferView's...) bound before the draws.
+    NRI_INTEROP_API void Nri_DrawPassSetRootDescriptor(DrawPass* pass, int rootDescriptorIndex, nri::Descriptor* descriptor)
+    {
+        pass->rootDescriptors.push_back({ (uint32_t)rootDescriptorIndex, descriptor });
+    }
+
+    // The 32-bit index buffer the indexed draws read.
+    NRI_INTEROP_API void Nri_DrawPassSetIndexBuffer(DrawPass* pass, nri::Buffer* buffer)
+    {
+        pass->indexBuffer = buffer;
+    }
+
+    // The pipeline the list's slot means (changeable between recordings).
+    NRI_INTEROP_API void Nri_DrawPassSetPipeline(DrawPass* pass, int slot, nri::Pipeline* pipeline)
+    {
+        if ((size_t)slot >= pass->pipelines.size())
+            pass->pipelines.resize((size_t)slot + 1, nullptr);
+        pass->pipelines[(size_t)slot] = pipeline;
+    }
+
+    // Records the pass into the command buffer (beginning and ending it), on this thread.
+    NRI_INTEROP_API void Nri_RecordDrawPass(DrawPass* pass, nri::CommandBuffer* commandBuffer)
+    {
+        RecordDrawPass(pass, commandBuffer);
+    }
+
+    // As Nri_RecordDrawPass, on a worker thread of its own; Nri_WaitDrawPass before submitting the
+    // command buffer or changing the pass. Each pass recording at once needs its own command
+    // buffer and allocator.
+    NRI_INTEROP_API void Nri_RecordDrawPassAsync(DrawPass* pass, nri::CommandBuffer* commandBuffer)
+    {
+        if (pass->worker.joinable())
+            pass->worker.join();
+        pass->worker = std::thread(RecordDrawPass, pass, commandBuffer);
+    }
+
+    NRI_INTEROP_API void Nri_WaitDrawPass(DrawPass* pass)
+    {
+        if (pass->worker.joinable())
+            pass->worker.join();
     }
 
     // Makes the work submitted to the queue from now on wait until the fence reaches value (on the
@@ -4105,6 +4392,30 @@ extern "C"
         upload.subresources = &subresource;
         upload.texture = texture;
         upload.after = TextureState(state);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // As Nri_CreateRenderTargetTexture, an array of layerNum layers (a cubemap's faces: views of each,
+    // Nri_CreateColorAttachmentLayerView, Nri_CreateTextureArrayLayerView), in NriTextureState.ShaderResource.
+    NRI_INTEROP_API nri::Texture* Nri_CreateLayeredRenderTargetTexture(nri::Device* device, nri::Queue* queue, int width, int height,
+        int layerNum, int format)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, format);
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::COLOR_ATTACHMENT;
+        desc.layerNum = (nri::Dim_t)layerNum;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureUploadDesc upload = {};
+        upload.texture = texture;
+        upload.after = TextureState(5);
         upload.planes = nri::PlaneBits::ALL;
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {

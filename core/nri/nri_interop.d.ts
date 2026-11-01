@@ -41,6 +41,9 @@
 @cpp declare class NriGltfModelHandle { private readonly __nriGltfModel: index; }
 // A glTF scene as Donut's engine loads it, on the CPU (Nri_LoadDonutScene).
 @cpp declare class NriDonutSceneHandle { private readonly __nriDonutScene: index; }
+// A pass's draws (Nri_CreateDrawList), and a pass recording them (Nri_CreateDrawPass).
+@cpp declare class NriDrawListHandle { private readonly __nriDrawList: index; }
+@cpp declare class NriDrawPassHandle { private readonly __nriDrawPass: index; }
 // A pool of timestamp queries (Nri_CreateTimestampQueryPool).
 @cpp declare class NriQueryPoolHandle { private readonly __nriQueryPool: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
@@ -380,6 +383,8 @@ type NriFrameCallback = (frameIndex: int) => void;
 // --debugNRI), -test (renders testFrames frames, unfocused too, see Nri_IsTest), -testOutput <file>
 // (Nri_ReadBufferRGBA8 saves the frame it reads there, as PNG). V-sync is on.
 declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<string>, title: string, testFrames: int): int;
+// The window's size (1280 x 720 unless this is called, before Nri_RunSample).
+@nodrops declare function Nri_SetWindowSize(sample: NriSampleHandle, width: int, height: int): void;
 // An option of the example's (a flag it reads with Nri_GetArg), which Nri_RunSample leaves out of
 // NRIFramework's command line (which would reject it); before Nri_RunSample.
 @nodrops declare function Nri_AddExampleOption(sample: NriSampleHandle, option: string): void;
@@ -462,6 +467,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A color attachment view of one mip level of the texture.
 @nodrops declare function Nri_CreateColorAttachmentMipView(texture: NriTextureHandle, format: NriFormat, mip: int): NriDescriptorHandle;
 @nodrops declare function Nri_CreateDepthAttachmentView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+// Attachment views of one layer of a texture array (a cubemap's face).
+@nodrops declare function Nri_CreateColorAttachmentLayerView(texture: NriTextureHandle, format: NriFormat, layer: int): NriDescriptorHandle;
+@nodrops declare function Nri_CreateDepthAttachmentLayerView(texture: NriTextureHandle, format: NriFormat, layer: int): NriDescriptorHandle;
+// A view of one layer of a texture array, as an array of that layer alone (Texture2DArray), for
+// shaders to read: what Donut binds to blit a slice.
+@nodrops declare function Nri_CreateTextureArrayLayerView(texture: NriTextureHandle, format: NriFormat, layer: int): NriDescriptorHandle;
 @nodrops declare function Nri_DestroyDescriptor(descriptor: NriDescriptorHandle): void;
 // A width x height depth texture in device memory, moved on the queue (which this waits for) to
 // NriTextureState.DepthAttachment, where it stays (no barriers needed); null on failure.
@@ -471,6 +482,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // render into it, and back; null on failure.
 @nodrops declare function Nri_CreateSampledDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
     format: NriFormat): NriTextureHandle | null;
+// As Nri_CreateDepthTexture, an array of layerNum layers (a cubemap's faces).
+@nodrops declare function Nri_CreateLayeredDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    layerNum: int, format: NriFormat): NriTextureHandle | null;
 // As Nri_CreateDepthTexture, with sampleNum samples per pixel; null on failure.
 @nodrops declare function Nri_CreateMultisampledDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
     format: NriFormat, sampleNum: int): NriTextureHandle | null;
@@ -687,6 +701,47 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Runs the command buffer once waitSemaphore (a swap chain's acquire) is signaled; signals
 // signalSemaphore (the swap chain's release) when done.
 @nodrops declare function Nri_QueueSubmit(queue: NriQueueHandle, commandBuffer: NriCommandBufferHandle, waitSemaphore: NriFenceHandle, signalSemaphore: NriFenceHandle): void;
+// Runs the command buffer after the work submitted before it, waiting for and signaling nothing.
+@nodrops declare function Nri_QueueSubmitCommandBuffer(queue: NriQueueHandle, commandBuffer: NriCommandBufferHandle): void;
+
+// Draw passes recorded on worker threads: a draw list is a pass's draws (pipelines by slot, sets,
+// root constants, indexed draws), made once; a draw pass records it into a command buffer of its
+// own, set up first (attachments cleared, viewport, layout, sets, root descriptors, index buffer), on
+// the calling thread (Nri_RecordDrawPass) or on a worker thread (Nri_RecordDrawPassAsync, then
+// Nri_WaitDrawPass): C++ doing what TypeScript can't do on threads its garbage collector doesn't
+// know about.
+@nodrops declare function Nri_CreateDrawList(): NriDrawListHandle;
+@nodrops declare function Nri_DestroyDrawList(list: NriDrawListHandle): void;
+// The draws from here on use the pass's pipeline in slot (Nri_DrawPassSetPipeline).
+@nodrops declare function Nri_DrawListSetPipeline(list: NriDrawListHandle, slot: int): void;
+@nodrops declare function Nri_DrawListSetDescriptorSet(list: NriDrawListHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
+// size bytes of root constants (copied from data) at root constant index.
+@nodrops declare function Nri_DrawListSetRootConstants(list: NriDrawListHandle, rootConstantIndex: int, data: Ref<f32>, size: int): void;
+@nodrops declare function Nri_DrawListDrawIndexed(list: NriDrawListHandle, indexNum: int, instanceNum: int, baseIndex: int,
+    baseVertex: int, baseInstance: int): void;
+// A pass recording the list (which must outlive it) into width x height color and depth attachments,
+// with the layout (graphics) and the pool's sets. Destroying it waits for its worker.
+@nodrops declare function Nri_CreateDrawPass(list: NriDrawListHandle, colorAttachment: NriDescriptorHandle,
+    depthAttachment: NriDescriptorHandle, width: int, height: int, layout: NriPipelineLayoutHandle,
+    descriptorPool: NriDescriptorPoolHandle): NriDrawPassHandle;
+@nodrops declare function Nri_DestroyDrawPass(pass: NriDrawPassHandle): void;
+// The attachments' clear values (0 unless this says otherwise).
+@nodrops declare function Nri_DrawPassSetClear(pass: NriDrawPassHandle, r: float, g: float, b: float, a: float, depth: float): void;
+// A set bound before the draws (or replacing the one at setIndex).
+@nodrops declare function Nri_DrawPassSetDescriptorSet(pass: NriDrawPassHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
+// A root descriptor (a view) bound before the draws.
+@nodrops declare function Nri_DrawPassSetRootDescriptor(pass: NriDrawPassHandle, rootDescriptorIndex: int, descriptor: NriDescriptorHandle): void;
+// The 32-bit index buffer the indexed draws read.
+@nodrops declare function Nri_DrawPassSetIndexBuffer(pass: NriDrawPassHandle, buffer: NriBufferHandle): void;
+// The pipeline the list's slot means (changeable between recordings).
+@nodrops declare function Nri_DrawPassSetPipeline(pass: NriDrawPassHandle, slot: int, pipeline: NriPipelineHandle): void;
+// Records the pass into the command buffer (beginning and ending it), on this thread.
+@nodrops declare function Nri_RecordDrawPass(pass: NriDrawPassHandle, commandBuffer: NriCommandBufferHandle): void;
+// As Nri_RecordDrawPass, on a worker thread; Nri_WaitDrawPass before submitting the command buffer or
+// changing the pass. Each pass recording at once needs its own command buffer and allocator.
+@nodrops declare function Nri_RecordDrawPassAsync(pass: NriDrawPassHandle, commandBuffer: NriCommandBufferHandle): void;
+@nodrops declare function Nri_WaitDrawPass(pass: NriDrawPassHandle): void;
+
 // Makes the work submitted to the queue from now on wait until the fence reaches value (on the GPU).
 @nodrops declare function Nri_QueueWait(queue: NriQueueHandle, fence: NriFenceHandle, value: int): void;
 // Runs the command buffer once waitFence (if not null) reaches waitValue (e.g. another queue's
@@ -870,6 +925,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // failure.
 @nodrops declare function Nri_CreateRenderTargetTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
     format: NriFormat): NriTextureHandle | null;
+// As Nri_CreateRenderTargetTexture, an array of layerNum layers (a cubemap's faces), in
+// NriTextureState.ShaderResource.
+@nodrops declare function Nri_CreateLayeredRenderTargetTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    layerNum: int, format: NriFormat): NriTextureHandle | null;
 // The bytes a width x height texture (one mip) takes placed in memory, rounded up to its alignment
 // (D3D12: 4 KB for a small one); 0 on failure.
 @nodrops declare function Nri_GetPlacedTextureSize(device: NriDeviceHandle, width: int, height: int, format: NriFormat): number;
@@ -1013,7 +1072,7 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // that draw with Donut's passes and shaders: the structs of donut/shaders/*_cb.h, filled as Donut's
 // engine fills them. Matrices: 16 floats, row-major, row-vector convention (donut::math's).
 // The size in bytes of 0 PlanarViewConstants, 1 MaterialConstants, 2 LightConstants,
-// 3 DeferredLightingConstants (multiples of 16); 0 for others.
+// 3 DeferredLightingConstants, 4 ForwardShadingLightConstants (multiples of 16); 0 for others.
 @nodrops declare function Nri_GetDonutConstantsSize(which: int): int;
 // A planar view's PlanarViewConstants into dst, as Donut's PlanarView fills them for a viewport of
 // width x height pixels.
@@ -1038,21 +1097,50 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // failure. Path relative to the executable's folder.
 @nodrops declare function Nri_LoadDonutScene(path: string): NriDonutSceneHandle | null;
 @nodrops declare function Nri_DestroyDonutScene(scene: NriDonutSceneHandle): void;
-// One of the scene's buffers, which: 0 the vertices (all the positions, then all the texture
-// coordinates), 1 the indices (both ByteAddressBuffer: 4-byte structures; bindless buffers 0 and 1),
-// 2 the InstanceData, 3 the GeometryData, 4 the MaterialConstants (StructuredBuffer), uploaded on
-// the queue; null on failure.
+// One of the scene's buffers, which: 0 the vertices (each stream after the other:
+// Nri_GetDonutSceneStreamOffset), 1 the indices (each geometry's from its first vertex; both
+// ByteAddressBuffer: 4-byte structures; bindless buffers 0 and 1), 2 the InstanceData, 3 the
+// GeometryData, 4 the MaterialConstants (StructuredBuffer), uploaded on the queue; 5 the indices as an
+// index buffer (32-bit); null on failure.
 @nodrops declare function Nri_CreateDonutSceneBuffer(device: NriDeviceHandle, queue: NriQueueHandle, scene: NriDonutSceneHandle,
     which: int): NriBufferHandle | null;
-// The base color textures the materials number (their files relative to the executable's folder,
-// sRGB).
+// The materials' MaterialConstants in a host constant buffer, material m's at m * 256 (a constant
+// buffer view each); null on failure.
+@nodrops declare function Nri_CreateDonutSceneMaterialBuffer(device: NriDeviceHandle, scene: NriDonutSceneHandle): NriBufferHandle | null;
+// The materials: their count, each's texture in a slot (0 base or diffuse, 1 metal-rough or
+// specular, 2 normal, 3 emissive, 4 occlusion, 5 transmission, 6 opacity: the passes' t0 to t6; -1
+// for none), its domain (0 opaque, 1 alpha-tested, 2 alpha-blended, 3 to 5 transmissive) and whether
+// it's double-sided (drawn without culling).
+@nodrops declare function Nri_GetDonutSceneMaterialCount(scene: NriDonutSceneHandle): int;
+@nodrops declare function Nri_GetDonutSceneMaterialTexture(scene: NriDonutSceneHandle, material: int, slot: int): int;
+@nodrops declare function Nri_GetDonutSceneMaterialDomain(scene: NriDonutSceneHandle, material: int): int;
+@nodrops declare function Nri_GetDonutSceneMaterialDoubleSided(scene: NriDonutSceneHandle, material: int): int;
+// The textures the materials number (their files relative to the executable's folder; 1 if sRGB).
 @nodrops declare function Nri_GetDonutSceneTextureCount(scene: NriDonutSceneHandle): int;
 @nodrops declare function Nri_GetDonutSceneTexturePath(scene: NriDonutSceneHandle, texture: int): string;
+@nodrops declare function Nri_GetDonutSceneTextureSrgb(scene: NriDonutSceneHandle, texture: int): int;
+// The byte offset of a vertex stream in the vertex buffer: 0 positions (float3), 1 texture
+// coordinates (float2), 2 normals, 3 tangents (snorm8 each).
+@nodrops declare function Nri_GetDonutSceneStreamOffset(scene: NriDonutSceneHandle, stream: int): int;
 // The mesh instances (each's InstanceData index its number), their geometries, each geometry's
 // index count: a draw each.
 @nodrops declare function Nri_GetDonutSceneInstanceCount(scene: NriDonutSceneHandle): int;
 @nodrops declare function Nri_GetDonutSceneInstanceGeometryCount(scene: NriDonutSceneHandle, instance: int): int;
 @nodrops declare function Nri_GetDonutSceneGeometryIndexCount(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
+// A geometry's first index in the index buffer, its first vertex in the streams (its indices count
+// from it) and its material.
+@nodrops declare function Nri_GetDonutSceneGeometryFirstIndex(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
+@nodrops declare function Nri_GetDonutSceneGeometryFirstVertex(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
+@nodrops declare function Nri_GetDonutSceneGeometryMaterial(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
+// The PlanarViewConstants (ForwardShadingViewConstants) of one face (0 to 5) of a Donut CubemapView
+// around the camera (its world-to-view matrix, 16 floats) with its reverse infinite projection from
+// zNear, a resolution x resolution face, into dst.
+@nodrops declare function Nri_FillDonutCubemapFaceViewConstants(worldToView: Ref<f32>, zNear: number, resolution: int, face: int,
+    dst: Ref<f32>): void;
+// The ForwardShadingLightConstants ForwardShadingPass::PrepareLights writes with no lights, light
+// probes or shadow map, a top and bottom ambient color, into dst.
+@nodrops declare function Nri_FillDonutForwardLightConstants(topR: number, topG: number, topB: number, bottomR: number, bottomG: number,
+    bottomB: number, dst: Ref<f32>): void;
 
 // ImGui (NRIFramework's, drawn by NRI's Imgui extension). A frame: Nri_ImguiNewFrame, the widgets,
 // Nri_ImguiRender (before recording); Nri_CmdCopyImguiData outside a render pass, Nri_CmdDrawImgui
