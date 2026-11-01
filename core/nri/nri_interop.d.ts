@@ -31,6 +31,8 @@
 // Allocated from a pool, destroyed with it.
 @cpp declare class NriDescriptorSetHandle { private readonly __nriDescriptorSet: index; }
 @cpp declare class NriMemoryHandle { private readonly __nriMemory: index; }
+// A std::default_random_engine (Nri_CreateRandomEngine).
+@cpp declare class NriRandomEngineHandle { private readonly __nriRandomEngine: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -148,7 +150,27 @@ enum NriKey {
 
 // What Nri_CreateUploadedBuffer's buffer is for.
 enum NriBufferUsage {
-    VertexBuffer = 0
+    VertexBuffer = 0,
+    IndexBuffer = 1
+}
+
+// nri::IndexType (Nri_CmdSetIndexBuffer).
+enum NriIndexType {
+    UInt16 = 0,
+    UInt32 = 1
+}
+
+// nri::DescriptorRangeBits: a descriptor range's flags (bits).
+enum NriRangeFlags {
+    None = 0,
+    // its descriptors needn't all be valid
+    PartiallyBound = 1,
+    // an array
+    Array = 2,
+    // an array as long as Nri_AllocateDescriptorSet's variableDescriptorNum (descriptorNum at most)
+    VariableSizedArray = 4,
+    // updated after the set is bound, before the submit (its pool: updateAfterSet)
+    UpdateAfterSet = 8
 }
 
 type NriInitializeCallback = (graphicsAPI: NriGraphicsAPI) => int;
@@ -182,6 +204,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // 1 if the key was pressed since the last call (for this key), else 0.
 @nodrops declare function Nri_IsKeyToggled(sample: NriSampleHandle, key: NriKey): int;
 @nodrops declare function Nri_SetWindowTitle(sample: NriSampleHandle, title: string): void;
+// The last frame's duration, in seconds.
+@nodrops declare function Nri_GetFrameTime(sample: NriSampleHandle): number;
 // The frames in flight (2 with v-sync).
 @nodrops declare function Nri_GetQueuedFrameNum(sample: NriSampleHandle): int;
 
@@ -241,6 +265,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A buffer of byteSize bytes in device memory, filled with data's byteSize bytes (Ref of an array
 // element) on the queue, which this waits for; null on failure.
 @nodrops declare function Nri_CreateUploadedBuffer(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<f32>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
+// Nri_CreateUploadedBuffer from an int array (index data).
+@nodrops declare function Nri_CreateUploadedBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
 // The pixels of an 8-bit RGBA or BGRA texture read back into the buffer (rowPitch bytes a row),
 // one int each with red in the low byte (0xAABBGGRR; BGRA swapped), row by row into dst
 // (pixelCount ints; Ref of an int array element). 0 if the buffer can't be mapped or the format
@@ -280,6 +306,14 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdSetPipelineLayout(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle): void;
 @nodrops declare function Nri_CmdSetPipeline(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle): void;
 @nodrops declare function Nri_CmdDraw(commandBuffer: NriCommandBufferHandle, vertexNum: int, instanceNum: int, baseVertex: int, baseInstance: int): void;
+// Binds an index buffer from offset bytes in.
+@nodrops declare function Nri_CmdSetIndexBuffer(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, offset: int, indexType: NriIndexType): void;
+@nodrops declare function Nri_CmdDrawIndexed(commandBuffer: NriCommandBufferHandle, indexNum: int, instanceNum: int, baseIndex: int, baseVertex: int, baseInstance: int): void;
+// Sets the graphics layout's root constants rootConstantIndex (in the order the layout added them)
+// to size bytes of data (Ref of an f32 array element).
+@nodrops declare function Nri_CmdSetRootConstants(commandBuffer: NriCommandBufferHandle, rootConstantIndex: int, data: Ref<f32>, size: int): void;
+// Stores value's bits in a float slot: an int field of root constants kept in an f32 array.
+@nodrops declare function Nri_StoreInt32(dst: Ref<f32>, value: int): void;
 // Dispatches x * y * z mesh shader workgroups, or task shader workgroups with a task shader
 // (NriFeature.MeshShader).
 @nodrops declare function Nri_CmdDrawMeshTasks(commandBuffer: NriCommandBufferHandle, x: int, y: int, z: int): void;
@@ -337,24 +371,35 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreatePipelineLayoutDesc(): NriPipelineLayoutDescHandle;
 @nodrops declare function Nri_DestroyPipelineLayoutDesc(desc: NriPipelineLayoutDescHandle): void;
 // A range of descriptorNum descriptors of type from register baseRegister (t, s or b by type) in set
-// setIndex (register space setIndex), seen by stages (NriStage).
+// setIndex (register space setIndex unless Nri_PipelineLayoutDescSetRegisterSpace says otherwise),
+// seen by stages (NriStage); flags: NriRangeFlags bits.
 @nodrops declare function Nri_PipelineLayoutDescAddRange(desc: NriPipelineLayoutDescHandle, setIndex: int, baseRegister: int,
-    descriptorNum: int, type: NriDescriptorType, stages: NriStage): void;
+    descriptorNum: int, type: NriDescriptorType, stages: NriStage, flags: int): void;
+// The register space of set setIndex (on Vulkan, its set number).
+@nodrops declare function Nri_PipelineLayoutDescSetRegisterSpace(desc: NriPipelineLayoutDescHandle, setIndex: int, registerSpace: int): void;
+// size bytes of root constants (push constants) at register b<registerIndex>, space 0, for stages.
+@nodrops declare function Nri_PipelineLayoutDescAddRootConstants(desc: NriPipelineLayoutDescHandle, registerIndex: int, size: int, stages: NriStage): void;
+// An immutable (static) sampler at register s<registerIndex>, space 0: filter for minification and
+// magnification, mipFilter for mips, addressMode on all axes, for stages.
+@nodrops declare function Nri_PipelineLayoutDescAddRootSampler(desc: NriPipelineLayoutDescHandle, registerIndex: int, filter: NriFilter,
+    mipFilter: NriFilter, addressMode: NriAddressMode, stages: NriStage): void;
 // The layout the desc describes, for the graphics stages; null on failure.
 @nodrops declare function Nri_CreatePipelineLayoutFromDesc(device: NriDeviceHandle, desc: NriPipelineLayoutDescHandle): NriPipelineLayoutHandle | null;
 
 // Descriptor pools and sets
 // A pool of setMaxNum descriptor sets holding at most samplerMaxNum samplers, constantBufferMaxNum
-// constant buffers and textureMaxNum textures in all; null on failure.
+// constant buffers and textureMaxNum textures in all; updateAfterSet (1) for sets with ranges updated
+// after binding (NriRangeFlags.UpdateAfterSet). Null on failure.
 @nodrops declare function Nri_CreateDescriptorPool(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
-    constantBufferMaxNum: int, textureMaxNum: int): NriDescriptorPoolHandle | null;
+    constantBufferMaxNum: int, textureMaxNum: int, updateAfterSet: int): NriDescriptorPoolHandle | null;
 // Destroys the pool and the sets allocated from it.
 @nodrops declare function Nri_DestroyDescriptorPool(descriptorPool: NriDescriptorPoolHandle): void;
 // Forgets the sets allocated from the pool, which may allocate as many again.
 @nodrops declare function Nri_ResetDescriptorPool(descriptorPool: NriDescriptorPoolHandle): void;
-// A descriptor set for the layout's set setIndex, from the pool; null on failure.
+// A descriptor set for the layout's set setIndex, from the pool, its variable-sized array (if any)
+// variableDescriptorNum long; null on failure.
 @nodrops declare function Nri_AllocateDescriptorSet(descriptorPool: NriDescriptorPoolHandle, pipelineLayout: NriPipelineLayoutHandle,
-    setIndex: int): NriDescriptorSetHandle | null;
+    setIndex: int, variableDescriptorNum: int): NriDescriptorSetHandle | null;
 // Puts the descriptor in the set's range rangeIndex (in the order the layout added them), at element.
 @nodrops declare function Nri_UpdateDescriptor(descriptorSet: NriDescriptorSetHandle, rangeIndex: int, element: int, descriptor: NriDescriptorHandle): void;
 // A sampler: filter for minification, magnification and mips, addressMode on all axes; null on failure.
@@ -380,3 +425,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_UploadTexture(queue: NriQueueHandle, texture: NriTextureHandle, data: Ref<int>, rowPitch: int): int;
 // The application's device memory in use, in bytes.
 @nodrops declare function Nri_GetDeviceMemoryUsage(device: NriDeviceHandle): number;
+
+// Random numbers, as the samples' C++ draws them: a std::default_random_engine seeded with seed.
+@nodrops declare function Nri_CreateRandomEngine(seed: int): NriRandomEngineHandle;
+@nodrops declare function Nri_DestroyRandomEngine(randomEngine: NriRandomEngineHandle): void;
+// The engine's next number from std::uniform_real_distribution<float>(a, b).
+@nodrops declare function Nri_RandomUniformFloat(randomEngine: NriRandomEngineHandle, a: number, b: number): number;

@@ -19,30 +19,30 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | mesh_shading_nri (#177) | `Nri_IsFeatureSupported` (`NriFeature.MeshShader`), `Nri_CreateMeshPipeline`, `Nri_CmdDrawMeshTasks` |
 | meshlets_nri (#178) | `Nri_CreateTaskMeshPipeline` (task shader), `Nri_GetSrgbFormat` (sRGB color attachment views of the UNORM swap chain, as Donut's sRGB back buffers: pixels match the Donut examples) |
 | depth_bounds_test_nri (#180) | pipeline descs (`Nri_CreatePipelineDesc`, shaders, vertex attributes, color write mask, depth test and bounds), `Nri_CreateUploadedBuffer` (vertex buffer), `Nri_CreateDepthTexture` (moved to its layout once, at creation), `Nri_CmdBeginRenderingWithDepth`, `Nri_CmdClearDepth`, `Nri_CmdSetVertexBuffer`, `Nri_CmdSetDepthBounds`, `NriFeature.DepthBoundsTest`, the `NriFormat` / `NriCompareOp` enums |
-| small_resources_nri | pipeline layout descs (descriptor set ranges), descriptor pools and sets, samplers, texture views, committed and placed textures (`Nri_GetPlacedTextureSize`, `Nri_AllocateTextureMemory`), `Nri_UploadTexture`, triangle strips, vertex buffer offsets, `Nri_IsKeyToggled`, `Nri_SetWindowTitle`, `Nri_GetDeviceMemoryUsage`, the example's own options (`Nri_AddExampleOption`, `Nri_GetArg`), extra module sources in `add_tslang_nri_example`; Vulkan binding offsets set to Donut's register shifts |
+| small_resources_nri (#181) | pipeline layout descs (descriptor set ranges), descriptor pools and sets, samplers, texture views, committed and placed textures (`Nri_GetPlacedTextureSize`, `Nri_AllocateTextureMemory`), `Nri_UploadTexture`, triangle strips, vertex buffer offsets, `Nri_IsKeyToggled`, `Nri_SetWindowTitle`, `Nri_GetDeviceMemoryUsage`, the example's own options (`Nri_AddExampleOption`, `Nri_GetArg`), extra module sources in `add_tslang_nri_example`; Vulkan binding offsets set to Donut's register shifts |
+| descriptor_indexing_nri | root constants and root (immutable) samplers, descriptor range flags (bindless variable-sized arrays updated after binding), set register spaces, update-after-set pools, variable-sized set allocation, index buffers and indexed draws, `Nri_StoreInt32`, `Nri_GetFrameTime`, `std::default_random_engine` numbers (`Nri_CreateRandomEngine`) |
 
 ## Tier 1: constant buffers and more descriptor types
 
-Descriptor sets, samplers and textures are in (small_resources_nri). Still to add: root
-constants (push constants), constant buffers, structured buffers, offscreen color targets and a
-blit or copy to the swap chain.
+Descriptor sets, samplers, textures, root constants and bindless arrays are in
+(descriptor_indexing_nri). Still to add: constant buffers, structured buffers, offscreen color
+targets and a blit or copy to the swap chain.
 
-1. **descriptor_indexing**: descriptor ranges with partially bound / variable-size arrays.
-2. **dynamic_uniform_buffers**: constant buffer slices, with a camera matrix computed in TypeScript.
-3. **bundles**: draws the same scene without D3D12 bundles, since NRI has none. Port only the scene, or skip it.
-4. **dynamic_indexing**
-5. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
+1. **dynamic_uniform_buffers**: constant buffer slices, with a camera matrix computed in TypeScript.
+2. **bundles**: draws the same scene without D3D12 bundles, since NRI has none. Port only the scene, or skip it.
+3. **dynamic_indexing**
+4. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
 
 ## Tier 2: compute and queues
 
 Adds compute pipelines, `CmdDispatch`, storage buffers and textures, compute/copy queues and
 timeline fences.
 
-6. **async_compute**
-7. **timeline_semaphore**
-8. **compute_nbody**
-9. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
-10. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
+5. **async_compute**
+6. **timeline_semaphore**
+7. **compute_nbody**
+8. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
+9. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
 
 ## Tier 3: ImGui (NRIImgui.h)
 
@@ -70,6 +70,8 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   Undefined each frame.
 - The examples reuse Donut's SPIR-V, compiled with register shifts t 0, s 128, b 256, u 384:
   `Nri_CreateDevice` sets NRI's `vkBindingOffsets` to those (NRIFramework's defaults differ).
+- NRI's D3D12 descriptor pool gives every set its ranges' whole descriptorNum, ignoring the
+  variable-sized array's length, and doesn't check the heap's bounds: size pools for whole arrays.
 - An animation that the original sample steps in OnUpdate counts the frame before it's drawn
   (frame number = frameIndex + 1), as Donut's test mode does.
 

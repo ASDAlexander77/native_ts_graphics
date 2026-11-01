@@ -2647,6 +2647,9 @@ donut_compile_shaders(
 )
 add_tslang_example(descriptor_indexing)
 add_tslang_example_test(descriptor_indexing)
+# descriptor_indexing with NRI and NRIFramework instead of Donut: descriptor_indexing's shaders.
+add_tslang_nri_example(descriptor_indexing_nri SHADERS descriptor_indexing_shaders)
+add_tslang_example_test(descriptor_indexing_nri)
 
 # Port of Vulkan-Samples' timeline_semaphore: Conway's Game of Life stepped on the compute queue,
 # drawn by the graphics queue once the compute work is done (the sample orders its two queues'
@@ -4264,7 +4267,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)

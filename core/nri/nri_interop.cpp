@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <random>
 #include <cstring>
 #include <unordered_map>
 
@@ -77,6 +78,9 @@ namespace
     static_assert((int)nri::Filter::NEAREST == 0 && (int)nri::Filter::LINEAR == 1);
     static_assert((int)nri::AddressMode::REPEAT == 0 && (int)nri::AddressMode::CLAMP_TO_BORDER == 3);
     static_assert((int)Key::Space == 32);
+    static_assert((int)nri::DescriptorRangeBits::PARTIALLY_BOUND == 1 && (int)nri::DescriptorRangeBits::ARRAY == 2
+        && (int)nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY == 4 && (int)nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET == 8);
+    static_assert((int)nri::IndexType::UINT16 == 0 && (int)nri::IndexType::UINT32 == 1);
 
     // What Nri_CreatePipelineFromDesc makes a graphics pipeline from: the shaders' bytecode and the
     // states the Nri_PipelineDesc* functions set.
@@ -104,7 +108,15 @@ namespace
     // with its ranges, in the order Nri_PipelineLayoutDescAddRange added them.
     struct PipelineLayoutDesc
     {
-        std::vector<std::vector<nri::DescriptorRangeDesc>> sets;
+        struct Set
+        {
+            uint32_t registerSpace = 0;
+            std::vector<nri::DescriptorRangeDesc> ranges;
+        };
+        std::vector<Set> sets;
+        // In register space 0 (NRI's rootRegisterSpace; on Vulkan, set 0).
+        std::vector<nri::RootConstantDesc> rootConstants;
+        std::vector<nri::RootSamplerDesc> rootSamplers;
     };
 
     // Where the shaders are instead of next to this library, if Nri_SetDataDirectory was called.
@@ -276,6 +288,7 @@ public:
     bool DebugNRI() const { return m_DebugNRI; }
     bool Vsync() const { return m_Vsync; }
     GLFWwindow* Window() const { return m_Window; }
+    float FrameTime() const { return m_Timer.GetFrameTime(); }
 };
 
 extern "C"
@@ -413,6 +426,12 @@ extern "C"
     NRI_INTEROP_API int Nri_IsKeyToggled(TsSample* sample, int key)
     {
         return key >= 0 && key < (int)Key::NUM && sample->IsKeyToggled((Key)key) ? 1 : 0;
+    }
+
+    // The last frame's duration, in seconds (NRIFramework's timer).
+    NRI_INTEROP_API double Nri_GetFrameTime(TsSample* sample)
+    {
+        return sample->FrameTime() / 1000.0;
     }
 
     NRI_INTEROP_API void Nri_SetWindowTitle(TsSample* sample, const char* title)
@@ -730,7 +749,7 @@ extern "C"
 
     // A buffer of byteSize bytes in device memory, filled with data (byteSize bytes) on the queue
     // (waiting until it's done) and left in the state of usage, an NriBufferUsage: 0, a vertex
-    // buffer. Null on failure.
+    // buffer; 1, an index buffer. Null on failure.
     NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedBuffer(nri::Device* device, nri::Queue* queue, const void* data, int byteSize, int usage)
     {
         nri::BufferDesc bufferDesc = {};
@@ -741,6 +760,10 @@ extern "C"
         case 0:
             bufferDesc.usage = nri::BufferUsageBits::VERTEX_BUFFER;
             after = { nri::AccessBits::VERTEX_BUFFER, nri::StageBits::VERTEX_SHADER };
+            break;
+        case 1:
+            bufferDesc.usage = nri::BufferUsageBits::INDEX_BUFFER;
+            after = { nri::AccessBits::INDEX_BUFFER, nri::StageBits::INDEX_INPUT };
             break;
         default:
             return nullptr;
@@ -768,6 +791,12 @@ extern "C"
             return nullptr;
         }
         return buffer;
+    }
+
+    // Nri_CreateUploadedBuffer from ints (index data).
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedBufferFromInts(nri::Device* device, nri::Queue* queue, const int* data, int byteSize, int usage)
+    {
+        return Nri_CreateUploadedBuffer(device, queue, data, byteSize, usage);
     }
 
     // Destroys the buffer and frees its memory.
@@ -960,6 +989,34 @@ extern "C"
     NRI_INTEROP_API void Nri_CmdDraw(nri::CommandBuffer* commandBuffer, int vertexNum, int instanceNum, int baseVertex, int baseInstance)
     {
         NRI.CmdDraw(*commandBuffer, { (uint32_t)vertexNum, (uint32_t)instanceNum, (uint32_t)baseVertex, (uint32_t)baseInstance });
+    }
+
+    // Binds an index buffer from offset bytes in, of 16- or 32-bit indices (an NriIndexType).
+    NRI_INTEROP_API void Nri_CmdSetIndexBuffer(nri::CommandBuffer* commandBuffer, nri::Buffer* buffer, int offset, int indexType)
+    {
+        NRI.CmdSetIndexBuffer(*commandBuffer, *buffer, (uint64_t)offset, (nri::IndexType)indexType);
+    }
+
+    NRI_INTEROP_API void Nri_CmdDrawIndexed(nri::CommandBuffer* commandBuffer, int indexNum, int instanceNum, int baseIndex, int baseVertex,
+        int baseInstance)
+    {
+        NRI.CmdDrawIndexed(*commandBuffer, { (uint32_t)indexNum, (uint32_t)instanceNum, (uint32_t)baseIndex, (int32_t)baseVertex,
+            (uint32_t)baseInstance });
+    }
+
+    // Sets the graphics layout's root constants rootConstantIndex (in the order the layout added
+    // them) to size bytes of data.
+    NRI_INTEROP_API void Nri_CmdSetRootConstants(nri::CommandBuffer* commandBuffer, int rootConstantIndex, const void* data, int size)
+    {
+        nri::SetRootConstantsDesc desc = { (uint32_t)rootConstantIndex, data, (uint32_t)size, 0, nri::BindPoint::GRAPHICS };
+        NRI.CmdSetRootConstants(*commandBuffer, desc);
+    }
+
+    // Stores value's bits in a float slot (Ref of an f32 array element): an int field of root
+    // constants kept in an f32 array.
+    NRI_INTEROP_API void Nri_StoreInt32(float* dst, int value)
+    {
+        memcpy(dst, &value, sizeof(value));
     }
 
     // Dispatches x * y * z mesh shader workgroups (a device with NriFeature.MeshShader).
@@ -1184,34 +1241,88 @@ extern "C"
         delete desc;
     }
 
-    // A range of descriptorNum descriptors of type (an NriDescriptorType) from register baseRegister
-    // (t, s, b or u by type) in set setIndex (register space setIndex), seen by the shader stages
-    // (NriStage bits).
-    NRI_INTEROP_API void Nri_PipelineLayoutDescAddRange(PipelineLayoutDesc* desc, int setIndex, int baseRegister, int descriptorNum,
-        int type, int stages)
+    // The set setIndex, made (in register space setIndex) if it isn't yet.
+    PipelineLayoutDesc::Set* LayoutSet(PipelineLayoutDesc* desc, int setIndex)
     {
         if (setIndex < 0)
+            return nullptr;
+        while ((size_t)setIndex >= desc->sets.size())
+        {
+            desc->sets.emplace_back();
+            desc->sets.back().registerSpace = (uint32_t)desc->sets.size() - 1;
+        }
+        return &desc->sets[(size_t)setIndex];
+    }
+
+    // A range of descriptorNum descriptors of type (an NriDescriptorType) from register baseRegister
+    // (t, s, b or u by type) in set setIndex (register space setIndex unless
+    // Nri_PipelineLayoutDescSetRegisterSpace says otherwise), seen by the shader stages (NriStage
+    // bits); flags: NriRangeFlags (bindless arrays, updates after binding).
+    NRI_INTEROP_API void Nri_PipelineLayoutDescAddRange(PipelineLayoutDesc* desc, int setIndex, int baseRegister, int descriptorNum,
+        int type, int stages, int flags)
+    {
+        PipelineLayoutDesc::Set* set = LayoutSet(desc, setIndex);
+        if (!set)
             return;
-        if ((size_t)setIndex >= desc->sets.size())
-            desc->sets.resize((size_t)setIndex + 1);
         nri::DescriptorRangeDesc range = {};
         range.baseRegisterIndex = (uint32_t)baseRegister;
         range.descriptorNum = (uint32_t)descriptorNum;
         range.descriptorType = (nri::DescriptorType)type;
         range.shaderStages = (nri::StageBits)stages;
-        desc->sets[(size_t)setIndex].push_back(range);
+        range.flags = (nri::DescriptorRangeBits)flags;
+        set->ranges.push_back(range);
+    }
+
+    // The register space of set setIndex (on Vulkan, its set number).
+    NRI_INTEROP_API void Nri_PipelineLayoutDescSetRegisterSpace(PipelineLayoutDesc* desc, int setIndex, int registerSpace)
+    {
+        PipelineLayoutDesc::Set* set = LayoutSet(desc, setIndex);
+        if (set)
+            set->registerSpace = (uint32_t)registerSpace;
+    }
+
+    // size bytes of root constants (push constants) at register b<registerIndex>, space 0, for the
+    // stages (NriStage bits).
+    NRI_INTEROP_API void Nri_PipelineLayoutDescAddRootConstants(PipelineLayoutDesc* desc, int registerIndex, int size, int stages)
+    {
+        desc->rootConstants.push_back({ (uint32_t)registerIndex, (uint32_t)size, (nri::StageBits)stages });
+    }
+
+    // An immutable (static) sampler at register s<registerIndex>, space 0: filter for minification
+    // and magnification, mipFilter for mips (NriFilter), addressMode on all axes, for the stages.
+    NRI_INTEROP_API void Nri_PipelineLayoutDescAddRootSampler(PipelineLayoutDesc* desc, int registerIndex, int filter, int mipFilter,
+        int addressMode, int stages)
+    {
+        nri::RootSamplerDesc sampler = {};
+        sampler.registerIndex = (uint32_t)registerIndex;
+        sampler.desc.filters = { (nri::Filter)filter, (nri::Filter)filter, (nri::Filter)mipFilter };
+        sampler.desc.mipMax = 1000.0f;
+        sampler.desc.addressModes = { (nri::AddressMode)addressMode, (nri::AddressMode)addressMode, (nri::AddressMode)addressMode };
+        sampler.shaderStages = (nri::StageBits)stages;
+        desc->rootSamplers.push_back(sampler);
     }
 
     // The layout the desc describes, for the graphics stages; null on failure.
     NRI_INTEROP_API nri::PipelineLayout* Nri_CreatePipelineLayoutFromDesc(nri::Device* device, PipelineLayoutDesc* desc)
     {
         std::vector<nri::DescriptorSetDesc> sets;
-        for (size_t i = 0; i < desc->sets.size(); i++)
-            sets.push_back({ (uint32_t)i, desc->sets[i].data(), (uint32_t)desc->sets[i].size(), nri::DescriptorSetBits::NONE });
+        for (const PipelineLayoutDesc::Set& set : desc->sets)
+        {
+            // A set with a range updated after binding is one too.
+            nri::DescriptorSetBits flags = nri::DescriptorSetBits::NONE;
+            for (const nri::DescriptorRangeDesc& range : set.ranges)
+                if (range.flags & nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET)
+                    flags = nri::DescriptorSetBits::ALLOW_UPDATE_AFTER_SET;
+            sets.push_back({ set.registerSpace, set.ranges.data(), (uint32_t)set.ranges.size(), flags });
+        }
 
         nri::PipelineLayoutDesc layoutDesc = {};
         layoutDesc.descriptorSets = sets.data();
         layoutDesc.descriptorSetNum = (uint32_t)sets.size();
+        layoutDesc.rootConstants = desc->rootConstants.data();
+        layoutDesc.rootConstantNum = (uint32_t)desc->rootConstants.size();
+        layoutDesc.rootSamplers = desc->rootSamplers.data();
+        layoutDesc.rootSamplerNum = (uint32_t)desc->rootSamplers.size();
         layoutDesc.shaderStages = nri::StageBits::GRAPHICS_SHADERS;
         nri::PipelineLayout* pipelineLayout = nullptr;
         if (NRI.CreatePipelineLayout(*device, layoutDesc, pipelineLayout) != nri::Result::SUCCESS)
@@ -1222,11 +1333,13 @@ extern "C"
     // --- Descriptor pools and sets ----------------------------------------------------------------
 
     // A pool of setMaxNum descriptor sets holding at most samplerMaxNum samplers, constantBufferMaxNum
-    // constant buffers and textureMaxNum textures in all; null on failure.
+    // constant buffers and textureMaxNum textures in all; updateAfterSet (1): for sets with ranges
+    // updated after binding (NriRangeFlags.UpdateAfterSet). Null on failure.
     NRI_INTEROP_API nri::DescriptorPool* Nri_CreateDescriptorPool(nri::Device* device, int setMaxNum, int samplerMaxNum,
-        int constantBufferMaxNum, int textureMaxNum)
+        int constantBufferMaxNum, int textureMaxNum, int updateAfterSet)
     {
         nri::DescriptorPoolDesc desc = {};
+        desc.flags = updateAfterSet ? nri::DescriptorPoolBits::ALLOW_UPDATE_AFTER_SET : nri::DescriptorPoolBits::NONE;
         desc.descriptorSetMaxNum = (uint32_t)setMaxNum;
         desc.samplerMaxNum = (uint32_t)samplerMaxNum;
         desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
@@ -1249,12 +1362,14 @@ extern "C"
         NRI.ResetDescriptorPool(*descriptorPool);
     }
 
-    // A descriptor set for the layout's set setIndex, from the pool; null on failure.
+    // A descriptor set for the layout's set setIndex, from the pool, its variable-sized array (if it
+    // has one) variableDescriptorNum long; null on failure.
     NRI_INTEROP_API nri::DescriptorSet* Nri_AllocateDescriptorSet(nri::DescriptorPool* descriptorPool, nri::PipelineLayout* pipelineLayout,
-        int setIndex)
+        int setIndex, int variableDescriptorNum)
     {
         nri::DescriptorSet* descriptorSet = nullptr;
-        if (NRI.AllocateDescriptorSets(*descriptorPool, *pipelineLayout, (uint32_t)setIndex, &descriptorSet, 1, 0) != nri::Result::SUCCESS)
+        if (NRI.AllocateDescriptorSets(*descriptorPool, *pipelineLayout, (uint32_t)setIndex, &descriptorSet, 1,
+            (uint32_t)variableDescriptorNum) != nri::Result::SUCCESS)
             return nullptr;
         return descriptorSet;
     }
@@ -1368,5 +1483,26 @@ extern "C"
         if (NRI.QueryVideoMemoryInfo(*device, nri::MemoryLocation::DEVICE, info) != nri::Result::SUCCESS)
             return 0.0;
         return (double)info.usageSize;
+    }
+
+    // --- Random numbers, as the samples' C++ draws them -------------------------------------------
+
+    // A std::default_random_engine seeded with seed: the same numbers as the samples' (and as
+    // Donut_CreateRandomEngine's).
+    NRI_INTEROP_API std::default_random_engine* Nri_CreateRandomEngine(int seed)
+    {
+        return new std::default_random_engine((std::default_random_engine::result_type)seed);
+    }
+
+    NRI_INTEROP_API void Nri_DestroyRandomEngine(std::default_random_engine* randomEngine)
+    {
+        delete randomEngine;
+    }
+
+    // The engine's next number from std::uniform_real_distribution<float>(a, b) (a and b rounded to
+    // float as the samples' literals are).
+    NRI_INTEROP_API double Nri_RandomUniformFloat(std::default_random_engine* randomEngine, double a, double b)
+    {
+        return std::uniform_real_distribution<float>((float)a, (float)b)(*randomEngine);
     }
 }
