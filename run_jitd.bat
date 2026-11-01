@@ -10,7 +10,7 @@ set D=%B%/bin
 @rem tslang.exe's folder, with its runtime and GC libraries.
 for %%i in (tslang.exe) do set T=%%~dp$PATH:i
 set PATH=%~dp0%B%\bin;C:\Program Files\LLVM\bin;%PATH%
-@rem nri_interop: the NRI examples' (basic_triangle_nri, mesh_shading_nri).
+@rem nri_interop: the NRI examples' (basic_triangle_nri, mesh_shading_nri, meshlets_nri).
 "tslang.exe" --jit-native --jit-cache-dir=%~dp0__jit_dbg --tslang-lib-path=%T% --gc-shared-lib-path=%T%gcdll --lib=%B%/donut_interop_shared.lib --lib=%B%/nri/nri_interop.lib --shared-libs=%D%/donut_interop_shared.dll --shared-libs=%D%/nri_interop.dll %* -- -dx12
 @popd
 @endlocal

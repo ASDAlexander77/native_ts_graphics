@@ -111,6 +111,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Textures and views
 @nodrops declare function Nri_GetTextureFormat(texture: NriTextureHandle): NriFormat;
 @nodrops declare function Nri_GetFormatName(format: NriFormat): string;
+// The sRGB format of an 8-bit RGBA or BGRA UNORM format, else the format itself: the swap chain's
+// textures are UNORM, their color attachment views may be sRGB (as Donut's back buffers are).
+@nodrops declare function Nri_GetSrgbFormat(format: NriFormat): NriFormat;
 @nodrops declare function Nri_CreateColorAttachmentView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 @nodrops declare function Nri_DestroyDescriptor(descriptor: NriDescriptorHandle): void;
 
@@ -146,7 +149,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdSetPipelineLayout(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle): void;
 @nodrops declare function Nri_CmdSetPipeline(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle): void;
 @nodrops declare function Nri_CmdDraw(commandBuffer: NriCommandBufferHandle, vertexNum: int, instanceNum: int, baseVertex: int, baseInstance: int): void;
-// Dispatches x * y * z mesh shader workgroups (NriFeature.MeshShader).
+// Dispatches x * y * z mesh shader workgroups, or task shader workgroups with a task shader
+// (NriFeature.MeshShader).
 @nodrops declare function Nri_CmdDrawMeshTasks(commandBuffer: NriCommandBufferHandle, x: int, y: int, z: int): void;
 // Copies the texture's top left width x height pixels (in NriTextureState.CopySource) into the
 // buffer, rows rowPitch bytes apart (a multiple of Nri_GetUploadBufferTextureRowAlignment).
@@ -172,4 +176,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // of a vertex shader. Needs NriFeature.MeshShader.
 @nodrops declare function Nri_CreateMeshPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle,
     msPath: string, msEntry: string, psPath: string, psEntry: string, colorFormat: NriFormat): NriPipelineHandle | null;
+// As Nri_CreateMeshPipeline, with a task (amplification) shader (taskPath, taskEntry) launching the
+// mesh shader's workgroups.
+@nodrops declare function Nri_CreateTaskMeshPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle,
+    taskPath: string, taskEntry: string, msPath: string, msEntry: string, psPath: string, psEntry: string,
+    colorFormat: NriFormat): NriPipelineHandle | null;
 @nodrops declare function Nri_DestroyPipeline(pipeline: NriPipelineHandle): void;

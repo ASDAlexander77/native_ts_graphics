@@ -34,12 +34,6 @@ namespace MeshShadingNri {
         }
     }
 
-    // The sRGB encoding of a linear value: the swap chain is UNORM (Donut's is sRGB, which encodes
-    // the clear color on write).
-    function linearToSrgb(x: number) {
-        return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1.0 / 2.4) - 0.055;
-    }
-
     // -test: checks the last frame, read back. The corners are the dark clear color; the mesh
     // shader's red triangle covers an eighth of the frame, its middle included.
     function checkFrame(pixels: int[], width: int, height: int) {
@@ -95,7 +89,6 @@ namespace MeshShadingNri {
         private pipeline: NriPipelineHandle | null = null;
         private width: int = 0;
         private height: int = 0;
-        private clearColor: number = 0.0;
         // Set by initialize when the device lacks mesh shaders ("" otherwise).
         private unsupportedReason: string = "";
 
@@ -157,13 +150,14 @@ namespace MeshShadingNri {
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
             this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
             const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            // Rendered through sRGB views, as into Donut's sRGB back buffers.
             const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            const viewFormat = Nri_GetSrgbFormat(format);
             for (let i = 0; i < textureNum; i++) {
                 const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
                     Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
             }
-            this.clearColor = linearToSrgb(CLEAR_COLOR);
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -177,7 +171,7 @@ namespace MeshShadingNri {
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/mesh_shading/${folder}/mesh_shading`;
             const pipeline = Nri_CreateMeshPipeline(device, this.pipelineLayout,
-                `${shaders}_triangle_ms.bin`, "triangle_ms", `${shaders}_triangle_ps.bin`, "triangle_ps", format);
+                `${shaders}_triangle_ms.bin`, "triangle_ms", `${shaders}_triangle_ps.bin`, "triangle_ps", viewFormat);
             if (!pipeline) {
                 console.log("Cannot load the mesh shading shaders");
                 return 0;
@@ -216,7 +210,7 @@ namespace MeshShadingNri {
                 Nri_BeginCommandBuffer(commandBuffer);
                 Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
-                Nri_CmdClearColor(commandBuffer, this.clearColor, this.clearColor, this.clearColor, 1.0);
+                Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
                 if (pipeline) {
                     Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
                     Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
