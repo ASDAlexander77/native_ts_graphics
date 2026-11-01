@@ -2674,6 +2674,9 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(timeline_semaphore)
 add_tslang_example_test(timeline_semaphore)
+# timeline_semaphore with NRI and NRIFramework instead of Donut: timeline_semaphore's shaders.
+add_tslang_nri_example(timeline_semaphore_nri SHADERS timeline_semaphore_shaders)
+add_tslang_example_test(timeline_semaphore_nri)
 
 # Port of Vulkan-Samples' color_write_enable: a triangle drawn into three targets, each written in
 # one channel (or not at all, switched in the UI), then added up into the back buffer.
@@ -4295,7 +4298,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders vertex_buffer_shaders async_compute_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders vertex_buffer_shaders async_compute_shaders timeline_semaphore_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)
