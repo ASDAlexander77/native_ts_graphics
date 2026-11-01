@@ -69,7 +69,10 @@ enum NriFeature {
     // features.depthBoundsTest: Nri_PipelineDescSetDepth's boundsTest, Nri_CmdSetDepthBounds
     DepthBoundsTest = 1,
     // features.drawIndirectCount: Nri_CmdDrawIndexedIndirect's countBuffer
-    DrawIndirectCount = 2
+    DrawIndirectCount = 2,
+    // wave.derivativeOpsStages has compute shaders: ddx / ddy in compute shaders (D3D12 shader
+    // model 6.6, Vulkan's VK_KHR_compute_shader_derivatives; quads or linear groups, not told apart)
+    ComputeShaderDerivatives = 3
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -236,7 +239,8 @@ type NriFrameCallback = (frameIndex: int) => void;
 // it's closed. Returns 0, or 1 if the command line or the initialization failed.
 // The command line is NRIFramework's (--api=D3D12, --debugAPI, --frameNum=<n>, --help, ...), with
 // the examples' options translated to it: -dx11, -dx12, -vk (--api), -debug (--debugAPI
-// --debugNRI), -test (renders testFrames frames, unfocused too, see Nri_IsTest). V-sync is on.
+// --debugNRI), -test (renders testFrames frames, unfocused too, see Nri_IsTest), -testOutput <file>
+// (Nri_ReadBufferRGBA8 saves the frame it reads there, as PNG). V-sync is on.
 declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<string>, title: string, testFrames: int): int;
 // An option of the example's (a flag it reads with Nri_GetArg), which Nri_RunSample leaves out of
 // NRIFramework's command line (which would reject it); before Nri_RunSample.
@@ -342,8 +346,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A view of the whole buffer (Nri_CreateStorageBuffer's) as structures: written by compute shaders
 // (storage, 1: RWStructuredBuffer) or read (0: StructuredBuffer); null on failure.
 // Nri_CreateStorageBuffer's buffer, but of ints (Ref of an int array element), with structures stride
-// bytes each (4: raw, a ByteAddressBuffer's), which indirect draws can take their arguments from too,
-// then in state.
+// bytes each (4: raw, a ByteAddressBuffer's), then in state: in IndirectArgument or
+// IndirectArgumentAndComputeResource, indirect draws can take their arguments from it too.
 @nodrops declare function Nri_CreateStorageBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>, byteSize: int,
     stride: int, state: NriBufferState): NriBufferHandle | null;
 @nodrops declare function Nri_CreateStructuredBufferView(buffer: NriBufferHandle, storage: int): NriDescriptorHandle | null;
@@ -540,6 +544,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_UpdateDescriptor(descriptorSet: NriDescriptorSetHandle, rangeIndex: int, element: int, descriptor: NriDescriptorHandle): void;
 // A sampler: filter for minification, magnification and mips, addressMode on all axes, anisotropy
 // (its maximum; 1: none); null on failure.
+// A sampler: filter for minification and magnification, mipFilter between mips, addressMode on all
+// axes, anisotropy (1: none); null on failure.
+@nodrops declare function Nri_CreateSamplerWithMipFilter(device: NriDeviceHandle, filter: NriFilter, mipFilter: NriFilter,
+    addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
+// The device's widest anisotropic filtering (16 on most).
+@nodrops declare function Nri_GetMaxSamplerAnisotropy(device: NriDeviceHandle): int;
 @nodrops declare function Nri_CreateSampler(device: NriDeviceHandle, filter: NriFilter, addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
 // A view of a 2D texture's mips for shaders to read.
 @nodrops declare function Nri_CreateTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
@@ -587,7 +597,46 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // An image file's texture (PNG, JPEG, ... through stb_image): mip 0, RGBA8 (sRGB 1: RGBA8_SRGB, as
 // Donut's sRGB loads), uploaded on the queue (which this waits for), in NriTextureState.ShaderResource;
 // null if it can't be read. Destroyed with Nri_DestroyTexture.
+// A texture file (DDS, KTX, ... as NRIFramework's utils::LoadTexture reads them) with all its mip
+// levels, in its format (sRGB: 1, the format's sRGB variant for RGBA8 and BGRA8), uploaded on the
+// queue and left in NriTextureState.ShaderResource; null if it can't be read.
+@nodrops declare function Nri_LoadTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
 @nodrops declare function Nri_LoadImageTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
+
+// ImGui (NRIFramework's, drawn by NRI's Imgui extension). A frame: Nri_ImguiNewFrame, the widgets,
+// Nri_ImguiRender (before recording); Nri_CmdCopyImguiData outside a render pass, Nri_CmdDrawImgui
+// inside one; Nri_ImguiEndFrame after the frame's submission.
+// The example draws ImGui: before Nri_RunSample (on D3D11 the device then replays command buffers on
+// the immediate context, which ImGui's geometry needs).
+@nodrops declare function Nri_UseImgui(sample: NriSampleHandle): void;
+// ImGui and its renderer for the device (after Nri_UseImgui); 1, or 0 on failure. Destroyed with
+// Nri_DestroyImgui, before the device.
+@nodrops declare function Nri_InitImgui(sample: NriSampleHandle, device: NriDeviceHandle): int;
+@nodrops declare function Nri_DestroyImgui(sample: NriSampleHandle): void;
+@nodrops declare function Nri_ImguiNewFrame(sample: NriSampleHandle): void;
+@nodrops declare function Nri_ImguiRender(sample: NriSampleHandle): void;
+@nodrops declare function Nri_CmdCopyImguiData(sample: NriSampleHandle, commandBuffer: NriCommandBufferHandle): void;
+// Draws the UI into the render pass's color attachment, of attachmentFormat (sRGB or not).
+@nodrops declare function Nri_CmdDrawImgui(sample: NriSampleHandle, commandBuffer: NriCommandBufferHandle, attachmentFormat: NriFormat): void;
+@nodrops declare function Nri_ImguiEndFrame(sample: NriSampleHandle): void;
+// 1 if ImGui uses the mouse (it's over a window, or dragging a widget): the example shouldn't.
+@nodrops declare function Nri_ImguiWantsMouse(): int;
+// The widgets, as Donut's ImGui wrappers.
+@nodrops declare function Nri_ImguiSetNextWindowPos(x: number, y: number): void;
+// autoResize != 0: the window fits its contents. Always pair with Nri_ImguiEnd.
+@nodrops declare function Nri_ImguiBegin(title: string, autoResize: int): void;
+@nodrops declare function Nri_ImguiEnd(): void;
+@nodrops declare function Nri_ImguiText(text: string): void;
+@nodrops declare function Nri_ImguiPushItemWidth(width: number): void;
+@nodrops declare function Nri_ImguiPopItemWidth(): void;
+// Expanded until the user collapses it (defaultOpen != 0); 1 while expanded.
+@nodrops declare function Nri_ImguiCollapsingHeader(label: string, defaultOpen: int): int;
+// The checkbox's new state (value, unless it was clicked).
+@nodrops declare function Nri_ImguiCheckbox(label: string, value: int): int;
+// The selection among items (separated by '|').
+@nodrops declare function Nri_ImguiCombo(label: string, current: int, items: string): int;
+@nodrops declare function Nri_ImguiSliderFloat(label: string, value: number, min: number, max: number): number;
+@nodrops declare function Nri_ImguiSliderInt(label: string, value: int, min: int, max: int): int;
 
 // Compute
 // A compute pipeline of the shader read from path (as Nri_CreateGraphicsPipeline's); null on failure.

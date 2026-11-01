@@ -29,7 +29,10 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | timeline_semaphore_nri (#188) | `Nri_CmdDispatch` and the compute bind point's layout, sets and root constants on the render thread; `Nri_QueueSubmitWithFences` (a submission waiting for one fence's value and signaling another's: NRI's fences are timeline semaphores); textures read by compute and pixel shaders (`NriTextureState.AllShaderResource`) |
 | compute_nbody_nri (#189) | storage buffers (`Nri_CreateStorageBuffer`, structured views) bound as root descriptors, buffer barriers and copies, additive blending; shaders from ShaderMake permutation blobs (a .cfg line with -D); Donut's ThirdPersonCamera view matrix in float32 |
 | execute_indirect_nri (#190) | indexed indirect draws with a count buffer (`Nri_CmdDrawIndexedIndirect`, `NriFeature.DrawIndirectCount`), raw (byte address) buffers as stride-4 structured views, `Nri_CmdZeroBuffer`, host-written structured buffers, per-instance vertex streams |
-| buffer_device_address_nri | buffers' device addresses (`Nri_GetBufferDeviceAddress`: vkGetBufferDeviceAddress through NRI's Vulkan wrapper, as NRI has no call for it) in push constants, primitive restart; Vulkan only |
+| buffer_device_address_nri (#191) | buffers' device addresses (`Nri_GetBufferDeviceAddress`: vkGetBufferDeviceAddress through NRI's Vulkan wrapper, as NRI has no call for it) in push constants, primitive restart; Vulkan only |
+| texture_loading_nri | NRIFramework's ImGui (`Nri_UseImgui`, `Nri_InitImgui`, the frame calls and widgets), textures with all their mips (`Nri_LoadTexture`, detex), the device's widest anisotropy; `-testOutput` for every NRI example |
+| separate_image_sampler_nri | samplers with their own mip filter, the sampler in a set of its own (space 1: the shader and the Donut example changed with it) |
+| compute_shader_derivatives_nri | `NriFeature.ComputeShaderDerivatives` |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -47,11 +50,10 @@ examples needed a copy queue.
 
 ## Tier 3: ImGui (NRIImgui.h)
 
-NRIFramework draws ImGui through `CmdCopyImguiData` / `CmdDrawImgui`. After this tier, the
-examples whose only blocker was ImGui become portable: shader_quad_control, color_write_enable
-(static `colorWriteMask` only, because NRI has no dynamic color write enable),
-compute_shader_derivatives, 16bit_arithmetic, simple_compute, texture_loading,
-separate_image_sampler, dynamic_line_rasterization, and others.
+NRIFramework's ImGui is in (texture_loading_nri, separate_image_sampler_nri,
+compute_shader_derivatives_nri), ported in batches. Next: shader_quad_control, color_write_enable
+(static `colorWriteMask` only, because NRI has no dynamic color write enable), 16bit_arithmetic,
+simple_compute, dynamic_line_rasterization, and others.
 
 ## Tier 4: scenes (NRIFramework utils::Scene, cgltf)
 
@@ -83,6 +85,14 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   documented as defaults): nri_interop passes the buffer's size and stride.
 - Shaders a .cfg compiles with -D are ShaderMake permutation blobs ("NVSP"); nri_interop's shader
   loader unpacks a blob holding one permutation.
+- The UI isn't compared: NRIFramework's ImGui is a newer version, scaled by the monitor's DPI, and
+  Donut's examples draw theirs even with -noUI. The scene is compared pixel for pixel against the
+  Donut example's -testOutput with -noUI on the NRI side, outside Donut's UI window.
+- On D3D11, an example that draws ImGui gets NRI's command buffer emulation (`Nri_UseImgui`): from
+  NRI's deferred contexts the UI's geometry, which the streamer writes into a DYNAMIC buffer, is
+  drawn as nothing. The emulation isn't on for the others: it breaks the compute queue examples.
+- NRI's validation rejects two descriptor sets in the same register space, which D3D12 allows: a
+  set of its own needs a space of its own (on Vulkan the space is the set's index anyway).
 - An animation that the original sample steps in OnUpdate counts the frame before it's drawn
   (frame number = frameIndex + 1), as Donut's test mode does.
 

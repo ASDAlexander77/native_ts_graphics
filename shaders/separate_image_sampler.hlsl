@@ -34,9 +34,9 @@ cbuffer UBO : register(b0)
 };
 
 Texture2D t_Texture : register(t0);
-// The sampler's own binding layout: descriptor set 1 on Vulkan; register space 0 on D3D (D3D11 has
-// no spaces), its slot apart from the first layout's.
-SamplerState s_Sampler : register(s0 VK_DESCRIPTOR_SET(1));
+// The sampler's own binding layout: register space 1 (descriptor set 1 on Vulkan; D3D11 has no
+// spaces, its slot apart from the first layout's).
+SamplerState s_Sampler : REGISTER_SAMPLER(0, 1);
 
 // The vertices' normals aren't read (an attribute a shader doesn't read is a Vulkan validation
 // warning; D3D12 wants the input layout to have every one it declares).

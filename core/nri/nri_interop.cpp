@@ -142,6 +142,9 @@ namespace
     // Where the shaders are instead of next to this library, if Nri_SetDataDirectory was called.
     std::string g_DataDirectory;
 
+    // -testOutput <file>: where Nri_ReadBufferRGBA8 saves the frame it reads (the test's), as PNG.
+    std::string g_TestOutput;
+
     // The directory of this library (bin/, where the shaders are), with a separator at the end.
     std::string LibraryDirectory()
     {
@@ -459,6 +462,9 @@ namespace
 }
 
 // NRIFramework's application, its virtual methods calling TypeScript.
+// stb_image_write's, compiled into NRIFramework's detex library.
+extern "C" int stbi_write_png(char const* filename, int w, int h, int comp, const void* data, int stride_in_bytes);
+
 class TsSample : public SampleBase
 {
 public:
@@ -468,6 +474,11 @@ public:
     bool m_Test = false;
     // The example's own options (Nri_AddExampleOption), which NRIFramework's parser isn't given.
     std::vector<std::string> m_ExampleOptions;
+    // Nri_UseImgui was called: the device is made for ImGui (see Nri_CreateDevice).
+    bool m_UsesImgui = false;
+    // Nri_InitImgui's streamer, which uploads ImGui's geometry.
+    nri::StreamerInterface m_StreamerInterface = {};
+    nri::Streamer* m_Streamer = nullptr;
 
     bool Initialize(nri::GraphicsAPI graphicsAPI, bool) override
     {
@@ -569,6 +580,8 @@ extern "C"
                 args.push_back("--debugAPI");
                 args.push_back("--debugNRI");
             }
+            else if (arg == "-testOutput" && i + 1 < argc)
+                g_TestOutput = argv[++i];
             else if (arg == "-test" && testFrames > 0)
             {
                 sample->m_Test = true;
@@ -692,7 +705,12 @@ extern "C"
         desc.graphicsAPI = (nri::GraphicsAPI)graphicsAPI;
         desc.enableGraphicsAPIValidation = sample->DebugAPI();
         desc.enableNRIValidation = sample->DebugNRI();
-        desc.enableD3D11CommandBufferEmulation = D3D11_ENABLE_COMMAND_BUFFER_EMULATION;
+        // D3D11, for an example that draws ImGui (Nri_UseImgui): command buffers replayed on the
+        // immediate context, not deferred contexts (NRIFramework's default with NVAPI): from a
+        // deferred context the ImGui geometry the streamer writes into a DYNAMIC buffer
+        // (Nri_InitImgui) is drawn as nothing. Not for the others: NRI's emulation breaks the
+        // examples using the compute queue.
+        desc.enableD3D11CommandBufferEmulation = sample->m_UsesImgui || D3D11_ENABLE_COMMAND_BUFFER_EMULATION;
         desc.disableD3D12EnhancedBarriers = D3D12_DISABLE_ENHANCED_BARRIERS;
         // The register shifts the examples' SPIR-V is compiled with (Donut's compileshaders.cmake:
         // t 0, s 128, b 256, u 384), not NRIFramework's.
@@ -734,6 +752,8 @@ extern "C"
             return desc.features.depthBoundsTest ? 1 : 0;
         case 2:
             return desc.features.drawIndirectCount ? 1 : 0;
+        case 3:
+            return (desc.wave.derivativeOpsStages & nri::StageBits::COMPUTE_SHADER) ? 1 : 0;
         default:
             return 0;
         }
@@ -1104,17 +1124,19 @@ extern "C"
     }
 
     // A buffer of byteSize bytes of structures stride bytes each (4: raw, a ByteAddressBuffer's) in
-    // device memory, which compute shaders write (RWStructuredBuffer), shaders read
-    // (StructuredBuffer) and indirect draws take their arguments from, with data uploaded on the
-    // queue (which this waits for), then in state (an NriBufferState); null on failure.
+    // device memory, which compute shaders write (RWStructuredBuffer) and shaders read
+    // (StructuredBuffer), with data uploaded on the queue (which this waits for), then in state (an
+    // NriBufferState); indirect draws can take their arguments from it if that state is one of
+    // theirs (D3D11 doesn't take structured buffers with indirect arguments). Null on failure.
     NRI_INTEROP_API nri::Buffer* Nri_CreateStorageBufferInState(nri::Device* device, nri::Queue* queue, const void* data, int byteSize, int stride,
         int state)
     {
         nri::BufferDesc bufferDesc = {};
         bufferDesc.size = (uint64_t)byteSize;
         bufferDesc.structureStride = (uint32_t)stride;
-        bufferDesc.usage = nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE
-            | nri::BufferUsageBits::ARGUMENT_BUFFER;
+        bufferDesc.usage = nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE;
+        if (state == 4 || state == 5)
+            bufferDesc.usage |= nri::BufferUsageBits::ARGUMENT_BUFFER;
         nri::Buffer* buffer = nullptr;
         if (NRI.CreateBuffer(*device, bufferDesc, buffer) != nri::Result::SUCCESS)
             return nullptr;
@@ -1232,6 +1254,15 @@ extern "C"
             }
         }
         NRI.UnmapBuffer(*buffer);
+        if (!g_TestOutput.empty())
+        {
+            // RGBA bytes, opaque, as Donut's -testOutput saves the back buffer.
+            std::vector<uint32_t> opaque(dst, dst + (size_t)width * height);
+            for (uint32_t& p : opaque)
+                p |= 0xFF000000;
+            if (stbi_write_png(g_TestOutput.c_str(), width, height, 4, opaque.data(), width * 4) == 0)
+                printf("ERROR: cannot write %s\n", g_TestOutput.c_str());
+        }
         return 1;
     }
 
@@ -2011,10 +2042,11 @@ extern "C"
 
     // A sampler: filter (an NriFilter) for minification, magnification and mips, addressMode (an
     // NriAddressMode) on all axes, anisotropy (its maximum; 1: none); null on failure.
-    NRI_INTEROP_API nri::Descriptor* Nri_CreateSampler(nri::Device* device, int filter, int addressMode, int anisotropy)
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateSamplerWithMipFilter(nri::Device* device, int filter, int mipFilter, int addressMode,
+        int anisotropy)
     {
         nri::SamplerDesc desc = {};
-        desc.filters = { (nri::Filter)filter, (nri::Filter)filter, (nri::Filter)filter };
+        desc.filters = { (nri::Filter)filter, (nri::Filter)filter, (nri::Filter)mipFilter };
         desc.anisotropy = (uint8_t)anisotropy;
         desc.mipMax = 16.0f;
         desc.addressModes = { (nri::AddressMode)addressMode, (nri::AddressMode)addressMode, (nri::AddressMode)addressMode };
@@ -2022,6 +2054,19 @@ extern "C"
         if (NRI.CreateSampler(*device, desc, sampler) != nri::Result::SUCCESS)
             return nullptr;
         return sampler;
+    }
+
+    // A sampler filtering with filter for minification, magnification and mips (as
+    // Nri_CreateSamplerWithMipFilter's).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateSampler(nri::Device* device, int filter, int addressMode, int anisotropy)
+    {
+        return Nri_CreateSamplerWithMipFilter(device, filter, filter, addressMode, anisotropy);
+    }
+
+    // The device's widest anisotropic filtering (16 on most).
+    NRI_INTEROP_API int Nri_GetMaxSamplerAnisotropy(nri::Device* device)
+    {
+        return (int)NRI.GetDeviceDesc(*device).other.samplerAnisotropyMax;
     }
 
     // A view of a 2D texture's mips for shaders to read.
@@ -2194,6 +2239,40 @@ extern "C"
     // LoadTextureFromMemory reads them): its mip 0, RGBA8 (sRGB: 1, RGBA8_SRGB, as Donut's sRGB
     // loads), in device memory, uploaded on the queue (which this waits for) and left in
     // NriTextureState.ShaderResource; null if it can't be read.
+    // A texture file (DDS, KTX, ... as NRIFramework's utils::LoadTexture reads them, through detex)
+    // with all its mip levels, in its format (sRGB: 1, the format's sRGB variant for RGBA8 and BGRA8,
+    // as Donut's sRGB loads), in device memory, uploaded on the queue (which this waits for) and left
+    // in NriTextureState.ShaderResource; null if it can't be read.
+    NRI_INTEROP_API nri::Texture* Nri_LoadTexture(nri::Device* device, nri::Queue* queue, const char* path, int sRGB)
+    {
+        utils::Texture image;
+        if (!utils::LoadTexture(LibraryDirectory() + path, image, false))
+            return nullptr;
+        int format = (int)image.GetFormat();
+        if (sRGB)
+            format = Nri_GetSrgbFormat(format);
+        nri::TextureDesc desc = ShaderResourceTextureDesc(image.GetWidth(), image.GetHeight(), format);
+        desc.mipNum = image.GetMipNum();
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        std::vector<nri::TextureSubresourceUploadDesc> subresources(image.GetMipNum());
+        for (uint32_t mip = 0; mip < image.GetMipNum(); mip++)
+            image.GetSubresource(subresources[mip], mip);
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = subresources.data();
+        upload.texture = texture;
+        upload.after = TextureState(5);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
     NRI_INTEROP_API nri::Texture* Nri_LoadImageTexture(nri::Device* device, nri::Queue* queue, const char* path, int sRGB)
     {
         std::vector<uint8_t> data;
@@ -2220,6 +2299,152 @@ extern "C"
             return nullptr;
         }
         return texture;
+    }
+
+    // --- ImGui (NRIFramework's, drawn by NRI's Imgui extension) ---------------------------------
+    // A frame: Nri_ImguiNewFrame, the widgets, Nri_ImguiRender (before recording);
+    // Nri_CmdCopyImguiData outside a render pass, Nri_CmdDrawImgui inside one; Nri_ImguiEndFrame after
+    // the frame's submission. The window's input reaches ImGui through NRIFramework.
+
+    // The example draws ImGui: before Nri_RunSample (the device is made for it).
+    NRI_INTEROP_API void Nri_UseImgui(TsSample* sample)
+    {
+        sample->m_UsesImgui = true;
+    }
+
+    // ImGui and its renderer for the device (after Nri_UseImgui), and the streamer that uploads its
+    // geometry; 1, or 0 on failure. Destroyed with Nri_DestroyImgui, before the device.
+    NRI_INTEROP_API int Nri_InitImgui(TsSample* sample, nri::Device* device)
+    {
+        nri::StreamerInterface streamer = {};
+        if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::StreamerInterface), &streamer) != nri::Result::SUCCESS)
+            return 0;
+        nri::StreamerDesc streamerDesc = {};
+        streamerDesc.dynamicBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
+        streamerDesc.dynamicBufferDesc = { 0, 0, nri::BufferUsageBits::VERTEX_BUFFER | nri::BufferUsageBits::INDEX_BUFFER };
+        streamerDesc.constantBufferMemoryLocation = nri::MemoryLocation::HOST_UPLOAD;
+        streamerDesc.queuedFrameNum = sample->GetQueuedFrameNum();
+        if (streamer.CreateStreamer(*device, streamerDesc, sample->m_Streamer) != nri::Result::SUCCESS)
+            return 0;
+        sample->m_StreamerInterface = streamer;
+        return sample->InitImgui(*device) ? 1 : 0;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyImgui(TsSample* sample)
+    {
+        sample->DestroyImgui();
+        if (sample->m_Streamer)
+            sample->m_StreamerInterface.DestroyStreamer(sample->m_Streamer);
+        sample->m_Streamer = nullptr;
+    }
+
+    NRI_INTEROP_API void Nri_ImguiNewFrame(TsSample*)
+    {
+        ImGui::NewFrame();
+    }
+
+    NRI_INTEROP_API void Nri_ImguiRender(TsSample*)
+    {
+        ImGui::EndFrame();
+        ImGui::Render();
+    }
+
+    NRI_INTEROP_API void Nri_CmdCopyImguiData(TsSample* sample, nri::CommandBuffer* commandBuffer)
+    {
+        if (sample->m_Streamer)
+            sample->CmdCopyImguiData(*commandBuffer, *sample->m_Streamer);
+    }
+
+    // Draws the UI into the render pass's color attachment, of attachmentFormat (sRGB or not).
+    NRI_INTEROP_API void Nri_CmdDrawImgui(TsSample* sample, nri::CommandBuffer* commandBuffer, int attachmentFormat)
+    {
+        const nri::FormatProps* props = nri::nriGetFormatProps((nri::Format)attachmentFormat);
+        sample->CmdDrawImgui(*commandBuffer, (nri::Format)attachmentFormat, 1.0f, props->isSrgb);
+    }
+
+    NRI_INTEROP_API void Nri_ImguiEndFrame(TsSample* sample)
+    {
+        if (sample->m_Streamer)
+            sample->m_StreamerInterface.EndStreamerFrame(*sample->m_Streamer);
+    }
+
+    // ImGui uses the mouse (it's over a window, or dragging a widget): the example shouldn't.
+    NRI_INTEROP_API int Nri_ImguiWantsMouse()
+    {
+        return ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse ? 1 : 0;
+    }
+
+    // The widgets, as Donut's (donut_interop's Donut_ImGui*).
+    NRI_INTEROP_API void Nri_ImguiSetNextWindowPos(double x, double y)
+    {
+        ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), 0);
+    }
+
+    // autoResize != 0: the window fits its contents. Always pair with Nri_ImguiEnd.
+    NRI_INTEROP_API void Nri_ImguiBegin(const char* title, int autoResize)
+    {
+        ImGui::Begin(title, nullptr, autoResize ? ImGuiWindowFlags_AlwaysAutoResize : 0);
+    }
+
+    NRI_INTEROP_API void Nri_ImguiEnd()
+    {
+        ImGui::End();
+    }
+
+    NRI_INTEROP_API void Nri_ImguiText(const char* text)
+    {
+        ImGui::TextUnformatted(text);
+    }
+
+    NRI_INTEROP_API void Nri_ImguiPushItemWidth(double width)
+    {
+        ImGui::PushItemWidth(float(width));
+    }
+
+    NRI_INTEROP_API void Nri_ImguiPopItemWidth()
+    {
+        ImGui::PopItemWidth();
+    }
+
+    // Expanded until the user collapses it (defaultOpen != 0); 1 while expanded.
+    NRI_INTEROP_API int Nri_ImguiCollapsingHeader(const char* label, int defaultOpen)
+    {
+        return ImGui::CollapsingHeader(label, defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : 0) ? 1 : 0;
+    }
+
+    // The checkbox's new state (value, unless it was clicked).
+    NRI_INTEROP_API int Nri_ImguiCheckbox(const char* label, int value)
+    {
+        bool checked = value != 0;
+        ImGui::Checkbox(label, &checked);
+        return checked ? 1 : 0;
+    }
+
+    // The selection among items (separated by '|').
+    NRI_INTEROP_API int Nri_ImguiCombo(const char* label, int current, const char* items)
+    {
+        // ImGui wants the items separated by NULs, with an extra NUL at the end.
+        std::string zeroSeparated(items);
+        for (char& c : zeroSeparated)
+            if (c == '|')
+                c = '\0';
+        zeroSeparated.push_back('\0');
+        int selection = current;
+        ImGui::Combo(label, &selection, zeroSeparated.c_str());
+        return selection;
+    }
+
+    NRI_INTEROP_API double Nri_ImguiSliderFloat(const char* label, double value, double min, double max)
+    {
+        float v = float(value);
+        ImGui::SliderFloat(label, &v, float(min), float(max));
+        return v;
+    }
+
+    NRI_INTEROP_API int Nri_ImguiSliderInt(const char* label, int value, int min, int max)
+    {
+        ImGui::SliderInt(label, &value, min, max);
+        return value;
     }
 
     // --- Compute ------------------------------------------------------------------------------

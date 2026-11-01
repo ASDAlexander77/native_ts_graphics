@@ -152,6 +152,8 @@ namespace SeparateImageSampler {
             const bindingLayoutDesc = BindingLayoutDesc.create();
             bindingLayoutDesc.layoutVolatileConstantBuffer(0);
             bindingLayoutDesc.layoutTextureSRV(0);
+            // Descriptor set 0 (and space 0), as the sampler's layout is set 1.
+            bindingLayoutDesc.setDescriptorSet(0);
             this.bindingLayout = this.app.createBindingLayout(bindingLayoutDesc, ShaderType.All);
             const setDesc = BindingSetDesc.create();
             setDesc.bindEntireConstantBuffer(0, this.uniformBuffer);
@@ -163,6 +165,7 @@ namespace SeparateImageSampler {
             // set of each.
             const samplerLayoutDesc = BindingLayoutDesc.create();
             samplerLayoutDesc.layoutSampler(0);
+            samplerLayoutDesc.setDescriptorSet(1);
             this.samplerBindingLayout = this.app.createBindingLayout(samplerLayoutDesc, ShaderType.Pixel);
             for (let linear = 1; linear >= 0; linear--) {
                 const sampler = this.app.createSamplerWithDesc(linear, linear, 1, SamplerAddressMode.Wrap, 0.0, 0.0, MIP_LEVELS,
