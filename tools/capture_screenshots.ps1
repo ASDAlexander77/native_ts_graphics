@@ -44,7 +44,7 @@ $outDir = Join-Path $root "docs/screenshots"
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
 if ($exampleList.Count -eq 0) {
-    $exampleList = @(Get-ChildItem (Join-Path $root "examples/*.ts") |
+    $exampleList = @(Get-ChildItem (Join-Path $root "examples/*.ts"), (Join-Path $root "examples/nri/*.ts") |
         ForEach-Object { $_.BaseName } |
         Where-Object { $_ -notin @("headless", "nvrhi_direct") -and (Test-Path (Join-Path $bin "$_.exe")) })
 }

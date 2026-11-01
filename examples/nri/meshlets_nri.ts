@@ -1,16 +1,18 @@
-/// <reference path="../core/nri/nri_interop.d.ts" />
+/// <reference path="../../core/nri/nri_interop.d.ts" />
 
-namespace BasicTriangleNri {
-    // basic_triangle, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
-    // Donut and NVRHI: the same shaders (basic_triangle.hlsl's, which make the triangle's vertices
-    // and colors from the vertex index), drawn as NRISamples' Triangle draws, through the NRI calls
-    // core/nri/nri_interop.d.ts binds. NRIFramework makes the window, reads the command line and runs
-    // the frames, calling initialize, latencySleep and renderFrame below.
+namespace MeshletsNri {
+    // meshlets, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut and
+    // NVRHI: the same shaders (meshlets.hlsl's: a task shader workgroup launches one mesh shader
+    // workgroup, which outputs a triangle colored by its vertices), through the NRI calls
+    // core/nri/nri_interop.d.ts binds, as basic_triangle_nri draws. D3D12 and Vulkan (mesh shaders).
 
     // Test mode: the frames rendered.
     const TEST_FRAMES = 120;
 
-    const WINDOW_TITLE = "NRI Example: Basic Triangle";
+    // core/test_check.ts' TEST_SKIPPED (CTest's SKIP_RETURN_CODE): the device lacks mesh shaders.
+    const TEST_SKIPPED = 77;
+
+    const WINDOW_TITLE = "NRI Example: Meshlets";
 
     // The callbacks given to C++, kept for as long as it may call them.
     let retainedInitializeCallbacks: NriInitializeCallback[] = [];
@@ -29,8 +31,8 @@ namespace BasicTriangleNri {
         }
     }
 
-    // -test: checks the last frame, read back. The corners are the black clear color; the triangle
-    // covers an eighth of the frame, its middle (the frame's) colored.
+    // -test: checks the last frame, read back. The corners are the black clear color; the meshlet
+    // triangle covers an eighth of the frame, colored in the middle, its apex at the top.
     function checkFrame(pixels: int[], width: int, height: int) {
         if (pixels.length == 0) {
             return "cannot read the back buffer";
@@ -46,6 +48,13 @@ namespace BasicTriangleNri {
         if ((pixels[(height / 2) * width + width / 2] & 0xFFFFFF) == 0) {
             return "the middle of the triangle is black";
         }
+        // Clip y up, as Donut's: the apex (0, 0.5) is at the top, so (0.4, -0.4) in clip space is in
+        // the triangle and (0.4, 0.4) isn't.
+        const inside = Math.floor(height * 0.7) * width + Math.floor(width * 0.7);
+        const outside = Math.floor(height * 0.3) * width + Math.floor(width * 0.7);
+        if ((pixels[inside] & 0xFFFFFF) == 0 || (pixels[outside] & 0xFFFFFF) != 0) {
+            return "the triangle is flipped: its apex isn't at the top";
+        }
         let count = 0;
         for (let i = 0; i < width * height; i++) {
             if ((pixels[i] & 0xFFFFFF) != 0) {
@@ -60,8 +69,8 @@ namespace BasicTriangleNri {
         return "";
     }
 
-    // Port of Donut-Samples' basic_triangle.cpp to NRI, as NRISamples' Triangle.cpp renders.
-    class Triangle {
+    // Port of Donut-Samples' meshlets.cpp (as examples/meshlets.ts ports it) to NRI.
+    class Meshlets {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
         private frameFence: NriFenceHandle;
@@ -72,6 +81,8 @@ namespace BasicTriangleNri {
         private pipeline: NriPipelineHandle | null = null;
         private width: int = 0;
         private height: int = 0;
+        // Set by initialize when the device lacks mesh shaders ("" otherwise).
+        private unsupportedReason: string = "";
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
@@ -95,7 +106,11 @@ namespace BasicTriangleNri {
             Nri_SetRenderFrameCallback(this.sample, renderFrame);
 
             let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
-            if (result == 0 && this.test) {
+            if (this.unsupportedReason != "") {
+                const test = Nri_IsTest(this.sample) != 0;
+                console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
+                result = test ? TEST_SKIPPED : 1;
+            } else if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
                 result = failure == "" ? 0 : 1;
@@ -112,6 +127,10 @@ namespace BasicTriangleNri {
             }
             this.device = device;
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            if (Nri_IsFeatureSupported(device, NriFeature.MeshShader) == 0) {
+                this.unsupportedReason = "The graphics device does not support mesh shaders";
+                return 0;
+            }
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
@@ -138,14 +157,14 @@ namespace BasicTriangleNri {
                 this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator)));
             }
 
-            // Pipeline: basic_triangle.hlsl's shaders, as compiled for the Donut example
+            // Pipeline: meshlets.hlsl's shaders, as compiled for the Donut example.
             this.pipelineLayout = Nri_CreatePipelineLayout(device);
-            const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
-            const shaders = `shaders/basic_triangle/${folder}/basic_triangle`;
-            const pipeline = Nri_CreateGraphicsPipeline(device, this.pipelineLayout,
-                `${shaders}_main_vs.bin`, "main_vs", `${shaders}_main_ps.bin`, "main_ps", viewFormat);
+            const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
+            const shaders = `shaders/meshlets/${folder}/meshlets`;
+            const pipeline = Nri_CreateTaskMeshPipeline(device, this.pipelineLayout, `${shaders}_main_as.bin`, "main_as",
+                `${shaders}_main_ms.bin`, "main_ms", `${shaders}_main_ps.bin`, "main_ps", viewFormat);
             if (!pipeline) {
-                console.log("Cannot load the triangle shaders");
+                console.log("Cannot load the meshlet shaders");
                 return 0;
             }
             this.pipeline = pipeline;
@@ -155,7 +174,6 @@ namespace BasicTriangleNri {
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
                 this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
                 this.readbackFormat = format;
-                console.log(`Swap chain format: ${Nri_GetFormatName(format)}`);
             }
             return 1;
         }
@@ -189,7 +207,7 @@ namespace BasicTriangleNri {
                     Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
                     Nri_CmdSetPipelineLayout(commandBuffer, this.pipelineLayout);
                     Nri_CmdSetPipeline(commandBuffer, pipeline);
-                    Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+                    Nri_CmdDrawMeshTasks(commandBuffer, 1, 1, 1);
                 }
                 Nri_CmdEndRendering(commandBuffer);
 
@@ -234,6 +252,7 @@ namespace BasicTriangleNri {
             return pixels;
         }
 
+        // What initialize made (it may have stopped part way: a device without mesh shaders).
         destroy() {
             const device = this.device;
             if (device) {
@@ -251,13 +270,15 @@ namespace BasicTriangleNri {
                 if (pipeline) {
                     Nri_DestroyPipeline(pipeline);
                 }
-                Nri_DestroyPipelineLayout(this.pipelineLayout);
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     Nri_DestroyBuffer(readbackBuffer);
                 }
-                Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                if (this.unsupportedReason == "") {
+                    Nri_DestroyPipelineLayout(this.pipelineLayout);
+                    Nri_DestroyFence(this.frameFence);
+                    Nri_DestroySwapChain(this.swapChain);
+                }
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -265,12 +286,12 @@ namespace BasicTriangleNri {
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const triangle = new Triangle(Nri_CreateSample());
-        return triangle.run(argc, argv);
+        const meshlets = new Meshlets(Nri_CreateSample());
+        return meshlets.run(argc, argv);
     }
 }
 
 // tslang starts the program at a global main.
 function main(argc: int, argv: Ref<string>) {
-    return BasicTriangleNri.main(argc, argv);
+    return MeshletsNri.main(argc, argv);
 }
